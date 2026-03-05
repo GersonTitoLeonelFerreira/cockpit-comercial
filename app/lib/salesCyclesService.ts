@@ -49,13 +49,16 @@ export async function getCycleEvents(cycleId: string): Promise<CycleEvent[]> {
 export async function getPoolCycles(companyId: string): Promise<PoolCycle[]> {
   const sb = supabaseBrowser()
 
-  // Try RPC first
-  const { data: rpcData, error: rpcError } = await (sb as any).rpc('rpc_get_pool_cycles', {
-    p_company_id: companyId,
-  })
+  // Try RPC first. We cast through unknown because the supabase-js client
+  // is not typed for our custom database functions.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rpcResult = await (sb.rpc as any)('rpc_get_pool_cycles', { p_company_id: companyId }) as {
+    data: PoolCycle[] | null
+    error: { message: string } | null
+  }
 
-  if (!rpcError && rpcData) {
-    return rpcData as PoolCycle[]
+  if (!rpcResult.error && rpcResult.data) {
+    return rpcResult.data
   }
 
   // Fallback: direct join query

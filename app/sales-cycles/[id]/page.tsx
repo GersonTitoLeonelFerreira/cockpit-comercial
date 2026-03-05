@@ -20,11 +20,10 @@ export default async function SalesCycleDetailPage(props: { params: Promise<{ id
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async getAll() {
-          const store = await cookies()
-          return store.getAll()
+        getAll() {
+          return cookieStore.getAll()
         },
-        async setAll() {
+        setAll() {
           // Server Component
         },
       },
@@ -103,8 +102,6 @@ export default async function SalesCycleDetailPage(props: { params: Promise<{ id
       .order('full_name', { ascending: true })
     sellers = (sellersData ?? []) as typeof sellers
   }
-
-  void cookieStore // suppress unused warning
 
   return (
     <SalesCycleDetail

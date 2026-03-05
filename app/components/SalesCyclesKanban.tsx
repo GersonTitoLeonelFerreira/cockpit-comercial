@@ -3,7 +3,6 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
 import { useSalesCycles } from '../hooks/useSalesCycles'
-import { setCycleNextAction } from '../lib/salesCyclesService'
 import type { SalesCycle, CycleStatus } from '../types/sales_cycles'
 
 // ─── constants ────────────────────────────────────────────────────────────────
