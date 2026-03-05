@@ -47,6 +47,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const topTitle =
     pathname?.startsWith('/leads')
       ? 'Pipeline Comercial'
+      : pathname?.startsWith('/sales-cycles')
+      ? 'Ciclos de Vendas'
       : pathname?.startsWith('/relatorios')
       ? 'Relatórios'
       : pathname?.startsWith('/platform')
@@ -116,6 +118,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             href="/leads"
             label="Pipeline (Kanban)"
             active={isActive('/leads')}
+          />
+          <NavBtn
+            href="/sales-cycles"
+            label="Ciclos de Vendas"
+            active={isActive('/sales-cycles')}
           />
           <NavBtn
             href="/relatorios"

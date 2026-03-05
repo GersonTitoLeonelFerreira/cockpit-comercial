@@ -264,6 +264,37 @@ export default function LeadForm({
 
       if (profErr) console.warn('Erro lead_profiles:', errToString(profErr))
 
+      // 3) criar sales_cycle e evento inicial
+      const nowIso = new Date().toISOString()
+      const cyclePayload = {
+        company_id: companyId,
+        lead_id: leadId,
+        owner_user_id: isAdmin ? null : userId,
+        status: 'novo',
+        stage_entered_at: nowIso,
+      }
+
+      const { data: cycleInserted, error: cycleErr } = await supabase
+        .from('sales_cycles')
+        .insert(cyclePayload)
+        .select('id')
+        .single()
+
+      if (cycleErr) {
+        console.warn('Erro ao criar sales_cycle:', errToString(cycleErr))
+      } else if (cycleInserted?.id) {
+        const { error: evtErr } = await supabase.from('cycle_events').insert({
+          cycle_id: cycleInserted.id,
+          company_id: companyId,
+          user_id: userId,
+          event_type: 'cycle_created',
+          from_stage: null,
+          to_stage: 'novo',
+          metadata: {},
+        })
+        if (evtErr) console.warn('Erro ao registrar cycle_event:', errToString(evtErr))
+      }
+
       setOpen(false)
       resetForm()
 
