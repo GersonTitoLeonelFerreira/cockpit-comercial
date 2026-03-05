@@ -1,0 +1,1 @@
+// DELETE THIS FILE (replaced by /app/lib/supabase.ts)
