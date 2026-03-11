@@ -1,0 +1,1 @@
+-- [Cole todo o SQL da migration aqui]
