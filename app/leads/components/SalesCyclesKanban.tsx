@@ -68,6 +68,12 @@ function getSLALabel(level: SLALevel): string {
 
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
 
+type PendingMove = {
+  cycleId: string
+  fromStatus: Status
+  toStatus: Status
+} | null
+
 const STATUSES: Status[] = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
 
 const STATUS_COLORS: Record<Status, string> = {
