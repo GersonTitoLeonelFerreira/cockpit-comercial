@@ -18,6 +18,19 @@ type LeadProfileRow = {
   address_city: string | null
   address_state: string | null
   address_country: string | null
+  birth_date?: string | null
+  biological_sex?: string | null
+  profession?: string | null
+  education_level?: string | null
+  marital_status?: string | null
+  rg?: string | null
+  rg_issuer?: string | null
+  rg_state?: string | null
+  phone_mobile?: string | null
+  phone_residential?: string | null
+  phone_commercial?: string | null
+  emergency_contact_name?: string | null
+  emergency_contact_phone?: string | null
 }
 
 function onlyDigits(v: string) {
@@ -56,7 +69,7 @@ export default function LeadProfileTabs({
   companyId: string
   initialProfile: LeadProfileRow | null
 }) {
-  const [tab, setTab] = useState<'pessoal' | 'endereco'>('pessoal')
+  const [tab, setTab] = useState<'pessoal' | 'endereco' | 'editar'>('pessoal')
   const [saving, setSaving] = useState(false)
 
   // Form state
@@ -75,6 +88,21 @@ export default function LeadProfileTabs({
   const [city, setCity] = useState(initialProfile?.address_city ?? '')
   const [stateUF, setStateUF] = useState(initialProfile?.address_state ?? '')
   const [country, setCountry] = useState(initialProfile?.address_country ?? 'Brasil')
+
+  // Campos adicionais para edição completa
+  const [birthDate, setBirthDate] = useState(initialProfile?.birth_date ?? '')
+  const [biologicalSex, setBiologicalSex] = useState(initialProfile?.biological_sex ?? 'M')
+  const [profession, setProfession] = useState(initialProfile?.profession ?? '')
+  const [educationLevel, setEducationLevel] = useState(initialProfile?.education_level ?? '')
+  const [maritalStatus, setMaritalStatus] = useState(initialProfile?.marital_status ?? '')
+  const [rg, setRg] = useState(initialProfile?.rg ?? '')
+  const [rgIssuer, setRgIssuer] = useState(initialProfile?.rg_issuer ?? '')
+  const [rgState, setRgState] = useState(initialProfile?.rg_state ?? '')
+  const [phoneMobile, setPhoneMobile] = useState(initialProfile?.phone_mobile ?? '')
+  const [phoneResidential, setPhoneResidential] = useState(initialProfile?.phone_residential ?? '')
+  const [phoneCommercial, setPhoneCommercial] = useState(initialProfile?.phone_commercial ?? '')
+  const [emergencyContactName, setEmergencyContactName] = useState(initialProfile?.emergency_contact_name ?? '')
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(initialProfile?.emergency_contact_phone ?? '')
 
   const [cepLoading, setCepLoading] = useState(false)
   const [cepError, setCepError] = useState<string | null>(null)
@@ -168,6 +196,19 @@ export default function LeadProfileTabs({
         company_id: companyId,
         lead_type: leadType,
         email: email.trim() ? email.trim() : null,
+        birth_date: birthDate || null,
+        biological_sex: biologicalSex,
+        profession: profession.trim() ? profession.trim() : null,
+        education_level: educationLevel || null,
+        marital_status: maritalStatus || null,
+        rg: rg.trim() ? rg.trim() : null,
+        rg_issuer: rgIssuer.trim() ? rgIssuer.trim() : null,
+        rg_state: rgState.trim() ? rgState.trim() : null,
+        phone_mobile: phoneMobile.trim() ? phoneMobile.trim() : null,
+        phone_residential: phoneResidential.trim() ? phoneResidential.trim() : null,
+        phone_commercial: phoneCommercial.trim() ? phoneCommercial.trim() : null,
+        emergency_contact_name: emergencyContactName.trim() ? emergencyContactName.trim() : null,
+        emergency_contact_phone: emergencyContactPhone.trim() ? emergencyContactPhone.trim() : null,
 
         // CEP + Endereço
         cep: nCep ? nCep : null,
@@ -190,9 +231,11 @@ export default function LeadProfileTabs({
         payload.cpf = null
       }
 
-      const { error } = await supabase.from('lead_profiles').upsert(payload, {
-        onConflict: 'lead_id',
-      })
+      const { error } = await supabase
+  .from('lead_profiles')
+  .update(payload)
+  .eq('lead_id', leadId)
+  .eq('company_id', companyId)
 
       if (error) {
         alert('Erro ao salvar cadastro: ' + error.message)
@@ -200,9 +243,26 @@ export default function LeadProfileTabs({
       }
 
       alert('Cadastro salvo.')
+      setTab('pessoal')
     } finally {
       setSaving(false)
     }
+  }
+
+  const inputStyle = {
+    padding: '10px 12px',
+    backgroundColor: '#2a2a2a',
+    border: '1px solid #3a3a3a',
+    borderRadius: 6,
+    color: 'white',
+    boxSizing: 'border-box' as const,
+  }
+
+  const labelStyle = {
+    display: 'block' as const,
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 6,
   }
 
   return (
@@ -231,24 +291,30 @@ export default function LeadProfileTabs({
           <button type="button" style={pill(tab === 'endereco')} onClick={() => setTab('endereco')}>
             Endereço
           </button>
+          <button type="button" style={pill(tab === 'editar')} onClick={() => setTab('editar')}>
+            ✎ Editar Completo
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={salvar}
-          disabled={saving}
-          style={{
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid #333',
-            background: '#111',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
-        >
-          {saving ? 'Salvando…' : 'Salvar cadastro'}
-        </button>
+        {tab !== 'editar' && (
+          <button
+            type="button"
+            onClick={salvar}
+            disabled={saving}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 10,
+              border: '1px solid #333',
+              background: '#111',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: 12,
+              opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving ? 'Salvando…' : 'Salvar cadastro'}
+          </button>
+        )}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -297,7 +363,7 @@ export default function LeadProfileTabs({
                   value={cpf}
                   onChange={(e) => setCpf(e.target.value)}
                   inputMode="numeric"
-                  style={{ width: 280 }}
+                  style={{ width: 280, ...inputStyle }}
                 />
               ) : (
                 <>
@@ -306,13 +372,13 @@ export default function LeadProfileTabs({
                     value={cnpj}
                     onChange={(e) => setCnpj(e.target.value)}
                     inputMode="numeric"
-                    style={{ width: 280 }}
+                    style={{ width: 280, ...inputStyle }}
                   />
                   <input
                     placeholder="Razão social"
                     value={razaoSocial}
                     onChange={(e) => setRazaoSocial(e.target.value)}
-                    style={{ flex: 1, minWidth: 260 }}
+                    style={{ flex: 1, minWidth: 260, ...inputStyle }}
                   />
                 </>
               )}
@@ -321,11 +387,11 @@ export default function LeadProfileTabs({
                 placeholder="E-mail"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                style={{ flex: 1, minWidth: 260 }}
+                style={{ flex: 1, minWidth: 260, ...inputStyle }}
               />
             </div>
           </div>
-        ) : (
+        ) : tab === 'endereco' ? (
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <input
@@ -333,7 +399,7 @@ export default function LeadProfileTabs({
                 value={cep}
                 onChange={(e) => setCep(e.target.value)}
                 inputMode="numeric"
-                style={{ width: 200 }}
+                style={{ width: 200, ...inputStyle }}
               />
               <div style={{ fontSize: 12, opacity: 0.75 }}>
                 {cepLoading ? 'Consultando CEP…' : cepError ? (
@@ -347,19 +413,19 @@ export default function LeadProfileTabs({
                 placeholder="Rua/Av."
                 value={street}
                 onChange={(e) => setStreet(e.target.value)}
-                style={{ flex: 1, minWidth: 280 }}
+                style={{ flex: 1, minWidth: 280, ...inputStyle }}
               />
               <input
                 placeholder="Número"
                 value={number}
                 onChange={(e) => setNumber(e.target.value)}
-                style={{ width: 160 }}
+                style={{ width: 160, ...inputStyle }}
               />
               <input
                 placeholder="Complemento"
                 value={complement}
                 onChange={(e) => setComplement(e.target.value)}
-                style={{ flex: 1, minWidth: 220 }}
+                style={{ flex: 1, minWidth: 220, ...inputStyle }}
               />
             </div>
 
@@ -368,26 +434,163 @@ export default function LeadProfileTabs({
                 placeholder="Bairro"
                 value={neighborhood}
                 onChange={(e) => setNeighborhood(e.target.value)}
-                style={{ flex: 1, minWidth: 220 }}
+                style={{ flex: 1, minWidth: 220, ...inputStyle }}
               />
               <input
                 placeholder="Cidade"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                style={{ flex: 1, minWidth: 220 }}
+                style={{ flex: 1, minWidth: 220, ...inputStyle }}
               />
               <input
                 placeholder="Estado (UF)"
                 value={stateUF}
                 onChange={(e) => setStateUF(e.target.value)}
-                style={{ width: 160 }}
+                style={{ width: 160, ...inputStyle }}
               />
               <input
                 placeholder="País"
                 value={country}
                 onChange={(e) => setCountry(e.target.value)}
-                style={{ width: 200 }}
+                style={{ width: 200, ...inputStyle }}
               />
+            </div>
+          </div>
+        ) : (
+          // ABA EDITAR COMPLETO
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div>
+              <h4 style={{ color: '#aaa', marginTop: 0, marginBottom: 12 }}>Dados Básicos</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Data de Nascimento</label>
+                  <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Sexo</label>
+                  <select value={biologicalSex} onChange={(e) => setBiologicalSex(e.target.value)} style={{ width: '100%', ...inputStyle }}>
+                    <option value="M">Masculino</option>
+                    <option value="F">Feminino</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ color: '#aaa', marginTop: 0, marginBottom: 12 }}>Profissional</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Profissão</label>
+                  <input type="text" value={profession} onChange={(e) => setProfession(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Grau de Instrução</label>
+                  <select value={educationLevel} onChange={(e) => setEducationLevel(e.target.value)} style={{ width: '100%', ...inputStyle }}>
+                    <option value="">—</option>
+                    <option value="Fundamental">Fundamental</option>
+                    <option value="Médio">Médio</option>
+                    <option value="Superior">Superior</option>
+                    <option value="Pós-graduação">Pós-graduação</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Estado Civil</label>
+                  <select value={maritalStatus} onChange={(e) => setMaritalStatus(e.target.value)} style={{ width: '100%', ...inputStyle }}>
+                    <option value="">—</option>
+                    <option value="Solteiro">Solteiro</option>
+                    <option value="Casado">Casado</option>
+                    <option value="Divorciado">Divorciado</option>
+                    <option value="Viúvo">Viúvo</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ color: '#aaa', marginTop: 0, marginBottom: 12 }}>Documentos</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>RG</label>
+                  <input type="text" value={rg} onChange={(e) => setRg(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Órgão Expedidor</label>
+                  <input type="text" value={rgIssuer} onChange={(e) => setRgIssuer(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>UF</label>
+                  <input type="text" value={rgState} onChange={(e) => setRgState(e.target.value.toUpperCase())} maxLength={2} style={{ width: '100%', ...inputStyle }} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ color: '#aaa', marginTop: 0, marginBottom: 12 }}>Telefones</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Celular</label>
+                  <input type="tel" value={phoneMobile} onChange={(e) => setPhoneMobile(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Residencial</label>
+                  <input type="tel" value={phoneResidential} onChange={(e) => setPhoneResidential(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Comercial</label>
+                  <input type="tel" value={phoneCommercial} onChange={(e) => setPhoneCommercial(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ color: '#aaa', marginTop: 0, marginBottom: 12 }}>Emergência</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Nome</label>
+                  <input type="text" value={emergencyContactName} onChange={(e) => setEmergencyContactName(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Telefone</label>
+                  <input type="tel" value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} style={{ width: '100%', ...inputStyle }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+              <button
+                type="button"
+                onClick={() => setTab('pessoal')}
+                disabled={saving}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  backgroundColor: '#333',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  opacity: saving ? 0.5 : 1,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvar}
+                disabled={saving}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  backgroundColor: '#0066cc',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  opacity: saving ? 0.5 : 1,
+                }}
+              >
+                {saving ? 'Salvando...' : 'Salvar Tudo'}
+              </button>
             </div>
           </div>
         )}

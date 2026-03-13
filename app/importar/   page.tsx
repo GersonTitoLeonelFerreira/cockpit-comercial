@@ -1,8 +1,6 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
-import ImportLeadsClient from './ImportLeadsClient'
-
 type ListRow = { id: string; name: string }
 
 export default async function ImportarPage(props: {
@@ -88,7 +86,6 @@ export default async function ImportarPage(props: {
         </div>
       ) : null}
 
-      <ImportLeadsClient lists={lists} defaultListId={defaultListId} />
     </div>
   )
 }

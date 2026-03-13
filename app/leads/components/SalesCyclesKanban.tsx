@@ -6,8 +6,7 @@ import StageCheckpointModal from './StageCheckpointModal'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
-import { supabaseBrowser } from '../../lib/supabaseBrowser'
-
+import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 // ============================================================================
 // TIPOS SLA
 // ============================================================================
@@ -765,7 +764,6 @@ function KanbanCard({
         (() => {
           const minutes = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at).getTime()) / 60000)
           const rule = slaRules[item.status] || {
-            status: item.status,
             ...DEFAULT_SLA_RULES[item.status],
             id: 'default',
           }
@@ -1197,10 +1195,9 @@ function VirtualizedStatusColumn({
         if (slaFilter !== 'all') {
           const minutes = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
           const rule = slaRules[item.status] || {
-            status: item.status,
-            ...DEFAULT_SLA_RULES[item.status],
-            id: 'default',
-          }
+  ...DEFAULT_SLA_RULES[item.status],
+  id: 'default',
+}
           const level = getSLALevel(minutes, rule)
           if (level !== slaFilter) return false
         }
@@ -1257,6 +1254,12 @@ type PoolPage = {
   total: number
   hasMore: boolean
 }
+
+type PendingMove = {
+  cycleId: string
+  fromStatus: Status
+  toStatus: Status
+} | null
 
 // ============================================================================
 // HELPER: LOG QUICK ACTION
@@ -1369,8 +1372,8 @@ async function loadKanbanWithCursor(
   userId: string,
   selectedGroupId: string | null,
   searchTerm: string = '',
-  pageSize: number = 50
-): Promise<Record<Status, PipelineItem[]>> {
+  pageSize: number = 50,
+): Promise<Record<Status, PipelineItem[]>> {  
   const ownerToFilter = selectedOwnerId ?? userId
   const result: Record<Status, PipelineItem[]> = {
     novo: [],
@@ -1388,7 +1391,7 @@ async function loadKanbanWithCursor(
       try {
         let query = supabase
           .from('v_pipeline_items')
-          .select('id, lead_id, name, phone, status, stage_entered_at, owner_id, group_id, next_action')
+          .select('id, lead_id, name, phone, status, stage_entered_at, owner_id, group_id, next_action, next_action_date')
           .eq('company_id', companyId)
           .eq('owner_id', ownerToFilter)
           .eq('status', status)
@@ -1408,9 +1411,9 @@ async function loadKanbanWithCursor(
           }
         }
 
-        const { data, error: err } = await query
-          .order('stage_entered_at', { ascending: false })
-          .limit(pageSize)
+        const orderedQuery = query.order('stage_entered_at', { ascending: false })
+
+const { data, error: err } = await orderedQuery
 
         if (err) throw err
 
@@ -1489,6 +1492,11 @@ export default function SalesCyclesKanban({
   const [returnSaving, setReturnSaving] = useState(false)
 
   const [checkpointOpen, setCheckpointOpen] = useState(false)
+  type PendingMove = {
+    cycleId: string
+    fromStatus: Status
+    toStatus: Status
+  } | null
   const [pendingMove, setPendingMove] = useState<PendingMove>(null)
   const [checkpointLoading, setCheckpointLoading] = useState(false)
 
@@ -1524,9 +1532,8 @@ export default function SalesCyclesKanban({
   const [searchCount, setSearchCount] = useState<number | null>(null)
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const sensors = useSensors(useSensor(PointerSensor, { distance: 8 }))
   const PAGE_SIZE = 50
-
+  const sensors = useSensors(useSensor(PointerSensor))
   const loadGroups = useCallback(async () => {
     if (!companyId) return
 
@@ -1610,13 +1617,16 @@ export default function SalesCyclesKanban({
           return
         }
 
+        const hasActiveFilter = slaFilter !== 'all' || agendaFilter !== 'all'
+
         const kanbanData = await loadKanbanWithCursor(
           supabase,
           companyId,
           selectedOwnerId,
           userId,
           selectedGroupId,
-          searchTermParam
+          searchTermParam, 
+          50,
         )
 
         setItems(kanbanData)

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
-import { supabaseBrowser } from '../../lib/supabaseBrowser'
+import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 
 export type OwnerOption = { id: string; label: string }
 
@@ -30,7 +30,7 @@ export default function AdminLeadsTable({
   ownerOptions: OwnerOption[]
   defaultOwnerId?: string | null
   fetchPage: (args: {
-    ownerId: string | null // null = POOL, 'ALL' = todos
+    ownerId: string | null
     status: string | null
     search: string
     page: number
@@ -264,7 +264,6 @@ export default function AdminLeadsTable({
     return Math.floor(n)
   }
 
-  // ---- confirmações extras ----
   const CONFIRM_HARD_LIMIT = 1000
 
   const requireHardConfirm = useCallback((actionLabel: string, n: number) => {
@@ -273,7 +272,6 @@ export default function AdminLeadsTable({
     return (text ?? '').trim().toUpperCase() === 'DEVOLVER'
   }, [])
 
-  // ---- Presets (Ações rápidas) ----
   const applyPreset = useCallback(
     (preset: 'pool_rr' | 'pool_manual' | 'owner_transfer' | 'owner_return' | 'selected_manual') => {
       setAssignResult(null)
@@ -336,7 +334,6 @@ export default function AdminLeadsTable({
     []
   )
 
-  // ---------- RPC helpers ----------
   const rpcAssignLeads = useCallback(
     async (args: {
       source: 'selected' | 'pool'
@@ -414,7 +411,6 @@ export default function AdminLeadsTable({
     [companyId, orderMode, search, status, supabase]
   )
 
-  // ---------- Actions ----------
   const doReturnToPool = useCallback(async () => {
     setAssignResult(null)
     setAssignProgress(null)
@@ -702,7 +698,6 @@ export default function AdminLeadsTable({
     toOwnerId,
   ])
 
-  // ---------------- styles ----------------
   const container: React.CSSProperties = { border: '1px solid #333', borderRadius: 12, padding: 14, background: '#0f0f0f' }
 
   const bar: React.CSSProperties = {
@@ -816,7 +811,6 @@ export default function AdminLeadsTable({
 
   const modalBody: React.CSSProperties = { padding: 14, display: 'grid', gap: 12 }
 
-  // accessibility: fechar com ESC
   useEffect(() => {
     if (!actionsOpen) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -889,11 +883,9 @@ export default function AdminLeadsTable({
                 setAssignResult(null)
                 setAssignProgress(null)
 
-                // Se já tem um vendedor selecionado no filtro Dono, respeita isso:
                 const hasSellerFiltered = ownerId !== 'ALL' && ownerId !== 'POOL'
 
                 if (hasSellerFiltered) {
-                  // Admin está vendo um vendedor: padrão é devolver ao POOL
                   setAssignSource('owner')
                   setAssignMode('manual')
                   setToOwnerId('')
@@ -902,7 +894,6 @@ export default function AdminLeadsTable({
                   setOrderMode('oldest')
                   setOnlyPool(true)
                 } else {
-                  // Caso padrão: pegar do POOL e enviar para vendedor
                   setAssignSource('pool')
                   setAssignMode('manual')
                   setToOwnerId('')
@@ -1001,12 +992,11 @@ export default function AdminLeadsTable({
                 </div>
               </div>
 
-              {/* Configurar ação (ESSENCIAL SEMPRE VISÍVEL) */}
+              {/* Configurar ação */}
               {showBar ? (
                 <div style={{ border: '1px solid #1f1f1f', borderRadius: 12, padding: 12, background: '#0f0f0f' }}>
                   <div style={{ fontWeight: 900, marginBottom: 10 }}>Configurar ação</div>
 
-                  {/* Essenciais */}
                   <div
                     style={{
                       display: 'grid',
@@ -1025,7 +1015,7 @@ export default function AdminLeadsTable({
                       >
                         <option value="selected">Selecionados (checkbox)</option>
                         <option value="pool">POOL (automático)</option>
-                        <option value="owner">Vendedor (pelo filtro “Dono”)</option>
+                        <option value="owner">Vendedor (pelo filtro "Dono")</option>
                       </select>
                     </label>
 
@@ -1100,11 +1090,9 @@ export default function AdminLeadsTable({
                     ) : null}
                   </div>
 
-                  {/* Executar ação (sempre visível) */}
                   <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
                     <button
                       type="button"
-                      // eslint-disable-next-line @typescript-eslint/no-misused-promises
                       onClick={doReturnToPool}
                       disabled={!canRunAssign}
                       style={returnIsPrimary ? primaryBtn : dangerBtn}
@@ -1116,7 +1104,6 @@ export default function AdminLeadsTable({
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                       <button
                         type="button"
-                        // eslint-disable-next-line @typescript-eslint/no-misused-promises
                         onClick={doAssign}
                         disabled={!canRunAssign || returnIsPrimary}
                         style={!returnIsPrimary ? primaryBtn : secondaryBtn}
@@ -1132,14 +1119,12 @@ export default function AdminLeadsTable({
                     </div>
                   </div>
 
-                  {/* Toggle avançado */}
                   <div style={{ marginTop: 12 }}>
                     <button type="button" onClick={() => setShowAdvanced((v) => !v)} disabled={assigning} style={chipBtn}>
                       {showAdvanced ? 'Ocultar opções avançadas' : 'Opções avançadas'}
                     </button>
                   </div>
 
-                  {/* Avançado */}
                   {showAdvanced ? (
                     <div
                       style={{

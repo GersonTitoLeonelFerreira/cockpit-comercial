@@ -49,6 +49,24 @@ type LeadProfileRow = {
   address_city: string | null
   address_state: string | null
   address_country: string | null
+  birth_date?: string | null
+  biological_sex?: string | null
+  profession?: string | null
+  education_level?: string | null
+  marital_status?: string | null
+  rg?: string | null
+  rg_issuer?: string | null
+  rg_state?: string | null
+  rne?: string | null
+  passport?: string | null
+  phone_residential?: string | null
+  phone_residential_desc?: string | null
+  phone_commercial?: string | null
+  phone_commercial_desc?: string | null
+  phone_mobile?: string | null
+  phone_mobile_desc?: string | null
+  emergency_contact_name?: string | null
+  emergency_contact_phone?: string | null
 }
 
 export default async function LeadDetailPage(props: { params: Promise<{ id: string }> }) {
@@ -115,10 +133,10 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
   }
 
   const { data: leadProfile } = await supabase
-    .from('lead_profiles')
-    .select(
-      'lead_id, lead_type, cpf, cnpj, razao_social, email, cep, address_street, address_number, address_complement, address_neighborhood, address_city, address_state, address_country'
-    )
+  .from('lead_profiles')
+  .select(
+    'lead_id, lead_type, cpf, cnpj, razao_social, email, cep, address_street, address_number, address_complement, address_neighborhood, address_city, address_state, address_country, birth_date, biological_sex, profession, education_level, marital_status, rg, rg_issuer, rg_state, rne, passport, phone_residential, phone_residential_desc, phone_commercial, phone_commercial_desc, phone_mobile, phone_mobile_desc, emergency_contact_name, emergency_contact_phone'
+  )
     .eq('company_id', companyId)
     .eq('lead_id', leadId)
     .maybeSingle<LeadProfileRow>()

@@ -35,6 +35,30 @@ function NavBtn({
   )
 }
 
+function NavGroup({
+  label,
+  collapsed,
+}: {
+  label: string
+  collapsed: boolean
+}) {
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 900,
+        opacity: 0.6,
+        paddingLeft: collapsed ? 0 : 10,
+        marginTop: 12,
+        marginBottom: 6,
+        textAlign: collapsed ? 'center' : 'left',
+      }}
+    >
+      {collapsed ? '─' : label}
+    </div>
+  )
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
@@ -45,14 +69,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const topTitle =
-    pathname?.startsWith('/leads')
+    pathname?.startsWith('/admin')
+      ? 'Admin'
+      : pathname?.startsWith('/leads')
       ? 'Pipeline Comercial'
       : pathname?.startsWith('/relatorios')
       ? 'Relatórios'
+      : pathname?.startsWith('/dashboard/simulador-meta')
+      ? 'Simulador de Meta'
       : pathname?.startsWith('/platform')
       ? 'Configurações'
-      : pathname?.startsWith('/simular-meta')
-      ? 'Simular meta'
       : 'Dashboard'
 
   return (
@@ -108,9 +134,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
           <NavBtn
-            href="/dashboard"
-            label="Dashboard"
-            active={isActive('/dashboard')}
+            href="/dashboard/simulador-meta"
+            label="Simulador de Meta"
+            active={isActive('/dashboard/simulador-meta')}
           />
           <NavBtn
             href="/leads"
@@ -122,11 +148,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             label="Relatórios"
             active={isActive('/relatorios')}
           />
+
+          {/* ✅ NOVO: Agrupador ADMIN */}
+          <NavGroup label="Admin" collapsed={collapsed} />
           <NavBtn
-            href="/simular-meta"
-            label="Simular meta"
-            active={isActive('/simular-meta')}
+            href="/admin/faturamento"
+            label={collapsed ? '💰' : 'Gestão de Faturamento'}
+            active={isActive('/admin/faturamento')}
           />
+          {/* Futuros itens admin */}
+          {/* <NavBtn href="/admin/bi" label="B.I. Administrativo" active={isActive('/admin/bi')} /> */}
+          {/* <NavBtn href="/admin/vendedores" label="Gestão de Vendedores" active={isActive('/admin/vendedores')} /> */}
+
           <NavBtn
             href="/platform"
             label="Configurações"
