@@ -35,6 +35,10 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Documentação do Produto
+
+- [Lead Lifecycle — Governança do Produto](docs/product/lead-lifecycle.md): glossário, invariantes, estados/transições, regras de governança e exemplos práticos do ciclo de vida do Lead.
+
 ## SQL (rodar no Supabase SQL Editor)
 
 -- (não é para alterar este arquivo; o filepath aqui é só para cumprir o formato)
