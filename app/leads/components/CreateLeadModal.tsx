@@ -65,7 +65,7 @@ export default function CreateLeadModal({
   const [newGroupName, setNewGroupName] = useState('')
   const [fetchingCEP, setFetchingCEP] = useState(false)
   const [cpfWarning, setCpfWarning] = useState<string | null>(null)
-  const cpfTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cpfTimerRef = useRef<number | null>(null)
 
   React.useEffect(() => {
     if (!isAdmin) return

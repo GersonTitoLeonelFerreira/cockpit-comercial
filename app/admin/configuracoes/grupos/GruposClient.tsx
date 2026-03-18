@@ -107,13 +107,18 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
 
         if (fetchErr) throw fetchErr
 
-        for (const cycle of cycles ?? []) {
-          const { error: err } = await supabase.rpc('rpc_set_cycle_group', {
-            p_cycle_id: cycle.id,
-            p_group_id: null,
-          })
-          if (err) throw err
-        }
+        await Promise.all(
+          (cycles ?? []).map((cycle) =>
+            supabase
+              .rpc('rpc_set_cycle_group', {
+                p_cycle_id: cycle.id,
+                p_group_id: null,
+              })
+              .then(({ error: err }) => {
+                if (err) throw err
+              })
+          )
+        )
 
         await loadGroups()
       } catch (e: any) {
