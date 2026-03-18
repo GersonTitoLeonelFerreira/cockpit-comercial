@@ -99,12 +99,27 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
       if (!confirm('Tem certeza? Isso vai desvincular todos os ciclos do grupo.')) return
 
       try {
-        const { error: err } = await supabase.rpc('rpc_set_cycle_group', {
-          p_cycle_id: groupId, // ⚠️ Aplicar a todos do grupo
-          p_group_id: null,
-        })
+        // Busca todos os ciclos do grupo para desvincular individualmente via RPC
+        const { data: cycles, error: fetchErr } = await supabase
+          .from('sales_cycles')
+          .select('id')
+          .eq('group_id', groupId)
 
-        if (err) throw err
+        if (fetchErr) throw fetchErr
+
+        await Promise.all(
+          (cycles ?? []).map((cycle) =>
+            supabase
+              .rpc('rpc_set_cycle_group', {
+                p_cycle_id: cycle.id,
+                p_group_id: null,
+              })
+              .then(({ error: err }) => {
+                if (err) throw err
+              })
+          )
+        )
+
         await loadGroups()
       } catch (e: any) {
         setError(e?.message ?? 'Erro ao desvincular ciclos')

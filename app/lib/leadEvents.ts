@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabaseBrowser } from './supabaseBrowser'
 
 type LeadEventInput = {
   companyId: string
@@ -13,6 +13,7 @@ type LeadEventInput = {
 export async function logLeadEvent(input: LeadEventInput) {
   const { companyId, leadId, userId, eventType, fromStage = null, toStage = null, metadata = {} } = input
 
+  const supabase = supabaseBrowser()
   const { error } = await supabase.from('lead_events').insert({
     company_id: companyId,
     lead_id: leadId,

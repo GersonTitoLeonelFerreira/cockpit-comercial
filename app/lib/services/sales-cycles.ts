@@ -53,11 +53,12 @@ export async function setNextAction(req: SetNextActionRequest): Promise<RpcCycle
   return result as RpcCycleResponse
 }
 
+// TODO: consolidar lógica de close cycle no service layer
 export async function closeCycleWon(req: CloseCycleWonRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
   const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
     p_cycle_id: req.cycle_id,
-    p_won_value: req.won_value || null,
+    p_won_value: req.won_value ?? null,
   })
   if (error) throw new Error(`Erro ao fechar ciclo como ganho: ${error.message}`)
   const result = Array.isArray(data) ? data[0] : data
@@ -69,7 +70,7 @@ export async function closeCycleLost(req: CloseCycleLostRequest): Promise<RpcCyc
   const supabase = supabaseBrowser()
   const { data, error } = await supabase.rpc('rpc_close_cycle_lost', {
     p_cycle_id: req.cycle_id,
-    p_loss_reason: req.loss_reason || null,
+    p_loss_reason: req.loss_reason ?? null,
   })
   if (error) throw new Error(`Erro ao fechar ciclo como perdido: ${error.message}`)
   const result = Array.isArray(data) ? data[0] : data

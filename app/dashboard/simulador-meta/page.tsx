@@ -117,10 +117,10 @@ export default function SimuladorMetaPage() {
       setError(null)
 
       try {
-        const { data: sessionData } = await supabase.auth.getSession()
-        if (!sessionData.session) throw new Error('Você está deslogado.')
+        const { data: userData } = await supabase.auth.getUser()
+        if (!userData.user) throw new Error('Você está deslogado.')
 
-        const uid = sessionData.session.user.id
+        const uid = userData.user.id
 
         const { data: profile } = await supabase
           .from('profiles')

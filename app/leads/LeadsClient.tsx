@@ -72,7 +72,7 @@ export default function LeadsClient({
             <ImportExcelDialog
             userId={userId}
             companyId={companyId}
-            onImported={() => window.location.reload()}
+            onImported={() => window.location.reload() /* TODO: substituir por router.refresh() */}
             trigger={
                 <button
                   style={{
@@ -97,7 +97,7 @@ export default function LeadsClient({
             <DeleteLeadsDialog
               companyId={companyId}
               isAdmin={isAdmin}
-              onDeleted={() => window.location.reload()}
+              onDeleted={() => window.location.reload() /* TODO: substituir por router.refresh() */}
               trigger={
                 <button
                   style={{
@@ -119,7 +119,7 @@ export default function LeadsClient({
 
           {/* Atualizar (Refresh) */}
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => window.location.reload() /* TODO: substituir por router.refresh() */}
             style={{
               padding: '10px 16px',
               borderRadius: 8,
@@ -160,7 +160,7 @@ export default function LeadsClient({
           groups={[]}
           onLeadCreated={() => {
             setShowCreateLeadModal(false)
-            window.location.reload()
+            window.location.reload() // TODO: substituir por router.refresh()
           }}
           onClose={() => setShowCreateLeadModal(false)}
         />

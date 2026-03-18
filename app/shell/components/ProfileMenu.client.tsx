@@ -18,10 +18,10 @@ export default function ProfileMenu() {
     let alive = true
 
     ;(async () => {
-      const { data } = await supabase.auth.getSession()
+      const { data } = await supabase.auth.getUser()
       if (!alive) return
-      setIsAuthed(!!data.session)
-      const email = data.session?.user?.email ?? ''
+      setIsAuthed(!!data.user)
+      const email = data.user?.email ?? ''
       setLabel(email || 'Perfil')
     })()
 
