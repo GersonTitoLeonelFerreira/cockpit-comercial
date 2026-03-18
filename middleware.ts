@@ -2,11 +2,10 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
+const ADMIN_ROUTES = ['/pool', '/admin']
+
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
-
-  // Só protege /pool (e subrotas)
-  if (!req.nextUrl.pathname.startsWith('/pool')) return res
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,21 +26,40 @@ export async function middleware(req: NextRequest) {
 
   const { data } = await supabase.auth.getUser()
   const user = data?.user
+
   if (!user) return NextResponse.redirect(new URL('/login', req.url))
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
+  const isAdminRoute = ADMIN_ROUTES.some((route) =>
+    req.nextUrl.pathname.startsWith(route)
+  )
 
-  if (!profile || profile.role !== 'admin') {
-    return NextResponse.redirect(new URL('/leads', req.url))
+  if (isAdminRoute) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      return NextResponse.redirect(new URL('/leads', req.url))
+    }
   }
 
   return res
 }
 
 export const config = {
-  matcher: ['/pool/:path*'],
+  matcher: [
+    '/dashboard/:path*',
+    '/leads/:path*',
+    '/admin/:path*',
+    '/agenda/:path*',
+    '/cadastro/:path*',
+    '/importar/:path*',
+    '/perfil/:path*',
+    '/platform/:path*',
+    '/pool/:path*',
+    '/relatorios/:path*',
+    '/sales-cycles/:path*',
+  ],
 }
