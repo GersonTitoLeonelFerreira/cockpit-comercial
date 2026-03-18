@@ -69,15 +69,16 @@ export default async function RelatoriosPage() {
   )
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser()
 
-  if (!session) redirect('/login')
+  if (!user || userErr) redirect('/login')
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('company_id')
-    .eq('id', session.user.id)
+    .eq('id', user.id)
     .single()
 
   if (profileError || !profile?.company_id) {

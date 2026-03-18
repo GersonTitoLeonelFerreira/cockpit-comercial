@@ -1802,6 +1802,7 @@ export default function SalesCyclesKanban({
         const { data, error: err } = await supabase.rpc('rpc_move_cycle_stage', {
           p_cycle_id: cycleId,
           p_to_status: toStatus,
+          p_metadata: {},
         })
 
         if (err) throw new Error(err.message || 'Erro ao chamar RPC')

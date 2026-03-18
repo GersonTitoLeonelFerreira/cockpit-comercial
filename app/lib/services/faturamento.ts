@@ -57,6 +57,7 @@ export type Seller = {
 
 /**
  * Lista todas as fontes extra de faturamento ativas
+ * Nota: filtragem por company_id é garantida pelo RLS do Supabase
  */
 export async function getRevenueExtraSources(supabase: SupabaseClient) {
   const { data, error } = await supabase
@@ -71,6 +72,7 @@ export async function getRevenueExtraSources(supabase: SupabaseClient) {
 
 /**
  * Lista vendedores ativos para seletor
+ * Nota: filtragem por company_id é garantida pelo RLS do Supabase
  */
 export async function getSellers(supabase: SupabaseClient) {
     const { data, error } = await supabase

@@ -1,5 +1,6 @@
 // ==============================================================================
 // API: Close Cycle (WON/LOST)
+// TODO: consolidar lógica de close cycle no service layer
 // ==============================================================================
 
 import { NextResponse } from 'next/server'
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
 
       const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
         p_cycle_id: body.cycle_id,
-        p_won_value: body.won_value || null,
+        p_won_value: body.won_value ?? null,
       })
 
       if (error) {
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
 
       const { data, error } = await supabase.rpc('rpc_close_cycle_lost', {
         p_cycle_id: body.cycle_id,
-        p_loss_reason: body.loss_reason || null,
+        p_loss_reason: body.loss_reason ?? null,
       })
 
       if (error) {

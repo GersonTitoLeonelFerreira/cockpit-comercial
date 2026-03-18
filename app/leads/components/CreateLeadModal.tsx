@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef } from 'react'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
 
 type LeadGroup = {
@@ -65,6 +65,7 @@ export default function CreateLeadModal({
   const [newGroupName, setNewGroupName] = useState('')
   const [fetchingCEP, setFetchingCEP] = useState(false)
   const [cpfWarning, setCpfWarning] = useState<string | null>(null)
+  const cpfTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   React.useEffect(() => {
     if (!isAdmin) return
@@ -189,7 +190,8 @@ export default function CreateLeadModal({
       return
     }
 
-    const timer = setTimeout(async () => {
+    if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
+    cpfTimerRef.current = setTimeout(async () => {
       const cpfExists = await checkCPFExists(value.trim())
       if (cpfExists) {
         setCpfWarning('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
