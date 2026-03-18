@@ -4,6 +4,7 @@ import {
   SimulatorResult,
   ActiveCompetency,
   SimulatorConfig,
+  GroupConversionRow,
 } from '../../types/simulator'
 
 export async function getActiveCompetency(): Promise<ActiveCompetency> {
@@ -34,6 +35,26 @@ export async function getSalesCycleMetrics(
   if (error) throw error
 
   return data as SimulatorMetrics
+}
+
+export async function getGroupConversion(params: {
+  companyId: string
+  ownerId: string | null
+  dateStart: string
+  dateEnd: string
+}): Promise<GroupConversionRow[]> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase.rpc('rpc_simulator_group_conversion', {
+    p_company_id: params.companyId,
+    p_owner_id: params.ownerId ?? null,
+    p_date_start: params.dateStart,
+    p_date_end: params.dateEnd,
+  })
+
+  if (error) throw error
+
+  return (data ?? []) as GroupConversionRow[]
 }
 
 export function calculateSimulatorResult(

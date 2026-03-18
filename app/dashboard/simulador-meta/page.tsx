@@ -7,6 +7,7 @@ import {
   getActiveCompetency,
   getSalesCycleMetrics,
   calculateSimulatorResult,
+  getGroupConversion,
 } from '@/app/lib/services/simulator'
 import {
   getCloseRateReal,
@@ -15,6 +16,7 @@ import {
 import {
   SimulatorMetrics,
   SimulatorResult,
+  GroupConversionRow,
 } from '@/app/types/simulator'
 import { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 
@@ -105,6 +107,10 @@ export default function SimuladorMetaPage() {
   const [rateRealLoading, setRateRealLoading] = useState(false)
   const [daysWindow, setDaysWindow] = useState(90)
 
+  const [groupConversion, setGroupConversion] = useState<GroupConversionRow[]>([])
+  const [groupConversionLoading, setGroupConversionLoading] = useState(false)
+  const [companyId, setCompanyId] = useState<string | null>(null)
+
   useEffect(() => {
     async function init() {
       setLoading(true)
@@ -126,6 +132,7 @@ export default function SimuladorMetaPage() {
 
         const isAdminUser = profile.role === 'admin'
         setIsAdmin(isAdminUser)
+        setCompanyId(profile.company_id)
 
         const comp = await getActiveCompetency()
         setCompetency(comp)
@@ -219,6 +226,35 @@ export default function SimuladorMetaPage() {
 
     refetch()
   }, [competency, selectedSellerId])
+
+  useEffect(() => {
+    if (!competency || !companyId || selectedSellerId === undefined) return
+
+    const cid = companyId
+    const dateEnd = competency.month_end
+      ? competency.month_end.split('T')[0]
+      : competency.month_end
+
+    async function loadGroupConversion() {
+      setGroupConversionLoading(true)
+      try {
+        const rows = await getGroupConversion({
+          companyId: cid,
+          ownerId: selectedSellerId,
+          dateStart: competency.month_start,
+          dateEnd,
+        })
+        setGroupConversion(rows)
+      } catch (e: any) {
+        console.warn('Erro ao carregar conversão por grupo:', e.message)
+        setGroupConversion([])
+      } finally {
+        setGroupConversionLoading(false)
+      }
+    }
+
+    loadGroupConversion()
+  }, [competency, selectedSellerId, companyId])
 
   if (loading) {
     return (
@@ -533,6 +569,68 @@ export default function SimuladorMetaPage() {
             <Card title="Ganho" value={metrics?.counts_by_status.ganho ?? '—'} tone="good" />
             <Card title="Perdido" value={metrics?.counts_by_status.perdido ?? '—'} tone="bad" />
           </div>
+        </Section>
+
+        <Section
+          title="Conversão por Grupo (no período)"
+          description="Trabalhados → Ganhos por grupo de leads."
+        >
+          {groupConversionLoading ? (
+            <div style={{ fontSize: 13, opacity: 0.7 }}>Carregando conversão por grupo...</div>
+          ) : groupConversion.length === 0 ? (
+            <div style={{ fontSize: 13, opacity: 0.7 }}>Nenhum dado encontrado para o período.</div>
+          ) : (() => {
+            const ganhoTotal = groupConversion.reduce((s, r) => s + r.ganho, 0)
+            const trabalhadosTotal = groupConversion.reduce((s, r) => s + r.trabalhados, 0)
+            const pctTotal = trabalhadosTotal > 0 ? ganhoTotal / trabalhadosTotal : 0
+            const fmtPct = (v: number) =>
+              (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
+
+            return (
+              <div style={{ display: 'grid', gap: 14 }}>
+                <div>
+                  <Card
+                    title="% Total (Conversão Geral do Período)"
+                    value={fmtPct(pctTotal)}
+                    subtitle={`${ganhoTotal} ganhos / ${trabalhadosTotal} trabalhados`}
+                    tone={pctTotal >= 0.25 ? 'good' : pctTotal >= 0.1 ? 'neutral' : 'bad'}
+                  />
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #2a2a2a' }}>
+                        <th style={{ textAlign: 'left', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>Grupo</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>Vendas</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>Trabalhados</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>% do Grupo</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>% Participação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupConversion.map((row, i) => (
+                        <tr
+                          key={row.group_id ?? `sem-grupo-${i}`}
+                          style={{ borderBottom: '1px solid #1a1a1a' }}
+                        >
+                          <td style={{ padding: '8px 10px' }}>{row.group_name}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', color: '#6ee7b7', fontWeight: 700 }}>
+                            {row.ganho}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>{row.trabalhados}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>{fmtPct(row.pct_grupo)}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', opacity: 0.85 }}>
+                            {fmtPct(row.pct_participacao)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
         </Section>
 
         <Section title="E se..." description="Simulações com taxas diferentes.">

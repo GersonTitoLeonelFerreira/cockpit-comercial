@@ -47,3 +47,17 @@ export interface SimulatorConfig {
     month_start: string
     month_end: string
   }
+
+  export interface GroupConversionRow {
+    group_id: string | null
+    group_name: string
+    novo: number
+    contato: number
+    respondeu: number
+    negociacao: number
+    ganho: number
+    perdido: number
+    trabalhados: number
+    pct_grupo: number
+    pct_participacao: number
+  }
