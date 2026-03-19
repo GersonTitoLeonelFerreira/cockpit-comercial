@@ -1314,9 +1314,11 @@ async function logQuickAction(
 // ============================================================================
 // DETECTAR TIPO DE BUSCA
 // ============================================================================
-function detectSearchType(term: string): 'phone' | 'name' {
+function detectSearchType(term: string): 'email' | 'cpf' | 'phone' | 'name' {
   const clean = term.trim()
+  if (clean.includes('@')) return 'email'
   const digits = clean.replace(/\D/g, '')
+  if (digits.length === 11 || digits.length === 14) return 'cpf'
   if (digits.length >= 10 && digits.length <= 13) return 'phone'
   return 'name'
 }
@@ -1410,7 +1412,13 @@ async function loadKanbanWithCursor(
           if (searchType === 'phone') {
             const digits = searchTerm.replace(/\D/g, '')
             query = query.ilike('phone', `%${digits}%`)
-          } else if (searchType === 'name') {
+          } else if (searchType === 'email') {
+            // v_pipeline_items não tem campo email; fallback para name
+            query = query.ilike('name', `%${searchTerm}%`)
+          } else if (searchType === 'cpf') {
+            const digits = searchTerm.replace(/\D/g, '')
+            query = query.or(`phone.ilike.%${digits}%,name.ilike.%${searchTerm}%`)
+          } else {
             query = query.ilike('name', `%${searchTerm}%`)
           }
         }
@@ -3035,6 +3043,34 @@ export default function SalesCyclesKanban({
   <option value="overdue">Agenda: Atrasados ({overdueCount})</option>
   <option value="next7">Agenda: Próximos 7d ({next7Count})</option>
 </select>
+
+{/* SEARCH INPUT */}
+<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+  <input
+    type="text"
+    value={searchTerm}
+    onChange={(e) => setSearchTerm(e.target.value)}
+    placeholder="Buscar por nome, telefone, CPF ou email..."
+    style={{
+      padding: '10px 12px',
+      borderRadius: 10,
+      border: '1px solid #2a2a2a',
+      background: '#111',
+      color: 'white',
+      fontSize: 13,
+      fontWeight: 900,
+      minWidth: 200,
+    }}
+  />
+  {searchTerm.trim() && !isSearching && searchCount !== null && (
+    <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 700 }}>
+      {searchCount} resultado{searchCount !== 1 ? 's' : ''}
+    </div>
+  )}
+  {isSearching && (
+    <div style={{ fontSize: 11, color: '#9ca3af' }}>Buscando…</div>
+  )}
+</div>
 
 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           {selectedOwnerId && (
