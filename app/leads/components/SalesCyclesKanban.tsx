@@ -8,7 +8,6 @@ import SellerMicroKPIs from './SellerMicroKPIs'
 import SellerWorklist from './SellerWorklist'
 import { ToastContainer, useToast } from './Toast'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
@@ -104,8 +103,6 @@ const RETURN_REASONS = [
   { value: 'outro', label: 'Outro' },
 ]
 
-const MENU_MAX_HEIGHT = 320
-
 type Profile = {
   id: string
   full_name: string | null
@@ -199,175 +196,6 @@ function getAgendaBadgeLabel(state: AgendaState, dateStr: string | null): string
     default:
       return ''
   }
-}
-
-// ============================================================================
-// QuickActionModal
-// ============================================================================
-function QuickActionModal({
-  isOpen,
-  leadName,
-  onClose,
-  onSave,
-  isLoading,
-}: {
-  isOpen: boolean
-  leadName: string
-  onClose: () => void
-  onSave: (action: string, detail: string) => void
-  isLoading: boolean
-}) {
-  const [selectedAction, setSelectedAction] = useState<string | null>(null)
-  const [detail, setDetail] = useState('')
-
-  const actions = [
-    { id: 'quick_approach_contact', label: 'Abordagem realizada', nextStatus: 'contato' },
-    { id: 'quick_call_done', label: 'Ligação feita', nextStatus: 'contato' },
-    { id: 'quick_answered_doubt', label: 'Respondido dúvida', nextStatus: 'respondeu' },
-    { id: 'quick_scheduled', label: 'Agendamento realizado', nextStatus: 'respondeu' },
-    { id: 'quick_proposal', label: 'Proposta realizada', nextStatus: 'negociacao' },
-    { id: 'quick_bad_data', label: 'Telefone incorreto', nextStatus: null },
-  ]
-
-  const handleSave = () => {
-    if (!selectedAction) {
-      alert('Selecione uma ação')
-      return
-    }
-    onSave(selectedAction, detail)
-    setSelectedAction(null)
-    setDetail('')
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.7)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9998,
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: '#111',
-          border: '1px solid #333',
-          borderRadius: 12,
-          padding: 20,
-          width: '90%',
-          maxWidth: 400,
-          color: 'white',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 12 }}>
-          Registrar Contato
-        </div>
-
-        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 16, color: '#bfdbfe' }}>
-          Lead: <strong>{leadName}</strong>
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 8 }}>
-            Ação *
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {actions.map((action) => (
-              <button
-                key={action.id}
-                onClick={() => setSelectedAction(action.id)}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: 6,
-                  border: selectedAction === action.id ? '1px solid #10b981' : '1px solid #2a2a2a',
-                  background: selectedAction === action.id ? '#10b981' : '#222',
-                  color: selectedAction === action.id ? '#000' : 'white',
-                  cursor: 'pointer',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  transition: 'all 200ms',
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-            Detalhes (opcional)
-          </label>
-          <textarea
-            value={detail}
-            onChange={(e) => setDetail(e.target.value)}
-            placeholder="Adicione notas..."
-            style={{
-              width: '100%',
-              minHeight: 60,
-              padding: '8px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: '#222',
-              color: 'white',
-              fontSize: 11,
-              fontFamily: 'system-ui',
-              resize: 'vertical',
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={onClose}
-            disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: '8px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: 'transparent',
-              color: 'white',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              fontWeight: 700,
-              fontSize: 11,
-              opacity: isLoading ? 0.5 : 1,
-            }}
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!selectedAction || isLoading}
-            style={{
-              flex: 1,
-              padding: '8px',
-              borderRadius: 6,
-              border: 'none',
-              background: selectedAction && !isLoading ? '#10b981' : '#1f2937',
-              color: 'white',
-              cursor: selectedAction && !isLoading ? 'pointer' : 'not-allowed',
-              fontWeight: 700,
-              fontSize: 11,
-              opacity: selectedAction && !isLoading ? 1 : 0.5,
-            }}
-          >
-            {isLoading ? 'Salvando…' : 'Salvar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 // ============================================================================
@@ -549,318 +377,19 @@ function ReturnReasonModal({
 }
 
 // ============================================================================
-// CardActionsMenuPortal
-// ============================================================================
-function CardActionsMenuPortal({
-  item,
-  anchorRect,
-  isAdmin,
-  sellers,
-  groups,
-  currentUserId,
-  onClose,
-  onReturnToPool,
-  onReassign,
-  onSetGroup,
-  onCreateGroupInline,
-}: {
-  item: PipelineItem
-  anchorRect: DOMRect
-  isAdmin: boolean
-  sellers: Profile[]
-  groups: LeadGroup[]
-  currentUserId: string
-  onClose: () => void
-  onReturnToPool: (cycleId: string, cycleName: string) => void
-  onReassign: (cycleId: string, sellerId: string) => void
-  onSetGroup: (cycleId: string, groupId: string | null) => void
-  onCreateGroupInline: (target: 'card', cycleId: string) => void
-}) {
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  const spaceBelow = window.innerHeight - anchorRect.bottom
-  const top = spaceBelow >= MENU_MAX_HEIGHT ? anchorRect.bottom + 8 : anchorRect.top - MENU_MAX_HEIGHT - 8
-  const left = Math.max(8, Math.min(anchorRect.right - 200, window.innerWidth - 208))
-
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    const handleScroll = () => onClose()
-    document.addEventListener('mousedown', handleMouseDown)
-    document.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('scroll', handleScroll, true)
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown)
-      document.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('scroll', handleScroll, true)
-    }
-  }, [onClose])
-
-  const canReturnToPool = isAdmin || item.owner_id === currentUserId
-  const validReassignSellers = sellers.filter((s) => s.id !== item.owner_id)
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      style={{
-        position: 'fixed',
-        top: Math.max(8, top),
-        left,
-        background: '#1a1a1a',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 8,
-        zIndex: 99999,
-        minWidth: 200,
-      }}
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div style={{ padding: 8 }}>
-        {canReturnToPool && (
-          <>
-            <button
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-              onClick={(e) => {
-                e.stopPropagation()
-                onClose()
-                onReturnToPool(item.id, item.name)
-              }}
-              draggable={false}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: 6,
-                border: 'none',
-                background: '#dc2626',
-                color: '#fecaca',
-                cursor: 'pointer',
-                fontSize: 11,
-                textAlign: 'left',
-                marginBottom: 4,
-                fontWeight: 900,
-                pointerEvents: 'auto',
-              }}
-            >
-              Devolver ao Pool
-            </button>
-
-            {isAdmin && validReassignSellers.length > 0 && (
-              <div style={{ paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #333' }}>
-                <div style={{ fontSize: 10, fontWeight: 900, opacity: 0.7, marginBottom: 4, paddingLeft: 10 }}>
-                  REDISTRIBUIR
-                </div>
-                {validReassignSellers.map((s) => (
-                  <button
-                    key={s.id}
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onReassign(item.id, s.id)
-                      onClose()
-                    }}
-                    draggable={false}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      padding: '6px 10px',
-                      borderRadius: 4,
-                      border: 'none',
-                      background: '#333',
-                      color: 'white',
-                      cursor: 'pointer',
-                      fontSize: 10,
-                      textAlign: 'left',
-                      marginBottom: 2,
-                      pointerEvents: 'auto',
-                    }}
-                  >
-                    {s.full_name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 900, opacity: 0.7, marginBottom: 4, paddingLeft: 10 }}>
-            GRUPOS
-          </div>
-
-          {isAdmin && (
-            <button
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-              onClick={(e) => {
-                e.stopPropagation()
-                onClose()
-                onCreateGroupInline('card', item.id)
-              }}
-              draggable={false}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 4,
-                border: '1px solid #10b981',
-                background: 'transparent',
-                color: '#10b981',
-                cursor: 'pointer',
-                fontSize: 10,
-                textAlign: 'left',
-                marginBottom: 6,
-                fontWeight: 900,
-                pointerEvents: 'auto',
-              }}
-            >
-              Criar Grupo
-            </button>
-          )}
-
-          <button
-            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-            onClick={(e) => {
-              e.stopPropagation()
-              onSetGroup(item.id, null)
-              onClose()
-            }}
-            draggable={false}
-            style={{
-              display: 'block',
-              width: '100%',
-              padding: '6px 10px',
-              borderRadius: 4,
-              border: 'none',
-              background: !item.group_id ? '#444' : '#333',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: 10,
-              textAlign: 'left',
-              marginBottom: 2,
-              fontWeight: !item.group_id ? 900 : 400,
-              pointerEvents: 'auto',
-            }}
-          >
-            {!item.group_id ? 'V ' : '- '} Sem grupo
-          </button>
-
-          {groups.map((g) => (
-            <button
-              key={g.id}
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-              onClick={(e) => {
-                e.stopPropagation()
-                onSetGroup(item.id, g.id)
-                onClose()
-              }}
-              draggable={false}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 4,
-                border: 'none',
-                background: item.group_id === g.id ? '#10b981' : '#333',
-                color: item.group_id === g.id ? '#000' : 'white',
-                cursor: 'pointer',
-                fontSize: 10,
-                textAlign: 'left',
-                marginBottom: 2,
-                fontWeight: item.group_id === g.id ? 900 : 400,
-                pointerEvents: 'auto',
-              }}
-            >
-              {item.group_id === g.id ? 'V ' : '- '} {g.name}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>,
-    document.body
-  )
-}
-
-// ============================================================================
 // KanbanCard
 // ============================================================================
 function KanbanCard({
   item,
   isSaving,
-  groups,
   isSelected,
   onToggleSelect,
-  onOpenMenu,
-  onMoveItem,
-  supabase,
-  companyId,
-  currentUserId,
-  slaRules,
-  nowTick,
 }: {
   item: PipelineItem
   isSaving: boolean
-  groups: LeadGroup[]
   isSelected: boolean
   onToggleSelect: (cycleId: string) => void
-  onOpenMenu: (item: PipelineItem, rect: DOMRect) => void
-  onMoveItem: (cycleId: string, toStatus: Status) => void
-  supabase: any
-  companyId: string
-  currentUserId: string
-  slaRules: Record<Status, SLARuleDB | null>
-  nowTick: Date
 }) {
-  const [showQuickActionModal, setShowQuickActionModal] = useState(false)
-  const [quickActionLoading, setQuickActionLoading] = useState(false)
-  const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
-
-  const menuButtonRef = useRef<HTMLButtonElement>(null)
-
-  const handleWhatsApp = () => {
-    if (!item.phone) return
-    const digits = item.phone.replace(/\D/g, '')
-    if (digits.length >= 10) {
-      window.open(`https://wa.me/55${digits}`, '_blank')
-      setShowQuickActionModal(true)
-    }
-  }
-
-  const handleCopyPhone = () => {
-    if (!item.phone) return
-    navigator.clipboard.writeText(item.phone)
-    alert('Telefone copiado!')
-    setShowQuickActionModal(true)
-  }
-
-  const handleQuickActionSave = async (action: string, detail: string) => {
-    setQuickActionLoading(true)
-    try {
-      const suggested = await logQuickAction(
-        supabase,
-        companyId,
-        item.id,
-        currentUserId,
-        action as QuickActionType,
-        detail,
-        'whatsapp'
-      )
-
-      setSuggestedStatus(suggested)
-      setShowQuickActionModal(false)
-    } catch (e: any) {
-      console.error('Erro ao salvar ação rápida:', e)
-      alert('Erro ao registrar ação')
-    } finally {
-      setQuickActionLoading(false)
-    }
-  }
-
   return (
     <div
       style={{
@@ -880,7 +409,7 @@ function KanbanCard({
         e.dataTransfer!.effectAllowed = 'move'
         e.dataTransfer!.setData('cycleId', item.id)
       }}
-                  onMouseEnter={(e) => {
+      onMouseEnter={(e) => {
         ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'
       }}
@@ -891,257 +420,34 @@ function KanbanCard({
     >
       {/* CHECKBOX */}
       <div
-        style={{
-          position: 'absolute',
-          top: 8,
-          left: 8,
-          cursor: 'pointer',
-        }}
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggleSelect(item.id)
-        }}
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-        }}
+        style={{ position: 'absolute', top: 8, left: 8, cursor: 'pointer' }}
+        onClick={(e) => { e.stopPropagation(); onToggleSelect(item.id) }}
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
       >
         <input
           type="checkbox"
           checked={isSelected}
           onChange={() => {}}
           draggable={false}
-          style={{
-            width: 14,
-            height: 14,
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-          }}
+          style={{ width: 14, height: 14, cursor: 'pointer', pointerEvents: 'auto' }}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
         />
       </div>
 
-      {/* HEADER: NOME + TELEFONE + MENU */}
+      {/* CONTENT */}
       <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'start',
-          marginBottom: 6,
-          marginLeft: 24,
-        }}
+        style={{ cursor: 'pointer', marginLeft: 24 }}
+        onClick={() => { window.location.href = `/sales-cycles/${item.id}` }}
       >
-        <div
-          style={{
-            cursor: 'pointer',
-            flex: 1,
-          }}
-          onClick={() => {
-            console.log('CARD item:', item)
-            window.location.href = `/sales-cycles/${(item as any).id}`
-          }}
-        >
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, color: 'white' }}>{item.name}</div>
-          <div style={{ fontSize: 11, color: '#9ca3af' }}>{item.phone || '—'}</div>
-        </div>
-
-                <button
-          ref={menuButtonRef}
-          onClick={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            if (menuButtonRef.current) {
-              const rect = menuButtonRef.current.getBoundingClientRect()
-              onOpenMenu(item, rect)
-            }
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-          }}
-          draggable={false}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#6b7280',
-            cursor: 'pointer',
-            fontSize: 16,
-            padding: '2px 6px',
-            pointerEvents: 'auto',
-            lineHeight: 1,
-          }}
-        >
-          ...
-        </button>
-      </div>
-
-      {/* ACAO IMEDIATA */}
-      {item.phone && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 6, marginLeft: 24 }}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleWhatsApp()
-            }}
-            style={{
-              padding: '3px 7px',
-              borderRadius: 4,
-              border: '1px solid rgba(16,185,129,0.4)',
-              background: 'rgba(16,185,129,0.1)',
-              color: '#10b981',
-              cursor: 'pointer',
-              fontSize: 9,
-              fontWeight: 700,
-            }}
-            title="Enviar WhatsApp"
-          >
-            WA
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleCopyPhone()
-            }}
-            style={{
-              padding: '3px 7px',
-              borderRadius: 4,
-              border: '1px solid rgba(96,165,250,0.4)',
-              background: 'rgba(96,165,250,0.1)',
-              color: '#60a5fa',
-              cursor: 'pointer',
-              fontSize: 9,
-              fontWeight: 700,
-            }}
-            title="Copiar telefone"
-          >
-            Copiar
-          </button>
-        </div>
-      )}
-
-      {/* SLA STATUS */}
-      {item.stage_entered_at && (
-        (() => {
-          const minutes = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at).getTime()) / 60000)
-          const rule = slaRules[item.status] || {
-            ...DEFAULT_SLA_RULES[item.status],
-            id: 'default',
-          }
-          const level = getSLALevel(minutes, rule)
-          const timeStr = formatTimeInStage(minutes)
-          const color = getSLAColor(level)
-
-          if (item.status === 'ganho' || item.status === 'perdido') {
-            return (
-              <div style={{ fontSize: 10, opacity: 0.5, marginLeft: 24, marginTop: 4 }}>
-                {timeStr}
-              </div>
-            )
-          }
-
-          return (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 24, marginTop: 4 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color, letterSpacing: '0.05em' }}>
-                {getSLALabel(level)}
-              </div>
-              <div style={{ fontSize: 9, opacity: 0.5, color: '#9ca3af' }}>
-                {timeStr}
-              </div>
-            </div>
-          )
-        })()
-      )}
-
-      {/* AGENDA STATUS */}
-      {item.next_action_date && (
-        (() => {
-          const agendaState = getAgendaState(item.next_action_date)
-          if (agendaState === 'none') return null
-
-          const { bg, text } = getAgendaBadgeStyle(agendaState)
-          const label = getAgendaBadgeLabel(agendaState, item.next_action_date)
-
-          return (
-            <div
-              style={{
-                fontSize: 9,
-                fontWeight: 700,
-                color: text,
-                background: bg,
-                padding: '3px 7px',
-                borderRadius: 4,
-                marginLeft: 24,
-                marginTop: 4,
-                display: 'inline-block',
-                letterSpacing: '0.05em',
-              }}
-            >
-              {label}
-            </div>
-          )
-        })()
-      )}
-
-      {/* SUGESTAO DE PROXIMA ETAPA COM BOTAO MOVER */}
-      {suggestedStatus && (
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 24, marginTop: 6, marginBottom: 4 }}>
-          <div style={{ fontSize: 9, opacity: 0.7, color: '#fbbf24', flex: 1 }}>
-            Sugestao: mover para <strong>{suggestedStatus.toUpperCase()}</strong>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, color: 'white' }}>{item.name}</div>
+        <div style={{ fontSize: 11, color: '#9ca3af' }}>{item.phone || '—'}</div>
+        {item.next_action && (
+          <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, fontStyle: 'italic', color: '#9ca3af' }}>
+            Próx: {item.next_action}
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onMoveItem(item.id, suggestedStatus as Status)
-              setSuggestedStatus(null)
-            }}
-            style={{
-              padding: '3px 7px',
-              borderRadius: 4,
-              border: 'none',
-              background: '#22c55e',
-              color: '#000',
-              cursor: 'pointer',
-              fontSize: 9,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Mover
-          </button>
-        </div>
-      )}
-
-      {/* PROXIMA ACAO */}
-      {item.next_action && (
-        <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, fontStyle: 'italic', marginLeft: 24, color: '#9ca3af' }}>
-          {item.next_action}
-        </div>
-      )}
-
-      {/* GRUPO */}
-      {item.group_id && (
-        <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, color: '#22c55e', fontWeight: 700, marginLeft: 24 }}>
-          {groups.find((g) => g.id === item.group_id)?.name || 'Grupo desconhecido'}
-        </div>
-      )}
-
-      {/* SALVANDO */}
-      {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4, marginLeft: 24 }}>Salvando...</div>}
-
-      {/* QUICK ACTION MODAL */}
-      <QuickActionModal
-        isOpen={showQuickActionModal}
-        leadName={item.name}
-        onClose={() => {
-          setShowQuickActionModal(false)
-          setSuggestedStatus(null)
-        }}
-        onSave={handleQuickActionSave}
-        isLoading={quickActionLoading}
-      />
+        )}
+        {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
+      </div>
     </div>
   )
 }
@@ -1155,19 +461,8 @@ type VirtualizedStatusColumnProps = {
   totalCount: number
   savingId: string | null
   onDrop: (cycleId: string, toStatus: Status) => void
-  onSetGroup: (cycleId: string, groupId: string | null) => void
-  onReturnToPoolWithReason: (cycleId: string, cycleName: string) => void
-  onReassign: (cycleId: string, sellerId: string) => void
-  onCreateGroupInline: (target: 'card', cycleId: string) => void
-  onMoveItem: (cycleId: string, toStatus: Status) => void
-  groups: LeadGroup[]
   selectedIds: Set<string>
   onToggleSelect: (cycleId: string) => void
-  sellers: Profile[]
-  isAdmin: boolean
-  currentUserId: string
-  supabase: any
-  companyId: string
   slaRules: Record<Status, SLARuleDB | null>
   nowTick: Date
   slaFilter: 'all' | 'ok' | 'warn' | 'danger'
@@ -1180,19 +475,8 @@ function VirtualizedStatusColumn({
   totalCount,
   savingId,
   onDrop,
-  onSetGroup,
-  onReturnToPoolWithReason,
-  onReassign,
-  onCreateGroupInline,
-  onMoveItem,
-  groups,
   selectedIds,
   onToggleSelect,
-  sellers,
-  isAdmin,
-  currentUserId,
-  supabase,
-  companyId,
   slaRules,
   nowTick,
   slaFilter,
@@ -1201,12 +485,6 @@ function VirtualizedStatusColumn({
   const { setNodeRef, isOver } = useDroppable({
     id: status,
   })
-
-  const [menuState, setMenuState] = useState<{ item: PipelineItem; anchorRect: DOMRect } | null>(null)
-
-  const handleOpenMenu = useCallback((item: PipelineItem, rect: DOMRect) => {
-    setMenuState({ item, anchorRect: rect })
-  }, [])
 
   const shown = cycles.length
   const total = totalCount ?? shown
@@ -1235,7 +513,6 @@ function VirtualizedStatusColumn({
   })
 
   return (
-    <>
     <div
       ref={setNodeRef}
       style={{
@@ -1300,38 +577,14 @@ function VirtualizedStatusColumn({
                 key={item.id}
                 item={item}
                 isSaving={savingId === item.id}
-                onOpenMenu={handleOpenMenu}
-                onMoveItem={onMoveItem}
-                groups={groups}
                 isSelected={selectedIds.has(item.id)}
                 onToggleSelect={onToggleSelect}
-                supabase={supabase}
-                slaRules={slaRules}
-                nowTick={nowTick}
-                companyId={companyId}
-                currentUserId={currentUserId}
               />
             ))}
           </div>
         )}
       </div>
     </div>
-    {menuState && (
-      <CardActionsMenuPortal
-        item={menuState.item}
-        anchorRect={menuState.anchorRect}
-        isAdmin={isAdmin}
-        sellers={sellers}
-        groups={groups}
-        currentUserId={currentUserId}
-        onClose={() => setMenuState(null)}
-        onReturnToPool={onReturnToPoolWithReason}
-        onReassign={onReassign}
-        onSetGroup={onSetGroup}
-        onCreateGroupInline={onCreateGroupInline}
-      />
-    )}
-    </>
   )
 }
 
@@ -1346,52 +599,6 @@ type PendingMove = {
   fromStatus: Status
   toStatus: Status
 } | null
-
-// ============================================================================
-// HELPER: LOG QUICK ACTION
-// ============================================================================
-type QuickActionType = 'quick_approach_contact' | 'quick_call_done' | 'quick_answered_doubt' | 'quick_scheduled' | 'quick_proposal' | 'quick_bad_data'
-async function logQuickAction(
-  supabase: any,
-  companyId: string,
-  cycleId: string,
-  userId: string,
-  eventType: QuickActionType,
-  detail: string = '',
-  channel: 'whatsapp' | 'copy' = 'copy'
-) {
-  try {
-    const suggestedMap: Record<QuickActionType, string | null> = {
-      quick_approach_contact: 'contato',
-      quick_call_done: 'contato',
-      quick_answered_doubt: 'respondeu',
-      quick_scheduled: 'respondeu',
-      quick_proposal: 'negociação',
-      quick_bad_data: null
-    }
-
-    const metadata = {
-      source: 'kanban_quick_action',
-      detail,
-      channel,
-      suggested_next_status: suggestedMap[eventType],
-    }
-
-    await supabase.from('cycle_events').insert({
-      company_id: companyId,
-      cycle_id: cycleId,
-      event_type: eventType,
-      created_by: userId,
-      metadata,
-      occurred_at: new Date().toISOString(),
-    })
-
-    return suggestedMap[eventType]
-  } catch (e: any) {
-    console.error('Erro ao registrar ação rápida:', e)
-    return null
-  }
-}
 
 // ============================================================================
 // DETECTAR TIPO DE BUSCA
@@ -1663,11 +870,6 @@ export default function SalesCyclesKanban({
   const [returnSaving, setReturnSaving] = useState(false)
 
   const [checkpointOpen, setCheckpointOpen] = useState(false)
-  type PendingMove = {
-    cycleId: string
-    fromStatus: Status
-    toStatus: Status
-  } | null
   const [pendingMove, setPendingMove] = useState<PendingMove>(null)
   const [checkpointLoading, setCheckpointLoading] = useState(false)
 
@@ -3343,23 +2545,12 @@ export default function SalesCyclesKanban({
                     totalCount={totals[status] ?? 0}
                     savingId={savingId}
                     onDrop={handleDrop}
-                    onSetGroup={setGroupForCycle}
-                    onReturnToPoolWithReason={handleOpenReturnReasonModal}
-                    onReassign={reassignCycle}
-                    onCreateGroupInline={handleCreateGroupInline}
-                    onMoveItem={moveItem}
-                    groups={groups}
                     selectedIds={selectedIds}
                     onToggleSelect={toggleSelect}
-                    sellers={sellers}
-                    isAdmin={isAdmin}
-                    currentUserId={userId}
-                    supabase={supabase}
                     slaRules={slaRules}
                     nowTick={nowTick}
                     slaFilter={slaFilter}
                     agendaFilter={agendaFilter}
-                    companyId={companyId}
                   />
                 ))}
               </DndContext>
