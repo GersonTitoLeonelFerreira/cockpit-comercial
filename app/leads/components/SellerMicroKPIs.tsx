@@ -57,12 +57,13 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
     return (
       <div
         style={{
-          padding: '6px 20px',
+          padding: '6px 16px',
           display: 'flex',
           gap: 6,
           alignItems: 'center',
-          borderBottom: '1px solid #1a1a1a',
-          background: '#0b0b0b',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: 'rgba(9,9,11,0.85)',
+          backdropFilter: 'blur(12px)',
           height: 36,
         }}
       >
@@ -70,9 +71,9 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
           <div
             key={i}
             style={{
-              height: 22,
-              width: 80,
-              background: '#1a1a1a',
+              height: 20,
+              width: 72,
+              background: 'rgba(255,255,255,0.06)',
               borderRadius: 4,
             }}
           />
@@ -88,55 +89,56 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
       label: 'Trabalhados hoje',
       value: kpis.worked_today,
       color: '#a5f3fc',
-      bg: '#0e7490',
-      icon: '🔄',
+      bg: 'rgba(14, 116, 144, 0.3)',
+      icon: '*',
       title: 'Ciclos com atividade hoje',
     },
     {
       label: 'Atrasados',
       value: kpis.overdue_count,
       color: kpis.overdue_count > 0 ? '#fca5a5' : '#6ee7b7',
-      bg: kpis.overdue_count > 0 ? '#7f1d1d' : '#064e3b',
-      icon: '⏰',
+      bg: kpis.overdue_count > 0 ? 'rgba(127,29,29,0.3)' : 'rgba(6,78,59,0.3)',
+      icon: '!',
       title: 'Leads com agenda vencida',
     },
     {
       label: 'Agendados hoje',
       value: kpis.scheduled_today,
       color: '#93c5fd',
-      bg: '#1e3a5f',
-      icon: '📅',
+      bg: 'rgba(30,58,138,0.3)',
+      icon: '>',
       title: 'Contatos agendados para hoje',
     },
     {
       label: 'Movidos hoje',
       value: kpis.stage_moves_today,
       color: '#c4b5fd',
-      bg: '#3b0764',
-      icon: '🚀',
+      bg: 'rgba(59,7,100,0.3)',
+      icon: '->',
       title: 'Movimentos de etapa hoje',
     },
     {
-      label: `Avanço ${kpis.period_days}d`,
+      label: `Avanco ${kpis.period_days}d`,
       value: `${kpis.advance_rate}%`,
       color: kpis.advance_rate >= 50 ? '#6ee7b7' : kpis.advance_rate >= 25 ? '#fde68a' : '#fca5a5',
-      bg: kpis.advance_rate >= 50 ? '#064e3b' : kpis.advance_rate >= 25 ? '#78350f' : '#7f1d1d',
-      icon: '📈',
-      title: `Taxa de avanço de etapa nos últimos ${kpis.period_days} dias`,
+      bg: kpis.advance_rate >= 50 ? 'rgba(6,78,59,0.3)' : kpis.advance_rate >= 25 ? 'rgba(120,53,15,0.3)' : 'rgba(127,29,29,0.3)',
+      icon: '^',
+      title: `Taxa de avanco nos ultimos ${kpis.period_days} dias`,
     },
   ]
 
   return (
     <div
       style={{
-        background: '#0b0b0b',
-        borderBottom: '1px solid #1a1a1a',
+        background: 'rgba(9,9,11,0.85)',
+        backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}
     >
-      {/* Compact bar — always visible */}
+      {/* Compact bar - always visible */}
       <div
         style={{
-          padding: '4px 20px',
+          padding: '4px 16px',
           display: 'flex',
           alignItems: 'center',
           gap: 6,
@@ -147,8 +149,8 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
         onClick={() => setExpanded((v) => !v)}
         title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
       >
-        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, marginRight: 4 }}>
-          {expanded ? '▼' : '▶'} KPIs
+        <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 700, marginRight: 4, letterSpacing: '0.1em' }}>
+          {expanded ? 'v' : '>'} KPIS
         </span>
         {cards.map((card) => (
           <div
@@ -168,7 +170,7 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
               whiteSpace: 'nowrap',
             }}
           >
-            <span>{card.icon}</span>
+            <span style={{ fontSize: 9, opacity: 0.8 }}>{card.icon}</span>
             <span>{card.value}</span>
           </div>
         ))}
@@ -178,7 +180,7 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
       {expanded && (
         <div
           style={{
-            padding: '8px 20px 12px',
+            padding: '8px 16px 12px',
             display: 'flex',
             gap: 8,
             alignItems: 'stretch',
@@ -200,7 +202,7 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
                 minWidth: 100,
               }}
             >
-              <div style={{ fontSize: 11, color: card.color, fontWeight: 700, opacity: 0.8 }}>
+              <div style={{ fontSize: 10, color: card.color, fontWeight: 700, opacity: 0.8 }}>
                 {card.icon} {card.label}
               </div>
               <div style={{ fontSize: 22, fontWeight: 900, color: card.color, lineHeight: 1.1 }}>
