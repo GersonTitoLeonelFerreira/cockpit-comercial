@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useRef, useState, useEffect, useCallback } from 'react'
 
 export type WorklistItem = {
   id: string
@@ -34,6 +34,14 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
   const [nextActionDate, setNextActionDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (item) {
@@ -73,6 +81,9 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
   const handleCopyPhone = useCallback(() => {
     if (item?.phone) {
       navigator.clipboard.writeText(item.phone).catch(() => {})
+      setCopied(true)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
     }
   }, [item])
 
@@ -203,14 +214,15 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
                     padding: '8px 12px',
                     borderRadius: 8,
                     border: '1px solid #374151',
-                    background: '#1f2937',
-                    color: '#d1d5db',
+                    background: copied ? '#065f46' : '#1f2937',
+                    color: copied ? '#6ee7b7' : '#d1d5db',
                     cursor: 'pointer',
                     fontSize: 12,
                     fontWeight: 700,
+                    transition: 'background 200ms, color 200ms',
                   }}
                 >
-                  📋 Copiar
+                  {copied ? '✓ Copiado!' : '📋 Copiar'}
                 </button>
               </div>
             )}

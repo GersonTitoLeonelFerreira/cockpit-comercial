@@ -30,6 +30,7 @@ type KPICard = {
 export default function SellerMicroKPIs({ userId, supabase, refreshKey }: SellerMicroKPIsProps) {
   const [kpis, setKpis] = useState<MicroKPIs | null>(null)
   const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   const load = useCallback(async () => {
     if (!userId) return
@@ -56,22 +57,23 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
     return (
       <div
         style={{
-          padding: '10px 20px',
+          padding: '6px 20px',
           display: 'flex',
-          gap: 8,
+          gap: 6,
           alignItems: 'center',
-          borderBottom: '1px solid #222',
+          borderBottom: '1px solid #1a1a1a',
+          background: '#0b0b0b',
+          height: 36,
         }}
       >
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
             style={{
-              height: 52,
-              width: 120,
+              height: 22,
+              width: 80,
               background: '#1a1a1a',
-              borderRadius: 8,
-              animation: 'pulse 1.5s infinite',
+              borderRadius: 4,
             }}
           />
         ))}
@@ -107,7 +109,7 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
       title: 'Contatos agendados para hoje',
     },
     {
-      label: 'Etapas movidas',
+      label: 'Movidos hoje',
       value: kpis.stage_moves_today,
       color: '#c4b5fd',
       bg: '#3b0764',
@@ -127,38 +129,87 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
   return (
     <div
       style={{
-        padding: '10px 20px',
-        display: 'flex',
-        gap: 8,
-        alignItems: 'stretch',
-        borderBottom: '1px solid #222',
-        flexWrap: 'wrap',
         background: '#0b0b0b',
+        borderBottom: '1px solid #1a1a1a',
       }}
     >
-      {cards.map((card) => (
+      {/* Compact bar — always visible */}
+      <div
+        style={{
+          padding: '4px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+          minHeight: 36,
+        }}
+        onClick={() => setExpanded((v) => !v)}
+        title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
+      >
+        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, marginRight: 4 }}>
+          {expanded ? '▼' : '▶'} KPIs
+        </span>
+        {cards.map((card) => (
+          <div
+            key={card.label}
+            title={card.title}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              background: card.bg,
+              border: `1px solid ${card.color}33`,
+              borderRadius: 4,
+              padding: '2px 8px',
+              fontSize: 12,
+              fontWeight: 900,
+              color: card.color,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>{card.icon}</span>
+            <span>{card.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Expanded cards */}
+      {expanded && (
         <div
-          key={card.label}
-          title={card.title}
           style={{
-            background: card.bg,
-            border: `1px solid ${card.color}33`,
-            borderRadius: 8,
-            padding: '8px 14px',
+            padding: '8px 20px 12px',
             display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            minWidth: 110,
+            gap: 8,
+            alignItems: 'stretch',
+            flexWrap: 'wrap',
           }}
         >
-          <div style={{ fontSize: 11, color: card.color, fontWeight: 700, opacity: 0.8 }}>
-            {card.icon} {card.label}
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: card.color, lineHeight: 1.1 }}>
-            {card.value}
-          </div>
+          {cards.map((card) => (
+            <div
+              key={card.label}
+              title={card.title}
+              style={{
+                background: card.bg,
+                border: `1px solid ${card.color}33`,
+                borderRadius: 8,
+                padding: '8px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                minWidth: 100,
+              }}
+            >
+              <div style={{ fontSize: 11, color: card.color, fontWeight: 700, opacity: 0.8 }}>
+                {card.icon} {card.label}
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: card.color, lineHeight: 1.1 }}>
+                {card.value}
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   )
 }
