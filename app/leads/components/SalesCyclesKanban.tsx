@@ -596,7 +596,7 @@ function KanbanCard({
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-      // Click-outside handler — uses setTimeout to delay registration
+  // Click-outside handler
   useEffect(() => {
     if (!showMenu) return
 
@@ -612,13 +612,12 @@ function KanbanCard({
       }
     }
 
-    // Use setTimeout with 100ms to ensure the opening click is fully processed
-    const timer = setTimeout(() => {
+    const rafId = requestAnimationFrame(() => {
       document.addEventListener('mousedown', handleClickOutside)
-    }, 100)
+    })
 
     return () => {
-      clearTimeout(timer)
+      cancelAnimationFrame(rafId)
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showMenu])
