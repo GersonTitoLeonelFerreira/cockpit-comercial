@@ -4,6 +4,8 @@ import CreateLeadModal from './CreateLeadModal'
 import { ReturnToPoolModal } from './ReturnToPoolModal'
 import StageCheckpointModal from './StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
+import SellerMicroKPIs from './SellerMicroKPIs'
+import SellerWorklist from './SellerWorklist'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
@@ -113,6 +115,7 @@ type PipelineItem = {
   created_at: string
   name: string
   phone: string | null
+  email: string | null
   next_action: string | null
   next_action_date: string | null
   lead_groups?: { name: string } | null
@@ -1395,8 +1398,41 @@ async function loadPoolWithOffset(
 
     if (err) throw err
 
+    const items = (data ?? []) as PoolItem[]
+
+    // Fetch return reasons for loaded items
+    if (items.length > 0) {
+      const cycleIds = items.map((i) => i.id)
+      const { data: events } = await supabase
+        .from('cycle_events')
+        .select('cycle_id, metadata, occurred_at, created_by')
+        .eq('event_type', 'returned_to_pool')
+        .eq('company_id', companyId)
+        .in('cycle_id', cycleIds)
+        .order('occurred_at', { ascending: false })
+
+      if (events && events.length > 0) {
+        // Keep only latest event per cycle
+        const latestByCycle: Record<string, any> = {}
+        for (const ev of events) {
+          if (!latestByCycle[ev.cycle_id]) {
+            latestByCycle[ev.cycle_id] = ev
+          }
+        }
+        for (const item of items) {
+          const ev = latestByCycle[item.id]
+          if (ev) {
+            item.last_return_reason = ev.metadata?.reason ?? null
+            item.last_return_details = ev.metadata?.details ?? null
+            item.last_return_at = ev.occurred_at ?? null
+            item.last_return_by = ev.created_by ?? null
+          }
+        }
+      }
+    }
+
     return {
-      items: (data ?? []) as PoolItem[],
+      items,
       total: count ?? 0,
       hasMore: offset + pageSize < (count ?? 0),
     }
@@ -1414,7 +1450,7 @@ async function loadKanbanWithCursor(
   selectedGroupId: string | null,
   searchTerm: string = '',
   pageSize: number = 50,
-): Promise<Record<Status, PipelineItem[]>> {  
+): Promise<{ data: Record<Status, PipelineItem[]>; exactCount: number | null }> {  
   const ownerToFilter = selectedOwnerId ?? userId
   const result: Record<Status, PipelineItem[]> = {
     novo: [],
@@ -1432,7 +1468,7 @@ async function loadKanbanWithCursor(
       try {
         let query = supabase
           .from('v_pipeline_items')
-          .select('id, lead_id, name, phone, status, stage_entered_at, owner_id, group_id, next_action, next_action_date')
+          .select('id, lead_id, name, phone, email, status, stage_entered_at, owner_id, group_id, next_action, next_action_date')
           .eq('company_id', companyId)
           .eq('owner_id', ownerToFilter)
           .eq('status', status)
@@ -1448,8 +1484,7 @@ async function loadKanbanWithCursor(
             const digits = searchTerm.replace(/\D/g, '')
             query = query.ilike('phone', `%${digits}%`)
           } else if (searchType === 'email') {
-            // v_pipeline_items não tem campo email; fallback para name
-            query = query.ilike('name', `%${searchTerm}%`)
+            query = query.ilike('email', `%${searchTerm}%`)
           } else if (searchType === 'cpf') {
             const digits = searchTerm.replace(/\D/g, '')
             query = query.or(`phone.ilike.%${digits}%,name.ilike.%${searchTerm}%`)
@@ -1471,7 +1506,41 @@ const { data, error: err } = await orderedQuery
     })
   )
 
-  return result
+  // Compute exact search count via a single DB count query when searching
+  let exactCount: number | null = null
+  if (searchTerm.trim()) {
+    try {
+      const searchType = detectSearchType(searchTerm)
+      let countQuery = supabase
+        .from('v_pipeline_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('company_id', companyId)
+        .eq('owner_id', ownerToFilter)
+
+      if (selectedGroupId) {
+        countQuery = countQuery.eq('group_id', selectedGroupId)
+      }
+
+      if (searchType === 'phone') {
+        const digits = searchTerm.replace(/\D/g, '')
+        countQuery = countQuery.ilike('phone', `%${digits}%`)
+      } else if (searchType === 'email') {
+        countQuery = countQuery.ilike('email', `%${searchTerm}%`)
+      } else if (searchType === 'cpf') {
+        const digits = searchTerm.replace(/\D/g, '')
+        countQuery = countQuery.or(`phone.ilike.%${digits}%,name.ilike.%${searchTerm}%`)
+      } else {
+        countQuery = countQuery.ilike('name', `%${searchTerm}%`)
+      }
+
+      const { count } = await countQuery
+      exactCount = count ?? null
+    } catch (e: any) {
+      console.error('Erro ao contar resultados de busca:', e)
+    }
+  }
+
+  return { data: result, exactCount }
 }
 
 export default function SalesCyclesKanban({
@@ -1553,6 +1622,9 @@ export default function SalesCyclesKanban({
   const [winDealName, setWinDealName] = useState('')
   const [winDealOwnerId, setWinDealOwnerId] = useState<string | undefined>(undefined)
 
+  // KPI / WORKLIST REFRESH KEY — bump to trigger SellerMicroKPIs and SellerWorklist reload
+  const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
+
     // SLA STATES
     const [slaRules, setSLARules] = useState<Record<Status, SLARuleDB | null>>({
       novo: null,
@@ -1626,6 +1698,7 @@ export default function SalesCyclesKanban({
       const { data, error: err } = await supabase.rpc('rpc_cycles_status_totals', {
         p_owner_user_id: ownerToCount,
         p_group_id: selectedGroupId,
+        p_search_term: searchTerm.trim() || null,
       })
 
       if (err) throw err
@@ -1648,7 +1721,7 @@ export default function SalesCyclesKanban({
     } catch (e: any) {
       console.error('Erro ao carregar totals:', e)
     }
-  }, [companyId, isAdmin, selectedOwnerId, userId, selectedGroupId, supabase])
+  }, [companyId, isAdmin, selectedOwnerId, userId, selectedGroupId, supabase, searchTerm])
 
   const loadItems = useCallback(
     async (searchTermParam: string = '') => {
@@ -1672,7 +1745,7 @@ export default function SalesCyclesKanban({
 
         const hasActiveFilter = slaFilter !== 'all' || agendaFilter !== 'all'
 
-        const kanbanData = await loadKanbanWithCursor(
+        const { data: kanbanData, exactCount } = await loadKanbanWithCursor(
           supabase,
           companyId,
           selectedOwnerId,
@@ -1683,7 +1756,11 @@ export default function SalesCyclesKanban({
         )
 
         setItems(kanbanData)
-        setSearchCount(Object.values(kanbanData).flat().length)
+        if (searchTermParam.trim()) {
+          setSearchCount(exactCount ?? Object.values(kanbanData).flat().length)
+        } else {
+          setSearchCount(null)
+        }
       } catch (e: any) {
         setError(e?.message ?? 'Erro ao carregar ciclos')
       } finally {
@@ -1912,6 +1989,7 @@ export default function SalesCyclesKanban({
 
         await Promise.all([loadItems(), loadTotals(), loadPoolAndSellers()])
         alert('Lead devolvido ao pool!')
+        setKpiRefreshKey((k) => k + 1)
 
         setReturnReasonModalOpen(false)
         setReturnCycleId(null)
@@ -2991,6 +3069,15 @@ export default function SalesCyclesKanban({
           </div>
         )}
       </div>
+
+      {/* MICRO KPIs */}
+      <SellerMicroKPIs
+        userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
+        groupId={selectedGroupId}
+        supabase={supabase}
+        refreshKey={kpiRefreshKey}
+      />
+
       {/* FILTERS */}
       <div style={{ padding: '12px 20px', borderBottom: '1px solid #222', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         {isAdmin && (
@@ -3173,6 +3260,15 @@ export default function SalesCyclesKanban({
           {error}
         </div>
       )}
+
+      {/* WORKLIST — FILA DO DIA */}
+      <SellerWorklist
+        userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
+        groupId={selectedGroupId}
+        supabase={supabase}
+        refreshKey={kpiRefreshKey}
+        onRefresh={() => setKpiRefreshKey((k) => k + 1)}
+      />
 
       {/* KANBAN CONTENT */}
       {loading ? (
