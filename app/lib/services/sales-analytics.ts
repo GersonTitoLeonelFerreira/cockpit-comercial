@@ -144,12 +144,32 @@ export async function markDealWonWithRevenue(
 ): Promise<any> {
   const supabase = supabaseBrowser()
 
+  // 1) Buscar o owner atual ANTES de atualizar (para congelar)
+  const { data: cycle, error: fetchErr } = await supabase
+    .from('sales_cycles')
+    .select('owner_user_id')
+    .eq('id', dealId)
+    .single()
+
+  if (fetchErr || !cycle) {
+    throw new Error(`Erro ao buscar ciclo para congelar vendedor: ${fetchErr?.message || 'ciclo não encontrado'}`)
+  }
+
+  // 2) Usar auth user como fallback (caso cycle esteja no pool sem owner)
+  let frozenWonOwner = cycle.owner_user_id
+  if (!frozenWonOwner) {
+    const { data: authData } = await supabase.auth.getUser()
+    frozenWonOwner = authData?.user?.id || null
+  }
+
+  // 3) Update com won_owner_user_id congelado
   const { data, error } = await supabase
     .from('sales_cycles')
     .update({
       status: 'ganho',
       won_at: new Date().toISOString(),
       won_total: wonValue,
+      won_owner_user_id: frozenWonOwner,
       revenue_seller_ref_date: revenueDateRef || null,
       won_value_source: revenueDateRef ? 'revenue' : 'manual',
       won_note: wonNote || null,
