@@ -6,6 +6,7 @@ import StageCheckpointModal from './StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import SellerMicroKPIs from './SellerMicroKPIs'
 import SellerWorklist from './SellerWorklist'
+import { ToastContainer, useToast } from './Toast'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
@@ -1482,7 +1483,7 @@ async function loadKanbanWithCursor(
           const searchType = detectSearchType(searchTerm)
           if (searchType === 'phone') {
             const digits = searchTerm.replace(/\D/g, '')
-            query = query.ilike('phone', `%${digits}%`)
+            query = query.or(`phone.ilike.%${digits}%,phone.ilike.%${searchTerm}%`)
           } else if (searchType === 'email') {
             query = query.ilike('email', `%${searchTerm}%`)
           } else if (searchType === 'cpf') {
@@ -1493,7 +1494,7 @@ async function loadKanbanWithCursor(
           }
         }
 
-        const orderedQuery = query.order('stage_entered_at', { ascending: false })
+        const orderedQuery = query.order('stage_entered_at', { ascending: false }).limit(pageSize)
 
 const { data, error: err } = await orderedQuery
 
@@ -1523,7 +1524,7 @@ const { data, error: err } = await orderedQuery
 
       if (searchType === 'phone') {
         const digits = searchTerm.replace(/\D/g, '')
-        countQuery = countQuery.ilike('phone', `%${digits}%`)
+        countQuery = countQuery.or(`phone.ilike.%${digits}%,phone.ilike.%${searchTerm}%`)
       } else if (searchType === 'email') {
         countQuery = countQuery.ilike('email', `%${searchTerm}%`)
       } else if (searchType === 'cpf') {
@@ -1557,6 +1558,7 @@ export default function SalesCyclesKanban({
   onShowCreateLeadModal?: () => void
 }) {
   const supabase = useMemo(() => supabaseBrowser(), [])
+  const { toasts, addToast, dismissToast } = useToast()
 
   const [items, setItems] = useState<Record<Status, PipelineItem[]>>({
     novo: [],
@@ -1988,7 +1990,7 @@ export default function SalesCyclesKanban({
         if (!data?.success) throw new Error('Falha ao devolver ciclo')
 
         await Promise.all([loadItems(), loadTotals(), loadPoolAndSellers()])
-        alert('Lead devolvido ao pool!')
+        addToast('Lead devolvido ao pool!')
         setKpiRefreshKey((k) => k + 1)
 
         setReturnReasonModalOpen(false)
@@ -3055,20 +3057,7 @@ export default function SalesCyclesKanban({
   // VENDOR KANBAN VIEW
   // ============================================================================
   return (
-    <div style={{ background: '#0b0b0b', minHeight: '100vh', color: 'white' }}>
-            {/* HEADER INDICATORS */}
-            <div style={{ padding: '12px 20px', background: '#0b0b0b', borderBottom: '1px solid #222', display: 'flex', gap: 16, alignItems: 'center', fontSize: 12, fontWeight: 900 }}>
-        {overdueCount > 0 && (
-          <div style={{ color: '#fecaca', background: '#7f1d1d', padding: '6px 12px', borderRadius: 6 }}>
-            ⏰ Atrasados: {overdueCount}
-          </div>
-        )}
-        {todayCount > 0 && (
-          <div style={{ color: '#93c5fd', background: '#1e40af', padding: '6px 12px', borderRadius: 6 }}>
-            📅 Hoje: {todayCount}
-          </div>
-        )}
-      </div>
+    <div style={{ background: '#0b0b0b', minHeight: '100vh', color: 'white', display: 'flex', flexDirection: 'column' }}>
 
       {/* MICRO KPIs */}
       <SellerMicroKPIs
@@ -3079,14 +3068,14 @@ export default function SalesCyclesKanban({
       />
 
       {/* FILTERS */}
-      <div style={{ padding: '12px 20px', borderBottom: '1px solid #222', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ padding: '6px 20px', borderBottom: '1px solid #222', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         {isAdmin && (
           <select
             value={selectedOwnerId || ''}
             onChange={(e) => setSelectedOwnerId(e.target.value || null)}
             style={{
-              padding: '10px 12px',
-              borderRadius: 10,
+              padding: '6px 10px',
+              borderRadius: 8,
               border: '1px solid #2a2a2a',
               background: '#111',
               color: 'white',
@@ -3108,8 +3097,8 @@ export default function SalesCyclesKanban({
           value={selectedGroupId || ''}
           onChange={(e) => setSelectedGroupId(e.target.value || null)}
           style={{
-            padding: '10px 12px',
-            borderRadius: 10,
+            padding: '6px 10px',
+            borderRadius: 8,
             border: '1px solid #2a2a2a',
             background: '#111',
             color: 'white',
@@ -3130,8 +3119,8 @@ export default function SalesCyclesKanban({
   value={slaFilter}
   onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')}
   style={{
-    padding: '10px 12px',
-    borderRadius: 10,
+    padding: '6px 10px',
+    borderRadius: 8,
     border: '1px solid #2a2a2a',
     background: '#111',
     color: 'white',
@@ -3150,8 +3139,8 @@ export default function SalesCyclesKanban({
   value={agendaFilter}
   onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')}
   style={{
-    padding: '10px 12px',
-    borderRadius: 10,
+    padding: '6px 10px',
+    borderRadius: 8,
     border: '1px solid #2a2a2a',
     background: '#111',
     color: 'white',
@@ -3174,14 +3163,14 @@ export default function SalesCyclesKanban({
     onChange={(e) => setSearchTerm(e.target.value)}
     placeholder="Buscar por nome, telefone, CPF ou email..."
     style={{
-      padding: '10px 12px',
-      borderRadius: 10,
+      padding: '6px 10px',
+      borderRadius: 8,
       border: '1px solid #2a2a2a',
       background: '#111',
       color: 'white',
       fontSize: 13,
       fontWeight: 900,
-      minWidth: 200,
+      minWidth: 180,
     }}
   />
   {searchTerm.trim() && !isSearching && searchCount !== null && (
@@ -3202,8 +3191,8 @@ export default function SalesCyclesKanban({
                 void loadTotals()
               }}
               style={{
-                padding: '10px 12px',
-                borderRadius: 10,
+                padding: '6px 10px',
+                borderRadius: 8,
                 border: '1px solid #2a2a2a',
                 background: '#111',
                 color: 'white',
@@ -3220,8 +3209,8 @@ export default function SalesCyclesKanban({
           <button
             onClick={toggleSelectAllKanban}
             style={{
-              padding: '10px 12px',
-              borderRadius: 10,
+              padding: '6px 10px',
+              borderRadius: 8,
               border: '1px solid #8b5cf6',
               background: allKanbanSelected ? '#8b5cf6' : 'transparent',
               color: allKanbanSelected ? '#000' : '#d8b4fe',
@@ -3238,8 +3227,8 @@ export default function SalesCyclesKanban({
             <button
               onClick={() => setShowBulkModal(true)}
               style={{
-                padding: '10px 12px',
-                borderRadius: 10,
+                padding: '6px 10px',
+                borderRadius: 8,
                 border: '1px solid #f59e0b',
                 background: '#92400e',
                 color: '#fef3c7',
@@ -3251,6 +3240,22 @@ export default function SalesCyclesKanban({
               Ações ({selectedIds.size})
             </button>
           )}
+
+          <button
+            onClick={() => setShowCreateLeadModal(true)}
+            style={{
+              padding: '6px 10px',
+              borderRadius: 8,
+              border: '1px solid #10b981',
+              background: '#064e3b',
+              color: '#6ee7b7',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          >
+            + Criar Lead
+          </button>
         </div>
       </div>
 
@@ -3267,16 +3272,19 @@ export default function SalesCyclesKanban({
         groupId={selectedGroupId}
         supabase={supabase}
         refreshKey={kpiRefreshKey}
-        onRefresh={() => setKpiRefreshKey((k) => k + 1)}
+        onRefresh={() => {
+          setKpiRefreshKey((k) => k + 1)
+          addToast('Agenda salva!', 'success')
+        }}
       />
 
       {/* KANBAN CONTENT */}
       {loading ? (
         <div style={{ opacity: 0.7, padding: '40px', textAlign: 'center' }}>Carregando…</div>
       ) : (
-        <div style={{ padding: '20px' }}>
+        <div style={{ padding: '12px 20px 20px', flex: 1, overflow: 'hidden' }}>
           <DndContext sensors={sensors} collisionDetection={closestCorners}>
-            <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 12, minHeight: 0 }}>
               {STATUSES.map((status) => (
                 <VirtualizedStatusColumn
                 key={status}
@@ -3614,6 +3622,7 @@ export default function SalesCyclesKanban({
           await Promise.all([loadItems(), loadTotals(), isAdmin ? loadPoolAndSellers() : Promise.resolve()])
         }}
       />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   )
 }

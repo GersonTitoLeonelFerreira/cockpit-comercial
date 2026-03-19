@@ -285,7 +285,16 @@ export default function SellerWorklist({
           {loading ? (
             <div style={{ fontSize: 12, color: '#6b7280', padding: '8px 0' }}>Carregando fila…</div>
           ) : data ? (
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                flexWrap: 'wrap',
+                maxHeight: 280,
+                overflowY: 'auto',
+                paddingRight: 4,
+              }}
+            >
               {/* Overdue */}
               <div style={{ flex: '1 1 240px', minWidth: 240 }}>
                 <WorklistSection
