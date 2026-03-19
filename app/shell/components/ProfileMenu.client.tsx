@@ -43,7 +43,7 @@ export default function ProfileMenu() {
       setIsAuthed(!!data.user)
       const email = data.user?.email ?? ''
       setLabel(email || 'Perfil')
-=======
+      await refreshLabelFromProfile(email)
     })()
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
