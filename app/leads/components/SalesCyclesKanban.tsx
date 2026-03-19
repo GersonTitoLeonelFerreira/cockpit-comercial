@@ -573,9 +573,42 @@ function KanbanCard({
   nowTick: Date
 }) {
   const [showMenu, setShowMenu] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [showQuickActionModal, setShowQuickActionModal] = useState(false)
   const [quickActionLoading, setQuickActionLoading] = useState(false)
   const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
+
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Calculate fixed position when menu opens
+  useEffect(() => {
+    if (showMenu && menuButtonRef.current) {
+      const rect = menuButtonRef.current.getBoundingClientRect()
+      const menuHeight = 320 // estimated max height
+      const spaceBelow = window.innerHeight - rect.bottom
+      const top = spaceBelow >= menuHeight ? rect.bottom + 4 : rect.top - menuHeight - 4
+      const left = rect.right - 200 // align right edge with button
+      setMenuPos({ top: Math.max(8, top), left: Math.max(8, left) })
+    }
+  }, [showMenu])
+
+  // Click-outside handler
+  useEffect(() => {
+    if (!showMenu) return
+    const handleMouseDown = (e: MouseEvent) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        menuButtonRef.current &&
+        !menuButtonRef.current.contains(e.target as Node)
+      ) {
+        setShowMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [showMenu])
 
   const canReturnToPool = isAdmin || item.owner_id === currentUserId
 
@@ -696,6 +729,7 @@ function KanbanCard({
         </div>
 
         <button
+          ref={menuButtonRef}
           onClick={(e) => {
             e.stopPropagation()
             setShowMenu(!showMenu)
@@ -872,18 +906,18 @@ function KanbanCard({
       {isSaving && <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 6, marginLeft: 28 }}>Salvando…</div>}
 
       {/* MENU DE AÇÕES */}
-      {showMenu && (
+      {showMenu && menuPos && (
         <div
+          ref={menuRef}
           style={{
-            position: 'absolute',
-            top: '100%',
-            right: 0,
+            position: 'fixed',
+            top: menuPos.top,
+            left: menuPos.left,
             background: '#222',
             border: '1px solid #444',
             borderRadius: 8,
-            zIndex: 1000,
+            zIndex: 9999,
             minWidth: 200,
-            marginTop: 8,
           }}
           draggable={false}
           onClick={(e) => e.stopPropagation()}
@@ -1154,6 +1188,7 @@ function VirtualizedStatusColumn({
       ref={setNodeRef}
       style={{
         minWidth: 280,
+        minHeight: 200,
         background: isOver ? '#1a1a2e' : '#0f0f0f',
         borderRadius: 12,
         padding: 12,

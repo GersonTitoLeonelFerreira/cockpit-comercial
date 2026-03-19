@@ -54,9 +54,10 @@ async function getSalesCycleDetail(cycleId: string) {
 export default async function SalesCycleDetailPage({
   params,
 }: {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }) {
-  const { cycle, events } = await getSalesCycleDetail(params.id)
+  const { id } = await params
+  const { cycle, events } = await getSalesCycleDetail(id)
 
   return (
     <div className="min-h-screen bg-gray-950">
