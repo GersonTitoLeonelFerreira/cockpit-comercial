@@ -29,20 +29,22 @@ export async function middleware(req: NextRequest) {
 
   if (!user) return NextResponse.redirect(new URL('/login', req.url))
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, is_active')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile || profile.is_active === false) {
+    return NextResponse.redirect(new URL('/conta-desativada', req.url))
+  }
+
   const isAdminRoute = ADMIN_ROUTES.some((route) =>
     req.nextUrl.pathname.startsWith(route)
   )
 
-  if (isAdminRoute) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.role !== 'admin') {
-      return NextResponse.redirect(new URL('/leads', req.url))
-    }
+  if (isAdminRoute && profile.role !== 'admin') {
+    return NextResponse.redirect(new URL('/leads', req.url))
   }
 
   return res
