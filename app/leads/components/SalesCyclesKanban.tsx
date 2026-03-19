@@ -596,11 +596,9 @@ function KanbanCard({
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-    // Click-outside handler — uses requestAnimationFrame to avoid capturing the opening event
+      // Click-outside handler — uses setTimeout to delay registration
   useEffect(() => {
     if (!showMenu) return
-
-    let registered = false
 
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -614,16 +612,14 @@ function KanbanCard({
       }
     }
 
-    const rafId = requestAnimationFrame(() => {
+    // Use setTimeout with 100ms to ensure the opening click is fully processed
+    const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside)
-      registered = true
-    })
+    }, 100)
 
     return () => {
-      cancelAnimationFrame(rafId)
-      if (registered) {
-        document.removeEventListener('mousedown', handleClickOutside)
-      }
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showMenu])
 
@@ -687,12 +683,12 @@ function KanbanCard({
         e.dataTransfer!.effectAllowed = 'move'
         e.dataTransfer!.setData('cycleId', item.id)
       }}
-            onMouseEnter={(e) => {
+                  onMouseEnter={(e) => {
         ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'
       }}
       onMouseLeave={(e) => {
-        if (showMenu) return  // ← NÃO reseta enquanto o menu estiver aberto
+        if (showMenu) return
         ;(e.currentTarget as HTMLDivElement).style.transform = 'none'
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
       }}
@@ -756,23 +752,25 @@ function KanbanCard({
           <div style={{ fontSize: 11, color: '#9ca3af' }}>{item.phone || '—'}</div>
         </div>
 
-        <button
+                <button
           ref={menuButtonRef}
           onClick={(e) => {
             e.stopPropagation()
-            if (showMenu) {
-              setShowMenu(false)
-              setMenuPos(null)
-              return
-            }
-            if (menuButtonRef.current) {
-              const rect = menuButtonRef.current.getBoundingClientRect()
-              const spaceBelow = window.innerHeight - rect.bottom
-              const top = spaceBelow >= MENU_MAX_HEIGHT ? rect.bottom + 4 : rect.top - MENU_MAX_HEIGHT - 4
-              const left = rect.right - 200
-              setMenuPos({ top: Math.max(8, top), left: Math.max(8, left) })
-            }
-            setShowMenu(true)
+            e.preventDefault()
+            setShowMenu((prev) => {
+              if (prev) {
+                setMenuPos(null)
+                return false
+              }
+              if (menuButtonRef.current) {
+                const rect = menuButtonRef.current.getBoundingClientRect()
+                const spaceBelow = window.innerHeight - rect.bottom
+                const top = spaceBelow >= MENU_MAX_HEIGHT ? rect.bottom + 4 : rect.top - MENU_MAX_HEIGHT - 4
+                const left = rect.right - 200
+                setMenuPos({ top: Math.max(8, top), left: Math.max(8, left) })
+              }
+              return true
+            })
           }}
           onMouseDown={(e) => {
             e.preventDefault()
