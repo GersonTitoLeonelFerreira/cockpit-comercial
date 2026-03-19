@@ -377,74 +377,72 @@ export default function LeadsClient({
         >
           + Criar Lead
         </button>
-
         {isAdmin && (
           <ImportExcelDialog
             userId={userId}
             companyId={companyId}
             onImported={() => window.location.reload() /* TODO: substituir por router.refresh() */}
             trigger={
-                <button
-                  style={{
-                    padding: '10px 16px',
-                    borderRadius: 8,
-                    border: '1px solid #10b981',
-                    background: 'transparent',
-                    color: '#10b981',
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    fontWeight: 500,
-                  }}
-                >
-                  Importar Excel
-                </button>
-              }
-            />
-          )}
+              <button
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: 8,
+                  border: '1px solid #10b981',
+                  background: 'transparent',
+                  color: '#10b981',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                Importar Excel
+              </button>
+            }
+          />
+        )}
 
-          {/* Deletar Leads - ADMIN ONLY */}
-          {isAdmin && (
-            <DeleteLeadsDialog
-              companyId={companyId}
-              isAdmin={isAdmin}
-              onDeleted={() => window.location.reload() /* TODO: substituir por router.refresh() */}
-              trigger={
-                <button
-                  style={{
-                    padding: '10px 16px',
-                    borderRadius: 8,
-                    border: '1px solid #ef4444',
-                    background: 'transparent',
-                    color: '#ef4444',
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    fontWeight: 500,
-                  }}
-                >
-                  Deletar Leads
-                </button>
-              }
-            />
-          )}
+        {/* Deletar Leads - ADMIN ONLY */}
+        {isAdmin && (
+          <DeleteLeadsDialog
+            companyId={companyId}
+            isAdmin={isAdmin}
+            onDeleted={() => window.location.reload() /* TODO: substituir por router.refresh() */}
+            trigger={
+              <button
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: 8,
+                  border: '1px solid #ef4444',
+                  background: 'transparent',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                Deletar Leads
+              </button>
+            }
+          />
+        )}
 
-          {/* Atualizar (Refresh) */}
-          <button
-            onClick={() => window.location.reload() /* TODO: substituir por router.refresh() */}
-            style={{
-              padding: '10px 16px',
-              borderRadius: 8,
-              border: '1px solid #444',
-              background: 'transparent',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 500,
-              marginLeft: 'auto',
-            }}
-          >
-            Refresh
-          </button>
-        </div>
+        {/* Atualizar (Refresh) */}
+        <button
+          onClick={() => window.location.reload() /* TODO: substituir por router.refresh() */}
+          style={{
+            padding: '10px 16px',
+            borderRadius: 8,
+            border: '1px solid #444',
+            background: 'transparent',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: 13,
+            fontWeight: 500,
+            marginLeft: 'auto',
+          }}
+        >
+          Refresh
+        </button>
       </div>
 
       {/* KANBAN */}
