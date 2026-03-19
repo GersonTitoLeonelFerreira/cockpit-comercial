@@ -78,8 +78,9 @@ export async function getSellers(supabase: SupabaseClient) {
     const { data, error } = await supabase
       .from('profiles')
       .select('id, company_id, full_name, email, role')
-      .in('role', ['member', 'seller', 'consultor', 'admin']) // ✅ Adicionei 'admin'
-      .neq('status', 'archived') // ✅ Mudei: exclui apenas archived, não filtra por active
+      .in('role', ['member', 'seller', 'consultor', 'admin'])
+      .neq('status', 'archived')
+      .eq('is_active', true)
       .order('full_name', { ascending: true })
   
     if (error) throw error
