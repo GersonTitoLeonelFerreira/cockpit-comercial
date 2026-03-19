@@ -210,6 +210,11 @@ export default function ProfileClient() {
   const [emailDraft, setEmailDraft] = React.useState('')
   const [changingEmail, setChangingEmail] = React.useState(false)
 
+  // password change (Auth)
+  const [newPassword, setNewPassword] = React.useState('')
+  const [confirmPassword, setConfirmPassword] = React.useState('')
+  const [changingPassword, setChangingPassword] = React.useState(false)
+
   const detailsExists = !!data?.details
 
   async function load() {
@@ -369,6 +374,30 @@ await load()
       setErr(e?.message ?? String(e))
     } finally {
       setChangingEmail(false)
+    }
+  }
+
+  async function changePassword() {
+    setErr(null)
+
+    if (!newPassword || newPassword.length < 6) {
+      return setErr('Nova senha deve ter no mínimo 6 caracteres.')
+    }
+    if (newPassword !== confirmPassword) {
+      return setErr('A confirmação de senha não confere.')
+    }
+
+    setChangingPassword(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) throw error
+      setNewPassword('')
+      setConfirmPassword('')
+      showToast('success', 'Senha alterada com sucesso!')
+    } catch (e: any) {
+      setErr(e?.message ?? String(e))
+    } finally {
+      setChangingPassword(false)
     }
   }
 
@@ -703,6 +732,72 @@ await load()
             >
               {changingEmail ? 'Enviando...' : 'Alterar e-mail'}
             </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+          <div style={{ fontWeight: 900, marginBottom: 12 }}>Senha</div>
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Nova senha *</div>
+              <input
+                type="password"
+                placeholder="Mín. 6 caracteres"
+                style={{
+                  background: '#111',
+                  border: '1px solid #2a2a2a',
+                  color: 'white',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  outline: 'none',
+                  width: '100%',
+                }}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Confirmar nova senha *</div>
+                <input
+                  type="password"
+                  placeholder="Repita a nova senha"
+                  style={{
+                    background: '#111',
+                    border: '1px solid #2a2a2a',
+                    color: 'white',
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    outline: 'none',
+                    width: '100%',
+                  }}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={changePassword}
+                disabled={changingPassword}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1px solid #2a2a2a',
+                  background: '#111',
+                  color: 'white',
+                  cursor: changingPassword ? 'not-allowed' : 'pointer',
+                  fontSize: 13,
+                  fontWeight: 900,
+                  whiteSpace: 'nowrap',
+                  opacity: changingPassword ? 0.7 : 1,
+                }}
+              >
+                {changingPassword ? 'Alterando...' : 'Alterar senha'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

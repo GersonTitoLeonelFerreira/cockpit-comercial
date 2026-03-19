@@ -96,6 +96,7 @@ export default function NovoVendedorClient() {
 
   // acesso
   const [role, setRole] = useState<Role>('member')
+  const [password, setPassword] = useState('')
 
   const [loading, setLoading] = useState(false)
 
@@ -123,6 +124,7 @@ export default function NovoVendedorClient() {
     if (!legalNameNorm) return showToast('error', 'Informe o Nome Registro.')
     if (!birthDate) return showToast('error', 'Informe a Data de nascimento.')
     if (!cpfNorm) return showToast('error', 'Informe o CPF.')
+    if (!password || password.length < 6) return showToast('error', 'Senha temporária deve ter no mínimo 6 caracteres.')
 
     setLoading(true)
 
@@ -134,6 +136,7 @@ export default function NovoVendedorClient() {
           email: emailNorm,
           full_name: fullNameNorm,
           role,
+          password,
 
           // details
           details: {
@@ -159,7 +162,7 @@ export default function NovoVendedorClient() {
       if (json?.warning) {
         showToast('info', `Criado com aviso:\n${json.warning}`)
       } else {
-        showToast('success', 'Vendedor criado com sucesso!')
+        showToast('success', 'Vendedor criado com sucesso! Informe a senha temporária ao vendedor para que ele possa acessar o sistema.')
       }
 
       setTimeout(() => {
@@ -222,6 +225,17 @@ export default function NovoVendedorClient() {
       <label>
         Email (login) *
         <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+      </label>
+
+      <label>
+        Senha temporária *
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Mín. 6 caracteres"
+          style={inputStyle}
+        />
       </label>
 
       <label>

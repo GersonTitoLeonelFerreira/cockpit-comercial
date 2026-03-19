@@ -7,6 +7,7 @@ type Body = {
   email?: string
   full_name?: string
   role?: string
+  password?: string
   details?: {
     tipo_pessoa?: 'fisica' | 'juridica' | 'estrangeiro'
     legal_name?: string
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
     const email = (body.email ?? '').trim().toLowerCase()
     const full_name = (body.full_name ?? '').trim()
     const role = normalizeRole(body.role)
+    const password = (body.password ?? '').trim()
 
     const details = body.details ?? {}
     const tipo_pessoa = (details.tipo_pessoa ?? '').trim() as any
@@ -74,6 +76,12 @@ export async function POST(req: Request) {
     if (!allowedRoles.has(role)) {
       return NextResponse.json(
         { error: 'Role inválida. Use: admin | manager | member' },
+        { status: 400 },
+      )
+    }
+    if (!password || password.length < 6) {
+      return NextResponse.json(
+        { error: 'Senha temporária deve ter no mínimo 6 caracteres' },
         { status: 400 },
       )
     }
@@ -133,7 +141,8 @@ export async function POST(req: Request) {
 
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,
-      email_confirm: false,
+      password,
+      email_confirm: true,
       user_metadata: {
         full_name: full_name || email,
         role,
