@@ -8,6 +8,7 @@ import SellerMicroKPIs from './SellerMicroKPIs'
 import SellerWorklist from './SellerWorklist'
 import { ToastContainer, useToast } from './Toast'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
@@ -377,6 +378,196 @@ function ReturnReasonModal({
 }
 
 // ============================================================================
+// CardActionsMenuPortal
+// ============================================================================
+function CardActionsMenuPortal({
+  item,
+  anchorRect,
+  onClose,
+  onReturnToPool,
+  onReassign,
+  onSetGroup,
+  onCreateGroup,
+  groups,
+  sellers,
+  isAdmin,
+}: {
+  item: PipelineItem
+  anchorRect: DOMRect
+  onClose: () => void
+  onReturnToPool: (cycleId: string, cycleName: string) => void
+  onReassign: (cycleId: string, newOwnerId: string) => void
+  onSetGroup: (cycleId: string, groupId: string | null) => void
+  onCreateGroup: (target: 'bulk' | 'card', cycleId?: string) => void
+  groups: LeadGroup[]
+  sellers: Profile[]
+  isAdmin: boolean
+}) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    const handleScroll = () => onClose()
+    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('scroll', handleScroll, true)
+    }
+  }, [onClose])
+
+  const menuStyle: React.CSSProperties = {
+    position: 'fixed',
+    top: anchorRect.bottom + 4,
+    right: window.innerWidth - anchorRect.right,
+    background: '#1a1a1a',
+    border: '1px solid #333',
+    borderRadius: 10,
+    padding: 8,
+    zIndex: 9001,
+    minWidth: 220,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+    color: 'white',
+    fontSize: 13,
+  }
+
+  const menuContent = (
+    <>
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 9000 }}
+        onClick={onClose}
+      />
+      <div style={menuStyle}>
+        {/* Devolver ao Pool */}
+        <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: '1px solid #2a2a2a' }}>
+          <button
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              background: 'none',
+              border: 'none',
+              color: '#fecaca',
+              cursor: 'pointer',
+              textAlign: 'left',
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,38,38,0.15)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
+            onClick={() => {
+              onReturnToPool(item.id, item.name)
+              onClose()
+            }}
+          >
+            ↩ Devolver ao Pool
+          </button>
+        </div>
+
+        {/* Redistribuir (admin only) */}
+        {isAdmin && sellers.length > 0 && (
+          <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: '1px solid #2a2a2a' }}>
+            <div style={{ fontSize: 10, fontWeight: 900, color: '#6b7280', padding: '4px 12px', letterSpacing: '0.08em' }}>
+              REDISTRIBUIR
+            </div>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  onReassign(item.id, e.target.value)
+                  onClose()
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                background: '#222',
+                border: '1px solid #2a2a2a',
+                borderRadius: 6,
+                color: 'white',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">Para outro vendedor…</option>
+              {sellers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.full_name ?? s.email} ({s.role})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Grupos */}
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 900, color: '#6b7280', padding: '4px 12px', letterSpacing: '0.08em' }}>
+            GRUPO
+          </div>
+          <select
+            value={item.group_id ?? ''}
+            onChange={(e) => {
+              onSetGroup(item.id, e.target.value || null)
+              onClose()
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              background: '#222',
+              border: '1px solid #2a2a2a',
+              borderRadius: 6,
+              color: 'white',
+              fontSize: 12,
+              cursor: 'pointer',
+              marginBottom: 4,
+            }}
+          >
+            <option value="">Sem grupo</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+          {isAdmin && (
+            <button
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                background: 'none',
+                border: 'none',
+                color: '#6ee7b7',
+                cursor: 'pointer',
+                textAlign: 'left',
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(34,197,94,0.1)' }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
+              onClick={() => {
+                onCreateGroup('card', item.id)
+                onClose()
+              }}
+            >
+              + Criar novo grupo
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  )
+
+  return createPortal(menuContent, document.body)
+}
+
+// ============================================================================
 // KanbanCard
 // ============================================================================
 function KanbanCard({
@@ -384,12 +575,15 @@ function KanbanCard({
   isSaving,
   isSelected,
   onToggleSelect,
+  onOpenMenu,
 }: {
   item: PipelineItem
   isSaving: boolean
   isSelected: boolean
   onToggleSelect: (cycleId: string) => void
+  onOpenMenu: (item: PipelineItem, anchorRect: DOMRect) => void
 }) {
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
   return (
     <div
       style={{
@@ -434,9 +628,37 @@ function KanbanCard({
         />
       </div>
 
+      {/* MENU BUTTON */}
+      <button
+        ref={menuButtonRef}
+        onClick={(e) => {
+          e.stopPropagation()
+          if (!menuButtonRef.current) return
+          const rect = menuButtonRef.current.getBoundingClientRect()
+          onOpenMenu(item, rect)
+        }}
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          background: 'none',
+          border: 'none',
+          color: '#6b7280',
+          cursor: 'pointer',
+          fontSize: 14,
+          lineHeight: 1,
+          padding: '2px 4px',
+          borderRadius: 4,
+        }}
+        title="Ações"
+      >
+        ···
+      </button>
+
       {/* CONTENT */}
       <div
-        style={{ cursor: 'pointer', marginLeft: 24 }}
+        style={{ cursor: 'pointer', marginLeft: 24, marginRight: 24 }}
         onClick={() => { window.location.href = `/sales-cycles/${item.id}` }}
       >
         <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, color: 'white' }}>{item.name}</div>
@@ -467,6 +689,13 @@ type VirtualizedStatusColumnProps = {
   nowTick: Date
   slaFilter: 'all' | 'ok' | 'warn' | 'danger'
   agendaFilter: 'all' | 'today' | 'overdue' | 'next7'
+  onReturnToPool: (cycleId: string, cycleName: string) => void
+  onReassign: (cycleId: string, newOwnerId: string) => void
+  onSetGroup: (cycleId: string, groupId: string | null) => void
+  onCreateGroup: (target: 'bulk' | 'card', cycleId?: string) => void
+  groups: LeadGroup[]
+  sellers: Profile[]
+  isAdmin: boolean
 }
 
 function VirtualizedStatusColumn({
@@ -481,10 +710,23 @@ function VirtualizedStatusColumn({
   nowTick,
   slaFilter,
   agendaFilter,
+  onReturnToPool,
+  onReassign,
+  onSetGroup,
+  onCreateGroup,
+  groups,
+  sellers,
+  isAdmin,
 }: VirtualizedStatusColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: status,
   })
+
+  const [menuState, setMenuState] = useState<{ item: PipelineItem; anchorRect: DOMRect } | null>(null)
+
+  const handleOpenMenu = useCallback((menuItem: PipelineItem, anchorRect: DOMRect) => {
+    setMenuState({ item: menuItem, anchorRect })
+  }, [])
 
   const shown = cycles.length
   const total = totalCount ?? shown
@@ -513,6 +755,7 @@ function VirtualizedStatusColumn({
   })
 
   return (
+    <>
     <div
       ref={setNodeRef}
       style={{
@@ -579,12 +822,28 @@ function VirtualizedStatusColumn({
                 isSaving={savingId === item.id}
                 isSelected={selectedIds.has(item.id)}
                 onToggleSelect={onToggleSelect}
+                onOpenMenu={handleOpenMenu}
               />
             ))}
           </div>
         )}
       </div>
     </div>
+    {menuState && (
+      <CardActionsMenuPortal
+        item={menuState.item}
+        anchorRect={menuState.anchorRect}
+        onClose={() => setMenuState(null)}
+        onReturnToPool={onReturnToPool}
+        onReassign={onReassign}
+        onSetGroup={onSetGroup}
+        onCreateGroup={onCreateGroup}
+        groups={groups}
+        sellers={sellers}
+        isAdmin={isAdmin}
+      />
+    )}
+    </>
   )
 }
 
@@ -2551,6 +2810,13 @@ export default function SalesCyclesKanban({
                     nowTick={nowTick}
                     slaFilter={slaFilter}
                     agendaFilter={agendaFilter}
+                    onReturnToPool={handleOpenReturnReasonModal}
+                    onReassign={reassignCycle}
+                    onSetGroup={setGroupForCycle}
+                    onCreateGroup={handleCreateGroupInline}
+                    groups={groups}
+                    sellers={sellers}
+                    isAdmin={isAdmin}
                   />
                 ))}
               </DndContext>
