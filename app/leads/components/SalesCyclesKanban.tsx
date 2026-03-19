@@ -568,6 +568,125 @@ function CardActionsMenuPortal({
 }
 
 // ============================================================================
+// QuickActionModal
+// ============================================================================
+type QuickActionType = 'quick_approach_contact' | 'quick_call_done' | 'quick_answered_doubt' | 'quick_scheduled' | 'quick_proposal' | 'quick_bad_data'
+
+const QUICK_ACTION_SUGGESTED_STATUS: Record<QuickActionType, string | null> = {
+  quick_approach_contact: 'contato',
+  quick_call_done: 'contato',
+  quick_answered_doubt: 'respondeu',
+  quick_scheduled: 'respondeu',
+  quick_proposal: 'negociacao',
+  quick_bad_data: null,
+}
+
+async function logQuickAction(
+  supabase: any, companyId: string, cycleId: string, userId: string,
+  eventType: QuickActionType, detail: string = '', channel: 'whatsapp' | 'copy' = 'copy'
+) {
+  try {
+    const metadata = { source: 'kanban_quick_action', detail, channel, suggested_next_status: QUICK_ACTION_SUGGESTED_STATUS[eventType] }
+    await supabase.from('cycle_events').insert({
+      company_id: companyId, cycle_id: cycleId, event_type: eventType,
+      created_by: userId, metadata, occurred_at: new Date().toISOString(),
+    })
+    return QUICK_ACTION_SUGGESTED_STATUS[eventType]
+  } catch (e: any) {
+    console.error(`Erro ao registrar ação rápida (cycleId=${cycleId}):`, e)
+    return null
+  }
+}
+
+function QuickActionModal({
+  isOpen,
+  leadName,
+  onClose,
+  onSave,
+  isLoading,
+}: {
+  isOpen: boolean
+  leadName: string
+  onClose: () => void
+  onSave: (action: string, detail: string) => void
+  isLoading: boolean
+}) {
+  const [selectedAction, setSelectedAction] = useState<string | null>(null)
+  const [detail, setDetail] = useState('')
+
+  const actions: { id: QuickActionType; label: string }[] = [
+    { id: 'quick_approach_contact', label: 'Abordagem realizada' },
+    { id: 'quick_call_done', label: 'Ligação feita' },
+    { id: 'quick_answered_doubt', label: 'Respondido dúvida' },
+    { id: 'quick_scheduled', label: 'Agendamento realizado' },
+    { id: 'quick_proposal', label: 'Proposta realizada' },
+    { id: 'quick_bad_data', label: 'Telefone incorreto' },
+  ]
+
+  const handleSave = () => {
+    if (!selectedAction) {
+      alert('Selecione uma ação')
+      return
+    }
+    onSave(selectedAction, detail)
+    setSelectedAction(null)
+    setDetail('')
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9998,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: '#111', border: '1px solid #333', borderRadius: 12, padding: 20, width: '90%', maxWidth: 400, color: 'white' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 12 }}>Registrar Contato</div>
+        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 16, color: '#bfdbfe' }}>Lead: <strong>{leadName}</strong></div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 8 }}>Ação *</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            {actions.map((action) => (
+              <button key={action.id} onClick={() => setSelectedAction(action.id)}
+                style={{
+                  padding: '8px 10px', borderRadius: 6,
+                  border: selectedAction === action.id ? '1px solid #10b981' : '1px solid #2a2a2a',
+                  background: selectedAction === action.id ? '#10b981' : '#222',
+                  color: selectedAction === action.id ? '#000' : 'white',
+                  cursor: 'pointer', fontSize: 10, fontWeight: 700, transition: 'all 200ms',
+                }}
+              >{action.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 6 }}>Detalhes (opcional)</label>
+          <textarea value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Adicione notas..."
+            style={{ width: '100%', minHeight: 60, padding: '8px', borderRadius: 6, border: '1px solid #2a2a2a', background: '#222', color: 'white', fontSize: 11, fontFamily: 'system-ui', resize: 'vertical' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} disabled={isLoading}
+            style={{ flex: 1, padding: '8px', borderRadius: 6, border: '1px solid #2a2a2a', background: 'transparent', color: 'white', cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 11, opacity: isLoading ? 0.5 : 1 }}
+          >Cancelar</button>
+          <button onClick={handleSave} disabled={!selectedAction || isLoading}
+            style={{ flex: 1, padding: '8px', borderRadius: 6, border: 'none', background: selectedAction && !isLoading ? '#10b981' : '#1f2937', color: 'white', cursor: selectedAction && !isLoading ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: 11, opacity: selectedAction && !isLoading ? 1 : 0.5 }}
+          >{isLoading ? 'Salvando…' : 'Salvar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
 // KanbanCard
 // ============================================================================
 function KanbanCard({
@@ -576,14 +695,73 @@ function KanbanCard({
   isSelected,
   onToggleSelect,
   onOpenMenu,
+  onMoveItem,
+  supabase,
+  companyId,
+  currentUserId,
+  slaRules,
+  nowTick,
 }: {
   item: PipelineItem
   isSaving: boolean
   isSelected: boolean
   onToggleSelect: (cycleId: string) => void
   onOpenMenu: (item: PipelineItem, anchorRect: DOMRect) => void
+  onMoveItem: (cycleId: string, toStatus: Status) => void
+  supabase: any
+  companyId: string
+  currentUserId: string
+  slaRules: Record<Status, SLARuleDB | null>
+  nowTick: Date
 }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const [showQuickActionModal, setShowQuickActionModal] = useState(false)
+  const [quickActionLoading, setQuickActionLoading] = useState(false)
+  const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
+  const [lastChannel, setLastChannel] = useState<'whatsapp' | 'copy'>('copy')
+
+  const minutesInStage = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
+  const slaRule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
+  const slaLevel = getSLALevel(minutesInStage, slaRule)
+
+  const agendaState = getAgendaState(item.next_action_date)
+  const agendaBadge = getAgendaBadgeStyle(agendaState)
+  const agendaLabel = getAgendaBadgeLabel(agendaState, item.next_action_date)
+
+  const groupName = item.lead_groups?.name ?? null
+
+  const handleWhatsApp = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!item.phone) return
+    const digits = item.phone.replace(/\D/g, '')
+    const phone = digits.startsWith('55') ? digits : `55${digits}`
+    window.open(`https://wa.me/${phone}`, '_blank')
+    setLastChannel('whatsapp')
+    setShowQuickActionModal(true)
+  }
+
+  const handleCopyPhone = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!item.phone) return
+    navigator.clipboard.writeText(item.phone).catch((err) => { console.error('Clipboard copy failed:', err) })
+    setLastChannel('copy')
+    setShowQuickActionModal(true)
+  }
+
+  const handleQuickActionSave = async (action: string, detail: string) => {
+    setQuickActionLoading(true)
+    try {
+      const suggested = await logQuickAction(
+        supabase, companyId, item.id, currentUserId,
+        action as QuickActionType, detail, lastChannel
+      )
+      setSuggestedStatus(suggested)
+    } finally {
+      setQuickActionLoading(false)
+      setShowQuickActionModal(false)
+    }
+  }
+
   return (
     <div
       style={{
@@ -668,8 +846,101 @@ function KanbanCard({
             Próx: {item.next_action}
           </div>
         )}
+        {groupName && (
+          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+            {groupName}
+          </div>
+        )}
         {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
       </div>
+
+      {/* WA + COPY BUTTONS */}
+      {item.phone && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 8, marginBottom: 2, marginLeft: 24 }}>
+          <button
+            onClick={handleWhatsApp}
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+            style={{
+              padding: '4px 8px', borderRadius: 4, border: 'none',
+              background: '#16a34a', color: 'white', cursor: 'pointer',
+              fontSize: 10, fontWeight: 700,
+            }}
+            title="Abrir WhatsApp"
+          >WA</button>
+          <button
+            onClick={handleCopyPhone}
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+            style={{
+              padding: '4px 8px', borderRadius: 4, border: '1px solid #2a2a2a',
+              background: '#222', color: '#9ca3af', cursor: 'pointer',
+              fontSize: 10, fontWeight: 700,
+            }}
+            title="Copiar número"
+          >Copiar</button>
+        </div>
+      )}
+
+      {/* SLA BADGE */}
+      {item.status !== 'ganho' && item.status !== 'perdido' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, marginLeft: 24 }}>
+          <span style={{
+            fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 3,
+            background: `${getSLAColor(slaLevel)}20`,
+            color: getSLAColor(slaLevel),
+            border: `1px solid ${getSLAColor(slaLevel)}40`,
+          }}>
+            {getSLALabel(slaLevel)}
+          </span>
+          <span style={{ fontSize: 9, color: '#6b7280' }}>{formatTimeInStage(minutesInStage)}</span>
+        </div>
+      )}
+
+      {/* AGENDA BADGE */}
+      {agendaState !== 'none' && (
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          marginTop: 4, marginLeft: 24,
+          padding: '2px 6px', borderRadius: 3,
+          background: agendaBadge.bg,
+          color: agendaBadge.text,
+          fontSize: 9, fontWeight: 700,
+        }}>
+          <span>{agendaBadge.icon}</span>
+          <span>{agendaLabel}</span>
+        </div>
+      )}
+
+      {/* SUGGESTED MOVE BUTTON */}
+      {suggestedStatus && suggestedStatus !== item.status && (
+        <div style={{ marginTop: 8, marginLeft: 24 }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveItem(item.id, suggestedStatus as Status)
+              setSuggestedStatus(null)
+            }}
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+            style={{
+              padding: '4px 8px', borderRadius: 4,
+              border: '1px solid #10b981',
+              background: 'rgba(16,185,129,0.1)',
+              color: '#10b981', cursor: 'pointer',
+              fontSize: 10, fontWeight: 700,
+            }}
+          >
+            Mover para {STATUS_LABELS[suggestedStatus as Status] ?? suggestedStatus}
+          </button>
+        </div>
+      )}
+
+      {/* QUICK ACTION MODAL */}
+      <QuickActionModal
+        isOpen={showQuickActionModal}
+        leadName={item.name}
+        onClose={() => setShowQuickActionModal(false)}
+        onSave={handleQuickActionSave}
+        isLoading={quickActionLoading}
+      />
     </div>
   )
 }
@@ -696,6 +967,10 @@ type VirtualizedStatusColumnProps = {
   groups: LeadGroup[]
   sellers: Profile[]
   isAdmin: boolean
+  onMoveItem: (cycleId: string, toStatus: Status) => void
+  supabase: any
+  companyId: string
+  currentUserId: string
 }
 
 function VirtualizedStatusColumn({
@@ -717,6 +992,10 @@ function VirtualizedStatusColumn({
   groups,
   sellers,
   isAdmin,
+  onMoveItem,
+  supabase,
+  companyId,
+  currentUserId,
 }: VirtualizedStatusColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: status,
@@ -823,6 +1102,12 @@ function VirtualizedStatusColumn({
                 isSelected={selectedIds.has(item.id)}
                 onToggleSelect={onToggleSelect}
                 onOpenMenu={handleOpenMenu}
+                onMoveItem={onMoveItem}
+                supabase={supabase}
+                companyId={companyId}
+                currentUserId={currentUserId}
+                slaRules={slaRules}
+                nowTick={nowTick}
               />
             ))}
           </div>
@@ -2817,6 +3102,10 @@ export default function SalesCyclesKanban({
                     groups={groups}
                     sellers={sellers}
                     isAdmin={isAdmin}
+                    onMoveItem={handleDrop}
+                    supabase={supabase}
+                    companyId={companyId}
+                    currentUserId={userId}
                   />
                 ))}
               </DndContext>
