@@ -19,10 +19,10 @@ type SellerWorklistProps = {
 
 const STATUS_COLORS: Record<string, string> = {
   novo: '#3b82f6',
-  contato: '#8b5cf6',
-  respondeu: '#ec4899',
-  negociacao: '#f59e0b',
-  ganho: '#10b981',
+  contato: '#06b6d4',
+  respondeu: '#eab308',
+  negociacao: '#8b5cf6',
+  ganho: '#22c55e',
   perdido: '#ef4444',
 }
 
@@ -142,7 +142,7 @@ function WorklistSection({ title, icon, color, bg, items, defaultOpen = true, on
         <span style={{ flex: 1 }}>
           {title} ({items.length})
         </span>
-        <span style={{ fontSize: 10 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ fontSize: 10 }}>{open ? '^' : 'v'}</span>
       </button>
 
       {open && (
@@ -243,7 +243,7 @@ export default function SellerWorklist({
             fontWeight: 700,
           }}
         >
-          <span style={{ fontSize: 14 }}>{collapsed ? '▶' : '▼'}</span>
+          <span style={{ fontSize: 14 }}>{collapsed ? '>' : 'v'}</span>
           <span>Fila do Dia</span>
           {!loading && totalItems > 0 && (
             <span
@@ -299,7 +299,7 @@ export default function SellerWorklist({
               <div style={{ flex: '1 1 240px', minWidth: 240 }}>
                 <WorklistSection
                   title="Atrasados"
-                  icon="⏰"
+                  icon="!"
                   color="#fca5a5"
                   bg="#7f1d1d"
                   items={data.overdue}
@@ -312,7 +312,7 @@ export default function SellerWorklist({
               <div style={{ flex: '1 1 240px', minWidth: 240 }}>
                 <WorklistSection
                   title="Hoje"
-                  icon="📅"
+                  icon=">"
                   color="#93c5fd"
                   bg="#1e3a5f"
                   items={data.today}
@@ -325,7 +325,7 @@ export default function SellerWorklist({
               <div style={{ flex: '1 1 240px', minWidth: 240 }}>
                 <WorklistSection
                   title="SLA Estourado"
-                  icon="🔴"
+                  icon="*"
                   color="#fca5a5"
                   bg="#3b0f0f"
                   items={data.sla_danger}

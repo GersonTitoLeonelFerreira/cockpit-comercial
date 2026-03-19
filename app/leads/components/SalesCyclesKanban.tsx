@@ -63,9 +63,9 @@ function getSLAColor(level: SLALevel): string {
 
 function getSLALabel(level: SLALevel): string {
   switch (level) {
-    case 'ok': return '🟢 OK'
-    case 'warn': return '🟡 ATENÇÃO'
-    case 'danger': return '🔴 ESTOURADO'
+    case 'ok': return 'SLA OK'
+    case 'warn': return 'SLA ATENCAO'
+    case 'danger': return 'SLA ESTOURADO'
   }
 }
 
@@ -75,11 +75,20 @@ const STATUSES: Status[] = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho
 
 const STATUS_COLORS: Record<Status, string> = {
   novo: '#3b82f6',
-  contato: '#8b5cf6',
-  respondeu: '#ec4899',
-  negociacao: '#f59e0b',
-  ganho: '#10b981',
+  contato: '#06b6d4',
+  respondeu: '#eab308',
+  negociacao: '#8b5cf6',
+  ganho: '#22c55e',
   perdido: '#ef4444',
+}
+
+const STATUS_LABELS: Record<Status, string> = {
+  novo: 'NOVO',
+  contato: 'CONTATO',
+  respondeu: 'RESPONDEU',
+  negociacao: 'NEGOCIACAO',
+  ganho: 'GANHO',
+  perdido: 'PERDIDO',
 }
 
 const RETURN_REASONS = [
@@ -166,11 +175,11 @@ function formatNextActionDate(dateStr: string | null): string {
 function getAgendaBadgeStyle(state: AgendaState): { bg: string; text: string; icon: string } {
   switch (state) {
     case 'today':
-      return { bg: '#1e40af', text: '#93c5fd', icon: '📅' }
+      return { bg: '#1e3a8a', text: '#93c5fd', icon: '>' }
     case 'overdue':
-      return { bg: '#7f1d1d', text: '#fecaca', icon: '⏰' }
+      return { bg: '#7f1d1d', text: '#fecaca', icon: '!' }
     case 'future':
-      return { bg: '#1f2937', text: '#9ca3af', icon: '🗓️' }
+      return { bg: '#1f2937', text: '#9ca3af', icon: '-' }
     default:
       return { bg: '', text: '', icon: '' }
   }
@@ -179,11 +188,11 @@ function getAgendaBadgeStyle(state: AgendaState): { bg: string; text: string; ic
 function getAgendaBadgeLabel(state: AgendaState, dateStr: string | null): string {
   switch (state) {
     case 'today':
-      return '📅 HOJE'
+      return 'HOJE'
     case 'overdue':
-      return '⏰ ATRASADO'
+      return 'ATRASADO'
     case 'future':
-      return `🗓️ ${formatNextActionDate(dateStr)}`
+      return formatNextActionDate(dateStr)
     default:
       return ''
   }
@@ -390,7 +399,7 @@ function ReturnReasonModal({
 
   const handleConfirm = () => {
     if (!isValid) {
-      alert('⚠️ Preencha motivo e detalhes (min 15 caracteres)')
+      alert('Preencha motivo e detalhes (min 15 caracteres)')
       return
     }
     if (!cycleId) return
@@ -658,19 +667,27 @@ function KanbanCard({
   return (
     <div
       style={{
-        border: `1px solid ${STATUS_COLORS[item.status]}20`,
-        background: isSelected ? '#0f3d2e' : '#111',
-        borderRadius: 8,
+        background: isSelected ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.04)',
+        border: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
+        borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
+        borderRadius: 10,
         padding: 12,
-        marginBottom: 10,
         cursor: isSaving ? 'not-allowed' : 'grab',
-        transition: 'all 200ms',
+        transition: 'transform 200ms, box-shadow 200ms, background 200ms',
         position: 'relative',
       }}
       draggable
       onDragStart={(e) => {
         e.dataTransfer!.effectAllowed = 'move'
         e.dataTransfer!.setData('cycleId', item.id)
+      }}
+      onMouseEnter={(e) => {
+        ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'
+      }}
+      onMouseLeave={(e) => {
+        ;(e.currentTarget as HTMLDivElement).style.transform = 'none'
+        ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
       }}
     >
       {/* CHECKBOX */}
@@ -696,8 +713,8 @@ function KanbanCard({
           onChange={() => {}}
           draggable={false}
           style={{
-            width: 18,
-            height: 18,
+            width: 14,
+            height: 14,
             cursor: 'pointer',
             pointerEvents: 'auto',
           }}
@@ -714,8 +731,8 @@ function KanbanCard({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'start',
-          marginBottom: 8,
-          marginLeft: 28,
+          marginBottom: 6,
+          marginLeft: 24,
         }}
       >
         <div
@@ -728,8 +745,8 @@ function KanbanCard({
             window.location.href = `/sales-cycles/${(item as any).id}`
           }}
         >
-          <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>{item.name}</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>{item.phone || '—'}</div>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, color: 'white' }}>{item.name}</div>
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>{item.phone || '—'}</div>
         </div>
 
         <button
@@ -746,30 +763,31 @@ function KanbanCard({
           style={{
             background: 'transparent',
             border: 'none',
-            color: '#999',
+            color: '#6b7280',
             cursor: 'pointer',
             fontSize: 16,
-            padding: '4px 8px',
+            padding: '2px 6px',
             pointerEvents: 'auto',
+            lineHeight: 1,
           }}
         >
-          ⋯
+          ...
         </button>
       </div>
 
-      {/* AÇÃO IMEDIATA */}
+      {/* ACAO IMEDIATA */}
       {item.phone && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 8, marginLeft: 28 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 6, marginLeft: 24 }}>
           <button
             onClick={(e) => {
               e.stopPropagation()
               handleWhatsApp()
             }}
             style={{
-              padding: '4px 8px',
+              padding: '3px 7px',
               borderRadius: 4,
-              border: '1px solid #10b981',
-              background: 'transparent',
+              border: '1px solid rgba(16,185,129,0.4)',
+              background: 'rgba(16,185,129,0.1)',
               color: '#10b981',
               cursor: 'pointer',
               fontSize: 9,
@@ -777,7 +795,7 @@ function KanbanCard({
             }}
             title="Enviar WhatsApp"
           >
-            📱 WhatsApp
+            WA
           </button>
           <button
             onClick={(e) => {
@@ -785,10 +803,10 @@ function KanbanCard({
               handleCopyPhone()
             }}
             style={{
-              padding: '4px 8px',
+              padding: '3px 7px',
               borderRadius: 4,
-              border: '1px solid #60a5fa',
-              background: 'transparent',
+              border: '1px solid rgba(96,165,250,0.4)',
+              background: 'rgba(96,165,250,0.1)',
               color: '#60a5fa',
               cursor: 'pointer',
               fontSize: 9,
@@ -796,7 +814,7 @@ function KanbanCard({
             }}
             title="Copiar telefone"
           >
-            📋 Copiar
+            Copiar
           </button>
         </div>
       )}
@@ -815,32 +833,32 @@ function KanbanCard({
 
           if (item.status === 'ganho' || item.status === 'perdido') {
             return (
-              <div style={{ fontSize: 10, opacity: 0.6, marginLeft: 28, marginTop: 6 }}>
-                ⏱ {timeStr}
+              <div style={{ fontSize: 10, opacity: 0.5, marginLeft: 24, marginTop: 4 }}>
+                {timeStr}
               </div>
             )
           }
 
           return (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 28, marginTop: 6 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 24, marginTop: 4 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color, letterSpacing: '0.05em' }}>
                 {getSLALabel(level)}
               </div>
-              <div style={{ fontSize: 9, opacity: 0.6 }}>
-                ⏱ {timeStr}
+              <div style={{ fontSize: 9, opacity: 0.5, color: '#9ca3af' }}>
+                {timeStr}
               </div>
             </div>
           )
         })()
       )}
 
-            {/* AGENDA STATUS */}
-            {item.next_action_date && (
+      {/* AGENDA STATUS */}
+      {item.next_action_date && (
         (() => {
           const agendaState = getAgendaState(item.next_action_date)
           if (agendaState === 'none') return null
 
-          const { bg, text, icon } = getAgendaBadgeStyle(agendaState)
+          const { bg, text } = getAgendaBadgeStyle(agendaState)
           const label = getAgendaBadgeLabel(agendaState, item.next_action_date)
 
           return (
@@ -850,11 +868,12 @@ function KanbanCard({
                 fontWeight: 700,
                 color: text,
                 background: bg,
-                padding: '4px 8px',
+                padding: '3px 7px',
                 borderRadius: 4,
-                marginLeft: 28,
+                marginLeft: 24,
                 marginTop: 4,
                 display: 'inline-block',
+                letterSpacing: '0.05em',
               }}
             >
               {label}
@@ -863,11 +882,11 @@ function KanbanCard({
         })()
       )}
 
-      {/* SUGESTÃO DE PRÓXIMA ETAPA COM BOTÃO MOVER */}
+      {/* SUGESTAO DE PROXIMA ETAPA COM BOTAO MOVER */}
       {suggestedStatus && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 28, marginBottom: 8 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 24, marginTop: 6, marginBottom: 4 }}>
           <div style={{ fontSize: 9, opacity: 0.7, color: '#fbbf24', flex: 1 }}>
-            💡 Sugestão: mover para <strong>{suggestedStatus.toUpperCase()}</strong>
+            Sugestao: mover para <strong>{suggestedStatus.toUpperCase()}</strong>
           </div>
           <button
             onClick={(e) => {
@@ -876,10 +895,10 @@ function KanbanCard({
               setSuggestedStatus(null)
             }}
             style={{
-              padding: '4px 8px',
+              padding: '3px 7px',
               borderRadius: 4,
               border: 'none',
-              background: '#10b981',
+              background: '#22c55e',
               color: '#000',
               cursor: 'pointer',
               fontSize: 9,
@@ -892,24 +911,24 @@ function KanbanCard({
         </div>
       )}
 
-      {/* PRÓXIMA AÇÃO */}
+      {/* PROXIMA ACAO */}
       {item.next_action && (
-        <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6, fontStyle: 'italic', marginLeft: 28 }}>
-          Próx: {item.next_action}
+        <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, fontStyle: 'italic', marginLeft: 24, color: '#9ca3af' }}>
+          {item.next_action}
         </div>
       )}
 
       {/* GRUPO */}
       {item.group_id && (
-        <div style={{ fontSize: 11, opacity: 0.5, marginTop: 6, color: '#10b981', fontWeight: 'bold', marginLeft: 28 }}>
+        <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, color: '#22c55e', fontWeight: 700, marginLeft: 24 }}>
           {groups.find((g) => g.id === item.group_id)?.name || 'Grupo desconhecido'}
         </div>
       )}
 
       {/* SALVANDO */}
-      {isSaving && <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 6, marginLeft: 28 }}>Salvando…</div>}
+      {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4, marginLeft: 24 }}>Salvando...</div>}
 
-      {/* MENU DE AÇÕES */}
+      {/* MENU DE ACOES */}
       {showMenu && menuPos && (
         <div
           ref={menuRef}
@@ -917,8 +936,8 @@ function KanbanCard({
             position: 'fixed',
             top: menuPos.top,
             left: menuPos.left,
-            background: '#222',
-            border: '1px solid #444',
+            background: '#1a1a1a',
+            border: '1px solid rgba(255,255,255,0.1)',
             borderRadius: 8,
             zIndex: 9999,
             minWidth: 200,
@@ -1072,7 +1091,7 @@ function KanbanCard({
                   pointerEvents: 'auto',
                 }}
               >
-                {!item.group_id ? '✓ ' : '• '} Sem grupo
+                {!item.group_id ? 'V ' : '- '} Sem grupo
               </button>
 
               {groups.map((g) => (
@@ -1104,7 +1123,7 @@ function KanbanCard({
                     pointerEvents: 'auto',
                   }}
                 >
-                  {item.group_id === g.id ? '✓ ' : '• '} {g.name}
+                  {item.group_id === g.id ? 'V ' : '- '} {g.name}
                 </button>
               ))}
             </div>
@@ -1187,19 +1206,43 @@ function VirtualizedStatusColumn({
   const total = totalCount ?? shown
   const headerLabel = total > shown ? `${status.toUpperCase()} (${shown} de ${total})` : `${status.toUpperCase()} (${total})`
 
+  const filteredCycles = cycles.filter((item) => {
+    if (slaFilter !== 'all') {
+      const minutes = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
+      const rule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
+      const level = getSLALevel(minutes, rule)
+      if (level !== slaFilter) return false
+    }
+    if (agendaFilter !== 'all') {
+      const agendaState = getAgendaState(item.next_action_date)
+      if (agendaFilter === 'today') return agendaState === 'today'
+      if (agendaFilter === 'overdue') return agendaState === 'overdue'
+      if (agendaFilter === 'next7') {
+        if (agendaState === 'none' || agendaState === 'overdue') return false
+        const actionDate = new Date(item.next_action_date!)
+        const now = new Date()
+        const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+        return actionDate <= sevenDaysLater
+      }
+    }
+    return true
+  })
+
   return (
     <div
       ref={setNodeRef}
       style={{
-        minWidth: 280,
-        minHeight: 200,
-        background: isOver ? '#1a1a2e' : '#0f0f0f',
+        minWidth: 260,
+        maxWidth: 300,
+        flex: '0 0 270px',
+        display: 'flex',
+        flexDirection: 'column',
+        background: isOver ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
         borderRadius: 12,
-        padding: 12,
         borderTop: `3px solid ${STATUS_COLORS[status]}`,
         transition: 'background 200ms',
-        maxHeight: 600,
-        overflowY: 'auto',
+        maxHeight: 'calc(100vh - 200px)',
+        overflow: 'hidden',
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -1213,84 +1256,66 @@ function VirtualizedStatusColumn({
         }
       }}
     >
-      <div
-        style={{
-          fontWeight: 900,
-          marginBottom: 12,
-          fontSize: 14,
-          position: 'sticky',
-          top: 0,
-          background: isOver ? '#1a1a2e' : '#0f0f0f',
-          paddingBottom: 8,
-          zIndex: 10,
-        }}
-      >
-        {headerLabel}
+      {/* Header */}
+      <div style={{
+        padding: '10px 12px 8px',
+        background: `linear-gradient(to bottom, ${STATUS_COLORS[status]}15, transparent)`,
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+      }}>
+        <div style={{ fontWeight: 900, fontSize: 11, letterSpacing: '0.1em', color: STATUS_COLORS[status] }}>
+          {headerLabel}
+        </div>
+        {/* Progress bar */}
+        <div style={{ marginTop: 6, height: 2, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%',
+            width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
+            background: STATUS_COLORS[status],
+            borderRadius: 2,
+            transition: 'width 400ms ease',
+          }} />
+        </div>
       </div>
 
-      {cycles.length === 0 ? (
-  <div style={{ opacity: 0.5, fontSize: 12 }}>Vazio</div>
-) : (
-  <div style={{ display: 'grid', gap: 10 }}>
-    {cycles
-      .filter((item) => {
-        // Filtro SLA
-        if (slaFilter !== 'all') {
-          const minutes = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
-          const rule = slaRules[item.status] || {
-  ...DEFAULT_SLA_RULES[item.status],
-  id: 'default',
+      {/* Scrollable cards area */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 20px' }}>
+        {filteredCycles.length === 0 ? (
+          <div style={{ opacity: 0.35, fontSize: 11, textAlign: 'center', paddingTop: 32, color: '#9ca3af' }}>
+            Vazio
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {filteredCycles.map((item) => (
+              <KanbanCard
+                key={item.id}
+                item={item}
+                isSaving={savingId === item.id}
+                onSetGroup={onSetGroup}
+                onReturnToPoolWithReason={onReturnToPoolWithReason}
+                onReassign={onReassign}
+                onCreateGroupInline={onCreateGroupInline}
+                onMoveItem={onMoveItem}
+                groups={groups}
+                isSelected={selectedIds.has(item.id)}
+                onToggleSelect={onToggleSelect}
+                sellers={sellers}
+                isAdmin={isAdmin}
+                currentUserId={currentUserId}
+                supabase={supabase}
+                slaRules={slaRules}
+                nowTick={nowTick}
+                companyId={companyId}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
-          const level = getSLALevel(minutes, rule)
-          if (level !== slaFilter) return false
-        }
-
-        // Filtro AGENDA
-        if (agendaFilter !== 'all') {
-          const agendaState = getAgendaState(item.next_action_date)
-          
-          if (agendaFilter === 'today') {
-            return agendaState === 'today'
-          } else if (agendaFilter === 'overdue') {
-            return agendaState === 'overdue'
-          } else if (agendaFilter === 'next7') {
-            if (agendaState === 'none' || agendaState === 'overdue') return false
-            const actionDate = new Date(item.next_action_date!)
-            const now = new Date()
-            const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-            return actionDate <= sevenDaysLater
-          }
-        }
-
-        return true
-      })
-      .map((item) => (
-        <KanbanCard
-          key={item.id}
-          item={item}
-          isSaving={savingId === item.id}
-          onSetGroup={onSetGroup}
-          onReturnToPoolWithReason={onReturnToPoolWithReason}
-          onReassign={onReassign}
-          onCreateGroupInline={onCreateGroupInline}
-          onMoveItem={onMoveItem}
-          groups={groups}
-          isSelected={selectedIds.has(item.id)}
-          onToggleSelect={onToggleSelect}
-          sellers={sellers}
-          isAdmin={isAdmin}
-          currentUserId={currentUserId}
-          supabase={supabase}
-          slaRules={slaRules}
-          nowTick={nowTick}
-          companyId={companyId}
-        />
-      ))}
-  </div>
-)}
-        </div>
-      )
-    }
 
 type PoolPage = {
   items: PoolItem[]
@@ -1357,6 +1382,7 @@ function detectSearchType(term: string): 'email' | 'cpf' | 'phone' | 'name' {
   const clean = term.trim()
   if (clean.includes('@')) return 'email'
   const digits = clean.replace(/\D/g, '')
+  if (digits.length >= 10 && digits.length <= 13 && /[() -]/.test(clean)) return 'phone'
   if (digits.length === 11 || digits.length === 14) return 'cpf'
   if (digits.length >= 10 && digits.length <= 13) return 'phone'
   return 'name'
@@ -1544,6 +1570,15 @@ const { data, error: err } = await orderedQuery
   return { data: result, exactCount }
 }
 
+function KPIChip({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: 11, fontWeight: 900, color, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      <span style={{ fontSize: 10, color: '#6b7280' }}>{label}</span>
+    </div>
+  )
+}
+
 export default function SalesCyclesKanban({
   userId,
   companyId,
@@ -1652,6 +1687,16 @@ export default function SalesCyclesKanban({
     const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     return actionDate <= sevenDaysLater
   }).length
+
+  const dangerCount = allItems.filter((item) => {
+    const minutes = Math.floor((new Date().getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
+    const rule = slaRules[item.status]
+    if (!rule) return false
+    return getSLALevel(minutes, rule) === 'danger'
+  }).length
+
+  const [focusPanelOpen, setFocusPanelOpen] = useState(false)
+  const [insightsExpanded, setInsightsExpanded] = useState(false)
 
   // SEARCH STATES
   const [searchTerm, setSearchTerm] = useState('')
@@ -2269,7 +2314,7 @@ export default function SalesCyclesKanban({
     try {
       const sellerIds = sellers.map((s) => s.id)
   
-      // ⭐ BUSCAR TODOS OS LEADS DO GRUPO (não apenas os 50 da página)
+      // BUSCAR TODOS OS LEADS DO GRUPO (nao apenas os 50 da pagina)
       const { data: allGroupLeads, error: fetchErr } = await supabase
         .from('v_pipeline_items')
         .select('id')
@@ -2287,7 +2332,7 @@ export default function SalesCyclesKanban({
         return
       }
   
-      // ⭐ DISTRIBUIR TODOS OS LEADS
+      // DISTRIBUIR TODOS OS LEADS
       const { data, error: err } = await supabase.rpc('rpc_bulk_assign_round_robin', {
         p_cycle_ids: allLeadIds,
         p_owner_ids: sellerIds,
@@ -2300,9 +2345,9 @@ export default function SalesCyclesKanban({
   
       alert(`${updatedCount} leads distribuídos do grupo com sucesso!`)
 
-      setSelectedGroupId(null)  // ⭐ Isso vai automaticamente resetar tudo via useEffect
+      setSelectedGroupId(null)  // Isso vai automaticamente resetar tudo via useEffect
   
-      // ⭐ AGUARDAR um pouco para o banco atualizar
+      // AGUARDAR um pouco para o banco atualizar
       await new Promise(resolve => setTimeout(resolve, 500))
   
       console.log('Iniciando recarregamento...')
@@ -2347,7 +2392,7 @@ export default function SalesCyclesKanban({
         if (err) throw err
         if (!data?.success) throw new Error('Operação não confirmada')
 
-        alert('✓ Lead atualizado com sucesso!')
+        alert('Lead atualizado com sucesso!')
 
         // Recarrega dados
         await Promise.all([loadItems(), isAdmin ? loadPoolAndSellers() : Promise.resolve()])
@@ -2626,13 +2671,13 @@ export default function SalesCyclesKanban({
 >
   <div style={{ fontWeight: 800, color: '#10b981' }}>{cycle.name}</div>
   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
-    {cycle.phone ?? 'Sem telefone'} • {new Date(cycle.created_at).toLocaleString()}
+    {cycle.phone ?? 'Sem telefone'} - {new Date(cycle.created_at).toLocaleString()}
   </div>
   
   {/* GRUPO - Agora com badge visual melhorado */}
   {cycle.lead_groups ? (
     <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4, color: '#10b981', fontWeight: 700, background: '#0f3d2e', padding: '4px 8px', borderRadius: 4, display: 'inline-block', border: '1px solid #10b981' }}>
-      📁 {cycle.lead_groups.name}
+      [G] {cycle.lead_groups.name}
     </div>
   ) : (
     <div style={{ fontSize: 11, opacity: 0.5, marginTop: 4, color: '#999', fontStyle: 'italic' }}>
@@ -2720,7 +2765,7 @@ export default function SalesCyclesKanban({
                     opacity: poolLoading || poolPageNum === 1 ? 0.5 : 1,
                   }}
                 >
-                  ◀
+                  {'<<'}
                 </button>
 
                 {Array.from({ length: totalPages }).map((_, i) => {
@@ -2767,7 +2812,7 @@ export default function SalesCyclesKanban({
                     opacity: poolLoading || poolPageNum >= totalPages ? 0.5 : 1,
                   }}
                 >
-                  ▶
+                  {'>>'}
                 </button>
               </div>
             )}
@@ -3056,35 +3101,37 @@ export default function SalesCyclesKanban({
   // ============================================================================
   // VENDOR KANBAN VIEW
   // ============================================================================
+
+  const pillStyle: React.CSSProperties = {
+    borderRadius: 20,
+    padding: '4px 12px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    color: 'white',
+    fontSize: 12,
+    cursor: 'pointer',
+    fontWeight: 700,
+  }
+
   return (
-    <div style={{ background: '#0b0b0b', minHeight: '100vh', color: 'white', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ background: '#09090b', minHeight: '100vh', color: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* MICRO KPIs */}
-      <SellerMicroKPIs
-        userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
-        groupId={selectedGroupId}
-        supabase={supabase}
-        refreshKey={kpiRefreshKey}
-      />
-
-      {/* FILTERS */}
-      <div style={{ padding: '6px 20px', borderBottom: '1px solid #222', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      {/* COMMAND BAR */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        background: 'rgba(9,9,11,0.85)',
+        backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        padding: '8px 16px',
+        display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+      }}>
         {isAdmin && (
           <select
             value={selectedOwnerId || ''}
             onChange={(e) => setSelectedOwnerId(e.target.value || null)}
-            style={{
-              padding: '6px 10px',
-              borderRadius: 8,
-              border: '1px solid #2a2a2a',
-              background: '#111',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 900,
-            }}
+            style={pillStyle}
           >
-            <option value="">Mudar vendedor…</option>
+            <option value="">Mudar vendedor...</option>
             {sellers.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.full_name ?? s.email} ({s.role})
@@ -3096,16 +3143,7 @@ export default function SalesCyclesKanban({
         <select
           value={selectedGroupId || ''}
           onChange={(e) => setSelectedGroupId(e.target.value || null)}
-          style={{
-            padding: '6px 10px',
-            borderRadius: 8,
-            border: '1px solid #2a2a2a',
-            background: '#111',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: 13,
-            fontWeight: 900,
-          }}
+          style={pillStyle}
         >
           <option value="">Todos os grupos</option>
           {groups.map((g) => (
@@ -3116,108 +3154,84 @@ export default function SalesCyclesKanban({
         </select>
 
         <select
-  value={slaFilter}
-  onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')}
-  style={{
-    padding: '6px 10px',
-    borderRadius: 8,
-    border: '1px solid #2a2a2a',
-    background: '#111',
-    color: 'white',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 900,
-  }}
->
-  <option value="all">SLA: Todos</option>
-  <option value="ok">SLA: OK 🟢</option>
-  <option value="warn">SLA: Atenção 🟡</option>
-  <option value="danger">SLA: Estourado 🔴</option>
-</select>
+          value={slaFilter}
+          onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')}
+          style={pillStyle}
+        >
+          <option value="all">SLA: Todos</option>
+          <option value="ok">SLA: OK</option>
+          <option value="warn">SLA: Atencao</option>
+          <option value="danger">SLA: Estourado</option>
+        </select>
 
-<select
-  value={agendaFilter}
-  onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')}
-  style={{
-    padding: '6px 10px',
-    borderRadius: 8,
-    border: '1px solid #2a2a2a',
-    background: '#111',
-    color: 'white',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 900,
-  }}
->
-  <option value="all">Agenda: Todos</option>
-  <option value="today">Agenda: Hoje ({todayCount})</option>
-  <option value="overdue">Agenda: Atrasados ({overdueCount})</option>
-  <option value="next7">Agenda: Próximos 7d ({next7Count})</option>
-</select>
+        <select
+          value={agendaFilter}
+          onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')}
+          style={pillStyle}
+        >
+          <option value="all">Agenda: Todos</option>
+          <option value="today">Hoje ({todayCount})</option>
+          <option value="overdue">Atrasados ({overdueCount})</option>
+          <option value="next7">Proximos 7d ({next7Count})</option>
+        </select>
 
-{/* SEARCH INPUT */}
-<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-  <input
-    type="text"
-    value={searchTerm}
-    onChange={(e) => setSearchTerm(e.target.value)}
-    placeholder="Buscar por nome, telefone, CPF ou email..."
-    style={{
-      padding: '6px 10px',
-      borderRadius: 8,
-      border: '1px solid #2a2a2a',
-      background: '#111',
-      color: 'white',
-      fontSize: 13,
-      fontWeight: 900,
-      minWidth: 180,
-    }}
-  />
-  {searchTerm.trim() && !isSearching && searchCount !== null && (
-    <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 700 }}>
-      {searchCount} resultado{searchCount !== 1 ? 's' : ''}
-    </div>
-  )}
-  {isSearching && (
-    <div style={{ fontSize: 11, color: '#9ca3af' }}>Buscando…</div>
-  )}
-</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar por nome, telefone, CPF ou email..."
+            style={{
+              borderRadius: 20,
+              padding: '4px 14px',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              color: 'white',
+              fontSize: 12,
+              minWidth: 200,
+              outline: 'none',
+            }}
+          />
+          {searchTerm.trim() && !isSearching && searchCount !== null && (
+            <div style={{ fontSize: 10, color: '#93c5fd', fontWeight: 700, paddingLeft: 14 }}>
+              {searchCount} resultado{searchCount !== 1 ? 's' : ''}
+            </div>
+          )}
+          {isSearching && (
+            <div style={{ fontSize: 10, color: '#6b7280', paddingLeft: 14 }}>Buscando...</div>
+          )}
+        </div>
 
-<div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            onClick={() => setFocusPanelOpen((v) => !v)}
+            style={{
+              ...pillStyle,
+              background: focusPanelOpen ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.06)',
+              border: focusPanelOpen ? '1px solid rgba(59,130,246,0.4)' : '1px solid rgba(255,255,255,0.12)',
+              color: focusPanelOpen ? '#93c5fd' : 'white',
+            }}
+          >
+            {focusPanelOpen ? 'Fechar Fila' : 'Abrir Fila'} ({overdueCount + todayCount})
+          </button>
+
           {selectedOwnerId && (
             <button
-              onClick={() => {
-                void loadItems()
-                void loadTotals()
-              }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: '1px solid #2a2a2a',
-                background: '#111',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 900,
-              }}
-              title="Atualizar apenas o Kanban do vendedor"
+              onClick={() => { void loadItems(); void loadTotals() }}
+              style={pillStyle}
+              title="Atualizar kanban"
             >
-              Atualizar Kanban
+              Atualizar
             </button>
           )}
 
           <button
             onClick={toggleSelectAllKanban}
             style={{
-              padding: '6px 10px',
-              borderRadius: 8,
-              border: '1px solid #8b5cf6',
-              background: allKanbanSelected ? '#8b5cf6' : 'transparent',
-              color: allKanbanSelected ? '#000' : '#d8b4fe',
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 900,
-              transition: 'all 200ms',
+              ...pillStyle,
+              background: allKanbanSelected ? 'rgba(139,92,246,0.3)' : 'rgba(255,255,255,0.06)',
+              border: allKanbanSelected ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.12)',
+              color: allKanbanSelected ? '#d8b4fe' : 'white',
             }}
           >
             {allKanbanSelected ? 'Desmarcar' : 'Selecionar'} ({allKanbanItems.length})
@@ -3227,31 +3241,23 @@ export default function SalesCyclesKanban({
             <button
               onClick={() => setShowBulkModal(true)}
               style={{
-                padding: '6px 10px',
-                borderRadius: 8,
-                border: '1px solid #f59e0b',
-                background: '#92400e',
+                ...pillStyle,
+                background: 'rgba(245,158,11,0.2)',
+                border: '1px solid rgba(245,158,11,0.4)',
                 color: '#fef3c7',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 900,
               }}
             >
-              Ações ({selectedIds.size})
+              Acoes ({selectedIds.size})
             </button>
           )}
 
           <button
             onClick={() => setShowCreateLeadModal(true)}
             style={{
-              padding: '6px 10px',
-              borderRadius: 8,
-              border: '1px solid #10b981',
-              background: '#064e3b',
+              ...pillStyle,
+              background: 'rgba(34,197,94,0.15)',
+              border: '1px solid rgba(34,197,94,0.35)',
               color: '#6ee7b7',
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 900,
             }}
           >
             + Criar Lead
@@ -3259,63 +3265,126 @@ export default function SalesCyclesKanban({
         </div>
       </div>
 
-      {/* ERROR MESSAGE */}
-      {error && (
-        <div style={{ background: '#7f1d1d', color: '#fecaca', padding: 12, borderLeft: '4px solid #ef4444', margin: 20, borderRadius: 6, fontSize: 12 }}>
-          {error}
-        </div>
-      )}
-
-      {/* WORKLIST — FILA DO DIA */}
-      <SellerWorklist
+      {/* MICRO KPIs */}
+      <SellerMicroKPIs
         userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
         groupId={selectedGroupId}
         supabase={supabase}
         refreshKey={kpiRefreshKey}
-        onRefresh={() => {
-          setKpiRefreshKey((k) => k + 1)
-          addToast('Agenda salva!', 'success')
-        }}
       />
 
-      {/* KANBAN CONTENT */}
-      {loading ? (
-        <div style={{ opacity: 0.7, padding: '40px', textAlign: 'center' }}>Carregando…</div>
-      ) : (
-        <div style={{ padding: '12px 20px 20px', flex: 1, overflow: 'hidden' }}>
-          <DndContext sensors={sensors} collisionDetection={closestCorners}>
-            <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 12, minHeight: 0 }}>
-              {STATUSES.map((status) => (
-                <VirtualizedStatusColumn
-                key={status}
-                status={status}
-                cycles={items[status]}
-                totalCount={totals[status] ?? 0}
-                savingId={savingId}
-                onDrop={handleDrop}
-                onSetGroup={setGroupForCycle}
-                onReturnToPoolWithReason={handleOpenReturnReasonModal}
-                onReassign={reassignCycle}
-                onCreateGroupInline={handleCreateGroupInline}
-                onMoveItem={moveItem}
-                groups={groups}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                sellers={sellers}
-                isAdmin={isAdmin}
-                currentUserId={userId}
-                supabase={supabase}
-                slaRules={slaRules}
-                nowTick={nowTick}
-                slaFilter={slaFilter}
-                agendaFilter={agendaFilter}
-                companyId={companyId}
-              />
-              ))}
-            </div>
-          </DndContext>
+      {/* INSIGHTS STRIP */}
+      <div
+        style={{
+          background: 'rgba(255,255,255,0.02)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '0 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 20,
+          minHeight: 40,
+          overflow: 'hidden',
+          cursor: 'pointer',
+          transition: 'background 200ms',
+        }}
+        onClick={() => setInsightsExpanded((v) => !v)}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', letterSpacing: '0.1em', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {insightsExpanded ? 'v' : '>'} INSIGHTS
+        </span>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <KPIChip label="Atrasados" value={overdueCount} color="#ef4444" />
+          <KPIChip label="SLA estourado" value={dangerCount} color="#f59e0b" />
+          <KPIChip label="Agenda hoje" value={todayCount} color="#3b82f6" />
+          <KPIChip label="Proximos 7d" value={next7Count} color="#8b5cf6" />
         </div>
-      )}
+      </div>
+
+      {/* MAIN AREA: KANBAN + FOCUS PANEL */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+
+        {/* KANBAN AREA */}
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {error && (
+            <div style={{ background: '#7f1d1d', color: '#fecaca', padding: '8px 16px', borderLeft: '4px solid #ef4444', fontSize: 12 }}>
+              {error}
+            </div>
+          )}
+          {loading ? (
+            <div style={{ opacity: 0.6, padding: '40px', textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+              Carregando...
+            </div>
+          ) : (
+            <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px 16px', display: 'flex', gap: 12 }}>
+              <DndContext sensors={sensors} collisionDetection={closestCorners}>
+                {STATUSES.map((status) => (
+                  <VirtualizedStatusColumn
+                    key={status}
+                    status={status}
+                    cycles={items[status]}
+                    totalCount={totals[status] ?? 0}
+                    savingId={savingId}
+                    onDrop={handleDrop}
+                    onSetGroup={setGroupForCycle}
+                    onReturnToPoolWithReason={handleOpenReturnReasonModal}
+                    onReassign={reassignCycle}
+                    onCreateGroupInline={handleCreateGroupInline}
+                    onMoveItem={moveItem}
+                    groups={groups}
+                    selectedIds={selectedIds}
+                    onToggleSelect={toggleSelect}
+                    sellers={sellers}
+                    isAdmin={isAdmin}
+                    currentUserId={userId}
+                    supabase={supabase}
+                    slaRules={slaRules}
+                    nowTick={nowTick}
+                    slaFilter={slaFilter}
+                    agendaFilter={agendaFilter}
+                    companyId={companyId}
+                  />
+                ))}
+              </DndContext>
+            </div>
+          )}
+        </div>
+
+        {/* FOCUS PANEL (RIGHT SIDE) */}
+        {focusPanelOpen && (
+          <div style={{
+            width: 320,
+            flexShrink: 0,
+            borderLeft: '1px solid rgba(255,255,255,0.06)',
+            background: 'rgba(255,255,255,0.02)',
+            backdropFilter: 'blur(12px)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>Fila do Dia</span>
+              <button
+                onClick={() => setFocusPanelOpen(false)}
+                style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
+              >
+                x
+              </button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              <SellerWorklist
+                userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
+                groupId={selectedGroupId}
+                supabase={supabase}
+                refreshKey={kpiRefreshKey}
+                onRefresh={() => {
+                  setKpiRefreshKey((k) => k + 1)
+                  addToast('Agenda salva!', 'success')
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       {showCreateLeadModal && (
         <CreateLeadModal
@@ -3362,7 +3431,7 @@ export default function SalesCyclesKanban({
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 20 }}>
-              Ações em Massa ({selectedIds.size} leads)
+              Acoes em Massa ({selectedIds.size} leads)
             </div>
 
             <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
@@ -3384,18 +3453,15 @@ export default function SalesCyclesKanban({
                   fontSize: 12,
                   marginBottom: 12,
                 }}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
               >
-                {assigningId === 'bulk' ? 'Devolvendo…' : 'Devolver'}
+                {assigningId === 'bulk' ? 'Devolvendo...' : 'Devolver'}
               </button>
             </div>
 
             <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
               <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 12 }}>
-                Distribuição Automática
+                Distribuicao Automatica
               </label>
               <p style={{ fontSize: 11, opacity: 0.7, marginBottom: 12 }}>
                 Distribui {selectedIds.size} leads uniformemente entre {sellers.length} vendedores
@@ -3415,12 +3481,9 @@ export default function SalesCyclesKanban({
                   fontSize: 12,
                   opacity: sellers.length > 0 && assigningId !== 'bulk' ? 1 : 0.5,
                 }}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
               >
-                {assigningId === 'bulk' ? 'Distribuindo…' : 'Distribuir Automaticamente'}
+                {assigningId === 'bulk' ? 'Distribuindo...' : 'Distribuir Automaticamente'}
               </button>
             </div>
 
@@ -3430,7 +3493,7 @@ export default function SalesCyclesKanban({
               </label>
               {!canRedistribute ? (
                 <div style={{ fontSize: 12, opacity: 0.7, color: '#f87171' }}>
-                  Nenhum vendedor disponível
+                  Nenhum vendedor disponivel
                 </div>
               ) : (
                 <>
@@ -3448,7 +3511,7 @@ export default function SalesCyclesKanban({
                       marginBottom: 12,
                     }}
                   >
-                    <option value="">Selecione vendedor…</option>
+                    <option value="">Selecione vendedor...</option>
                     {validSellersForRedistribution.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.full_name} ({s.role})
@@ -3470,12 +3533,9 @@ export default function SalesCyclesKanban({
                       fontSize: 12,
                       opacity: bulkSeller && assigningId !== 'bulk' ? 1 : 0.5,
                     }}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                    }}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
                   >
-                    {assigningId === 'bulk' ? 'Atribuindo…' : 'Atribuir Todos'}
+                    {assigningId === 'bulk' ? 'Atribuindo...' : 'Atribuir Todos'}
                   </button>
                 </>
               )}
@@ -3499,7 +3559,7 @@ export default function SalesCyclesKanban({
                     fontSize: 12,
                   }}
                 >
-                  <option value="">Selecione grupo…</option>
+                  <option value="">Selecione grupo...</option>
                   {groups.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.name}
@@ -3522,12 +3582,9 @@ export default function SalesCyclesKanban({
                       opacity: !creatingGroup ? 1 : 0.5,
                       whiteSpace: 'nowrap',
                     }}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                    }}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
                   >
-                    {creatingGroup ? 'Criando…' : '+'}
+                    {creatingGroup ? 'Criando...' : '+'}
                   </button>
                 )}
               </div>
@@ -3546,12 +3603,9 @@ export default function SalesCyclesKanban({
                   fontSize: 12,
                   opacity: bulkGroup && assigningId !== 'bulk' ? 1 : 0.5,
                 }}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
               >
-                {assigningId === 'bulk' ? 'Agrupando…' : 'Agrupar Todos'}
+                {assigningId === 'bulk' ? 'Agrupando...' : 'Agrupar Todos'}
               </button>
             </div>
 
@@ -3568,10 +3622,7 @@ export default function SalesCyclesKanban({
                 fontWeight: 900,
                 fontSize: 12,
               }}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
             >
               Fechar
             </button>
@@ -3579,7 +3630,7 @@ export default function SalesCyclesKanban({
         </div>
       )}
 
-            <ReturnReasonModal
+      <ReturnReasonModal
         isOpen={returnReasonModalOpen}
         cycleId={returnCycleId}
         cycleName={returnCycleName}
@@ -3604,7 +3655,6 @@ export default function SalesCyclesKanban({
         loading={checkpointLoading}
       />
 
-      {/* WIN DEAL MODAL - Quando move para GANHO */}
       <WinDealModal
         isOpen={winDealOpen}
         dealId={winDealCycleId || ''}
