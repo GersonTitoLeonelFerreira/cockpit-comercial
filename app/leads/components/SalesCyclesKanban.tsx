@@ -3,6 +3,7 @@
 import CreateLeadModal from './CreateLeadModal'
 import { ReturnToPoolModal } from './ReturnToPoolModal'
 import StageCheckpointModal from './StageCheckpointModal'
+import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
@@ -1503,6 +1504,12 @@ export default function SalesCyclesKanban({
   const [pendingMove, setPendingMove] = useState<PendingMove>(null)
   const [checkpointLoading, setCheckpointLoading] = useState(false)
 
+  // WIN DEAL MODAL
+  const [winDealOpen, setWinDealOpen] = useState(false)
+  const [winDealCycleId, setWinDealCycleId] = useState<string | null>(null)
+  const [winDealName, setWinDealName] = useState('')
+  const [winDealOwnerId, setWinDealOwnerId] = useState<string | undefined>(undefined)
+
     // SLA STATES
     const [slaRules, setSLARules] = useState<Record<Status, SLARuleDB | null>>({
       novo: null,
@@ -2244,7 +2251,17 @@ export default function SalesCyclesKanban({
 
       if (!fromStatus || fromStatus === toStatus) return
 
-      // Abre o modal ao invés de mover direto
+      // Se for GANHO, abre o WinDealModal com campos de valor/faturamento
+      if (toStatus === 'ganho') {
+        const cycle = Object.values(items).flat().find((c) => c.id === cycleId)
+        setWinDealCycleId(cycleId)
+        setWinDealName(cycle?.name || '')
+        setWinDealOwnerId(cycle?.owner_id || undefined)
+        setWinDealOpen(true)
+        return
+      }
+
+      // Para os demais, abre o Checkpoint genérico
       setPendingMove({ cycleId, fromStatus, toStatus })
       setCheckpointOpen(true)
     },
@@ -3410,6 +3427,25 @@ export default function SalesCyclesKanban({
         }}
         onConfirm={handleCheckpointConfirm}
         loading={checkpointLoading}
+      />
+
+      {/* WIN DEAL MODAL - Quando move para GANHO */}
+      <WinDealModal
+        isOpen={winDealOpen}
+        dealId={winDealCycleId || ''}
+        dealName={winDealName}
+        ownerUserId={winDealOwnerId}
+        onClose={() => {
+          setWinDealOpen(false)
+          setWinDealCycleId(null)
+          setWinDealName('')
+        }}
+        onSuccess={async () => {
+          setWinDealOpen(false)
+          setWinDealCycleId(null)
+          setWinDealName('')
+          await Promise.all([loadItems(), loadTotals(), isAdmin ? loadPoolAndSellers() : Promise.resolve()])
+        }}
       />
     </div>
   )
