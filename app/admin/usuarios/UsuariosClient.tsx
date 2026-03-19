@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 type Role = 'admin' | 'manager' | 'member'
 
-export default function UsuariosClient({ companyId }: { companyId: string }) {
+export default function UsuariosClient() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
@@ -14,7 +14,6 @@ export default function UsuariosClient({ companyId }: { companyId: string }) {
   const criar = async () => {
     if (loading) return
     if (!email || !password) return alert('Informe email e senha.')
-    if (!companyId) return alert('Company ID não encontrado.')
 
     setLoading(true)
 
@@ -25,8 +24,7 @@ export default function UsuariosClient({ companyId }: { companyId: string }) {
         email,
         password,
         full_name: fullName,
-        role, // ✅ agora envia admin|manager|member
-        company_id: companyId,
+        role,
       }),
     })
 

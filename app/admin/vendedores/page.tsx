@@ -1,9 +1,13 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
-import UsuariosClient from './UsuariosClient'
+import VendedoresClient from './VendedoresClient'
 
-export default async function AdminUsuariosPage() {
+export const metadata = {
+  title: 'Gestão de Vendedores | Cockpit Comercial',
+}
+
+export default async function AdminVendedoresPage() {
   const cookieStore = await cookies()
 
   const supabase = createServerClient(
@@ -30,7 +34,7 @@ export default async function AdminUsuariosPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, company_id')
     .eq('id', data.user.id)
     .single()
 
@@ -38,10 +42,13 @@ export default async function AdminUsuariosPage() {
 
   return (
     <div style={{ padding: 30 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 20 }}>
-        Cadastro de Usuários
+      <h1 style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 8 }}>
+        Gestão de Vendedores
       </h1>
-      <UsuariosClient />
+      <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 24 }}>
+        Visualize o desempenho, altere permissões e ative/desative vendedores da sua empresa.
+      </p>
+      <VendedoresClient />
     </div>
   )
 }
