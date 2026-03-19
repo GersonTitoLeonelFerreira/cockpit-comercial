@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
@@ -8,24 +8,85 @@ import {
   getSalesCycleMetrics,
   calculateSimulatorResult,
   getGroupConversion,
+  getRevenueSummary,
+  getRevenueGoal,
+  upsertRevenueGoal,
 } from '@/app/lib/services/simulator'
-import {
-  getCloseRateReal,
-  percentToRate,
-} from '@/app/lib/services/simulatorRateReal'
-import {
-  SimulatorMetrics,
-  SimulatorResult,
+import { getCloseRateReal, percentToRate } from '@/app/lib/services/simulatorRateReal'
+import type {
   GroupConversionRow,
+  RevenueDayPoint,
+  RevenueSummaryResponse,
+  SimulatorMetrics,
+  SimulatorMode,
+  SimulatorResult,
 } from '@/app/types/simulator'
-import { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
+import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
+import { InfoTip } from '@/app/components/InfoTip'
+import { RevenueChart } from './components/RevenueChart'
+
+function toYMD(v: string) {
+  return (v ?? '').split('T')[0].split(' ')[0]
+}
 
 function pct(n: number) {
   const v = Number.isFinite(n) ? n : 0
   return `${Math.round(v * 100)}%`
 }
 
-function countRemainingBusinessDays(endDate: Date): number {
+function toBRL(v: number) {
+  return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function safeNumber(v: any) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+  const s = String(v ?? '')
+    .trim()
+    .replace(/\./g, '')
+    .replace(',', '.')
+    .replace(/[^\d.-]/g, '')
+  const n = parseFloat(s || '0')
+  return Number.isFinite(n) ? n : 0
+}
+
+function getRevenueStatus(pacingRatio: number): 'no_ritmo' | 'atencao' | 'acelerar' {
+  if (pacingRatio >= 1) return 'no_ritmo'
+  if (pacingRatio >= 0.9) return 'atencao'
+  return 'acelerar'
+}
+
+function statusLabel(s: 'no_ritmo' | 'atencao' | 'acelerar') {
+  if (s === 'no_ritmo') return '✅ No ritmo'
+  if (s === 'atencao') return '⚠️ Atenção'
+  return '🚨 Acelerar'
+}
+
+function statusTone(s: 'no_ritmo' | 'atencao' | 'acelerar'): 'good' | 'neutral' | 'bad' {
+  if (s === 'no_ritmo') return 'good'
+  if (s === 'atencao') return 'neutral'
+  return 'bad'
+}
+
+// ============================
+// Dias trabalhados
+// ============================
+
+// 0=Dom,1=Seg,...6=Sáb
+type WorkDays = Record<number, boolean>
+
+function defaultWorkDays(): WorkDays {
+  return {
+    0: false, // Dom
+    1: true, // Seg
+    2: true, // Ter
+    3: true, // Qua
+    4: true, // Qui
+    5: true, // Sex
+    6: false, // Sáb
+  }
+}
+
+function countRemainingWorkDays(endDate: Date, workDays: WorkDays): number {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   endDate.setHours(0, 0, 0, 0)
@@ -36,10 +97,75 @@ function countRemainingBusinessDays(endDate: Date): number {
   const cur = new Date(today)
   while (cur <= endDate) {
     const dow = cur.getDay()
-    if (dow !== 0 && dow !== 6) count++
+    if (workDays[dow]) count++
     cur.setDate(cur.getDate() + 1)
   }
   return count
+}
+
+function countWorkDaysInRange(start: string, end: string, workDays: WorkDays): number {
+  const s = new Date(toYMD(start) + 'T00:00:00')
+  const e = new Date(toYMD(end) + 'T00:00:00')
+  s.setHours(0, 0, 0, 0)
+  e.setHours(0, 0, 0, 0)
+
+  if (e < s) return 0
+
+  let count = 0
+  const cur = new Date(s)
+  while (cur <= e) {
+    const dow = cur.getDay()
+    if (workDays[dow]) count++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return count
+}
+
+function countWorkDaysUntilToday(start: string, end: string, workDays: WorkDays): number {
+  const s = new Date(toYMD(start) + 'T00:00:00')
+  const e = new Date(toYMD(end) + 'T00:00:00')
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  s.setHours(0, 0, 0, 0)
+  e.setHours(0, 0, 0, 0)
+
+  const last = today < e ? today : e
+  if (last < s) return 0
+
+  let count = 0
+  const cur = new Date(s)
+  while (cur <= last) {
+    const dow = cur.getDay()
+    if (workDays[dow]) count++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return count
+}
+
+// ============================
+
+function TitleWithTip({
+  label,
+  tipTitle,
+  ariaLabel,
+  children,
+  width,
+}: {
+  label: string
+  tipTitle: string
+  ariaLabel?: string
+  children: React.ReactNode
+  width?: number
+}) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <span>{label}</span>
+      <InfoTip title={tipTitle} ariaLabel={ariaLabel ?? `Ajuda: ${label}`} width={width}>
+        {children}
+      </InfoTip>
+    </span>
+  )
 }
 
 function Card({
@@ -48,7 +174,7 @@ function Card({
   subtitle,
   tone,
 }: {
-  title: string
+  title: React.ReactNode
   value: React.ReactNode
   subtitle?: React.ReactNode
   tone?: 'neutral' | 'good' | 'bad'
@@ -59,7 +185,9 @@ function Card({
 
   return (
     <div style={{ border, background: bg, borderRadius: 14, padding: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.78, marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 12, opacity: 0.78, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {title}
+      </div>
       <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2 }}>{value}</div>
       {subtitle ? <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75, lineHeight: 1.5 }}>{subtitle}</div> : null}
     </div>
@@ -71,14 +199,14 @@ function Section({
   description,
   children,
 }: {
-  title: string
+  title: React.ReactNode
   description?: string
   children: React.ReactNode
 }) {
   return (
     <section style={{ border: '1px solid #202020', background: '#0c0c0c', borderRadius: 16, padding: 16 }}>
       <div>
-        <div style={{ fontSize: 14, fontWeight: 900 }}>{title}</div>
+        <div style={{ fontSize: 14, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 8 }}>{title}</div>
         {description ? <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>{description}</div> : null}
       </div>
       <div style={{ marginTop: 14 }}>{children}</div>
@@ -95,9 +223,30 @@ export default function SimuladorMetaPage() {
   const [metrics, setMetrics] = useState<SimulatorMetrics | null>(null)
   const [result, setResult] = useState<SimulatorResult | null>(null)
 
+  const [mode, setMode] = useState<SimulatorMode>('faturamento')
+
+  // Dias trabalhados (checkbox)
+  const [workDays, setWorkDays] = useState<WorkDays>(defaultWorkDays())
+  const [autoRemainingDays, setAutoRemainingDays] = useState(true)
+
+  // Ganhos
   const [targetWins, setTargetWins] = useState(20)
   const [closeRatePercent, setCloseRatePercent] = useState(20)
   const [remainingBusinessDays, setRemainingBusinessDays] = useState(15)
+
+  // Revenue (dados)
+  const [revenueCompany, setRevenueCompany] = useState<RevenueSummaryResponse | null>(null)
+  const [revenueSeller, setRevenueSeller] = useState<RevenueSummaryResponse | null>(null)
+  const [revenueLoading, setRevenueLoading] = useState(false)
+  const [revenueError, setRevenueError] = useState<string | null>(null)
+
+  // Revenue (meta do banco + input digitável)
+  const [revenueGoalDb, setRevenueGoalDb] = useState<number>(0)
+  const [revenueGoalInputText, setRevenueGoalInputText] = useState<string>('0')
+  const [goalLoading, setGoalLoading] = useState(false)
+  const [goalSaving, setGoalSaving] = useState(false)
+  const [goalError, setGoalError] = useState<string | null>(null)
+  const [goalSuccess, setGoalSuccess] = useState<string | null>(null)
 
   const [isAdmin, setIsAdmin] = useState(false)
   const [sellers, setSellers] = useState<Array<{ id: string; label: string }>>([])
@@ -111,6 +260,7 @@ export default function SimuladorMetaPage() {
   const [groupConversionLoading, setGroupConversionLoading] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
 
+  // init
   useEffect(() => {
     async function init() {
       setLoading(true)
@@ -127,7 +277,6 @@ export default function SimuladorMetaPage() {
           .select('role, company_id')
           .eq('id', uid)
           .maybeSingle()
-
         if (!profile?.role) throw new Error('Perfil não encontrado.')
 
         const isAdminUser = profile.role === 'admin'
@@ -137,8 +286,8 @@ export default function SimuladorMetaPage() {
         const comp = await getActiveCompetency()
         setCompetency(comp)
 
-        const endDate = new Date(comp.month_end)
-        const remainingDays = countRemainingBusinessDays(endDate)
+        const endDate = new Date(toYMD(comp.month_end) + 'T00:00:00')
+        const remainingDays = countRemainingWorkDays(endDate, workDays)
         setRemainingBusinessDays(remainingDays)
 
         if (isAdminUser) {
@@ -160,10 +309,10 @@ export default function SimuladorMetaPage() {
           setSelectedSellerId(uid)
         }
 
-        const metrics = await getSalesCycleMetrics(null, comp.month_start)
-        setMetrics(metrics)
+        const m = await getSalesCycleMetrics(null, comp.month_start)
+        setMetrics(m)
 
-        const res = calculateSimulatorResult(metrics, {
+        const res = calculateSimulatorResult(m, {
           target_wins: targetWins,
           close_rate: percentToRate(closeRatePercent),
           ticket_medio: 0,
@@ -177,13 +326,24 @@ export default function SimuladorMetaPage() {
       }
     }
 
-    init()
+    void init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase])
 
+  // ✅ useEffect correto (fora do init): auto recalcular dias restantes
+  useEffect(() => {
+    if (!competency) return
+    if (!autoRemainingDays) return
+
+    const endDate = new Date(toYMD(competency.month_end) + 'T00:00:00')
+    const remainingDays = countRemainingWorkDays(endDate, workDays)
+    setRemainingBusinessDays(remainingDays)
+  }, [competency, workDays, autoRemainingDays])
+
+  // taxa real
   useEffect(() => {
     async function loadRateReal() {
       setRateRealLoading(true)
-
       try {
         const data = await getCloseRateReal(selectedSellerId, daysWindow)
         setRateRealData(data)
@@ -194,15 +354,12 @@ export default function SimuladorMetaPage() {
         setRateRealLoading(false)
       }
     }
-
-    if (competency) {
-      loadRateReal()
-    }
+    if (competency) void loadRateReal()
   }, [selectedSellerId, daysWindow, competency])
 
+  // recalcula ganhos
   useEffect(() => {
     if (!metrics) return
-
     const newResult = calculateSimulatorResult(metrics, {
       target_wins: targetWins,
       close_rate: percentToRate(closeRatePercent),
@@ -212,9 +369,9 @@ export default function SimuladorMetaPage() {
     setResult(newResult)
   }, [targetWins, closeRatePercent, remainingBusinessDays, metrics])
 
+  // refetch metrics quando muda vendedor
   useEffect(() => {
     if (!competency || selectedSellerId === undefined) return
-
     async function refetch() {
       try {
         const newMetrics = await getSalesCycleMetrics(selectedSellerId, competency.month_start)
@@ -223,17 +380,15 @@ export default function SimuladorMetaPage() {
         setError(e?.message ?? 'Erro ao atualizar métricas.')
       }
     }
-
-    refetch()
+    void refetch()
   }, [competency, selectedSellerId])
 
+  // conversão por grupo
   useEffect(() => {
     if (!competency || !companyId || selectedSellerId === undefined) return
 
     const cid = companyId
-    const dateEnd = competency.month_end
-      ? competency.month_end.split('T')[0]
-      : competency.month_end
+    const dateEnd = toYMD(competency.month_end)
 
     async function loadGroupConversion() {
       setGroupConversionLoading(true)
@@ -241,7 +396,7 @@ export default function SimuladorMetaPage() {
         const rows = await getGroupConversion({
           companyId: cid,
           ownerId: selectedSellerId,
-          dateStart: competency.month_start,
+          dateStart: toYMD(competency.month_start),
           dateEnd,
         })
         setGroupConversion(rows)
@@ -253,8 +408,210 @@ export default function SimuladorMetaPage() {
       }
     }
 
-    loadGroupConversion()
+    void loadGroupConversion()
   }, [competency, selectedSellerId, companyId])
+
+  const revenueDates = useMemo(() => {
+    if (!competency) return { start: '', end: '' }
+    return {
+      start: toYMD(competency.month_start),
+      end: toYMD(competency.month_end),
+    }
+  }, [competency])
+
+  const revenueGoalOwnerId = useMemo(() => {
+    if (!competency) return null
+    if (isAdmin) return selectedSellerId
+    return selectedSellerId
+  }, [isAdmin, selectedSellerId, competency])
+
+  const revenueGoalContextLabel = useMemo(() => {
+    if (!isAdmin) return 'Meta do vendedor (definida pelo admin)'
+    return revenueGoalOwnerId ? 'Meta do vendedor' : 'Meta da empresa'
+  }, [isAdmin, revenueGoalOwnerId])
+
+  const revenueGoalInputNumber = useMemo(
+    () => Math.max(0, safeNumber(revenueGoalInputText)),
+    [revenueGoalInputText],
+  )
+
+  const activeGoalForKpis = isAdmin ? revenueGoalInputNumber : revenueGoalDb
+
+  // Carregar meta do banco
+  useEffect(() => {
+    if (!companyId || !competency) return
+    if (mode === 'ganhos') return
+
+    async function loadGoal() {
+      setGoalLoading(true)
+      setGoalError(null)
+      setGoalSuccess(null)
+
+      try {
+        const res = await getRevenueGoal({
+          companyId,
+          ownerId: revenueGoalOwnerId ?? null,
+          startDate: revenueDates.start,
+          endDate: revenueDates.end,
+        })
+
+        const dbValue = Number(res?.goal_value || 0)
+        setRevenueGoalDb(dbValue)
+        setRevenueGoalInputText(String(dbValue))
+      } catch (e: any) {
+        setGoalError(e?.message ?? 'Erro ao carregar meta.')
+        setRevenueGoalDb(0)
+        setRevenueGoalInputText('0')
+      } finally {
+        setGoalLoading(false)
+      }
+    }
+
+    void loadGoal()
+  }, [companyId, competency, mode, revenueDates.start, revenueDates.end, revenueGoalOwnerId])
+
+  async function handleSaveGoal() {
+    if (!isAdmin) return
+    if (!companyId || !competency) return
+
+    const goalValue = Math.max(0, safeNumber(revenueGoalInputText))
+
+    setGoalSaving(true)
+    setGoalError(null)
+    setGoalSuccess(null)
+
+    try {
+      await upsertRevenueGoal({
+        companyId,
+        ownerId: revenueGoalOwnerId ?? null,
+        startDate: revenueDates.start,
+        endDate: revenueDates.end,
+        goalValue,
+      })
+
+      setRevenueGoalDb(goalValue)
+      setRevenueGoalInputText(String(goalValue))
+      setGoalSuccess('✓ Meta salva!')
+    } catch (e: any) {
+      setGoalError(e?.message ?? 'Erro ao salvar meta.')
+    } finally {
+      setGoalSaving(false)
+    }
+  }
+
+  // revenue (dados)
+  useEffect(() => {
+    if (!competency || !companyId) return
+
+    async function loadRevenue() {
+      if (mode === 'ganhos') {
+        setRevenueCompany(null)
+        setRevenueSeller(null)
+        setRevenueError(null)
+        return
+      }
+
+      setRevenueLoading(true)
+      setRevenueError(null)
+
+      const cid = companyId
+      const metric = mode === 'faturamento' ? 'faturamento' : 'recebimento'
+      const startDate = revenueDates.start
+      const endDate = revenueDates.end
+
+      try {
+        const fetches: Array<Promise<void>> = []
+
+        if (isAdmin) {
+          fetches.push(
+            (async () => {
+              const companyRes = await getRevenueSummary({
+                companyId: cid,
+                ownerId: null,
+                startDate,
+                endDate,
+                metric,
+              })
+              setRevenueCompany(companyRes)
+            })(),
+          )
+        } else {
+          setRevenueCompany(null)
+        }
+
+        const ownerIdForSeller = selectedSellerId ?? null
+        if (ownerIdForSeller) {
+          fetches.push(
+            (async () => {
+              const sellerRes = await getRevenueSummary({
+                companyId: cid,
+                ownerId: ownerIdForSeller,
+                startDate,
+                endDate,
+                metric,
+              })
+              setRevenueSeller(sellerRes)
+            })(),
+          )
+        } else {
+          setRevenueSeller(null)
+        }
+
+        await Promise.all(fetches)
+      } catch (e: any) {
+        console.warn('Erro ao carregar revenue:', e?.message ?? String(e))
+        setRevenueError(e?.message ?? 'Erro ao carregar faturamento/recebimento.')
+        setRevenueCompany(null)
+        setRevenueSeller(null)
+      } finally {
+        setRevenueLoading(false)
+      }
+    }
+
+    void loadRevenue()
+  }, [mode, competency, companyId, isAdmin, selectedSellerId, revenueDates.start, revenueDates.end])
+
+  function buildRevenueKpis(totalReal: number, goal: number) {
+    const safeGoal = Math.max(0, Number(goal) || 0)
+
+    const businessDaysTotal = countWorkDaysInRange(revenueDates.start, revenueDates.end, workDays)
+    const businessDaysElapsed = countWorkDaysUntilToday(revenueDates.start, revenueDates.end, workDays)
+    const businessDaysRemaining = Math.max(0, businessDaysTotal - businessDaysElapsed)
+
+    const gap = Math.max(0, safeGoal - totalReal)
+    const requiredPerBD = businessDaysRemaining > 0 ? gap / businessDaysRemaining : gap
+
+    const avgDaily = businessDaysElapsed > 0 ? totalReal / businessDaysElapsed : 0
+    const projection = avgDaily * Math.max(1, businessDaysTotal)
+
+    const pacingRatio = safeGoal > 0 ? projection / safeGoal : 0
+    const status = getRevenueStatus(pacingRatio)
+
+    return {
+      goal: safeGoal,
+      businessDaysTotal,
+      businessDaysElapsed,
+      businessDaysRemaining,
+      totalReal,
+      gap,
+      required_per_business_day: requiredPerBD,
+      projection,
+      pacingRatio,
+      status,
+    }
+  }
+
+  const revenueCompanyKpis = useMemo(() => {
+    if (!revenueCompany?.success) return null
+    return buildRevenueKpis(Number(revenueCompany.total_real || 0), activeGoalForKpis)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revenueCompany, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
+
+  const revenueSellerKpis = useMemo(() => {
+    if (!revenueSeller?.success) return null
+    return buildRevenueKpis(Number(revenueSeller.total_real || 0), activeGoalForKpis)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
 
   if (loading) {
     return (
@@ -267,15 +624,38 @@ export default function SimuladorMetaPage() {
   if (error) {
     return (
       <div style={{ padding: 20 }}>
-        <div style={{ padding: 12, borderRadius: 12, border: '1px solid #3a2222', background: '#160b0b', color: '#ffb3b3' }}>
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 12,
+            border: '1px solid #3a2222',
+            background: '#160b0b',
+            color: '#ffb3b3',
+          }}
+        >
           {error}
         </div>
       </div>
     )
   }
 
-  const progressPct = result?.progress_pct ?? 0
-  const progressTone = progressPct >= 100 ? 'good' : progressPct >= 50 ? 'neutral' : 'bad'
+  const progressTone =
+    (result?.progress_pct ?? 0) >= 1 ? 'good' : (result?.progress_pct ?? 0) >= 0.5 ? 'neutral' : 'bad'
+
+  const revenueMetricLabel = mode === 'faturamento' ? 'Faturamento' : 'Recebimento'
+  const showRevenueMode = mode !== 'ganhos'
+  const showCompanyChart = showRevenueMode && isAdmin
+  const showSellerChart = showRevenueMode && selectedSellerId !== null
+
+  const daysLabels: Array<{ dow: number; label: string }> = [
+    { dow: 1, label: 'Seg' },
+    { dow: 2, label: 'Ter' },
+    { dow: 3, label: 'Qua' },
+    { dow: 4, label: 'Qui' },
+    { dow: 5, label: 'Sex' },
+    { dow: 6, label: 'Sáb' },
+    { dow: 0, label: 'Dom' },
+  ]
 
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto' }}>
@@ -348,40 +728,78 @@ export default function SimuladorMetaPage() {
       </div>
 
       <div style={{ marginTop: 20, display: 'grid', gap: 16 }}>
-        <Section title="Configuração" description="Defina sua meta de ganhos e taxa de conversão.">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Meta de Ganhos</div>
-              <input
-                type="number"
-                value={targetWins}
-                onChange={(e) => setTargetWins(Math.max(1, parseInt(e.target.value) || 1))}
+        <Section
+          title={
+            <TitleWithTip label="Configuração" tipTitle="Como usar a Configuração" width={520}>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+                <li>Agora você pode marcar os dias da semana trabalhados.</li>
+                <li>Isso influencia o cálculo automático dos dias restantes e os KPIs financeiros.</li>
+              </ul>
+            </TitleWithTip>
+          }
+          description="Defina o modo e os parâmetros."
+        >
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Modo:</div>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as SimulatorMode)}
                 style={{
-                  width: '100%',
                   padding: '10px 12px',
                   borderRadius: 10,
                   border: '1px solid #2a2a2a',
                   background: '#111',
                   color: 'white',
+                  minWidth: 260,
+                  fontWeight: 900,
                 }}
-              />
+              >
+                <option value="ganhos">Ganhos (ciclos)</option>
+                <option value="faturamento">Faturamento (R$)</option>
+              </select>
+
+              <div style={{ fontSize: 12, opacity: 0.65 }}>
+                {mode === 'ganhos' ? 'Modo atual (sem mudanças).' : `Modo financeiro: ${revenueMetricLabel} (R$).`}
+              </div>
             </div>
 
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Taxa de Conversão (Manual)</div>
-              <div style={{ display: 'flex', gap: 8 }}>
+            {/* ✅ dias trabalhados */}
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Dias trabalhados:</div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {daysLabels.map(({ dow, label }) => (
+                  <label key={dow} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!workDays[dow]}
+                      onChange={(e) => setWorkDays((prev) => ({ ...prev, [dow]: e.target.checked }))}
+                    />
+                    <span style={{ opacity: 0.85 }}>{label}</span>
+                  </label>
+                ))}
+
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, marginLeft: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={autoRemainingDays}
+                    onChange={(e) => setAutoRemainingDays(e.target.checked)}
+                  />
+                  <span style={{ opacity: 0.85 }}>Auto calcular “dias restantes”</span>
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div style={{ opacity: mode === 'ganhos' ? 1 : 0.55 }}>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Meta de Ganhos</div>
                 <input
                   type="number"
-                  step="1"
-                  min="1"
-                  max="90"
-                  value={closeRatePercent}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value) || 1
-                    setCloseRatePercent(Math.max(1, Math.min(90, val)))
-                  }}
+                  value={targetWins}
+                  onChange={(e) => setTargetWins(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={mode !== 'ganhos'}
                   style={{
-                    flex: 1,
+                    width: '100%',
                     padding: '10px 12px',
                     borderRadius: 10,
                     border: '1px solid #2a2a2a',
@@ -389,45 +807,208 @@ export default function SimuladorMetaPage() {
                     color: 'white',
                   }}
                 />
-                <div style={{ padding: '10px 12px', opacity: 0.7 }}>({closeRatePercent}%)</div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Taxa de Conversão (Manual)</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    max="90"
+                    value={closeRatePercent}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 1
+                      setCloseRatePercent(Math.max(1, Math.min(90, val)))
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: '1px solid #2a2a2a',
+                      background: '#111',
+                      color: 'white',
+                    }}
+                  />
+                  <div style={{ padding: '10px 12px', opacity: 0.7 }}>({closeRatePercent}%)</div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Dias Úteis Restantes</div>
+                <input
+                  type="number"
+                  value={remainingBusinessDays}
+                  onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
+                  disabled={autoRemainingDays}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: '1px solid #2a2a2a',
+                    background: autoRemainingDays ? '#0f0f0f' : '#111',
+                    color: 'white',
+                    opacity: autoRemainingDays ? 0.75 : 1,
+                    cursor: autoRemainingDays ? 'not-allowed' : 'text',
+                  }}
+                />
               </div>
             </div>
 
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Dias Úteis Restantes</div>
-              <input
-                type="number"
-                value={remainingBusinessDays}
-                onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: '1px solid #2a2a2a',
-                  background: '#111',
-                  color: 'white',
-                }}
-              />
-            </div>
+            {competency ? (
+              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>
+                Período: {toYMD(competency.month_start)} até {toYMD(competency.month_end)}
+              </div>
+            ) : null}
           </div>
-
-          {competency ? (
-            <div style={{ marginTop: 12, fontSize: 12, opacity: 0.7 }}>
-              Período: {competency.month_start} até {competency.month_end?.split('T')[0]}
-            </div>
-          ) : null}
         </Section>
 
+        {/* A partir daqui, mantive o resto igual ao seu arquivo (Meta Financeira, Taxa Real, Resultado, etc.) */}
+        {showRevenueMode ? (
+          <Section title="Meta Financeira" description="Cockpit financeiro do período.">
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>{revenueGoalContextLabel} (R$)</div>
+
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={revenueGoalInputText}
+                    onChange={(e) => setRevenueGoalInputText(e.target.value)}
+                    onFocus={() => {
+                      const n = Math.max(0, safeNumber(revenueGoalInputText))
+                      setRevenueGoalInputText(String(n))
+                    }}
+                    onBlur={() => {
+                      const n = Math.max(0, safeNumber(revenueGoalInputText))
+                      setRevenueGoalInputText(toBRL(n))
+                    }}
+                    disabled={!isAdmin || goalLoading || goalSaving}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: '1px solid #2a2a2a',
+                      background: !isAdmin ? '#0f0f0f' : '#111',
+                      color: 'white',
+                      fontWeight: 900,
+                    }}
+                  />
+
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {isAdmin ? (
+                      <>
+                        <button
+                          onClick={() => void handleSaveGoal()}
+                          disabled={goalSaving || goalLoading}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: 'none',
+                            background: '#10b981',
+                            color: 'white',
+                            fontWeight: 900,
+                          }}
+                        >
+                          {goalSaving ? 'Salvando...' : 'Salvar meta'}
+                        </button>
+
+                        <button
+                          onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
+                          disabled={goalSaving || goalLoading}
+                          style={{
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: '1px solid #2a2a2a',
+                            background: '#111',
+                            color: 'white',
+                            fontWeight: 900,
+                          }}
+                        >
+                          Desfazer
+                        </button>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>Meta definida pelo admin.</div>
+                    )}
+
+                    {goalLoading ? <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando meta...</div> : null}
+                    {goalError ? <div style={{ fontSize: 12, color: '#ffb3b3' }}>{goalError}</div> : null}
+                    {goalSuccess ? <div style={{ fontSize: 12, color: '#6ee7b7' }}>{goalSuccess}</div> : null}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>Fonte</div>
+                  <div style={{ fontSize: 13, opacity: 0.8, lineHeight: 1.4 }}>
+                    Real diário vindo da Gestão de Faturamento.
+                  </div>
+                  {revenueLoading ? <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando faturamento...</div> : null}
+                  {revenueError ? <div style={{ fontSize: 12, color: '#ffb3b3' }}>{revenueError}</div> : null}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gap: 12 }}>
+                {showCompanyChart && revenueCompanyKpis ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ fontWeight: 900, opacity: 0.9 }}>Empresa (todos)</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+                      <Card title="Real no período" value={toBRL(revenueCompanyKpis.totalReal)} />
+                      <Card title="Meta do período" value={toBRL(revenueCompanyKpis.goal)} />
+                      <Card title="Gap (falta)" value={toBRL(revenueCompanyKpis.gap)} tone={revenueCompanyKpis.gap <= 0 ? 'good' : 'neutral'} />
+                      <Card title="R$/dia útil (restante)" value={toBRL(revenueCompanyKpis.required_per_business_day)} subtitle={`${revenueCompanyKpis.businessDaysRemaining} dias restantes`} />
+                      <Card title="Status (pacing)" value={statusLabel(revenueCompanyKpis.status)} subtitle={`Projeção: ${toBRL(revenueCompanyKpis.projection)} (${Math.round(revenueCompanyKpis.pacingRatio * 100)}% da meta)`} tone={statusTone(revenueCompanyKpis.status)} />
+                    </div>
+                  </div>
+                ) : null}
+
+                {showCompanyChart && revenueCompany?.success ? (
+                  <RevenueChart
+                    title={`Evolução — Empresa (Faturamento)`}
+                    series={(revenueCompany.days ?? []) as RevenueDayPoint[]}
+                    goal={activeGoalForKpis}
+                    startDate={revenueDates.start}
+                    endDate={revenueDates.end}
+                  />
+                ) : null}
+
+                {showSellerChart && revenueSeller?.success ? (
+                  <RevenueChart
+                    title={`Evolução — Vendedor (Faturamento)`}
+                    series={(revenueSeller.days ?? []) as RevenueDayPoint[]}
+                    goal={activeGoalForKpis}
+                    startDate={revenueDates.start}
+                    endDate={revenueDates.end}
+                  />
+                ) : null}
+              </div>
+            </div>
+          </Section>
+        ) : null}
+
+        {/* resto (ganhos) mantém igual ao que você já tinha antes */}
         {rateRealData ? (
-          <Section title="Taxa Real (Histórico 90d)" description="Baseado em dados históricos do vendedor/empresa.">
+          <Section
+            title={
+              <TitleWithTip label="Taxa Real (Histórico 90d)" tipTitle="Como ler a Taxa Real" width={420}>
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+                  <li>Taxa baseada em histórico (janela selecionada).</li>
+                  <li>Se a amostra for pequena, a taxa pode oscilar bastante.</li>
+                </ul>
+              </TitleWithTip>
+            }
+            description="Baseado em dados históricos do vendedor/empresa."
+          >
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               <Card
-                title="Taxa Vendedor"
-                value={
-                  rateRealData.vendor.close_rate
-                    ? `${(rateRealData.vendor.close_rate * 100).toFixed(1)}%`
-                    : '—'
+                title={
+                  <TitleWithTip label="Taxa Vendedor" tipTitle="Taxa Vendedor" width={380}>
+                    <div>Taxa histórica do vendedor selecionado (worked → wins).</div>
+                  </TitleWithTip>
                 }
+                value={rateRealData.vendor.close_rate ? `${(rateRealData.vendor.close_rate * 100).toFixed(1)}%` : '—'}
                 subtitle={
                   rateRealData.vendor.worked >= 30
                     ? `${rateRealData.vendor.wins} ganhos / ${rateRealData.vendor.worked} trabalhados`
@@ -437,12 +1018,12 @@ export default function SimuladorMetaPage() {
               />
 
               <Card
-                title="Taxa Empresa"
-                value={
-                  rateRealData.company.close_rate
-                    ? `${(rateRealData.company.close_rate * 100).toFixed(1)}%`
-                    : '—'
+                title={
+                  <TitleWithTip label="Taxa Empresa" tipTitle="Taxa Empresa" width={380}>
+                    <div>Taxa histórica agregada da empresa (worked → wins).</div>
+                  </TitleWithTip>
                 }
+                value={rateRealData.company.close_rate ? `${(rateRealData.company.close_rate * 100).toFixed(1)}%` : '—'}
                 subtitle={`${rateRealData.company.wins} ganhos / ${rateRealData.company.worked} trabalhados`}
               />
 
@@ -468,6 +1049,7 @@ export default function SimuladorMetaPage() {
                     if (rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30) {
                       const newPercent = Math.round(rateRealData.vendor.close_rate * 1000) / 10
                       setCloseRatePercent(newPercent)
+                      setMode('ganhos')
                     }
                   }}
                   disabled={!rateRealData.vendor.close_rate || rateRealData.vendor.worked < 30}
@@ -475,18 +1057,11 @@ export default function SimuladorMetaPage() {
                     padding: '10px 12px',
                     borderRadius: 10,
                     border: '1px solid #2a2a2a',
-                    background:
-                      rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
-                        ? '#1f5f3a'
-                        : '#1a1a1a',
+                    background: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? '#1f5f3a' : '#1a1a1a',
                     color: 'white',
-                    cursor:
-                      rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
-                        ? 'pointer'
-                        : 'not-allowed',
+                    cursor: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 'pointer' : 'not-allowed',
                     fontWeight: 900,
-                    opacity:
-                      rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 1 : 0.5,
+                    opacity: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 1 : 0.5,
                   }}
                 >
                   Usar taxa real
@@ -494,69 +1069,24 @@ export default function SimuladorMetaPage() {
               </div>
             </div>
 
-            {rateRealLoading ? (
-              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>Carregando taxa real...</div>
-            ) : null}
+            {rateRealLoading ? <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>Carregando taxa real...</div> : null}
           </Section>
         ) : null}
 
         <Section title="Resultado" description="Números para bater sua meta.">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-            <Card
-              title="Ciclos Necessários"
-              value={result?.needed_worked_cycles ?? '—'}
-              subtitle={
-                result ? `${result.needed_wins} ganhos ÷ ${closeRatePercent}% taxa` : undefined
-              }
-            />
-            <Card
-              title="Ciclos Restantes"
-              value={result?.remaining_worked_cycles ?? '—'}
-              subtitle={
-                result
-                  ? `${result.remaining_wins} ganhos restantes ÷ ${closeRatePercent}%`
-                  : undefined
-              }
-            />
-            <Card
-              title="Ciclos/Dia (período)"
-              value={result?.daily_worked_needed ?? '—'}
-              subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ 22 dias` : undefined}
-            />
-            <Card
-              title="Ciclos/Dia (restante)"
-              value={result?.daily_worked_remaining ?? '—'}
-              subtitle={
-                result ? `${result.remaining_worked_cycles} ciclos ÷ ${remainingBusinessDays} dias` : undefined
-              }
-            />
+            <Card title="Ciclos Necessários" value={result?.needed_worked_cycles ?? '—'} subtitle={result ? `${result.needed_wins} ganhos ÷ ${closeRatePercent}% taxa` : undefined} />
+            <Card title="Ciclos Restantes" value={result?.remaining_worked_cycles ?? '—'} subtitle={result ? `${result.remaining_wins} ganhos restantes ÷ ${closeRatePercent}%` : undefined} />
+            <Card title="Ciclos/Dia (período)" value={result?.daily_worked_needed ?? '—'} subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ 22 dias` : undefined} />
+            <Card title="Ciclos/Dia (restante)" value={result?.daily_worked_remaining ?? '—'} subtitle={result ? `${result.remaining_worked_cycles} ciclos ÷ ${remainingBusinessDays} dias` : undefined} />
           </div>
         </Section>
 
         <Section title="Progresso" description="Seu desempenho atual no mês.">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-            <Card
-              title="Ganhos Atuais"
-              value={metrics?.current_wins ?? '—'}
-              subtitle={
-                result ? `${pct(result.progress_pct)} da meta (${result.needed_wins} alvo)` : undefined
-              }
-              tone={progressTone}
-            />
-            <Card
-              title="Ciclos Trabalhados"
-              value={metrics?.worked_count ?? '—'}
-              subtitle={
-                metrics && result
-                  ? `Taxa real: ${pct(metrics.current_wins / Math.max(1, metrics.worked_count))}`
-                  : undefined
-              }
-            />
-            <Card
-              title="Status"
-              value={result?.on_track ? '✅ No ritmo!' : '⚠️ Acelerar'}
-              tone={result?.on_track ? 'good' : 'bad'}
-            />
+            <Card title="Ganhos Atuais" value={metrics?.current_wins ?? '—'} subtitle={result ? `${pct(result.progress_pct)} da meta (${result.needed_wins} alvo)` : undefined} tone={progressTone} />
+            <Card title="Ciclos Trabalhados" value={metrics?.worked_count ?? '—'} subtitle={metrics && result ? `Taxa real: ${pct(metrics.current_wins / Math.max(1, metrics.worked_count))}` : undefined} />
+            <Card title="Status" value={result?.on_track ? '✅ No ritmo!' : '⚠️ Acelerar'} tone={result?.on_track ? 'good' : 'bad'} />
           </div>
         </Section>
 
@@ -571,87 +1101,11 @@ export default function SimuladorMetaPage() {
           </div>
         </Section>
 
-        <Section
-          title="Conversão por Grupo (no período)"
-          description="Trabalhados → Ganhos por grupo de leads."
-        >
-          {groupConversionLoading ? (
-            <div style={{ fontSize: 13, opacity: 0.7 }}>Carregando conversão por grupo...</div>
-          ) : groupConversion.length === 0 ? (
-            <div style={{ fontSize: 13, opacity: 0.7 }}>Nenhum dado encontrado para o período.</div>
-          ) : (() => {
-            const ganhoTotal = groupConversion.reduce((s, r) => s + r.ganho, 0)
-            const trabalhadosTotal = groupConversion.reduce((s, r) => s + r.trabalhados, 0)
-            const pctTotal = trabalhadosTotal > 0 ? ganhoTotal / trabalhadosTotal : 0
-            const fmtPct = (v: number) =>
-              (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
-
-            return (
-              <div style={{ display: 'grid', gap: 14 }}>
-                <div>
-                  <Card
-                    title="% Total (Conversão Geral do Período)"
-                    value={fmtPct(pctTotal)}
-                    subtitle={`${ganhoTotal} ganhos / ${trabalhadosTotal} trabalhados`}
-                    tone={pctTotal >= 0.25 ? 'good' : pctTotal >= 0.1 ? 'neutral' : 'bad'}
-                  />
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #2a2a2a' }}>
-                        <th style={{ textAlign: 'left', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>Grupo</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>Vendas</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>Trabalhados</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>% do Grupo</th>
-                        <th style={{ textAlign: 'right', padding: '8px 10px', opacity: 0.75, fontWeight: 700 }}>% Participação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupConversion.map((row, i) => (
-                        <tr
-                          key={row.group_id ?? `sem-grupo-${i}`}
-                          style={{ borderBottom: '1px solid #1a1a1a' }}
-                        >
-                          <td style={{ padding: '8px 10px' }}>{row.group_name}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', color: '#6ee7b7', fontWeight: 700 }}>
-                            {row.ganho}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>{row.trabalhados}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>{fmtPct(row.pct_grupo)}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', opacity: 0.85 }}>
-                            {fmtPct(row.pct_participacao)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )
-          })()}
-        </Section>
-
         <Section title="E se..." description="Simulações com taxas diferentes.">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-            <Card
-              title="Se taxa for 15%"
-              value={result?.simulation_15pct ?? '—'}
-              subtitle={`${targetWins} ganhos ÷ 15%`}
-            />
-            <Card
-              title={`Atual (${closeRatePercent}%)`}
-              value={result?.needed_worked_cycles ?? '—'}
-              subtitle={`${targetWins} ganhos ÷ ${closeRatePercent}%`}
-              tone="neutral"
-            />
-            <Card
-              title="Se taxa for 25%"
-              value={result?.simulation_25pct ?? '—'}
-              subtitle={`${targetWins} ganhos ÷ 25%`}
-              tone="good"
-            />
+            <Card title="Se taxa for 15%" value={result?.simulation_15pct ?? '—'} subtitle={`${targetWins} ganhos ÷ 15%`} />
+            <Card title={`Atual (${closeRatePercent}%)`} value={result?.needed_worked_cycles ?? '—'} subtitle={`${targetWins} ganhos ÷ ${closeRatePercent}%`} tone="neutral" />
+            <Card title="Se taxa for 25%" value={result?.simulation_25pct ?? '—'} subtitle={`${targetWins} ganhos ÷ 25%`} tone="good" />
           </div>
         </Section>
       </div>

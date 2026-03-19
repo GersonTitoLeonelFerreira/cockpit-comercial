@@ -685,7 +685,10 @@ function KanbanCard({
             cursor: 'pointer',
             flex: 1,
           }}
-          onClick={() => (window.location.href = `/leads/${item.lead_id}`)}
+          onClick={() => {
+            console.log('CARD item:', item)
+            window.location.href = `/sales-cycles/${(item as any).id}`
+          }}
         >
           <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>{item.name}</div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>{item.phone || '—'}</div>
@@ -2474,7 +2477,13 @@ export default function SalesCyclesKanban({
                       style={{ width: 20, height: 20, cursor: 'pointer', marginTop: 2 }}
                     />
 
-                    <div style={{ flex: 1, minWidth: 200, cursor: 'pointer' }} onClick={() => (window.location.href = `/leads/${cycle.lead_id}`)}>
+<div
+  style={{ flex: 1, minWidth: 200, cursor: 'pointer' }}
+  onClick={() => {
+    console.log('CARD cycle:', cycle)
+    window.location.href = `/sales-cycles/${(cycle as any).id}`
+  }}
+>
   <div style={{ fontWeight: 800, color: '#10b981' }}>{cycle.name}</div>
   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
     {cycle.phone ?? 'Sem telefone'} • {new Date(cycle.created_at).toLocaleString()}

@@ -5,6 +5,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
 
+type MeResponse =
+  | { ok: true; full_name: string | null; email: string | null; role: string | null }
+  | { error: string }
+
 export default function ProfileMenu() {
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   const router = useRouter()
@@ -13,6 +17,22 @@ export default function ProfileMenu() {
   const [loading, setLoading] = React.useState(false)
   const [label, setLabel] = React.useState<string>('Perfil')
   const [isAuthed, setIsAuthed] = React.useState<boolean | null>(null)
+
+  async function refreshLabelFromProfile(sessionEmail?: string) {
+    try {
+      const res = await fetch('/api/me', { method: 'GET' })
+      const json = (await res.json()) as MeResponse
+      if (res.ok && 'ok' in json && json.ok) {
+        const name = (json.full_name ?? '').trim()
+        const email = (json.email ?? sessionEmail ?? '').trim()
+        setLabel(name || email || 'Perfil')
+        return
+      }
+    } catch {
+      // ignore
+    }
+    setLabel(sessionEmail || 'Perfil')
+  }
 
   React.useEffect(() => {
     let alive = true
@@ -23,12 +43,13 @@ export default function ProfileMenu() {
       setIsAuthed(!!data.user)
       const email = data.user?.email ?? ''
       setLabel(email || 'Perfil')
+=======
     })()
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
       setIsAuthed(!!session)
       const email = session?.user?.email ?? ''
-      setLabel(email || 'Perfil')
+      await refreshLabelFromProfile(email)
     })
 
     return () => {

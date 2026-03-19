@@ -283,3 +283,27 @@ export function formatMonthYear(year: number, month: number): string {
   const date = new Date(year, month - 1)
   return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 }
+
+// ============================================================================
+// MUTATIONS (Revenue increment)
+// ============================================================================
+
+/**
+ * Soma valor ao faturamento do vendedor em um dia (UPSERT + incremento).
+ * Requer RPC: rpc_increment_revenue_daily_seller
+ */
+export async function incrementRevenueDailySeller(
+  supabase: SupabaseClient,
+  sellerId: string,
+  refDate: string,
+  deltaValue: number
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('rpc_increment_revenue_daily_seller', {
+    p_seller_id: sellerId,
+    p_ref_date: refDate,
+    p_delta_value: deltaValue,
+  })
+
+  if (error) throw error
+  return data?.success === true || data === true
+}

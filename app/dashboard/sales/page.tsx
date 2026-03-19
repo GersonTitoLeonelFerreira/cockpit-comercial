@@ -7,7 +7,7 @@ import { SalesFunnelChart } from '@/app/components/dashboard/SalesFunnelChart'
 import { MonthlyRevenueChart } from '@/app/components/dashboard/MonthlyRevenueChart'
 import { LostAnalysisChart } from '@/app/components/dashboard/LostAnalysisChart'
 
-export default function DashboardPage() {
+export default function SalesDashboardPage() {
   return (
     <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">

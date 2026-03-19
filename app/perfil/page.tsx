@@ -14,23 +14,17 @@ export default async function PerfilPage() {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll() {
-          // Server Component: não persiste cookie aqui
-        },
+        setAll() {},
       },
-    }
+    },
   )
 
   const { data: auth, error: authErr } = await supabase.auth.getUser()
   if (authErr || !auth?.user?.id) redirect('/login')
 
-  const { data: profile, error: profErr } = await supabase
-    .from('profiles')
-    .select('id, company_id, role, full_name, email, job_title, status, username, birth_date, cpf, phone, user_code')
-    .eq('id', auth.user.id)
-    .single()
-
-  if (profErr || !profile?.company_id) redirect('/login')
-
-  return <ProfileClient userId={auth.user.id} authEmail={auth.user.email ?? ''} initialProfile={profile as any} />
+  return (
+    <div className="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-8 text-white">
+      <ProfileClient />
+    </div>
+  )
 }

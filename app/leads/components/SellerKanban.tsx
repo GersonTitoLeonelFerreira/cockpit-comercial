@@ -59,7 +59,7 @@ function KanbanCard({ item, isSaving }: { item: PipelineItem; isSaving: boolean 
       }}
       {...attributes}
       {...listeners}
-      onClick={() => (window.location.href = `/leads/${item.lead_id}`)}
+      onClick={() => (window.location.href = `/sales-cycles/${item.id}`)}
     >
       <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>{item.name}</div>
       <div style={{ fontSize: 12, opacity: 0.7 }}>{item.phone || '—'}</div>
