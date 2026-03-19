@@ -159,7 +159,7 @@ export async function markDealWonWithRevenue(
   let frozenWonOwner = cycle.owner_user_id
   if (!frozenWonOwner) {
     const { data: authData } = await supabase.auth.getUser()
-    frozenWonOwner = authData?.user?.id || null
+    frozenWonOwner = authData?.user?.id ?? null
   }
 
   // 3) Update com won_owner_user_id congelado
