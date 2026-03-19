@@ -596,9 +596,12 @@ function KanbanCard({
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // Click-outside handler — uses setTimeout to avoid capturing the opening event
+    // Click-outside handler — uses requestAnimationFrame to avoid capturing the opening event
   useEffect(() => {
     if (!showMenu) return
+
+    let registered = false
+
     const handleClickOutside = (e: MouseEvent) => {
       if (
         menuRef.current &&
@@ -610,12 +613,17 @@ function KanbanCard({
         setMenuPos(null)
       }
     }
-    const timer = setTimeout(() => {
+
+    const rafId = requestAnimationFrame(() => {
       document.addEventListener('mousedown', handleClickOutside)
-    }, 0)
+      registered = true
+    })
+
     return () => {
-      clearTimeout(timer)
-      document.removeEventListener('mousedown', handleClickOutside)
+      cancelAnimationFrame(rafId)
+      if (registered) {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
     }
   }, [showMenu])
 
@@ -679,11 +687,12 @@ function KanbanCard({
         e.dataTransfer!.effectAllowed = 'move'
         e.dataTransfer!.setData('cycleId', item.id)
       }}
-      onMouseEnter={(e) => {
+            onMouseEnter={(e) => {
         ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'
       }}
       onMouseLeave={(e) => {
+        if (showMenu) return  // ← NÃO reseta enquanto o menu estiver aberto
         ;(e.currentTarget as HTMLDivElement).style.transform = 'none'
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
       }}
