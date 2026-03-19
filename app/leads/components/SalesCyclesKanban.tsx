@@ -103,6 +103,8 @@ const RETURN_REASONS = [
   { value: 'outro', label: 'Outro' },
 ]
 
+const MENU_MAX_HEIGHT = 320
+
 type Profile = {
   id: string
   full_name: string | null
@@ -594,22 +596,10 @@ function KanbanCard({
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // Calculate fixed position when menu opens
-  useEffect(() => {
-    if (showMenu && menuButtonRef.current) {
-      const rect = menuButtonRef.current.getBoundingClientRect()
-      const menuHeight = 320 // estimated max height
-      const spaceBelow = window.innerHeight - rect.bottom
-      const top = spaceBelow >= menuHeight ? rect.bottom + 4 : rect.top - menuHeight - 4
-      const left = rect.right - 200 // align right edge with button
-      setMenuPos({ top: Math.max(8, top), left: Math.max(8, left) })
-    }
-  }, [showMenu])
-
-  // Click-outside handler
+  // Click-outside handler — uses setTimeout to avoid capturing the opening event
   useEffect(() => {
     if (!showMenu) return
-    const handleMouseDown = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (
         menuRef.current &&
         !menuRef.current.contains(e.target as Node) &&
@@ -617,10 +607,16 @@ function KanbanCard({
         !menuButtonRef.current.contains(e.target as Node)
       ) {
         setShowMenu(false)
+        setMenuPos(null)
       }
     }
-    document.addEventListener('mousedown', handleMouseDown)
-    return () => document.removeEventListener('mousedown', handleMouseDown)
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [showMenu])
 
   const canReturnToPool = isAdmin || item.owner_id === currentUserId
@@ -668,7 +664,9 @@ function KanbanCard({
     <div
       style={{
         background: isSelected ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.04)',
-        border: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
+        borderTop: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
+        borderRight: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
+        borderBottom: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
         borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
         borderRadius: 10,
         padding: 12,
@@ -753,7 +751,19 @@ function KanbanCard({
           ref={menuButtonRef}
           onClick={(e) => {
             e.stopPropagation()
-            setShowMenu(!showMenu)
+            if (showMenu) {
+              setShowMenu(false)
+              setMenuPos(null)
+              return
+            }
+            if (menuButtonRef.current) {
+              const rect = menuButtonRef.current.getBoundingClientRect()
+              const spaceBelow = window.innerHeight - rect.bottom
+              const top = spaceBelow >= MENU_MAX_HEIGHT ? rect.bottom + 4 : rect.top - MENU_MAX_HEIGHT - 4
+              const left = rect.right - 200
+              setMenuPos({ top: Math.max(8, top), left: Math.max(8, left) })
+            }
+            setShowMenu(true)
           }}
           onMouseDown={(e) => {
             e.preventDefault()
@@ -1705,7 +1715,7 @@ export default function SalesCyclesKanban({
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const PAGE_SIZE = 50
-  const sensors = useSensors(useSensor(PointerSensor))
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const loadGroups = useCallback(async () => {
     if (!companyId) return
 
