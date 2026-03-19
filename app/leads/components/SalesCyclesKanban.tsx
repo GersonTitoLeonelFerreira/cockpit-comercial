@@ -8,6 +8,7 @@ import SellerMicroKPIs from './SellerMicroKPIs'
 import SellerWorklist from './SellerWorklist'
 import { ToastContainer, useToast } from './Toast'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
@@ -548,81 +549,278 @@ function ReturnReasonModal({
 }
 
 // ============================================================================
+// CardActionsMenuPortal
+// ============================================================================
+function CardActionsMenuPortal({
+  item,
+  anchorRect,
+  isAdmin,
+  sellers,
+  groups,
+  currentUserId,
+  onClose,
+  onReturnToPool,
+  onReassign,
+  onSetGroup,
+  onCreateGroupInline,
+}: {
+  item: PipelineItem
+  anchorRect: DOMRect
+  isAdmin: boolean
+  sellers: Profile[]
+  groups: LeadGroup[]
+  currentUserId: string
+  onClose: () => void
+  onReturnToPool: (cycleId: string, cycleName: string) => void
+  onReassign: (cycleId: string, sellerId: string) => void
+  onSetGroup: (cycleId: string, groupId: string | null) => void
+  onCreateGroupInline: (target: 'card', cycleId: string) => void
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const spaceBelow = window.innerHeight - anchorRect.bottom
+  const top = spaceBelow >= MENU_MAX_HEIGHT ? anchorRect.bottom + 8 : anchorRect.top - MENU_MAX_HEIGHT - 8
+  const left = Math.max(8, Math.min(anchorRect.right - 200, window.innerWidth - 208))
+
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    const handleScroll = () => onClose()
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('scroll', handleScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('scroll', handleScroll, true)
+    }
+  }, [onClose])
+
+  const canReturnToPool = isAdmin || item.owner_id === currentUserId
+  const validReassignSellers = sellers.filter((s) => s.id !== item.owner_id)
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      style={{
+        position: 'fixed',
+        top: Math.max(8, top),
+        left,
+        background: '#1a1a1a',
+        border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: 8,
+        zIndex: 99999,
+        minWidth: 200,
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div style={{ padding: 8 }}>
+        {canReturnToPool && (
+          <>
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose()
+                onReturnToPool(item.id, item.name)
+              }}
+              draggable={false}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '8px 10px',
+                borderRadius: 6,
+                border: 'none',
+                background: '#dc2626',
+                color: '#fecaca',
+                cursor: 'pointer',
+                fontSize: 11,
+                textAlign: 'left',
+                marginBottom: 4,
+                fontWeight: 900,
+                pointerEvents: 'auto',
+              }}
+            >
+              Devolver ao Pool
+            </button>
+
+            {isAdmin && validReassignSellers.length > 0 && (
+              <div style={{ paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #333' }}>
+                <div style={{ fontSize: 10, fontWeight: 900, opacity: 0.7, marginBottom: 4, paddingLeft: 10 }}>
+                  REDISTRIBUIR
+                </div>
+                {validReassignSellers.map((s) => (
+                  <button
+                    key={s.id}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onReassign(item.id, s.id)
+                      onClose()
+                    }}
+                    draggable={false}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      border: 'none',
+                      background: '#333',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontSize: 10,
+                      textAlign: 'left',
+                      marginBottom: 2,
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    {s.full_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 900, opacity: 0.7, marginBottom: 4, paddingLeft: 10 }}>
+            GRUPOS
+          </div>
+
+          {isAdmin && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose()
+                onCreateGroupInline('card', item.id)
+              }}
+              draggable={false}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 10px',
+                borderRadius: 4,
+                border: '1px solid #10b981',
+                background: 'transparent',
+                color: '#10b981',
+                cursor: 'pointer',
+                fontSize: 10,
+                textAlign: 'left',
+                marginBottom: 6,
+                fontWeight: 900,
+                pointerEvents: 'auto',
+              }}
+            >
+              Criar Grupo
+            </button>
+          )}
+
+          <button
+            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onSetGroup(item.id, null)
+              onClose()
+            }}
+            draggable={false}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: 4,
+              border: 'none',
+              background: !item.group_id ? '#444' : '#333',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: 10,
+              textAlign: 'left',
+              marginBottom: 2,
+              fontWeight: !item.group_id ? 900 : 400,
+              pointerEvents: 'auto',
+            }}
+          >
+            {!item.group_id ? 'V ' : '- '} Sem grupo
+          </button>
+
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onSetGroup(item.id, g.id)
+                onClose()
+              }}
+              draggable={false}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 10px',
+                borderRadius: 4,
+                border: 'none',
+                background: item.group_id === g.id ? '#10b981' : '#333',
+                color: item.group_id === g.id ? '#000' : 'white',
+                cursor: 'pointer',
+                fontSize: 10,
+                textAlign: 'left',
+                marginBottom: 2,
+                fontWeight: item.group_id === g.id ? 900 : 400,
+                pointerEvents: 'auto',
+              }}
+            >
+              {item.group_id === g.id ? 'V ' : '- '} {g.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+// ============================================================================
 // KanbanCard
 // ============================================================================
 function KanbanCard({
   item,
   isSaving,
-  onSetGroup,
   groups,
   isSelected,
   onToggleSelect,
-  onReturnToPoolWithReason,
-  onReassign,
-  onCreateGroupInline,
+  onOpenMenu,
   onMoveItem,
-  sellers,
-  isAdmin,
-  currentUserId,
   supabase,
   companyId,
+  currentUserId,
   slaRules,
   nowTick,
 }: {
   item: PipelineItem
   isSaving: boolean
-  onSetGroup: (cycleId: string, groupId: string | null) => void
   groups: LeadGroup[]
   isSelected: boolean
   onToggleSelect: (cycleId: string) => void
-  onReturnToPoolWithReason: (cycleId: string, cycleName: string) => void
-  onReassign: (cycleId: string, sellerId: string) => void
-  onCreateGroupInline: (target: 'card', cycleId: string) => void
+  onOpenMenu: (item: PipelineItem, rect: DOMRect) => void
   onMoveItem: (cycleId: string, toStatus: Status) => void
-  sellers: Profile[]
-  isAdmin: boolean
-  currentUserId: string
   supabase: any
   companyId: string
+  currentUserId: string
   slaRules: Record<Status, SLARuleDB | null>
   nowTick: Date
 }) {
-  const [showMenu, setShowMenu] = useState(false)
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [showQuickActionModal, setShowQuickActionModal] = useState(false)
   const [quickActionLoading, setQuickActionLoading] = useState(false)
   const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
 
   const menuButtonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  // Click-outside handler
-  useEffect(() => {
-    if (!showMenu) return
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(e.target as Node) &&
-        menuButtonRef.current &&
-        !menuButtonRef.current.contains(e.target as Node)
-      ) {
-        setShowMenu(false)
-        setMenuPos(null)
-      }
-    }
-
-    const rafId = requestAnimationFrame(() => {
-      document.addEventListener('mousedown', handleClickOutside)
-    })
-
-    return () => {
-      cancelAnimationFrame(rafId)
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showMenu])
-
-  const canReturnToPool = isAdmin || item.owner_id === currentUserId
 
   const handleWhatsApp = () => {
     if (!item.phone) return
@@ -687,7 +885,6 @@ function KanbanCard({
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'
       }}
       onMouseLeave={(e) => {
-        if (showMenu) return
         ;(e.currentTarget as HTMLDivElement).style.transform = 'none'
         ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
       }}
@@ -756,20 +953,10 @@ function KanbanCard({
           onClick={(e) => {
             e.stopPropagation()
             e.preventDefault()
-            setShowMenu((prev) => {
-              if (prev) {
-                setMenuPos(null)
-                return false
-              }
-              if (menuButtonRef.current) {
-                const rect = menuButtonRef.current.getBoundingClientRect()
-                const spaceBelow = window.innerHeight - rect.bottom
-                const top = spaceBelow >= MENU_MAX_HEIGHT ? rect.bottom + 4 : rect.top - MENU_MAX_HEIGHT - 4
-                const left = rect.right - 200
-                setMenuPos({ top: Math.max(8, top), left: Math.max(8, left) })
-              }
-              return true
-            })
+            if (menuButtonRef.current) {
+              const rect = menuButtonRef.current.getBoundingClientRect()
+              onOpenMenu(item, rect)
+            }
           }}
           onMouseDown={(e) => {
             e.preventDefault()
@@ -944,209 +1131,6 @@ function KanbanCard({
       {/* SALVANDO */}
       {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4, marginLeft: 24 }}>Salvando...</div>}
 
-      {/* MENU DE ACOES */}
-      {showMenu && menuPos && (
-        <div
-          ref={menuRef}
-          style={{
-            position: 'fixed',
-            top: menuPos.top,
-            left: menuPos.left,
-            background: '#1a1a1a',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: 8,
-            zIndex: 9999,
-            minWidth: 200,
-          }}
-          draggable={false}
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div style={{ padding: 8 }}>
-            {canReturnToPool && (
-              <>
-                <button
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowMenu(false)
-                    onReturnToPoolWithReason(item.id, item.name)
-                  }}
-                  draggable={false}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: '#dc2626',
-                    color: '#fecaca',
-                    cursor: 'pointer',
-                    fontSize: 11,
-                    textAlign: 'left',
-                    marginBottom: 4,
-                    fontWeight: 900,
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  Devolver ao Pool
-                </button>
-
-                {isAdmin && (
-                  <>
-                    {(() => {
-                      const validReassignSellers = sellers.filter((s) => s.id !== item.owner_id)
-                      return validReassignSellers.length > 0 ? (
-                        <div style={{ paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #333' }}>
-                          <div style={{ fontSize: 10, fontWeight: 900, opacity: 0.7, marginBottom: 4, paddingLeft: 10 }}>
-                            REDISTRIBUIR
-                          </div>
-                          {validReassignSellers.map((s) => (
-                            <button
-                              key={s.id}
-                              onMouseDown={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onReassign(item.id, s.id)
-                                setShowMenu(false)
-                              }}
-                              draggable={false}
-                              style={{
-                                display: 'block',
-                                width: '100%',
-                                padding: '6px 10px',
-                                borderRadius: 4,
-                                border: 'none',
-                                background: '#333',
-                                color: 'white',
-                                cursor: 'pointer',
-                                fontSize: 10,
-                                textAlign: 'left',
-                                marginBottom: 2,
-                                pointerEvents: 'auto',
-                              }}
-                            >
-                              {s.full_name}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null
-                    })()}
-                  </>
-                )}
-              </>
-            )}
-
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 900, opacity: 0.7, marginBottom: 4, paddingLeft: 10 }}>
-                GRUPOS
-              </div>
-
-              {isAdmin && (
-                <button
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowMenu(false)
-                    onCreateGroupInline('card', item.id)
-                  }}
-                  draggable={false}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: '6px 10px',
-                    borderRadius: 4,
-                    border: '1px solid #10b981',
-                    background: 'transparent',
-                    color: '#10b981',
-                    cursor: 'pointer',
-                    fontSize: 10,
-                    textAlign: 'left',
-                    marginBottom: 6,
-                    fontWeight: 900,
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  Criar Grupo
-                </button>
-              )}
-
-              <button
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSetGroup(item.id, null)
-                  setShowMenu(false)
-                }}
-                draggable={false}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '6px 10px',
-                  borderRadius: 4,
-                  border: 'none',
-                  background: !item.group_id ? '#444' : '#333',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: 10,
-                  textAlign: 'left',
-                  marginBottom: 2,
-                  fontWeight: !item.group_id ? 900 : 400,
-                  pointerEvents: 'auto',
-                }}
-              >
-                {!item.group_id ? 'V ' : '- '} Sem grupo
-              </button>
-
-              {groups.map((g) => (
-                <button
-                  key={g.id}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onSetGroup(item.id, g.id)
-                    setShowMenu(false)
-                  }}
-                  draggable={false}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: '6px 10px',
-                    borderRadius: 4,
-                    border: 'none',
-                    background: item.group_id === g.id ? '#10b981' : '#333',
-                    color: item.group_id === g.id ? '#000' : 'white',
-                    cursor: 'pointer',
-                    fontSize: 10,
-                    textAlign: 'left',
-                    marginBottom: 2,
-                    fontWeight: item.group_id === g.id ? 900 : 400,
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  {item.group_id === g.id ? 'V ' : '- '} {g.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* QUICK ACTION MODAL */}
       <QuickActionModal
         isOpen={showQuickActionModal}
@@ -1218,6 +1202,12 @@ function VirtualizedStatusColumn({
     id: status,
   })
 
+  const [menuState, setMenuState] = useState<{ item: PipelineItem; anchorRect: DOMRect } | null>(null)
+
+  const handleOpenMenu = useCallback((item: PipelineItem, rect: DOMRect) => {
+    setMenuState({ item, anchorRect: rect })
+  }, [])
+
   const shown = cycles.length
   const total = totalCount ?? shown
   const headerLabel = total > shown ? `${status.toUpperCase()} (${shown} de ${total})` : `${status.toUpperCase()} (${total})`
@@ -1245,6 +1235,7 @@ function VirtualizedStatusColumn({
   })
 
   return (
+    <>
     <div
       ref={setNodeRef}
       style={{
@@ -1309,27 +1300,38 @@ function VirtualizedStatusColumn({
                 key={item.id}
                 item={item}
                 isSaving={savingId === item.id}
-                onSetGroup={onSetGroup}
-                onReturnToPoolWithReason={onReturnToPoolWithReason}
-                onReassign={onReassign}
-                onCreateGroupInline={onCreateGroupInline}
+                onOpenMenu={handleOpenMenu}
                 onMoveItem={onMoveItem}
                 groups={groups}
                 isSelected={selectedIds.has(item.id)}
                 onToggleSelect={onToggleSelect}
-                sellers={sellers}
-                isAdmin={isAdmin}
-                currentUserId={currentUserId}
                 supabase={supabase}
                 slaRules={slaRules}
                 nowTick={nowTick}
                 companyId={companyId}
+                currentUserId={currentUserId}
               />
             ))}
           </div>
         )}
       </div>
     </div>
+    {menuState && (
+      <CardActionsMenuPortal
+        item={menuState.item}
+        anchorRect={menuState.anchorRect}
+        isAdmin={isAdmin}
+        sellers={sellers}
+        groups={groups}
+        currentUserId={currentUserId}
+        onClose={() => setMenuState(null)}
+        onReturnToPool={onReturnToPoolWithReason}
+        onReassign={onReassign}
+        onSetGroup={onSetGroup}
+        onCreateGroupInline={onCreateGroupInline}
+      />
+    )}
+    </>
   )
 }
 
