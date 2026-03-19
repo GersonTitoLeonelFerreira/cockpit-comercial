@@ -2812,7 +2812,7 @@ export default function SalesCyclesKanban({
                     opacity: poolLoading || poolPageNum >= totalPages ? 0.5 : 1,
                   }}
                 >
-                  >
+                  {'>>'}
                 </button>
               </div>
             )}
