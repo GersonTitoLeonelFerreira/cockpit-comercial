@@ -156,9 +156,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             label={collapsed ? '💰' : 'Gestão de Faturamento'}
             active={isActive('/admin/faturamento')}
           />
+          <NavBtn
+            href="/admin/vendedores"
+            label={collapsed ? '👥' : 'Gestão de Vendedores'}
+            active={isActive('/admin/vendedores')}
+          />
           {/* Futuros itens admin */}
           {/* <NavBtn href="/admin/bi" label="B.I. Administrativo" active={isActive('/admin/bi')} /> */}
-          {/* <NavBtn href="/admin/vendedores" label="Gestão de Vendedores" active={isActive('/admin/vendedores')} /> */}
 
           <NavBtn
             href="/platform"
