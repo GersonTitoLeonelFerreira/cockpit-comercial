@@ -2765,7 +2765,7 @@ export default function SalesCyclesKanban({
                     opacity: poolLoading || poolPageNum === 1 ? 0.5 : 1,
                   }}
                 >
-                  ◀
+                  {'<<'}
                 </button>
 
                 {Array.from({ length: totalPages }).map((_, i) => {
@@ -3180,7 +3180,7 @@ export default function SalesCyclesKanban({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar nome, telefone, CPF ou email..."
+            placeholder="Buscar por nome, telefone, CPF ou email..."
             style={{
               borderRadius: 20,
               padding: '4px 14px',
@@ -3212,7 +3212,7 @@ export default function SalesCyclesKanban({
               color: focusPanelOpen ? '#93c5fd' : 'white',
             }}
           >
-            {focusPanelOpen ? '[ ]' : '[|]'} Fila ({overdueCount + todayCount})
+            {focusPanelOpen ? 'Fechar Fila' : 'Abrir Fila'} ({overdueCount + todayCount})
           </button>
 
           {selectedOwnerId && (
