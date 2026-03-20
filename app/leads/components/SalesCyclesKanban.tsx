@@ -1,5 +1,17 @@
 'use client'
 
+import {
+  WhatsAppIcon,
+  ClipboardCopyIcon,
+  ClockIcon,
+  CalendarIcon,
+  ClipboardListIcon,
+  TagIcon,
+  CircleAlertIcon,
+  WarningTriangleIcon,
+  CalendarRangeIcon,
+  CalendarTodayIcon,
+} from '@/app/components/icons/KanbanIcons'
 import CreateLeadModal from './CreateLeadModal'
 import { ReturnToPoolModal } from './ReturnToPoolModal'
 import StageCheckpointModal from './StageCheckpointModal'
@@ -1030,7 +1042,7 @@ function KanbanCard({
                     lineHeight: 1,
                   }}
                 >
-                  WA
+                  <WhatsAppIcon size={14} />
                 </button>
                 <button
                   onClick={handleCopyPhone}
@@ -1048,7 +1060,7 @@ function KanbanCard({
                     lineHeight: 1,
                   }}
                 >
-                  📋
+                  <ClipboardCopyIcon size={14} />
                 </button>
               </>
             )}
@@ -1137,8 +1149,8 @@ function KanbanCard({
           >
             {/* Tempo na etapa + SLA */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>
-                ⏱ {formatTimeInStage(minutesInStage)} na etapa
+              <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                <ClockIcon size={12} /> {formatTimeInStage(minutesInStage)} na etapa
               </span>
               {item.status !== 'ganho' && item.status !== 'perdido' && (
                 <span
@@ -1159,7 +1171,7 @@ function KanbanCard({
             {/* Agenda */}
             {agendaState !== 'none' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span>📅</span>
+                <span><CalendarIcon size={12} /></span>
                 <span style={{ color: agendaBadge.text }}>
                   {agendaState === 'today' && 'Agenda: HOJE'}
                   {agendaState === 'overdue' && 'Agenda: ATRASADO'}
@@ -1170,16 +1182,16 @@ function KanbanCard({
 
             {/* Próxima ação */}
             {item.next_action && (
-              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                📋 Próx: {item.next_action}
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <ClipboardListIcon size={12} /> Próx: {item.next_action}
                 {item.next_action_date && ` — ${formatNextActionDate(item.next_action_date)}`}
               </div>
             )}
 
             {/* Grupo */}
             {groupName && (
-              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                🏷 Grupo: {groupName}
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }}>
+                <TagIcon size={12} /> Grupo: {groupName}
               </div>
             )}
           </div>
@@ -3356,8 +3368,8 @@ export default function SalesCyclesKanban({
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
                 {/* ATRASADOS */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#ef4444', marginBottom: 8 }}>
-                    🔴 Atrasados ({overdueItems.length})
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#ef4444', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <CircleAlertIcon size={12} color="#ef4444" /> Atrasados ({overdueItems.length})
                   </div>
                   {overdueItems.length === 0 ? (
                     <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum atrasado</div>
@@ -3385,8 +3397,8 @@ export default function SalesCyclesKanban({
 
                 {/* SLA ESTOURADO */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#f59e0b', marginBottom: 8 }}>
-                    ⚠️ SLA Estourado ({dangerItems.length})
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#f59e0b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <WarningTriangleIcon size={12} color="#f59e0b" /> SLA Estourado ({dangerItems.length})
                   </div>
                   {dangerItems.length === 0 ? (
                     <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum SLA estourado</div>
@@ -3414,8 +3426,8 @@ export default function SalesCyclesKanban({
 
                 {/* AGENDA HOJE */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#3b82f6', marginBottom: 8 }}>
-                    📅 Agenda Hoje ({todayItems.length})
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#3b82f6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <CalendarTodayIcon size={12} color="#3b82f6" /> Agenda Hoje ({todayItems.length})
                   </div>
                   {todayItems.length === 0 ? (
                     <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum para hoje</div>
@@ -3440,8 +3452,8 @@ export default function SalesCyclesKanban({
 
                 {/* PRÓXIMOS 7D */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#8b5cf6', marginBottom: 8 }}>
-                    📆 Próximos 7d ({next7Items.length})
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#8b5cf6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <CalendarRangeIcon size={12} color="#8b5cf6" /> Próximos 7d ({next7Items.length})
                   </div>
                   {next7Items.length === 0 ? (
                     <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum nos próximos 7 dias</div>
