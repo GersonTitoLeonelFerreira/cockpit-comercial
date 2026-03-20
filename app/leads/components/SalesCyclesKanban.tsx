@@ -425,7 +425,8 @@ function CardActionsMenuPortal({
     borderRadius: 10,
     padding: 8,
     zIndex: 9001,
-    minWidth: 220,
+    minWidth: 240,
+flex: '1 1 0%',
     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
     color: 'white',
     fontSize: 13,
@@ -568,6 +569,214 @@ function CardActionsMenuPortal({
 }
 
 // ============================================================================
+// QuickActionModal
+// ============================================================================
+type QuickActionType =
+  | 'quick_approach_contact'
+  | 'quick_call_done'
+  | 'quick_answered_doubt'
+  | 'quick_scheduled'
+  | 'quick_proposal'
+  | 'quick_bad_data'
+
+const QUICK_ACTION_SUGGESTED_STATUS: Record<QuickActionType, string | null> = {
+  quick_approach_contact: 'contato',
+  quick_call_done: 'contato',
+  quick_answered_doubt: 'respondeu',
+  quick_scheduled: 'respondeu',
+  quick_proposal: 'negociacao',
+  quick_bad_data: null,
+}
+
+async function logQuickAction(
+  supabase: any,
+  companyId: string,
+  cycleId: string,
+  userId: string,
+  eventType: QuickActionType,
+  detail: string = '',
+  channel: 'whatsapp' | 'copy' = 'copy'
+) {
+  try {
+    const metadata = {
+      source: 'kanban_quick_action',
+      detail,
+      channel,
+      suggested_next_status: QUICK_ACTION_SUGGESTED_STATUS[eventType],
+    }
+    await supabase.from('cycle_events').insert({
+      company_id: companyId,
+      cycle_id: cycleId,
+      event_type: eventType,
+      created_by: userId,
+      metadata,
+      occurred_at: new Date().toISOString(),
+    })
+    return QUICK_ACTION_SUGGESTED_STATUS[eventType]
+  } catch (e: any) {
+    console.error(`Erro ao registrar ação rápida (cycleId=${cycleId}):`, e)
+    return null
+  }
+}
+
+function QuickActionModal({
+  isOpen,
+  leadName,
+  onClose,
+  onSave,
+  isLoading,
+}: {
+  isOpen: boolean
+  leadName: string
+  onClose: () => void
+  onSave: (action: string, detail: string) => void
+  isLoading: boolean
+}) {
+  const [selectedAction, setSelectedAction] = useState<string | null>(null)
+  const [detail, setDetail] = useState('')
+
+  const actions: { id: QuickActionType; label: string }[] = [
+    { id: 'quick_approach_contact', label: 'Abordagem realizada' },
+    { id: 'quick_call_done', label: 'Ligação feita' },
+    { id: 'quick_answered_doubt', label: 'Respondido dúvida' },
+    { id: 'quick_scheduled', label: 'Agendamento realizado' },
+    { id: 'quick_proposal', label: 'Proposta realizada' },
+    { id: 'quick_bad_data', label: 'Telefone incorreto' },
+  ]
+
+  const handleSave = () => {
+    if (!selectedAction) {
+      alert('Selecione uma ação')
+      return
+    }
+    onSave(selectedAction, detail)
+    setSelectedAction(null)
+    setDetail('')
+  }
+
+  if (!isOpen) return null
+
+  return createPortal (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 99999,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: '#111',
+          border: '1px solid #333',
+          borderRadius: 12,
+          padding: 20,
+          width: '90%',
+          maxWidth: 400,
+          color: 'white',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 12 }}>Registrar Contato</div>
+        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 16, color: '#bfdbfe' }}>
+          Lead: <strong>{leadName}</strong>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 8 }}>Ação *</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            {actions.map((action) => (
+              <button
+                key={action.id}
+                onClick={() => setSelectedAction(action.id)}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 6,
+                  border: selectedAction === action.id ? '1px solid #10b981' : '1px solid #2a2a2a',
+                  background: selectedAction === action.id ? '#10b981' : '#222',
+                  color: selectedAction === action.id ? '#000' : 'white',
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  transition: 'all 200ms',
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 6 }}>Detalhes (opcional)</label>
+          <textarea
+            value={detail}
+            onChange={(e) => setDetail(e.target.value)}
+            placeholder="Adicione notas..."
+            style={{
+              width: '100%',
+              minHeight: 60,
+              padding: '8px',
+              borderRadius: 6,
+              border: '1px solid #2a2a2a',
+              background: '#222',
+              color: 'white',
+              fontSize: 11,
+              fontFamily: 'system-ui',
+              resize: 'vertical',
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={onClose}
+            disabled={isLoading}
+            style={{
+              flex: 1,
+              padding: '8px',
+              borderRadius: 6,
+              border: '1px solid #2a2a2a',
+              background: 'transparent',
+              color: 'white',
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              fontWeight: 700,
+              fontSize: 11,
+              opacity: isLoading ? 0.5 : 1,
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!selectedAction || isLoading}
+            style={{
+              flex: 1,
+              padding: '8px',
+              borderRadius: 6,
+              border: 'none',
+              background: selectedAction && !isLoading ? '#10b981' : '#1f2937',
+              color: 'white',
+              cursor: selectedAction && !isLoading ? 'pointer' : 'not-allowed',
+              fontWeight: 700,
+              fontSize: 11,
+              opacity: selectedAction && !isLoading ? 1 : 0.5,
+            }}
+          >
+            {isLoading ? 'Salvando…' : 'Salvar'}
+          </button>
+          </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+// ============================================================================
 // KanbanCard
 // ============================================================================
 function KanbanCard({
@@ -576,45 +785,120 @@ function KanbanCard({
   isSelected,
   onToggleSelect,
   onOpenMenu,
+  onMoveItem,
+  supabase,
+  companyId,
+  currentUserId,
+  slaRules,
+  nowTick,
 }: {
   item: PipelineItem
   isSaving: boolean
   isSelected: boolean
   onToggleSelect: (cycleId: string) => void
   onOpenMenu: (item: PipelineItem, anchorRect: DOMRect) => void
+  onMoveItem: (cycleId: string, toStatus: Status) => void
+  supabase: any
+  companyId: string
+  currentUserId: string
+  slaRules: Record<Status, SLARuleDB | null>
+  nowTick: Date
 }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const [showQuickActionModal, setShowQuickActionModal] = useState(false)
+  const [quickActionLoading, setQuickActionLoading] = useState(false)
+  const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
+  const [lastChannel, setLastChannel] = useState<'whatsapp' | 'copy'>('copy')
+  const [isHovered, setIsHovered] = useState(false)
+
+  const minutesInStage = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
+  const slaRule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
+  const slaLevel = getSLALevel(minutesInStage, slaRule)
+
+  const agendaState = getAgendaState(item.next_action_date)
+  const agendaBadge = getAgendaBadgeStyle(agendaState)
+  const agendaLabel = getAgendaBadgeLabel(agendaState, item.next_action_date)
+
+  const groupName = item.lead_groups?.name ?? null
+
+  const handleWhatsApp = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!item.phone) return
+    const digits = item.phone.replace(/\D/g, '')
+    const phone = digits.startsWith('55') ? digits : `55${digits}`
+    window.open(`https://wa.me/${phone}`, '_blank')
+    setLastChannel('whatsapp')
+    setShowQuickActionModal(true)
+  }
+
+  const handleCopyPhone = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!item.phone) return
+    navigator.clipboard.writeText(item.phone).catch((err) => { console.error('Clipboard copy failed:', err) })
+    setLastChannel('copy')
+    setShowQuickActionModal(true)
+  }
+
+  const handleQuickActionSave = async (action: string, detail: string) => {
+    setQuickActionLoading(true)
+    try {
+      const suggested = await logQuickAction(
+        supabase, companyId, item.id, currentUserId,
+        action as QuickActionType, detail, lastChannel
+      )
+      setSuggestedStatus(suggested)
+    } finally {
+      setQuickActionLoading(false)
+      setShowQuickActionModal(false)
+    }
+  }
+
   return (
     <div
       style={{
-        background: isSelected ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.04)',
-        borderTop: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
-        borderRight: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
-        borderBottom: isSelected ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(255,255,255,0.08)',
+        background: isHovered
+          ? `linear-gradient(135deg, ${STATUS_COLORS[item.status]}08, ${STATUS_COLORS[item.status]}15)`
+          : isSelected
+            ? 'rgba(34,197,94,0.08)'
+            : 'rgba(255,255,255,0.04)',
+        borderTop: isHovered
+          ? `2px solid ${STATUS_COLORS[item.status]}88`
+          : isSelected
+            ? '1px solid rgba(34,197,94,0.4)'
+            : '1px solid rgba(255,255,255,0.08)',
+        borderRight: isHovered
+          ? `2px solid ${STATUS_COLORS[item.status]}88`
+          : isSelected
+            ? '1px solid rgba(34,197,94,0.4)'
+            : '1px solid rgba(255,255,255,0.08)',
+        borderBottom: isHovered
+          ? `2px solid ${STATUS_COLORS[item.status]}88`
+          : isSelected
+            ? '1px solid rgba(34,197,94,0.4)'
+            : '1px solid rgba(255,255,255,0.08)',
         borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
         borderRadius: 10,
-        padding: 12,
+        padding: '10px 8px',
         cursor: isSaving ? 'not-allowed' : 'grab',
-        transition: 'transform 200ms, box-shadow 200ms, background 200ms',
+        transition: 'transform 200ms ease, box-shadow 200ms ease, background 200ms ease, border-color 200ms ease',
         position: 'relative',
+        overflow: 'hidden',
+        transform: isHovered ? 'translateY(-2px)' : 'none',
+        boxShadow: isHovered
+          ? `0 0 0 1px ${STATUS_COLORS[item.status]}33, 0 8px 24px rgba(0,0,0,0.4), 0 0 12px ${STATUS_COLORS[item.status]}20`
+          : 'none',
       }}
       draggable
       onDragStart={(e) => {
         e.dataTransfer!.effectAllowed = 'move'
         e.dataTransfer!.setData('cycleId', item.id)
       }}
-      onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(0,0,0,0.4)'
-      }}
-      onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.transform = 'none'
-        ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
-      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       {/* CHECKBOX */}
       <div
-        style={{ position: 'absolute', top: 8, left: 8, cursor: 'pointer' }}
+        style={{ position: 'absolute', top: 8, right: 4, cursor: 'pointer' }}
         onClick={(e) => { e.stopPropagation(); onToggleSelect(item.id) }}
         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
       >
@@ -656,20 +940,264 @@ function KanbanCard({
         ···
       </button>
 
-      {/* CONTENT */}
-      <div
-        style={{ cursor: 'pointer', marginLeft: 24, marginRight: 24 }}
-        onClick={() => { window.location.href = `/sales-cycles/${item.id}` }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2, color: 'white' }}>{item.name}</div>
+            {/* CONTENT */}
+            <div
+  style={{ cursor: 'pointer', marginLeft: 20, marginRight: 16, overflow: 'hidden', minWidth: 0 }}
+  onClick={() => { window.location.href = `/sales-cycles/${item.id}` }}
+>
+        {/* ROW: Name + SLA badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'white', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            {item.name}
+          </div>
+          {/* SLA BADGE */}
+          {item.status !== 'ganho' && item.status !== 'perdido' && (
+            <div
+              title={`${getSLALabel(slaLevel)} — ${formatTimeInStage(minutesInStage)} no estágio`}
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: `${getSLAColor(slaLevel)}20`,
+                color: getSLAColor(slaLevel),
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              {formatTimeInStage(minutesInStage)}
+            </div>
+          )}
+        </div>
+
+        {/* Phone */}
         <div style={{ fontSize: 11, color: '#9ca3af' }}>{item.phone || '—'}</div>
+
+        {/* Próxima ação */}
         {item.next_action && (
           <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, fontStyle: 'italic', color: '#9ca3af' }}>
             Próx: {item.next_action}
           </div>
         )}
+
+        {/* Group name */}
+        {groupName && (
+          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+            {groupName}
+          </div>
+        )}
+
+        {/* ROW: Agenda badge + Quick action buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+          {/* AGENDA BADGE */}
+          {agendaState !== 'none' && (
+            <div style={{
+              fontSize: 9,
+              fontWeight: 800,
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: agendaBadge.bg,
+              color: agendaBadge.text,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3,
+            }}>
+              <span>{agendaBadge.icon}</span>
+              {agendaLabel}
+            </div>
+          )}
+          {agendaState === 'none' && <div />}
+
+          {/* QUICK ACTION BUTTONS: WA + Copy */}
+          <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
+            {item.phone && (
+              <>
+                <button
+                  onClick={handleWhatsApp}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+                  title="Abrir WhatsApp"
+                  style={{
+                    background: 'rgba(37,211,102,0.15)',
+                    border: '1px solid rgba(37,211,102,0.3)',
+                    borderRadius: 5,
+                    padding: '3px 7px',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    color: '#25d366',
+                    fontWeight: 700,
+                    lineHeight: 1,
+                  }}
+                >
+                  WA
+                </button>
+                <button
+                  onClick={handleCopyPhone}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+                  title="Copiar telefone"
+                  style={{
+                    background: 'rgba(156,163,175,0.1)',
+                    border: '1px solid rgba(156,163,175,0.2)',
+                    borderRadius: 5,
+                    padding: '3px 7px',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    color: '#9ca3af',
+                    fontWeight: 700,
+                    lineHeight: 1,
+                  }}
+                >
+                  📋
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* SUGGESTED MOVE STRIP */}
+        {suggestedStatus && suggestedStatus !== item.status && (
+          <div
+            style={{
+              marginTop: 6,
+              padding: '4px 8px',
+              background: 'rgba(59,130,246,0.1)',
+              border: '1px solid rgba(59,130,246,0.25)',
+              borderRadius: 6,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 10,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span style={{ color: '#93c5fd' }}>
+              Mover → {STATUS_LABELS[suggestedStatus as Status] || suggestedStatus}?
+            </span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onClick={() => {
+                  onMoveItem(item.id, suggestedStatus as Status)
+                  setSuggestedStatus(null)
+                }}
+                style={{
+                  background: '#2563eb',
+                  border: 'none',
+                  borderRadius: 4,
+                  color: 'white',
+                  fontSize: 9,
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                }}
+              >
+                Sim
+              </button>
+              <button
+                onClick={() => setSuggestedStatus(null)}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #374151',
+                  borderRadius: 4,
+                  color: '#9ca3af',
+                  fontSize: 9,
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                }}
+              >
+                Não
+              </button>
+            </div>
+          </div>
+        )}
+
+                {/* HOVER DETAILS PANEL */}
+                <div
+          style={{
+            maxHeight: isHovered ? 120 : 0,
+            opacity: isHovered ? 1 : 0,
+            overflow: 'hidden',
+            transition: 'max-height 200ms ease, opacity 150ms ease',
+            marginTop: isHovered ? 8 : 0,
+          }}
+        >
+          <div
+            style={{
+              padding: '6px 8px',
+              background: `${STATUS_COLORS[item.status]}10`,
+              border: `1px solid ${STATUS_COLORS[item.status]}25`,
+              borderRadius: 6,
+              fontSize: 10,
+              color: '#d1d5db',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+            }}
+          >
+            {/* Tempo na etapa + SLA */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>
+                ⏱ {formatTimeInStage(minutesInStage)} na etapa
+              </span>
+              {item.status !== 'ganho' && item.status !== 'perdido' && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    color: getSLAColor(slaLevel),
+                    padding: '1px 5px',
+                    borderRadius: 3,
+                    background: `${getSLAColor(slaLevel)}15`,
+                  }}
+                >
+                  {getSLALabel(slaLevel)}
+                </span>
+              )}
+            </div>
+
+            {/* Agenda */}
+            {agendaState !== 'none' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span>📅</span>
+                <span style={{ color: agendaBadge.text }}>
+                  {agendaState === 'today' && 'Agenda: HOJE'}
+                  {agendaState === 'overdue' && 'Agenda: ATRASADO'}
+                  {agendaState === 'future' && `Agenda: ${formatNextActionDate(item.next_action_date)}`}
+                </span>
+              </div>
+            )}
+
+            {/* Próxima ação */}
+            {item.next_action && (
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                📋 Próx: {item.next_action}
+                {item.next_action_date && ` — ${formatNextActionDate(item.next_action_date)}`}
+              </div>
+            )}
+
+            {/* Grupo */}
+            {groupName && (
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                🏷 Grupo: {groupName}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
+
         {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
       </div>
+
+      {/* QUICK ACTION MODAL */}
+      {showQuickActionModal && (
+        <QuickActionModal
+          isOpen={showQuickActionModal}
+          leadName={item.name}
+          onClose={() => setShowQuickActionModal(false)}
+          onSave={handleQuickActionSave}
+          isLoading={quickActionLoading}
+        />
+      )}
     </div>
   )
 }
@@ -696,6 +1224,10 @@ type VirtualizedStatusColumnProps = {
   groups: LeadGroup[]
   sellers: Profile[]
   isAdmin: boolean
+  onMoveItem: (cycleId: string, toStatus: Status) => void
+  supabase: any
+  companyId: string
+  currentUserId: string
 }
 
 function VirtualizedStatusColumn({
@@ -717,6 +1249,10 @@ function VirtualizedStatusColumn({
   groups,
   sellers,
   isAdmin,
+  onMoveItem,
+  supabase,
+  companyId,
+  currentUserId,
 }: VirtualizedStatusColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: status,
@@ -759,9 +1295,9 @@ function VirtualizedStatusColumn({
     <div
       ref={setNodeRef}
       style={{
-        minWidth: 260,
-        maxWidth: 300,
-        flex: '0 0 270px',
+        minWidth: 300,
+maxWidth: 340,
+flex: '0 0 320px',
         display: 'flex',
         flexDirection: 'column',
         background: isOver ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
@@ -816,14 +1352,20 @@ function VirtualizedStatusColumn({
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {filteredCycles.map((item) => (
-              <KanbanCard
-                key={item.id}
-                item={item}
-                isSaving={savingId === item.id}
-                isSelected={selectedIds.has(item.id)}
-                onToggleSelect={onToggleSelect}
-                onOpenMenu={handleOpenMenu}
-              />
+                            <KanbanCard
+                            key={item.id}
+                            item={item}
+                            isSaving={savingId === item.id}
+                            isSelected={selectedIds.has(item.id)}
+                            onToggleSelect={onToggleSelect}
+                            onOpenMenu={handleOpenMenu}
+                            onMoveItem={onMoveItem}
+                            supabase={supabase}
+                            companyId={companyId}
+                            currentUserId={currentUserId}
+                            slaRules={slaRules}
+                            nowTick={nowTick}
+                          />
             ))}
           </div>
         )}
@@ -979,7 +1521,7 @@ async function loadKanbanWithCursor(
       try {
         let query = supabase
           .from('v_pipeline_items')
-          .select('id, lead_id, name, phone, email, status, stage_entered_at, owner_id, group_id, next_action, next_action_date')
+          .select('id, lead_id, name, phone, email, status, stage_entered_at, owner_id, group_id, next_action, next_action_date, lead_groups(name)')
           .eq('company_id', companyId)
           .eq('owner_id', ownerToFilter)
           .eq('status', status)
@@ -2779,6 +3321,154 @@ export default function SalesCyclesKanban({
         </div>
       </div>
 
+            {/* INSIGHTS EXPANDED PANEL */}
+            {insightsExpanded && (
+        <div style={{
+          background: 'rgba(255,255,255,0.03)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '12px 16px',
+          maxHeight: 300,
+          overflowY: 'auto',
+        }}>
+          {/* SLA ESTOURADO LIST */}
+          {(() => {
+            const allItems = Object.values(items).flat()
+            const overdueItems = allItems.filter((c) => {
+              const agState = getAgendaState(c.next_action_date)
+              return agState === 'overdue'
+            })
+            const dangerItems = allItems.filter((c) => {
+              if (c.status === 'ganho' || c.status === 'perdido') return false
+              const mins = Math.floor((nowTick.getTime() - new Date(c.stage_entered_at || new Date()).getTime()) / 60000)
+              const rule = slaRules[c.status] || { ...DEFAULT_SLA_RULES[c.status], id: 'default' }
+              return getSLALevel(mins, rule) === 'danger'
+            })
+            const todayItems = allItems.filter((c) => getAgendaState(c.next_action_date) === 'today')
+            const next7Items = allItems.filter((c) => {
+              const agState = getAgendaState(c.next_action_date)
+              if (agState === 'none' || agState === 'overdue') return false
+              const actionDate = new Date(c.next_action_date!)
+              const sevenDays = new Date(nowTick.getTime() + 7 * 24 * 60 * 60 * 1000)
+              return actionDate <= sevenDays
+            })
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
+                {/* ATRASADOS */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#ef4444', marginBottom: 8 }}>
+                    🔴 Atrasados ({overdueItems.length})
+                  </div>
+                  {overdueItems.length === 0 ? (
+                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum atrasado</div>
+                  ) : (
+                    overdueItems.slice(0, 10).map((c) => (
+                      <div
+                        key={c.id}
+                        onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
+                        style={{
+                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
+                          background: 'rgba(239,68,68,0.08)', marginBottom: 4,
+                          cursor: 'pointer', color: '#fecaca',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        }}
+                      >
+                        <span>{c.name}</span>
+                        <span style={{ fontSize: 9, opacity: 0.7 }}>{formatNextActionDate(c.next_action_date)}</span>
+                      </div>
+                    ))
+                  )}
+                  {overdueItems.length > 10 && (
+                    <div style={{ fontSize: 9, opacity: 0.5, color: '#9ca3af' }}>+{overdueItems.length - 10} mais</div>
+                  )}
+                </div>
+
+                {/* SLA ESTOURADO */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#f59e0b', marginBottom: 8 }}>
+                    ⚠️ SLA Estourado ({dangerItems.length})
+                  </div>
+                  {dangerItems.length === 0 ? (
+                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum SLA estourado</div>
+                  ) : (
+                    dangerItems.slice(0, 10).map((c) => {
+                      const mins = Math.floor((nowTick.getTime() - new Date(c.stage_entered_at || new Date()).getTime()) / 60000)
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
+                          style={{
+                            fontSize: 11, padding: '4px 8px', borderRadius: 6,
+                            background: 'rgba(245,158,11,0.08)', marginBottom: 4,
+                            cursor: 'pointer', color: '#fef3c7',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          }}
+                        >
+                          <span>{c.name}</span>
+                          <span style={{ fontSize: 9, opacity: 0.7 }}>{formatTimeInStage(mins)} em {STATUS_LABELS[c.status]}</span>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+                {/* AGENDA HOJE */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#3b82f6', marginBottom: 8 }}>
+                    📅 Agenda Hoje ({todayItems.length})
+                  </div>
+                  {todayItems.length === 0 ? (
+                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum para hoje</div>
+                  ) : (
+                    todayItems.slice(0, 10).map((c) => (
+                      <div
+                        key={c.id}
+                        onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
+                        style={{
+                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
+                          background: 'rgba(59,130,246,0.08)', marginBottom: 4,
+                          cursor: 'pointer', color: '#93c5fd',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        }}
+                      >
+                        <span>{c.name}</span>
+                        <span style={{ fontSize: 9, opacity: 0.7 }}>{formatNextActionDate(c.next_action_date)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* PRÓXIMOS 7D */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#8b5cf6', marginBottom: 8 }}>
+                    📆 Próximos 7d ({next7Items.length})
+                  </div>
+                  {next7Items.length === 0 ? (
+                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum nos próximos 7 dias</div>
+                  ) : (
+                    next7Items.slice(0, 10).map((c) => (
+                      <div
+                        key={c.id}
+                        onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
+                        style={{
+                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
+                          background: 'rgba(139,92,246,0.08)', marginBottom: 4,
+                          cursor: 'pointer', color: '#c4b5fd',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        }}
+                      >
+                        <span>{c.name}</span>
+                        <span style={{ fontSize: 9, opacity: 0.7 }}>{formatNextActionDate(c.next_action_date)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
       {/* MAIN AREA: KANBAN + FOCUS PANEL */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
@@ -2817,6 +3507,10 @@ export default function SalesCyclesKanban({
                     groups={groups}
                     sellers={sellers}
                     isAdmin={isAdmin}
+                    onMoveItem={handleDrop}
+                    supabase={supabase}
+                    companyId={companyId}
+                    currentUserId={userId}
                   />
                 ))}
               </DndContext>
