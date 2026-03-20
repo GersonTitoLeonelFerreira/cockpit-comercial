@@ -7,6 +7,7 @@ import ImportExcelDialog from './components/ImportExcelDialog'
 import DeleteLeadsDialog from './components/DeleteLeadsDialog'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
+import MetaSummaryHeader, { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
 
 function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
@@ -49,108 +50,6 @@ function countBusinessDaysUntilToday(startYMD: string, endYMD: string) {
     cur.setDate(cur.getDate() + 1)
   }
   return count
-}
-
-// ============================================================================
-// KPI Row (inline)
-// ============================================================================
-
-function toBRL(v: number) {
-  return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
-type Tone = 'neutral' | 'good' | 'bad'
-
-function RevenueCard({
-  title,
-  value,
-  subtitle,
-  tone,
-}: {
-  title: React.ReactNode
-  value: React.ReactNode
-  subtitle?: React.ReactNode
-  tone?: Tone
-}) {
-  const border =
-    tone === 'good'
-      ? '1px solid #1f5f3a'
-      : tone === 'bad'
-        ? '1px solid #5f1f1f'
-        : '1px solid #2a2a2a'
-  const bg = tone === 'good' ? '#07140c' : tone === 'bad' ? '#140707' : '#0f0f0f'
-
-  return (
-    <div style={{ border, background: bg, borderRadius: 14, padding: 14, minHeight: 92 }}>
-      <div style={{ fontSize: 12, opacity: 0.78, marginBottom: 8 }}>{title}</div>
-      <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2 }}>{value}</div>
-      {subtitle ? <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>{subtitle}</div> : null}
-    </div>
-  )
-}
-
-function getRevenueStatus(pacingRatio: number): 'no_ritmo' | 'atencao' | 'acelerar' {
-  if (pacingRatio >= 1) return 'no_ritmo'
-  if (pacingRatio >= 0.9) return 'atencao'
-  return 'acelerar'
-}
-
-function statusLabel(s: 'no_ritmo' | 'atencao' | 'acelerar') {
-  if (s === 'no_ritmo') return '✅ No ritmo'
-  if (s === 'atencao') return '⚠️ Atenção'
-  return '🚨 Acelerar'
-}
-
-function statusTone(s: 'no_ritmo' | 'atencao' | 'acelerar'): Tone {
-  if (s === 'no_ritmo') return 'good'
-  if (s === 'atencao') return 'neutral'
-  return 'bad'
-}
-
-function RevenueMetaKpiRow({
-  title,
-  totalReal,
-  goal,
-  businessDaysRemaining,
-  projection,
-}: {
-  title: string
-  totalReal: number
-  goal: number
-  businessDaysRemaining: number
-  projection: number
-}) {
-  const safeGoal = Math.max(0, Number(goal) || 0)
-  const safeReal = Math.max(0, Number(totalReal) || 0)
-
-  const gap = Math.max(0, safeGoal - safeReal)
-  const requiredPerBD = businessDaysRemaining > 0 ? gap / businessDaysRemaining : gap
-
-  const pacingRatio = safeGoal > 0 ? projection / safeGoal : 0
-  const status = getRevenueStatus(pacingRatio)
-
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ fontWeight: 900, opacity: 0.9 }}>{title}</div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-        <RevenueCard title="Real no período" value={toBRL(safeReal)} />
-        <RevenueCard title="Meta do período" value={toBRL(safeGoal)} />
-        <RevenueCard title="Gap (falta)" value={toBRL(gap)} tone={gap <= 0 ? 'good' : 'neutral'} />
-        <RevenueCard
-          title="R$/dia útil (restante)"
-          value={toBRL(requiredPerBD)}
-          subtitle={`${businessDaysRemaining} dias úteis restantes`}
-        />
-        <RevenueCard
-          title="Status (pacing)"
-          value={statusLabel(status)}
-          subtitle={`Projeção: ${toBRL(projection)} (${Math.round(pacingRatio * 100)}% da meta)`}
-          tone={statusTone(status)}
-        />
-      </div>
-    </div>
-  )
 }
 
 // ============================================================================
@@ -350,12 +249,9 @@ export default function LeadsClient({
         ) : revenueLoading ? (
           <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando faturamento do período...</div>
         ) : (
-          <RevenueMetaKpiRow
+          <MetaSummaryHeader
             title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
-            totalReal={revenueTotalReal}
-            goal={activeGoal}
-            businessDaysRemaining={revenueBDRemaining}
-            projection={revenueProjection}
+            kpis={buildMetaSummaryKpis(revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection)}
           />
         )}
       </div>

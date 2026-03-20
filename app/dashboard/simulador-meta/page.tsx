@@ -24,6 +24,7 @@ import type {
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
+import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel, statusTone } from '@/app/components/meta/MetaSummaryCard'
 
 function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
@@ -32,10 +33,6 @@ function toYMD(v: string) {
 function pct(n: number) {
   const v = Number.isFinite(n) ? n : 0
   return `${Math.round(v * 100)}%`
-}
-
-function toBRL(v: number) {
-  return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
 function safeNumber(v: any) {
@@ -47,24 +44,6 @@ function safeNumber(v: any) {
     .replace(/[^\d.-]/g, '')
   const n = parseFloat(s || '0')
   return Number.isFinite(n) ? n : 0
-}
-
-function getRevenueStatus(pacingRatio: number): 'no_ritmo' | 'atencao' | 'acelerar' {
-  if (pacingRatio >= 1) return 'no_ritmo'
-  if (pacingRatio >= 0.9) return 'atencao'
-  return 'acelerar'
-}
-
-function statusLabel(s: 'no_ritmo' | 'atencao' | 'acelerar') {
-  if (s === 'no_ritmo') return '✅ No ritmo'
-  if (s === 'atencao') return '⚠️ Atenção'
-  return '🚨 Acelerar'
-}
-
-function statusTone(s: 'no_ritmo' | 'atencao' | 'acelerar'): 'good' | 'neutral' | 'bad' {
-  if (s === 'no_ritmo') return 'good'
-  if (s === 'atencao') return 'neutral'
-  return 'bad'
 }
 
 // ============================
@@ -952,16 +931,19 @@ export default function SimuladorMetaPage() {
 
               <div style={{ display: 'grid', gap: 12 }}>
                 {showCompanyChart && revenueCompanyKpis ? (
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <div style={{ fontWeight: 900, opacity: 0.9 }}>Empresa (todos)</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-                      <Card title="Real no período" value={toBRL(revenueCompanyKpis.totalReal)} />
-                      <Card title="Meta do período" value={toBRL(revenueCompanyKpis.goal)} />
-                      <Card title="Gap (falta)" value={toBRL(revenueCompanyKpis.gap)} tone={revenueCompanyKpis.gap <= 0 ? 'good' : 'neutral'} />
-                      <Card title="R$/dia útil (restante)" value={toBRL(revenueCompanyKpis.required_per_business_day)} subtitle={`${revenueCompanyKpis.businessDaysRemaining} dias restantes`} />
-                      <Card title="Status (pacing)" value={statusLabel(revenueCompanyKpis.status)} subtitle={`Projeção: ${toBRL(revenueCompanyKpis.projection)} (${Math.round(revenueCompanyKpis.pacingRatio * 100)}% da meta)`} tone={statusTone(revenueCompanyKpis.status)} />
-                    </div>
-                  </div>
+                  <MetaSummaryHeader
+                    title="Empresa (todos)"
+                    kpis={{
+                      totalReal: revenueCompanyKpis.totalReal,
+                      goal: revenueCompanyKpis.goal,
+                      gap: revenueCompanyKpis.gap,
+                      requiredPerBD: revenueCompanyKpis.required_per_business_day,
+                      businessDaysRemaining: revenueCompanyKpis.businessDaysRemaining,
+                      projection: revenueCompanyKpis.projection,
+                      pacingRatio: revenueCompanyKpis.pacingRatio,
+                      status: revenueCompanyKpis.status,
+                    }}
+                  />
                 ) : null}
 
                 {showCompanyChart && revenueCompany?.success ? (

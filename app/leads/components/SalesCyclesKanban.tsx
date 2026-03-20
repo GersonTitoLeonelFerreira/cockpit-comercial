@@ -656,7 +656,7 @@ function QuickActionModal({
 
   if (!isOpen) return null
 
-  return createPortal (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -883,6 +883,8 @@ function KanbanCard({
         transition: 'transform 200ms ease, box-shadow 200ms ease, background 200ms ease, border-color 200ms ease',
         position: 'relative',
         overflow: 'hidden',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
         transform: isHovered ? 'translateY(-2px)' : 'none',
         boxShadow: isHovered
           ? `0 0 0 1px ${STATUS_COLORS[item.status]}33, 0 8px 24px rgba(0,0,0,0.4), 0 0 12px ${STATUS_COLORS[item.status]}20`
@@ -1184,8 +1186,6 @@ function KanbanCard({
         </div>
 
         {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
-
-        {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
       </div>
 
       {/* QUICK ACTION MODAL */}
@@ -1350,7 +1350,7 @@ flex: '0 0 320px',
             Vazio
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'grid', gap: 8, overflow: 'hidden' }}>
             {filteredCycles.map((item) => (
                             <KanbanCard
                             key={item.id}
