@@ -2,10 +2,12 @@ import { supabaseBrowser } from '../supabaseBrowser'
 import type {
   ActiveCompetency,
   GroupConversionRow,
+  HistoricalTicketResponse,
   RevenueSummaryResponse,
   SimulatorConfig,
   SimulatorMetrics,
   SimulatorResult,
+  TicketFallbackLevel,
   Theory10020Config,
   Theory10020Result,
 } from '../../types/simulator'
@@ -260,4 +262,121 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
     meta_atingida,
     progress_pct,
   }
+}
+
+// ==============================================================================
+// Ticket Médio Histórico — query direta em sales_cycles
+// ==============================================================================
+
+const MIN_SAMPLE_SIZE = 5
+
+export async function getHistoricalTicket(params: {
+  companyId: string
+  ownerId: string | null       // null = empresa toda
+  dateStart: string            // YYYY-MM-DD (início da competência)
+  dateEnd: string              // YYYY-MM-DD (fim da competência)
+}): Promise<HistoricalTicketResponse> {
+  const supabase = supabaseBrowser()
+
+  // ---- Attempt 1: within the competency period ----
+  const periodResult = await queryTicket(supabase, params.companyId, params.ownerId, params.dateStart, params.dateEnd)
+
+  if (periodResult.sample_size >= MIN_SAMPLE_SIZE) {
+    return {
+      ...periodResult,
+      source_window: 'period',
+      fallback_level: 'period',
+      is_sufficient: true,
+      owner_id: params.ownerId,
+      date_start: params.dateStart,
+      date_end: params.dateEnd,
+    }
+  }
+
+  // ---- Attempt 2: last 90 days from today ----
+  const today = new Date()
+  const d90ago = new Date(today)
+  d90ago.setDate(d90ago.getDate() - 90)
+  const fallbackStart = d90ago.toISOString().split('T')[0]
+  const fallbackEnd = today.toISOString().split('T')[0]
+
+  const fallbackResult = await queryTicket(supabase, params.companyId, params.ownerId, fallbackStart, fallbackEnd)
+
+  if (fallbackResult.sample_size >= MIN_SAMPLE_SIZE) {
+    return {
+      ...fallbackResult,
+      source_window: 'last_90_days',
+      fallback_level: 'last_90_days',
+      is_sufficient: true,
+      owner_id: params.ownerId,
+      date_start: fallbackStart,
+      date_end: fallbackEnd,
+    }
+  }
+
+  // ---- Attempt 3: last 90 days, company-wide (if ownerId was set) ----
+  if (params.ownerId) {
+    const companyFallback = await queryTicket(supabase, params.companyId, null, fallbackStart, fallbackEnd)
+
+    if (companyFallback.sample_size >= MIN_SAMPLE_SIZE) {
+      return {
+        ...companyFallback,
+        source_window: 'last_90_days',
+        fallback_level: 'last_90_days',
+        is_sufficient: true,
+        owner_id: null, // fell back to company
+        date_start: fallbackStart,
+        date_end: fallbackEnd,
+      }
+    }
+  }
+
+  // ---- Insufficient ----
+  return {
+    ticket_medio: 0,
+    sample_size: 0,
+    total_won: 0,
+    source_window: 'last_90_days',
+    fallback_level: 'insufficient',
+    is_sufficient: false,
+    owner_id: params.ownerId,
+    date_start: fallbackStart,
+    date_end: fallbackEnd,
+  }
+}
+
+async function queryTicket(
+  supabase: any,
+  companyId: string,
+  ownerId: string | null,
+  dateStart: string,
+  dateEnd: string,
+): Promise<{ ticket_medio: number; sample_size: number; total_won: number }> {
+  let query = supabase
+    .from('sales_cycles')
+    .select('won_total')
+    .eq('company_id', companyId)
+    .eq('status', 'ganho')
+    .gt('won_total', 0)
+    .gte('won_at', dateStart)
+    .lte('won_at', dateEnd + 'T23:59:59')
+
+  if (ownerId) {
+    query = query.eq('owner_user_id', ownerId)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    console.warn('Erro ao buscar ticket histórico:', error.message)
+    return { ticket_medio: 0, sample_size: 0, total_won: 0 }
+  }
+
+  const rows = (data ?? []) as Array<{ won_total: number }>
+  const validRows = rows.filter((r) => r.won_total > 0)
+  const sample_size = validRows.length
+  const total_won = validRows.reduce((acc, r) => acc + Number(r.won_total), 0)
+  const ticket_medio = sample_size > 0 ? Math.round(total_won / sample_size) : 0
+
+  return { ticket_medio, sample_size, total_won }
 }

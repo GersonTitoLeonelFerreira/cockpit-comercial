@@ -116,3 +116,23 @@ export interface Theory10020Result {
   meta_atingida: boolean
   progress_pct: number               // 0..1
 }
+
+// ==============================================================================
+// Types: Ticket Médio Histórico
+// ==============================================================================
+
+export type TicketSource = 'manual' | 'historico'
+
+export type TicketFallbackLevel = 'period' | 'last_90_days' | 'insufficient'
+
+export interface HistoricalTicketResponse {
+  ticket_medio: number          // valor calculado (0 se insuficiente)
+  sample_size: number           // quantidade de vendas ganhas usadas
+  total_won: number             // soma dos won_total
+  source_window: string         // 'period' | 'last_90_days'
+  fallback_level: TicketFallbackLevel
+  is_sufficient: boolean        // sample_size >= 5
+  owner_id: string | null       // vendedor (null = empresa)
+  date_start: string            // início do recorte usado
+  date_end: string              // fim do recorte usado
+}
