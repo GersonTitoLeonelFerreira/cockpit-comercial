@@ -7,6 +7,7 @@ import {
   getActiveCompetency,
   getSalesCycleMetrics,
   calculateSimulatorResult,
+  calculateTheory10020,
   getGroupConversion,
   getRevenueSummary,
   getRevenueGoal,
@@ -20,6 +21,7 @@ import type {
   SimulatorMetrics,
   SimulatorMode,
   SimulatorResult,
+  Theory10020Result,
 } from '@/app/types/simulator'
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
@@ -239,6 +241,10 @@ export default function SimuladorMetaPage() {
   const [groupConversionLoading, setGroupConversionLoading] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
 
+  // Teoria 100/20
+  const [ticketMedioText, setTicketMedioText] = useState<string>('5000')
+  const [theory10020Result, setTheory10020Result] = useState<Theory10020Result | null>(null)
+
   // init
   useEffect(() => {
     async function init() {
@@ -415,6 +421,31 @@ export default function SimuladorMetaPage() {
   )
 
   const activeGoalForKpis = isAdmin ? revenueGoalInputNumber : revenueGoalDb
+
+  // Teoria 100/20 — recalcular quando inputs mudam
+  useEffect(() => {
+    if (mode !== 'faturamento') {
+      setTheory10020Result(null)
+      return
+    }
+
+    const ticketValue = Math.max(0, safeNumber(ticketMedioText))
+    if (ticketValue <= 0) {
+      setTheory10020Result(null)
+      return
+    }
+
+    const totalReal = Number(revenueSeller?.total_real || revenueCompany?.total_real || 0)
+
+    const result = calculateTheory10020({
+      meta_total: activeGoalForKpis,
+      ticket_medio: ticketValue,
+      close_rate: percentToRate(closeRatePercent),
+      remaining_business_days: remainingBusinessDays,
+      total_real: totalReal,
+    })
+    setTheory10020Result(result)
+  }, [mode, ticketMedioText, activeGoalForKpis, closeRatePercent, remainingBusinessDays, revenueSeller, revenueCompany])
 
   // Carregar meta do banco
   useEffect(() => {
@@ -1090,6 +1121,78 @@ export default function SimuladorMetaPage() {
             <Card title="Se taxa for 25%" value={result?.simulation_25pct ?? '—'} subtitle={`${targetWins} ganhos ÷ 25%`} tone="good" />
           </div>
         </Section>
+
+        {/* Teoria 100/20 — Planejamento Operacional */}
+        {mode === 'faturamento' && (
+          <Section
+            title="Teoria 100/20 — Planejamento Operacional"
+            description="Converte a meta bruta de faturamento em volume de trabalho diário"
+          >
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Ticket Médio (R$) — valor médio esperado por fechamento</div>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={ticketMedioText}
+                  onChange={(e) => setTicketMedioText(e.target.value)}
+                  onFocus={() => {
+                    const n = Math.max(0, safeNumber(ticketMedioText))
+                    setTicketMedioText(String(n))
+                  }}
+                  onBlur={() => {
+                    const n = Math.max(0, safeNumber(ticketMedioText))
+                    setTicketMedioText(toBRL(n))
+                  }}
+                  style={{
+                    width: '100%',
+                    maxWidth: 300,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: '1px solid #2a2a2a',
+                    background: '#111',
+                    color: 'white',
+                    fontWeight: 900,
+                  }}
+                />
+              </div>
+
+              {theory10020Result ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    <Card title="Meta Bruta (base de cálculo)" value={toBRL(theory10020Result.meta_total)} subtitle="Valor total usado como referência para o plano operacional" />
+                    <Card title="Piso Mínimo (20% da meta)" value={toBRL(theory10020Result.garantia_minima)} subtitle="Retorno mínimo esperado ao executar 100% do plano" />
+                    <Card title="Ticket Médio Informado" value={toBRL(theory10020Result.ticket_medio)} subtitle="Valor médio por venda (entrada manual)" />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    <Card title="Fechamentos Necessarios" value={theory10020Result.vendas_necessarias} subtitle={`Meta bruta ${toBRL(theory10020Result.meta_total)} / ticket ${toBRL(theory10020Result.ticket_medio)}`} />
+                    <Card title="Ciclos de Trabalho (total)" value={theory10020Result.ciclos_trabalhados_necessarios} subtitle={`${theory10020Result.vendas_necessarias} fechamentos / ${closeRatePercent}% conversão`} />
+                    <Card title="Ciclos por Dia Útil" value={theory10020Result.ciclos_por_dia} subtitle={`${theory10020Result.ciclos_trabalhados_necessarios} ciclos / ${remainingBusinessDays} dias restantes`} tone={theory10020Result.ciclos_por_dia > 15 ? 'bad' : 'neutral'} />
+                  </div>
+
+                  {theory10020Result.meta_atingida && (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: '#07140c', border: '1px solid #1f5f3a', color: '#6ee7b7', fontWeight: 900, textAlign: 'center' }}>
+                      Faturamento real já alcançou a meta bruta! Realizado: {toBRL(theory10020Result.total_real)} / Meta bruta: {toBRL(theory10020Result.meta_total)}
+                    </div>
+                  )}
+
+                  {!theory10020Result.meta_atingida && theory10020Result.gap > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                      <Card title="Falta para a Meta Bruta" value={toBRL(theory10020Result.gap)} tone="bad" subtitle="Diferença entre meta bruta e realizado" />
+                      <Card title="Fechamentos Restantes" value={theory10020Result.vendas_restantes} subtitle={`Gap ${toBRL(theory10020Result.gap)} / ticket ${toBRL(theory10020Result.ticket_medio)}`} />
+                      <Card title="Ciclos Restantes por Dia" value={theory10020Result.ciclos_restantes_por_dia} tone={theory10020Result.ciclos_restantes_por_dia > 15 ? 'bad' : 'neutral'} subtitle={`${theory10020Result.ciclos_restantes} ciclos / ${remainingBusinessDays} dias`} />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  Informe um ticket medio maior que zero para gerar o plano operacional.
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
       </div>
     </div>
   )
