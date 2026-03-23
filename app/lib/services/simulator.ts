@@ -188,31 +188,35 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
     total_real,
   } = config
 
-  // Safe defaults
   const safeMeta = Math.max(0, meta_total || 0)
   const safeTicket = Math.max(0, ticket_medio || 0)
   const safeRate = Math.min(1, Math.max(0, close_rate || 0))
   const safeDays = Math.max(0, remaining_business_days || 0)
   const safeReal = Math.max(0, total_real || 0)
 
+  // TEORIA 100/20 — CORRECT LADDER
+  // Step 1: Gross effort = meta × 5
+  const esforco_bruto = safeMeta * 5
+
+  // Step 2: Minimum guarantee (20% of meta) — informational
   const garantia_minima = safeMeta * 0.20
 
-  // Vendas necessarias (total)
+  // Step 3: Required closings = gross effort / average ticket
   const vendas_necessarias = safeTicket > 0
-    ? Math.ceil(safeMeta / safeTicket)
+    ? Math.ceil(esforco_bruto / safeTicket)
     : 0
 
-  // Ciclos trabalhados necessarios (total)
+  // Step 4: Work cycles = closings / conversion rate
   const ciclos_trabalhados_necessarios = safeRate > 0
     ? Math.ceil(vendas_necessarias / safeRate)
     : 0
 
-  // Ciclos por dia (total)
+  // Step 5: Cycles per business day
   const ciclos_por_dia = safeDays > 0
     ? Math.ceil(ciclos_trabalhados_necessarios / safeDays)
     : ciclos_trabalhados_necessarios
 
-  // Gap e restantes
+  // Gap and remaining (against the ORIGINAL META, not gross effort)
   const gap = Math.max(0, safeMeta - safeReal)
   const meta_atingida = safeReal >= safeMeta && safeMeta > 0
 
@@ -232,6 +236,7 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
 
   return {
     meta_total: safeMeta,
+    esforco_bruto,
     garantia_minima,
     ticket_medio: safeTicket,
     close_rate: safeRate,
