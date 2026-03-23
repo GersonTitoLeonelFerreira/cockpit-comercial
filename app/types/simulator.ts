@@ -99,19 +99,20 @@ export interface Theory10020Config {
 
 export interface Theory10020Result {
   meta_total: number
-  esforco_bruto: number            // meta_total × 5 (heart of the theory)
-  garantia_minima: number          // meta_total × 0.20
+  esforco_bruto: number              // meta_total × 5
+  garantia_minima: number            // meta_total × 0.20 (informational)
   ticket_medio: number
-  close_rate: number
-  vendas_necessarias: number       // esforco_bruto / ticket_medio
-  ciclos_trabalhados_necessarios: number  // vendas_necessarias / close_rate
-  ciclos_por_dia: number           // ciclos_trabalhados_necessarios / dias_uteis_restantes
+  close_rate: number                 // 0..1
+  leads_para_contatar: number        // esforco_bruto / ticket_medio
+  ganhos_esperados: number           // leads_para_contatar × close_rate
+  leads_por_dia: number              // leads_para_contatar / dias_uteis
+  ganhos_por_dia: number             // ganhos_esperados / dias_uteis
   remaining_business_days: number
   total_real: number
-  gap: number                      // meta_total - total_real
-  vendas_restantes: number         // gap / ticket_medio (clamped >= 0)
-  ciclos_restantes: number         // vendas_restantes / close_rate
-  ciclos_restantes_por_dia: number // ciclos_restantes / dias_uteis_restantes
-  meta_atingida: boolean           // total_real >= meta_total
-  progress_pct: number             // total_real / meta_total (0..1)
+  gap: number                        // meta_total - total_real
+  ganhos_restantes: number           // gap / ticket_medio
+  leads_restantes_por_dia: number    // (gap_leads) / dias_uteis
+  ganhos_restantes_por_dia: number   // ganhos_restantes / dias_uteis
+  meta_atingida: boolean
+  progress_pct: number               // 0..1
 }

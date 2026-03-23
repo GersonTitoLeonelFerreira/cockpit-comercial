@@ -201,36 +201,43 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
   // Step 2: Minimum guarantee (20% of meta) — informational
   const garantia_minima = safeMeta * 0.20
 
-  // Step 3: Required closings = gross effort / average ticket
-  const vendas_necessarias = safeTicket > 0
+  // Step 3: Leads to contact = gross effort / average ticket
+  const leads_para_contatar = safeTicket > 0
     ? Math.ceil(esforco_bruto / safeTicket)
     : 0
 
-  // Step 4: Work cycles = closings / conversion rate
-  const ciclos_trabalhados_necessarios = safeRate > 0
-    ? Math.ceil(vendas_necessarias / safeRate)
-    : 0
+  // Step 4: Expected wins = leads × conversion rate (MULTIPLY, not divide!)
+  const ganhos_esperados = Math.ceil(leads_para_contatar * safeRate)
 
-  // Step 5: Cycles per business day
-  const ciclos_por_dia = safeDays > 0
-    ? Math.ceil(ciclos_trabalhados_necessarios / safeDays)
-    : ciclos_trabalhados_necessarios
+  // Step 5: Per business day
+  const leads_por_dia = safeDays > 0
+    ? Math.ceil(leads_para_contatar / safeDays)
+    : leads_para_contatar
 
-  // Gap and remaining (against the ORIGINAL META, not gross effort)
+  const ganhos_por_dia = safeDays > 0
+    ? Math.ceil(ganhos_esperados / safeDays)
+    : ganhos_esperados
+
+  // Gap and remaining (against the ORIGINAL META)
   const gap = Math.max(0, safeMeta - safeReal)
   const meta_atingida = safeReal >= safeMeta && safeMeta > 0
 
-  const vendas_restantes = safeTicket > 0
+  const ganhos_restantes = safeTicket > 0
     ? Math.ceil(gap / safeTicket)
     : 0
 
-  const ciclos_restantes = safeRate > 0
-    ? Math.ceil(vendas_restantes / safeRate)
+  // Leads remaining proportional to gap
+  const leads_gap = safeRate > 0
+    ? Math.ceil(ganhos_restantes / safeRate)
     : 0
 
-  const ciclos_restantes_por_dia = safeDays > 0
-    ? Math.ceil(ciclos_restantes / safeDays)
-    : ciclos_restantes
+  const leads_restantes_por_dia = safeDays > 0
+    ? Math.ceil(leads_gap / safeDays)
+    : leads_gap
+
+  const ganhos_restantes_por_dia = safeDays > 0
+    ? Math.ceil(ganhos_restantes / safeDays)
+    : ganhos_restantes
 
   const progress_pct = safeMeta > 0 ? safeReal / safeMeta : 0
 
@@ -240,15 +247,16 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
     garantia_minima,
     ticket_medio: safeTicket,
     close_rate: safeRate,
-    vendas_necessarias,
-    ciclos_trabalhados_necessarios,
-    ciclos_por_dia,
+    leads_para_contatar,
+    ganhos_esperados,
+    leads_por_dia,
+    ganhos_por_dia,
     remaining_business_days: safeDays,
     total_real: safeReal,
     gap,
-    vendas_restantes,
-    ciclos_restantes,
-    ciclos_restantes_por_dia,
+    ganhos_restantes,
+    leads_restantes_por_dia,
+    ganhos_restantes_por_dia,
     meta_atingida,
     progress_pct,
   }
