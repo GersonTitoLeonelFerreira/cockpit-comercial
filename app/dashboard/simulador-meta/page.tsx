@@ -12,10 +12,12 @@ import {
   getRevenueSummary,
   getRevenueGoal,
   upsertRevenueGoal,
+  getHistoricalTicket,
 } from '@/app/lib/services/simulator'
 import { getCloseRateReal, percentToRate } from '@/app/lib/services/simulatorRateReal'
 import type {
   GroupConversionRow,
+  HistoricalTicketResponse,
   RevenueDayPoint,
   RevenueSummaryResponse,
   SimulatorMetrics,
@@ -245,6 +247,11 @@ export default function SimuladorMetaPage() {
   const [ticketMedioText, setTicketMedioText] = useState<string>('5000')
   const [theory10020Result, setTheory10020Result] = useState<Theory10020Result | null>(null)
 
+  // Ticket source
+  const [ticketSource, setTicketSource] = useState<'manual' | 'historico'>('manual')
+  const [historicalTicket, setHistoricalTicket] = useState<HistoricalTicketResponse | null>(null)
+  const [historicalTicketLoading, setHistoricalTicketLoading] = useState(false)
+
   // init
   useEffect(() => {
     async function init() {
@@ -429,7 +436,9 @@ export default function SimuladorMetaPage() {
       return
     }
 
-    const ticketValue = Math.max(0, safeNumber(ticketMedioText))
+    const ticketValue = ticketSource === 'historico' && historicalTicket?.is_sufficient
+      ? historicalTicket.ticket_medio
+      : Math.max(0, safeNumber(ticketMedioText))
     if (ticketValue <= 0) {
       setTheory10020Result(null)
       return
@@ -445,7 +454,7 @@ export default function SimuladorMetaPage() {
       total_real: totalReal,
     })
     setTheory10020Result(result)
-  }, [mode, ticketMedioText, activeGoalForKpis, closeRatePercent, remainingBusinessDays, revenueSeller, revenueCompany])
+  }, [mode, ticketMedioText, ticketSource, historicalTicket, activeGoalForKpis, closeRatePercent, remainingBusinessDays, revenueSeller, revenueCompany])
 
   // Carregar meta do banco
   useEffect(() => {
@@ -479,6 +488,32 @@ export default function SimuladorMetaPage() {
 
     void loadGoal()
   }, [companyId, competency, mode, revenueDates.start, revenueDates.end, revenueGoalOwnerId])
+
+  // Load historical ticket
+  useEffect(() => {
+    if (!companyId || !competency) return
+    if (mode !== 'faturamento') return
+
+    async function loadHistoricalTicket() {
+      setHistoricalTicketLoading(true)
+      try {
+        const data = await getHistoricalTicket({
+          companyId: companyId!,
+          ownerId: selectedSellerId ?? null,
+          dateStart: toYMD(competency!.month_start),
+          dateEnd: toYMD(competency!.month_end),
+        })
+        setHistoricalTicket(data)
+      } catch (e: any) {
+        console.warn('Erro ao carregar ticket histórico:', e.message)
+        setHistoricalTicket(null)
+      } finally {
+        setHistoricalTicketLoading(false)
+      }
+    }
+
+    void loadHistoricalTicket()
+  }, [companyId, competency, mode, selectedSellerId])
 
   async function handleSaveGoal() {
     if (!isAdmin) return
@@ -1140,23 +1175,138 @@ export default function SimuladorMetaPage() {
           >
             <div style={{ display: 'grid', gap: 24 }}>
 
-              {/* ── BLOCO 1: ENTRADAS ─────────────────────────────────── */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: 12 }}>
-                  Entradas
+              {/* ── TICKET SOURCE SELECTOR ────────────────────────────── */}
+              <div style={{ marginBottom: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: 10 }}>
+                  Fonte do Ticket Médio
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                  {/* Meta desejada */}
-                  <div style={{ padding: '14px 16px', borderRadius: 12, border: '1px dashed rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.04)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: 20 }} aria-hidden="true">🎯</div>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)', fontWeight: 700 }}>Meta desejada</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.5px', color: '#3b82f6' }}>{toBRL(activeGoalForKpis)}</div>
-                  </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => setTicketSource('manual')}
+                    style={{
+                      padding: '6px 16px',
+                      borderRadius: 8,
+                      border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #333',
+                      background: ticketSource === 'manual' ? '#1e3a5f' : '#111',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: ticketSource === 'manual' ? 700 : 400,
+                    }}
+                  >
+                    ✏️ Manual
+                  </button>
+                  <button
+                    onClick={() => setTicketSource('historico')}
+                    style={{
+                      padding: '6px 16px',
+                      borderRadius: 8,
+                      border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #333',
+                      background: ticketSource === 'historico' ? '#0a2e1f' : '#111',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: ticketSource === 'historico' ? 700 : 400,
+                    }}
+                  >
+                    📊 Histórico
+                  </button>
+                </div>
 
-                  {/* Ticket Médio (input) */}
-                  <div style={{ padding: '14px 16px', borderRadius: 12, border: '1px dashed rgba(139,92,246,0.45)', background: 'rgba(139,92,246,0.06)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: 20 }} aria-hidden="true">🏷️</div>
-                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)', fontWeight: 700 }}>Ticket médio</div>
+                {/* Historical ticket info card */}
+                {ticketSource === 'historico' && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: 14,
+                    borderRadius: 12,
+                    border: historicalTicket?.is_sufficient
+                      ? '1px solid #1f5f3a'
+                      : '1px solid #5f3f1f',
+                    background: historicalTicket?.is_sufficient
+                      ? '#07140c'
+                      : '#140f07',
+                  }}>
+                    {historicalTicketLoading ? (
+                      <div style={{ fontSize: 13, opacity: 0.6 }}>Calculando ticket histórico...</div>
+                    ) : !historicalTicket ? (
+                      <div style={{ fontSize: 13, opacity: 0.6 }}>Erro ao carregar ticket histórico.</div>
+                    ) : !historicalTicket.is_sufficient ? (
+                      <div>
+                        <div style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700 }}>
+                          ⚠️ Base insuficiente
+                        </div>
+                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+                          Menos de 5 vendas ganhas encontradas. Use o ticket manual ou aguarde mais vendas.
+                        </div>
+                        <button
+                          onClick={() => setTicketSource('manual')}
+                          style={{
+                            marginTop: 8,
+                            padding: '4px 12px',
+                            borderRadius: 6,
+                            border: '1px solid #333',
+                            background: '#1a1a1a',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                          }}
+                        >
+                          Usar manual →
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                          <div>
+                            <div style={{ fontSize: 11, opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                              Ticket Médio Histórico
+                            </div>
+                            <div style={{ fontSize: 28, fontWeight: 900, marginTop: 4 }}>
+                              {toBRL(historicalTicket.ticket_medio)}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 11, opacity: 0.6 }}>
+                              Base: {historicalTicket.sample_size} vendas
+                            </div>
+                            <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
+                              Total: {toBRL(historicalTicket.total_won)}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{
+                          marginTop: 8,
+                          fontSize: 11,
+                          opacity: 0.5,
+                          display: 'flex',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                        }}>
+                          <span>
+                            {historicalTicket.fallback_level === 'period'
+                              ? '📅 Período atual'
+                              : '📅 Últimos 90 dias'}
+                          </span>
+                          <span>
+                            {historicalTicket.owner_id
+                              ? '👤 Vendedor'
+                              : '🏢 Empresa'}
+                          </span>
+                          {historicalTicket.fallback_level === 'last_90_days' && (
+                            <span style={{ color: '#f59e0b' }}>
+                              ⚠️ Fallback (base do período insuficiente)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Manual input - only show when manual is selected */}
+                {ticketSource === 'manual' && (
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ fontSize: 12, opacity: 0.7 }}>Ticket Médio (R$)</label>
                     <input
                       type="text"
                       inputMode="decimal"
@@ -1171,18 +1321,33 @@ export default function SimuladorMetaPage() {
                         setTicketMedioText(toBRL(n))
                       }}
                       style={{
-                        background: 'transparent',
-                        border: 'none',
-                        borderBottom: '1px solid rgba(139,92,246,0.4)',
-                        color: '#a78bfa',
-                        fontSize: 22,
-                        fontWeight: 900,
-                        letterSpacing: '-0.5px',
-                        padding: '2px 0',
-                        outline: 'none',
+                        display: 'block',
                         width: '100%',
+                        marginTop: 4,
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #333',
+                        background: '#111',
+                        color: '#fff',
+                        fontSize: 16,
+                        fontWeight: 700,
                       }}
                     />
+                  </div>
+                )}
+              </div>
+
+              {/* ── BLOCO 1: ENTRADAS ─────────────────────────────────── */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: 12 }}>
+                  Entradas
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                  {/* Meta desejada */}
+                  <div style={{ padding: '14px 16px', borderRadius: 12, border: '1px dashed rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.04)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 20 }} aria-hidden="true">🎯</div>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)', fontWeight: 700 }}>Meta desejada</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.5px', color: '#3b82f6' }}>{toBRL(activeGoalForKpis)}</div>
                   </div>
 
                   {/* Taxa de conversão */}
