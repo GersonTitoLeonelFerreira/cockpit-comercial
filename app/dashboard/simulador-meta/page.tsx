@@ -7,6 +7,7 @@ import {
   getActiveCompetency,
   getSalesCycleMetrics,
   calculateSimulatorResult,
+  calculateTheory10020,
   getGroupConversion,
   getRevenueSummary,
   getRevenueGoal,
@@ -20,6 +21,7 @@ import type {
   SimulatorMetrics,
   SimulatorMode,
   SimulatorResult,
+  Theory10020Result,
 } from '@/app/types/simulator'
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
@@ -238,6 +240,10 @@ export default function SimuladorMetaPage() {
   const [groupConversion, setGroupConversion] = useState<GroupConversionRow[]>([])
   const [groupConversionLoading, setGroupConversionLoading] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
+
+  // Teoria 100/20 — Faturamento
+  const [ticketMedioText, setTicketMedioText] = useState<string>('5000')
+  const [theory10020Result, setTheory10020Result] = useState<Theory10020Result | null>(null)
 
   // init
   useEffect(() => {
@@ -591,6 +597,33 @@ export default function SimuladorMetaPage() {
     return buildRevenueKpis(Number(revenueSeller.total_real || 0), activeGoalForKpis)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
+
+  // Teoria 100/20 — recalcular quando inputs mudarem
+  useEffect(() => {
+    if (mode !== 'faturamento') {
+      setTheory10020Result(null)
+      return
+    }
+
+    const ticketMedio = safeNumber(ticketMedioText)
+    const closeRate = percentToRate(closeRatePercent)
+
+    // Use revenueGoalDb (or the admin input) as meta_total
+    const activeGoal = isAdmin ? safeNumber(revenueGoalInputText) : revenueGoalDb
+
+    // Use the real revenue total from the company or seller
+    const totalReal = revenueSeller?.total_real ?? revenueCompany?.total_real ?? 0
+
+    const result = calculateTheory10020({
+      meta_total: activeGoal,
+      ticket_medio: ticketMedio,
+      close_rate: closeRate,
+      remaining_business_days: remainingBusinessDays,
+      total_real: totalReal,
+    })
+
+    setTheory10020Result(result)
+  }, [mode, ticketMedioText, closeRatePercent, remainingBusinessDays, revenueGoalDb, revenueGoalInputText, isAdmin, revenueCompany, revenueSeller])
 
   if (loading) {
     return (
@@ -969,6 +1002,120 @@ export default function SimuladorMetaPage() {
             </div>
           </Section>
         ) : null}
+
+        {/* Teoria 100/20 — Planejamento Operacional */}
+        {mode === 'faturamento' && (
+          <Section
+            title={
+              <TitleWithTip
+                label="📊 Teoria 100/20 — Planejamento Operacional"
+                tipTitle="Teoria 100/20"
+              >
+                A meta total informada é tratada como esforço bruto. O sistema calcula a garantia mínima (20%) e distribui o esforço em vendas e ciclos de trabalho necessários.
+              </TitleWithTip>
+            }
+            description="Baseado na sua meta, ticket médio e taxa de conversão"
+          >
+            {/* Ticket Médio input */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, opacity: 0.75, display: 'block', marginBottom: 4 }}>
+                Ticket Médio (R$)
+              </label>
+              <input
+                type="text"
+                value={ticketMedioText}
+                onChange={(e) => setTicketMedioText(e.target.value)}
+                style={{
+                  background: '#1a1a1a',
+                  border: '1px solid #333',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  color: '#fff',
+                  fontSize: 14,
+                  width: 180,
+                }}
+                placeholder="Ex: 5000"
+              />
+            </div>
+
+            {/* Results grid */}
+            {theory10020Result && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                <Card
+                  title="Meta Total"
+                  value={toBRL(theory10020Result.meta_total)}
+                />
+                <Card
+                  title="Garantia Mínima (20%)"
+                  value={toBRL(theory10020Result.garantia_minima)}
+                  subtitle="Resultado mínimo implícito pela Teoria 100/20"
+                />
+                <Card
+                  title="Ticket Médio"
+                  value={toBRL(theory10020Result.ticket_medio)}
+                />
+                <Card
+                  title={
+                    <TitleWithTip label="Vendas Necessárias" tipTitle="Vendas Necessárias">
+                      Quantas vendas são necessárias para atingir a meta total, considerando o ticket médio informado. Fórmula: meta_total / ticket_medio
+                    </TitleWithTip>
+                  }
+                  value={theory10020Result.vendas_necessarias}
+                  subtitle={`Restam: ${theory10020Result.vendas_restantes}`}
+                />
+                <Card
+                  title={
+                    <TitleWithTip label="Ciclos Trabalhados Necessários" tipTitle="Ciclos Trabalhados">
+                      Quantos ciclos de trabalho (leads ativos trabalhados) são necessários para gerar as vendas desejadas, considerando a taxa de conversão. Fórmula: vendas_necessarias / close_rate
+                    </TitleWithTip>
+                  }
+                  value={theory10020Result.ciclos_trabalhados_necessarios}
+                  subtitle={`Restam: ${theory10020Result.ciclos_restantes}`}
+                />
+                <Card
+                  title={
+                    <TitleWithTip label="Ciclos / Dia Útil" tipTitle="Ciclos por Dia">
+                      Quantos ciclos precisam ser trabalhados por dia útil restante para atingir a meta. Fórmula: ciclos_restantes / dias_uteis_restantes
+                    </TitleWithTip>
+                  }
+                  value={theory10020Result.ciclos_restantes_por_dia}
+                  subtitle={`${theory10020Result.remaining_business_days} dias úteis restantes`}
+                  tone={theory10020Result.meta_atingida ? 'good' : theory10020Result.ciclos_restantes_por_dia > 10 ? 'bad' : 'neutral'}
+                />
+              </div>
+            )}
+
+            {/* Meta atingida banner */}
+            {theory10020Result?.meta_atingida && (
+              <div style={{
+                marginTop: 12,
+                padding: '10px 14px',
+                background: '#07140c',
+                border: '1px solid #1f5f3a',
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700,
+              }}>
+                ✅ Meta atingida! Faturamento real ({toBRL(theory10020Result.total_real)}) já atingiu ou superou a meta ({toBRL(theory10020Result.meta_total)}).
+              </div>
+            )}
+
+            {/* Warning when ticket_medio is zero */}
+            {theory10020Result && theory10020Result.ticket_medio === 0 && (
+              <div style={{
+                marginTop: 12,
+                padding: '10px 14px',
+                background: '#140707',
+                border: '1px solid #5f1f1f',
+                borderRadius: 10,
+                fontSize: 13,
+                opacity: 0.9,
+              }}>
+                ⚠️ Informe um ticket médio válido para calcular vendas e ciclos necessários.
+              </div>
+            )}
+          </Section>
+        )}
 
         {/* resto (ganhos) mantém igual ao que você já tinha antes */}
         {rateRealData ? (
