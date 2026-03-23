@@ -1123,20 +1123,20 @@ export default function SimuladorMetaPage() {
         </Section>
 
         {/* ============================================================ */}
-        {/* TEORIA 100/20 — PLANEJAMENTO OPERACIONAL (REWRITTEN)         */}
+        {/* TEORIA 100/20 — PLANEJAMENTO OPERACIONAL                     */}
         {/* ============================================================ */}
         {mode === 'faturamento' && (
           <Section
             title={
               <TitleWithTip label="Teoria 100/20 — Planejamento Operacional" tipTitle="O que é a Teoria 100/20?" width={480}>
                 <div style={{ display: 'grid', gap: 8 }}>
-                  <div>A Teoria 100/20 diz: para cada R$ 1 de meta, você precisa gerar R$ 5 de esforço bruto de trabalho.</div>
-                  <div>Isso garante que mesmo com perdas, cancelamentos e inadimplência, você atinja pelo menos 20% do esforço total — que é a sua meta real.</div>
-                  <div><strong>Fórmula:</strong> Esforço Bruto = Meta × 5</div>
+                  <div>A Teoria 100/20 diz: para cada R$ 1 de meta, você precisa gerar R$ 5 de esforço bruto em leads trabalhados.</div>
+                  <div>Se você contatar todos os leads necessários, a taxa de conversão natural vai gerar os ganhos que cobrem sua meta.</div>
+                  <div><strong>Fórmula:</strong> Esforço Bruto = Meta × 5 → Leads = Esforço ÷ Ticket → Ganhos = Leads × Taxa</div>
                 </div>
               </TitleWithTip>
             }
-            description="Converte sua meta de faturamento em volume diário de trabalho usando o multiplicador ×5"
+            description="Converte sua meta de faturamento em volume de leads e ganhos diários usando o multiplicador ×5"
           >
             <div style={{ display: 'grid', gap: 20 }}>
 
@@ -1185,7 +1185,7 @@ export default function SimuladorMetaPage() {
                     <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.5, marginBottom: 10 }}>
                       Escada da Teoria 100/20
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                       <Card
                         title="1. Meta desejada"
                         value={toBRL(theory10020Result.meta_total)}
@@ -1203,24 +1203,30 @@ export default function SimuladorMetaPage() {
                         subtitle="Valor médio por venda"
                       />
                       <Card
-                        title="4. Fechamentos"
-                        value={theory10020Result.vendas_necessarias}
+                        title="4. Leads para contatar"
+                        value={theory10020Result.leads_para_contatar}
                         subtitle={`${toBRL(theory10020Result.esforco_bruto)} ÷ ${toBRL(theory10020Result.ticket_medio)}`}
                       />
                       <Card
-                        title="5. Ciclos de trabalho"
-                        value={theory10020Result.ciclos_trabalhados_necessarios}
-                        subtitle={`${theory10020Result.vendas_necessarias} fech. ÷ ${closeRatePercent}%`}
+                        title="5. Ganhos esperados"
+                        value={theory10020Result.ganhos_esperados}
+                        subtitle={`${theory10020Result.leads_para_contatar} leads × ${closeRatePercent}%`}
+                        tone="good"
                       />
                       <Card
-                        title="6. Ciclos/dia útil"
-                        value={theory10020Result.ciclos_por_dia}
-                        subtitle={`${theory10020Result.ciclos_trabalhados_necessarios} ciclos ÷ ${remainingBusinessDays} dias`}
-                        tone={theory10020Result.ciclos_por_dia > 15 ? 'bad' : 'neutral'}
+                        title="6. Leads/dia útil"
+                        value={theory10020Result.leads_por_dia}
+                        subtitle={`${theory10020Result.leads_para_contatar} leads ÷ ${remainingBusinessDays} dias`}
+                      />
+                      <Card
+                        title="7. Ganhos/dia útil"
+                        value={theory10020Result.ganhos_por_dia}
+                        subtitle={`${theory10020Result.ganhos_esperados} ganhos ÷ ${remainingBusinessDays} dias`}
+                        tone={theory10020Result.ganhos_por_dia > 15 ? 'bad' : 'neutral'}
                       />
                     </div>
                     <div style={{ marginTop: 8, fontSize: 11, opacity: 0.45, lineHeight: 1.5 }}>
-                      O multiplicador ×5 garante margem de segurança. Se você executar 100% do plano de esforço, o retorno mínimo esperado é 20% do esforço bruto = {toBRL(theory10020Result.garantia_minima)} (a própria meta).
+                      O multiplicador ×5 garante margem de segurança. Contatando {theory10020Result.leads_para_contatar} leads com taxa de {closeRatePercent}%, o retorno esperado é {theory10020Result.ganhos_esperados} ganhos — que com ticket de {toBRL(theory10020Result.ticket_medio)} representam {toBRL(theory10020Result.ganhos_esperados * theory10020Result.ticket_medio)} em faturamento.
                     </div>
                   </div>
 
@@ -1233,8 +1239,8 @@ export default function SimuladorMetaPage() {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                         <Card title="Realizado" value={toBRL(theory10020Result.total_real)} subtitle={`${Math.round(theory10020Result.progress_pct * 100)}% da meta`} tone={theory10020Result.progress_pct >= 0.8 ? 'good' : 'neutral'} />
                         <Card title="Falta para a meta" value={toBRL(theory10020Result.gap)} subtitle="Meta − Realizado" tone="bad" />
-                        <Card title="Fechamentos restantes" value={theory10020Result.vendas_restantes} subtitle={`${toBRL(theory10020Result.gap)} ÷ ${toBRL(theory10020Result.ticket_medio)}`} />
-                        <Card title="Ciclos restantes/dia" value={theory10020Result.ciclos_restantes_por_dia} subtitle={`${theory10020Result.ciclos_restantes} ciclos ÷ ${remainingBusinessDays} dias`} tone={theory10020Result.ciclos_restantes_por_dia > 15 ? 'bad' : 'neutral'} />
+                        <Card title="Ganhos restantes" value={theory10020Result.ganhos_restantes} subtitle={`${toBRL(theory10020Result.gap)} ÷ ${toBRL(theory10020Result.ticket_medio)}`} />
+                        <Card title="Leads restantes/dia" value={theory10020Result.leads_restantes_por_dia} subtitle={`Para fechar o gap de ${toBRL(theory10020Result.gap)}`} tone={theory10020Result.leads_restantes_por_dia > 50 ? 'bad' : 'neutral'} />
                       </div>
                     </div>
                   ) : null}
@@ -1262,10 +1268,10 @@ export default function SimuladorMetaPage() {
                         opacity: 0.85,
                       }}>
                         <div>Para atingir a meta de <strong>{toBRL(theory10020Result.meta_total)}</strong>, o esforço bruto necessário (×5) é <strong>{toBRL(theory10020Result.esforco_bruto)}</strong>.</div>
-                        <div>Com ticket médio de <strong>{toBRL(theory10020Result.ticket_medio)}</strong>, isso exige <strong>{theory10020Result.vendas_necessarias} fechamentos</strong>.</div>
-                        <div>Com a conversão atual de <strong>{closeRatePercent}%</strong>, são necessários <strong>{theory10020Result.ciclos_trabalhados_necessarios} ciclos de trabalho</strong>.</div>
+                        <div>Com ticket médio de <strong>{toBRL(theory10020Result.ticket_medio)}</strong>, sua equipe precisa contatar <strong>{theory10020Result.leads_para_contatar} leads</strong> no período.</div>
+                        <div>Com a conversão de <strong>{closeRatePercent}%</strong>, isso deve gerar <strong>{theory10020Result.ganhos_esperados} ganhos</strong>.</div>
                         <div style={{ marginTop: 8, borderTop: '1px solid #222', paddingTop: 8 }}>
-                          Faltando <strong>{remainingBusinessDays} dias úteis</strong>, o ritmo necessário é <strong>{theory10020Result.ciclos_restantes_por_dia} ciclos por dia</strong> para fechar o gap de <strong>{toBRL(theory10020Result.gap)}</strong>.
+                          Faltando <strong>{remainingBusinessDays} dias úteis</strong>, o ritmo necessário é <strong>{theory10020Result.leads_restantes_por_dia} leads/dia</strong> e <strong>{theory10020Result.ganhos_restantes_por_dia} ganhos/dia</strong> para fechar o gap de <strong>{toBRL(theory10020Result.gap)}</strong>.
                         </div>
                       </div>
                     </div>
