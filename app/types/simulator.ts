@@ -84,3 +84,33 @@ export interface GroupConversionRow {
   pct_grupo: number
   pct_participacao: number
 }
+
+// ==============================================================================
+// Types: Teoria 100/20 — Faturamento
+// ==============================================================================
+
+export interface Theory10020Config {
+  meta_total: number           // Meta total desejada em R$
+  ticket_medio: number         // Ticket médio manual em R$
+  close_rate: number           // Taxa de conversão (0..1)
+  remaining_business_days: number // Dias úteis restantes
+  total_real: number           // Faturamento real acumulado no período
+}
+
+export interface Theory10020Result {
+  meta_total: number
+  garantia_minima: number       // meta_total * 0.20
+  ticket_medio: number
+  close_rate: number
+  vendas_necessarias: number    // meta_total / ticket_medio
+  ciclos_trabalhados_necessarios: number  // vendas_necessarias / close_rate
+  ciclos_por_dia: number        // ciclos_trabalhados_necessarios / dias_uteis_restantes
+  remaining_business_days: number
+  total_real: number
+  gap: number                   // meta_total - total_real
+  vendas_restantes: number      // gap / ticket_medio (clamped >= 0)
+  ciclos_restantes: number      // vendas_restantes / close_rate
+  ciclos_restantes_por_dia: number // ciclos_restantes / dias_uteis_restantes
+  meta_atingida: boolean        // total_real >= meta_total
+  progress_pct: number          // total_real / meta_total (0..1)
+}

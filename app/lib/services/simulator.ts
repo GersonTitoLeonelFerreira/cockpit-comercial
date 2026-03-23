@@ -6,6 +6,8 @@ import type {
   SimulatorConfig,
   SimulatorMetrics,
   SimulatorResult,
+  Theory10020Config,
+  Theory10020Result,
 } from '../../types/simulator'
 
 export async function getActiveCompetency(): Promise<ActiveCompetency> {
@@ -170,5 +172,79 @@ export function calculateSimulatorResult(
     simulation_25pct,
     progress_pct,
     on_track,
+  }
+}
+
+// ==============================================================================
+// Teoria 100/20 — Cálculo para modo faturamento
+// ==============================================================================
+
+export function calculateTheory10020(config: Theory10020Config): Theory10020Result {
+  const {
+    meta_total,
+    ticket_medio,
+    close_rate,
+    remaining_business_days,
+    total_real,
+  } = config
+
+  // Safe defaults
+  const safeMeta = Math.max(0, meta_total || 0)
+  const safeTicket = Math.max(0, ticket_medio || 0)
+  const safeRate = Math.min(1, Math.max(0, close_rate || 0))
+  const safeDays = Math.max(0, remaining_business_days || 0)
+  const safeReal = Math.max(0, total_real || 0)
+
+  const garantia_minima = safeMeta * 0.20
+
+  // Vendas necessárias (total)
+  const vendas_necessarias = safeTicket > 0
+    ? Math.ceil(safeMeta / safeTicket)
+    : 0
+
+  // Ciclos trabalhados necessários (total)
+  const ciclos_trabalhados_necessarios = safeRate > 0
+    ? Math.ceil(vendas_necessarias / safeRate)
+    : 0
+
+  // Ciclos por dia (total)
+  const ciclos_por_dia = safeDays > 0
+    ? Math.ceil(ciclos_trabalhados_necessarios / safeDays)
+    : ciclos_trabalhados_necessarios
+
+  // Gap e restantes
+  const gap = Math.max(0, safeMeta - safeReal)
+  const meta_atingida = safeReal >= safeMeta && safeMeta > 0
+
+  const vendas_restantes = safeTicket > 0
+    ? Math.ceil(gap / safeTicket)
+    : 0
+
+  const ciclos_restantes = safeRate > 0
+    ? Math.ceil(vendas_restantes / safeRate)
+    : 0
+
+  const ciclos_restantes_por_dia = safeDays > 0
+    ? Math.ceil(ciclos_restantes / safeDays)
+    : ciclos_restantes
+
+  const progress_pct = safeMeta > 0 ? safeReal / safeMeta : 0
+
+  return {
+    meta_total: safeMeta,
+    garantia_minima,
+    ticket_medio: safeTicket,
+    close_rate: safeRate,
+    vendas_necessarias,
+    ciclos_trabalhados_necessarios,
+    ciclos_por_dia,
+    remaining_business_days: safeDays,
+    total_real: safeReal,
+    gap,
+    vendas_restantes,
+    ciclos_restantes,
+    ciclos_restantes_por_dia,
+    meta_atingida,
+    progress_pct,
   }
 }
