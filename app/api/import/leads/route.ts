@@ -241,6 +241,7 @@ export async function POST(req: Request) {
               name: name ?? 'Lead',
               phone: phone,
               status: 'novo',
+              entry_mode: 'import_api',
             })
             .select('id')
             .single()

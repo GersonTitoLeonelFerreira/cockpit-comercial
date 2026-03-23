@@ -252,6 +252,7 @@ return false
           phone: phoneMobile.trim() || phoneCommercial.trim() || phoneResidential.trim() || null,
           email: email.trim() || null,
           status: 'novo',
+          entry_mode: 'manual',
         })
         .select('id')
         .single()

@@ -40,6 +40,7 @@ export default function LeadForm({ companyId, userId, onClose }: LeadFormProps) 
           phone: phone.trim() || null,
           email: email.trim() || null,
           status: 'novo',
+          entry_mode: 'manual',
         })
         .select('id')
         .single()
