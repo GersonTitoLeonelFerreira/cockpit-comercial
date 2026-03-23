@@ -245,6 +245,7 @@ export default function CreateLeadModal({
           address_state: formData.address_state || null,
           notes: formData.notes || null,
           created_by: userId,
+          entry_mode: 'manual',
         })
         .select('id')
         .single()

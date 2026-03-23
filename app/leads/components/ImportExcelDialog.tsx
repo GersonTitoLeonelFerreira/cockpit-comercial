@@ -303,6 +303,7 @@ export default function ImportExcelDialog({
             name: lead.name,
             phone: lead.phone,
             created_by: userId,
+            entry_mode: 'import_excel',
           })
           .select('id')
           .single()
