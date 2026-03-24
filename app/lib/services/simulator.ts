@@ -197,8 +197,13 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
   const safeReal = Math.max(0, total_real || 0)
 
   // TEORIA 100/20 — CORRECT LADDER
-  // Step 1: Gross effort = meta × 5
-  const esforco_bruto = safeMeta * 5
+  // Dynamic multiplier: 1 / taxa_decimal (e.g. 20% → ×5, 15% → ×6.67, 25% → ×4)
+  // When safeRate is 0 (invalid input), multiplicador is 0 and all downstream values are 0.
+  // The UI enforces rate >= 1% (min="1"), so this only occurs in edge cases.
+  const multiplicador = safeRate > 0 ? (1 / safeRate) : 0
+
+  // Step 1: Gross effort = meta × multiplicador
+  const esforco_bruto = safeMeta * multiplicador
 
   // Step 2: Minimum guarantee (20% of meta) — informational
   const garantia_minima = safeMeta * 0.20
@@ -225,10 +230,10 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
   const meta_atingida = safeReal >= safeMeta && safeMeta > 0
 
   // Remaining: same ladder logic applied to gap
-  // esforco_bruto_restante = gap × 5
+  // esforco_bruto_restante = gap × multiplicador
   // leads_restantes = esforco_bruto_restante / ticket_medio
   // ganhos_restantes = leads_restantes × close_rate
-  const esforco_bruto_restante = gap * 5
+  const esforco_bruto_restante = gap * multiplicador
   const leads_restantes = safeTicket > 0
     ? Math.ceil(esforco_bruto_restante / safeTicket)
     : 0
@@ -247,6 +252,7 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
 
   return {
     meta_total: safeMeta,
+    multiplicador,
     esforco_bruto,
     garantia_minima,
     ticket_medio: safeTicket,
