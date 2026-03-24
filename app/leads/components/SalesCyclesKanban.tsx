@@ -3841,6 +3841,7 @@ export default function SalesCyclesKanban({
         dealId={winDealCycleId || ''}
         dealName={winDealName}
         ownerUserId={winDealOwnerId}
+        companyId={companyId}
         onClose={() => {
           setWinDealOpen(false)
           setWinDealCycleId(null)
