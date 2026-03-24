@@ -99,7 +99,8 @@ export interface Theory10020Config {
 
 export interface Theory10020Result {
   meta_total: number
-  esforco_bruto: number              // meta_total × 5
+  multiplicador: number              // 1 / close_rate (dynamic: 20% → ×5, 15% → ×6.67, etc.)
+  esforco_bruto: number              // meta_total × multiplicador
   garantia_minima: number            // meta_total × 0.20 (informational)
   ticket_medio: number
   close_rate: number                 // 0..1
