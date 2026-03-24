@@ -224,18 +224,20 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
   const gap = Math.max(0, safeMeta - safeReal)
   const meta_atingida = safeReal >= safeMeta && safeMeta > 0
 
-  const ganhos_restantes = safeTicket > 0
-    ? Math.ceil(gap / safeTicket)
+  // Remaining: same ladder logic applied to gap
+  // esforco_bruto_restante = gap × 5
+  // leads_restantes = esforco_bruto_restante / ticket_medio
+  // ganhos_restantes = leads_restantes × close_rate
+  const esforco_bruto_restante = gap * 5
+  const leads_restantes = safeTicket > 0
+    ? Math.ceil(esforco_bruto_restante / safeTicket)
     : 0
 
-  // Leads remaining proportional to gap
-  const leads_gap = safeRate > 0
-    ? Math.ceil(ganhos_restantes / safeRate)
-    : 0
+  const ganhos_restantes = Math.ceil(leads_restantes * safeRate)
 
   const leads_restantes_por_dia = safeDays > 0
-    ? Math.ceil(leads_gap / safeDays)
-    : leads_gap
+    ? Math.ceil(leads_restantes / safeDays)
+    : leads_restantes
 
   const ganhos_restantes_por_dia = safeDays > 0
     ? Math.ceil(ganhos_restantes / safeDays)
@@ -256,6 +258,7 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
     remaining_business_days: safeDays,
     total_real: safeReal,
     gap,
+    leads_restantes,
     ganhos_restantes,
     leads_restantes_por_dia,
     ganhos_restantes_por_dia,
