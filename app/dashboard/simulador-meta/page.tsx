@@ -197,6 +197,19 @@ function Section({
   )
 }
 
+function tabStyle(isActive: boolean) {
+  return {
+    padding: '8px 18px',
+    background: isActive ? '#1d4ed8' : '#1a1a1a',
+    color: isActive ? '#fff' : '#aaa',
+    border: isActive ? '1px solid #3b82f6' : '1px solid #333',
+    borderRadius: 8,
+    cursor: 'pointer' as const,
+    fontSize: 14,
+    fontWeight: isActive ? 600 : 400,
+  }
+}
+
 export default function SimuladorMetaPage() {
   const supabase = supabaseBrowser()
 
@@ -719,17 +732,6 @@ export default function SimuladorMetaPage() {
     { dow: 0, label: 'Dom' },
   ]
 
-  const tabStyle = (isActive: boolean) => ({
-    padding: '8px 18px',
-    background: isActive ? '#1d4ed8' : '#1a1a1a',
-    color: isActive ? '#fff' : '#aaa',
-    border: isActive ? '1px solid #3b82f6' : '1px solid #333',
-    borderRadius: 8,
-    cursor: 'pointer' as const,
-    fontSize: 14,
-    fontWeight: isActive ? 600 : 400,
-  })
-
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
 
@@ -795,7 +797,9 @@ export default function SimuladorMetaPage() {
             onChange={(e) => {
               const newMode = e.target.value as SimulatorMode
               setMode(newMode)
-              if (newMode === 'ganhos' && activeTab === 'evolucao') setActiveTab('taxa-resultado')
+              if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
+                setActiveTab('taxa-resultado')
+              }
             }}
             style={{
               padding: '8px 10px',
