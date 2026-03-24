@@ -110,8 +110,9 @@ export interface Theory10020Result {
   remaining_business_days: number
   total_real: number
   gap: number                        // meta_total - total_real
-  ganhos_restantes: number           // gap / ticket_medio
-  leads_restantes_por_dia: number    // (gap_leads) / dias_uteis
+  leads_restantes: number            // (gap × 5) / ticket_medio
+  ganhos_restantes: number           // leads_restantes × close_rate
+  leads_restantes_por_dia: number    // leads_restantes / dias_uteis_restantes
   ganhos_restantes_por_dia: number   // ganhos_restantes / dias_uteis
   meta_atingida: boolean
   progress_pct: number               // 0..1

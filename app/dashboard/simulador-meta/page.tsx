@@ -1377,7 +1377,10 @@ export default function SimuladorMetaPage() {
 
               {/* ── BLOCO 2: ESCADA DA TEORIA 100/20 ─────────────────── */}
               {theory10020Result ? (() => {
-                const ciclosNecessarios = Math.ceil(theory10020Result.leads_para_contatar / theory10020Result.close_rate)
+                const leadsRestantes = Math.ceil((theory10020Result.gap * 5) / theory10020Result.ticket_medio)
+                const leadsRestantesPorDia = theory10020Result.remaining_business_days > 0
+                  ? Math.ceil(leadsRestantes / theory10020Result.remaining_business_days)
+                  : leadsRestantes
                 return (
                   <>
                     <div>
@@ -1385,8 +1388,8 @@ export default function SimuladorMetaPage() {
                         Escada da Teoria 100/20
                       </div>
 
-                      {/* Steps 1 → 2 → 3 → 4 → 5 */}
-                      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+                      {/* Row 1: Steps 1 → 2 → 3 → 4 */}
+                      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, marginBottom: 8 }}>
                           {/* Step 1 — Meta desejada */}
                           <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(59,130,246,0.04))', border: '1px solid rgba(59,130,246,0.25)', borderLeft: '3px solid #3b82f6' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -1400,11 +1403,11 @@ export default function SimuladorMetaPage() {
                           {/* Connector ×5 */}
                           <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(245,158,11,0.7)', fontSize: 18, fontWeight: 900, flexShrink: 0 }}>×5</div>
 
-                          {/* Step 2 — Esforço bruto ×5 (destaque principal) */}
+                          {/* Step 2 — Esforço bruto ×5 */}
                           <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(245,158,11,0.14), rgba(245,158,11,0.06))', border: '2px solid rgba(245,158,11,0.5)', borderLeft: '3px solid #f59e0b', boxShadow: '0 0 20px rgba(245,158,11,0.12)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                               <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#0a0a0a', flexShrink: 0 }}>2</div>
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(245,158,11,0.8)', fontWeight: 700 }}>Esforço bruto ×5</div>
+                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(245,158,11,0.8)', fontWeight: 700 }}>Esforço bruto (×5)</div>
                             </div>
                             <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: '#f59e0b', lineHeight: 1 }}>{toBRL(theory10020Result.esforco_bruto)}</div>
                             <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(245,158,11,0.5)', marginTop: 6 }}>meta × 5</div>
@@ -1413,45 +1416,78 @@ export default function SimuladorMetaPage() {
                           {/* Connector ÷ */}
                           <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>÷</div>
 
-                          {/* Step 3 — Fechamentos necessários */}
+                          {/* Step 3 — Ticket médio */}
+                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(139,92,246,0.04))', border: '1px solid rgba(139,92,246,0.25)', borderLeft: '3px solid #8b5cf6' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>3</div>
+                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ticket médio</div>
+                            </div>
+                            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: '#a78bfa', lineHeight: 1 }}>{toBRL(theory10020Result.ticket_medio)}</div>
+                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ticket médio</div>
+                          </div>
+
+                          {/* Connector = */}
+                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>=</div>
+
+                          {/* Step 4 — Leads para contatar */}
                           <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(6,182,212,0.10), rgba(6,182,212,0.04))', border: '1px solid rgba(6,182,212,0.25)', borderLeft: '3px solid #06b6d4' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#06b6d4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#0a0a0a', flexShrink: 0 }}>3</div>
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Fechamentos necessários</div>
+                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#06b6d4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#0a0a0a', flexShrink: 0 }}>4</div>
+                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads para contatar</div>
                             </div>
                             <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: '#22d3ee', lineHeight: 1 }}>{theory10020Result.leads_para_contatar}</div>
                             <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>esforço ÷ ticket</div>
                           </div>
+                        </div>
 
-                          {/* Connector ÷ */}
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>÷</div>
-
-                          {/* Step 4 — Ciclos de trabalho necessários */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(139,92,246,0.04))', border: '1px solid rgba(139,92,246,0.25)', borderLeft: '3px solid #8b5cf6' }}>
+                      {/* Row 2: Steps 5 → 6 → 7 */}
+                      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+                          {/* Step 5 — Ganhos esperados */}
+                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04))', border: '1px solid rgba(16,185,129,0.30)', borderLeft: '3px solid #10b981' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>4</div>
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ciclos de trabalho</div>
+                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#0a0a0a', flexShrink: 0 }}>5</div>
+                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(16,185,129,0.8)', fontWeight: 700 }}>Ganhos esperados</div>
                             </div>
-                            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: '#a78bfa', lineHeight: 1 }}>{ciclosNecessarios}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>fechamentos ÷ conversão</div>
+                            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: '#10b981', lineHeight: 1 }}>{theory10020Result.ganhos_esperados}</div>
+                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(16,185,129,0.5)', marginTop: 6 }}>leads × conversão</div>
                           </div>
 
                           {/* Connector ÷ */}
                           <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>÷</div>
 
-                          {/* Step 5 — Ciclos por dia útil */}
+                          {/* Step 6 — Leads por dia útil */}
                           {(() => {
-                            const cpdColor = theory10020Result.leads_por_dia > 15 ? '#ef4444' : '#10b981'
-                            const cpdBg = theory10020Result.leads_por_dia > 15 ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)'
-                            const cpdBorder = theory10020Result.leads_por_dia > 15 ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.25)'
+                            const lpdColor = theory10020Result.leads_por_dia > 15 ? '#ef4444' : '#22d3ee'
+                            const lpdBg = theory10020Result.leads_por_dia > 15 ? 'rgba(239,68,68,0.10)' : 'rgba(6,182,212,0.08)'
+                            const lpdBorder = theory10020Result.leads_por_dia > 15 ? 'rgba(239,68,68,0.25)' : 'rgba(6,182,212,0.25)'
                             return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: `linear-gradient(135deg, ${cpdBg}, rgba(0,0,0,0))`, border: `1px solid ${cpdBorder}`, borderLeft: `3px solid ${cpdColor}` }}>
+                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: `linear-gradient(135deg, ${lpdBg}, rgba(0,0,0,0))`, border: `1px solid ${lpdBorder}`, borderLeft: `3px solid ${lpdColor}` }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: cpdColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>5</div>
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ciclos por dia útil</div>
+                                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: lpdColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>6</div>
+                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads por dia útil</div>
                                 </div>
-                                <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: cpdColor, lineHeight: 1 }}>{theory10020Result.leads_por_dia}</div>
-                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ciclos ÷ dias úteis</div>
+                                <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: lpdColor, lineHeight: 1 }}>{theory10020Result.leads_por_dia}</div>
+                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>leads ÷ dias úteis</div>
+                              </div>
+                            )
+                          })()}
+
+                          {/* Connector | */}
+                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.10)', fontSize: 20, fontWeight: 100, flexShrink: 0 }}>|</div>
+
+                          {/* Step 7 — Ganhos por dia útil */}
+                          {(() => {
+                            const gpdColor = theory10020Result.ganhos_por_dia > 5 ? '#ef4444' : '#10b981'
+                            const gpdBg = theory10020Result.ganhos_por_dia > 5 ? 'rgba(239,68,68,0.10)' : 'rgba(16,185,129,0.10)'
+                            const gpdBorder = theory10020Result.ganhos_por_dia > 5 ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.25)'
+                            return (
+                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: `linear-gradient(135deg, ${gpdBg}, rgba(0,0,0,0))`, border: `1px solid ${gpdBorder}`, borderLeft: `3px solid ${gpdColor}` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: gpdColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>7</div>
+                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos por dia útil</div>
+                                </div>
+                                <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.5px', color: gpdColor, lineHeight: 1 }}>{theory10020Result.ganhos_por_dia}</div>
+                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ganhos ÷ dias úteis</div>
                               </div>
                             )
                           })()}
@@ -1499,22 +1535,37 @@ export default function SimuladorMetaPage() {
                               </div>
                             </div>
 
-                            {/* Right: Gap + Fechamentos restantes + Ciclos/dia */}
-                            <div style={{ display: 'grid', gridTemplateRows: '1fr 1fr 1fr', gap: 10 }}>
-                              <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderLeft: '3px solid #ef4444' }}>
+                            {/* Right: 2×2 grid — Falta, Leads restantes, Ganhos restantes, Leads/dia, Ganhos/dia */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                              {/* Falta para a meta — full width */}
+                              <div style={{ gridColumn: '1 / -1', padding: '14px 16px', borderRadius: 12, background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderLeft: '3px solid #ef4444' }}>
                                 <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Falta para a meta</div>
                                 <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#ef4444', lineHeight: 1 }}>{toBRL(theory10020Result.gap)}</div>
                                 <div style={{ fontSize: 11, color: 'rgba(239,68,68,0.6)', marginTop: 4 }}>Meta − Realizado</div>
                               </div>
+                              {/* Leads restantes */}
                               <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
-                                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Fechamentos restantes</div>
-                                <div style={{ fontSize: 22, fontWeight: 900, color: '#f59e0b', lineHeight: 1 }}>{theory10020Result.ganhos_restantes}</div>
-                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>gap ÷ ticket</div>
+                                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes</div>
+                                <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{theory10020Result.leads_restantes}</div>
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>gap × 5 ÷ ticket</div>
                               </div>
+                              {/* Ganhos restantes */}
                               <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
-                                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ciclos restantes/dia</div>
+                                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes</div>
+                                <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{theory10020Result.ganhos_restantes}</div>
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. × conversão</div>
+                              </div>
+                              {/* Leads restantes por dia */}
+                              <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes/dia</div>
+                                <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{leadsRestantesPorDia}</div>
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. ÷ dias úteis</div>
+                              </div>
+                              {/* Ganhos restantes por dia */}
+                              <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes/dia</div>
                                 <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{theory10020Result.ganhos_restantes_por_dia}</div>
-                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>fechamentos ÷ dias úteis</div>
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>ganhos rest. ÷ dias úteis</div>
                               </div>
                             </div>
                           </div>
@@ -1572,19 +1623,21 @@ export default function SimuladorMetaPage() {
                             Com ticket médio de{' '}
                             <strong style={{ color: '#a78bfa' }}>{toBRL(theory10020Result.ticket_medio)}</strong>,
                             são necessários{' '}
-                            <strong style={{ color: '#22d3ee' }}>{theory10020Result.leads_para_contatar} fechamentos</strong>.
+                            <strong style={{ color: '#22d3ee' }}>{theory10020Result.leads_para_contatar} leads para contatar</strong>.
                           </div>
                           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
                             Com conversão de{' '}
                             <strong style={{ color: '#06b6d4' }}>{closeRatePercent}%</strong>,
-                            são necessários{' '}
-                            <strong style={{ color: '#a78bfa' }}>{ciclosNecessarios} ciclos de trabalho</strong>.
+                            os ganhos esperados são{' '}
+                            <strong style={{ color: '#10b981' }}>{theory10020Result.ganhos_esperados} fechamentos</strong>.
                           </div>
                           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
                             Faltando{' '}
                             <strong style={{ color: '#f59e0b' }}>{remainingBusinessDays} dias úteis</strong>,
                             o ritmo necessário é{' '}
-                            <strong style={{ color: '#10b981' }}>{theory10020Result.ganhos_restantes_por_dia} ciclos/dia</strong>{' '}
+                            <strong style={{ color: '#22d3ee' }}>{leadsRestantesPorDia} leads/dia</strong>{' '}
+                            e{' '}
+                            <strong style={{ color: '#10b981' }}>{theory10020Result.ganhos_restantes_por_dia} ganhos/dia</strong>{' '}
                             para fechar o gap de{' '}
                             <strong style={{ color: '#ef4444' }}>{toBRL(theory10020Result.gap)}</strong>.
                           </div>
