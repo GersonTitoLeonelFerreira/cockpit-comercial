@@ -250,6 +250,9 @@ export default function SimuladorMetaPage() {
   // Rate source: 'real' uses historical vendor rate, 'planejada' uses closeRatePercent
   const [rateSource, setRateSource] = useState<'real' | 'planejada'>('planejada')
 
+  // Tab navigation
+  const [activeTab, setActiveTab] = useState<'teoria' | 'evolucao' | 'taxa' | 'funil'>('teoria')
+
   // Ticket source
   const [ticketSource, setTicketSource] = useState<'manual' | 'historico'>('manual')
   const [historicalTicket, setHistoricalTicket] = useState<HistoricalTicketResponse | null>(null)
