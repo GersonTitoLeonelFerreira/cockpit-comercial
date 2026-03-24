@@ -381,6 +381,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
         dealId={cycle.id}
         dealName={cycle?.leads?.name || 'Deal'}
         ownerUserId={cycle?.owner_user_id || undefined}
+        companyId={cycle.company_id}
         onClose={() => setShowWinDealModal(false)}
         onSuccess={() => {
           router.refresh()

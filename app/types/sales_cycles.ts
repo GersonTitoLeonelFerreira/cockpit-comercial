@@ -141,9 +141,38 @@ export interface SetNextActionRequest {
   next_action_date: string | Date
 }
 
+// Meio de pagamento (como o cliente pagou)
+export type PaymentMethod =
+  | 'credito'
+  | 'debito'
+  | 'pix'
+  | 'dinheiro'
+  | 'boleto'
+  | 'transferencia'
+  | 'misto'
+  | 'outro'
+
+// Estrutura da negociação (como foi parcelado / dividido)
+export type PaymentType =
+  | 'avista'
+  | 'entrada_parcelas'
+  | 'parcelado_sem_entrada'
+  | 'recorrente'
+  | 'outro'
+
 export interface CloseCycleWonRequest {
   cycle_id: string
   won_value?: number
+  // Produto
+  product_id?: string | null
+  won_unit_price?: number | null
+  // Forma de pagamento
+  payment_method?: PaymentMethod | null
+  payment_type?: PaymentType | null
+  entry_amount?: number | null
+  installments_count?: number | null
+  installment_amount?: number | null
+  payment_notes?: string | null
 }
 
 export interface CloseCycleLostRequest {

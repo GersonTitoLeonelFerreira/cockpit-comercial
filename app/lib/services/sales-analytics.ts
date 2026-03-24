@@ -126,6 +126,21 @@ export async function getUpcomingDeals(daysAhead: number = 7): Promise<any[]> {
   return data || []
 }
 
+export interface MarkDealWonOptions {
+  revenueDateRef?: string // YYYY-MM-DD (opcional)
+  wonNote?: string
+  // Produto
+  productId?: string | null
+  wonUnitPrice?: number | null
+  // Forma de pagamento
+  paymentMethod?: string | null
+  paymentType?: string | null
+  entryAmount?: number | null
+  installmentsCount?: number | null
+  installmentAmount?: number | null
+  paymentNotes?: string | null
+}
+
 /**
  * Marca um deal como GANHO.
  *
@@ -139,10 +154,15 @@ export async function getUpcomingDeals(daysAhead: number = 7): Promise<any[]> {
 export async function markDealWonWithRevenue(
   dealId: string,
   wonValue: number,
-  revenueDateRef?: string, // YYYY-MM-DD (opcional)
-  wonNote?: string
+  revenueDateRef?: string, // YYYY-MM-DD (opcional) — mantido por compatibilidade
+  wonNote?: string,
+  options?: MarkDealWonOptions
 ): Promise<any> {
   const supabase = supabaseBrowser()
+
+  // Mesclar revenueDateRef / wonNote com options (options tem prioridade)
+  const revDate = options?.revenueDateRef ?? revenueDateRef
+  const note = options?.wonNote ?? wonNote
 
   // 1) Buscar o owner atual ANTES de atualizar (para congelar)
   const { data: cycle, error: fetchErr } = await supabase
@@ -162,7 +182,7 @@ export async function markDealWonWithRevenue(
     frozenWonOwner = authData?.user?.id || null
   }
 
-  // 3) Update com won_owner_user_id congelado
+  // 3) Update com won_owner_user_id congelado + novos campos de produto/pagamento
   const { data, error } = await supabase
     .from('sales_cycles')
     .update({
@@ -170,9 +190,19 @@ export async function markDealWonWithRevenue(
       won_at: new Date().toISOString(),
       won_total: wonValue,
       won_owner_user_id: frozenWonOwner,
-      revenue_seller_ref_date: revenueDateRef || null,
-      won_value_source: revenueDateRef ? 'revenue' : 'manual',
-      won_note: wonNote || null,
+      revenue_seller_ref_date: revDate || null,
+      won_value_source: revDate ? 'revenue' : 'manual',
+      won_note: note || null,
+      // Produto
+      product_id: options?.productId ?? null,
+      won_unit_price: options?.wonUnitPrice ?? null,
+      // Forma de pagamento
+      payment_method: options?.paymentMethod ?? null,
+      payment_type: options?.paymentType ?? null,
+      entry_amount: options?.entryAmount ?? null,
+      installments_count: options?.installmentsCount ?? null,
+      installment_amount: options?.installmentAmount ?? null,
+      payment_notes: options?.paymentNotes ?? null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', dealId)
