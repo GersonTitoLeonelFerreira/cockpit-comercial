@@ -318,6 +318,9 @@ export default function MesRelatorioPg() {
         >
           Mês
         </a>
+        <a href="/dashboard/relatorios/radar" style={navLinkBase} title="Radar do Período">
+          🎯 Radar
+        </a>
       </div>
 
       {/* Filters */}

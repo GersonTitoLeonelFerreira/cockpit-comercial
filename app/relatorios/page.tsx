@@ -48,6 +48,12 @@ export default function RelatoriosHubPage() {
       href: '/dashboard/relatorios/mes',
     },
     {
+      emoji: '🎯',
+      title: 'Radar do Período',
+      desc: 'Classificação do cenário atual: favorável, neutro ou arriscado — com base real e explicável',
+      href: '/dashboard/relatorios/radar',
+    },
+    {
       emoji: '🛒',
       title: 'Cadastro de Produtos',
       desc: 'Gerenciar catálogo de produtos (criar, editar, ativar/desativar)',
