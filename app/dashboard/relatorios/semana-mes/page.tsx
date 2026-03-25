@@ -2,18 +2,18 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { getWeekdayPerformance } from '@/app/lib/services/weekdayPerformance'
+import { getMonthWeekPerformance } from '@/app/lib/services/monthWeekPerformance'
 import type {
-  WeekdayPerformanceSummary,
-  WeekdayPerformanceRow,
-} from '@/app/types/weekdayPerformance'
-import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
+  MonthWeekPerformanceSummary,
+  MonthWeekPerformanceRow,
+} from '@/app/types/monthWeekPerformance'
+import { getMonthWeekVocation } from '@/app/lib/services/monthWeekVocation'
 import type {
-  WeekdayVocationSummary,
-  WeekdayVocationRow,
-  VocationType,
-  VocationConfidence,
-} from '@/app/types/weekdayVocation'
+  MonthWeekVocationalSummary,
+  MonthWeekVocationalRow,
+  MonthWeekVocationType,
+  MonthWeekVocationConfidence,
+} from '@/app/types/monthWeekPerformance'
 
 // ==============================================================================
 // Helpers
@@ -27,9 +27,9 @@ function toPercent(value: number, decimals = 1): string {
   return (value * 100).toFixed(decimals) + '%'
 }
 
-function getFirstDayOfMonth(): string {
+function getFirstDayOfCurrentYear(): string {
   const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  return `${now.getFullYear()}-01-01`
 }
 
 function getLastDayOfMonth(): string {
@@ -97,7 +97,7 @@ interface SellerProfileRow {
   full_name: string | null
 }
 
-export default function DiaSemanaRelatorioPg() {
+export default function SemanaMesRelatorioPg() {
   const supabase = supabaseBrowser()
 
   const [loading, setLoading] = React.useState(true)
@@ -108,18 +108,18 @@ export default function DiaSemanaRelatorioPg() {
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
 
-  // Filters
-  const [dateStart, setDateStart] = React.useState(getFirstDayOfMonth())
+  // Filters — default: ano corrente até hoje (para ter múltiplos meses e boa amostra)
+  const [dateStart, setDateStart] = React.useState(getFirstDayOfCurrentYear())
   const [dateEnd, setDateEnd] = React.useState(getLastDayOfMonth())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
 
-  // Data — Phase 6.1
-  const [summary, setSummary] = React.useState<WeekdayPerformanceSummary | null>(null)
+  // Data — Phase 6.3 performance
+  const [summary, setSummary] = React.useState<MonthWeekPerformanceSummary | null>(null)
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
 
-  // Data — Phase 6.2 (Vocação Operacional)
-  const [vocation, setVocation] = React.useState<WeekdayVocationSummary | null>(null)
+  // Data — Phase 6.3 vocation
+  const [vocation, setVocation] = React.useState<MonthWeekVocationalSummary | null>(null)
   const [vocationLoading, setVocationLoading] = React.useState(false)
   const [vocationError, setVocationError] = React.useState<string | null>(null)
 
@@ -160,7 +160,7 @@ export default function DiaSemanaRelatorioPg() {
               label: s.full_name || s.id,
             }))
           )
-          setSelectedSellerId(null) // empresa toda por padrão
+          setSelectedSellerId(null)
         } else {
           setSelectedSellerId(uid)
         }
@@ -174,7 +174,7 @@ export default function DiaSemanaRelatorioPg() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load data when filters or profile are ready
+  // Load performance data
   React.useEffect(() => {
     if (!companyId) return
 
@@ -182,7 +182,7 @@ export default function DiaSemanaRelatorioPg() {
       setDataLoading(true)
       setDataError(null)
       try {
-        const result = await getWeekdayPerformance({
+        const result = await getMonthWeekPerformance({
           companyId: companyId!,
           ownerId: selectedSellerId,
           dateStart,
@@ -198,7 +198,7 @@ export default function DiaSemanaRelatorioPg() {
     void load()
   }, [companyId, selectedSellerId, dateStart, dateEnd])
 
-  // Load vocação operacional when filters or profile are ready (Phase 6.2)
+  // Load vocation data
   React.useEffect(() => {
     if (!companyId) return
 
@@ -206,7 +206,7 @@ export default function DiaSemanaRelatorioPg() {
       setVocationLoading(true)
       setVocationError(null)
       try {
-        const result = await getWeekdayVocation({
+        const result = await getMonthWeekVocation({
           companyId: companyId!,
           ownerId: selectedSellerId,
           dateStart,
@@ -254,13 +254,27 @@ export default function DiaSemanaRelatorioPg() {
     )
   }
 
-  const bestFaturamentoDia = summary?.melhor_dia_faturamento
+  const bestFaturamentoSemana = summary?.melhor_semana_faturamento
   const anyInsuficiente =
     summary?.rows.some((r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho) ?? false
 
   return (
     <div style={{ width: '100%', padding: 40, color: 'white' }}>
-      <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Sazonalidade por Dia da Semana</h1>
+      <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Sazonalidade por Semana do Mês</h1>
+      <p
+        style={{
+          textAlign: 'center',
+          fontSize: 13,
+          opacity: 0.5,
+          marginBottom: 20,
+          maxWidth: 600,
+          margin: '0 auto 20px',
+        }}
+      >
+        Leitura sazonal por bloco semanal (1ª a 5ª semana). Regra: semana calculada pelo dia do
+        mês — semana 1 = dias 1–7, semana 2 = dias 8–14, semana 3 = dias 15–21, semana 4 = dias
+        22–28, semana 5 = dias 29–31.
+      </p>
 
       {/* Sub-navigation */}
       <div
@@ -285,14 +299,14 @@ export default function DiaSemanaRelatorioPg() {
         </a>
         <a
           href="/dashboard/relatorios/dia-semana"
-          style={navLinkActive}
+          style={navLinkBase}
           title="Sazonalidade por dia da semana"
         >
           Dia da Semana
         </a>
         <a
           href="/dashboard/relatorios/semana-mes"
-          style={navLinkBase}
+          style={navLinkActive}
           title="Sazonalidade por semana do mês"
         >
           Semana do Mês
@@ -379,6 +393,17 @@ export default function DiaSemanaRelatorioPg() {
             </select>
           </div>
         )}
+
+        <div
+          style={{
+            fontSize: 11,
+            opacity: 0.4,
+            alignSelf: 'center',
+            marginLeft: 4,
+          }}
+        >
+          💡 Recomendado: pelo menos 3 meses para amostra representativa por semana.
+        </div>
       </div>
 
       <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 18 }}>
@@ -391,45 +416,52 @@ export default function DiaSemanaRelatorioPg() {
             {/* BLOCO A — KPIs */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
               <KpiCard
-                label="Melhor dia p/ Ganhos"
-                name={summary.melhor_dia_ganhos?.weekday_label ?? null}
+                label="Semana com mais Ganhos"
+                name={summary.melhor_semana_ganhos?.week_label ?? null}
                 value={
-                  summary.melhor_dia_ganhos
-                    ? `${summary.melhor_dia_ganhos.ganhos} ganho(s)`
+                  summary.melhor_semana_ganhos
+                    ? `${summary.melhor_semana_ganhos.ganhos} ganho(s)`
                     : '—'
+                }
+                sub={summary.melhor_semana_ganhos?.week_description}
+              />
+              <KpiCard
+                label="Semana com maior Faturamento"
+                name={summary.melhor_semana_faturamento?.week_label ?? null}
+                value={
+                  summary.melhor_semana_faturamento
+                    ? toBRL(summary.melhor_semana_faturamento.faturamento)
+                    : '—'
+                }
+                sub={summary.melhor_semana_faturamento?.week_description}
+              />
+              <KpiCard
+                label="Semana com melhor Ticket Médio"
+                name={summary.melhor_semana_ticket?.week_label ?? null}
+                value={
+                  summary.melhor_semana_ticket
+                    ? toBRL(summary.melhor_semana_ticket.ticket_medio)
+                    : '—'
+                }
+                sub={
+                  summary.melhor_semana_ticket
+                    ? summary.melhor_semana_ticket.week_description
+                    : 'Base insuficiente em todas as semanas'
                 }
               />
               <KpiCard
-                label="Melhor dia p/ Faturamento"
-                name={summary.melhor_dia_faturamento?.weekday_label ?? null}
+                label="Semana mais forte em Trabalho"
+                name={summary.melhor_semana_trabalho?.week_label ?? null}
                 value={
-                  summary.melhor_dia_faturamento
-                    ? toBRL(summary.melhor_dia_faturamento.faturamento)
+                  summary.melhor_semana_trabalho
+                    ? `${summary.melhor_semana_trabalho.leads_trabalhados} lead(s)`
                     : '—'
                 }
-              />
-              <KpiCard
-                label="Melhor dia p/ Ticket Médio"
-                name={summary.melhor_dia_ticket?.weekday_label ?? null}
-                value={
-                  summary.melhor_dia_ticket
-                    ? toBRL(summary.melhor_dia_ticket.ticket_medio)
-                    : '—'
-                }
-                sub={summary.melhor_dia_ticket ? undefined : 'Base insuficiente em todos os dias'}
-              />
-              <KpiCard
-                label="Dia mais forte em trabalho"
-                name={summary.melhor_dia_trabalho?.weekday_label ?? null}
-                value={
-                  summary.melhor_dia_trabalho
-                    ? `${summary.melhor_dia_trabalho.leads_trabalhados} lead(s)`
-                    : '—'
-                }
+                sub={summary.melhor_semana_trabalho?.week_description}
               />
             </div>
 
-            {/* BLOCO B — Tabela por Dia da Semana */}
+            {/* BLOCO B — Tabela por Semana do Mês */}
             <div
               style={{
                 background: '#0f0f0f',
@@ -439,9 +471,11 @@ export default function DiaSemanaRelatorioPg() {
               }}
             >
               <div style={{ padding: '14px 18px', borderBottom: '1px solid #202020' }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>Desempenho por Dia da Semana</span>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>
+                  Desempenho por Semana do Mês
+                </span>
                 <span style={{ fontSize: 11, opacity: 0.5, marginLeft: 10 }}>
-                  leads_trabalhados via first_worked_at (operação real)
+                  leads_trabalhados via first_worked_at · ganhos via won_at
                 </span>
               </div>
               <div style={{ overflowX: 'auto' }}>
@@ -455,19 +489,21 @@ export default function DiaSemanaRelatorioPg() {
                   <thead>
                     <tr style={{ borderBottom: '1px solid #202020' }}>
                       {[
-                        'Dia da Semana',
-                        'Leads Trabalhados',
-                        'Ganhos',
-                        'Perdidos',
-                        'Faturamento',
-                        'Ticket Médio',
-                        'Taxa de Ganho',
+                        { label: 'Semana do Mês', align: 'left' },
+                        { label: 'Período', align: 'left' },
+                        { label: 'Leads Trabalhados', align: 'right' },
+                        { label: 'Ganhos', align: 'right' },
+                        { label: 'Perdidos', align: 'right' },
+                        { label: 'Faturamento', align: 'right' },
+                        { label: 'Ticket Médio', align: 'right' },
+                        { label: 'Taxa de Ganho', align: 'right' },
+                        { label: 'Meses c/ Dados', align: 'right' },
                       ].map((col) => (
                         <th
-                          key={col}
+                          key={col.label}
                           style={{
                             padding: '10px 14px',
-                            textAlign: col === 'Dia da Semana' ? 'left' : 'right',
+                            textAlign: col.align as React.CSSProperties['textAlign'],
                             fontWeight: 600,
                             opacity: 0.6,
                             fontSize: 11,
@@ -476,36 +512,50 @@ export default function DiaSemanaRelatorioPg() {
                             whiteSpace: 'nowrap',
                           }}
                         >
-                          {col}
+                          {col.label}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.rows.map((row: WeekdayPerformanceRow) => {
+                    {summary.rows.map((row: MonthWeekPerformanceRow) => {
                       const isBestFaturamento =
-                        bestFaturamentoDia?.weekday === row.weekday &&
-                        row.faturamento > 0
+                        bestFaturamentoSemana?.week === row.week && row.faturamento > 0
                       const isZeroActivity = row.leads_trabalhados === 0 && row.ganhos === 0
                       const isLowBase =
                         row.leads_trabalhados > 0 && !row.base_suficiente_trabalho
 
                       return (
                         <tr
-                          key={row.weekday}
+                          key={row.week}
                           style={{
                             borderBottom: '1px solid #1a1a1a',
-                            borderLeft: isBestFaturamento ? '3px solid #22c55e' : '3px solid transparent',
-                            opacity: isZeroActivity ? 0.4 : 1,
+                            borderLeft: isBestFaturamento
+                              ? '3px solid #22c55e'
+                              : '3px solid transparent',
+                            opacity: isZeroActivity ? 0.35 : 1,
                           }}
                         >
-                          <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                            {row.weekday_label}
+                          <td style={{ padding: '10px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {row.week_label}
                             {isLowBase ? (
-                              <span style={{ marginLeft: 6, fontSize: 12 }} title="Base insuficiente para taxa de ganho">
+                              <span
+                                style={{ marginLeft: 6, fontSize: 12 }}
+                                title="Base insuficiente para taxa de ganho"
+                              >
                                 ⚠️
                               </span>
                             ) : null}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 14px',
+                              fontSize: 11,
+                              opacity: 0.5,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {row.week_description}
                           </td>
                           <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                             {row.leads_trabalhados}
@@ -522,8 +572,6 @@ export default function DiaSemanaRelatorioPg() {
                           <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                             {row.base_suficiente_ganho
                               ? toBRL(row.ticket_medio)
-                              : row.ganhos > 0
-                              ? '—'
                               : '—'}
                           </td>
                           <td style={{ padding: '10px 14px', textAlign: 'right' }}>
@@ -533,6 +581,16 @@ export default function DiaSemanaRelatorioPg() {
                               ? 'Base insuf.'
                               : '—'}
                           </td>
+                          <td
+                            style={{
+                              padding: '10px 14px',
+                              textAlign: 'right',
+                              fontSize: 12,
+                              opacity: 0.6,
+                            }}
+                          >
+                            {row.meses_com_dados > 0 ? row.meses_com_dados : '—'}
+                          </td>
                         </tr>
                       )
                     })}
@@ -541,7 +599,7 @@ export default function DiaSemanaRelatorioPg() {
               </div>
             </div>
 
-            {/* BLOCO C — Resumo / Diagnóstico */}
+            {/* BLOCO C — Leitura Resumida + Diagnóstico */}
             <div
               style={{
                 background: '#0f0f0f',
@@ -552,7 +610,15 @@ export default function DiaSemanaRelatorioPg() {
                 gap: 14,
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Resumo do Período</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>Leitura Resumida</div>
+
+              <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8 }}>
+                {summary.leitura_resumida.map((frase, idx) => (
+                  <li key={idx} style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
+                    {frase}
+                  </li>
+                ))}
+              </ul>
 
               {/* Diagnostic text */}
               <div
@@ -563,7 +629,7 @@ export default function DiaSemanaRelatorioPg() {
                   padding: '12px 14px',
                   fontSize: 13,
                   lineHeight: 1.6,
-                  opacity: 0.9,
+                  opacity: 0.85,
                 }}
               >
                 {summary.diagnostico}
@@ -583,7 +649,7 @@ export default function DiaSemanaRelatorioPg() {
                     label: 'Período analisado',
                     value: `${summary.period_start} a ${summary.period_end}`,
                   },
-                  { label: 'Semanas no período', value: `${summary.semanas_no_periodo}` },
+                  { label: 'Meses no período', value: `${summary.meses_no_periodo}` },
                   {
                     label: 'Total de leads trabalhados',
                     value: `${summary.total_leads_trabalhados}`,
@@ -604,7 +670,14 @@ export default function DiaSemanaRelatorioPg() {
                       padding: '10px 12px',
                     }}
                   >
-                    <div style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        opacity: 0.5,
+                        textTransform: 'uppercase',
+                        marginBottom: 4,
+                      }}
+                    >
                       {item.label}
                     </div>
                     <div style={{ fontWeight: 700 }}>{item.value}</div>
@@ -624,22 +697,43 @@ export default function DiaSemanaRelatorioPg() {
                     color: '#fbbf24',
                   }}
                 >
-                  ⚠️ Alguns dias da semana têm menos de 10 leads trabalhados. A taxa de ganho
-                  para esses dias é indicada como &quot;Base insuf.&quot; e não deve ser usada como
+                  ⚠️ Algumas semanas têm menos de 10 leads trabalhados. A taxa de ganho para
+                  essas semanas é indicada como &quot;Base insuf.&quot; e não deve ser usada como
                   referência. Amplie o período de análise para obter leituras mais confiáveis.
                 </div>
               )}
 
+              <div
+                style={{
+                  background: '#0d1a0d',
+                  border: '1px solid #1a3a1a',
+                  borderRadius: 8,
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  color: '#86efac',
+                  lineHeight: 1.5,
+                }}
+              >
+                📌 <strong>Sobre a 5ª semana (dias 29–31):</strong> esta janela tem no máximo 3
+                dias por mês e, na maioria dos meses de 28 dias, não existe. É esperado que a 5ª
+                semana apresente base insuficiente — isso não indica problema operacional, mas sim
+                uma limitação estrutural do calendário.
+              </div>
+
               <div style={{ fontSize: 11, opacity: 0.35 }}>
-                Fonte leads trabalhados: <code>sales_cycles.first_worked_at</code> (somente eventos de trabalho comercial real — exclui ações administrativas).
-                Fonte perdidos: <code>sales_cycles.lost_at</code> quando disponível, <code>updated_at</code> como proxy caso contrário.
+                Fonte leads trabalhados: <code>sales_cycles.first_worked_at</code> (somente
+                eventos de trabalho comercial real). Fonte ganhos:{' '}
+                <code>sales_cycles.won_at</code> + <code>won_total {'>'} 0</code> + status=ganho.
+                Fonte perdidos: <code>sales_cycles.lost_at</code> quando disponível,{' '}
+                <code>updated_at</code> como proxy caso contrário. Semana do mês =
+                Math.ceil(dia_do_mês / 7).
               </div>
             </div>
           </>
         ) : null}
 
         {/* ================================================================= */}
-        {/* FASE 6.2 — Vocação Operacional por Dia da Semana                  */}
+        {/* Vocação Operacional por Semana do Mês                             */}
         {/* ================================================================= */}
 
         <div
@@ -650,10 +744,10 @@ export default function DiaSemanaRelatorioPg() {
           }}
         >
           <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>
-            Vocação Operacional por Dia
+            Vocação Operacional por Semana
           </h2>
           <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 20 }}>
-            Classificação do tipo de trabalho comercial mais indicado para cada dia da semana,
+            Classificação do tipo de trabalho comercial mais indicado para cada semana do mês,
             baseada em eventos reais de prospecção, follow-up, negociação e fechamento.
           </p>
 
@@ -663,37 +757,37 @@ export default function DiaSemanaRelatorioPg() {
             <div style={{ color: '#ef4444', padding: 20 }}>Erro: {vocationError}</div>
           ) : vocation ? (
             <>
-              {/* BLOCO A — KPIs de Vocação */}
+              {/* KPIs de Vocação */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
                 <VocationKpiCard
-                  label="Melhor dia p/ Prospecção"
+                  label="Semana de Prospecção"
                   color="#60a5fa"
-                  row={vocation.melhor_dia_prospeccao}
+                  row={vocation.melhor_semana_prospeccao}
                   vocType="prospeccao"
                 />
                 <VocationKpiCard
-                  label="Melhor dia p/ Follow-up"
+                  label="Semana de Follow-up"
                   color="#a78bfa"
-                  row={vocation.melhor_dia_followup}
+                  row={vocation.melhor_semana_followup}
                   vocType="followup"
                   unavailable={!vocation.has_cycle_events}
                 />
                 <VocationKpiCard
-                  label="Melhor dia p/ Negociação"
+                  label="Semana de Negociação"
                   color="#fbbf24"
-                  row={vocation.melhor_dia_negociacao}
+                  row={vocation.melhor_semana_negociacao}
                   vocType="negociacao"
                   unavailable={!vocation.has_cycle_events}
                 />
                 <VocationKpiCard
-                  label="Melhor dia p/ Fechamento"
+                  label="Semana de Fechamento"
                   color="#34d399"
-                  row={vocation.melhor_dia_fechamento}
+                  row={vocation.melhor_semana_fechamento}
                   vocType="fechamento"
                 />
               </div>
 
-              {/* BLOCO B — Tabela de Vocação */}
+              {/* Tabela de Vocação */}
               <div
                 style={{
                   background: '#0f0f0f',
@@ -704,7 +798,9 @@ export default function DiaSemanaRelatorioPg() {
                 }}
               >
                 <div style={{ padding: '14px 18px', borderBottom: '1px solid #202020' }}>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>Tabela de Vocação Operacional</span>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>
+                    Tabela de Vocação Operacional por Semana
+                  </span>
                   {!vocation.has_cycle_events && (
                     <span
                       style={{
@@ -726,7 +822,8 @@ export default function DiaSemanaRelatorioPg() {
                     <thead>
                       <tr style={{ borderBottom: '1px solid #202020' }}>
                         {[
-                          { label: 'Dia da Semana', align: 'left' },
+                          { label: 'Semana', align: 'left' },
+                          { label: 'Período', align: 'left' },
                           { label: 'Vocação Dominante', align: 'left' },
                           { label: 'Prospecção', align: 'right' },
                           { label: 'Follow-up', align: 'right' },
@@ -754,7 +851,7 @@ export default function DiaSemanaRelatorioPg() {
                       </tr>
                     </thead>
                     <tbody>
-                      {vocation.rows.map((row: WeekdayVocationRow) => {
+                      {vocation.rows.map((row: MonthWeekVocationalRow) => {
                         const prosp = row.signals.find((s) => s.type === 'prospeccao')!
                         const followup = row.signals.find((s) => s.type === 'followup')!
                         const neg = row.signals.find((s) => s.type === 'negociacao')!
@@ -762,13 +859,29 @@ export default function DiaSemanaRelatorioPg() {
 
                         return (
                           <tr
-                            key={row.weekday}
+                            key={row.week}
                             style={{
                               borderBottom: '1px solid #1a1a1a',
                             }}
                           >
-                            <td style={{ padding: '10px 14px', fontWeight: 600 }}>
-                              {row.weekday_label}
+                            <td
+                              style={{
+                                padding: '10px 14px',
+                                fontWeight: 600,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {row.week_label}
+                            </td>
+                            <td
+                              style={{
+                                padding: '10px 14px',
+                                fontSize: 11,
+                                opacity: 0.5,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {row.week_description}
                             </td>
                             <td style={{ padding: '10px 14px' }}>
                               <VocationBadge
@@ -777,24 +890,40 @@ export default function DiaSemanaRelatorioPg() {
                               />
                             </td>
                             <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                              <StrengthBar strength={prosp.strength} color="#60a5fa" count={prosp.count} />
+                              <StrengthBar
+                                strength={prosp.strength}
+                                color="#60a5fa"
+                                count={prosp.count}
+                              />
                             </td>
                             <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                               {vocation.has_cycle_events ? (
-                                <StrengthBar strength={followup.strength} color="#a78bfa" count={followup.count} />
+                                <StrengthBar
+                                  strength={followup.strength}
+                                  color="#a78bfa"
+                                  count={followup.count}
+                                />
                               ) : (
                                 <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
                               )}
                             </td>
                             <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                               {vocation.has_cycle_events ? (
-                                <StrengthBar strength={neg.strength} color="#fbbf24" count={neg.count} />
+                                <StrengthBar
+                                  strength={neg.strength}
+                                  color="#fbbf24"
+                                  count={neg.count}
+                                />
                               ) : (
                                 <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
                               )}
                             </td>
                             <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                              <StrengthBar strength={fech.strength} color="#34d399" count={fech.count} />
+                              <StrengthBar
+                                strength={fech.strength}
+                                color="#34d399"
+                                count={fech.count}
+                              />
                             </td>
                             <td style={{ padding: '10px 14px', textAlign: 'center' }}>
                               <ConfidenceBadge confidence={row.dominant_confidence} />
@@ -818,7 +947,7 @@ export default function DiaSemanaRelatorioPg() {
                 </div>
               </div>
 
-              {/* BLOCO C — Leitura Resumida */}
+              {/* Leitura Resumida de Vocação */}
               <div
                 style={{
                   background: '#0f0f0f',
@@ -828,7 +957,7 @@ export default function DiaSemanaRelatorioPg() {
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
-                  Leitura Resumida — Vocação Operacional
+                  Leitura Resumida — Vocação por Semana do Mês
                 </div>
                 <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8 }}>
                   {vocation.leitura_resumida.map((frase, idx) => (
@@ -848,10 +977,22 @@ export default function DiaSemanaRelatorioPg() {
                   }}
                 >
                   {[
-                    { label: 'Total Prospecções', value: vocation.total_events_prospeccao },
-                    { label: 'Total Follow-ups', value: vocation.has_cycle_events ? vocation.total_events_followup : null },
-                    { label: 'Total Negociações', value: vocation.has_cycle_events ? vocation.total_events_negociacao : null },
-                    { label: 'Total Fechamentos', value: vocation.total_events_fechamento },
+                    {
+                      label: 'Total Prospecções',
+                      value: vocation.total_events_prospeccao,
+                    },
+                    {
+                      label: 'Total Follow-ups',
+                      value: vocation.has_cycle_events ? vocation.total_events_followup : null,
+                    },
+                    {
+                      label: 'Total Negociações',
+                      value: vocation.has_cycle_events ? vocation.total_events_negociacao : null,
+                    },
+                    {
+                      label: 'Total Fechamentos',
+                      value: vocation.total_events_fechamento,
+                    },
                   ].map((item) => (
                     <div
                       key={item.label}
@@ -862,20 +1003,31 @@ export default function DiaSemanaRelatorioPg() {
                         padding: '10px 12px',
                       }}
                     >
-                      <div style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          opacity: 0.5,
+                          textTransform: 'uppercase',
+                          marginBottom: 4,
+                        }}
+                      >
                         {item.label}
                       </div>
                       <div style={{ fontWeight: 700 }}>
-                        {item.value !== null ? item.value : <span style={{ opacity: 0.4, fontSize: 12 }}>indisponível</span>}
+                        {item.value !== null ? (
+                          item.value
+                        ) : (
+                          <span style={{ opacity: 0.4, fontSize: 12 }}>indisponível</span>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
 
                 <div style={{ marginTop: 14, fontSize: 11, opacity: 0.35 }}>
-                  Prospecção: <code>sales_cycles.first_worked_at</code>.
-                  Fechamento: <code>sales_cycles.won_at</code> (status=ganho).
-                  Follow-up e Negociação: <code>cycle_events</code> (event_type=stage_changed).
+                  Prospecção: <code>sales_cycles.first_worked_at</code>. Fechamento:{' '}
+                  <code>sales_cycles.won_at</code> (status=ganho). Follow-up e Negociação:{' '}
+                  <code>cycle_events</code> (event_type=stage_changed).
                 </div>
               </div>
             </>
@@ -887,17 +1039,17 @@ export default function DiaSemanaRelatorioPg() {
 }
 
 // ==============================================================================
-// Sub-components — Phase 6.2 (Vocação Operacional)
+// Sub-components — Vocação Operacional
 // ==============================================================================
 
-const VOCATION_COLORS: Record<VocationType, string> = {
+const VOCATION_COLORS: Record<MonthWeekVocationType, string> = {
   prospeccao: '#60a5fa',
   followup: '#a78bfa',
   negociacao: '#fbbf24',
   fechamento: '#34d399',
 }
 
-const VOCATION_LABELS_MAP: Record<VocationType, string> = {
+const VOCATION_LABELS_MAP: Record<MonthWeekVocationType, string> = {
   prospeccao: 'Prospecção',
   followup: 'Follow-up',
   negociacao: 'Negociação',
@@ -908,7 +1060,7 @@ function VocationBadge({
   vocation,
   label,
 }: {
-  vocation: VocationType | null
+  vocation: MonthWeekVocationType | null
   label: string
 }) {
   if (!vocation) {
@@ -991,7 +1143,7 @@ function StrengthBar({
 }
 
 const CONFIDENCE_STYLES: Record<
-  VocationConfidence,
+  MonthWeekVocationConfidence,
   { label: string; color: string; bg: string; border: string }
 > = {
   alta: { label: 'Alta', color: '#34d399', bg: '#0d2e1e', border: '#1a5c3a' },
@@ -1000,7 +1152,7 @@ const CONFIDENCE_STYLES: Record<
   insuficiente: { label: 'Insuficiente', color: '#6b7280', bg: '#111', border: '#222' },
 }
 
-function ConfidenceBadge({ confidence }: { confidence: VocationConfidence }) {
+function ConfidenceBadge({ confidence }: { confidence: MonthWeekVocationConfidence }) {
   const s = CONFIDENCE_STYLES[confidence]
   return (
     <span
@@ -1029,8 +1181,8 @@ function VocationKpiCard({
 }: {
   label: string
   color: string
-  row: WeekdayVocationRow | null
-  vocType: VocationType
+  row: MonthWeekVocationalRow | null
+  vocType: MonthWeekVocationType
   unavailable?: boolean
 }) {
   const sig = row?.signals.find((s) => s.type === vocType)
@@ -1064,7 +1216,8 @@ function VocationKpiCard({
         <div style={{ fontSize: 12, opacity: 0.4 }}>Sem dados de cycle_events</div>
       ) : row ? (
         <>
-          <div style={{ fontWeight: 700, fontSize: 15, color }}>{row.weekday_label}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color }}>{row.week_label}</div>
+          <div style={{ fontSize: 11, opacity: 0.5 }}>{row.week_description}</div>
           {sig && (
             <div style={{ fontSize: 12, opacity: 0.7 }}>
               {sig.count} evento(s) — {Math.round(sig.strength * 100)}% de força
