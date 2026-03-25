@@ -300,6 +300,9 @@ export default function DiaSemanaRelatorioPg() {
         <a href="/dashboard/relatorios/sazonalidade-mensal" style={navLinkBase} title="Sazonalidade mensal">
           Mês
         </a>
+        <a href="/dashboard/relatorios/radar" style={navLinkBase} title="Radar do Período">
+          🎯 Radar
+        </a>
       </div>
 
       {/* Filters */}
