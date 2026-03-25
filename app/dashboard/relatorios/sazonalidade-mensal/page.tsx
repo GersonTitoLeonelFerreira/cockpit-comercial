@@ -1,6 +1,4 @@
-// Redireciona para a rota canônica de Sazonalidade Mensal (Fase 6.4).
-// Mantido para retrocompatibilidade com links existentes.
-import { redirect } from 'next/navigation'
+'use client'
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
@@ -314,14 +312,11 @@ export default function MesRelatorioPg() {
           Semana do Mês
         </a>
         <a
-          href="/dashboard/relatorios/mes"
+          href="/dashboard/relatorios/sazonalidade-mensal"
           style={navLinkActive}
           title="Sazonalidade mensal"
         >
           Mês
-        </a>
-        <a href="/dashboard/relatorios/radar" style={navLinkBase} title="Radar do Período">
-          🎯 Radar
         </a>
       </div>
 
@@ -1231,5 +1226,3 @@ function VocationKpiCard({
     </div>
   )
 }
-
-export default MesRelatorioPg
