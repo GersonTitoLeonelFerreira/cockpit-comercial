@@ -233,7 +233,7 @@ export default function ProdutoRelatorioPg() {
           flexWrap: 'wrap',
         }}
       >
-        <a href="/dashboard/relatorios" style={navLinkBase}>
+        <a href="/relatorios" style={navLinkBase}>
           Relatórios
         </a>
         <a href="/dashboard/relatorios/ia" style={navLinkBase}>
