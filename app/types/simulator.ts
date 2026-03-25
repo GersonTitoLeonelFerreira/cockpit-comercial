@@ -117,6 +117,13 @@ export interface Theory10020Result {
   ganhos_restantes_por_dia: number   // ganhos_restantes / dias_uteis
   meta_atingida: boolean
   progress_pct: number               // 0..1
+  // ---- Campos nomenclatura Teoria 100/20 (spec-compliant) ----
+  vendas_necessarias: number              // Math.ceil(meta_total / ticket_medio)
+  ciclos_trabalhados_necessarios: number  // Math.ceil(vendas_necessarias / close_rate)
+  ciclos_por_dia: number                  // Math.ceil(ciclos_trabalhados_necessarios / remaining_business_days)
+  vendas_restantes: number                // Math.ceil(gap / ticket_medio)
+  ciclos_restantes: number                // Math.ceil(vendas_restantes / close_rate)
+  ciclos_restantes_por_dia: number        // Math.ceil(ciclos_restantes / remaining_business_days)
 }
 
 // ==============================================================================
