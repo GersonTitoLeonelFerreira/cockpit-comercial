@@ -36,6 +36,12 @@ export default function RelatoriosHubPage() {
       href: '/dashboard/relatorios/dia-semana',
     },
     {
+      emoji: '🗓️',
+      title: 'Semana do Mês',
+      desc: 'Sazonalidade por bloco semanal (1ª a 5ª semana): volume, faturamento, ticket médio e vocação',
+      href: '/dashboard/relatorios/semana-mes',
+    },
+    {
       emoji: '🛒',
       title: 'Cadastro de Produtos',
       desc: 'Gerenciar catálogo de produtos (criar, editar, ativar/desativar)',
