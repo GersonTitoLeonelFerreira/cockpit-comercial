@@ -30,6 +30,12 @@ export default function RelatoriosHubPage() {
       href: '/dashboard/relatorios/produto',
     },
     {
+      emoji: '📅',
+      title: 'Dia da Semana',
+      desc: 'Sazonalidade por dia da semana: leads trabalhados, ganhos e faturamento por dia',
+      href: '/dashboard/relatorios/dia-semana',
+    },
+    {
       emoji: '🛒',
       title: 'Cadastro de Produtos',
       desc: 'Gerenciar catálogo de produtos (criar, editar, ativar/desativar)',
