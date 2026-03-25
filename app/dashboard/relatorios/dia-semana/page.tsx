@@ -297,7 +297,7 @@ export default function DiaSemanaRelatorioPg() {
         >
           Semana do Mês
         </a>
-        <a href="/dashboard/relatorios/mes" style={navLinkBase} title="Sazonalidade mensal">
+        <a href="/dashboard/relatorios/sazonalidade-mensal" style={navLinkBase} title="Sazonalidade mensal">
           Mês
         </a>
       </div>

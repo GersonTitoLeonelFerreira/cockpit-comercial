@@ -2,18 +2,18 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { getMonthWeekPerformance } from '@/app/lib/services/monthWeekPerformance'
+import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
 import type {
-  MonthWeekPerformanceSummary,
-  MonthWeekPerformanceRow,
-} from '@/app/types/monthWeekPerformance'
-import { getMonthWeekVocation } from '@/app/lib/services/monthWeekVocation'
+  MonthlySeasonalitySummary,
+  MonthlySeasonalityRow,
+} from '@/app/types/monthlySeasonality'
+import { getMonthlySeasonalityVocation } from '@/app/lib/services/monthlySeasonalityVocation'
 import type {
-  MonthWeekVocationalSummary,
-  MonthWeekVocationalRow,
-  MonthWeekVocationType,
-  MonthWeekVocationConfidence,
-} from '@/app/types/monthWeekPerformance'
+  MonthlyVocationalSummary,
+  MonthlyVocationalRow,
+  MonthlyVocationType,
+  MonthlyVocationConfidence,
+} from '@/app/types/monthlySeasonality'
 
 // ==============================================================================
 // Helpers
@@ -27,15 +27,15 @@ function toPercent(value: number, decimals = 1): string {
   return (value * 100).toFixed(decimals) + '%'
 }
 
-function getFirstDayOfCurrentYear(): string {
+/** Default: 2 anos atrás (para ter amostra multi-ano) */
+function getTwoYearsAgo(): string {
   const now = new Date()
-  return `${now.getFullYear()}-01-01`
+  return `${now.getFullYear() - 2}-01-01`
 }
 
-function getLastDayOfMonth(): string {
+function getTodayDate(): string {
   const now = new Date()
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
 // ==============================================================================
@@ -97,7 +97,7 @@ interface SellerProfileRow {
   full_name: string | null
 }
 
-export default function SemanaMesRelatorioPg() {
+export default function MesRelatorioPg() {
   const supabase = supabaseBrowser()
 
   const [loading, setLoading] = React.useState(true)
@@ -108,18 +108,18 @@ export default function SemanaMesRelatorioPg() {
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
 
-  // Filters — default: ano corrente até hoje (para ter múltiplos meses e boa amostra)
-  const [dateStart, setDateStart] = React.useState(getFirstDayOfCurrentYear())
-  const [dateEnd, setDateEnd] = React.useState(getLastDayOfMonth())
+  // Filters — default: 2 anos atrás para ter amostra multi-ano
+  const [dateStart, setDateStart] = React.useState(getTwoYearsAgo())
+  const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
 
-  // Data — Phase 6.3 performance
-  const [summary, setSummary] = React.useState<MonthWeekPerformanceSummary | null>(null)
+  // Data — performance
+  const [summary, setSummary] = React.useState<MonthlySeasonalitySummary | null>(null)
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
 
-  // Data — Phase 6.3 vocation
-  const [vocation, setVocation] = React.useState<MonthWeekVocationalSummary | null>(null)
+  // Data — vocation
+  const [vocation, setVocation] = React.useState<MonthlyVocationalSummary | null>(null)
   const [vocationLoading, setVocationLoading] = React.useState(false)
   const [vocationError, setVocationError] = React.useState<string | null>(null)
 
@@ -182,7 +182,7 @@ export default function SemanaMesRelatorioPg() {
       setDataLoading(true)
       setDataError(null)
       try {
-        const result = await getMonthWeekPerformance({
+        const result = await getMonthlySeasonalityPerformance({
           companyId: companyId!,
           ownerId: selectedSellerId,
           dateStart,
@@ -206,7 +206,7 @@ export default function SemanaMesRelatorioPg() {
       setVocationLoading(true)
       setVocationError(null)
       try {
-        const result = await getMonthWeekVocation({
+        const result = await getMonthlySeasonalityVocation({
           companyId: companyId!,
           ownerId: selectedSellerId,
           dateStart,
@@ -254,13 +254,14 @@ export default function SemanaMesRelatorioPg() {
     )
   }
 
-  const bestFaturamentoSemana = summary?.melhor_semana_faturamento
+  const bestFaturamentoMes = summary?.melhor_mes_faturamento
   const anyInsuficiente =
     summary?.rows.some((r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho) ?? false
+  const maxAnos = summary ? Math.max(...summary.rows.map((r) => r.anos_com_dados)) : 0
 
   return (
     <div style={{ width: '100%', padding: 40, color: 'white' }}>
-      <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Sazonalidade por Semana do Mês</h1>
+      <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Sazonalidade Mensal</h1>
       <p
         style={{
           textAlign: 'center',
@@ -271,9 +272,8 @@ export default function SemanaMesRelatorioPg() {
           margin: '0 auto 20px',
         }}
       >
-        Leitura sazonal por bloco semanal (1ª a 5ª semana). Regra: semana calculada pelo dia do
-        mês — semana 1 = dias 1–7, semana 2 = dias 8–14, semana 3 = dias 15–21, semana 4 = dias
-        22–28, semana 5 = dias 29–31.
+        Leitura sazonal por mês do ano (janeiro a dezembro). Identifica quais meses historicamente
+        lideram em faturamento, volume de ganhos, ticket médio e trabalho comercial.
       </p>
 
       {/* Sub-navigation */}
@@ -306,12 +306,16 @@ export default function SemanaMesRelatorioPg() {
         </a>
         <a
           href="/dashboard/relatorios/semana-mes"
-          style={navLinkActive}
+          style={navLinkBase}
           title="Sazonalidade por semana do mês"
         >
           Semana do Mês
         </a>
-        <a href="/dashboard/relatorios/sazonalidade-mensal" style={navLinkBase} title="Sazonalidade mensal">
+        <a
+          href="/dashboard/relatorios/sazonalidade-mensal"
+          style={navLinkActive}
+          title="Sazonalidade mensal"
+        >
           Mês
         </a>
       </div>
@@ -405,7 +409,7 @@ export default function SemanaMesRelatorioPg() {
             marginLeft: 4,
           }}
         >
-          💡 Recomendado: pelo menos 3 meses para amostra representativa por semana.
+          💡 Recomendado: pelo menos 2 anos de dados para leitura sazonal confiável.
         </div>
       </div>
 
@@ -419,52 +423,64 @@ export default function SemanaMesRelatorioPg() {
             {/* BLOCO A — KPIs */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
               <KpiCard
-                label="Semana com mais Ganhos"
-                name={summary.melhor_semana_ganhos?.week_label ?? null}
+                label="Mês com mais Ganhos"
+                name={summary.melhor_mes_ganhos?.month_label ?? null}
                 value={
-                  summary.melhor_semana_ganhos
-                    ? `${summary.melhor_semana_ganhos.ganhos} ganho(s)`
-                    : '—'
-                }
-                sub={summary.melhor_semana_ganhos?.week_description}
-              />
-              <KpiCard
-                label="Semana com maior Faturamento"
-                name={summary.melhor_semana_faturamento?.week_label ?? null}
-                value={
-                  summary.melhor_semana_faturamento
-                    ? toBRL(summary.melhor_semana_faturamento.faturamento)
-                    : '—'
-                }
-                sub={summary.melhor_semana_faturamento?.week_description}
-              />
-              <KpiCard
-                label="Semana com melhor Ticket Médio"
-                name={summary.melhor_semana_ticket?.week_label ?? null}
-                value={
-                  summary.melhor_semana_ticket
-                    ? toBRL(summary.melhor_semana_ticket.ticket_medio)
+                  summary.melhor_mes_ganhos
+                    ? `${summary.melhor_mes_ganhos.ganhos} ganho(s)`
                     : '—'
                 }
                 sub={
-                  summary.melhor_semana_ticket
-                    ? summary.melhor_semana_ticket.week_description
-                    : 'Base insuficiente em todas as semanas'
+                  summary.melhor_mes_ganhos
+                    ? `${summary.melhor_mes_ganhos.anos_com_dados} ano(s) com dados`
+                    : undefined
                 }
               />
               <KpiCard
-                label="Semana mais forte em Trabalho"
-                name={summary.melhor_semana_trabalho?.week_label ?? null}
+                label="Mês com maior Faturamento"
+                name={summary.melhor_mes_faturamento?.month_label ?? null}
                 value={
-                  summary.melhor_semana_trabalho
-                    ? `${summary.melhor_semana_trabalho.leads_trabalhados} lead(s)`
+                  summary.melhor_mes_faturamento
+                    ? toBRL(summary.melhor_mes_faturamento.faturamento)
                     : '—'
                 }
-                sub={summary.melhor_semana_trabalho?.week_description}
+                sub={
+                  summary.melhor_mes_faturamento
+                    ? `${summary.melhor_mes_faturamento.anos_com_dados} ano(s) com dados`
+                    : undefined
+                }
+              />
+              <KpiCard
+                label="Mês com melhor Ticket Médio"
+                name={summary.melhor_mes_ticket?.month_label ?? null}
+                value={
+                  summary.melhor_mes_ticket
+                    ? toBRL(summary.melhor_mes_ticket.ticket_medio)
+                    : '—'
+                }
+                sub={
+                  summary.melhor_mes_ticket
+                    ? `${summary.melhor_mes_ticket.anos_com_dados} ano(s) com dados`
+                    : 'Base insuficiente em todos os meses'
+                }
+              />
+              <KpiCard
+                label="Mês mais forte em Trabalho"
+                name={summary.melhor_mes_trabalho?.month_label ?? null}
+                value={
+                  summary.melhor_mes_trabalho
+                    ? `${summary.melhor_mes_trabalho.leads_trabalhados} lead(s)`
+                    : '—'
+                }
+                sub={
+                  summary.melhor_mes_trabalho
+                    ? `${summary.melhor_mes_trabalho.anos_com_dados} ano(s) com dados`
+                    : undefined
+                }
               />
             </div>
 
-            {/* BLOCO B — Tabela por Semana do Mês */}
+            {/* BLOCO B — Tabela por Mês */}
             <div
               style={{
                 background: '#0f0f0f',
@@ -475,7 +491,7 @@ export default function SemanaMesRelatorioPg() {
             >
               <div style={{ padding: '14px 18px', borderBottom: '1px solid #202020' }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}>
-                  Desempenho por Semana do Mês
+                  Desempenho por Mês do Ano
                 </span>
                 <span style={{ fontSize: 11, opacity: 0.5, marginLeft: 10 }}>
                   leads_trabalhados via first_worked_at · ganhos via won_at
@@ -492,15 +508,14 @@ export default function SemanaMesRelatorioPg() {
                   <thead>
                     <tr style={{ borderBottom: '1px solid #202020' }}>
                       {[
-                        { label: 'Semana do Mês', align: 'left' },
-                        { label: 'Período', align: 'left' },
+                        { label: 'Mês', align: 'left' },
                         { label: 'Leads Trabalhados', align: 'right' },
                         { label: 'Ganhos', align: 'right' },
                         { label: 'Perdidos', align: 'right' },
                         { label: 'Faturamento', align: 'right' },
                         { label: 'Ticket Médio', align: 'right' },
                         { label: 'Taxa de Ganho', align: 'right' },
-                        { label: 'Meses c/ Dados', align: 'right' },
+                        { label: 'Anos c/ Dados', align: 'right' },
                       ].map((col) => (
                         <th
                           key={col.label}
@@ -521,16 +536,16 @@ export default function SemanaMesRelatorioPg() {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.rows.map((row: MonthWeekPerformanceRow) => {
+                    {summary.rows.map((row: MonthlySeasonalityRow) => {
                       const isBestFaturamento =
-                        bestFaturamentoSemana?.week === row.week && row.faturamento > 0
+                        bestFaturamentoMes?.month === row.month && row.faturamento > 0
                       const isZeroActivity = row.leads_trabalhados === 0 && row.ganhos === 0
                       const isLowBase =
                         row.leads_trabalhados > 0 && !row.base_suficiente_trabalho
 
                       return (
                         <tr
-                          key={row.week}
+                          key={row.month}
                           style={{
                             borderBottom: '1px solid #1a1a1a',
                             borderLeft: isBestFaturamento
@@ -540,7 +555,7 @@ export default function SemanaMesRelatorioPg() {
                           }}
                         >
                           <td style={{ padding: '10px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            {row.week_label}
+                            {row.month_label}
                             {isLowBase ? (
                               <span
                                 style={{ marginLeft: 6, fontSize: 12 }}
@@ -549,16 +564,6 @@ export default function SemanaMesRelatorioPg() {
                                 ⚠️
                               </span>
                             ) : null}
-                          </td>
-                          <td
-                            style={{
-                              padding: '10px 14px',
-                              fontSize: 11,
-                              opacity: 0.5,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {row.week_description}
                           </td>
                           <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                             {row.leads_trabalhados}
@@ -592,7 +597,7 @@ export default function SemanaMesRelatorioPg() {
                               opacity: 0.6,
                             }}
                           >
-                            {row.meses_com_dados > 0 ? row.meses_com_dados : '—'}
+                            {row.anos_com_dados > 0 ? row.anos_com_dados : '—'}
                           </td>
                         </tr>
                       )
@@ -700,43 +705,42 @@ export default function SemanaMesRelatorioPg() {
                     color: '#fbbf24',
                   }}
                 >
-                  ⚠️ Algumas semanas têm menos de 10 leads trabalhados. A taxa de ganho para
-                  essas semanas é indicada como &quot;Base insuf.&quot; e não deve ser usada como
+                  ⚠️ Alguns meses têm menos de 10 leads trabalhados. A taxa de ganho para esses
+                  meses é indicada como &quot;Base insuf.&quot; e não deve ser usada como
                   referência. Amplie o período de análise para obter leituras mais confiáveis.
                 </div>
               )}
 
-              <div
-                style={{
-                  background: '#0d1a0d',
-                  border: '1px solid #1a3a1a',
-                  borderRadius: 8,
-                  padding: '10px 14px',
-                  fontSize: 12,
-                  color: '#86efac',
-                  lineHeight: 1.5,
-                }}
-              >
-                📌 <strong>Sobre a 5ª semana (dias 29–31):</strong> esta janela tem no máximo 3
-                dias por mês e, na maioria dos meses de 28 dias, não existe. É esperado que a 5ª
-                semana apresente base insuficiente — isso não indica problema operacional, mas sim
-                uma limitação estrutural do calendário.
-              </div>
+              {maxAnos === 1 && (
+                <div
+                  style={{
+                    background: '#1a1500',
+                    border: '1px solid #3a2e00',
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    fontSize: 12,
+                    color: '#fbbf24',
+                  }}
+                >
+                  ⚠️ Todos os dados vêm de apenas 1 ano. A sazonalidade mensal precisa de pelo
+                  menos 2 anos para ser estatisticamente relevante. Amplie o período para obter uma
+                  leitura sazonal mais confiável.
+                </div>
+              )}
 
               <div style={{ fontSize: 11, opacity: 0.35 }}>
                 Fonte leads trabalhados: <code>sales_cycles.first_worked_at</code> (somente
                 eventos de trabalho comercial real). Fonte ganhos:{' '}
                 <code>sales_cycles.won_at</code> + <code>won_total {'>'} 0</code> + status=ganho.
                 Fonte perdidos: <code>sales_cycles.lost_at</code> quando disponível,{' '}
-                <code>updated_at</code> como proxy caso contrário. Semana do mês =
-                Math.ceil(dia_do_mês / 7).
+                <code>updated_at</code> como proxy caso contrário. Mês = mês do calendário (1–12).
               </div>
             </div>
           </>
         ) : null}
 
         {/* ================================================================= */}
-        {/* Vocação Operacional por Semana do Mês                             */}
+        {/* Vocação Operacional por Mês                                        */}
         {/* ================================================================= */}
 
         <div
@@ -747,10 +751,10 @@ export default function SemanaMesRelatorioPg() {
           }}
         >
           <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>
-            Vocação Operacional por Semana
+            Vocação Operacional por Mês
           </h2>
           <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 20 }}>
-            Classificação do tipo de trabalho comercial mais indicado para cada semana do mês,
+            Classificação do tipo de trabalho comercial mais indicado para cada mês do ano,
             baseada em eventos reais de prospecção, follow-up, negociação e fechamento.
           </p>
 
@@ -763,29 +767,29 @@ export default function SemanaMesRelatorioPg() {
               {/* KPIs de Vocação */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
                 <VocationKpiCard
-                  label="Semana de Prospecção"
+                  label="Mês de Prospecção"
                   color="#60a5fa"
-                  row={vocation.melhor_semana_prospeccao}
+                  row={vocation.melhor_mes_prospeccao}
                   vocType="prospeccao"
                 />
                 <VocationKpiCard
-                  label="Semana de Follow-up"
+                  label="Mês de Follow-up"
                   color="#a78bfa"
-                  row={vocation.melhor_semana_followup}
+                  row={vocation.melhor_mes_followup}
                   vocType="followup"
                   unavailable={!vocation.has_cycle_events}
                 />
                 <VocationKpiCard
-                  label="Semana de Negociação"
+                  label="Mês de Negociação"
                   color="#fbbf24"
-                  row={vocation.melhor_semana_negociacao}
+                  row={vocation.melhor_mes_negociacao}
                   vocType="negociacao"
                   unavailable={!vocation.has_cycle_events}
                 />
                 <VocationKpiCard
-                  label="Semana de Fechamento"
+                  label="Mês de Fechamento"
                   color="#34d399"
-                  row={vocation.melhor_semana_fechamento}
+                  row={vocation.melhor_mes_fechamento}
                   vocType="fechamento"
                 />
               </div>
@@ -802,7 +806,7 @@ export default function SemanaMesRelatorioPg() {
               >
                 <div style={{ padding: '14px 18px', borderBottom: '1px solid #202020' }}>
                   <span style={{ fontWeight: 600, fontSize: 14 }}>
-                    Tabela de Vocação Operacional por Semana
+                    Tabela de Vocação Operacional por Mês
                   </span>
                   {!vocation.has_cycle_events && (
                     <span
@@ -825,8 +829,7 @@ export default function SemanaMesRelatorioPg() {
                     <thead>
                       <tr style={{ borderBottom: '1px solid #202020' }}>
                         {[
-                          { label: 'Semana', align: 'left' },
-                          { label: 'Período', align: 'left' },
+                          { label: 'Mês', align: 'left' },
                           { label: 'Vocação Dominante', align: 'left' },
                           { label: 'Prospecção', align: 'right' },
                           { label: 'Follow-up', align: 'right' },
@@ -854,7 +857,7 @@ export default function SemanaMesRelatorioPg() {
                       </tr>
                     </thead>
                     <tbody>
-                      {vocation.rows.map((row: MonthWeekVocationalRow) => {
+                      {vocation.rows.map((row: MonthlyVocationalRow) => {
                         const prosp = row.signals.find((s) => s.type === 'prospeccao')!
                         const followup = row.signals.find((s) => s.type === 'followup')!
                         const neg = row.signals.find((s) => s.type === 'negociacao')!
@@ -862,7 +865,7 @@ export default function SemanaMesRelatorioPg() {
 
                         return (
                           <tr
-                            key={row.week}
+                            key={row.month}
                             style={{
                               borderBottom: '1px solid #1a1a1a',
                             }}
@@ -874,17 +877,7 @@ export default function SemanaMesRelatorioPg() {
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              {row.week_label}
-                            </td>
-                            <td
-                              style={{
-                                padding: '10px 14px',
-                                fontSize: 11,
-                                opacity: 0.5,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {row.week_description}
+                              {row.month_label}
                             </td>
                             <td style={{ padding: '10px 14px' }}>
                               <VocationBadge
@@ -960,7 +953,7 @@ export default function SemanaMesRelatorioPg() {
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
-                  Leitura Resumida — Vocação por Semana do Mês
+                  Leitura Resumida — Vocação por Mês do Ano
                 </div>
                 <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8 }}>
                   {vocation.leitura_resumida.map((frase, idx) => (
@@ -1045,14 +1038,14 @@ export default function SemanaMesRelatorioPg() {
 // Sub-components — Vocação Operacional
 // ==============================================================================
 
-const VOCATION_COLORS: Record<MonthWeekVocationType, string> = {
+const VOCATION_COLORS: Record<MonthlyVocationType, string> = {
   prospeccao: '#60a5fa',
   followup: '#a78bfa',
   negociacao: '#fbbf24',
   fechamento: '#34d399',
 }
 
-const VOCATION_LABELS_MAP: Record<MonthWeekVocationType, string> = {
+const VOCATION_LABELS_MAP: Record<MonthlyVocationType, string> = {
   prospeccao: 'Prospecção',
   followup: 'Follow-up',
   negociacao: 'Negociação',
@@ -1063,7 +1056,7 @@ function VocationBadge({
   vocation,
   label,
 }: {
-  vocation: MonthWeekVocationType | null
+  vocation: MonthlyVocationType | null
   label: string
 }) {
   if (!vocation) {
@@ -1146,7 +1139,7 @@ function StrengthBar({
 }
 
 const CONFIDENCE_STYLES: Record<
-  MonthWeekVocationConfidence,
+  MonthlyVocationConfidence,
   { label: string; color: string; bg: string; border: string }
 > = {
   alta: { label: 'Alta', color: '#34d399', bg: '#0d2e1e', border: '#1a5c3a' },
@@ -1155,7 +1148,7 @@ const CONFIDENCE_STYLES: Record<
   insuficiente: { label: 'Insuficiente', color: '#6b7280', bg: '#111', border: '#222' },
 }
 
-function ConfidenceBadge({ confidence }: { confidence: MonthWeekVocationConfidence }) {
+function ConfidenceBadge({ confidence }: { confidence: MonthlyVocationConfidence }) {
   const s = CONFIDENCE_STYLES[confidence]
   return (
     <span
@@ -1184,8 +1177,8 @@ function VocationKpiCard({
 }: {
   label: string
   color: string
-  row: MonthWeekVocationalRow | null
-  vocType: MonthWeekVocationType
+  row: MonthlyVocationalRow | null
+  vocType: MonthlyVocationType
   unavailable?: boolean
 }) {
   const sig = row?.signals.find((s) => s.type === vocType)
@@ -1219,8 +1212,7 @@ function VocationKpiCard({
         <div style={{ fontSize: 12, opacity: 0.4 }}>Sem dados de cycle_events</div>
       ) : row ? (
         <>
-          <div style={{ fontWeight: 700, fontSize: 15, color }}>{row.week_label}</div>
-          <div style={{ fontSize: 11, opacity: 0.5 }}>{row.week_description}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color }}>{row.month_label}</div>
           {sig && (
             <div style={{ fontSize: 12, opacity: 0.7 }}>
               {sig.count} evento(s) — {Math.round(sig.strength * 100)}% de força

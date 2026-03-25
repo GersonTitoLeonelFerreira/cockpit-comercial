@@ -45,7 +45,7 @@ export default function RelatoriosHubPage() {
       emoji: '📅',
       title: 'Sazonalidade Mensal',
       desc: 'Leitura sazonal por mês do ano: volume, faturamento, ticket médio e vocação de janeiro a dezembro',
-      href: '/dashboard/relatorios/mes',
+      href: '/dashboard/relatorios/sazonalidade-mensal',
     },
     {
       emoji: '🛒',
