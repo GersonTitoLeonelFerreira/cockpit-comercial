@@ -42,6 +42,12 @@ export default function RelatoriosHubPage() {
       href: '/dashboard/relatorios/semana-mes',
     },
     {
+      emoji: '📅',
+      title: 'Sazonalidade Mensal',
+      desc: 'Leitura sazonal por mês do ano: volume, faturamento, ticket médio e vocação de janeiro a dezembro',
+      href: '/dashboard/relatorios/mes',
+    },
+    {
       emoji: '🛒',
       title: 'Cadastro de Produtos',
       desc: 'Gerenciar catálogo de produtos (criar, editar, ativar/desativar)',
