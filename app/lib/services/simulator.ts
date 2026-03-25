@@ -250,6 +250,37 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
 
   const progress_pct = safeMeta > 0 ? safeReal / safeMeta : 0
 
+  // ---- Campos nomenclatura Teoria 100/20 (spec-compliant) ----
+  // vendas_necessarias: quantas vendas (fechamentos) são necessárias para atingir a meta
+  const vendas_necessarias = safeTicket > 0
+    ? Math.ceil(safeMeta / safeTicket)
+    : 0
+
+  // ciclos_trabalhados_necessarios: quantos ciclos de trabalho (contatos) são necessários
+  const ciclos_trabalhados_necessarios = safeRate > 0
+    ? Math.ceil(vendas_necessarias / safeRate)
+    : 0
+
+  // ciclos_por_dia: ciclos de trabalho por dia útil restante
+  const ciclos_por_dia = safeDays > 0
+    ? Math.ceil(ciclos_trabalhados_necessarios / safeDays)
+    : ciclos_trabalhados_necessarios
+
+  // vendas_restantes: quantas vendas ainda faltam para fechar o gap
+  const vendas_restantes = safeTicket > 0
+    ? Math.ceil(gap / safeTicket)
+    : 0
+
+  // ciclos_restantes: ciclos de trabalho necessários para fechar o gap
+  const ciclos_restantes = safeRate > 0
+    ? Math.ceil(vendas_restantes / safeRate)
+    : 0
+
+  // ciclos_restantes_por_dia: ciclos restantes por dia útil restante
+  const ciclos_restantes_por_dia = safeDays > 0
+    ? Math.ceil(ciclos_restantes / safeDays)
+    : ciclos_restantes
+
   return {
     meta_total: safeMeta,
     multiplicador,
@@ -270,6 +301,12 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
     ganhos_restantes_por_dia,
     meta_atingida,
     progress_pct,
+    vendas_necessarias,
+    ciclos_trabalhados_necessarios,
+    ciclos_por_dia,
+    vendas_restantes,
+    ciclos_restantes,
+    ciclos_restantes_por_dia,
   }
 }
 
