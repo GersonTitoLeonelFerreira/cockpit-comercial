@@ -216,9 +216,14 @@ export default async function RelatoriosPage() {
           Relatórios
         </a>
 
-        {/* ✅ Novo: subpágina do Relatório IA */}
+        {/* Subpágina do Relatório IA */}
         <a href="/relatorios/ia" style={navLinkBase} title="Relatório de IA (objeções, próximos passos, score)">
           Relatório IA
+        </a>
+
+        {/* Subpágina de Performance por Produto (Fase 5.4) */}
+        <a href="/relatorios/produto" style={navLinkBase} title="Ticket médio e conversão por produto">
+          Performance por Produto
         </a>
       </div>
 
