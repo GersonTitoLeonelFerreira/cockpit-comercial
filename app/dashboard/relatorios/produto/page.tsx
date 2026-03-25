@@ -3,10 +3,12 @@
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getProductPerformance } from '@/app/lib/services/productPerformance'
+import { getProductMix } from '@/app/lib/services/productMix'
 import type {
   ProductPerformanceSummary,
   ProductPerformanceRow,
 } from '@/app/types/productPerformance'
+import type { ProductMixSummary, ProductMixRow } from '@/app/types/productMix'
 
 // ==============================================================================
 // Helpers
@@ -76,6 +78,38 @@ function KpiCard({
   )
 }
 
+function SimpleKpiCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string
+  value: string
+  sub?: string
+}) {
+  return (
+    <div
+      style={{
+        background: '#0f0f0f',
+        border: '1px solid #202020',
+        borderRadius: 12,
+        padding: '16px 18px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        flex: '1 1 200px',
+        minWidth: 180,
+      }}
+    >
+      <div style={{ fontSize: 11, opacity: 0.55, textTransform: 'uppercase', letterSpacing: 1 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: '#e8e8e8' }}>{value}</div>
+      {sub ? <div style={{ fontSize: 11, opacity: 0.6 }}>{sub}</div> : null}
+    </div>
+  )
+}
+
 // ==============================================================================
 // Main page
 // ==============================================================================
@@ -106,6 +140,11 @@ export default function ProdutoRelatorioPg() {
   const [summary, setSummary] = React.useState<ProductPerformanceSummary | null>(null)
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
+
+  // Mix Comercial data
+  const [mixSummary, setMixSummary] = React.useState<ProductMixSummary | null>(null)
+  const [mixLoading, setMixLoading] = React.useState(false)
+  const [mixError, setMixError] = React.useState<string | null>(null)
 
   // Init: load profile + sellers
   React.useEffect(() => {
@@ -166,6 +205,8 @@ export default function ProdutoRelatorioPg() {
     async function load() {
       setDataLoading(true)
       setDataError(null)
+      setMixLoading(true)
+      setMixError(null)
       try {
         const result = await getProductPerformance({
           companyId: companyId!,
@@ -178,6 +219,19 @@ export default function ProdutoRelatorioPg() {
         setDataError(e?.message ?? 'Erro ao buscar dados.')
       } finally {
         setDataLoading(false)
+      }
+      try {
+        const mixResult = await getProductMix({
+          companyId: companyId!,
+          ownerId: selectedSellerId,
+          dateStart,
+          dateEnd,
+        })
+        setMixSummary(mixResult)
+      } catch (e: any) {
+        setMixError(e?.message ?? 'Erro ao buscar mix comercial.')
+      } finally {
+        setMixLoading(false)
       }
     }
     void load()
@@ -506,6 +560,187 @@ export default function ProdutoRelatorioPg() {
             )}
           </>
         ) : null}
+
+        {/* ================================================================== */}
+        {/* MIX COMERCIAL — Fase 5.5                                           */}
+        {/* ================================================================== */}
+        <div
+          style={{
+            marginTop: 40,
+            borderTop: '1px solid #1e1e1e',
+            paddingTop: 32,
+          }}
+        >
+          <h2 style={{ marginBottom: 20 }}>Mix Comercial</h2>
+
+          {mixLoading ? (
+            <div style={{ opacity: 0.6, padding: 20 }}>Carregando mix comercial...</div>
+          ) : mixError ? (
+            <div style={{ color: '#ef4444', padding: 20 }}>Erro: {mixError}</div>
+          ) : mixSummary ? (
+            <>
+              {/* BLOCO A — KPIs do Mix */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
+                <SimpleKpiCard
+                  label="Ticket Ponderado"
+                  value={toBRL(mixSummary.ticket_medio_ponderado)}
+                  sub="Ticket médio ponderado pelo mix"
+                />
+                <KpiCard
+                  label="Líder Faturamento"
+                  name={mixSummary.lider_faturamento?.product_name ?? null}
+                  value={
+                    mixSummary.lider_faturamento
+                      ? toBRL(mixSummary.lider_faturamento.total_faturamento)
+                      : '—'
+                  }
+                  sub={
+                    mixSummary.lider_faturamento
+                      ? `${toPercent(mixSummary.lider_faturamento.pct_faturamento)} do faturamento`
+                      : undefined
+                  }
+                />
+                <KpiCard
+                  label="Líder Volume"
+                  name={mixSummary.lider_volume?.product_name ?? null}
+                  value={
+                    mixSummary.lider_volume
+                      ? `${mixSummary.lider_volume.total_ganhos} ganhos`
+                      : '—'
+                  }
+                  sub={
+                    mixSummary.lider_volume
+                      ? `${toPercent(mixSummary.lider_volume.pct_volume)} do volume`
+                      : undefined
+                  }
+                />
+                <SimpleKpiCard
+                  label="Concentração"
+                  value={toPercent(mixSummary.top3_pct_faturamento)}
+                  sub={`Top 3 produtos — ${mixSummary.concentracao_label}`}
+                />
+              </div>
+
+              {/* BLOCO B — Tabela de Mix Comercial */}
+              <div
+                style={{
+                  background: '#0f0f0f',
+                  border: '1px solid #202020',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                }}
+              >
+                <h3 style={{ margin: '0 0 14px' }}>Tabela de Mix Comercial</h3>
+
+                {mixSummary.rows.length === 0 ? (
+                  <div style={{ opacity: 0.6, fontSize: 13 }}>
+                    Nenhuma venda encontrada no período.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table
+                      style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}
+                    >
+                      <thead>
+                        <tr
+                          style={{
+                            textAlign: 'left',
+                            borderBottom: '1px solid #222',
+                            fontSize: 12,
+                            opacity: 0.7,
+                          }}
+                        >
+                          <th style={{ padding: '10px 8px' }}>Produto</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>Ganhos</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
+                            Faturamento
+                          </th>
+                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
+                            Ticket Médio
+                          </th>
+                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
+                            % Faturamento
+                          </th>
+                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
+                            % Volume
+                          </th>
+                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
+                            Peso no Mix
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mixSummary.rows.map((row, idx) => (
+                          <MixRow key={row.product_id ?? `__unlinked_${idx}__`} row={row} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* BLOCO C — Diagnóstico do Mix */}
+              <div
+                style={{
+                  background: '#0f0f0f',
+                  border: '1px solid #202020',
+                  borderRadius: 12,
+                  padding: '16px 18px',
+                }}
+              >
+                <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>Resumo do Mix</h3>
+                <p
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 1.7,
+                    opacity: 0.9,
+                    margin: '0 0 14px',
+                  }}
+                >
+                  {mixSummary.diagnostico}
+                </p>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 20,
+                    fontSize: 13,
+                    borderTop: '1px solid #1e1e1e',
+                    paddingTop: 12,
+                    marginTop: 4,
+                  }}
+                >
+                  <div>
+                    <span style={{ opacity: 0.55 }}>Total de produtos distintos: </span>
+                    <b>{mixSummary.total_produtos_distintos}</b>
+                  </div>
+                  <div>
+                    <span style={{ opacity: 0.55 }}>Vendas sem produto vinculado: </span>
+                    <b>{mixSummary.has_unlinked_sales ? 'Sim' : 'Não'}</b>
+                  </div>
+                </div>
+                {mixSummary.has_unlinked_sales && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '10px 14px',
+                      background: '#1a1500',
+                      border: '1px solid #3a3000',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      color: '#c8a000',
+                    }}
+                  >
+                    ⚠️ Existem ganhos sem produto vinculado no período. O mix apresentado
+                    pode estar incompleto. Para análise mais precisa, vincule produtos ao
+                    registrar vendas ganhas.
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   )
@@ -565,6 +800,78 @@ function ProductRow({ row }: { row: ProductPerformanceRow }) {
       </td>
       <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
         {(row.pct_volume * 100).toFixed(1)}%
+      </td>
+    </tr>
+  )
+}
+
+// ==============================================================================
+// MixRow sub-component
+// ==============================================================================
+
+function MixRow({ row }: { row: ProductMixRow }) {
+  const isUnlinked = row.product_id === null
+  const isDominant = row.peso_mix > 0.3
+
+  return (
+    <tr
+      style={{
+        borderBottom: '1px solid #1a1a1a',
+        opacity: isUnlinked ? 0.6 : 1,
+        background: isDominant && !isUnlinked ? 'rgba(255,255,255,0.03)' : 'transparent',
+      }}
+    >
+      <td style={{ padding: '10px 8px' }}>
+        <div style={{ fontWeight: isUnlinked ? 400 : 600, fontSize: 13 }}>
+          {row.product_name}
+          {isDominant && !isUnlinked && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontSize: 10,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: '#1e3a1e',
+                color: '#4ade80',
+                fontWeight: 500,
+              }}
+            >
+              dominante
+            </span>
+          )}
+        </div>
+        {row.product_category && !isUnlinked && (
+          <div style={{ fontSize: 11, opacity: 0.5 }}>{row.product_category}</div>
+        )}
+      </td>
+      <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
+        {row.total_ganhos}
+      </td>
+      <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
+        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+          row.total_faturamento
+        )}
+      </td>
+      <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
+        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+          row.ticket_medio
+        )}
+      </td>
+      <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
+        {(row.pct_faturamento * 100).toFixed(1)}%
+      </td>
+      <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
+        {(row.pct_volume * 100).toFixed(1)}%
+      </td>
+      <td style={{ padding: '10px 8px', textAlign: 'right', fontSize: 13 }}>
+        <span
+          style={{
+            fontWeight: isDominant ? 700 : 400,
+            color: isDominant ? '#4ade80' : 'inherit',
+          }}
+        >
+          {(row.peso_mix * 100).toFixed(1)}%
+        </span>
       </td>
     </tr>
   )
