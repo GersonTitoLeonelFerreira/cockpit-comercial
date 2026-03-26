@@ -241,7 +241,7 @@ export function getDatesOfMonth(year: number, month: number): string[] {
     const dates: string[] = []
   
     // ✅ Cria uma cópia para não modificar firstDay
-    let currentDay = new Date(firstDay)
+    const currentDay = new Date(firstDay)
     
     while (currentDay <= lastDay) {
       dates.push(currentDay.toISOString().split('T')[0])

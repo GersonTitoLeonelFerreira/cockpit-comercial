@@ -158,7 +158,7 @@ export async function POST(req: Request) {
     const ws = wb.Sheets[sheetName]
     const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: null })
 
-    let total_rows = rows.length
+    const total_rows = rows.length
     let valid_rows = 0
     let created = 0
     let updated = 0

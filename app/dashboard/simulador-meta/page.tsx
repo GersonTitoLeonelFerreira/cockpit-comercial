@@ -29,6 +29,13 @@ import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
 import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel, statusTone } from '@/app/components/meta/MetaSummaryCard'
+import { buildCalendarDistribution } from '@/app/lib/services/calendarDistribution'
+import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
+import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
+import { getPeriodRadar } from '@/app/lib/services/periodRadar'
+import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
+import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
+import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
 
 function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
@@ -264,7 +271,13 @@ export default function SimuladorMetaPage() {
   const [rateSource, setRateSource] = useState<'real' | 'planejada'>('planejada')
 
   // Tab navigation
-  const [activeTab, setActiveTab] = useState<'teoria' | 'evolucao' | 'taxa-resultado' | 'funil'>('teoria')
+  const [activeTab, setActiveTab] = useState<'teoria' | 'evolucao' | 'taxa-resultado' | 'funil' | 'distribuicao'>('teoria')
+
+  // Distribuição inteligente (Fase 6.6)
+  const [distribution, setDistribution] = useState<DailyGoalDistribution | null>(null)
+  const [distributionLoading, setDistributionLoading] = useState(false)
+  const [distributionError, setDistributionError] = useState<string | null>(null)
+  const [distributionOnlyWorking, setDistributionOnlyWorking] = useState(true)
 
   // Ticket source
   const [ticketSource, setTicketSource] = useState<'manual' | 'historico'>('manual')
@@ -543,6 +556,130 @@ export default function SimuladorMetaPage() {
 
     void loadHistoricalTicket()
   }, [companyId, competency, mode, selectedSellerId])
+
+  // Distribuição inteligente — carrega quando a aba é ativada
+  useEffect(() => {
+    if (activeTab !== 'distribuicao') return
+    if (!companyId || !competency) return
+
+    const cid = companyId
+    const dateStart = toYMD(competency.month_start)
+    const dateEnd = toYMD(competency.month_end)
+
+    // Lookback histórico: 2 anos para ter sazonalidade robusta
+    const histEnd = dateEnd
+    const histStartDate = new Date(histEnd + 'T00:00:00')
+    histStartDate.setFullYear(histStartDate.getFullYear() - 2)
+    const histStart = histStartDate.toISOString().slice(0, 10)
+
+    async function loadDistribution() {
+      setDistributionLoading(true)
+      setDistributionError(null)
+
+      try {
+        // Carregar sinais das Fases anteriores em paralelo
+        const [wdVocationSummary, monthlyPerfSummary, radarSummary] = await Promise.allSettled([
+          getWeekdayVocation({
+            companyId: cid,
+            ownerId: selectedSellerId ?? null,
+            dateStart: histStart,
+            dateEnd: histEnd,
+          }),
+          getMonthlySeasonalityPerformance({
+            companyId: cid,
+            ownerId: selectedSellerId ?? null,
+            dateStart: histStart,
+            dateEnd: histEnd,
+          }),
+          getPeriodRadar({
+            companyId: cid,
+            ownerId: selectedSellerId ?? null,
+            dateStart: histStart,
+            dateEnd: histEnd,
+          }),
+        ])
+
+        // Construir sinais de entrada
+        const inputSignals: DistributionInputSignals = {}
+
+        // Vocação por dia da semana
+        if (wdVocationSummary.status === 'fulfilled') {
+          const summary = wdVocationSummary.value
+          const wdMap: DistributionInputSignals['weekdayVocation'] = {}
+          for (const row of summary.rows) {
+            const pSignal = row.signals.find((s) => s.type === 'prospeccao')
+            const fSignal = row.signals.find((s) => s.type === 'fechamento')
+            const fuSignal = row.signals.find((s) => s.type === 'followup')
+            const nSignal = row.signals.find((s) => s.type === 'negociacao')
+            wdMap[row.weekday] = {
+              dominant_vocation: row.dominant_vocation,
+              dominant_confidence: row.dominant_confidence,
+              prospeccao_strength: pSignal?.strength ?? 0,
+              fechamento_strength: fSignal?.strength ?? 0,
+              followup_strength: fuSignal?.strength ?? 0,
+              negociacao_strength: nSignal?.strength ?? 0,
+            }
+          }
+          inputSignals.weekdayVocation = wdMap
+        }
+
+        // Sazonalidade do mês atual
+        if (monthlyPerfSummary.status === 'fulfilled') {
+          const summary = monthlyPerfSummary.value
+          const currentMonth = new Date(dateStart + 'T00:00:00').getMonth() + 1
+          const monthRow = summary.rows.find((r) => r.month === currentMonth) ?? null
+          if (monthRow) {
+            inputSignals.monthlySeasonality = {
+              month: monthRow.month,
+              leads_trabalhados: monthRow.leads_trabalhados,
+              ganhos: monthRow.ganhos,
+              base_suficiente_trabalho: monthRow.base_suficiente_trabalho,
+              base_suficiente_ganho: monthRow.base_suficiente_ganho,
+              taxa_ganho: monthRow.taxa_ganho,
+            }
+          }
+        }
+
+        // Radar do período
+        if (radarSummary.status === 'fulfilled') {
+          const r = radarSummary.value
+          inputSignals.periodRadar = {
+            status: r.status,
+            confidence: r.confidence,
+            score_interno: r.score_interno,
+          }
+        }
+
+        // Calcular total de leads a partir da Teoria 100/20 ou da meta simples
+        const totalLeadsForDist = theory10020Result
+          ? theory10020Result.leads_para_contatar
+          : Math.ceil(targetWins / Math.max(0.01, percentToRate(closeRatePercent)))
+
+        const totalWinsForDist = targetWins
+
+        const dist = buildCalendarDistribution(
+          {
+            dateStart,
+            dateEnd,
+            workDays,
+            totalLeads: Math.max(0, totalLeadsForDist),
+            totalWins: Math.max(0, totalWinsForDist),
+            closeRate: percentToRate(closeRatePercent),
+          },
+          inputSignals,
+        )
+
+        setDistribution(dist)
+      } catch (e: any) {
+        setDistributionError(e?.message ?? 'Erro ao gerar distribuição.')
+        setDistribution(null)
+      } finally {
+        setDistributionLoading(false)
+      }
+    }
+
+    void loadDistribution()
+  }, [activeTab, companyId, competency, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result])
 
   async function handleSaveGoal() {
     if (!isAdmin) return
@@ -975,6 +1112,9 @@ export default function SimuladorMetaPage() {
         </button>
         <button onClick={() => setActiveTab('funil')} style={tabStyle(activeTab === 'funil')}>
           Funil do Período
+        </button>
+        <button onClick={() => setActiveTab('distribuicao')} style={tabStyle(activeTab === 'distribuicao')}>
+          Distribuição
         </button>
       </div>
 
@@ -1872,6 +2012,74 @@ export default function SimuladorMetaPage() {
                     </tbody>
                   </table>
                 </div>
+              </Section>
+            ) : null}
+
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* ABA 5: DISTRIBUIÇÃO INTELIGENTE (Fase 6.6)                    */}
+        {/* ============================================================ */}
+        {activeTab === 'distribuicao' && (
+          <div style={{ display: 'grid', gap: 16 }}>
+
+            <Section
+              title="Distribuição Inteligente da Meta"
+              description="Meta diária distribuída com base na vocação operacional, sazonalidade e radar do período (Fases 6.1–6.5)."
+            >
+              {/* Controles */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={distributionOnlyWorking}
+                    onChange={(e) => setDistributionOnlyWorking(e.target.checked)}
+                  />
+                  Mostrar apenas dias úteis
+                </label>
+                {distribution ? (
+                  <span style={{ fontSize: 12, opacity: 0.5 }}>
+                    {distribution.summary.total_working_days} dias úteis · {toYMD(competency?.month_start ?? '')} a {toYMD(competency?.month_end ?? '')}
+                  </span>
+                ) : null}
+              </div>
+
+              {distributionLoading ? (
+                <div style={{ fontSize: 13, opacity: 0.6, padding: '12px 0' }}>
+                  Carregando distribuição...
+                </div>
+              ) : distributionError ? (
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 10,
+                    background: '#160b0b',
+                    border: '1px solid #3a2222',
+                    color: '#ffb3b3',
+                    fontSize: 13,
+                  }}
+                >
+                  {distributionError}
+                </div>
+              ) : distribution ? (
+                <SimulatorDistributionSummary distribution={distribution} />
+              ) : (
+                <div style={{ fontSize: 13, opacity: 0.5, padding: '12px 0' }}>
+                  Selecione a aba Distribuição para gerar o calendário de metas.
+                </div>
+              )}
+            </Section>
+
+            {distribution && !distributionLoading ? (
+              <Section
+                title="Calendário Diário"
+                description="Meta de leads e ganhos por dia útil. Clique em uma linha para ver o motivo da distribuição."
+              >
+                <SimulatorDailyDistributionTable
+                  distribution={distribution}
+                  onlyWorkingDays={distributionOnlyWorking}
+                />
               </Section>
             ) : null}
 
