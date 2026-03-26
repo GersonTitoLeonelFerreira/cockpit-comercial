@@ -6,18 +6,6 @@ type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdi
 
 const ACTION_CHANNELS = ['Whats', 'Ligação', 'Email', 'Presencial', 'DM', 'Outro']
 
-const LOST_REASON_OTHER = 'Outro'
-
-const LOST_REASONS = [
-  'Sem resposta após tentativas',
-  'Sem interesse',
-  'Preço',
-  'Fechou com concorrente',
-  'Contato inválido',
-  'Fora do perfil',
-  LOST_REASON_OTHER,
-]
-
 // ============================================================================
 // Per-transition configuration matrix
 // ============================================================================
@@ -118,12 +106,6 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
       ],
       requiresNextAction: true,
     },
-    perdido: {
-      results: [],
-      resultDetails: {},
-      nextActions: [],
-      requiresNextAction: false,
-    },
   },
   contato: {
     respondeu: {
@@ -214,23 +196,6 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
       ],
       requiresNextAction: true,
     },
-    ganho: {
-      results: [
-        'Fechou na abordagem',
-        'Aceitou proposta imediata',
-        'Retornou decidido',
-        'Renovação/reativação imediata',
-      ],
-      resultDetails: {},
-      nextActions: [],
-      requiresNextAction: false,
-    },
-    perdido: {
-      results: [],
-      resultDetails: {},
-      nextActions: [],
-      requiresNextAction: false,
-    },
   },
 }
 
@@ -283,8 +248,6 @@ function CheckpointForm({
   const [nextAction, setNextAction] = useState('')
   const [nextActionDate, setNextActionDate] = useState('')
   const [note, setNote] = useState('')
-  const [winReason, setWinReason] = useState('')
-  const [lostReason, setLostReason] = useState('')
 
   const config = useMemo(() => getTransitionConfig(fromStatus, toStatus), [fromStatus, toStatus])
 
@@ -293,11 +256,7 @@ function CheckpointForm({
     [config, actionResult]
   )
 
-  const isWon = toStatus === 'ganho'
-  const isLost = toStatus === 'perdido'
   const isReopening = toStatus === 'novo'
-
-  const isLostWithOther = isLost && lostReason === LOST_REASON_OTHER
 
   const requiresNextActionDate =
     actionResult === 'Tentativa de contato (sem resposta)' ||
@@ -312,10 +271,7 @@ function CheckpointForm({
     (!config.requiresNextAction || !!nextAction) &&
     (!requiresNextActionDate || !!nextActionDate) &&
     (!resultDetailConfig?.required || !!resultDetail.trim()) &&
-    (!isReopening || !!note.trim()) &&
-    (!isWon || !!winReason.trim()) &&
-    (!isLost || !!lostReason) &&
-    (!isLostWithOther || !!resultDetail.trim())
+    (!isReopening || !!note.trim())
 
   const handleConfirm = () => {
     if (!isValid) return
@@ -329,8 +285,6 @@ function CheckpointForm({
     }
 
     if (resultDetail.trim()) payload.result_detail = resultDetail.trim()
-    if (isWon) payload.win_reason = winReason.trim()
-    if (isLost) payload.lost_reason = lostReason
 
     onConfirm(payload)
   }
@@ -519,63 +473,6 @@ function CheckpointForm({
             <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>{note.length} caracteres</div>
           )}
         </div>
-
-        {/* WIN REASON */}
-        {isWon && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-              Motivo Ganho *
-            </label>
-            <textarea
-              value={winReason}
-              onChange={(e) => setWinReason(e.target.value)}
-              disabled={loading}
-              placeholder="Ex: Fechou plano anual..."
-              style={textareaStyle}
-            />
-          </div>
-        )}
-
-        {/* LOST REASON */}
-        {isLost && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-              Motivo Perda *
-            </label>
-            <select
-              value={lostReason}
-              onChange={(e) => {
-                if (lostReason === LOST_REASON_OTHER) setResultDetail('')
-                setLostReason(e.target.value)
-              }}
-              disabled={loading}
-              style={inputStyle}
-            >
-              <option value="">Selecione…</option>
-              {LOST_REASONS.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* LOST REASON DETAIL — only when "Outro" is selected */}
-        {isLostWithOther && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-              Qual foi o motivo da perda? *
-            </label>
-            <textarea
-              value={resultDetail}
-              onChange={(e) => setResultDetail(e.target.value)}
-              disabled={loading}
-              placeholder="Descreva o motivo específico da perda…"
-              style={textareaStyle}
-            />
-          </div>
-        )}
 
         {/* BUTTONS */}
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
