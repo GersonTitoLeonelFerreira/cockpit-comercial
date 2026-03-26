@@ -34,7 +34,7 @@ function isValidCPF(cpf: string): boolean {
     }
     
     let remainder = sum % 11
-    let digit1 = remainder < 2 ? 0 : 11 - remainder
+    const digit1 = remainder < 2 ? 0 : 11 - remainder
     
     if (parseInt(cleanCpf[9]) !== digit1) {
       return false
@@ -50,7 +50,7 @@ function isValidCPF(cpf: string): boolean {
     }
     
     remainder = sum % 11
-    let digit2 = remainder < 2 ? 0 : 11 - remainder
+    const digit2 = remainder < 2 ? 0 : 11 - remainder
     
     if (parseInt(cleanCpf[10]) !== digit2) {
       return false

@@ -1,7 +1,3 @@
-// Redireciona para a rota canônica de Sazonalidade Mensal (Fase 6.4).
-// Mantido para retrocompatibilidade com links existentes.
-import { redirect } from 'next/navigation'
-
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
@@ -99,7 +95,7 @@ interface SellerProfileRow {
   full_name: string | null
 }
 
-export default function MesRelatorioPg() {
+function MesRelatorioPg() {
   const supabase = supabaseBrowser()
 
   const [loading, setLoading] = React.useState(true)
