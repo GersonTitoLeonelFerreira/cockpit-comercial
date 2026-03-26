@@ -16,6 +16,7 @@ import CreateLeadModal from './CreateLeadModal'
 import { ReturnToPoolModal } from './ReturnToPoolModal'
 import StageCheckpointModal from './StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
+import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import SellerMicroKPIs from './SellerMicroKPIs'
 import SellerWorklist from './SellerWorklist'
 import { ToastContainer, useToast } from './Toast'
@@ -1692,6 +1693,11 @@ export default function SalesCyclesKanban({
   const [winDealName, setWinDealName] = useState('')
   const [winDealOwnerId, setWinDealOwnerId] = useState<string | undefined>(undefined)
 
+  // LOST DEAL MODAL
+  const [lostDealOpen, setLostDealOpen] = useState(false)
+  const [lostDealCycleId, setLostDealCycleId] = useState<string | null>(null)
+  const [lostDealName, setLostDealName] = useState('')
+
   // KPI / WORKLIST REFRESH KEY — bump to trigger SellerMicroKPIs and SellerWorklist reload
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
 
@@ -2460,6 +2466,15 @@ export default function SalesCyclesKanban({
         setWinDealName(cycle?.name || '')
         setWinDealOwnerId(cycle?.owner_id || undefined)
         setWinDealOpen(true)
+        return
+      }
+
+      // Se for PERDIDO, abre o LostDealModal
+      if (toStatus === 'perdido') {
+        const cycle = Object.values(items).flat().find((c) => c.id === cycleId)
+        setLostDealCycleId(cycleId)
+        setLostDealName(cycle?.name || '')
+        setLostDealOpen(true)
         return
       }
 
@@ -3852,6 +3867,23 @@ export default function SalesCyclesKanban({
           setWinDealOpen(false)
           setWinDealCycleId(null)
           setWinDealName('')
+          await Promise.all([loadItems(), loadTotals(), isAdmin ? loadPoolAndSellers() : Promise.resolve()])
+        }}
+      />
+
+      <LostDealModal
+        isOpen={lostDealOpen}
+        dealId={lostDealCycleId || ''}
+        dealName={lostDealName}
+        onClose={() => {
+          setLostDealOpen(false)
+          setLostDealCycleId(null)
+          setLostDealName('')
+        }}
+        onSuccess={async () => {
+          setLostDealOpen(false)
+          setLostDealCycleId(null)
+          setLostDealName('')
           await Promise.all([loadItems(), loadTotals(), isAdmin ? loadPoolAndSellers() : Promise.resolve()])
         }}
       />
