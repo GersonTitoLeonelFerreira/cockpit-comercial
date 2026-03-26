@@ -651,9 +651,8 @@ export default function SimuladorMetaPage() {
         }
 
         // Calcular total de leads a partir da Teoria 100/20 ou da meta simples
-        const totalLeadsForDist = theory10020Result
-          ? theory10020Result.leads_para_contatar
-          : Math.ceil(targetWins / Math.max(0.01, percentToRate(closeRatePercent)))
+        const totalLeadsForDist = theory10020Result?.leads_para_contatar
+          ?? Math.ceil(targetWins / Math.max(0.01, percentToRate(closeRatePercent)))
 
         const totalWinsForDist = targetWins
 
@@ -679,7 +678,7 @@ export default function SimuladorMetaPage() {
     }
 
     void loadDistribution()
-  }, [activeTab, companyId, competency, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result])
+  }, [activeTab, companyId, competency, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
 
   async function handleSaveGoal() {
     if (!isAdmin) return
