@@ -218,9 +218,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
 
       <div style={{ marginTop: 18, padding: 16, border: '1px solid #333', borderRadius: 10, background: '#0f0f0f' }}>
         <h3 style={{ marginTop: 0 }}>Timeline do Lead</h3>
-        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 10 }}>
-          Movimentações do funil (lead_events) + suas interações (lead_interactions).
-        </div>
 
         {eventsErr ? <p>Erro ao buscar eventos: {eventsErr.message}</p> : null}
         {interError ? <p>Erro ao buscar interações: {interError.message}</p> : null}
@@ -235,101 +232,163 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
           ) : (
             events.map((ev: any) => {
               const m = ev.metadata ?? {}
-              const hasCheckpoint =
-                m.action_channel || m.action_result || m.next_action || m.note || m.lost_reason || m.win_reason
+              // suporta checkpoint aninhado (rpc_move_cycle_stage_checkpoint) ou plano
+              const cp: Record<string, any> =
+                m.checkpoint && typeof m.checkpoint === 'object'
+                  ? m.checkpoint
+                  : m.metadata && typeof m.metadata === 'object'
+                  ? m.metadata
+                  : m
+
+              const fromStage = ev.from_stage ?? m.from_status
+              const toStage = ev.to_stage ?? m.to_status
+
+              const STATUS_PT: Record<string, string> = {
+                novo: 'NOVO', contato: 'CONTATO', respondeu: 'RESPONDEU',
+                negociacao: 'NEGOCIAÇÃO', ganho: 'GANHO', perdido: 'PERDIDO',
+              }
+              const stLabel = (s: string | undefined | null) => {
+                if (!s) return '—'
+                return STATUS_PT[s.toLowerCase()] ?? s.toUpperCase()
+              }
+
+              const isLoss = toStage && String(toStage).toLowerCase() === 'perdido'
+              const isWon = toStage && String(toStage).toLowerCase() === 'ganho'
+
+              const accentColor = isLoss
+                ? '#fca5a5'
+                : isWon
+                ? '#86efac'
+                : '#93c5fd'
+
+              const dotBg = isLoss
+                ? '#ef4444'
+                : isWon
+                ? '#10b981'
+                : '#3b82f6'
+
               const dateLabel = ev.created_at
                 ? new Date(ev.created_at).toLocaleString('pt-BR')
-                : ev.created_at
+                : '—'
+
+              const nextActionDate = cp.next_action_date
+                ? (() => {
+                    const d = new Date(cp.next_action_date)
+                    return isNaN(d.getTime()) ? null : d.toLocaleString('pt-BR')
+                  })()
+                : null
+
               return (
                 <div
                   key={ev.id}
                   style={{
-                    padding: 12,
-                    border: '1px solid #222',
-                    borderRadius: 10,
+                    display: 'flex',
+                    gap: 12,
                     marginTop: 10,
-                    background: '#111',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                    <div>
-                      <strong>{ev.event_type}</strong>{' '}
-                      {ev.from_stage && ev.to_stage ? (
-                        <span style={{ opacity: 0.85 }}>
-                          • {String(ev.from_stage).toUpperCase()} → {String(ev.to_stage).toUpperCase()}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div style={{ opacity: 0.6, fontSize: 12 }}>{dateLabel}</div>
+                  {/* Dot */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 4 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: dotBg, flexShrink: 0, display: 'block' }} />
                   </div>
 
-                  {hasCheckpoint && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        display: 'grid',
-                        gap: 4,
-                        fontSize: 12,
-                      }}
-                    >
-                      {m.action_channel && (
-                        <div>
-                          <span style={{ opacity: 0.6 }}>Canal: </span>
-                          <span>{String(m.action_channel)}</span>
-                        </div>
-                      )}
-                      {m.action_result && (
-                        <div>
-                          <span style={{ opacity: 0.6 }}>Resultado: </span>
-                          <span>{String(m.action_result)}</span>
-                        </div>
-                      )}
-                      {m.result_detail && (
-                        <div>
-                          <span style={{ opacity: 0.6 }}>Detalhe: </span>
-                          <span style={{ opacity: 0.9 }}>{String(m.result_detail)}</span>
-                        </div>
-                      )}
-                      {m.next_action && (
-                        <div>
-                          <span style={{ opacity: 0.6 }}>Próxima ação: </span>
-                          <span>{String(m.next_action)}</span>
-                          {m.next_action_date && (() => {
-                            const d = new Date(m.next_action_date)
-                            return isNaN(d.getTime()) ? null : (
-                              <span style={{ opacity: 0.6 }}>
-                                {' '}— {d.toLocaleString('pt-BR')}
-                              </span>
-                            )
-                          })()}
-                        </div>
-                      )}
-                      {m.lost_reason && (
-                        <div>
-                          <span style={{ opacity: 0.6 }}>Motivo perda: </span>
-                          <span style={{ color: '#fca5a5' }}>{String(m.lost_reason)}</span>
-                        </div>
-                      )}
-                      {m.win_reason && (
-                        <div>
-                          <span style={{ opacity: 0.6 }}>Motivo ganho: </span>
-                          <span style={{ color: '#86efac' }}>{String(m.win_reason)}</span>
-                        </div>
-                      )}
-                      {m.note && (
-                        <div style={{ marginTop: 4, borderTop: '1px solid #222', paddingTop: 4 }}>
-                          <span style={{ opacity: 0.6 }}>Observação: </span>
-                          <span style={{ opacity: 0.85, fontStyle: 'italic' }}>{String(m.note)}</span>
-                        </div>
-                      )}
+                  {/* Card */}
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: '10px 12px',
+                      border: `1px solid ${isLoss ? '#3f1c1c' : isWon ? '#1a3a28' : '#222'}`,
+                      borderRadius: 10,
+                      background: '#111',
+                    }}
+                  >
+                    {/* Título + data */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: 13, color: accentColor }}>
+                        {fromStage && toStage
+                          ? `${stLabel(fromStage)} → ${stLabel(toStage)}`
+                          : ev.event_type === 'stage_changed'
+                          ? 'Movimentação'
+                          : ev.event_type === 'contacted'
+                          ? 'Contato registrado'
+                          : ev.event_type === 'replied'
+                          ? 'Resposta registrada'
+                          : ev.event_type === 'note_added'
+                          ? 'Nota adicionada'
+                          : ev.event_type === 'next_action_set'
+                          ? 'Próxima ação definida'
+                          : ev.event_type === 'assigned'
+                          ? 'Ciclo atribuído'
+                          : ev.event_type === 'reassigned'
+                          ? 'Ciclo reatribuído'
+                          : ev.event_type === 'returned_to_pool'
+                          ? 'Devolvido ao pool'
+                          : ev.event_type === 'cycle_created'
+                          ? 'Ciclo criado'
+                          : ev.event_type}
+                      </strong>
+                      <span style={{ opacity: 0.6, fontSize: 12 }}>{dateLabel}</span>
                     </div>
-                  )}
 
-                  {!hasCheckpoint && m.reason ? (
-                    <div style={{ marginTop: 8, opacity: 0.85, fontSize: 12 }}>
-                      <b>Motivo:</b> {String(m.reason)}
-                    </div>
-                  ) : null}
+                    {/* Campos do checkpoint */}
+                    {(cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.lost_reason || cp.win_reason || cp.note) && (
+                      <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 12 }}>
+                        {cp.action_channel && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Canal: </span>
+                            <span>{String(cp.action_channel)}</span>
+                          </div>
+                        )}
+                        {cp.action_result && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Resultado: </span>
+                            <span>{String(cp.action_result)}</span>
+                          </div>
+                        )}
+                        {cp.result_detail && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Detalhe: </span>
+                            <span>{String(cp.result_detail)}</span>
+                          </div>
+                        )}
+                        {cp.lost_reason && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Motivo da perda: </span>
+                            <span style={{ color: '#fca5a5' }}>{String(cp.lost_reason)}</span>
+                          </div>
+                        )}
+                        {cp.win_reason && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Motivo do ganho: </span>
+                            <span style={{ color: '#86efac' }}>{String(cp.win_reason)}</span>
+                          </div>
+                        )}
+                        {cp.next_action && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Próxima ação: </span>
+                            <span>{String(cp.next_action)}</span>
+                            {nextActionDate && (
+                              <span style={{ opacity: 0.55 }}> — {nextActionDate}</span>
+                            )}
+                          </div>
+                        )}
+                        {cp.note && (
+                          <div style={{ marginTop: 4, borderTop: '1px solid #1e1e1e', paddingTop: 4 }}>
+                            <span style={{ opacity: 0.55 }}>Observação: </span>
+                            <span style={{ opacity: 0.85, fontStyle: 'italic' }}>{String(cp.note)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Fallback para eventos sem checkpoint mas com reason */}
+                    {!cp.action_channel && !cp.action_result && !cp.next_action && !cp.note && !cp.lost_reason && !cp.win_reason && m.reason && (
+                      <div style={{ marginTop: 6, opacity: 0.8, fontSize: 12 }}>
+                        <span style={{ opacity: 0.55 }}>Motivo: </span>
+                        <em>{String(m.reason)}</em>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )
             })
@@ -359,7 +418,9 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   <div>
                     <strong>{it.type ?? 'interação'}</strong>
                   </div>
-                  <div style={{ opacity: 0.6, fontSize: 12 }}>{it.created_at}</div>
+                  <div style={{ opacity: 0.6, fontSize: 12 }}>
+                    {it.created_at ? new Date(it.created_at).toLocaleString('pt-BR') : '—'}
+                  </div>
                 </div>
 
                 <div style={{ marginTop: 8, opacity: 0.85 }}>{it.note ?? '—'}</div>
