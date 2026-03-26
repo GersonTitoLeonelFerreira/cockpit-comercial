@@ -2408,7 +2408,7 @@ export default function SalesCyclesKanban({
       action_result: string
       result_detail?: string
       next_action: string
-      next_action_date: string
+      next_action_date: string | null
       note: string
       win_reason?: string
       lost_reason?: string

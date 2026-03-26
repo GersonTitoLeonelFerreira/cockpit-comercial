@@ -65,7 +65,23 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
     },
     respondeu: {
       results: ['Respondeu mensagem', 'Ligou de volta', 'Confirmou interesse'],
-      resultDetails: {},
+      resultDetails: {
+        'Respondeu mensagem': {
+          label: 'O que foi respondido?',
+          required: false,
+          placeholder: 'Ex: Pediu mais informações, confirmou interesse inicial…',
+        },
+        'Ligou de volta': {
+          label: 'O que foi discutido na ligação?',
+          required: false,
+          placeholder: 'Ex: Interesse confirmado, pediu proposta, tem dúvidas…',
+        },
+        'Confirmou interesse': {
+          label: 'Qual interesse foi confirmado?',
+          required: true,
+          placeholder: 'Ex: Produto X, plano mensal, quer visita técnica…',
+        },
+      },
       nextActions: ['Qualificar lead', 'Enviar proposta', 'Agendar reunião', 'Enviar contrato'],
       requiresNextAction: true,
     },
@@ -80,6 +96,16 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
           label: 'Contexto da qualificação',
           required: true,
           placeholder: 'Ex: Tem dor clara, orçamento definido, decisor identificado…',
+        },
+        'Proposta solicitada': {
+          label: 'Que proposta foi solicitada?',
+          required: false,
+          placeholder: 'Ex: Plano anual, pacote básico, proposta personalizada…',
+        },
+        'Reunião marcada': {
+          label: 'Contexto da reunião',
+          required: false,
+          placeholder: 'Ex: Demo online, reunião presencial, tipo de produto a apresentar…',
         },
       },
       nextActions: [
@@ -156,7 +182,7 @@ export type CheckpointPayload = {
   action_result: string
   result_detail?: string
   next_action: string
-  next_action_date: string
+  next_action_date: string | null
   note: string
   win_reason?: string
   lost_reason?: string
@@ -223,7 +249,7 @@ function CheckpointForm({
       action_channel: actionChannel,
       action_result: actionResult,
       next_action: nextAction,
-      next_action_date: nextActionDate,
+      next_action_date: nextActionDate || null,
       note: note.trim(),
     }
 
