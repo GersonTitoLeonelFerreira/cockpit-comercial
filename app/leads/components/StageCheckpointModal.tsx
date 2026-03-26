@@ -6,14 +6,16 @@ type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdi
 
 const ACTION_CHANNELS = ['Whats', 'Ligação', 'Email', 'Presencial', 'DM', 'Outro']
 
+const LOST_REASON_OTHER = 'Outro'
+
 const LOST_REASONS = [
-  'Preço',
-  'Sem interesse',
-  'Concorrente',
   'Sem resposta após tentativas',
-  'Dados incorretos',
+  'Sem interesse',
+  'Preço',
+  'Fechou com concorrente',
+  'Contato inválido',
   'Fora do perfil',
-  'Outro',
+  LOST_REASON_OTHER,
 ]
 
 // ============================================================================
@@ -125,30 +127,100 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
   },
   contato: {
     respondeu: {
-      results: ['Respondeu mensagem', 'Ligou de volta', 'Agendou reunião'],
-      resultDetails: {},
-      nextActions: ['Qualificar', 'Enviar proposta', 'Agendar visita', 'Enviar contrato'],
-      requiresNextAction: true,
-    },
-    negociacao: {
-      results: ['Qualificado', 'Proposta solicitada', 'Documentos enviados', 'Reunião agendada'],
+      results: [
+        'Demonstrou interesse',
+        'Pediu mais informações',
+        'Aceitou continuar a conversa',
+        'Pediu proposta',
+        'Aceitou agendar visita/aula',
+      ],
       resultDetails: {
-        Qualificado: {
-          label: 'Contexto da qualificação',
+        'Demonstrou interesse': {
+          label: 'Qual foi o interesse?',
+          required: false,
+          placeholder: 'Ex: Produto X, solução Y, interesse em conhecer mais…',
+        },
+        'Pediu mais informações': {
+          label: 'Que informação ele pediu?',
+          required: false,
+          placeholder: 'Ex: Preço, funcionamento, comparativo com concorrente…',
+        },
+        'Aceitou continuar a conversa': {
+          label: 'O que ele sinalizou?',
+          required: false,
+          placeholder: 'Ex: Quer retornar, pediu para ligar depois, mostrou abertura…',
+        },
+        'Pediu proposta': {
+          label: 'Qual problema ou necessidade ele quer resolver?',
+          required: false,
+          placeholder: 'Ex: Precisa de X, quer resolver Y, orçamento em torno de Z…',
+        },
+        'Aceitou agendar visita/aula': {
+          label: 'Qual data/horário foi combinado?',
           required: true,
-          placeholder: 'Dor, objetivo, orçamento…',
+          placeholder: 'Ex: Segunda-feira às 14h, quinta às 10h…',
         },
       },
       nextActions: [
+        'Qualificar necessidade',
+        'Enviar informações',
         'Enviar proposta',
-        'Agendar reunião de negociação',
-        'Enviar contrato',
+        'Agendar visita',
+        'Agendar retorno',
+      ],
+      requiresNextAction: true,
+    },
+    negociacao: {
+      results: [
+        'Proposta apresentada',
+        'Cliente pediu condição comercial',
+        'Objeção identificada',
+        'Cliente demonstrou intenção de fechar',
+        'Negociação iniciada',
+      ],
+      resultDetails: {
+        'Proposta apresentada': {
+          label: 'Qual proposta foi apresentada?',
+          required: false,
+          placeholder: 'Ex: Plano anual, pacote X, valor Y…',
+        },
+        'Cliente pediu condição comercial': {
+          label: 'Qual condição ele pediu?',
+          required: false,
+          placeholder: 'Ex: Desconto, parcelamento, prazo diferenciado…',
+        },
+        'Objeção identificada': {
+          label: 'Qual objeção foi identificada?',
+          required: true,
+          placeholder: 'Ex: Preço alto, falta de budget, precisa de aprovação…',
+        },
+        'Cliente demonstrou intenção de fechar': {
+          label: 'Sobre qual produto/serviço e em qual condição?',
+          required: true,
+          placeholder: 'Ex: Plano X no valor Y, forma de pagamento Z…',
+        },
+        'Negociação iniciada': {
+          label: 'Quais pontos estão em negociação?',
+          required: false,
+          placeholder: 'Ex: Preço, prazo, escopo, condições de pagamento…',
+        },
+      },
+      nextActions: [
+        'Ajustar proposta',
+        'Revisar objeção',
+        'Enviar proposta final',
         'Agendar fechamento',
+        'Retornar negociação',
       ],
       requiresNextAction: true,
     },
     ganho: {
-      results: ['Fechou contrato', 'Fechou plano/serviço'],
+      results: [
+        'Fechou na abordagem',
+        'Aceitou proposta imediata',
+        'Retornou decidido',
+        'Renovação/reativação imediata',
+      ],
       resultDetails: {},
       nextActions: [],
       requiresNextAction: false,
@@ -225,6 +297,8 @@ function CheckpointForm({
   const isLost = toStatus === 'perdido'
   const isReopening = toStatus === 'novo'
 
+  const isLostWithOther = isLost && lostReason === LOST_REASON_OTHER
+
   const requiresNextActionDate =
     actionResult === 'Tentativa de contato (sem resposta)' ||
     actionResult === 'Email enviado' ||
@@ -240,7 +314,8 @@ function CheckpointForm({
     (!resultDetailConfig?.required || !!resultDetail.trim()) &&
     (!isReopening || !!note.trim()) &&
     (!isWon || !!winReason.trim()) &&
-    (!isLost || !!lostReason)
+    (!isLost || !!lostReason) &&
+    (!isLostWithOther || !!resultDetail.trim())
 
   const handleConfirm = () => {
     if (!isValid) return
@@ -469,7 +544,10 @@ function CheckpointForm({
             </label>
             <select
               value={lostReason}
-              onChange={(e) => setLostReason(e.target.value)}
+              onChange={(e) => {
+                if (lostReason === LOST_REASON_OTHER) setResultDetail('')
+                setLostReason(e.target.value)
+              }}
               disabled={loading}
               style={inputStyle}
             >
@@ -480,6 +558,22 @@ function CheckpointForm({
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* LOST REASON DETAIL — only when "Outro" is selected */}
+        {isLostWithOther && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+              Qual foi o motivo da perda? *
+            </label>
+            <textarea
+              value={resultDetail}
+              onChange={(e) => setResultDetail(e.target.value)}
+              disabled={loading}
+              placeholder="Descreva o motivo específico da perda…"
+              style={textareaStyle}
+            />
           </div>
         )}
 
