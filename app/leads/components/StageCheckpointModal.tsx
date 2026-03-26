@@ -6,24 +6,6 @@ type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdi
 
 const ACTION_CHANNELS = ['Whats', 'Ligação', 'Email', 'Presencial', 'DM', 'Outro']
 
-const ACTION_RESULTS: Record<Status, string[]> = {
-  novo: [],
-  contato: ['Whats enviado', 'Ligação feita', 'Email enviado', 'Tentativa de contato (sem resposta)'],
-  respondeu: ['Qualificar (dor/objetivo)', 'Enviar detalhes/informações', 'Agendar visita/aula', 'Pedir documentos'],
-  negociacao: ['Enviar proposta', 'Negociar condições', 'Agendar fechamento', 'Revisar objeções'],
-  ganho: ['Fechou plano/contrato'],
-  perdido: [],
-}
-
-const NEXT_ACTIONS: Record<Status, string[]> = {
-  novo: [],
-  contato: ['Nova tentativa', 'Ligar novamente', 'Whats follow-up', 'Email follow-up'],
-  respondeu: ['Qualificar', 'Enviar proposta', 'Agendar visita', 'Enviar contrato'],
-  negociacao: ['Negociar', 'Enviar proposta final', 'Agendar fechamento', 'Revisão final'],
-  ganho: [],
-  perdido: [],
-}
-
 const LOST_REASONS = [
   'Preço',
   'Sem interesse',
@@ -34,9 +16,145 @@ const LOST_REASONS = [
   'Outro',
 ]
 
-type CheckpointPayload = {
+// ============================================================================
+// Per-transition configuration matrix
+// ============================================================================
+
+type ResultDetailConfig = {
+  label: string
+  required: boolean
+  placeholder?: string
+}
+
+type TransitionConfig = {
+  results: string[]
+  resultDetails: Record<string, ResultDetailConfig>
+  nextActions: string[]
+  requiresNextAction: boolean
+}
+
+const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, TransitionConfig>>>> = {
+  novo: {
+    contato: {
+      results: [
+        'Tentativa de contato (sem resposta)',
+        'Mensagem enviada - aguardando retorno',
+        'Ligação feita',
+        'Email enviado',
+      ],
+      resultDetails: {
+        'Tentativa de contato (sem resposta)': {
+          label: 'Detalhe da tentativa',
+          required: false,
+          placeholder: 'Ex: Telefone não atende, sem resposta no Whats…',
+        },
+        'Mensagem enviada - aguardando retorno': {
+          label: 'Assunto/resumo da mensagem',
+          required: false,
+          placeholder: 'Ex: Enviou apresentação do produto',
+        },
+      },
+      nextActions: [
+        'Nova tentativa de contato',
+        'Ligar novamente',
+        'Whats follow-up',
+        'Email follow-up',
+        'Aguardar retorno',
+      ],
+      requiresNextAction: true,
+    },
+    respondeu: {
+      results: ['Respondeu mensagem', 'Ligou de volta', 'Confirmou interesse'],
+      resultDetails: {},
+      nextActions: ['Qualificar lead', 'Enviar proposta', 'Agendar reunião', 'Enviar contrato'],
+      requiresNextAction: true,
+    },
+    negociacao: {
+      results: [
+        'Qualificou direto - avançou para negociação',
+        'Proposta solicitada',
+        'Reunião marcada',
+      ],
+      resultDetails: {
+        'Qualificou direto - avançou para negociação': {
+          label: 'Contexto da qualificação',
+          required: true,
+          placeholder: 'Ex: Tem dor clara, orçamento definido, decisor identificado…',
+        },
+      },
+      nextActions: [
+        'Enviar proposta',
+        'Agendar reunião de negociação',
+        'Enviar contrato',
+        'Agendar fechamento',
+      ],
+      requiresNextAction: true,
+    },
+    perdido: {
+      results: [],
+      resultDetails: {},
+      nextActions: [],
+      requiresNextAction: false,
+    },
+  },
+  contato: {
+    respondeu: {
+      results: ['Respondeu mensagem', 'Ligou de volta', 'Agendou reunião'],
+      resultDetails: {},
+      nextActions: ['Qualificar', 'Enviar proposta', 'Agendar visita', 'Enviar contrato'],
+      requiresNextAction: true,
+    },
+    negociacao: {
+      results: ['Qualificado', 'Proposta solicitada', 'Documentos enviados', 'Reunião agendada'],
+      resultDetails: {
+        Qualificado: {
+          label: 'Contexto da qualificação',
+          required: true,
+          placeholder: 'Dor, objetivo, orçamento…',
+        },
+      },
+      nextActions: [
+        'Enviar proposta',
+        'Agendar reunião de negociação',
+        'Enviar contrato',
+        'Agendar fechamento',
+      ],
+      requiresNextAction: true,
+    },
+    ganho: {
+      results: ['Fechou contrato', 'Fechou plano/serviço'],
+      resultDetails: {},
+      nextActions: [],
+      requiresNextAction: false,
+    },
+    perdido: {
+      results: [],
+      resultDetails: {},
+      nextActions: [],
+      requiresNextAction: false,
+    },
+  },
+}
+
+const FALLBACK_CONFIG: TransitionConfig = {
+  results: ['Ação realizada', 'Qualificação feita', 'Proposta enviada', 'Outro'],
+  resultDetails: {},
+  nextActions: ['Follow-up', 'Ligar novamente', 'Enviar proposta', 'Agendar reunião'],
+  requiresNextAction: false,
+}
+
+function getTransitionConfig(from: Status, to: Status): TransitionConfig {
+  return TRANSITION_CONFIGS[from]?.[to] ?? FALLBACK_CONFIG
+}
+
+// ============================================================================
+// Payload type
+// ============================================================================
+
+export type CheckpointPayload = {
   action_channel: string
   action_result: string
+  result_detail?: string
   next_action: string
   next_action_date: string
   note: string
@@ -44,15 +162,17 @@ type CheckpointPayload = {
   lost_reason?: string
 }
 
-export default function StageCheckpointModal({
-  open,
+// ============================================================================
+// Inner form — mounted fresh on each open to naturally reset all fields
+// ============================================================================
+
+function CheckpointForm({
   fromStatus,
   toStatus,
   onCancel,
   onConfirm,
   loading,
 }: {
-  open: boolean
   fromStatus: Status
   toStatus: Status
   onCancel: () => void
@@ -61,16 +181,20 @@ export default function StageCheckpointModal({
 }) {
   const [actionChannel, setActionChannel] = useState('')
   const [actionResult, setActionResult] = useState('')
+  const [resultDetail, setResultDetail] = useState('')
   const [nextAction, setNextAction] = useState('')
   const [nextActionDate, setNextActionDate] = useState('')
   const [note, setNote] = useState('')
   const [winReason, setWinReason] = useState('')
   const [lostReason, setLostReason] = useState('')
 
-  const actionResultOptions = useMemo(() => ACTION_RESULTS[toStatus] || [], [toStatus])
-  const nextActionOptions = useMemo(() => NEXT_ACTIONS[toStatus] || [], [toStatus])
+  const config = useMemo(() => getTransitionConfig(fromStatus, toStatus), [fromStatus, toStatus])
 
-  const isOpenStage = ['contato', 'respondeu', 'negociacao'].includes(toStatus)
+  const resultDetailConfig: ResultDetailConfig | null = useMemo(
+    () => (actionResult ? (config.resultDetails[actionResult] ?? null) : null),
+    [config, actionResult]
+  )
+
   const isWon = toStatus === 'ganho'
   const isLost = toStatus === 'perdido'
   const isReopening = toStatus === 'novo'
@@ -78,16 +202,19 @@ export default function StageCheckpointModal({
   const requiresNextActionDate =
     actionResult === 'Tentativa de contato (sem resposta)' ||
     actionResult === 'Email enviado' ||
-    (isOpenStage && nextAction)
+    (config.requiresNextAction && !!nextAction)
+
+  const showNextActionDate = requiresNextActionDate || config.requiresNextAction
 
   const isValid =
-    actionChannel &&
-    actionResult &&
-    (!isOpenStage || nextAction) &&
-    (!requiresNextActionDate || nextActionDate) &&
-    (!isReopening || note.trim()) &&
-    (!isWon || winReason.trim()) &&
-    (!isLost || lostReason.trim())
+    !!actionChannel &&
+    (config.results.length === 0 || !!actionResult) &&
+    (!config.requiresNextAction || !!nextAction) &&
+    (!requiresNextActionDate || !!nextActionDate) &&
+    (!resultDetailConfig?.required || !!resultDetail.trim()) &&
+    (!isReopening || !!note.trim()) &&
+    (!isWon || !!winReason.trim()) &&
+    (!isLost || !!lostReason)
 
   const handleConfirm = () => {
     if (!isValid) return
@@ -100,13 +227,39 @@ export default function StageCheckpointModal({
       note: note.trim(),
     }
 
+    if (resultDetail.trim()) payload.result_detail = resultDetail.trim()
     if (isWon) payload.win_reason = winReason.trim()
-    if (isLost) payload.lost_reason = lostReason.trim()
+    if (isLost) payload.lost_reason = lostReason
 
     onConfirm(payload)
   }
 
-  if (!open) return null
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px',
+    borderRadius: 6,
+    border: '1px solid #2a2a2a',
+    background: '#222',
+    color: 'white',
+    fontSize: 12,
+    cursor: loading ? 'not-allowed' : 'pointer',
+    opacity: loading ? 0.5 : 1,
+  }
+
+  const textareaStyle: React.CSSProperties = {
+    width: '100%',
+    minHeight: 60,
+    padding: '8px',
+    borderRadius: 6,
+    border: '1px solid #2a2a2a',
+    background: '#222',
+    color: 'white',
+    fontSize: 11,
+    fontFamily: 'system-ui',
+    resize: 'vertical',
+    cursor: loading ? 'not-allowed' : 'auto',
+    opacity: loading ? 0.5 : 1,
+  }
 
   return (
     <div
@@ -154,17 +307,7 @@ export default function StageCheckpointModal({
             value={actionChannel}
             onChange={(e) => setActionChannel(e.target.value)}
             disabled={loading}
-            style={{
-              width: '100%',
-              padding: '8px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: '#222',
-              color: 'white',
-              fontSize: 12,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1,
-            }}
+            style={inputStyle}
           >
             <option value="">Selecione…</option>
             {ACTION_CHANNELS.map((ch) => (
@@ -176,29 +319,22 @@ export default function StageCheckpointModal({
         </div>
 
         {/* ACTION RESULT */}
-        {actionResultOptions.length > 0 && (
+        {config.results.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
               Resultado *
             </label>
             <select
               value={actionResult}
-              onChange={(e) => setActionResult(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '8px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: '#222',
-                color: 'white',
-                fontSize: 12,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.5 : 1,
+              onChange={(e) => {
+                setActionResult(e.target.value)
+                setResultDetail('')
               }}
+              disabled={loading}
+              style={inputStyle}
             >
               <option value="">Selecione…</option>
-              {actionResultOptions.map((opt) => (
+              {config.results.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
                 </option>
@@ -207,30 +343,37 @@ export default function StageCheckpointModal({
           </div>
         )}
 
-        {/* NEXT ACTION */}
-        {nextActionOptions.length > 0 && (
+        {/* RESULT DETAIL — dynamic, depends on selected result */}
+        {resultDetailConfig && (
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-              Próxima Ação {isOpenStage ? '*' : ''}
+              {resultDetailConfig.label}
+              {resultDetailConfig.required ? ' *' : ' (opcional)'}
+            </label>
+            <textarea
+              value={resultDetail}
+              onChange={(e) => setResultDetail(e.target.value)}
+              disabled={loading}
+              placeholder={resultDetailConfig.placeholder ?? ''}
+              style={textareaStyle}
+            />
+          </div>
+        )}
+
+        {/* NEXT ACTION */}
+        {config.nextActions.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+              Próxima Ação {config.requiresNextAction ? '*' : '(opcional)'}
             </label>
             <select
               value={nextAction}
               onChange={(e) => setNextAction(e.target.value)}
               disabled={loading}
-              style={{
-                width: '100%',
-                padding: '8px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: '#222',
-                color: 'white',
-                fontSize: 12,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.5 : 1,
-              }}
+              style={inputStyle}
             >
               <option value="">Selecione…</option>
-              {nextActionOptions.map((opt) => (
+              {config.nextActions.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
                 </option>
@@ -240,62 +383,41 @@ export default function StageCheckpointModal({
         )}
 
         {/* NEXT ACTION DATE */}
-        {(requiresNextActionDate || isOpenStage) && (
+        {showNextActionDate && (
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-              Data/Hora {requiresNextActionDate ? '*' : '(recomendado)'}
+              Data/Hora da Próxima Ação {requiresNextActionDate ? '*' : '(recomendado)'}
             </label>
             <input
               type="datetime-local"
               value={nextActionDate}
               onChange={(e) => setNextActionDate(e.target.value)}
               disabled={loading}
-              style={{
-                width: '100%',
-                padding: '8px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: '#222',
-                color: 'white',
-                fontSize: 12,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.5 : 1,
-              }}
+              style={inputStyle}
             />
           </div>
         )}
 
-        {/* NOTE (for reopening) */}
-        {isReopening && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
-              Reabertura - Motivo *
-            </label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              disabled={loading}
-              placeholder="Por que está reabrindo este lead?"
-              style={{
-                width: '100%',
-                minHeight: 60,
-                padding: '8px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: '#222',
-                color: 'white',
-                fontSize: 11,
-                fontFamily: 'system-ui',
-                resize: 'vertical',
-                cursor: loading ? 'not-allowed' : 'auto',
-                opacity: loading ? 0.5 : 1,
-              }}
-            />
-            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>
-              {note.length} caracteres
-            </div>
-          </div>
-        )}
+        {/* NOTE (reopening: required; all other transitions: optional) */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+            {isReopening ? 'Reabertura - Motivo *' : 'Observação (opcional)'}
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            disabled={loading}
+            placeholder={
+              isReopening
+                ? 'Por que está reabrindo este lead?'
+                : 'Contexto adicional, observações livres…'
+            }
+            style={textareaStyle}
+          />
+          {note.length > 0 && (
+            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>{note.length} caracteres</div>
+          )}
+        </div>
 
         {/* WIN REASON */}
         {isWon && (
@@ -308,20 +430,7 @@ export default function StageCheckpointModal({
               onChange={(e) => setWinReason(e.target.value)}
               disabled={loading}
               placeholder="Ex: Fechou plano anual..."
-              style={{
-                width: '100%',
-                minHeight: 60,
-                padding: '8px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: '#222',
-                color: 'white',
-                fontSize: 11,
-                fontFamily: 'system-ui',
-                resize: 'vertical',
-                cursor: loading ? 'not-allowed' : 'auto',
-                opacity: loading ? 0.5 : 1,
-              }}
+              style={textareaStyle}
             />
           </div>
         )}
@@ -336,17 +445,7 @@ export default function StageCheckpointModal({
               value={lostReason}
               onChange={(e) => setLostReason(e.target.value)}
               disabled={loading}
-              style={{
-                width: '100%',
-                padding: '8px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: '#222',
-                color: 'white',
-                fontSize: 12,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.5 : 1,
-              }}
+              style={inputStyle}
             >
               <option value="">Selecione…</option>
               {LOST_REASONS.map((reason) => (
@@ -399,5 +498,36 @@ export default function StageCheckpointModal({
         </div>
       </div>
     </div>
+  )
+}
+
+// ============================================================================
+// Public wrapper — only mounts the form when open, so state is always fresh
+// ============================================================================
+
+export default function StageCheckpointModal({
+  open,
+  fromStatus,
+  toStatus,
+  onCancel,
+  onConfirm,
+  loading,
+}: {
+  open: boolean
+  fromStatus: Status
+  toStatus: Status
+  onCancel: () => void
+  onConfirm: (payload: CheckpointPayload) => void
+  loading: boolean
+}) {
+  if (!open) return null
+  return (
+    <CheckpointForm
+      fromStatus={fromStatus}
+      toStatus={toStatus}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      loading={loading}
+    />
   )
 }
