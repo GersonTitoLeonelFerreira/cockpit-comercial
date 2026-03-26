@@ -1227,5 +1227,3 @@ function VocationKpiCard({
     </div>
   )
 }
-
-export default MesRelatorioPg
