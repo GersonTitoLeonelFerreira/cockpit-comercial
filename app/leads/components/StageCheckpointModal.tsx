@@ -107,6 +107,52 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
       requiresNextAction: true,
     },
   },
+  respondeu: {
+    negociacao: {
+      results: [
+        'Proposta apresentada',
+        'Cliente pediu condição comercial',
+        'Objeção identificada',
+        'Cliente demonstrou intenção de fechar',
+        'Negociação iniciada',
+      ],
+      resultDetails: {
+        'Proposta apresentada': {
+          label: 'Qual proposta foi apresentada?',
+          required: false,
+          placeholder: 'Ex: Plano anual, pacote X, valor Y…',
+        },
+        'Cliente pediu condição comercial': {
+          label: 'Qual condição ele pediu?',
+          required: false,
+          placeholder: 'Ex: Desconto, parcelamento, prazo diferenciado…',
+        },
+        'Objeção identificada': {
+          label: 'Qual objeção foi identificada?',
+          required: true,
+          placeholder: 'Ex: Preço alto, falta de budget, precisa de aprovação…',
+        },
+        'Cliente demonstrou intenção de fechar': {
+          label: 'Sobre qual produto/serviço e em qual condição?',
+          required: true,
+          placeholder: 'Ex: Plano X no valor Y, forma de pagamento Z…',
+        },
+        'Negociação iniciada': {
+          label: 'Quais pontos estão em negociação?',
+          required: false,
+          placeholder: 'Ex: Preço, prazo, escopo, condições de pagamento…',
+        },
+      },
+      nextActions: [
+        'Ajustar proposta',
+        'Revisar objeção',
+        'Enviar proposta final',
+        'Agendar fechamento',
+        'Retornar negociação',
+      ],
+      requiresNextAction: true,
+    },
+  },
   contato: {
     respondeu: {
       results: [
