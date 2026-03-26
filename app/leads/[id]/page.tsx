@@ -233,36 +233,106 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
           {!events || events.length === 0 ? (
             <div style={{ opacity: 0.7 }}>Nenhum evento ainda (mova no Kanban para gerar).</div>
           ) : (
-            events.map((ev: any) => (
-              <div
-                key={ev.id}
-                style={{
-                  padding: 12,
-                  border: '1px solid #222',
-                  borderRadius: 10,
-                  marginTop: 10,
-                  background: '#111',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <div>
-                    <strong>{ev.event_type}</strong>{' '}
-                    {ev.from_stage && ev.to_stage ? (
-                      <span style={{ opacity: 0.85 }}>
-                        • {String(ev.from_stage)} → {String(ev.to_stage)}
-                      </span>
-                    ) : null}
+            events.map((ev: any) => {
+              const m = ev.metadata ?? {}
+              const hasCheckpoint =
+                m.action_channel || m.action_result || m.next_action || m.note || m.lost_reason || m.win_reason
+              const dateLabel = ev.created_at
+                ? new Date(ev.created_at).toLocaleString('pt-BR')
+                : ev.created_at
+              return (
+                <div
+                  key={ev.id}
+                  style={{
+                    padding: 12,
+                    border: '1px solid #222',
+                    borderRadius: 10,
+                    marginTop: 10,
+                    background: '#111',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <div>
+                      <strong>{ev.event_type}</strong>{' '}
+                      {ev.from_stage && ev.to_stage ? (
+                        <span style={{ opacity: 0.85 }}>
+                          • {String(ev.from_stage).toUpperCase()} → {String(ev.to_stage).toUpperCase()}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div style={{ opacity: 0.6, fontSize: 12 }}>{dateLabel}</div>
                   </div>
-                  <div style={{ opacity: 0.6, fontSize: 12 }}>{ev.created_at}</div>
-                </div>
 
-                {ev.metadata?.reason ? (
-                  <div style={{ marginTop: 8, opacity: 0.85 }}>
-                    <b>Motivo:</b> {String(ev.metadata.reason)}
-                  </div>
-                ) : null}
-              </div>
-            ))
+                  {hasCheckpoint && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        display: 'grid',
+                        gap: 4,
+                        fontSize: 12,
+                      }}
+                    >
+                      {m.action_channel && (
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Canal: </span>
+                          <span>{String(m.action_channel)}</span>
+                        </div>
+                      )}
+                      {m.action_result && (
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Resultado: </span>
+                          <span>{String(m.action_result)}</span>
+                        </div>
+                      )}
+                      {m.result_detail && (
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Detalhe: </span>
+                          <span style={{ opacity: 0.9 }}>{String(m.result_detail)}</span>
+                        </div>
+                      )}
+                      {m.next_action && (
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Próxima ação: </span>
+                          <span>{String(m.next_action)}</span>
+                          {m.next_action_date && (() => {
+                            const d = new Date(m.next_action_date)
+                            return isNaN(d.getTime()) ? null : (
+                              <span style={{ opacity: 0.6 }}>
+                                {' '}— {d.toLocaleString('pt-BR')}
+                              </span>
+                            )
+                          })()}
+                        </div>
+                      )}
+                      {m.lost_reason && (
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Motivo perda: </span>
+                          <span style={{ color: '#fca5a5' }}>{String(m.lost_reason)}</span>
+                        </div>
+                      )}
+                      {m.win_reason && (
+                        <div>
+                          <span style={{ opacity: 0.6 }}>Motivo ganho: </span>
+                          <span style={{ color: '#86efac' }}>{String(m.win_reason)}</span>
+                        </div>
+                      )}
+                      {m.note && (
+                        <div style={{ marginTop: 4, borderTop: '1px solid #222', paddingTop: 4 }}>
+                          <span style={{ opacity: 0.6 }}>Observação: </span>
+                          <span style={{ opacity: 0.85, fontStyle: 'italic' }}>{String(m.note)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!hasCheckpoint && m.reason ? (
+                    <div style={{ marginTop: 8, opacity: 0.85, fontSize: 12 }}>
+                      <b>Motivo:</b> {String(m.reason)}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })
           )}
         </div>
 

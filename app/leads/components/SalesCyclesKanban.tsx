@@ -2406,6 +2406,7 @@ export default function SalesCyclesKanban({
     async (payload: {
       action_channel: string
       action_result: string
+      result_detail?: string
       next_action: string
       next_action_date: string
       note: string
