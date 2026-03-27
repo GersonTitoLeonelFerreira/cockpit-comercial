@@ -10,6 +10,47 @@ import LeadProfileTabs from './LeadProfileTabs'
 // ✅ novo: box client da IA (auto refresh sem F5)
 import LeadAIBoxClient from './LeadAIBoxClient'
 
+// ---------------------------------------------------------------------------
+// Constantes de exibição — histórico
+// ---------------------------------------------------------------------------
+
+const LEAD_STATUS_PT: Record<string, string> = {
+  novo: 'NOVO', contato: 'CONTATO', respondeu: 'RESPONDEU',
+  negociacao: 'NEGOCIAÇÃO', ganho: 'GANHO', perdido: 'PERDIDO',
+}
+
+const LEAD_EVENT_LABELS: Record<string, string> = {
+  stage_changed: 'Movimentação', contacted: 'Contato registrado',
+  replied: 'Resposta registrada', note_added: 'Nota adicionada',
+  next_action_set: 'Próxima ação definida', assigned: 'Ciclo atribuído',
+  reassigned: 'Ciclo reatribuído', returned_to_pool: 'Devolvido ao pool',
+  cycle_created: 'Ciclo criado', owner_assigned: 'Proprietário atribuído',
+}
+
+const LEAD_PAYMENT_METHOD_PT: Record<string, string> = {
+  pix: 'PIX', credito: 'Cartão de Crédito', debito: 'Cartão de Débito',
+  dinheiro: 'Dinheiro', boleto: 'Boleto', transferencia: 'Transferência',
+  misto: 'Misto', outro: 'Outro',
+}
+
+const LEAD_PAYMENT_TYPE_PT: Record<string, string> = {
+  avista: 'À Vista', entrada_parcelas: 'Entrada + Parcelas',
+  parcelado_sem_entrada: 'Parcelado (sem entrada)',
+  recorrente: 'Recorrente', outro: 'Outro',
+}
+
+function fmtLeadCurrency(v: number | null | undefined): string {
+  if (v == null) return '—'
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function stageLabel(s: string | undefined | null): string {
+  if (!s) return '—'
+  return LEAD_STATUS_PT[s.toLowerCase()] ?? s.toUpperCase()
+}
+
+// ---------------------------------------------------------------------------
+
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
 }
@@ -156,6 +197,16 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
     .order('created_at', { ascending: false })
     .limit(80)
 
+  // Fetch latest sales cycle (for GANHO financial data)
+  const { data: leadCycle } = await supabase
+    .from('sales_cycles')
+    .select('*, products:product_id (id, name, category)')
+    .eq('lead_id', leadId)
+    .eq('company_id', companyId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const wa = whatsappLink(lead.phone)
 
   return (
@@ -227,12 +278,33 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
             <b>Movimentações do funil</b>
           </div>
 
+          {/* Última movimentação */}
+          {events && events.length > 0 && (() => {
+            const last = events[0] as any
+            const m = last.metadata ?? {}
+            const fromStage = last.from_stage ?? m.from_status
+            const toStage = last.to_stage ?? m.to_status
+            const title = fromStage && toStage
+              ? `${stageLabel(fromStage)} → ${stageLabel(toStage)}`
+              : LEAD_EVENT_LABELS[last.event_type] ?? String(last.event_type).replace(/_/g, ' ')
+            const dateStr = last.created_at ? new Date(last.created_at).toLocaleString('pt-BR') : '—'
+            return (
+              <div style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 8, background: '#161616', border: '1px solid #2a2a2a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <span style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1 }}>Última movimentação</span>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e5e7eb', marginTop: 2 }}>{title}</div>
+                </div>
+                <span style={{ fontSize: 11, opacity: 0.5, flexShrink: 0 }}>{dateStr}</span>
+              </div>
+            )
+          })()}
+
           {!events || events.length === 0 ? (
             <div style={{ opacity: 0.7 }}>Nenhum evento ainda (mova no Kanban para gerar).</div>
           ) : (
             events.map((ev: any) => {
               const m = ev.metadata ?? {}
-              // suporta checkpoint aninhado (rpc_move_cycle_stage_checkpoint) ou plano
+              // suporta checkpoint aninhado ou campos planos
               const cp: Record<string, any> =
                 m.checkpoint && typeof m.checkpoint === 'object'
                   ? m.checkpoint
@@ -243,29 +315,11 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
               const fromStage = ev.from_stage ?? m.from_status
               const toStage = ev.to_stage ?? m.to_status
 
-              const STATUS_PT: Record<string, string> = {
-                novo: 'NOVO', contato: 'CONTATO', respondeu: 'RESPONDEU',
-                negociacao: 'NEGOCIAÇÃO', ganho: 'GANHO', perdido: 'PERDIDO',
-              }
-              const stLabel = (s: string | undefined | null) => {
-                if (!s) return '—'
-                return STATUS_PT[s.toLowerCase()] ?? s.toUpperCase()
-              }
-
               const isLoss = toStage && String(toStage).toLowerCase() === 'perdido'
               const isWon = toStage && String(toStage).toLowerCase() === 'ganho'
 
-              const accentColor = isLoss
-                ? '#fca5a5'
-                : isWon
-                ? '#86efac'
-                : '#93c5fd'
-
-              const dotBg = isLoss
-                ? '#ef4444'
-                : isWon
-                ? '#10b981'
-                : '#3b82f6'
+              const accentColor = isLoss ? '#fca5a5' : isWon ? '#86efac' : '#93c5fd'
+              const dotBg = isLoss ? '#ef4444' : isWon ? '#10b981' : '#3b82f6'
 
               const dateLabel = ev.created_at
                 ? new Date(ev.created_at).toLocaleString('pt-BR')
@@ -278,14 +332,19 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   })()
                 : null
 
+              const eventTitle = fromStage && toStage
+                ? `${stageLabel(fromStage)} → ${stageLabel(toStage)}`
+                : LEAD_EVENT_LABELS[ev.event_type] ?? String(ev.event_type).replace(/_/g, ' ')
+
+              // Campos exibidos variam por tipo
+              const hasCheckpointFields = cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.note
+              const hasLossFields = cp.lost_reason || cp.action_channel
+              const hasWonCycleData = isWon && leadCycle && leadCycle.status === 'ganho'
+
               return (
                 <div
                   key={ev.id}
-                  style={{
-                    display: 'flex',
-                    gap: 12,
-                    marginTop: 10,
-                  }}
+                  style={{ display: 'flex', gap: 12, marginTop: 10 }}
                 >
                   {/* Dot */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 4 }}>
@@ -304,34 +363,90 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   >
                     {/* Título + data */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                      <strong style={{ fontSize: 13, color: accentColor }}>
-                        {fromStage && toStage
-                          ? `${stLabel(fromStage)} → ${stLabel(toStage)}`
-                          : ev.event_type === 'stage_changed'
-                          ? 'Movimentação'
-                          : ev.event_type === 'contacted'
-                          ? 'Contato registrado'
-                          : ev.event_type === 'replied'
-                          ? 'Resposta registrada'
-                          : ev.event_type === 'note_added'
-                          ? 'Nota adicionada'
-                          : ev.event_type === 'next_action_set'
-                          ? 'Próxima ação definida'
-                          : ev.event_type === 'assigned'
-                          ? 'Ciclo atribuído'
-                          : ev.event_type === 'reassigned'
-                          ? 'Ciclo reatribuído'
-                          : ev.event_type === 'returned_to_pool'
-                          ? 'Devolvido ao pool'
-                          : ev.event_type === 'cycle_created'
-                          ? 'Ciclo criado'
-                          : ev.event_type}
-                      </strong>
+                      <strong style={{ fontSize: 13, color: accentColor }}>{eventTitle}</strong>
                       <span style={{ opacity: 0.6, fontSize: 12 }}>{dateLabel}</span>
                     </div>
 
-                    {/* Campos do checkpoint */}
-                    {(cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.lost_reason || cp.win_reason || cp.note) && (
+                    {/* GANHO: dados financeiros do ciclo */}
+                    {hasWonCycleData && (
+                      <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 12 }}>
+                        {leadCycle!.won_total != null && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Valor: </span>
+                            <span style={{ color: '#86efac', fontWeight: 700 }}>{fmtLeadCurrency(leadCycle!.won_total)}</span>
+                          </div>
+                        )}
+                        {leadCycle!.products?.name && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Produto: </span>
+                            <span>{leadCycle!.products.category ? `${leadCycle!.products.name} (${leadCycle!.products.category})` : leadCycle!.products.name}</span>
+                          </div>
+                        )}
+                        {leadCycle!.payment_method && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Meio de pagamento: </span>
+                            <span>{LEAD_PAYMENT_METHOD_PT[leadCycle!.payment_method] ?? leadCycle!.payment_method}</span>
+                          </div>
+                        )}
+                        {leadCycle!.payment_type && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Negociação: </span>
+                            <span>{LEAD_PAYMENT_TYPE_PT[leadCycle!.payment_type] ?? leadCycle!.payment_type}</span>
+                          </div>
+                        )}
+                        {leadCycle!.installments_count > 0 && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Parcelas: </span>
+                            <span>{leadCycle!.installments_count}x{leadCycle!.installment_amount ? ` de ${fmtLeadCurrency(leadCycle!.installment_amount)}` : ''}</span>
+                          </div>
+                        )}
+                        {leadCycle!.entry_amount > 0 && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Entrada: </span>
+                            <span>{fmtLeadCurrency(leadCycle!.entry_amount)}</span>
+                          </div>
+                        )}
+                        {leadCycle!.payment_notes && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Obs. pagamento: </span>
+                            <span>{leadCycle!.payment_notes}</span>
+                          </div>
+                        )}
+                        {leadCycle!.won_note && (
+                          <div style={{ marginTop: 4, borderTop: '1px solid #1e1e1e', paddingTop: 4 }}>
+                            <span style={{ opacity: 0.55 }}>Nota do fechamento: </span>
+                            <em style={{ opacity: 0.85 }}>{leadCycle!.won_note}</em>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* PERDA: canal + motivo + observação */}
+                    {isLoss && hasLossFields && (
+                      <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 12 }}>
+                        {cp.action_channel && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Canal: </span>
+                            <span>{String(cp.action_channel)}</span>
+                          </div>
+                        )}
+                        {cp.lost_reason && (
+                          <div>
+                            <span style={{ opacity: 0.55 }}>Motivo da perda: </span>
+                            <span style={{ color: '#fca5a5' }}>{String(cp.lost_reason)}</span>
+                          </div>
+                        )}
+                        {cp.note && (
+                          <div style={{ marginTop: 4, borderTop: '1px solid #1e1e1e', paddingTop: 4 }}>
+                            <span style={{ opacity: 0.55 }}>Observação: </span>
+                            <em style={{ opacity: 0.85 }}>{String(cp.note)}</em>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Checkpoint (transição intermediária) */}
+                    {!isLoss && !isWon && hasCheckpointFields && (
                       <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 12 }}>
                         {cp.action_channel && (
                           <div>
@@ -351,18 +466,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                             <span>{String(cp.result_detail)}</span>
                           </div>
                         )}
-                        {cp.lost_reason && (
-                          <div>
-                            <span style={{ opacity: 0.55 }}>Motivo da perda: </span>
-                            <span style={{ color: '#fca5a5' }}>{String(cp.lost_reason)}</span>
-                          </div>
-                        )}
-                        {cp.win_reason && (
-                          <div>
-                            <span style={{ opacity: 0.55 }}>Motivo do ganho: </span>
-                            <span style={{ color: '#86efac' }}>{String(cp.win_reason)}</span>
-                          </div>
-                        )}
                         {cp.next_action && (
                           <div>
                             <span style={{ opacity: 0.55 }}>Próxima ação: </span>
@@ -375,14 +478,14 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                         {cp.note && (
                           <div style={{ marginTop: 4, borderTop: '1px solid #1e1e1e', paddingTop: 4 }}>
                             <span style={{ opacity: 0.55 }}>Observação: </span>
-                            <span style={{ opacity: 0.85, fontStyle: 'italic' }}>{String(cp.note)}</span>
+                            <em style={{ opacity: 0.85 }}>{String(cp.note)}</em>
                           </div>
                         )}
                       </div>
                     )}
 
-                    {/* Fallback para eventos sem checkpoint mas com reason */}
-                    {!cp.action_channel && !cp.action_result && !cp.next_action && !cp.note && !cp.lost_reason && !cp.win_reason && m.reason && (
+                    {/* Fallback: evento antigo sem campos estruturados */}
+                    {!isLoss && !isWon && !hasCheckpointFields && m.reason && (
                       <div style={{ marginTop: 6, opacity: 0.8, fontSize: 12 }}>
                         <span style={{ opacity: 0.55 }}>Motivo: </span>
                         <em>{String(m.reason)}</em>

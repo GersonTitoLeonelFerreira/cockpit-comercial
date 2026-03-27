@@ -171,6 +171,11 @@ function LostCard({ event }: { event: CycleEvent }) {
 function WonCard({ cycle }: { cycle: any }) {
   const payMethod = cycle.payment_method ? (PAYMENT_METHOD_PT[cycle.payment_method] ?? cycle.payment_method) : null
   const payType = cycle.payment_type ? (PAYMENT_TYPE_PT[cycle.payment_type] ?? cycle.payment_type) : null
+  const productLabel = cycle.products?.name
+    ? cycle.products.category
+      ? `${cycle.products.name} (${cycle.products.category})`
+      : cycle.products.name
+    : null
 
   return (
     <div className="flex gap-3">
@@ -192,8 +197,9 @@ function WonCard({ cycle }: { cycle: any }) {
               <span className="text-emerald-300 font-semibold">{fmtCurrency(cycle.won_total)}</span>
             } />
           )}
+          {productLabel && <FieldRow label="Produto" value={productLabel} />}
           {payMethod && <FieldRow label="Meio de pagamento" value={payMethod} />}
-          {payType && <FieldRow label="Estrutura" value={payType} />}
+          {payType && <FieldRow label="Negociação" value={payType} />}
           {cycle.installments_count > 0 && (
             <FieldRow label="Parcelas" value={`${cycle.installments_count}x${cycle.installment_amount ? ` de ${fmtCurrency(cycle.installment_amount)}` : ''}`} />
           )}
@@ -208,21 +214,22 @@ function WonCard({ cycle }: { cycle: any }) {
   )
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  assigned: 'Ciclo atribuído',
+  reassigned: 'Ciclo reatribuído',
+  returned_to_pool: 'Devolvido ao pool',
+  cycle_created: 'Ciclo criado',
+  owner_assigned: 'Proprietário atribuído',
+  next_action_set: 'Próxima ação definida',
+  note_added: 'Nota adicionada',
+  contacted: 'Contato registrado',
+  replied: 'Resposta registrada',
+}
+
 /** Card genérico para eventos administrativos (assigned, returned_to_pool, etc.) */
 function AdminCard({ event }: { event: CycleEvent }) {
   const m = event.metadata ?? {}
-  const ADMIN_LABELS: Record<string, string> = {
-    assigned: 'Ciclo atribuído',
-    reassigned: 'Ciclo reatribuído',
-    returned_to_pool: 'Devolvido ao pool',
-    cycle_created: 'Ciclo criado',
-    owner_assigned: 'Proprietário atribuído',
-    next_action_set: 'Próxima ação definida',
-    note_added: 'Nota adicionada',
-    contacted: 'Contato registrado',
-    replied: 'Resposta registrada',
-  }
-  const label = ADMIN_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
+  const label = EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 
   return (
     <div className="flex-1">
@@ -242,6 +249,16 @@ function AdminCard({ event }: { event: CycleEvent }) {
       )}
     </div>
   )
+}
+
+function getEventTitle(event: CycleEvent): string {
+  const m = event.metadata ?? {}
+  const from = m.from_status as string | undefined
+  const to = m.to_status as string | undefined
+  if (from || to) {
+    return `${from ? statusLabel(from) : '?'} → ${to ? statusLabel(to) : '?'}`
+  }
+  return EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 }
 
 /** Renderiza o conteúdo do card + cor do dot com base no tipo de evento */
@@ -308,7 +325,8 @@ async function getSalesCycleDetail(cycleId: string) {
     .from('sales_cycles')
     .select(`
       *,
-      leads:lead_id (id, name, phone, email)
+      leads:lead_id (id, name, phone, email),
+      products:product_id (id, name, category)
     `)
     .eq('id', cycleId)
     .single()
@@ -430,6 +448,17 @@ export default async function SalesCycleDetailPage({
           {/* Timeline: Events */}
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6">
             <h2 className="text-xl font-bold text-white mb-4">Histórico</h2>
+
+            {/* Última movimentação */}
+            {events.length > 0 && (
+              <div className="mb-5 px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 flex justify-between items-center gap-2 flex-wrap">
+                <div>
+                  <span className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Última movimentação</span>
+                  <p className="text-sm text-white font-medium mt-0.5">{getEventTitle(events[0])}</p>
+                </div>
+                <span className="text-xs text-gray-500 flex-shrink-0">{fmtDate(events[0].occurred_at)}</span>
+              </div>
+            )}
 
             {cycle.status === 'ganho' && cycle.won_at && (
               <WonCard cycle={cycle} />
