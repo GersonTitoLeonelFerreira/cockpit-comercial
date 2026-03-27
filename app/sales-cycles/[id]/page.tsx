@@ -276,8 +276,6 @@ export default async function SalesCycleDetailPage({ params }) {
   const { id } = await params
   const { cycle, events } = await getSalesCycleDetail(id)
 
-  // ------------------------------------------
-
   return (
     <div style={{ minHeight: '100vh', background: '#18181b', padding: 24 }}>
       {/* Header */}
@@ -337,7 +335,6 @@ export default async function SalesCycleDetailPage({ params }) {
                 <span style={{ fontSize: 12, color: '#888' }}>{fmtDate(events[0].occurred_at)}</span>
               </div>
             )}
-
             {/* Exibição de ganho (aparece antes da timeline se ciclo está ganho!) */}
             {cycle.status === 'ganho' && cycle.won_at && (
               <div style={{
@@ -348,7 +345,6 @@ export default async function SalesCycleDetailPage({ params }) {
                 <WonCard cycle={cycle} />
               </div>
             )}
-
             {events.length === 0 && cycle.status !== 'ganho' ? (
               <div style={{ textAlign: 'center', padding: '40px 0', color: '#6b7280' }}>
                 Nenhum evento registrado
