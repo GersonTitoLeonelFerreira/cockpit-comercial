@@ -1,3 +1,5 @@
+'use client'
+
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
@@ -1169,6 +1171,8 @@ function ConfidenceBadge({ confidence }: { confidence: MonthlyVocationConfidence
   )
 }
 
+// ...todo o seu código como está acima...
+
 function VocationKpiCard({
   label,
   color,
@@ -1227,3 +1231,6 @@ function VocationKpiCard({
     </div>
   )
 }
+
+// >>>>>>>>>>>>  ADICIONE ESTA LINHA NO FINAL  <<<<<<<<<<
+export default MesRelatorioPg
