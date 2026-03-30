@@ -7,6 +7,7 @@ import NextContactForm from './NextContactForm'
 import LeadActions from './LeadActions'
 import LeadProfileTabs from './LeadProfileTabs'
 import LeadAIBoxClient from './LeadAIBoxClient'
+import LeadOperationalSummary from './LeadOperationalSummary'
 
 // ---------------------------------------------------------------------------
 // Constantes de exibição — histórico
@@ -178,6 +179,8 @@ export default async function LeadDetailPage(props) {
         </div>
         <div style={{ fontSize: 12, opacity: 0.7 }}>Criado em: {lead.created_at}</div>
       </div>
+
+      <LeadOperationalSummary events={events ?? []} leadCycle={leadCycle} />
 
       {/* IA box */}
       <LeadAIBoxClient
