@@ -1,7 +1,10 @@
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
+import CycleOperationalSummary from './CycleOperationalSummary'
+import CycleContextAlerts from './CycleContextAlerts'
 
 // ---------------------------------------------------------------------------
 // Helpers de exibição
@@ -27,21 +30,21 @@ const PAYMENT_TYPE_PT = {
   recorrente: 'Recorrente', outro: 'Outro',
 }
 
-function statusLabel(s) {
+function statusLabel(s: string | null | undefined): string {
   if (!s) return '—'
   return STATUS_PT[String(s).toLowerCase()] ?? String(s).toUpperCase()
 }
-function fmtCurrency(v) {
+function fmtCurrency(v: number | null | undefined): string {
   if (v == null) return '—'
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
-function fmtDate(s) {
+function fmtDate(s: string | null | undefined): string {
   if (!s) return '—'
   const d = new Date(s)
   if (isNaN(d.getTime())) return '—'
   return d.toLocaleString('pt-BR')
 }
-function extractCheckpoint(meta) {
+function extractCheckpoint(meta: Record<string, any>): Record<string, any> {
   if (meta.checkpoint && typeof meta.checkpoint === 'object') return meta.checkpoint
   if (meta.metadata && typeof meta.metadata === 'object') return meta.metadata
   return meta
@@ -51,7 +54,7 @@ function extractCheckpoint(meta) {
 // Cards para eventos do histórico
 // ---------------------------------------------------------------------------
 
-function FieldRow({ label, value }) {
+function FieldRow({ label, value }: { label: string; value: ReactNode }) {
   if (value == null || value === '') return null
   return (
     <div style={{ fontSize: 13, marginBottom: 2 }}>
@@ -62,7 +65,7 @@ function FieldRow({ label, value }) {
 }
 
 // Card para checkpoints intermediários
-function CheckpointCard({ event }) {
+function CheckpointCard({ event }: { event: Record<string, any> }) {
   const m = event.metadata ?? {}
   const cp = extractCheckpoint(m)
   const from = m.from_status ?? event.from_stage
@@ -105,7 +108,7 @@ function CheckpointCard({ event }) {
 }
 
 // Card para eventos de perda
-function LostCard({ event }) {
+function LostCard({ event }: { event: Record<string, any> }) {
   const m = event.metadata ?? {}
   const cp = extractCheckpoint(m)
   const from = m.from_status ?? event.from_stage
@@ -128,7 +131,7 @@ function LostCard({ event }) {
 }
 
 // Card para eventos de GANHO (usam o próprio ciclo)
-function WonCard({ cycle }) {
+function WonCard({ cycle }: { cycle: Record<string, any> }) {
   const payMethod = cycle.payment_method ? (PAYMENT_METHOD_PT[cycle.payment_method] ?? cycle.payment_method) : null
   const payType = cycle.payment_type ? (PAYMENT_TYPE_PT[cycle.payment_type] ?? cycle.payment_type) : null
   const productLabel = cycle.products?.name
@@ -166,7 +169,7 @@ function WonCard({ cycle }) {
 }
 
 // Card para eventos administrativos/sem checkpoint
-function AdminCard({ event }) {
+function AdminCard({ event }: { event: Record<string, any> }) {
   const m = event.metadata ?? {}
   const EVENT_LABELS = {
     assigned: 'Ciclo atribuído',
@@ -200,7 +203,7 @@ function AdminCard({ event }) {
   )
 }
 
-function getEventTitle(event) {
+function getEventTitle(event: Record<string, any>): string {
   const m = event.metadata ?? {}
   const from = m.from_status ?? event.from_stage
   const to = m.to_status ?? event.to_stage
@@ -225,7 +228,7 @@ function getEventTitle(event) {
 // Busca dos dados
 // ---------------------------------------------------------------------------
 
-async function getSalesCycleDetail(cycleId) {
+async function getSalesCycleDetail(cycleId: string) {
   const cookieStore = await cookies()
 
   const supabase = createServerClient(
@@ -272,7 +275,7 @@ async function getSalesCycleDetail(cycleId) {
 // Página de detalhe do ciclo (Histórico operacional Fase 1.4)
 // ---------------------------------------------------------------------------
 
-export default async function SalesCycleDetailPage({ params }) {
+export default async function SalesCycleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const { cycle, events } = await getSalesCycleDetail(id)
 
@@ -318,6 +321,17 @@ export default async function SalesCycleDetailPage({ params }) {
               <div style={{ color: 'white', fontSize: 14 }}><span style={{ color: '#8b8fa2' }}>Fechado em:</span> {fmtDate(cycle.closed_at)}</div>
             )}
           </div>
+
+          {/* Resumo Operacional + Alertas */}
+          <CycleOperationalSummary events={events} ciclo={cycle} />
+          <CycleContextAlerts
+            events={events}
+            lead={{
+              status: cycle.status,
+              next_action: cycle.next_action,
+              next_action_date: cycle.next_action_date,
+            }}
+          />
 
           {/* Timeline: Histórico */}
           <div style={{ background: '#23232b', border: '1px solid #313145', borderRadius: 16, padding: 24 }}>
