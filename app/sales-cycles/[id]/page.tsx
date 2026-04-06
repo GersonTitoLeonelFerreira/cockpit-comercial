@@ -63,18 +63,25 @@ function whatsappLink(phone: string | null | undefined): string | null {
 }
 
 const DAYS_STALE_THRESHOLD = 7
+const DEFAULT_ACTION_BORDER_COLOR = '#4b5563'
 
 // ---------------------------------------------------------------------------
 // Status badge styles
 // ---------------------------------------------------------------------------
 
+const COLOR_BLUE = '#60a5fa'
+const COLOR_PURPLE = '#a855f7'
+const COLOR_YELLOW = '#fde68a'
+const COLOR_GREEN = '#34d399'
+const COLOR_RED = '#f87171'
+
 const STATUS_BADGE: Record<string, { background: string; color: string }> = {
-  novo:       { background: 'rgba(96,165,250,0.15)',  color: '#60a5fa' },
-  contato:    { background: 'rgba(96,165,250,0.15)',  color: '#60a5fa' },
-  respondeu:  { background: 'rgba(168,85,247,0.15)',  color: '#a855f7' },
-  negociacao: { background: 'rgba(253,224,138,0.15)', color: '#fde68a' },
-  ganho:      { background: 'rgba(52,211,153,0.15)',  color: '#34d399' },
-  perdido:    { background: 'rgba(248,113,113,0.15)', color: '#f87171' },
+  novo:       { background: 'rgba(96,165,250,0.15)',  color: COLOR_BLUE },
+  contato:    { background: 'rgba(96,165,250,0.15)',  color: COLOR_BLUE },
+  respondeu:  { background: 'rgba(168,85,247,0.15)',  color: COLOR_PURPLE },
+  negociacao: { background: 'rgba(253,224,138,0.15)', color: COLOR_YELLOW },
+  ganho:      { background: 'rgba(52,211,153,0.15)',  color: COLOR_GREEN },
+  perdido:    { background: 'rgba(248,113,113,0.15)', color: COLOR_RED },
 }
 
 function statusBadgeStyle(s: string | null | undefined): { background: string; color: string } {
@@ -87,14 +94,14 @@ function getNextActionUrgency(dateIso: string | null | undefined): {
   badge: { label: string; color: string } | null
   borderColor: string
 } {
-  if (!dateIso) return { badge: null, borderColor: '#4b5563' }
+  if (!dateIso) return { badge: null, borderColor: DEFAULT_ACTION_BORDER_COLOR }
   const d = new Date(dateIso)
   const now = new Date()
   const isToday = d.toDateString() === now.toDateString()
   const isPast = d < now && !isToday
-  if (isPast) return { badge: { label: 'Vencida', color: '#f87171' }, borderColor: '#f87171' }
-  if (isToday) return { badge: { label: 'Hoje', color: '#fde68a' }, borderColor: '#fde68a' }
-  return { badge: { label: 'Futura', color: '#60a5fa' }, borderColor: '#60a5fa' }
+  if (isPast) return { badge: { label: 'Vencida', color: COLOR_RED }, borderColor: COLOR_RED }
+  if (isToday) return { badge: { label: 'Hoje', color: COLOR_YELLOW }, borderColor: COLOR_YELLOW }
+  return { badge: { label: 'Futura', color: COLOR_BLUE }, borderColor: COLOR_BLUE }
 }
 
 // ---------------------------------------------------------------------------
