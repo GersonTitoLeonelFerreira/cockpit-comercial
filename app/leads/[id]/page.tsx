@@ -152,7 +152,6 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
       {/* ---------------------------------------------- */}
       <LeadContextAlerts
         events={events || []}
-        ciclo={leadCycle ?? {}}
         lead={{
           status: lead.status,
           next_action: lead.next_action,

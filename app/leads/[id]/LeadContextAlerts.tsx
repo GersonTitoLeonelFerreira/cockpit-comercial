@@ -22,7 +22,6 @@ interface LeadSummary {
 
 interface Props {
   events: LeadEvent[]
-  ciclo?: Record<string, any> | null
   lead: LeadSummary
 }
 
@@ -145,6 +144,7 @@ function buildAlerts(events: LeadEvent[], lead: LeadSummary): Alert[] {
   }
 
   // Lead parado há X dias (último evento > 7 dias)
+  // events está ordenado por created_at DESC (conforme page.tsx), logo events[0] é o mais recente
   if (!terminal && events.length > 0) {
     const lastEvent = events[0]
     const days = daysDiff(lastEvent?.created_at)
