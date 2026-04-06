@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { IconCircleX, IconLoader } from '@/app/components/icons/UiIcons'
 
 const ACTION_CHANNELS = ['Whats', 'Ligação', 'Email', 'Presencial', 'DM', 'Outro']
 
@@ -134,8 +135,9 @@ export function LostDealModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 20 }}>
-          ❌ Marcar Deal como Perdido
+        <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <IconCircleX size={20} color="#f87171" />
+          Marcar Deal como Perdido
         </div>
 
         {dealName && (
@@ -265,7 +267,7 @@ export function LostDealModal({
               opacity: isValid && !saving ? 1 : 0.5,
             }}
           >
-            {saving ? '⏳ Salvando...' : '✕ Confirmar Perda'}
+            {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconLoader size={14} /> Salvando...</span> : 'Confirmar Perda'}
           </button>
           <button
             onClick={onClose}

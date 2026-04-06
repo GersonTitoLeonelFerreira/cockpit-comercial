@@ -3,13 +3,12 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
+import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import {
   moveCycleStage,
   setNextAction,
-  closeCycleWon,
-  closeCycleLost,
 } from '@/app/lib/services/sales-cycles'
 
 const STATUS_OPTIONS: LeadStatus[] = [
@@ -84,11 +83,10 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [showWinDealModal, setShowWinDealModal] = useState(false)
+  const [showLostDealModal, setShowLostDealModal] = useState(false)
   const [showActionModal, setShowActionModal] = useState(false)
-  const [showCloseModal, setShowCloseModal] = useState<'won' | 'lost' | null>(null)
   const [action, setAction] = useState('')
   const [actionDate, setActionDate] = useState('')
-  const [closeValue, setCloseValue] = useState('')
 
   // ============================================================================
   // Checkpoint modal (idêntico ao Kanban)
@@ -99,6 +97,14 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
 
   const openCheckpoint = (toStatus: LeadStatus) => {
     if (toStatus === cycle.status) return
+    if (toStatus === 'ganho') {
+      setShowWinDealModal(true)
+      return
+    }
+    if (toStatus === 'perdido') {
+      setShowLostDealModal(true)
+      return
+    }
     setCheckpointToStatus(toStatus)
     setCheckpointOpen(true)
   }
@@ -106,15 +112,12 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
 
   // ============================================================================
-  // Move stage (agora abre o modal do Kanban)
+  // Move stage (agora abre o modal correto)
   // ============================================================================
   const handleMoveStage = async (newStatus: LeadStatus) => {
     openCheckpoint(newStatus)
   }
 
-  // ============================================================================
-  // Set next action (modal simples "Próxima Ação")
-  // ============================================================================
   const handleSaveAction = async () => {
     if (!action.trim() || !actionDate) {
       alert('Preencha ação e data')
@@ -131,43 +134,6 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
       setAction('')
       setActionDate('')
       setShowActionModal(false)
-      router.refresh()
-    } catch (err: any) {
-      alert(`Erro: ${err?.message ?? String(err)}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ============================================================================
-  // Close cycle
-  // ============================================================================
-  const handleCloseWon = async () => {
-    setLoading(true)
-    try {
-      await closeCycleWon({
-        cycle_id: cycle.id,
-        won_value: closeValue ? parseFloat(closeValue) : undefined,
-      })
-      setCloseValue('')
-      setShowCloseModal(null)
-      router.refresh()
-    } catch (err: any) {
-      alert(`Erro: ${err?.message ?? String(err)}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleCloseLost = async () => {
-    setLoading(true)
-    try {
-      await closeCycleLost({
-        cycle_id: cycle.id,
-        loss_reason: closeValue || undefined,
-      })
-      setCloseValue('')
-      setShowCloseModal(null)
       router.refresh()
     } catch (err: any) {
       alert(`Erro: ${err?.message ?? String(err)}`)
@@ -205,7 +171,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
         </div>
       </div>
 
-      {/* ✅ Modal idêntico ao Kanban para checkpoint de transição */}
+      {/* Modal de checkpoint para transições intermediárias */}
       <StageCheckpointModal
         open={checkpointOpen}
         fromStatus={cycle.status as any}
@@ -263,7 +229,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
             </button>
 
             <button
-              onClick={() => setShowCloseModal('lost')}
+              onClick={() => setShowLostDealModal(true)}
               disabled={loading}
               className="w-full px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded font-semibold transition-colors"
             >
@@ -324,57 +290,6 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
         </div>
       )}
 
-      {/* Close Modal */}
-      {showCloseModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 w-96">
-            <h3 className="text-lg font-bold text-white mb-4">
-              {showCloseModal === 'won' ? 'Ciclo Ganho' : 'Ciclo Perdido'}
-            </h3>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-300 mb-2">
-                  {showCloseModal === 'won' ? 'Valor' : 'Motivo da Perda'}
-                </label>
-                <input
-                  type={showCloseModal === 'won' ? 'number' : 'text'}
-                  value={closeValue}
-                  onChange={(e) => setCloseValue(e.target.value)}
-                  placeholder={showCloseModal === 'won' ? 'Ex: 5000.00' : 'Ex: Concorrência'}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-500"
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => {
-                    setShowCloseModal(null)
-                    setCloseValue('')
-                  }}
-                  className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
-                  disabled={loading}
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={showCloseModal === 'won' ? handleCloseWon : handleCloseLost}
-                  className={`flex-1 px-4 py-2 text-white rounded transition-colors ${
-                    showCloseModal === 'won'
-                      ? 'bg-green-700 hover:bg-green-600'
-                      : 'bg-red-700 hover:bg-red-600'
-                  }`}
-                  disabled={loading}
-                >
-                  {loading ? 'Salvando...' : 'Confirmar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Win Deal Modal */}
       <WinDealModal
         isOpen={showWinDealModal}
@@ -386,6 +301,18 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
         onSuccess={() => {
           router.refresh()
           setShowWinDealModal(false)
+        }}
+      />
+
+      {/* Lost Deal Modal — mesmo modal do Kanban */}
+      <LostDealModal
+        isOpen={showLostDealModal}
+        dealId={cycle.id}
+        dealName={cycle?.leads?.name || 'Deal'}
+        onClose={() => setShowLostDealModal(false)}
+        onSuccess={() => {
+          router.refresh()
+          setShowLostDealModal(false)
         }}
       />
     </>
