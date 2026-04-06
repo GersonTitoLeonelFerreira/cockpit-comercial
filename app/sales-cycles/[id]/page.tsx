@@ -84,6 +84,7 @@ const HEX_ALPHA_LIGHT = '14'
 /** Hex alpha suffix for medium tint borders (~27% opacity) */
 const HEX_ALPHA_MEDIUM = '44'
 const MONOSPACE_FONT = 'monospace'
+const MILLISECONDS_PER_DAY = 1000 * 60 * 60 * 24
 
 // ---------------------------------------------------------------------------
 // Status badge styles
@@ -354,7 +355,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
 
   const lead = cycle.leads as { name?: string; phone?: string; email?: string } | null
   const daysInStatus = cycle.stage_entered_at
-    ? Math.floor((Date.now() - new Date(cycle.stage_entered_at as string).getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.floor((Date.now() - new Date(cycle.stage_entered_at as string).getTime()) / MILLISECONDS_PER_DAY)
     : null
   const lastEvent = events.length > 0 ? events[0] : null
   const badgeStyle = statusBadgeStyle(cycle.status as string)
@@ -423,7 +424,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           )}
         </div>
         <p style={{ color: '#8b8fa2', fontSize: 12, margin: 0, marginTop: 6 }}>
-          Ciclo <span style={{ fontFamily: MONOSPACE_FONT }}>#{String(cycle.id)}</span>
+          Ciclo <span style={{ fontFamily: MONOSPACE_FONT }}>#{cycle.id}</span>
         </p>
       </div>
 
