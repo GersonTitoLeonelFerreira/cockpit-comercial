@@ -7,6 +7,19 @@ import CycleOperationalSummary from './CycleOperationalSummary'
 import CycleContextAlerts from './CycleContextAlerts'
 
 // ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface CycleEvent {
+  id: string
+  event_type: string
+  from_stage: string | null
+  to_stage: string | null
+  occurred_at: string
+  metadata: Record<string, unknown> | null
+}
+
+// ---------------------------------------------------------------------------
 // Helpers de exibição
 // ---------------------------------------------------------------------------
 
@@ -55,11 +68,13 @@ function extractCheckpoint(meta: Record<string, unknown>): Record<string, unknow
   if (meta.metadata && typeof meta.metadata === 'object') return meta.metadata as Record<string, unknown>
   return meta
 }
+const BRAZIL_COUNTRY_CODE = '55'
+
 function whatsappLink(phone: string | null | undefined): string | null {
   if (!phone) return null
   const clean = phone.replace(/\D/g, '')
   if (!clean) return null
-  return `https://wa.me/${clean.startsWith('55') ? clean : '55' + clean}`
+  return `https://wa.me/${clean.startsWith(BRAZIL_COUNTRY_CODE) ? clean : BRAZIL_COUNTRY_CODE + clean}`
 }
 
 const DAYS_STALE_THRESHOLD = 7
@@ -119,8 +134,8 @@ function FieldRow({ label, value }: { label: string; value: ReactNode }) {
 }
 
 // Card para checkpoints intermediários
-function CheckpointCard({ event }: { event: Record<string, unknown> }) {
-  const m = (event.metadata as Record<string, unknown>) ?? {}
+function CheckpointCard({ event }: { event: CycleEvent }) {
+  const m = event.metadata ?? {}
   const cp = extractCheckpoint(m)
   const from = (m.from_status as string) ?? (event.from_stage as string)
   const to = (m.to_status as string) ?? (event.to_stage as string)
@@ -139,7 +154,7 @@ function CheckpointCard({ event }: { event: Record<string, unknown> }) {
             <>{statusLabel(from)} <span style={{ color: '#8b8fa2' }}>→</span> {statusLabel(to)}</>
           ) : 'Movimentação'}
         </div>
-        <div style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at as string)}</div>
+        <div style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</div>
       </div>
       {!!(cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.note) && (
         <div style={{ marginTop: 8 }}>
@@ -160,8 +175,8 @@ function CheckpointCard({ event }: { event: Record<string, unknown> }) {
 }
 
 // Card para eventos de perda
-function LostCard({ event }: { event: Record<string, unknown> }) {
-  const m = (event.metadata as Record<string, unknown>) ?? {}
+function LostCard({ event }: { event: CycleEvent }) {
+  const m = event.metadata ?? {}
   const cp = extractCheckpoint(m)
   const from = (m.from_status as string) ?? (event.from_stage as string)
   return (
@@ -170,7 +185,7 @@ function LostCard({ event }: { event: Record<string, unknown> }) {
         <div style={{ fontWeight: 700, color: '#f87171' }}>
           {from ? `${statusLabel(from)} → PERDIDO` : 'PERDIDO'}
         </div>
-        <div style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at as string)}</div>
+        <div style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</div>
       </div>
       <div style={{ marginTop: 8 }}>
         <FieldRow label="Canal" value={cp.action_channel != null ? String(cp.action_channel) : undefined} />
@@ -222,8 +237,8 @@ function WonCard({ cycle }: { cycle: Record<string, unknown> }) {
 }
 
 // Card para eventos administrativos/sem checkpoint
-function AdminCard({ event }: { event: Record<string, unknown> }) {
-  const m = (event.metadata as Record<string, unknown>) ?? {}
+function AdminCard({ event }: { event: CycleEvent }) {
+  const m = event.metadata ?? {}
   const EVENT_LABELS: Record<string, string> = {
     assigned: 'Ciclo atribuído',
     reassigned: 'Ciclo reatribuído',
@@ -235,12 +250,12 @@ function AdminCard({ event }: { event: Record<string, unknown> }) {
     contacted: 'Contato registrado',
     replied: 'Resposta registrada',
   }
-  const label = EVENT_LABELS[event.event_type as string] ?? (event.event_type as string).replace(/_/g, ' ')
+  const label = EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <span style={{ color: '#8b8fa2', fontWeight: 600 }}>{label}</span>
-        <span style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at as string)}</span>
+        <span style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</span>
       </div>
       {!!m.reason && (
         <div style={{ marginTop: 4, color: '#8b8fa2', fontSize: 13 }}>
@@ -256,8 +271,8 @@ function AdminCard({ event }: { event: Record<string, unknown> }) {
   )
 }
 
-function getEventTitle(event: Record<string, unknown>): string {
-  const m = (event.metadata as Record<string, unknown>) ?? {}
+function getEventTitle(event: CycleEvent): string {
+  const m = event.metadata ?? {}
   const from = (m.from_status as string) ?? (event.from_stage as string)
   const to = (m.to_status as string) ?? (event.to_stage as string)
   if (from || to) {
@@ -274,7 +289,7 @@ function getEventTitle(event: Record<string, unknown>): string {
     contacted: 'Contato registrado',
     replied: 'Resposta registrada',
   }
-  return EVENT_LABELS[event.event_type as string] ?? (event.event_type as string).replace(/_/g, ' ')
+  return EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 }
 
 // ---------------------------------------------------------------------------
@@ -320,7 +335,7 @@ async function getSalesCycleDetail(cycleId: string) {
 
   return {
     cycle: cycleData,
-    events: (eventsData || []),
+    events: (eventsData || []) as CycleEvent[],
   }
 }
 
@@ -480,8 +495,8 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           <div style={{ fontSize: 10, color: '#8b8fa2', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Última movimentação</div>
           {lastEvent ? (
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{getEventTitle(lastEvent as Record<string, unknown>)}</div>
-              <div style={{ fontSize: 11, color: '#8b8fa2', marginTop: 2 }}>{fmtDateShort((lastEvent as Record<string, unknown>).occurred_at as string)}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{getEventTitle(lastEvent)}</div>
+              <div style={{ fontSize: 11, color: '#8b8fa2', marginTop: 2 }}>{fmtDateShort(lastEvent.occurred_at)}</div>
             </div>
           ) : (
             <div style={{ fontSize: 12, color: '#8b8fa2' }}>Sem movimentação</div>
@@ -528,15 +543,15 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {(events as Record<string, unknown>[]).map((event) => {
-                  const m = (event.metadata as Record<string, unknown>) ?? {}
-                  const toStatus = (m.to_status as string) ?? (event.to_stage as string) ?? ''
+                {events.map((event) => {
+                  const m = event.metadata ?? {}
+                  const toStatus = (m.to_status as string) ?? event.to_stage ?? ''
                   const isLoss = event.event_type === 'stage_changed' && String(toStatus).toLowerCase() === 'perdido'
                   const isTransition = event.event_type === 'stage_changed' && !isLoss
 
                   return (
                     <div
-                      key={event.id as string}
+                      key={event.id}
                       style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}
                     >
                       {/* Timeline dot */}
