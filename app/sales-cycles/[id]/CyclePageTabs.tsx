@@ -135,6 +135,14 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
   const openCheckpoint = (toStatus: LeadStatus) => {
     if (toStatus === cycle.status) return
+    if (toStatus === 'ganho') {
+      setShowWinModal(true)
+      return
+    }
+    if (toStatus === 'perdido') {
+      setShowLostModal(true)
+      return
+    }
     setCheckpointToStatus(toStatus)
     setCheckpointOpen(true)
   }
@@ -766,58 +774,52 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           </div>
         </div>
 
-        {/* Fechar ciclo */}
+        {/* Ações Rápidas */}
         <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 16, padding: 20 }}>
           <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Fechar Ciclo
+            Ações Rápidas
           </h3>
-          {isClosed ? (
-            <div style={{ fontSize: 12, color: '#8b8fa2', padding: '8px 0' }}>
-              Ciclo já está fechado como <strong style={{ color: cycle.status === 'ganho' ? '#34d399' : '#f87171' }}>{statusLabel(cycle.status as string)}</strong>.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {waLink && (
               <button
-                onClick={() => setShowWinModal(true)}
-                disabled={loading}
+                onClick={() => {
+                  window.open(waLink, '_blank', 'noopener,noreferrer')
+                  setContactBannerChannel('Whats')
+                  setShowContactBanner(true)
+                }}
                 style={{
-                  padding: '10px 16px', background: 'rgba(52,211,153,0.15)',
-                  border: '1px solid rgba(52,211,153,0.4)', borderRadius: 8,
-                  color: '#34d399', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  padding: '10px 16px',
+                  background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
+                  borderRadius: 8, color: '#34d399', fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', textAlign: 'center',
                 }}
               >
-                ✅ Registrar Ganho
+                📱 WhatsApp
               </button>
+            )}
+            {lead?.phone && (
               <button
-                onClick={() => setShowLostModal(true)}
-                disabled={loading}
+                onClick={copyPhone}
                 style={{
-                  padding: '10px 16px', background: 'rgba(248,113,113,0.15)',
-                  border: '1px solid rgba(248,113,113,0.4)', borderRadius: 8,
-                  color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  padding: '10px 16px', background: '#2a2a3e',
+                  border: '1px solid #3a3a4e', borderRadius: 8,
+                  color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}
               >
-                ❌ Registrar Perda
+                📋 Copiar telefone
               </button>
-              {waLink && (
-                <button
-                  onClick={() => {
-                    window.open(waLink, '_blank', 'noopener,noreferrer')
-                    setContactBannerChannel('Whats')
-                    setShowContactBanner(true)
-                  }}
-                  style={{
-                    padding: '10px 16px',
-                    background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
-                    borderRadius: 8, color: '#34d399', fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer', textAlign: 'center',
-                  }}
-                >
-                  📱 Abrir WhatsApp
-                </button>
-              )}
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => setActiveTab('lead-data')}
+              style={{
+                padding: '10px 16px', background: '#2a2a3e',
+                border: '1px solid #3a3a4e', borderRadius: 8,
+                color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              📝 Editar dados do lead
+            </button>
+          </div>
         </div>
       </div>
     </div>
