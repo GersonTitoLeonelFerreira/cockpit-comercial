@@ -6,6 +6,7 @@ import * as salesAnalytics from '@/app/lib/services/sales-analytics'
 import { listActiveProducts } from '@/app/lib/services/products'
 import type { Product } from '@/app/types/product'
 import type { PaymentMethod, PaymentType } from '@/app/types/sales_cycles'
+import { IconCircleCheck, IconLoader, IconAlertTriangle } from '@/app/components/icons/UiIcons'
 
 type WinDealModalProps = {
   isOpen: boolean
@@ -271,8 +272,9 @@ export function WinDealModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 20 }}>
-          ✅ Marcar Deal como Ganho
+        <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <IconCircleCheck size={20} color="#10b981" />
+          Marcar Deal como Ganho
         </div>
 
         {dealName && (
@@ -325,7 +327,7 @@ export function WinDealModal({
                 fontWeight: 900,
               }}
             >
-              📝 Manual
+              Manual
             </button>
             <button
               onClick={() => setWinMethod('revenue')}
@@ -343,7 +345,7 @@ export function WinDealModal({
                 opacity: loading ? 0.5 : 1,
               }}
             >
-              💰 Receita
+              Receita
             </button>
           </div>
         </div>
@@ -473,8 +475,8 @@ export function WinDealModal({
             ))}
           </select>
           {paymentMethod === 'misto' && (
-            <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4 }}>
-              ⚠️ Pagamento misto — obrigatório informar observação abaixo.
+            <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <IconAlertTriangle size={12} color="#fbbf24" /> Pagamento misto — obrigatório informar observação abaixo.
             </div>
           )}
         </div>
@@ -611,7 +613,7 @@ export function WinDealModal({
               opacity: disableSave ? 0.5 : 1,
             }}
           >
-            {saving ? '⏳ Salvando...' : '✓ Confirmar Ganho'}
+            {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconLoader size={14} /> Salvando...</span> : 'Confirmar Ganho'}
           </button>
           <button
             onClick={onClose}
@@ -629,7 +631,7 @@ export function WinDealModal({
               opacity: saving ? 0.7 : 1,
             }}
           >
-            ✕ Cancelar
+            Cancelar
           </button>
         </div>
       </div>
