@@ -7,12 +7,8 @@ import {
   type CycleEvent,
   statusLabel,
   fmtDateShort,
-  whatsappLink,
   statusBadgeStyle,
   getEventTitle,
-  COLOR_GREEN,
-  HEX_ALPHA_LIGHT,
-  HEX_ALPHA_MEDIUM,
   MONOSPACE_FONT,
   DAYS_STALE_THRESHOLD,
   MILLISECONDS_PER_DAY,
@@ -88,7 +84,6 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
     : null
   const lastEvent = events.length > 0 ? events[0] : null
   const badgeStyle = statusBadgeStyle(cycle.status as string)
-  const waLink = whatsappLink(lead?.phone)
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f14', padding: '24px 28px' }}>
@@ -121,32 +116,9 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           }}>
             {statusLabel(cycle.status as string)}
           </span>
-          {/* WhatsApp link */}
+          {/* Phone — plain text; interactive actions are inside CyclePageTabs */}
           {lead?.phone && (
-            waLink ? (
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: COLOR_GREEN,
-                  fontSize: 13,
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  background: `${COLOR_GREEN}${HEX_ALPHA_LIGHT}`,
-                  border: `1px solid ${COLOR_GREEN}${HEX_ALPHA_MEDIUM}`,
-                  borderRadius: 20,
-                  padding: '4px 12px',
-                  fontWeight: 500,
-                }}
-              >
-                📱 {lead.phone}
-              </a>
-            ) : (
-              <span style={{ color: '#8b8fa2', fontSize: 13 }}>{lead.phone}</span>
-            )
+            <span style={{ color: '#8b8fa2', fontSize: 13 }}>📱 {lead.phone}</span>
           )}
         </div>
         <p style={{ color: '#8b8fa2', fontSize: 12, margin: 0, marginTop: 6 }}>
