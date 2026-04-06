@@ -29,18 +29,18 @@ const LEAD_PAYMENT_TYPE_PT = {
   parcelado_sem_entrada: 'Parcelado (sem entrada)',
   recorrente: 'Recorrente', outro: 'Outro',
 }
-function fmtLeadCurrency(v) {
+function fmtLeadCurrency(v: number | null | undefined) {
   if (v == null) return '—'
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
-function stageLabel(s) {
+function stageLabel(s: string | null | undefined) {
   if (!s) return '—'
-  return LEAD_STATUS_PT[s.toLowerCase()] ?? s.toUpperCase()
+  return LEAD_STATUS_PT[s.toLowerCase() as keyof typeof LEAD_STATUS_PT] ?? s.toUpperCase()
 }
-function onlyDigits(v) {
+function onlyDigits(v: string | null | undefined) {
   return (v || '').replace(/\D/g, '')
 }
-function whatsappLink(phone) {
+function whatsappLink(phone: string | null | undefined) {
   const digits = onlyDigits(phone ?? '')
   if (!digits) return null
   const full = digits.startsWith('55') ? digits : `55${digits}`
@@ -49,7 +49,7 @@ function whatsappLink(phone) {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-export default async function LeadDetailPage(props) {
+export default async function LeadDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const leadId = params?.id
 
@@ -57,8 +57,8 @@ export default async function LeadDetailPage(props) {
   if (!UUID_RE.test(leadId)) notFound()
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         async getAll() {
@@ -195,12 +195,12 @@ export default async function LeadDetailPage(props) {
           </div>
           {events && events.length > 0 && (() => {
             const last = events[0] || {}
-            const m = last.metadata ?? {}
+            const m = (last.metadata ?? {}) as Record<string, unknown>
             const fromStage = last.from_stage ?? m.from_status
             const toStage = last.to_stage ?? m.to_status
             const title = fromStage && toStage
-              ? `${stageLabel(fromStage)} → ${stageLabel(toStage)}`
-              : LEAD_EVENT_LABELS[last.event_type] ?? String(last.event_type).replace(/_/g, ' ')
+              ? `${stageLabel(fromStage as string)} → ${stageLabel(toStage as string)}`
+              : LEAD_EVENT_LABELS[last.event_type as keyof typeof LEAD_EVENT_LABELS] ?? String(last.event_type).replace(/_/g, ' ')
             const dateStr = last.created_at ? new Date(last.created_at).toLocaleString('pt-BR') : '—'
             return (
               <div style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 8, background: '#161616', border: '1px solid #2a2a2a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -216,10 +216,10 @@ export default async function LeadDetailPage(props) {
             <div style={{ opacity: 0.7 }}>Nenhum evento ainda (mova no Kanban para gerar).</div>
           ) : (
             events.map(ev => {
-              const m = ev.metadata ?? {}
-              const cp = m.checkpoint || m.metadata || m
-              const fromStage = ev.from_stage ?? m.from_status
-              const toStage = ev.to_stage ?? m.to_status
+              const m = (ev.metadata ?? {}) as Record<string, unknown>
+              const cp = (m.checkpoint || m.metadata || m) as Record<string, any>
+              const fromStage = ev.from_stage ?? (m.from_status as string)
+              const toStage = ev.to_stage ?? (m.to_status as string)
               const isLoss = toStage && String(toStage).toLowerCase() === 'perdido'
               const isWon = toStage && String(toStage).toLowerCase() === 'ganho'
               const accentColor = isLoss ? '#fca5a5' : isWon ? '#86efac' : '#93c5fd'
@@ -229,13 +229,13 @@ export default async function LeadDetailPage(props) {
                 : '—'
               const nextActionDate = cp.next_action_date
                 ? (() => {
-                  const d = new Date(cp.next_action_date)
+                  const d = new Date(cp.next_action_date as string)
                   return isNaN(d.getTime()) ? null : d.toLocaleString('pt-BR')
                 })()
                 : null
               const eventTitle = fromStage && toStage
                 ? `${stageLabel(fromStage)} → ${stageLabel(toStage)}`
-                : LEAD_EVENT_LABELS[ev.event_type] ?? String(ev.event_type).replace(/_/g, ' ')
+                : LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? String(ev.event_type).replace(/_/g, ' ')
               const hasCheckpointFields = cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.note
               const hasLossFields = cp.lost_reason || cp.action_channel
               const hasWonCycleData = isWon && leadCycle && leadCycle.status === 'ganho'
@@ -273,13 +273,13 @@ export default async function LeadDetailPage(props) {
                         {leadCycle.payment_method && (
                           <div>
                             <span style={{ opacity: 0.55 }}>Meio de pagamento: </span>
-                            <span>{LEAD_PAYMENT_METHOD_PT[leadCycle.payment_method] ?? leadCycle.payment_method}</span>
+                            <span>{LEAD_PAYMENT_METHOD_PT[leadCycle.payment_method as keyof typeof LEAD_PAYMENT_METHOD_PT] ?? leadCycle.payment_method}</span>
                           </div>
                         )}
                         {leadCycle.payment_type && (
                           <div>
                             <span style={{ opacity: 0.55 }}>Negociação: </span>
-                            <span>{LEAD_PAYMENT_TYPE_PT[leadCycle.payment_type] ?? leadCycle.payment_type}</span>
+                            <span>{LEAD_PAYMENT_TYPE_PT[leadCycle.payment_type as keyof typeof LEAD_PAYMENT_TYPE_PT] ?? leadCycle.payment_type}</span>
                           </div>
                         )}
                         {leadCycle.installments_count > 0 && (
