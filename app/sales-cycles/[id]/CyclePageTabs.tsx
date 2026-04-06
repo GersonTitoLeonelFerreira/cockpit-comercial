@@ -115,7 +115,14 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   const [editingLead, setEditingLead] = useState(false)
   const [leadName, setLeadName] = useState(cycle.leads?.name || '')
   const [leadPhone, setLeadPhone] = useState(cycle.leads?.phone || '')
+  const [leadEmail, setLeadEmail] = useState(cycle.leads?.email || '')
   const [leadEditLoading, setLeadEditLoading] = useState(false)
+
+  // Contact registration banner (non-blocking, after WhatsApp/copy phone)
+  const [showContactBanner, setShowContactBanner] = useState(false)
+  const [contactBannerChannel, setContactBannerChannel] = useState<'Whats' | 'Ligação'>('Whats')
+  const [contactCheckpointOpen, setContactCheckpointOpen] = useState(false)
+  const [contactCheckpointLoading, setContactCheckpointLoading] = useState(false)
 
   const lead = cycle.leads as { id?: string; name?: string; phone?: string; email?: string } | null
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
@@ -182,7 +189,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       const supabase = supabaseBrowser()
       const { error } = await supabase
         .from('leads')
-        .update({ name: leadName.trim(), phone: leadPhone.trim() || null })
+        .update({ name: leadName.trim(), phone: leadPhone.trim() || null, email: leadEmail.trim() || null })
         .eq('id', lead?.id)
         .eq('company_id', companyId)
       if (error) throw error
@@ -199,7 +206,8 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
     if (lead?.phone) {
       try {
         await navigator.clipboard.writeText(lead.phone)
-        alert('Telefone copiado!')
+        setContactBannerChannel('Ligação')
+        setShowContactBanner(true)
       } catch {
         alert(lead.phone)
       }
@@ -398,19 +406,21 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {waLink && (
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => {
+                  window.open(waLink, '_blank', 'noopener,noreferrer')
+                  setContactBannerChannel('Whats')
+                  setShowContactBanner(true)
+                }}
                 style={{
-                  display: 'block', padding: '8px 12px',
+                  display: 'block', width: '100%', padding: '8px 12px',
                   background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
                   borderRadius: 8, color: '#34d399', fontSize: 12, fontWeight: 600,
-                  textDecoration: 'none', textAlign: 'center',
+                  textDecoration: 'none', textAlign: 'center', cursor: 'pointer',
                 }}
               >
                 📱 WhatsApp
-              </a>
+              </button>
             )}
             {lead?.phone && (
               <button
@@ -538,7 +548,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer',
             }}
           >
-            {editingLead ? 'Cancelar' : 'Editar nome/telefone'}
+            {editingLead ? 'Cancelar' : 'Editar informações'}
           </button>
         </div>
 
@@ -565,6 +575,21 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 type="text"
                 value={leadPhone}
                 onChange={(e) => setLeadPhone(e.target.value)}
+                disabled={leadEditLoading}
+                style={{
+                  width: '100%', padding: '8px 12px',
+                  background: '#181824', border: '1px solid #3a3a4e',
+                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Email</label>
+              <input
+                type="email"
+                value={leadEmail}
+                onChange={(e) => setLeadEmail(e.target.value)}
                 disabled={leadEditLoading}
                 style={{
                   width: '100%', padding: '8px 12px',
@@ -775,19 +800,21 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 ❌ Registrar Perda
               </button>
               {waLink && (
-                <a
-                  href={waLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={() => {
+                    window.open(waLink, '_blank', 'noopener,noreferrer')
+                    setContactBannerChannel('Whats')
+                    setShowContactBanner(true)
+                  }}
                   style={{
-                    display: 'block', padding: '10px 16px',
+                    padding: '10px 16px',
                     background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
                     borderRadius: 8, color: '#34d399', fontSize: 13, fontWeight: 600,
-                    textDecoration: 'none', textAlign: 'center',
+                    cursor: 'pointer', textAlign: 'center',
                   }}
                 >
                   📱 Abrir WhatsApp
-                </a>
+                </button>
               )}
             </div>
           )}
@@ -1003,6 +1030,96 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             router.refresh()
           }}
         />
+      )}
+
+      {/* ── Contact registration StageCheckpointModal (WhatsApp / Copiar telefone) ── */}
+      <StageCheckpointModal
+        open={contactCheckpointOpen}
+        fromStatus={cycle.status as any}
+        toStatus={cycle.status as any}
+        loading={contactCheckpointLoading}
+        onCancel={() => { if (!contactCheckpointLoading) setContactCheckpointOpen(false) }}
+        onConfirm={async (payload) => {
+          setContactCheckpointLoading(true)
+          try {
+            await moveCycleStage({
+              cycle_id: cycle.id,
+              to_status: cycle.status,
+              metadata: payload as any,
+            })
+            if (payload?.next_action && payload?.next_action_date) {
+              await setNextAction({
+                cycle_id: cycle.id,
+                next_action: payload.next_action,
+                next_action_date: payload.next_action_date,
+              })
+            }
+            setContactCheckpointOpen(false)
+            router.refresh()
+          } catch (err: any) {
+            alert(`Erro: ${err?.message ?? String(err)}`)
+          } finally {
+            setContactCheckpointLoading(false)
+          }
+        }}
+      />
+
+      {/* ── Non-blocking contact registration banner ─────────────────────────── */}
+      {showContactBanner && (
+        <div style={{
+          position: 'fixed', bottom: 28, right: 28, zIndex: 600,
+          background: '#1e1e2e', border: '1px solid #2a2a3e',
+          borderRadius: 14, padding: '16px 20px', maxWidth: 320,
+          boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 3 }}>
+                {contactBannerChannel === 'Whats' ? '📱 WhatsApp aberto' : '📋 Telefone copiado'}
+              </div>
+              <div style={{ fontSize: 12, color: '#8b8fa2' }}>
+                Deseja registrar este contato?
+              </div>
+            </div>
+            <button
+              onClick={() => setShowContactBanner(false)}
+              style={{
+                background: 'none', border: 'none', color: '#4b5563',
+                cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0,
+                flexShrink: 0,
+              }}
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => {
+                setShowContactBanner(false)
+                setContactCheckpointOpen(true)
+              }}
+              style={{
+                flex: 1, padding: '8px 12px',
+                background: 'rgba(96,165,250,0.15)', border: '1px solid rgba(96,165,250,0.4)',
+                borderRadius: 8, color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Sim, registrar
+            </button>
+            <button
+              onClick={() => setShowContactBanner(false)}
+              style={{
+                flex: 1, padding: '8px 12px',
+                background: '#2a2a3e', border: '1px solid #3a3a4e',
+                borderRadius: 8, color: '#8b8fa2', fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              Agora não
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
