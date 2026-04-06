@@ -1,4 +1,5 @@
 import LeadOperationalSummary from './LeadOperationalSummary'
+import LeadContextAlerts from './LeadContextAlerts'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect, notFound } from 'next/navigation'
@@ -149,6 +150,15 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
       {/* --------- BLOCO DE RESUMO OPERACIONAL --------- */}
       <LeadOperationalSummary events={events || []} ciclo={leadCycle ?? {}} />
       {/* ---------------------------------------------- */}
+      <LeadContextAlerts
+        events={events || []}
+        lead={{
+          status: lead.status,
+          next_action: lead.next_action,
+          next_contact_at: lead.next_contact_at,
+          created_at: lead.created_at,
+        }}
+      />
       <div style={{ opacity: 0.9, marginTop: 8 }}>
         <div>
           <strong>Telefone:</strong> {lead.phone ?? '—'}
