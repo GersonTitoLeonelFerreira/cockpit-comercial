@@ -68,17 +68,22 @@ function extractCheckpoint(meta: Record<string, unknown>): Record<string, unknow
   if (meta.metadata && typeof meta.metadata === 'object') return meta.metadata as Record<string, unknown>
   return meta
 }
-const BRAZIL_COUNTRY_CODE = '55'
+const BRAZIL_PHONE_PREFIX = '55'
 
 function whatsappLink(phone: string | null | undefined): string | null {
   if (!phone) return null
   const clean = phone.replace(/\D/g, '')
   if (!clean) return null
-  return `https://wa.me/${clean.startsWith(BRAZIL_COUNTRY_CODE) ? clean : BRAZIL_COUNTRY_CODE + clean}`
+  return `https://wa.me/${clean.startsWith(BRAZIL_PHONE_PREFIX) ? clean : BRAZIL_PHONE_PREFIX + clean}`
 }
 
 const DAYS_STALE_THRESHOLD = 7
 const DEFAULT_ACTION_BORDER_COLOR = '#4b5563'
+/** Hex alpha suffix for light tint backgrounds (~8% opacity) */
+const HEX_ALPHA_LIGHT = '14'
+/** Hex alpha suffix for medium tint borders (~27% opacity) */
+const HEX_ALPHA_MEDIUM = '44'
+const MONOSPACE_FONT = 'monospace'
 
 // ---------------------------------------------------------------------------
 // Status badge styles
@@ -397,14 +402,14 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  color: '#34d399',
+                  color: COLOR_GREEN,
                   fontSize: 13,
                   textDecoration: 'none',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 5,
-                  background: 'rgba(52,211,153,0.10)',
-                  border: '1px solid rgba(52,211,153,0.25)',
+                  background: `${COLOR_GREEN}${HEX_ALPHA_LIGHT}`,
+                  border: `1px solid ${COLOR_GREEN}${HEX_ALPHA_MEDIUM}`,
                   borderRadius: 20,
                   padding: '4px 12px',
                   fontWeight: 500,
@@ -418,7 +423,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           )}
         </div>
         <p style={{ color: '#8b8fa2', fontSize: 12, margin: 0, marginTop: 6 }}>
-          Ciclo <span style={{ fontFamily: 'monospace' }}>#{String(cycle.id)}</span>
+          Ciclo <span style={{ fontFamily: MONOSPACE_FONT }}>#{String(cycle.id)}</span>
         </p>
       </div>
 
@@ -614,8 +619,8 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
                     fontSize: 11,
                     fontWeight: 600,
                     color: nextActionBadge.color,
-                    background: `${nextActionBadge.color}22`,
-                    border: `1px solid ${nextActionBadge.color}44`,
+                    background: `${nextActionBadge.color}${HEX_ALPHA_LIGHT}`,
+                    border: `1px solid ${nextActionBadge.color}${HEX_ALPHA_MEDIUM}`,
                     borderRadius: 20,
                     padding: '2px 10px',
                   }}>
