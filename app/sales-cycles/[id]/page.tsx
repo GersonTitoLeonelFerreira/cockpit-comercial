@@ -62,6 +62,8 @@ function whatsappLink(phone: string | null | undefined): string | null {
   return `https://wa.me/${clean.startsWith('55') ? clean : '55' + clean}`
 }
 
+const DAYS_STALE_THRESHOLD = 7
+
 // ---------------------------------------------------------------------------
 // Status badge styles
 // ---------------------------------------------------------------------------
@@ -78,6 +80,21 @@ const STATUS_BADGE: Record<string, { background: string; color: string }> = {
 function statusBadgeStyle(s: string | null | undefined): { background: string; color: string } {
   const key = (s ?? '').toLowerCase()
   return STATUS_BADGE[key] ?? { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }
+}
+
+/** Returns badge label+color and border color for a next_action_date */
+function getNextActionUrgency(dateIso: string | null | undefined): {
+  badge: { label: string; color: string } | null
+  borderColor: string
+} {
+  if (!dateIso) return { badge: null, borderColor: '#4b5563' }
+  const d = new Date(dateIso)
+  const now = new Date()
+  const isToday = d.toDateString() === now.toDateString()
+  const isPast = d < now && !isToday
+  if (isPast) return { badge: { label: 'Vencida', color: '#f87171' }, borderColor: '#f87171' }
+  if (isToday) return { badge: { label: 'Hoje', color: '#fde68a' }, borderColor: '#fde68a' }
+  return { badge: { label: 'Futura', color: '#60a5fa' }, borderColor: '#60a5fa' }
 }
 
 // ---------------------------------------------------------------------------
@@ -316,28 +333,8 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
   const badgeStyle = statusBadgeStyle(cycle.status as string)
   const waLink = whatsappLink(lead?.phone)
 
-  // Next action badge
-  let nextActionBadge: { label: string; color: string } | null = null
-  if (cycle.next_action_date) {
-    const d = new Date(cycle.next_action_date as string)
-    const now = new Date()
-    const isToday = d.toDateString() === now.toDateString()
-    const isPast = d < now && !isToday
-    if (isPast) nextActionBadge = { label: 'Vencida', color: '#f87171' }
-    else if (isToday) nextActionBadge = { label: 'Hoje', color: '#fde68a' }
-    else nextActionBadge = { label: 'Futura', color: '#60a5fa' }
-  }
-
-  // Next action card left border color
-  let nextActionBorderColor = '#4b5563'
-  if (cycle.next_action_date) {
-    const d = new Date(cycle.next_action_date as string)
-    const now = new Date()
-    const isToday = d.toDateString() === now.toDateString()
-    if (d < now && !isToday) nextActionBorderColor = '#f87171'
-    else if (isToday) nextActionBorderColor = '#fde68a'
-    else nextActionBorderColor = '#60a5fa'
-  }
+  // Next action urgency (badge + border color) — shared helper
+  const { badge: nextActionBadge, borderColor: nextActionBorderColor } = getNextActionUrgency(cycle.next_action_date as string | null)
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f14', padding: '24px 28px' }}>
@@ -399,7 +396,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           )}
         </div>
         <p style={{ color: '#8b8fa2', fontSize: 12, margin: 0, marginTop: 6 }}>
-          Ciclo <span style={{ fontFamily: 'monospace' }}>#{cycle.id as string}</span>
+          Ciclo <span style={{ fontFamily: 'monospace' }}>#{String(cycle.id)}</span>
         </p>
       </div>
 
@@ -440,7 +437,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           <div style={{
             fontSize: 16,
             fontWeight: 700,
-            color: daysInStatus != null && daysInStatus > 7 ? '#f87171' : '#f1f5f9',
+            color: daysInStatus != null && daysInStatus > DAYS_STALE_THRESHOLD ? '#f87171' : '#f1f5f9',
           }}>
             {daysInStatus != null ? `${daysInStatus} dia${daysInStatus !== 1 ? 's' : ''}` : '—'}
           </div>
@@ -671,8 +668,8 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
                   <span style={{ fontSize: 12, color: '#8b8fa2' }}>Tempo no status</span>
                   <span style={{
                     fontSize: 12,
-                    color: daysInStatus > 7 ? '#f87171' : '#f1f5f9',
-                    fontWeight: daysInStatus > 7 ? 600 : 400,
+                    color: daysInStatus > DAYS_STALE_THRESHOLD ? '#f87171' : '#f1f5f9',
+                    fontWeight: daysInStatus > DAYS_STALE_THRESHOLD ? 600 : 400,
                   }}>
                     {daysInStatus} dia{daysInStatus !== 1 ? 's' : ''}
                   </span>
