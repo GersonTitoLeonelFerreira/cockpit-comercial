@@ -5,6 +5,16 @@
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
+import {
+  IconAlertTriangle,
+  IconClipboard,
+  IconCircleX,
+  IconTrophy,
+  IconRefreshCw,
+  IconPin,
+  IconPhone,
+  IconBrain,
+} from '@/app/components/icons/UiIcons'
 
 // ---------------------------------------------------------------------------
 // Tipos locais (compatível com CycleEvent de cycle-event-helpers)
@@ -88,7 +98,7 @@ function toLower(v: unknown): string {
 // ---------------------------------------------------------------------------
 
 interface ResumeItem {
-  icon: string
+  icon: ReactNode
   label: string
   content: ReactNode
   date?: string
@@ -113,7 +123,7 @@ function buildResumeItems(
   if (objectionEvent) {
     const cp = getCheckpoint(objectionEvent)
     items.push({
-      icon: '⚠️',
+      icon: <IconAlertTriangle size={11} color="#fcd34d" />,
       label: 'Última objeção registrada',
       content: <span style={{ color: '#fcd34d' }}>{str(cp.result_detail)}</span>,
       date: objectionEvent.occurred_at,
@@ -132,7 +142,7 @@ function buildResumeItems(
   if (noteEvent) {
     const cp = getCheckpoint(noteEvent)
     items.push({
-      icon: '📋',
+      icon: <IconClipboard size={11} color="#93c5fd" />,
       label: 'Última proposta / observação',
       content: <em style={{ opacity: 0.9 }}>{str(cp.note)}</em>,
       date: noteEvent.occurred_at,
@@ -159,7 +169,7 @@ function buildResumeItems(
     const isCurrentlyLost = currentStatus === 'perdido'
 
     items.push({
-      icon: '❌',
+      icon: <IconCircleX size={11} color="#fca5a5" />,
       label: isCurrentlyLost
         ? `Perda registrada${lossCount > 1 ? ` (${lossCount}x)` : ''}`
         : `Já foi perdido antes${lossCount > 1 ? ` (${lossCount}x)` : ''}`,
@@ -229,7 +239,7 @@ function buildResumeItems(
       }
       if (parts.length > 0) {
         items.push({
-          icon: '🏆',
+          icon: <IconTrophy size={11} color="#86efac" />,
           label: 'Contexto do ganho',
           content: (
             <span style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
@@ -242,7 +252,7 @@ function buildResumeItems(
     } else if (!isCurrentlyWon) {
       // Ganho anterior: sinaliza recompra
       items.push({
-        icon: '🔄',
+        icon: <IconRefreshCw size={11} color="#86efac" />,
         label: `Recompra — já foi ganho antes${winEvents.length > 1 ? ` (${winEvents.length}x)` : ''}`,
         content: (
           <span style={{ color: '#86efac', opacity: 0.9 }}>
@@ -271,7 +281,7 @@ function buildResumeItems(
     const actionDate = str(cp.next_action_date)
     if (action) {
       items.push({
-        icon: '📌',
+        icon: <IconPin size={11} color="#fde68a" />,
         label: 'Última próxima ação registrada',
         content: (
           <span>
@@ -297,7 +307,7 @@ function buildResumeItems(
     const result = str(cp.action_result)
     if (channel || result) {
       items.push({
-        icon: '📞',
+        icon: <IconPhone size={11} color="#a5b4fc" />,
         label: 'Último contato registrado',
         content: (
           <span>
@@ -352,9 +362,13 @@ export default function CycleResumeContext({ events, cycle }: Props) {
           letterSpacing: 1,
           marginBottom: 12,
           fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
         }}
       >
-        🧠 Antes de falar com este lead
+        <IconBrain size={12} color="#a78bfa" />
+        Antes de falar com este lead
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.map((item) => (
@@ -375,11 +389,14 @@ export default function CycleResumeContext({ events, cycle }: Props) {
                     opacity: 0.45,
                     textTransform: 'uppercase',
                     letterSpacing: 0.8,
-                    display: 'block',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
                     marginBottom: 3,
                   }}
                 >
-                  {item.icon} {item.label}
+                  <span style={{ opacity: 1, display: 'inline-flex', alignItems: 'center' }}>{item.icon}</span>
+                  {item.label}
                 </span>
                 <div style={{ fontSize: 13, color: '#e5e7eb', lineHeight: 1.45 }}>
                   {item.content}

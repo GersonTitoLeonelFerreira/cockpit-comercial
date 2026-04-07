@@ -219,3 +219,57 @@ export function IconTarget(props: IconProps) {
     </svg>
   )
 }
+
+export function IconBrain(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <path d="M9.5 2A2.5 2.5 0 007 4.5v.193A3.5 3.5 0 004 8a3.5 3.5 0 001.5 2.875A2.5 2.5 0 007 13.5V14a5 5 0 0010 0v-.5a2.5 2.5 0 001.5-2.625A3.5 3.5 0 0020 8a3.5 3.5 0 00-3-3.457V4.5A2.5 2.5 0 0014.5 2h-5z" />
+      <line x1="12" y1="6" x2="12" y2="14" />
+      <line x1="9" y1="9" x2="15" y2="9" />
+    </svg>
+  )
+}
+
+export function IconPhone(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" />
+    </svg>
+  )
+}
+
+export function IconPin(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24z" />
+    </svg>
+  )
+}
+
+export function IconTrophy(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <polyline points="14.5 17 14.5 22 9.5 22 9.5 17" />
+      <line x1="7" y1="22" x2="17" y2="22" />
+      <path d="M5 9H3a1 1 0 01-1-1V7a1 1 0 011-1h2" />
+      <path d="M19 9h2a1 1 0 001-1V7a1 1 0 00-1-1h-2" />
+      <path d="M5 6h14v5a7 7 0 01-14 0z" />
+    </svg>
+  )
+}
+
+export function IconRefreshCw(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+    </svg>
+  )
+}
