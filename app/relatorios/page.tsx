@@ -211,8 +211,7 @@ const sections: Section[] = [
         icon: <IconActivity />,
         title: 'Avanço por Ação',
         desc: 'Quais ações geram avanço real de etapa e quais ficam estagnadas',
-        href: '#',
-        comingSoon: true,
+        href: '/relatorios/operacao/avanco-por-acao',
       },
       {
         icon: <IconMessageSquare />,

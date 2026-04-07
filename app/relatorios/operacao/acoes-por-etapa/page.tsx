@@ -555,32 +555,33 @@ export default function AcoesPorEtapaPage() {
             paddingBottom: 0,
           }}
         >
-          {[
-            { label: 'Ações por Etapa', active: true },
-            { label: 'Avanço por Ação', active: false },
-            { label: 'Objeções e Perdas', active: false },
-            { label: 'Próximas Ações', active: false },
-            { label: 'Canais', active: false },
-            { label: 'Desempenho por Consultor', active: false },
+        {[
+            { label: 'Ações por Etapa', href: null as string | null, active: true, comingSoon: false },
+            { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' as string | null, active: false, comingSoon: false },
+            { label: 'Objeções e Perdas', href: null as string | null, active: false, comingSoon: true },
+            { label: 'Próximas Ações', href: null as string | null, active: false, comingSoon: true },
+            { label: 'Canais', href: null as string | null, active: false, comingSoon: true },
+            { label: 'Desempenho por Consultor', href: null as string | null, active: false, comingSoon: true },
           ].map((tab) => (
             <button
               key={tab.label}
-              disabled={!tab.active}
+              disabled={!tab.active && !tab.href}
+              onClick={() => { if (tab.href) window.location.href = tab.href }}
               style={{
                 background: 'none',
                 border: 'none',
                 borderBottom: tab.active ? '2px solid #a78bfa' : '2px solid transparent',
-                cursor: tab.active ? 'default' : 'not-allowed',
+                cursor: tab.active ? 'default' : tab.href ? 'pointer' : 'not-allowed',
                 padding: '8px 14px',
                 fontSize: 13,
                 fontWeight: tab.active ? 600 : 400,
-                color: tab.active ? '#a78bfa' : '#444',
+                color: tab.active ? '#a78bfa' : tab.href ? '#888' : '#444',
                 marginBottom: -1,
                 transition: 'color 0.15s',
               }}
             >
               {tab.label}
-              {!tab.active && (
+              {tab.comingSoon && (
                 <span
                   style={{
                     marginLeft: 6,
