@@ -28,6 +28,8 @@ import {
   IconPencil,
   IconArrowRightCircle,
   IconX,
+  IconHistory,
+  IconCircleCheck,
 } from '@/app/components/icons/UiIcons'
 import {
   type CycleEvent,
@@ -176,6 +178,10 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
   // Toast confirmation after quick action
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  // Error toast (replaces alert())
+  const [toastError, setToastError] = useState<string | null>(null)
+  // Copy phone feedback
+  const [copiedPhone, setCopiedPhone] = useState(false)
 
   // Auto-dismiss toast after 4 seconds
   useEffect(() => {
@@ -183,6 +189,20 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
     const t = setTimeout(() => setToastMessage(null), TOAST_DURATION_MS)
     return () => clearTimeout(t)
   }, [toastMessage])
+
+  // Auto-dismiss error toast after 5 seconds
+  useEffect(() => {
+    if (!toastError) return
+    const t = setTimeout(() => setToastError(null), 5000)
+    return () => clearTimeout(t)
+  }, [toastError])
+
+  // Reset "Copiado!" feedback after 2 seconds
+  useEffect(() => {
+    if (!copiedPhone) return
+    const t = setTimeout(() => setCopiedPhone(false), 2000)
+    return () => clearTimeout(t)
+  }, [copiedPhone])
 
   const lead = cycle.leads as { id?: string; name?: string; phone?: string; email?: string } | null
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
@@ -209,7 +229,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
   const handleSaveAction = async () => {
     if (!action.trim() || !actionDate) {
-      alert('Preencha ação e data')
+      setToastError('Preencha a ação e a data antes de salvar.')
       return
     }
     setLoading(true)
@@ -224,7 +244,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       setShowActionModal(false)
       router.refresh()
     } catch (err: any) {
-      alert(`Erro: ${err?.message ?? String(err)}`)
+      setToastError(`Erro ao salvar: ${err?.message ?? String(err)}`)
     } finally {
       setLoading(false)
     }
@@ -232,7 +252,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
   const handleSaveLead = async () => {
     if (!leadName.trim()) {
-      alert('Nome é obrigatório')
+      setToastError('Nome é obrigatório para salvar.')
       return
     }
     setLeadEditLoading(true)
@@ -247,7 +267,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       setEditingLead(false)
       router.refresh()
     } catch (err: any) {
-      alert(`Erro: ${err?.message ?? String(err)}`)
+      setToastError(`Erro ao salvar: ${err?.message ?? String(err)}`)
     } finally {
       setLeadEditLoading(false)
     }
@@ -257,10 +277,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
     if (lead?.phone) {
       try {
         await navigator.clipboard.writeText(lead.phone)
+        setCopiedPhone(true)
         setContactBannerChannel('copy')
         setShowContactBanner(true)
       } catch {
-        alert(lead.phone)
+        setToastError(`Não foi possível copiar. Número: ${lead.phone}`)
       }
     }
   }
@@ -270,7 +291,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // --------------------------------------------------------------------------
 
   const renderTabBar = () => (
-    <div style={{ borderBottom: '1px solid #2a2a3e', marginBottom: 24, display: 'flex', gap: 0 }}>
+    <div style={{ borderBottom: '1px solid #2a2a3e', marginBottom: 24, display: 'flex', gap: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
       {TABS.map((tab) => (
         <button
           key={tab.id}
@@ -286,6 +307,8 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             background: activeTab === tab.id ? '#2a2a3e' : 'transparent',
             color: activeTab === tab.id ? 'white' : '#8b8fa2',
             borderRadius: '8px 8px 0 0',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
           {tab.label}
@@ -337,8 +360,13 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             </button>
           </div>
           {events.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: '#8b8fa2', fontSize: 13 }}>
-              Nenhum evento registrado
+            <div style={{ textAlign: 'center', padding: '24px 0', color: '#6b7280' }}>
+              <div style={{ marginBottom: 8, opacity: 0.5, display: 'flex', justifyContent: 'center' }}>
+                <IconHistory size={22} />
+              </div>
+              <p style={{ fontSize: 13, fontStyle: 'italic', margin: 0, lineHeight: 1.5 }}>
+                Nenhum evento registrado ainda — registre o primeiro contato para iniciar o acompanhamento
+              </p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -427,8 +455,8 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             </div>
           ) : (
             <div>
-              <div style={{ fontSize: 13, color: '#fde68a', opacity: 0.6, marginBottom: 10 }}>
-                Nenhuma ação definida
+              <div style={{ fontSize: 13, color: '#6b7280', fontStyle: 'italic', marginBottom: 10, lineHeight: 1.5 }}>
+                Nenhuma ação agendada — defina o próximo passo para manter o lead ativo
               </div>
               <button
                 onClick={() => setShowActionModal(true)}
@@ -439,6 +467,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   background: '#2a2a3e', border: '1px solid #3a3a4e',
                   borderRadius: 8, color: '#f1f5f9', cursor: isClosed ? 'not-allowed' : 'pointer',
                   opacity: isClosed ? 0.5 : 1,
+                  transition: 'all 0.15s',
                 }}
               >
                 Definir ação
@@ -494,12 +523,18 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 onClick={copyPhone}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '8px 12px', background: '#2a2a3e',
-                  border: '1px solid #3a3a4e', borderRadius: 8,
-                  color: '#f1f5f9', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  padding: '8px 12px',
+                  background: copiedPhone ? 'rgba(52,211,153,0.12)' : '#2a2a3e',
+                  border: copiedPhone ? '1px solid rgba(52,211,153,0.4)' : '1px solid #3a3a4e',
+                  borderRadius: 8,
+                  color: copiedPhone ? '#34d399' : '#f1f5f9',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.2s',
                 }}
               >
-                <IconClipboard size={14} /> Copiar telefone
+                {copiedPhone
+                  ? <><IconCircleCheck size={14} /> Copiado!</>
+                  : <><IconClipboard size={14} /> Copiar telefone</>}
               </button>
             )}
             <button
@@ -571,8 +606,13 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       )}
 
       {events.length === 0 && cycle.status !== 'ganho' ? (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#8b8fa2' }}>
-          Nenhum evento registrado
+        <div style={{ textAlign: 'center', padding: '48px 0', color: '#6b7280' }}>
+          <div style={{ marginBottom: 12, opacity: 0.4, display: 'flex', justifyContent: 'center' }}>
+            <IconHistory size={28} />
+          </div>
+          <p style={{ fontSize: 13, fontStyle: 'italic', margin: 0, lineHeight: 1.6 }}>
+            Nenhum evento registrado ainda — registre o primeiro contato para iniciar o acompanhamento
+          </p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -867,12 +907,18 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 onClick={copyPhone}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '10px 16px', background: '#2a2a3e',
-                  border: '1px solid #3a3a4e', borderRadius: 8,
-                  color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  padding: '10px 16px',
+                  background: copiedPhone ? 'rgba(52,211,153,0.12)' : '#2a2a3e',
+                  border: copiedPhone ? '1px solid rgba(52,211,153,0.4)' : '1px solid #3a3a4e',
+                  borderRadius: 8,
+                  color: copiedPhone ? '#34d399' : '#f1f5f9',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.2s',
                 }}
               >
-                <IconClipboard size={14} /> Copiar telefone
+                {copiedPhone
+                  ? <><IconCircleCheck size={14} /> Copiado!</>
+                  : <><IconClipboard size={14} /> Copiar telefone</>}
               </button>
             )}
             <button
@@ -977,7 +1023,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             setCheckpointOpen(false)
             router.refresh()
           } catch (err: any) {
-            alert(`Erro: ${err?.message ?? String(err)}`)
+            setToastError(`Erro: ${err?.message ?? String(err)}`)
           } finally {
             setCheckpointLoading(false)
           }
@@ -1118,7 +1164,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             }
             router.refresh()
           } catch (err: any) {
-            alert(`Erro: ${err?.message ?? String(err)}`)
+            setToastError(`Erro: ${err?.message ?? String(err)}`)
           } finally {
             setQuickActionLoading(false)
           }
@@ -1196,7 +1242,33 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          ✓ {toastMessage}
+          <IconCircleCheck size={16} color="#a7f3d0" /> {toastMessage}
+        </div>
+      )}
+
+      {/* ── Error toast (replaces alert) ── */}
+      {toastError && (
+        <div style={{
+          position: 'fixed', bottom: 148, right: 28, zIndex: 800,
+          background: '#450a0a', border: '1px solid #ef4444',
+          borderRadius: 10, padding: '12px 18px',
+          color: '#fca5a5', fontSize: 13, fontWeight: 600,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          maxWidth: 340,
+        }}>
+          <span style={{ flex: 1, lineHeight: 1.4 }}>{toastError}</span>
+          <button
+            onClick={() => setToastError(null)}
+            style={{
+              background: 'none', border: 'none', color: '#f87171',
+              cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center',
+              flexShrink: 0,
+            }}
+            aria-label="Fechar"
+          >
+            <IconX size={16} />
+          </button>
         </div>
       )}
     </div>
