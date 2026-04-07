@@ -11,6 +11,7 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import CycleOperationalSummary from './CycleOperationalSummary'
 import CycleContextAlerts from './CycleContextAlerts'
 import CycleResumeContext from './CycleResumeContext'
+import CycleSuggestedAction from './CycleSuggestedAction'
 import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
@@ -367,6 +368,16 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
       {/* Coluna direita */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Próximo passo sugerido */}
+        <CycleSuggestedAction
+          events={events}
+          cycle={cycle}
+          onOpenWhatsApp={waLink ? () => { window.open(waLink, '_blank', 'noopener,noreferrer') } : undefined}
+          onRegisterContact={() => setShowQuickActionModal(true)}
+          onUpdateNextAction={() => setShowActionModal(true)}
+          onMoveStage={() => setActiveTab('actions')}
+        />
+
         {/* Próxima Ação */}
         <div style={{
           background: '#1e1e2e',

@@ -197,3 +197,25 @@ export function IconUser(props: IconProps) {
     </svg>
   )
 }
+
+export function IconLightbulb(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+      <path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 01-1 1H9a1 1 0 01-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z" />
+    </svg>
+  )
+}
+
+export function IconTarget(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  )
+}
