@@ -129,8 +129,15 @@ function buildReportData(
 
     if (!isObjectionAction && !hasObjField) continue
 
-    // Apply stage filter for objections (negociacao is the natural stage)
-    if (selectedStage && selectedStage !== 'negociacao') continue
+    // Determine the stage for this objection
+    // Taxonomy action negociacao_objecao_registrada belongs to 'negociacao';
+    // for free-text objection fields, infer from metadata stage info if available.
+    const objStage = isObjectionAction
+      ? 'negociacao'
+      : String(meta.from_status ?? meta.to_status ?? '').trim().toLowerCase() || 'negociacao'
+
+    // Apply stage filter
+    if (selectedStage && objStage !== selectedStage) continue
 
     totalObjectionEvents++
 
@@ -139,8 +146,9 @@ function buildReportData(
     if (hasObjField) {
       label = objectionText
     } else {
-      // Action is negociacao_objecao_registrada but no free-text
-      label = String(meta.details ?? meta.reason ?? '').trim() || 'Objeção sem descrição'
+      // Action is negociacao_objecao_registrada but no free-text:
+      // prefer result_detail (specific to objection context), then details, then reason
+      label = String(meta.result_detail ?? meta.details ?? meta.reason ?? '').trim() || 'Objeção sem descrição'
     }
 
     objectionCounts[label] = (objectionCounts[label] ?? 0) + 1
@@ -283,7 +291,7 @@ function SummaryCard({
   )
 }
 
-function FrequencyBar({ value, color }: { value: number; color: string }) {
+function PercentBar({ value, color }: { value: number; color: string }) {
   return (
     <div
       style={{
@@ -340,7 +348,7 @@ function ObjectionRow({ stat, rank }: { stat: ObjectionStat; rank: number }) {
       <span style={{ fontSize: 11, color: '#555', minWidth: 36, textAlign: 'right', flexShrink: 0 }}>
         {stat.pct}%
       </span>
-      <FrequencyBar value={stat.pct} color="#fbbf24" />
+      <PercentBar value={stat.pct} color="#fbbf24" />
     </div>
   )
 }
@@ -377,7 +385,7 @@ function LossRow({ stat, rank }: { stat: LossStat; rank: number }) {
       <span style={{ fontSize: 11, color: '#555', minWidth: 36, textAlign: 'right', flexShrink: 0 }}>
         {stat.pct}%
       </span>
-      <FrequencyBar value={stat.pct} color="#f87171" />
+      <PercentBar value={stat.pct} color="#f87171" />
     </div>
   )
 }
