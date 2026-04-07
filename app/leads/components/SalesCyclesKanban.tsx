@@ -999,6 +999,7 @@ function KanbanCard({
         <QuickActionModal
           isOpen={showQuickActionModal}
           leadName={item.name}
+          currentStatus={item.status}
           onClose={() => setShowQuickActionModal(false)}
           onSave={handleQuickActionSave}
           isLoading={quickActionLoading}

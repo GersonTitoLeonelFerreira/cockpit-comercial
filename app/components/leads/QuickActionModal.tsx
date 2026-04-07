@@ -8,20 +8,122 @@ import { createPortal } from 'react-dom'
 // ============================================================================
 
 export type QuickActionType =
+  // Etapa NOVO
   | 'quick_approach_contact'
   | 'quick_call_done'
+  | 'quick_whats_sent'
+  | 'quick_email_sent'
+  | 'quick_bad_data'
+  // Etapa CONTATO
+  | 'quick_showed_interest'
+  | 'quick_asked_info'
   | 'quick_answered_doubt'
   | 'quick_scheduled'
+  | 'quick_asked_proposal'
+  // Etapa RESPONDEU
+  | 'quick_qualified'
+  | 'quick_proposal_presented'
+  | 'quick_doubt_answered'
+  | 'quick_visit_scheduled'
+  | 'quick_negotiation_started'
+  // Etapa NEGOCIAÇÃO
+  | 'quick_final_proposal_sent'
+  | 'quick_objection_registered'
+  | 'quick_commercial_condition'
+  | 'quick_closing_scheduled'
+  | 'quick_closed_won'
+  | 'quick_closed_lost'
+  // Genérica
   | 'quick_proposal'
-  | 'quick_bad_data'
 
 export const QUICK_ACTION_SUGGESTED_STATUS: Record<QuickActionType, string | null> = {
+  // NOVO
   quick_approach_contact: 'contato',
   quick_call_done: 'contato',
+  quick_whats_sent: 'contato',
+  quick_email_sent: 'contato',
+  quick_bad_data: null,
+  // CONTATO
+  quick_showed_interest: 'respondeu',
+  quick_asked_info: null,
   quick_answered_doubt: 'respondeu',
   quick_scheduled: 'respondeu',
+  quick_asked_proposal: 'negociacao',
+  // RESPONDEU
+  quick_qualified: 'negociacao',
+  quick_proposal_presented: 'negociacao',
+  quick_doubt_answered: null,
+  quick_visit_scheduled: null,
+  quick_negotiation_started: 'negociacao',
+  // NEGOCIAÇÃO
+  quick_final_proposal_sent: null,
+  quick_objection_registered: null,
+  quick_commercial_condition: null,
+  quick_closing_scheduled: null,
+  quick_closed_won: 'ganho',
+  quick_closed_lost: 'perdido',
+  // Genérica
   quick_proposal: 'negociacao',
-  quick_bad_data: null,
+}
+
+// ============================================================================
+// getActionsForStatus
+// ============================================================================
+
+const STATUS_LABEL_MAP: Record<string, string> = {
+  novo: 'Novo',
+  contato: 'Contato',
+  respondeu: 'Respondeu',
+  negociacao: 'Negociação',
+  ganho: 'Ganho',
+  perdido: 'Perdido',
+}
+
+export function getActionsForStatus(status: string): { id: QuickActionType; label: string }[] {
+  switch (status) {
+    case 'novo':
+      return [
+        { id: 'quick_approach_contact', label: 'Abordagem realizada' },
+        { id: 'quick_call_done', label: 'Ligação feita' },
+        { id: 'quick_whats_sent', label: 'WhatsApp enviado' },
+        { id: 'quick_email_sent', label: 'Email enviado' },
+        { id: 'quick_bad_data', label: 'Telefone incorreto' },
+      ]
+    case 'contato':
+      return [
+        { id: 'quick_showed_interest', label: 'Demonstrou interesse' },
+        { id: 'quick_asked_info', label: 'Pediu mais informações' },
+        { id: 'quick_answered_doubt', label: 'Respondeu dúvida' },
+        { id: 'quick_scheduled', label: 'Agendamento realizado' },
+        { id: 'quick_asked_proposal', label: 'Pediu proposta' },
+      ]
+    case 'respondeu':
+      return [
+        { id: 'quick_qualified', label: 'Qualificação realizada' },
+        { id: 'quick_proposal_presented', label: 'Proposta apresentada' },
+        { id: 'quick_doubt_answered', label: 'Dúvida respondida' },
+        { id: 'quick_visit_scheduled', label: 'Visita agendada' },
+        { id: 'quick_negotiation_started', label: 'Negociação iniciada' },
+      ]
+    case 'negociacao':
+      return [
+        { id: 'quick_final_proposal_sent', label: 'Proposta final enviada' },
+        { id: 'quick_objection_registered', label: 'Objeção registrada' },
+        { id: 'quick_commercial_condition', label: 'Condição comercial discutida' },
+        { id: 'quick_closing_scheduled', label: 'Fechamento agendado' },
+        { id: 'quick_closed_won', label: 'Fechou ✓' },
+        { id: 'quick_closed_lost', label: 'Perdido ✗' },
+      ]
+    default:
+      return [
+        { id: 'quick_approach_contact', label: 'Abordagem realizada' },
+        { id: 'quick_call_done', label: 'Ligação feita' },
+        { id: 'quick_answered_doubt', label: 'Respondido dúvida' },
+        { id: 'quick_scheduled', label: 'Agendamento realizado' },
+        { id: 'quick_proposal', label: 'Proposta realizada' },
+        { id: 'quick_bad_data', label: 'Telefone incorreto' },
+      ]
+  }
 }
 
 // ============================================================================
@@ -66,12 +168,14 @@ export async function logQuickAction(
 export function QuickActionModal({
   isOpen,
   leadName,
+  currentStatus,
   onClose,
   onSave,
   isLoading,
 }: {
   isOpen: boolean
   leadName: string
+  currentStatus?: string
   onClose: () => void
   onSave: (action: QuickActionType, detail: string) => void
   isLoading: boolean
@@ -79,14 +183,8 @@ export function QuickActionModal({
   const [selectedAction, setSelectedAction] = useState<QuickActionType | null>(null)
   const [detail, setDetail] = useState('')
 
-  const actions: { id: QuickActionType; label: string }[] = [
-    { id: 'quick_approach_contact', label: 'Abordagem realizada' },
-    { id: 'quick_call_done', label: 'Ligação feita' },
-    { id: 'quick_answered_doubt', label: 'Respondido dúvida' },
-    { id: 'quick_scheduled', label: 'Agendamento realizado' },
-    { id: 'quick_proposal', label: 'Proposta realizada' },
-    { id: 'quick_bad_data', label: 'Telefone incorreto' },
-  ]
+  const actions = getActionsForStatus(currentStatus ?? '')
+  const stageLabel = currentStatus ? (STATUS_LABEL_MAP[currentStatus] ?? currentStatus) : null
 
   const handleSave = () => {
     if (!selectedAction) {
@@ -96,6 +194,46 @@ export function QuickActionModal({
     onSave(selectedAction, detail)
     setSelectedAction(null)
     setDetail('')
+  }
+
+  const getActionStyle = (action: { id: QuickActionType; label: string }, isSelected: boolean) => {
+    if (action.id === 'quick_closed_won') {
+      return {
+        padding: '8px 10px',
+        borderRadius: 6,
+        border: isSelected ? '1px solid #10b981' : '1px solid #064e3b',
+        background: isSelected ? '#10b981' : '#052e16',
+        color: isSelected ? '#000' : '#6ee7b7',
+        cursor: 'pointer',
+        fontSize: 10,
+        fontWeight: 700,
+        transition: 'all 200ms',
+      }
+    }
+    if (action.id === 'quick_closed_lost') {
+      return {
+        padding: '8px 10px',
+        borderRadius: 6,
+        border: isSelected ? '1px solid #ef4444' : '1px solid #7f1d1d',
+        background: isSelected ? '#ef4444' : '#2d0a0a',
+        color: isSelected ? '#fff' : '#fca5a5',
+        cursor: 'pointer',
+        fontSize: 10,
+        fontWeight: 700,
+        transition: 'all 200ms',
+      }
+    }
+    return {
+      padding: '8px 10px',
+      borderRadius: 6,
+      border: isSelected ? '1px solid #10b981' : '1px solid #2a2a2a',
+      background: isSelected ? '#10b981' : '#222',
+      color: isSelected ? '#000' : 'white',
+      cursor: 'pointer',
+      fontSize: 10,
+      fontWeight: 700,
+      transition: 'all 200ms',
+    }
   }
 
   if (!isOpen) return null
@@ -128,9 +266,12 @@ export function QuickActionModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 12 }}>Registrar Contato</div>
+        <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Registrar Contato</div>
         <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 16, color: '#bfdbfe' }}>
           Lead: <strong>{leadName}</strong>
+          {stageLabel && (
+            <span style={{ marginLeft: 8, color: '#a78bfa' }}>· Etapa: {stageLabel}</span>
+          )}
         </div>
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 8 }}>Ação *</label>
@@ -139,17 +280,7 @@ export function QuickActionModal({
               <button
                 key={action.id}
                 onClick={() => setSelectedAction(action.id)}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: 6,
-                  border: selectedAction === action.id ? '1px solid #10b981' : '1px solid #2a2a2a',
-                  background: selectedAction === action.id ? '#10b981' : '#222',
-                  color: selectedAction === action.id ? '#000' : 'white',
-                  cursor: 'pointer',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  transition: 'all 200ms',
-                }}
+                style={getActionStyle(action, selectedAction === action.id)}
               >
                 {action.label}
               </button>
