@@ -273,13 +273,3 @@ export function IconRefreshCw(props: IconProps) {
     </svg>
   )
 }
-
-export function IconCheckCircle(props: IconProps) {
-  const p = defaultProps(props)
-  return (
-    <svg {...p} aria-hidden="true">
-      <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  )
-}

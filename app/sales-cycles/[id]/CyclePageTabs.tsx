@@ -291,7 +291,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // --------------------------------------------------------------------------
 
   const renderTabBar = () => (
-    <div style={{ borderBottom: '1px solid #2a2a3e', marginBottom: 24, display: 'flex', gap: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+    <div style={{ borderBottom: '1px solid #2a2a3e', marginBottom: 24, display: 'flex', gap: 0, overflowX: 'auto' }}>
       {TABS.map((tab) => (
         <button
           key={tab.id}
