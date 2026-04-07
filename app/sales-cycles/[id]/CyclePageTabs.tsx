@@ -43,6 +43,10 @@ import {
   LostCard,
   WonCard,
   AdminCard,
+  ActivityCard,
+  NextActionCard,
+  classifyEvent,
+  EVENT_CLASS_DOT_COLOR,
 } from './cycle-event-helpers'
 
 // ---------------------------------------------------------------------------
@@ -338,18 +342,20 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {events.slice(0, 5).map((event) => {
-                const m = event.metadata ?? {}
-                const toStatus = (m.to_status as string) ?? event.to_stage ?? ''
-                const isLoss = event.event_type === 'stage_changed' && String(toStatus).toLowerCase() === 'perdido'
-                const isTransition = event.event_type === 'stage_changed' && !isLoss
+                const cls = classifyEvent(event)
+                const dotColor = EVENT_CLASS_DOT_COLOR[cls]
                 return (
                   <div key={event.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <div style={{
                       width: 8, height: 8, borderRadius: '50%', marginTop: 7, flexShrink: 0,
-                      background: isLoss ? '#f87171' : isTransition ? '#60a5fa' : '#4b5563',
+                      background: dotColor,
                     }} />
                     <div style={{ flex: 1, background: '#181824', borderRadius: 8, border: '1px solid #2a2a3e', padding: '10px 14px' }}>
-                      {isLoss ? <LostCard event={event} /> : isTransition ? <CheckpointCard event={event} /> : <AdminCard event={event} />}
+                      {cls === 'perda' ? <LostCard event={event} /> :
+                       cls === 'movimentacao' || cls === 'ganho' ? <CheckpointCard event={event} /> :
+                       cls === 'atividade' ? <ActivityCard event={event} /> :
+                       cls === 'proxima_acao' ? <NextActionCard event={event} /> :
+                       <AdminCard event={event} />}
                     </div>
                   </div>
                 )
@@ -560,18 +566,20 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {events.map((event) => {
-            const m = event.metadata ?? {}
-            const toStatus = (m.to_status as string) ?? event.to_stage ?? ''
-            const isLoss = event.event_type === 'stage_changed' && String(toStatus).toLowerCase() === 'perdido'
-            const isTransition = event.event_type === 'stage_changed' && !isLoss
+            const cls = classifyEvent(event)
+            const dotColor = EVENT_CLASS_DOT_COLOR[cls]
             return (
               <div key={event.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{
                   width: 10, height: 10, borderRadius: '50%', marginTop: 7, flexShrink: 0,
-                  background: isLoss ? '#f87171' : isTransition ? '#60a5fa' : '#4b5563',
+                  background: dotColor,
                 }} />
                 <div style={{ flex: 1, background: '#181824', borderRadius: 10, border: '1px solid #2a2a3e', padding: '14px 16px' }}>
-                  {isLoss ? <LostCard event={event} /> : isTransition ? <CheckpointCard event={event} /> : <AdminCard event={event} />}
+                  {cls === 'perda' ? <LostCard event={event} /> :
+                   cls === 'movimentacao' || cls === 'ganho' ? <CheckpointCard event={event} /> :
+                   cls === 'atividade' ? <ActivityCard event={event} /> :
+                   cls === 'proxima_acao' ? <NextActionCard event={event} /> :
+                   <AdminCard event={event} />}
                 </div>
               </div>
             )
