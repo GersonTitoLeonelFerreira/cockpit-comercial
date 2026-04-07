@@ -5,7 +5,7 @@
 // sales cycle detail page.
 // ---------------------------------------------------------------------------
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import CycleOperationalSummary from './CycleOperationalSummary'
@@ -14,7 +14,7 @@ import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
-import { QuickActionModal, logQuickAction } from '@/app/components/leads/QuickActionModal'
+import { QuickActionModal, logQuickAction, QuickActionType } from '@/app/components/leads/QuickActionModal'
 import {
   moveCycleStage,
   setNextAction,
@@ -97,6 +97,21 @@ function DataRow({ label, value }: { label: string; value?: string | null }) {
 }
 
 // ---------------------------------------------------------------------------
+// Quick action toast labels
+// ---------------------------------------------------------------------------
+
+const TOAST_DURATION_MS = 4000
+
+const QUICK_ACTION_TOAST_LABELS: Record<QuickActionType, string> = {
+  quick_approach_contact: 'Abordagem registrada',
+  quick_call_done: 'Ligação registrada',
+  quick_answered_doubt: 'Dúvida registrada',
+  quick_scheduled: 'Agendamento registrado',
+  quick_proposal: 'Proposta registrada',
+  quick_bad_data: 'Telefone incorreto registrado',
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -130,6 +145,17 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   const [contactBannerChannel, setContactBannerChannel] = useState<'whatsapp' | 'copy'>('whatsapp')
   const [showQuickActionModal, setShowQuickActionModal] = useState(false)
   const [quickActionLoading, setQuickActionLoading] = useState(false)
+  // Suggestion strip (shown after quick action if stage advance is possible)
+  const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
+  // Toast confirmation after quick action
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // Auto-dismiss toast after 4 seconds
+  useEffect(() => {
+    if (!toastMessage) return
+    const t = setTimeout(() => setToastMessage(null), TOAST_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [toastMessage])
 
   const lead = cycle.leads as { id?: string; name?: string; phone?: string; email?: string } | null
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
@@ -828,6 +854,51 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
   return (
     <div>
+      {/* ── Suggestion strip (shown after quick action if stage advance is possible) ── */}
+      {suggestedStatus && suggestedStatus !== cycle.status && (
+        <div style={{
+          marginBottom: 12,
+          background: 'rgba(59,130,246,0.08)',
+          border: '1px solid rgba(59,130,246,0.25)',
+          borderRadius: 10,
+          padding: '10px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <span style={{ color: '#93c5fd', fontSize: 13, fontWeight: 600 }}>
+            Sugestão: mover para <strong style={{ color: '#60a5fa' }}>{statusLabel(suggestedStatus)}</strong>
+          </span>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={() => {
+                const target = suggestedStatus as LeadStatus
+                setSuggestedStatus(null)
+                openCheckpoint(target)
+              }}
+              style={{
+                background: '#2563eb', border: 'none', borderRadius: 6,
+                color: 'white', fontSize: 12, fontWeight: 700,
+                padding: '5px 14px', cursor: 'pointer',
+              }}
+            >
+              Aceitar
+            </button>
+            <button
+              onClick={() => setSuggestedStatus(null)}
+              style={{
+                background: 'transparent', border: '1px solid #374151',
+                borderRadius: 6, color: '#9ca3af', fontSize: 12,
+                padding: '5px 14px', cursor: 'pointer',
+              }}
+            >
+              Dispensar
+            </button>
+          </div>
+        </div>
+      )}
+
       {renderTabBar()}
 
       {activeTab === 'overview' && renderOverview()}
@@ -988,14 +1059,18 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
         isOpen={showQuickActionModal}
         leadName={lead?.name || 'Lead'}
         onClose={() => setShowQuickActionModal(false)}
-        onSave={async (action, detail) => {
+        onSave={async (actionType, detail) => {
           setQuickActionLoading(true)
           try {
             const supabase = supabaseBrowser()
             const { data: { user } } = await supabase.auth.getUser()
             const userId = user?.id ?? ''
-            await logQuickAction(supabase, companyId, cycle.id, userId, action, detail, contactBannerChannel)
+            const suggested = await logQuickAction(supabase, companyId, cycle.id, userId, actionType, detail, contactBannerChannel)
             setShowQuickActionModal(false)
+            setToastMessage(QUICK_ACTION_TOAST_LABELS[actionType] ?? 'Contato registrado')
+            if (suggested && suggested !== cycle.status) {
+              setSuggestedStatus(suggested)
+            }
             router.refresh()
           } catch (err: any) {
             alert(`Erro: ${err?.message ?? String(err)}`)
@@ -1063,6 +1138,20 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               Agora não
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ── Toast confirmation after quick action ── */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed', bottom: 88, right: 28, zIndex: 700,
+          background: '#065f46', border: '1px solid #059669',
+          borderRadius: 10, padding: '12px 18px',
+          color: '#a7f3d0', fontSize: 13, fontWeight: 700,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          ✓ {toastMessage}
         </div>
       )}
     </div>
