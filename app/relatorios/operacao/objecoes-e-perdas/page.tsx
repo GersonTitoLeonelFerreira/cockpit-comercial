@@ -124,8 +124,9 @@ function buildReportData(
       const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
       if (stageFilter && stage !== stageFilter) continue
 
+      const nestedMeta = (meta.metadata ?? {}) as Record<string, unknown>
       const reason = String(
-        meta.reason ?? meta.loss_reason ?? meta.details ?? ''
+        meta.reason ?? nestedMeta.reason ?? meta.loss_reason ?? meta.details ?? nestedMeta.details ?? ''
       ).trim() || 'Sem motivo registrado'
 
       const existing = lossMap.get(reason) ?? { total: 0, byStage: {} }
