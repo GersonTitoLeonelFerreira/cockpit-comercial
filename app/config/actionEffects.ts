@@ -1,6 +1,12 @@
 import type { LeadStatus } from '@/app/types/sales_cycles'
 
 // ---------------------------------------------------------------------------
+// Tipos
+// ---------------------------------------------------------------------------
+
+export type StageEffect = 'keep' | 'suggest_advance'
+
+// ---------------------------------------------------------------------------
 // ActionEffect — define o comportamento/efeito de cada ação registrada
 // ---------------------------------------------------------------------------
 export interface ActionEffect {
@@ -8,7 +14,7 @@ export interface ActionEffect {
   actionId: string
 
   /** Mantém a etapa atual ou sugere avanço para a próxima */
-  stageEffect: 'keep' | 'suggest_advance'
+  stageEffect: StageEffect
 
   /** Etapa sugerida para avanço (null quando stageEffect === 'keep') */
   suggestedNextStatus: LeadStatus | null
@@ -55,7 +61,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['novo_ligacao_feita', 'novo_whatsapp_enviado', 'novo_email_enviado'],
+    suggestedNextActions: ['Aguardar retorno', 'Nova tentativa', 'Whats follow-up'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -69,7 +75,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['novo_whatsapp_enviado', 'novo_email_enviado', 'contato_demonstrou_interesse'],
+    suggestedNextActions: ['Ligar novamente', 'Whats follow-up', 'Aguardar retorno'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -83,7 +89,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['novo_ligacao_feita', 'novo_email_enviado', 'contato_demonstrou_interesse'],
+    suggestedNextActions: ['Aguardar retorno', 'Ligar', 'Nova mensagem'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -97,7 +103,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['novo_ligacao_feita', 'novo_whatsapp_enviado', 'contato_demonstrou_interesse'],
+    suggestedNextActions: ['Aguardar retorno', 'Ligar', 'Whats follow-up'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -128,7 +134,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['contato_agendamento_realizado', 'contato_pediu_proposta', 'respondeu_qualificacao_realizada'],
+    suggestedNextActions: ['Qualificar necessidade', 'Enviar informações', 'Agendar reunião'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -142,7 +148,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['contato_respondeu_duvida', 'contato_demonstrou_interesse'],
+    suggestedNextActions: ['Enviar informações', 'Agendar retorno', 'Preparar proposta'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -156,7 +162,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['contato_demonstrou_interesse', 'contato_agendamento_realizado'],
+    suggestedNextActions: ['Qualificar lead', 'Enviar proposta', 'Agendar visita'],
     requiresNextActionDate: false,
     recommendsNextActionDate: false,
     canLeadToWon: false,
@@ -170,9 +176,9 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['respondeu_visita_agendada', 'respondeu_qualificacao_realizada'],
+    suggestedNextActions: ['Confirmar agendamento', 'Preparar material', 'Lembrete véspera'],
     requiresNextActionDate: true,
-    recommendsNextActionDate: false,
+    recommendsNextActionDate: true,
     canLeadToWon: false,
     canLeadToLost: false,
   },
@@ -185,7 +191,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Descreva o que o lead solicitou na proposta (produto, prazo, condições…)',
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['respondeu_proposta_apresentada', 'negociacao_proposta_final_enviada'],
+    suggestedNextActions: ['Enviar proposta', 'Agendar reunião de apresentação', 'Preparar proposta personalizada'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -202,7 +208,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Registre o resultado da qualificação (budget, autoridade, necessidade, prazo…)',
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['respondeu_proposta_apresentada', 'negociacao_proposta_final_enviada'],
+    suggestedNextActions: ['Enviar proposta', 'Agendar reunião de negociação', 'Enviar contrato'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -217,7 +223,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Descreva a proposta apresentada (valores, condições, prazo de resposta…)',
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['negociacao_objecao_registrada', 'negociacao_condicao_comercial', 'negociacao_proposta_final_enviada'],
+    suggestedNextActions: ['Aguardar retorno', 'Follow-up proposta', 'Agendar fechamento'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -231,7 +237,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['respondeu_qualificacao_realizada', 'respondeu_proposta_apresentada'],
+    suggestedNextActions: ['Aguardar retorno', 'Enviar proposta', 'Agendar reunião'],
     requiresNextActionDate: false,
     recommendsNextActionDate: false,
     canLeadToWon: false,
@@ -245,9 +251,9 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['respondeu_qualificacao_realizada', 'respondeu_negociacao_iniciada'],
+    suggestedNextActions: ['Confirmar visita', 'Preparar apresentação', 'Lembrete véspera'],
     requiresNextActionDate: true,
-    recommendsNextActionDate: false,
+    recommendsNextActionDate: true,
     canLeadToWon: false,
     canLeadToLost: false,
   },
@@ -260,7 +266,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Descreva como a negociação foi iniciada (contexto, demanda, expectativas…)',
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['negociacao_proposta_final_enviada', 'negociacao_condicao_comercial'],
+    suggestedNextActions: ['Enviar proposta', 'Agendar reunião', 'Definir condições'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -277,7 +283,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Descreva a proposta final (valores, validade, condições de pagamento…)',
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['negociacao_objecao_registrada', 'negociacao_fechamento_agendado', 'negociacao_retorno_negociacao'],
+    suggestedNextActions: ['Aguardar retorno', 'Follow-up proposta', 'Agendar fechamento'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: true,
@@ -292,7 +298,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Descreva a objeção levantada e como foi tratada',
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['negociacao_condicao_comercial', 'negociacao_proposta_final_enviada', 'negociacao_retorno_negociacao'],
+    suggestedNextActions: ['Revisar objeção', 'Ajustar proposta', 'Contra-argumentar'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
@@ -307,7 +313,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     resultDetailPlaceholder: 'Descreva a condição comercial discutida (desconto, prazo, parcelamento…)',
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['negociacao_proposta_final_enviada', 'negociacao_fechamento_agendado'],
+    suggestedNextActions: ['Ajustar proposta', 'Enviar proposta final', 'Agendar fechamento'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: true,
@@ -321,9 +327,9 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: false,
     recommendsNextAction: true,
-    suggestedNextActions: ['negociacao_proposta_final_enviada', 'negociacao_retorno_negociacao'],
+    suggestedNextActions: ['Confirmar fechamento', 'Preparar contrato', 'Lembrete véspera'],
     requiresNextActionDate: true,
-    recommendsNextActionDate: false,
+    recommendsNextActionDate: true,
     canLeadToWon: true,
     canLeadToLost: false,
   },
@@ -335,7 +341,7 @@ export const ACTION_EFFECTS: Record<string, ActionEffect> = {
     requiresResultDetail: false,
     requiresNextAction: true,
     recommendsNextAction: false,
-    suggestedNextActions: ['negociacao_objecao_registrada', 'negociacao_proposta_final_enviada', 'negociacao_fechamento_agendado'],
+    suggestedNextActions: ['Follow-up', 'Reapresentar proposta', 'Agendar nova reunião'],
     requiresNextActionDate: false,
     recommendsNextActionDate: true,
     canLeadToWon: false,
