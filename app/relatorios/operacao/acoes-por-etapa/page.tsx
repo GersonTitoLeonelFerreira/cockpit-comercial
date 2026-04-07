@@ -409,8 +409,8 @@ export default function AcoesPorEtapaPage() {
       for (const event of data ?? []) {
         const meta = (event.metadata ?? {}) as Record<string, unknown>
 
-        // Extract raw action id from metadata
-        const rawId = (meta.action_id ?? meta.quick_action ?? null) as string | null
+        // Extract raw action id from metadata or event_type (logQuickAction events store action id in event_type)
+        const rawId = (meta.action_id ?? meta.quick_action ?? event.event_type ?? null) as string | null
 
         // Skip stage_changed events that have no action attached
         if (event.event_type === 'stage_changed' && !rawId) continue

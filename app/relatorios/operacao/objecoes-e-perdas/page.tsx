@@ -138,7 +138,7 @@ function buildReportData(
     // Objection detection — two paths:
     // 1. metadata.action_id resolves to OBJECTION_ACTION_ID via resolveActionId()
     // 2. metadata.objection field is non-empty
-    const rawId = String(meta.action_id ?? meta.quick_action ?? '').trim()
+    const rawId = String(meta.action_id ?? meta.quick_action ?? ev.event_type ?? '').trim()
     const resolvedId = rawId ? resolveActionId(rawId) : ''
     const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
 
