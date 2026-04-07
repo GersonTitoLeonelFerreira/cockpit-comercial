@@ -123,7 +123,7 @@ function buildActionStats(
     }
 
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
-    const rawId = (meta.action_id ?? meta.quick_action ?? null) as string | null
+    const rawId = (meta.action_id ?? meta.quick_action ?? ev.event_type ?? null) as string | null
 
     // Skip stage_changed events with no action attached — these are movimentações
     if (ev.event_type === 'stage_changed' && !rawId) continue
