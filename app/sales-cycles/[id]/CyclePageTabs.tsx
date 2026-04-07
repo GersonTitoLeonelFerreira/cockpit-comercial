@@ -14,6 +14,7 @@ import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
+import { QuickActionModal, logQuickAction, type QuickActionType } from '@/app/components/leads/QuickActionModal'
 import {
   moveCycleStage,
   setNextAction,
@@ -126,9 +127,9 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
   // Contact registration banner (non-blocking, after WhatsApp/copy phone)
   const [showContactBanner, setShowContactBanner] = useState(false)
-  const [contactBannerChannel, setContactBannerChannel] = useState<'Whats' | 'Ligação'>('Whats')
-  const [contactCheckpointOpen, setContactCheckpointOpen] = useState(false)
-  const [contactCheckpointLoading, setContactCheckpointLoading] = useState(false)
+  const [contactBannerChannel, setContactBannerChannel] = useState<'whatsapp' | 'copy'>('whatsapp')
+  const [showQuickActionModal, setShowQuickActionModal] = useState(false)
+  const [quickActionLoading, setQuickActionLoading] = useState(false)
 
   const lead = cycle.leads as { id?: string; name?: string; phone?: string; email?: string } | null
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
@@ -203,7 +204,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
     if (lead?.phone) {
       try {
         await navigator.clipboard.writeText(lead.phone)
-        setContactBannerChannel('Ligação')
+        setContactBannerChannel('copy')
         setShowContactBanner(true)
       } catch {
         alert(lead.phone)
@@ -406,7 +407,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               <button
                 onClick={() => {
                   window.open(waLink, '_blank', 'noopener,noreferrer')
-                  setContactBannerChannel('Whats')
+                  setContactBannerChannel('whatsapp')
                   setShowContactBanner(true)
                 }}
                 style={{
@@ -777,7 +778,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               <button
                 onClick={() => {
                   window.open(waLink, '_blank', 'noopener,noreferrer')
-                  setContactBannerChannel('Whats')
+                  setContactBannerChannel('whatsapp')
                   setShowContactBanner(true)
                 }}
                 style={{
@@ -982,36 +983,27 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
         />
       )}
 
-      {/* ── Contact registration StageCheckpointModal (WhatsApp / Copiar telefone) ── */}
-      <StageCheckpointModal
-        open={contactCheckpointOpen}
-        fromStatus={cycle.status as any}
-        toStatus={cycle.status as any}
-        loading={contactCheckpointLoading}
-        onCancel={() => { if (!contactCheckpointLoading) setContactCheckpointOpen(false) }}
-        onConfirm={async (payload) => {
-          setContactCheckpointLoading(true)
+      {/* ── Quick action modal (WhatsApp / Copiar telefone) ── */}
+      <QuickActionModal
+        isOpen={showQuickActionModal}
+        leadName={lead?.name || 'Lead'}
+        onClose={() => setShowQuickActionModal(false)}
+        onSave={async (action, detail) => {
+          setQuickActionLoading(true)
           try {
-            await moveCycleStage({
-              cycle_id: cycle.id,
-              to_status: cycle.status,
-              metadata: payload as any,
-            })
-            if (payload?.next_action && payload?.next_action_date) {
-              await setNextAction({
-                cycle_id: cycle.id,
-                next_action: payload.next_action,
-                next_action_date: payload.next_action_date,
-              })
-            }
-            setContactCheckpointOpen(false)
+            const supabase = supabaseBrowser()
+            const { data: { user } } = await supabase.auth.getUser()
+            const userId = user?.id ?? ''
+            await logQuickAction(supabase, companyId, cycle.id, userId, action as QuickActionType, detail, contactBannerChannel)
+            setShowQuickActionModal(false)
             router.refresh()
           } catch (err: any) {
             alert(`Erro: ${err?.message ?? String(err)}`)
           } finally {
-            setContactCheckpointLoading(false)
+            setQuickActionLoading(false)
           }
         }}
+        isLoading={quickActionLoading}
       />
 
       {/* ── Non-blocking contact registration banner ─────────────────────────── */}
@@ -1026,7 +1018,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                {contactBannerChannel === 'Whats'
+                {contactBannerChannel === 'whatsapp'
                   ? <><IconWhatsApp size={14} /> WhatsApp aberto</>
                   : <><IconClipboard size={14} /> Telefone copiado</>}
               </div>
@@ -1050,7 +1042,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             <button
               onClick={() => {
                 setShowContactBanner(false)
-                setContactCheckpointOpen(true)
+                setShowQuickActionModal(true)
               }}
               style={{
                 flex: 1, padding: '8px 12px',
