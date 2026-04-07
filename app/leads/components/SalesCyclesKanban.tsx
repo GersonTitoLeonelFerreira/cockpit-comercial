@@ -17,7 +17,7 @@ import { ReturnToPoolModal } from './ReturnToPoolModal'
 import StageCheckpointModal from './StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
-import { QuickActionModal, logQuickAction, type QuickActionType } from '@/app/components/leads/QuickActionModal'
+import { QuickActionModal, logQuickAction } from '@/app/components/leads/QuickActionModal'
 import SellerMicroKPIs from './SellerMicroKPIs'
 import SellerWorklist from './SellerWorklist'
 import { ToastContainer, useToast } from './Toast'
@@ -650,7 +650,7 @@ function KanbanCard({
     try {
       const suggested = await logQuickAction(
         supabase, companyId, item.id, currentUserId,
-        action as QuickActionType, detail, lastChannel
+        action, detail, lastChannel
       )
       setSuggestedStatus(suggested)
     } finally {

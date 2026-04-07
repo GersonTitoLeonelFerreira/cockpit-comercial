@@ -14,7 +14,7 @@ import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
-import { QuickActionModal, logQuickAction, type QuickActionType } from '@/app/components/leads/QuickActionModal'
+import { QuickActionModal, logQuickAction } from '@/app/components/leads/QuickActionModal'
 import {
   moveCycleStage,
   setNextAction,
@@ -994,7 +994,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             const supabase = supabaseBrowser()
             const { data: { user } } = await supabase.auth.getUser()
             const userId = user?.id ?? ''
-            await logQuickAction(supabase, companyId, cycle.id, userId, action as QuickActionType, detail, contactBannerChannel)
+            await logQuickAction(supabase, companyId, cycle.id, userId, action, detail, contactBannerChannel)
             setShowQuickActionModal(false)
             router.refresh()
           } catch (err: any) {

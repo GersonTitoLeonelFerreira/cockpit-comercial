@@ -39,7 +39,7 @@ export async function logQuickAction(
 ) {
   try {
     const metadata = {
-      source: 'kanban_quick_action',
+      source: 'quick_action',
       detail,
       channel,
       suggested_next_status: QUICK_ACTION_SUGGESTED_STATUS[eventType],
@@ -73,10 +73,10 @@ export function QuickActionModal({
   isOpen: boolean
   leadName: string
   onClose: () => void
-  onSave: (action: string, detail: string) => void
+  onSave: (action: QuickActionType, detail: string) => void
   isLoading: boolean
 }) {
-  const [selectedAction, setSelectedAction] = useState<string | null>(null)
+  const [selectedAction, setSelectedAction] = useState<QuickActionType | null>(null)
   const [detail, setDetail] = useState('')
 
   const actions: { id: QuickActionType; label: string }[] = [
