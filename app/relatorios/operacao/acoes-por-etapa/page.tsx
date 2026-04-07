@@ -380,7 +380,7 @@ export default function AcoesPorEtapaPage() {
     if (!companyId) return
     loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, dateStart, dateEnd, selectedSellerId])
+  }, [companyId, dateStart, dateEnd, selectedSellerId, isAdmin, currentUserId])
 
   async function loadData() {
     if (!companyId) return
@@ -700,7 +700,7 @@ export default function AcoesPorEtapaPage() {
           <SummaryCard
             label="Total de ações"
             value={grandTotal}
-            sub={`no período selecionado`}
+            sub="no período selecionado"
           />
           <SummaryCard
             label="Etapa mais ativa"
