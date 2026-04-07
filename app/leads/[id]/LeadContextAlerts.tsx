@@ -4,6 +4,8 @@
 // Server Component — sem 'use client'.
 // ---------------------------------------------------------------------------
 
+import { classifyEvent } from '@/app/config/eventClassification'
+
 interface LeadEvent {
   id: string
   event_type: string
@@ -143,20 +145,43 @@ function buildAlerts(events: LeadEvent[], lead: LeadSummary): Alert[] {
     })
   }
 
-  // Lead parado há X dias (último evento > 7 dias)
-  // events está ordenado por created_at DESC (conforme page.tsx), logo events[0] é o mais recente
+  // Lead parado há X dias (último evento de ATIVIDADE > 7 dias)
+  // Considera apenas atividades comerciais, não eventos de sistema
   if (!terminal && events.length > 0) {
-    const lastEvent = events[0]
-    const days = daysDiff(lastEvent?.created_at)
-    if (days !== null && days > 7) {
-      alerts.push({
-        level: 'critico',
-        text: `Lead parado há ${days} dia${days !== 1 ? 's' : ''}`,
-      })
+    const lastActivity = events.find(ev => classifyEvent(ev) === 'activity')
+    if (lastActivity) {
+      const days = daysDiff(lastActivity.created_at)
+      if (days !== null && days > 7) {
+        alerts.push({
+          level: 'critico',
+          text: `Sem atividade há ${days} dia${days !== 1 ? 's' : ''}`,
+        })
+      }
+    } else {
+      // Nenhuma atividade registrada — usar o evento mais recente
+      const days = daysDiff(events[0]?.created_at)
+      if (days !== null && days > 7) {
+        alerts.push({
+          level: 'critico',
+          text: `Lead parado há ${days} dia${days !== 1 ? 's' : ''}`,
+        })
+      }
     }
   }
 
   // ── ATENÇÃO ───────────────────────────────────────────────────────────────
+
+  // Lead parado na mesma etapa há muito tempo (sem movimentação real > 14 dias)
+  if (!terminal) {
+    const lastStageMove = events.find(ev => classifyEvent(ev) === 'stage_move')
+    const daysInStage = daysDiff(lastStageMove?.created_at ?? lead.created_at)
+    if (daysInStage !== null && daysInStage > 14) {
+      alerts.push({
+        level: 'atencao',
+        text: `Sem movimentação de etapa há ${daysInStage} dia${daysInStage !== 1 ? 's' : ''}`,
+      })
+    }
+  }
 
   // Lead sem próxima ação definida
   if (!terminal && !lead.next_action) {
