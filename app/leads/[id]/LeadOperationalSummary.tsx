@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
+import { getStageLabel } from '@/app/config/stageActions'
 
 interface LeadEvent {
   id: string
@@ -33,15 +34,6 @@ interface Props {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const LEAD_STATUS_PT: Record<string, string> = {
-  novo: 'NOVO',
-  contato: 'CONTATO',
-  respondeu: 'RESPONDEU',
-  negociacao: 'NEGOCIAÇÃO',
-  ganho: 'GANHO',
-  perdido: 'PERDIDO',
-}
-
 const PAYMENT_METHOD_PT: Record<string, string> = {
   pix: 'PIX',
   credito: 'Cartão de Crédito',
@@ -53,9 +45,9 @@ const PAYMENT_METHOD_PT: Record<string, string> = {
   outro: 'Outro',
 }
 
-function stageLabel(s: string | null | undefined): string {
+function stageDisplayLabel(s: string | null | undefined): string {
   if (!s) return '—'
-  return LEAD_STATUS_PT[s.toLowerCase()] ?? s.toUpperCase()
+  return getStageLabel(s.toLowerCase()).toUpperCase()
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -113,9 +105,9 @@ function buildSummary(events: LeadEvent[], ciclo?: LeadCycleSummary | null): Sum
       label: 'Última movimentação',
       content: (
         <span>
-          <span style={{ color: '#93c5fd' }}>{stageLabel(from)}</span>
+          <span style={{ color: '#93c5fd' }}>{stageDisplayLabel(from)}</span>
           <span style={{ opacity: 0.55 }}> → </span>
-          <span style={{ color: '#93c5fd', fontWeight: 700 }}>{stageLabel(to)}</span>
+          <span style={{ color: '#93c5fd', fontWeight: 700 }}>{stageDisplayLabel(to)}</span>
         </span>
       ),
       date: lastMove.created_at,
