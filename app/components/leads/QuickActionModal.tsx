@@ -8,6 +8,7 @@ import {
   getStageLabel,
   resolveActionId,
 } from '@/app/config/stageActions'
+import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 
 // ============================================================================
 // Types
@@ -53,7 +54,7 @@ export async function logQuickAction(
       findActionById(resolveActionId(eventType))?.suggestedNextStatus ?? null
 
     const metadata = {
-      source: 'quick_action',
+      source: EVENT_SOURCES.quick_action,
       detail,
       channel,
       suggested_next_status: suggestedNextStatus,
