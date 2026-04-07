@@ -372,7 +372,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
         <CycleSuggestedAction
           events={events}
           cycle={cycle}
-          onOpenWhatsApp={waLink ? () => { window.open(waLink, '_blank', 'noopener,noreferrer') } : undefined}
+          onOpenWhatsApp={waLink ? () => {
+            window.open(waLink, '_blank', 'noopener,noreferrer')
+            setContactBannerChannel('whatsapp')
+            setShowContactBanner(true)
+          } : undefined}
           onRegisterContact={() => setShowQuickActionModal(true)}
           onUpdateNextAction={() => setShowActionModal(true)}
           onMoveStage={() => setActiveTab('actions')}
