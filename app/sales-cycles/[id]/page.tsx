@@ -5,6 +5,7 @@ import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
 import CycleOperationalSummary from './CycleOperationalSummary'
 import CycleContextAlerts from './CycleContextAlerts'
+import SalesCycleDetailClient from './SalesCycleDetailClient'
 
 // ---------------------------------------------------------------------------
 // Helpers de exibição
@@ -407,9 +408,9 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           </div>
         </div>
 
-        {/* Sidebar ou adicionais */}
+        {/* Sidebar: ações do ciclo */}
         <div>
-          {/* Adapte Seu Componente Aqui Ou Deixe Vazio */}
+          <SalesCycleDetailClient cycle={cycle} />
         </div>
       </div>
     </div>
