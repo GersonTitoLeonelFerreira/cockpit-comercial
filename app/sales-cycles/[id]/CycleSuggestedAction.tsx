@@ -3,7 +3,8 @@
 //
 // Analisa o estado do lead e exibe a sugestão operacional de maior prioridade.
 // Motor determinístico — sem IA, toda sugestão vem de regras explícitas.
-// Exibe no máximo 1 sugestão (a de maior prioridade).
+// Exibe no máximo 1 sugestão (a de maior prioridade) com 1 CTA principal e
+// até 2 CTAs secundários que permitem execução imediata da ação sugerida.
 // ---------------------------------------------------------------------------
 
 import {
@@ -36,6 +37,7 @@ interface CycleCycle {
   status?: string | null
   next_action?: string | null
   next_action_date?: string | null
+  leads?: { phone?: string | null } | null
 }
 
 interface Props {
@@ -63,14 +65,19 @@ type SuggestionIcon =
 
 type CtaAction = 'openWhatsApp' | 'registerContact' | 'updateNextAction' | 'moveStage'
 
+interface CtaItem {
+  action: CtaAction
+  label: string
+}
+
 interface Suggestion {
   iconType: SuggestionIcon
   title: string
   reason: string
   detail?: string
   urgency: 'high' | 'medium' | 'low'
-  cta?: CtaAction
-  ctaLabel?: string
+  primaryCta?: CtaItem
+  secondaryCtas?: CtaItem[]
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +121,25 @@ function todayMidnight(): Date {
 // Suggestion engine — rules evaluated in priority order (first match wins)
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve a WhatsApp CTA to 'registerContact' when phone is absent.
+ * Ensures the label is updated consistently with the action.
+ */
+function resolveWhatsAppCta(hasPhone: boolean): CtaItem {
+  return hasPhone
+    ? { action: 'openWhatsApp', label: 'Abrir WhatsApp' }
+    : { action: 'registerContact', label: 'Registrar contato' }
+}
+
+/**
+ * Build the secondary CTA list for a WhatsApp-primary suggestion.
+ * When the WhatsApp CTA falls back to 'registerContact' (no phone),
+ * there is no meaningful secondary to add.
+ */
+function whatsappSecondaryCtas(hasPhone: boolean): CtaItem[] {
+  return hasPhone ? [{ action: 'registerContact', label: 'Registrar contato' }] : []
+}
+
 function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | null {
   const status = String(cycle.status ?? '').toLowerCase()
 
@@ -121,9 +147,10 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
   if (status === 'ganho' || status === 'perdido') return null
 
   const today = todayMidnight()
+  const hasPhone = !!cycle.leads?.phone?.trim()
 
   // ── Rule 1: Overdue next action ──────────────────────────────────────────
-  // Condition: next_action_date exists and is strictly before today
+  // Primary: Atualizar próxima ação | Secondary: Registrar contato
   if (cycle.next_action_date) {
     try {
       const actionDay = parseLocalDate(cycle.next_action_date)
@@ -134,8 +161,8 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
           reason: 'Baseado na próxima ação vencida',
           detail: str(cycle.next_action) ?? undefined,
           urgency: 'high',
-          cta: 'updateNextAction',
-          ctaLabel: 'Atualizar próxima ação',
+          primaryCta: { action: 'updateNextAction', label: 'Atualizar próxima ação' },
+          secondaryCtas: [{ action: 'registerContact', label: 'Registrar contato' }],
         }
       }
     } catch {
@@ -144,7 +171,7 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
   }
 
   // ── Rule 2: Next action scheduled for today ──────────────────────────────
-  // Condition: next_action_date is today
+  // Primary: Registrar contato | Secondary: Atualizar próxima ação
   if (cycle.next_action_date) {
     try {
       const actionDay = parseLocalDate(cycle.next_action_date)
@@ -155,8 +182,8 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
           reason: 'Baseado na agenda de hoje',
           detail: str(cycle.next_action) ?? undefined,
           urgency: 'medium',
-          cta: 'updateNextAction',
-          ctaLabel: 'Atualizar próxima ação',
+          primaryCta: { action: 'registerContact', label: 'Registrar contato' },
+          secondaryCtas: [{ action: 'updateNextAction', label: 'Atualizar próxima ação' }],
         }
       }
     } catch {
@@ -165,7 +192,7 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
   }
 
   // ── Rule 3: Unanswered objection ─────────────────────────────────────────
-  // Condition: most recent event with result_detail is newer than last commercial activity
+  // Primary: Registrar contato | Secondary: Atualizar próxima ação
   const objectionEvent = events.find(ev => {
     const cp = getCheckpoint(ev)
     return !!str(cp.result_detail)
@@ -189,14 +216,14 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
         reason: 'Baseado na última objeção registrada',
         detail: str(cp.result_detail) ?? undefined,
         urgency: 'medium',
-        cta: 'registerContact',
-        ctaLabel: 'Registrar contato',
+        primaryCta: { action: 'registerContact', label: 'Registrar contato' },
+        secondaryCtas: [{ action: 'updateNextAction', label: 'Atualizar próxima ação' }],
       }
     }
   }
 
   // ── Rule 4: Proposal without follow-up ───────────────────────────────────
-  // Condition: most recent event with note (not a loss) has no commercial activity after it
+  // Primary: Registrar contato | Secondary: Mover etapa
   const proposalEvent = events.find(ev => {
     const m = ev.metadata ?? {}
     const to = ev.to_stage ?? str(m.to_status)
@@ -221,27 +248,27 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
         title: 'Acompanhar proposta apresentada',
         reason: 'Baseado na proposta sem retorno',
         urgency: 'medium',
-        cta: 'openWhatsApp',
-        ctaLabel: 'Abrir WhatsApp',
+        primaryCta: { action: 'registerContact', label: 'Registrar contato' },
+        secondaryCtas: [{ action: 'moveStage', label: 'Mover etapa' }],
       }
     }
   }
 
   // ── Rule 5: Lead stopped without next action ─────────────────────────────
-  // Condition: next_action is null or empty
+  // Primary: Atualizar próxima ação | Secondary: Registrar contato
   if (!cycle.next_action || String(cycle.next_action).trim() === '') {
     return {
       iconType: 'zap',
       title: 'Definir próxima ação para este lead',
       reason: 'Nenhuma próxima ação definida',
       urgency: 'low',
-      cta: 'updateNextAction',
-      ctaLabel: 'Definir próxima ação',
+      primaryCta: { action: 'updateNextAction', label: 'Atualizar próxima ação' },
+      secondaryCtas: [{ action: 'registerContact', label: 'Registrar contato' }],
     }
   }
 
   // ── Rule 6: Return after previous loss ───────────────────────────────────
-  // Condition: lead has a prior loss in history AND current status ≠ perdido
+  // Primary: Abrir WhatsApp (se tiver phone) | Secondary: Registrar contato
   if (status !== 'perdido') {
     const hasPriorLoss = events.some(ev => {
       const m = ev.metadata ?? {}
@@ -254,37 +281,50 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
         title: 'Retomar contato com base no interesse já demonstrado',
         reason: 'Lead retornou ao funil após perda anterior',
         urgency: 'low',
-        cta: 'registerContact',
-        ctaLabel: 'Registrar contato',
+        primaryCta: resolveWhatsAppCta(hasPhone),
+        secondaryCtas: whatsappSecondaryCtas(hasPhone),
       }
     }
   }
 
   // ── Rule 7: Stage-based fallback ─────────────────────────────────────────
-  const stageMap: Record<string, { title: string; reason: string; cta?: CtaAction; ctaLabel?: string }> = {
+  // Compute phone-dependent CTAs once for the novo fallback
+  const novoPrimaryCta = resolveWhatsAppCta(hasPhone)
+  const novoSecondaryCtas = whatsappSecondaryCtas(hasPhone)
+
+  type StageEntry = {
+    title: string
+    reason: string
+    primaryCta: CtaItem
+    secondaryCtas: CtaItem[]
+  }
+  const stageMap: Record<string, StageEntry> = {
     novo: {
       title: 'Realizar primeira abordagem',
       reason: 'Lead ainda em fase inicial',
-      cta: 'openWhatsApp',
-      ctaLabel: 'Abrir WhatsApp',
+      primaryCta: novoPrimaryCta,
+      secondaryCtas: novoSecondaryCtas,
     },
     contato: {
       title: 'Qualificar interesse e avançar conversa',
       reason: 'Lead em fase de contato',
-      cta: 'registerContact',
-      ctaLabel: 'Registrar contato',
+      primaryCta: { action: 'registerContact', label: 'Registrar contato' },
+      secondaryCtas: [{ action: 'updateNextAction', label: 'Atualizar próxima ação' }],
     },
     respondeu: {
       title: 'Apresentar proposta ou agendar reunião',
       reason: 'Lead demonstrou interesse',
-      cta: 'moveStage',
-      ctaLabel: 'Mover etapa',
+      primaryCta: { action: 'registerContact', label: 'Registrar contato' },
+      secondaryCtas: [{ action: 'moveStage', label: 'Mover etapa' }],
     },
     negociacao: {
       title: 'Avançar para fechamento',
       reason: 'Lead em negociação ativa',
-      cta: 'moveStage',
-      ctaLabel: 'Mover etapa',
+      primaryCta: { action: 'registerContact', label: 'Registrar contato' },
+      secondaryCtas: [
+        { action: 'moveStage', label: 'Mover etapa' },
+        { action: 'updateNextAction', label: 'Atualizar próxima ação' },
+      ],
     },
   }
 
@@ -295,8 +335,8 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
       title: stageSuggestion.title,
       reason: stageSuggestion.reason,
       urgency: 'low',
-      cta: stageSuggestion.cta,
-      ctaLabel: stageSuggestion.ctaLabel,
+      primaryCta: stageSuggestion.primaryCta,
+      secondaryCtas: stageSuggestion.secondaryCtas,
     }
   }
 
@@ -352,16 +392,19 @@ export default function CycleSuggestedAction({
   const isUrgent = suggestion.urgency === 'high'
   const borderColor = isUrgent ? '#f59e0b' : '#3b82f6'
   const iconColor = isUrgent ? '#f59e0b' : '#60a5fa'
-  const ctaTextColor = isUrgent ? '#fbbf24' : '#60a5fa'
+  const primaryBg = isUrgent ? '#d97706' : '#2563eb'
 
-  const handleCta = () => {
-    switch (suggestion.cta) {
-      case 'openWhatsApp':    onOpenWhatsApp?.(); break
-      case 'registerContact': onRegisterContact?.(); break
+  const invokeAction = (action: CtaAction) => {
+    switch (action) {
+      case 'openWhatsApp':     onOpenWhatsApp?.(); break
+      case 'registerContact':  onRegisterContact?.(); break
       case 'updateNextAction': onUpdateNextAction?.(); break
-      case 'moveStage':       onMoveStage?.(); break
+      case 'moveStage':        onMoveStage?.(); break
     }
   }
+
+  const secondaryCtas = suggestion.secondaryCtas ?? []
+  const primaryCta = suggestion.primaryCta
 
   return (
     <div
@@ -423,7 +466,7 @@ export default function CycleSuggestedAction({
           fontSize: 11,
           color: '#6b7280',
           marginLeft: 26,
-          marginBottom: suggestion.detail || suggestion.cta ? 10 : 0,
+          marginBottom: suggestion.detail || suggestion.primaryCta ? 10 : 0,
         }}
       >
         {suggestion.reason}
@@ -439,7 +482,7 @@ export default function CycleSuggestedAction({
             borderRadius: 6,
             padding: '6px 10px',
             marginLeft: 26,
-            marginBottom: suggestion.cta ? 10 : 0,
+            marginBottom: suggestion.primaryCta ? 10 : 0,
             fontStyle: 'italic',
             lineHeight: 1.4,
             wordBreak: 'break-word',
@@ -449,29 +492,56 @@ export default function CycleSuggestedAction({
         </div>
       )}
 
-      {/* CTA button */}
-      {suggestion.cta && suggestion.ctaLabel && (
-        <button
-          onClick={handleCta}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            width: '100%',
-            padding: '8px 12px',
-            fontSize: 12,
-            fontWeight: 600,
-            background: `${borderColor}18`,
-            border: `1px solid ${borderColor}50`,
-            borderRadius: 8,
-            color: ctaTextColor,
-            cursor: 'pointer',
-          }}
-        >
-          <CtaIconEl action={suggestion.cta} size={13} />
-          {suggestion.ctaLabel}
-        </button>
+      {/* CTA buttons */}
+      {primaryCta && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {/* Primary CTA — solid background */}
+          <button
+            onClick={() => invokeAction(primaryCta.action)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 14px',
+              fontSize: 12,
+              fontWeight: 700,
+              background: primaryBg,
+              border: 'none',
+              borderRadius: 8,
+              color: '#ffffff',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            <CtaIconEl action={primaryCta.action} size={13} />
+            {primaryCta.label}
+          </button>
+
+          {/* Secondary CTAs — outlined */}
+          {secondaryCtas.map((cta) => (
+            <button
+              key={cta.action}
+              onClick={() => invokeAction(cta.action)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 12px',
+                fontSize: 12,
+                fontWeight: 500,
+                background: 'transparent',
+                border: '1px solid #3a3a52',
+                borderRadius: 8,
+                color: '#9ca3af',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <CtaIconEl action={cta.action} size={13} />
+              {cta.label}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )
