@@ -5,7 +5,8 @@
 // ---------------------------------------------------------------------------
 
 import type { ReactNode } from 'react'
-import { getStageLabel } from '@/app/config/stageActions'
+import { getStageLabel, resolveActionLabel } from '@/app/config/stageActions'
+import { classifyEvent, isRealStageMove } from '@/app/config/eventClassification'
 
 interface LeadEvent {
   id: string
@@ -90,13 +91,8 @@ interface SummaryItem {
 function buildSummary(events: LeadEvent[], ciclo?: LeadCycleSummary | null): SummaryItem[] {
   const items: SummaryItem[] = []
 
-  // ── 1. Última movimentação relevante (stage_changed) ─────────────────────
-  const lastMove = events.find(ev => {
-    const m = ev.metadata ?? {}
-    const from = ev.from_stage ?? str(m.from_status)
-    const to = ev.to_stage ?? str(m.to_status)
-    return from && to
-  })
+  // ── 1. Última movimentação real de etapa (from ≠ to) ────────────────────
+  const lastMove = events.find(ev => isRealStageMove(ev))
   if (lastMove) {
     const m = lastMove.metadata ?? {}
     const from = lastMove.from_stage ?? str(m.from_status)
@@ -111,6 +107,17 @@ function buildSummary(events: LeadEvent[], ciclo?: LeadCycleSummary | null): Sum
         </span>
       ),
       date: lastMove.created_at,
+    })
+  }
+
+  // ── 1b. Última atividade comercial ──────────────────────────────────────
+  const lastActivity = events.find(ev => classifyEvent(ev) === 'activity')
+  if (lastActivity) {
+    const label = resolveActionLabel(lastActivity.event_type) || lastActivity.event_type.replace(/_/g, ' ')
+    items.push({
+      label: 'Última atividade',
+      content: <span style={{ color: '#c4b5fd' }}>{label}</span>,
+      date: lastActivity.created_at,
     })
   }
 

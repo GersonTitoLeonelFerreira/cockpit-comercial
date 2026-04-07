@@ -334,6 +334,8 @@ export default function KanbanBoard({
     async (leadId: string, fromStatus: string, toStatus: string, secondsInFromStage: number, extraMeta?: any) => {
       if (!userId) throw new Error('Você precisa estar logado.')
       if (!companyId) throw new Error('Erro: não encontrei sua empresa (company_id).')
+      // Guard: never register a stage_changed event if from === to
+      if (fromStatus === toStatus) return
 
       const nowIso = new Date().toISOString()
 

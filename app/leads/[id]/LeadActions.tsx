@@ -54,6 +54,8 @@ export default function LeadActions(props: {
   const doMove = useCallback(
     async (toStage: LeadStatus, meta?: any) => {
       if (busy) return
+      // Guard: never register a stage_changed event if from === to
+      if (props.currentStatus === toStage) return
       setBusy(true)
 
       try {

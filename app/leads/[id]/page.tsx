@@ -9,6 +9,14 @@ import LeadActions from './LeadActions'
 import LeadProfileTabs from './LeadProfileTabs'
 import LeadAIBoxClient from './LeadAIBoxClient'
 import { getStageLabel, resolveActionLabel } from '@/app/config/stageActions'
+import {
+  classifyEvent,
+  getEventKindDotColor,
+  getEventKindBorderColor,
+  getEventKindColor,
+  getEventKindLabel,
+  getEventKindIcon,
+} from '@/app/config/eventClassification'
 
 const LEAD_EVENT_LABELS = {
   stage_changed: 'Movimentação', contacted: 'Contato registrado',
@@ -203,17 +211,19 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
           {events && events.length > 0 && (() => {
             const last = events[0] || {}
             const m = (last.metadata ?? {}) as Record<string, unknown>
-            const fromStage = last.from_stage ?? m.from_status
-            const toStage = last.to_stage ?? m.to_status
-            const title = fromStage && toStage
-              ? `${stageLabel(fromStage as string)} → ${stageLabel(toStage as string)}`
-              : LEAD_EVENT_LABELS[last.event_type as keyof typeof LEAD_EVENT_LABELS] ?? resolveActionLabel(last.event_type)
+            const fromStage = last.from_stage ?? (m.from_status as string | null)
+            const toStage = last.to_stage ?? (m.to_status as string | null)
+            const kind = classifyEvent(last)
+            const isMove = kind === 'stage_move'
+            const title = isMove && fromStage && toStage
+              ? `→ ${stageLabel(fromStage)} → ${stageLabel(toStage)}`
+              : `${getEventKindIcon(kind)} ${LEAD_EVENT_LABELS[last.event_type as keyof typeof LEAD_EVENT_LABELS] ?? resolveActionLabel(last.event_type)}`
             const dateStr = last.created_at ? new Date(last.created_at).toLocaleString('pt-BR') : '—'
             return (
               <div style={{ marginBottom: 14, padding: '8px 12px', borderRadius: 8, background: '#161616', border: '1px solid #2a2a2a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <span style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1 }}>Última movimentação</span>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e5e7eb', marginTop: 2 }}>{title}</div>
+                  <span style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1 }}>Último evento</span>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: getEventKindColor(kind), marginTop: 2 }}>{title}</div>
                 </div>
                 <span style={{ fontSize: 11, opacity: 0.5, flexShrink: 0 }}>{dateStr}</span>
               </div>
@@ -225,12 +235,13 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
             events.map(ev => {
               const m = (ev.metadata ?? {}) as Record<string, unknown>
               const cp = (m.checkpoint || m.metadata || m) as Record<string, any>
-              const fromStage = ev.from_stage ?? (m.from_status as string)
-              const toStage = ev.to_stage ?? (m.to_status as string)
-              const isLoss = toStage && String(toStage).toLowerCase() === 'perdido'
-              const isWon = toStage && String(toStage).toLowerCase() === 'ganho'
-              const accentColor = isLoss ? '#fca5a5' : isWon ? '#86efac' : '#93c5fd'
-              const dotBg = isLoss ? '#ef4444' : isWon ? '#10b981' : '#3b82f6'
+              const fromStage = ev.from_stage ?? (m.from_status as string | null)
+              const toStage = ev.to_stage ?? (m.to_status as string | null)
+              const kind = classifyEvent(ev)
+              const isLoss = kind === 'lost'
+              const isWon = kind === 'won'
+              const accentColor = isLoss ? '#fca5a5' : isWon ? '#86efac' : getEventKindColor(kind)
+              const dotBg = getEventKindDotColor(kind)
               const dateLabel = ev.created_at
                 ? new Date(ev.created_at).toLocaleString('pt-BR')
                 : '—'
@@ -240,9 +251,20 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   return isNaN(d.getTime()) ? null : d.toLocaleString('pt-BR')
                 })()
                 : null
-              const eventTitle = fromStage && toStage
-                ? `${stageLabel(fromStage)} → ${stageLabel(toStage)}`
-                : LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? resolveActionLabel(ev.event_type)
+              let eventTitle: string
+              if (kind === 'stage_move' && fromStage && toStage) {
+                eventTitle = `→ ${stageLabel(fromStage)} → ${stageLabel(toStage)}`
+              } else if (kind === 'won') {
+                eventTitle = `✅ ${LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? 'Ganho'}`
+              } else if (kind === 'lost') {
+                eventTitle = `❌ ${LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? 'Perda'}`
+              } else if (kind === 'next_action') {
+                const action = cp.next_action ? String(cp.next_action) : null
+                eventTitle = `📅 Próxima ação${action ? ': ' + action : ''}`
+              } else {
+                const label = LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? resolveActionLabel(ev.event_type)
+                eventTitle = `📋 ${label}`
+              }
               const hasCheckpointFields = cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.note
               const hasLossFields = cp.lost_reason || cp.action_channel
               const hasWonCycleData = isWon && leadCycle && leadCycle.status === 'ganho'
@@ -255,13 +277,23 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   <div style={{
                     flex: 1,
                     padding: '10px 12px',
-                    border: `1px solid ${isLoss ? '#3f1c1c' : isWon ? '#1a3a28' : '#222'}`,
+                    border: `1px solid ${getEventKindBorderColor(kind)}`,
                     borderRadius: 10,
                     background: '#111',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                       <strong style={{ fontSize: 13, color: accentColor }}>{eventTitle}</strong>
-                      <span style={{ opacity: 0.6, fontSize: 12 }}>{dateLabel}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                          background: `${getEventKindColor(kind)}22`,
+                          color: getEventKindColor(kind),
+                          fontWeight: 600, letterSpacing: 0.5,
+                        }}>
+                          {getEventKindLabel(kind)}
+                        </span>
+                        <span style={{ opacity: 0.6, fontSize: 12 }}>{dateLabel}</span>
+                      </div>
                     </div>
                     {hasWonCycleData && (
                       <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 12 }}>
