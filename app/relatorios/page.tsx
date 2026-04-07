@@ -204,9 +204,8 @@ const sections: Section[] = [
       {
         icon: <IconLayers />,
         title: 'Ações por Etapa',
-        desc: 'Volume e tipo de ações registradas em cada etapa do funil',
-        href: '#',
-        comingSoon: true,
+        desc: 'Distribuição das ações operacionais registradas em cada etapa do funil',
+        href: '/relatorios/operacao/acoes-por-etapa',
       },
       {
         icon: <IconActivity />,
