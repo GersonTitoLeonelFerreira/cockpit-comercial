@@ -18,6 +18,25 @@ export interface CycleEvent {
   metadata: Record<string, unknown> | null
 }
 
+/**
+ * Semantic classification of a cycle event for visual rendering.
+ *
+ * - ganho:        Won deal (closed_won or stage_changed → ganho)
+ * - perda:        Lost deal (closed_lost or stage_changed → perdido)
+ * - movimentacao: Real stage transition (from_status !== to_status, both present)
+ * - atividade:    Commercial activity (quick actions, contacted, replied, note_added,
+ *                 or stage_changed with no real status change — false transition)
+ * - proxima_acao: Next action set/updated (next_action_set)
+ * - sistema:      Admin/system event (cycle_created, owner_assigned, etc.)
+ */
+export type EventClass =
+  | 'ganho'
+  | 'perda'
+  | 'movimentacao'
+  | 'atividade'
+  | 'proxima_acao'
+  | 'sistema'
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -65,6 +84,16 @@ export const STATUS_BADGE: Record<string, { background: string; color: string }>
   negociacao: { background: 'rgba(253,224,138,0.15)', color: COLOR_YELLOW },
   ganho:      { background: 'rgba(52,211,153,0.15)',  color: COLOR_GREEN },
   perdido:    { background: 'rgba(248,113,113,0.15)', color: COLOR_RED },
+}
+
+/** Dot color for each event class in the timeline */
+export const EVENT_CLASS_DOT_COLOR: Record<EventClass, string> = {
+  ganho:        COLOR_GREEN,
+  perda:        COLOR_RED,
+  movimentacao: COLOR_BLUE,
+  atividade:    COLOR_PURPLE,
+  proxima_acao: COLOR_YELLOW,
+  sistema:      '#4b5563',
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +178,82 @@ export function getEventTitle(event: CycleEvent): string {
   return EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 }
 
+/**
+ * Deterministically classify a cycle event into one of the semantic types.
+ * Used to select the correct card component and dot color in the timeline.
+ */
+export function classifyEvent(event: CycleEvent): EventClass {
+  const et = event.event_type
+  const m = event.metadata ?? {}
+
+  if (et === 'closed_won') return 'ganho'
+  if (et === 'closed_lost') return 'perda'
+  if (et === 'next_action_set') return 'proxima_acao'
+
+  if (et === 'stage_changed') {
+    const toStatus = ((m.to_status as string) ?? event.to_stage ?? '').toLowerCase().trim()
+    const fromStatus = ((m.from_status as string) ?? event.from_stage ?? '').toLowerCase().trim()
+
+    if (toStatus === 'ganho') return 'ganho'
+    if (toStatus === 'perdido') return 'perda'
+    // Real transition: both statuses exist and differ
+    if (fromStatus && toStatus && fromStatus !== toStatus) return 'movimentacao'
+    // False transition: same stage or missing stage info → treat as activity
+    return 'atividade'
+  }
+
+  if (et === 'contacted' || et === 'replied' || et === 'note_added') return 'atividade'
+  // Quick actions stored with source: 'quick_action'
+  if (m.source === 'quick_action') return 'atividade'
+
+  return 'sistema'
+}
+
+// ---------------------------------------------------------------------------
+// Labels for activity events (quick actions, contacted, etc.)
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_EVENT_LABELS: Record<string, string> = {
+  contacted: 'Contato registrado',
+  replied: 'Resposta registrada',
+  note_added: 'Nota adicionada',
+  // Quick action types (stored in metadata.action_type or metadata.detail)
+  quick_approach_contact: 'Abordagem registrada',
+  quick_call_done: 'Ligação realizada',
+  quick_whats_sent: 'WhatsApp enviado',
+  quick_email_sent: 'Email enviado',
+  quick_bad_data: 'Telefone incorreto',
+  quick_showed_interest: 'Interesse registrado',
+  quick_asked_info: 'Pedido de informação',
+  quick_answered_doubt: 'Dúvida respondida',
+  quick_scheduled: 'Agendamento registrado',
+  quick_asked_proposal: 'Pedido de proposta',
+  quick_qualified: 'Lead qualificado',
+  quick_proposal_presented: 'Proposta apresentada',
+  quick_doubt_answered: 'Dúvida respondida',
+  quick_visit_scheduled: 'Visita agendada',
+  quick_negotiation_started: 'Negociação iniciada',
+  quick_final_proposal_sent: 'Proposta final enviada',
+  quick_objection_registered: 'Objeção registrada',
+  quick_commercial_condition: 'Condição comercial',
+  quick_closing_scheduled: 'Fechamento agendado',
+  quick_closed_won: 'Fechamento registrado',
+  quick_closed_lost: 'Perda registrada',
+  quick_proposal: 'Proposta registrada',
+}
+
+function getActivityLabel(event: CycleEvent): string {
+  const m = event.metadata ?? {}
+  // Check metadata for quick action type
+  const actionType = (m.action_type as string) ?? (m.quick_action_type as string)
+  if (actionType && ACTIVITY_EVENT_LABELS[actionType]) return ACTIVITY_EVENT_LABELS[actionType]
+  // Check metadata detail for quick action type key
+  const detail = m.detail as string | undefined
+  if (detail && ACTIVITY_EVENT_LABELS[detail]) return ACTIVITY_EVENT_LABELS[detail]
+  // Fall back to event_type label
+  return ACTIVITY_EVENT_LABELS[event.event_type] ?? 'Atividade registrada'
+}
+
 // ---------------------------------------------------------------------------
 // Card components (used in history timeline)
 // ---------------------------------------------------------------------------
@@ -163,6 +268,7 @@ export function FieldRow({ label, value }: { label: string; value: ReactNode }) 
   )
 }
 
+/** Card for real stage transitions (from_status !== to_status). */
 export function CheckpointCard({ event }: { event: CycleEvent }) {
   const m = event.metadata ?? {}
   const cp = extractCheckpoint(m)
@@ -178,9 +284,13 @@ export function CheckpointCard({ event }: { event: CycleEvent }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontWeight: 700, color: '#60a5fa' }}>
+        <div style={{ fontWeight: 700, color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 6 }}>
           {from || to ? (
-            <>{statusLabel(from)} <span style={{ color: '#8b8fa2' }}>→</span> {statusLabel(to)}</>
+            <>
+              <span style={{ ...statusBadgeStyle(from), padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 700 }}>{statusLabel(from)}</span>
+              <span style={{ color: '#8b8fa2', fontSize: 13 }}>→</span>
+              <span style={{ ...statusBadgeStyle(to), padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 700 }}>{statusLabel(to)}</span>
+            </>
           ) : 'Movimentação'}
         </div>
         <div style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</div>
@@ -197,6 +307,72 @@ export function CheckpointCard({ event }: { event: CycleEvent }) {
             />
           )}
           {!!cp.note && <FieldRow label="Observação" value={<em>{String(cp.note)}</em>} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Card for commercial activities: quick actions, contacted, replied, note_added,
+ * and false stage_changed transitions (from_stage === to_stage or missing).
+ * Does NOT display a stage transition arrow.
+ */
+export function ActivityCard({ event }: { event: CycleEvent }) {
+  const m = event.metadata ?? {}
+  const cp = extractCheckpoint(m)
+  const label = getActivityLabel(event)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <span style={{ color: '#a855f7', fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</span>
+      </div>
+      {!!(cp.action_channel || cp.action_result || cp.result_detail || cp.detail || cp.note) && (
+        <div style={{ marginTop: 8 }}>
+          <FieldRow label="Canal" value={cp.action_channel != null ? String(cp.action_channel) : undefined} />
+          <FieldRow label="Resultado" value={cp.action_result != null ? String(cp.action_result) : undefined} />
+          {!!cp.result_detail && <FieldRow label="Detalhe" value={String(cp.result_detail)} />}
+          {!cp.result_detail && !!cp.detail && <FieldRow label="Detalhe" value={String(cp.detail)} />}
+          {!!cp.note && <FieldRow label="Observação" value={<em>{String(cp.note)}</em>} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Card for next_action_set events — shows the scheduled next action with date. */
+export function NextActionCard({ event }: { event: CycleEvent }) {
+  const m = event.metadata ?? {}
+  const cp = extractCheckpoint(m)
+
+  const nextAction = (cp.next_action as string | undefined) ?? (m.next_action as string | undefined)
+  const nextActionDate = (cp.next_action_date as string | undefined) ?? (m.next_action_date as string | undefined)
+  const formattedDate = nextActionDate
+    ? (() => {
+        const d = new Date(nextActionDate)
+        return isNaN(d.getTime()) ? null : d.toLocaleDateString('pt-BR')
+      })()
+    : null
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <span style={{ color: '#fde68a', fontWeight: 600 }}>Próxima ação definida</span>
+        <span style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</span>
+      </div>
+      {nextAction && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 13, color: '#f1f5f9' }}>{nextAction}</div>
+          {formattedDate && (
+            <div style={{ fontSize: 12, color: '#8b8fa2', marginTop: 4 }}>Para: {formattedDate}</div>
+          )}
+        </div>
+      )}
+      {!!cp.note && (
+        <div style={{ marginTop: 4 }}>
+          <FieldRow label="Observação" value={<em>{String(cp.note)}</em>} />
         </div>
       )}
     </div>
@@ -295,4 +471,28 @@ export function AdminCard({ event }: { event: CycleEvent }) {
       )}
     </div>
   )
+}
+
+/**
+ * Renders the correct card component for a given event based on its classification.
+ * Handles all event types with fallback for unknown/legacy events.
+ */
+export function EventCard({ event, cycle }: { event: CycleEvent; cycle?: Record<string, unknown> }) {
+  const cls = classifyEvent(event)
+  switch (cls) {
+    case 'ganho':
+      // If cycle data is provided, prefer the richer WonCard with cycle details
+      // otherwise fall back to CheckpointCard which shows the transition
+      return cycle ? <WonCard cycle={cycle} /> : <CheckpointCard event={event} />
+    case 'perda':
+      return <LostCard event={event} />
+    case 'movimentacao':
+      return <CheckpointCard event={event} />
+    case 'atividade':
+      return <ActivityCard event={event} />
+    case 'proxima_acao':
+      return <NextActionCard event={event} />
+    case 'sistema':
+      return <AdminCard event={event} />
+  }
 }
