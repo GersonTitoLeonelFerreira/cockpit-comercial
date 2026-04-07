@@ -276,19 +276,22 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
       return to && String(to).toLowerCase() === 'perdido'
     })
     if (hasPriorLoss) {
-      const waCta = resolveWhatsAppCta(hasPhone)
       return {
         iconType: 'arrowRightCircle',
         title: 'Retomar contato com base no interesse já demonstrado',
         reason: 'Lead retornou ao funil após perda anterior',
         urgency: 'low',
-        primaryCta: waCta,
+        primaryCta: resolveWhatsAppCta(hasPhone),
         secondaryCtas: whatsappSecondaryCtas(hasPhone),
       }
     }
   }
 
   // ── Rule 7: Stage-based fallback ─────────────────────────────────────────
+  // Compute phone-dependent CTAs once for the novo fallback
+  const novoPrimaryCta = resolveWhatsAppCta(hasPhone)
+  const novoSecondaryCtas = whatsappSecondaryCtas(hasPhone)
+
   type StageEntry = {
     title: string
     reason: string
@@ -299,8 +302,8 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
     novo: {
       title: 'Realizar primeira abordagem',
       reason: 'Lead ainda em fase inicial',
-      primaryCta: resolveWhatsAppCta(hasPhone),
-      secondaryCtas: whatsappSecondaryCtas(hasPhone),
+      primaryCta: novoPrimaryCta,
+      secondaryCtas: novoSecondaryCtas,
     },
     contato: {
       title: 'Qualificar interesse e avançar conversa',
