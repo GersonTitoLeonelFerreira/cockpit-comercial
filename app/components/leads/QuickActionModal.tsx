@@ -55,6 +55,7 @@ export async function logQuickAction(
 
     const metadata = {
       source: EVENT_SOURCES.quick_action,
+      action_id: eventType,
       detail,
       channel,
       suggested_next_status: suggestedNextStatus,
