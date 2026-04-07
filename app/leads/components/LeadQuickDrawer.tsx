@@ -1,6 +1,13 @@
 'use client'
 
 import React, { useRef, useState, useEffect, useCallback } from 'react'
+import {
+  IconWhatsApp,
+  IconClipboard,
+  IconCircleCheck,
+  IconLink,
+  IconX,
+} from '@/app/components/icons/UiIcons'
 
 export type WorklistItem = {
   id: string
@@ -162,9 +169,11 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
               cursor: 'pointer',
               padding: 4,
               lineHeight: 1,
+              display: 'flex',
+              alignItems: 'center',
             }}
           >
-            ✕
+            <IconX size={18} />
           </button>
         </div>
 
@@ -203,9 +212,13 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
                     cursor: 'pointer',
                     fontSize: 12,
                     fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
                   }}
                 >
-                  💬 WhatsApp
+                  <IconWhatsApp size={14} /> WhatsApp
                 </button>
                 <button
                   onClick={handleCopyPhone}
@@ -220,9 +233,13 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
                     fontSize: 12,
                     fontWeight: 700,
                     transition: 'background 200ms, color 200ms',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
                   }}
                 >
-                  {copied ? '✓ Copiado!' : '📋 Copiar'}
+                  {copied ? <><IconCircleCheck size={14} /> Copiado!</> : <><IconClipboard size={14} /> Copiar</>}
                 </button>
               </div>
             )}
@@ -280,9 +297,13 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
                 fontSize: 13,
                 fontWeight: 700,
                 opacity: saving ? 0.7 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
               }}
             >
-              {saving ? 'Salvando…' : saved ? '✓ Salvo' : 'Salvar agenda'}
+              {saving ? 'Salvando…' : saved ? <><IconCircleCheck size={14} /> Salvo</> : 'Salvar agenda'}
             </button>
           </div>
 
@@ -291,7 +312,10 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
             <a
               href={`/sales-cycles/${item.id}`}
               style={{
-                display: 'block',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
                 width: '100%',
                 padding: '10px 12px',
                 borderRadius: 8,
@@ -305,7 +329,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
                 boxSizing: 'border-box',
               }}
             >
-              🔗 Abrir lead completo
+              <IconLink size={14} /> Abrir lead completo
             </a>
           </div>
 

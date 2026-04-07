@@ -1,3 +1,4 @@
+'use client'
 
 // ---------------------------------------------------------------------------
 // CyclePageTabs — Client component managing the 4 operational tabs for a
@@ -12,12 +13,19 @@ import CycleContextAlerts from './CycleContextAlerts'
 import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
+import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import {
   moveCycleStage,
   setNextAction,
-  closeCycleLost,
 } from '@/app/lib/services/sales-cycles'
 import type { LeadStatus } from '@/app/types/sales_cycles'
+import {
+  IconWhatsApp,
+  IconClipboard,
+  IconPencil,
+  IconArrowRightCircle,
+  IconX,
+} from '@/app/components/icons/UiIcons'
 import {
   type CycleEvent,
   statusLabel,
@@ -108,7 +116,6 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // Form state
   const [action, setAction] = useState('')
   const [actionDate, setActionDate] = useState('')
-  const [lostReason, setLostReason] = useState('')
 
   // Lead basic edit state
   const [editingLead, setEditingLead] = useState(false)
@@ -161,23 +168,6 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       setAction('')
       setActionDate('')
       setShowActionModal(false)
-      router.refresh()
-    } catch (err: any) {
-      alert(`Erro: ${err?.message ?? String(err)}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleCloseLost = async () => {
-    setLoading(true)
-    try {
-      await closeCycleLost({
-        cycle_id: cycle.id,
-        loss_reason: lostReason || undefined,
-      })
-      setLostReason('')
-      setShowLostModal(false)
       router.refresh()
     } catch (err: any) {
       alert(`Erro: ${err?.message ?? String(err)}`)
@@ -420,46 +410,50 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   setShowContactBanner(true)
                 }}
                 style={{
-                  display: 'block', width: '100%', padding: '8px 12px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  width: '100%', padding: '8px 12px',
                   background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
                   borderRadius: 8, color: '#34d399', fontSize: 12, fontWeight: 600,
                   textDecoration: 'none', textAlign: 'center', cursor: 'pointer',
                 }}
               >
-                📱 WhatsApp
+                <IconWhatsApp size={14} /> WhatsApp
               </button>
             )}
             {lead?.phone && (
               <button
                 onClick={copyPhone}
                 style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   padding: '8px 12px', background: '#2a2a3e',
                   border: '1px solid #3a3a4e', borderRadius: 8,
                   color: '#f1f5f9', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 }}
               >
-                📋 Copiar telefone
+                <IconClipboard size={14} /> Copiar telefone
               </button>
             )}
             <button
               onClick={() => setActiveTab('lead-data')}
               style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 padding: '8px 12px', background: '#2a2a3e',
                 border: '1px solid #3a3a4e', borderRadius: 8,
                 color: '#f1f5f9', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              📝 Editar dados
+              <IconPencil size={14} /> Editar dados
             </button>
             <button
               onClick={() => setActiveTab('actions')}
               style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 padding: '8px 12px', background: '#2a2a3e',
                 border: '1px solid #3a3a4e', borderRadius: 8,
                 color: '#f1f5f9', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              ↗ Mover etapa
+              <IconArrowRightCircle size={14} /> Mover etapa
             </button>
           </div>
         </div>
@@ -787,36 +781,39 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   setShowContactBanner(true)
                 }}
                 style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   padding: '10px 16px',
                   background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
                   borderRadius: 8, color: '#34d399', fontSize: 13, fontWeight: 600,
                   cursor: 'pointer', textAlign: 'center',
                 }}
               >
-                📱 WhatsApp
+                <IconWhatsApp size={14} /> WhatsApp
               </button>
             )}
             {lead?.phone && (
               <button
                 onClick={copyPhone}
                 style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   padding: '10px 16px', background: '#2a2a3e',
                   border: '1px solid #3a3a4e', borderRadius: 8,
                   color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}
               >
-                📋 Copiar telefone
+                <IconClipboard size={14} /> Copiar telefone
               </button>
             )}
             <button
               onClick={() => setActiveTab('lead-data')}
               style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 padding: '10px 16px', background: '#2a2a3e',
                 border: '1px solid #3a3a4e', borderRadius: 8,
                 color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              📝 Editar dados do lead
+              <IconPencil size={14} /> Editar dados
             </button>
           </div>
         </div>
@@ -886,64 +883,16 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       />
 
       {/* Lost Modal */}
-      {showLostModal && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }}>
-          <div style={{
-            background: '#1e1e2e', border: '1px solid #2a2a3e',
-            borderRadius: 16, padding: 24, width: 400, maxWidth: '90vw',
-          }}>
-            <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 16, margin: 0, marginBottom: 16 }}>
-              Registrar Perda
-            </h3>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 6 }}>
-                Motivo da perda (opcional)
-              </label>
-              <input
-                type="text"
-                value={lostReason}
-                onChange={(e) => setLostReason(e.target.value)}
-                placeholder="Ex: Concorrência, Preço, etc."
-                disabled={loading}
-                style={{
-                  width: '100%', padding: '10px 12px',
-                  background: '#181824', border: '1px solid #3a3a4e',
-                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => { setShowLostModal(false); setLostReason('') }}
-                disabled={loading}
-                style={{
-                  flex: 1, padding: '10px 16px', background: '#2a2a3e',
-                  border: '1px solid #3a3a4e', borderRadius: 8,
-                  color: '#f1f5f9', fontSize: 13, cursor: 'pointer',
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleCloseLost}
-                disabled={loading}
-                style={{
-                  flex: 1, padding: '10px 16px',
-                  background: 'rgba(248,113,113,0.2)', border: '1px solid rgba(248,113,113,0.4)',
-                  borderRadius: 8, color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  opacity: loading ? 0.5 : 1,
-                }}
-              >
-                {loading ? 'Salvando...' : 'Confirmar Perda'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LostDealModal
+        isOpen={showLostModal}
+        dealId={cycle.id}
+        dealName={cycle?.leads?.name || 'Deal'}
+        onClose={() => setShowLostModal(false)}
+        onSuccess={() => {
+          router.refresh()
+          setShowLostModal(false)
+        }}
+      />
 
       {/* Próxima Ação Modal (from overview quick action) */}
       {showActionModal && (
@@ -1076,8 +1025,10 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 3 }}>
-                {contactBannerChannel === 'Whats' ? '📱 WhatsApp aberto' : '📋 Telefone copiado'}
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {contactBannerChannel === 'Whats'
+                  ? <><IconWhatsApp size={14} /> WhatsApp aberto</>
+                  : <><IconClipboard size={14} /> Telefone copiado</>}
               </div>
               <div style={{ fontSize: 12, color: '#8b8fa2' }}>
                 Deseja registrar este contato?
@@ -1088,11 +1039,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               style={{
                 background: 'none', border: 'none', color: '#4b5563',
                 cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0,
-                flexShrink: 0,
+                flexShrink: 0, display: 'flex', alignItems: 'center',
               }}
               aria-label="Fechar"
             >
-              ✕
+              <IconX size={16} />
             </button>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>

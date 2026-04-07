@@ -134,3 +134,25 @@ export function IconAlertTriangle(props: IconProps) {
     </svg>
   )
 }
+
+export function IconHistory(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <polyline points="1 4 1 10 7 10" />
+      <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  )
+}
+
+export function IconLink(props: IconProps) {
+  const p = defaultProps(props)
+  return (
+    <svg {...p} aria-hidden="true">
+      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  )
+}
