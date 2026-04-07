@@ -2,128 +2,34 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import {
+  getActionsForStage,
+  findActionById,
+  getStageLabel,
+  resolveActionId,
+} from '@/app/config/stageActions'
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type QuickActionType =
-  // Etapa NOVO
-  | 'quick_approach_contact'
-  | 'quick_call_done'
-  | 'quick_whats_sent'
-  | 'quick_email_sent'
-  | 'quick_bad_data'
-  // Etapa CONTATO
-  | 'quick_showed_interest'
-  | 'quick_asked_info'
-  | 'quick_answered_doubt'
-  | 'quick_scheduled'
-  | 'quick_asked_proposal'
-  // Etapa RESPONDEU
-  | 'quick_qualified'
-  | 'quick_proposal_presented'
-  | 'quick_doubt_answered'
-  | 'quick_visit_scheduled'
-  | 'quick_negotiation_started'
-  // Etapa NEGOCIAÇÃO
-  | 'quick_final_proposal_sent'
-  | 'quick_objection_registered'
-  | 'quick_commercial_condition'
-  | 'quick_closing_scheduled'
-  | 'quick_closed_won'
-  | 'quick_closed_lost'
-  // Genérica
-  | 'quick_proposal'
-
-export const QUICK_ACTION_SUGGESTED_STATUS: Record<QuickActionType, string | null> = {
-  // NOVO
-  quick_approach_contact: 'contato',
-  quick_call_done: 'contato',
-  quick_whats_sent: 'contato',
-  quick_email_sent: 'contato',
-  quick_bad_data: null,
-  // CONTATO
-  quick_showed_interest: 'respondeu',
-  quick_asked_info: null,
-  quick_answered_doubt: 'respondeu',
-  quick_scheduled: 'respondeu',
-  quick_asked_proposal: 'negociacao',
-  // RESPONDEU
-  quick_qualified: 'negociacao',
-  quick_proposal_presented: 'negociacao',
-  quick_doubt_answered: null,
-  quick_visit_scheduled: null,
-  quick_negotiation_started: 'negociacao',
-  // NEGOCIAÇÃO
-  quick_final_proposal_sent: null,
-  quick_objection_registered: null,
-  quick_commercial_condition: null,
-  quick_closing_scheduled: null,
-  quick_closed_won: 'ganho',
-  quick_closed_lost: 'perdido',
-  // Genérica
-  quick_proposal: 'negociacao',
-}
+/** ID de ação — novo formato snake_case com prefixo de etapa, ou IDs legados */
+export type QuickActionType = string
 
 // ============================================================================
 // getActionsForStatus
 // ============================================================================
 
-const STATUS_LABEL_MAP: Record<string, string> = {
-  novo: 'Novo',
-  contato: 'Contato',
-  respondeu: 'Respondeu',
-  negociacao: 'Negociação',
-  ganho: 'Ganho',
-  perdido: 'Perdido',
-}
-
-export function getActionsForStatus(status: string): { id: QuickActionType; label: string }[] {
-  switch (status) {
-    case 'novo':
-      return [
-        { id: 'quick_approach_contact', label: 'Abordagem realizada' },
-        { id: 'quick_call_done', label: 'Ligação feita' },
-        { id: 'quick_whats_sent', label: 'WhatsApp enviado' },
-        { id: 'quick_email_sent', label: 'Email enviado' },
-        { id: 'quick_bad_data', label: 'Telefone incorreto' },
-      ]
-    case 'contato':
-      return [
-        { id: 'quick_showed_interest', label: 'Demonstrou interesse' },
-        { id: 'quick_asked_info', label: 'Pediu mais informações' },
-        { id: 'quick_answered_doubt', label: 'Respondeu dúvida' },
-        { id: 'quick_scheduled', label: 'Agendamento realizado' },
-        { id: 'quick_asked_proposal', label: 'Pediu proposta' },
-      ]
-    case 'respondeu':
-      return [
-        { id: 'quick_qualified', label: 'Qualificação realizada' },
-        { id: 'quick_proposal_presented', label: 'Proposta apresentada' },
-        { id: 'quick_doubt_answered', label: 'Dúvida respondida' },
-        { id: 'quick_visit_scheduled', label: 'Visita agendada' },
-        { id: 'quick_negotiation_started', label: 'Negociação iniciada' },
-      ]
-    case 'negociacao':
-      return [
-        { id: 'quick_final_proposal_sent', label: 'Proposta final enviada' },
-        { id: 'quick_objection_registered', label: 'Objeção registrada' },
-        { id: 'quick_commercial_condition', label: 'Condição comercial discutida' },
-        { id: 'quick_closing_scheduled', label: 'Fechamento agendado' },
-        { id: 'quick_closed_won', label: 'Fechou ✓' },
-        { id: 'quick_closed_lost', label: 'Perdido ✗' },
-      ]
-    default:
-      return [
-        { id: 'quick_approach_contact', label: 'Abordagem realizada' },
-        { id: 'quick_call_done', label: 'Ligação feita' },
-        { id: 'quick_answered_doubt', label: 'Respondeu dúvida' },
-        { id: 'quick_scheduled', label: 'Agendamento realizado' },
-        { id: 'quick_proposal', label: 'Proposta realizada' },
-        { id: 'quick_bad_data', label: 'Telefone incorreto' },
-      ]
+export function getActionsForStatus(status: string): { id: string; label: string }[] {
+  const baseActions = getActionsForStage(status).map(a => ({ id: a.id, label: a.label }))
+  if (status === 'negociacao') {
+    return [
+      ...baseActions,
+      { id: 'quick_closed_won', label: 'Fechou ✓' },
+      { id: 'quick_closed_lost', label: 'Perdido ✗' },
+    ]
   }
+  return baseActions
 }
 
 // ============================================================================
@@ -135,16 +41,22 @@ export async function logQuickAction(
   companyId: string,
   cycleId: string,
   userId: string,
-  eventType: QuickActionType,
+  eventType: string,
   detail: string = '',
   channel: 'whatsapp' | 'copy' = 'copy'
 ) {
   try {
+    // Special win/loss actions are not in the catalog
+    const suggestedNextStatus =
+      eventType === 'quick_closed_won' ? 'ganho' :
+      eventType === 'quick_closed_lost' ? 'perdido' :
+      findActionById(resolveActionId(eventType))?.suggestedNextStatus ?? null
+
     const metadata = {
       source: 'quick_action',
       detail,
       channel,
-      suggested_next_status: QUICK_ACTION_SUGGESTED_STATUS[eventType],
+      suggested_next_status: suggestedNextStatus,
     }
     await supabase.from('cycle_events').insert({
       company_id: companyId,
@@ -154,7 +66,7 @@ export async function logQuickAction(
       metadata,
       occurred_at: new Date().toISOString(),
     })
-    return QUICK_ACTION_SUGGESTED_STATUS[eventType]
+    return suggestedNextStatus
   } catch (e: any) {
     console.error(`Erro ao registrar ação rápida (cycleId=${cycleId}):`, e)
     return null
@@ -177,14 +89,14 @@ export function QuickActionModal({
   leadName: string
   currentStatus?: string
   onClose: () => void
-  onSave: (action: QuickActionType, detail: string) => void
+  onSave: (action: string, detail: string) => void
   isLoading: boolean
 }) {
-  const [selectedAction, setSelectedAction] = useState<QuickActionType | null>(null)
+  const [selectedAction, setSelectedAction] = useState<string | null>(null)
   const [detail, setDetail] = useState('')
 
   const actions = getActionsForStatus(currentStatus ?? '')
-  const stageLabel = currentStatus ? (STATUS_LABEL_MAP[currentStatus] ?? currentStatus) : null
+  const stageLabel = currentStatus ? (getStageLabel(currentStatus) ?? currentStatus) : null
 
   const handleSave = () => {
     if (!selectedAction) {
@@ -196,7 +108,7 @@ export function QuickActionModal({
     setDetail('')
   }
 
-  const getActionStyle = (action: { id: QuickActionType; label: string }, isSelected: boolean) => {
+  const getActionStyle = (action: { id: string; label: string }, isSelected: boolean) => {
     const base = {
       padding: '8px 10px',
       borderRadius: 6,

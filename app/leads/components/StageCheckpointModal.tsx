@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import { getStageLabel } from '@/app/config/stageActions'
 
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
 
@@ -396,7 +397,7 @@ function CheckpointForm({
           Checkpoint de Transição
         </div>
         <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 20 }}>
-          {fromStatus.toUpperCase()} → {toStatus.toUpperCase()}
+          {getStageLabel(fromStatus)} → {getStageLabel(toStatus)}
         </div>
 
         {/* ACTION CHANNEL */}

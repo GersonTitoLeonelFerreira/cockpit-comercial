@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
+import { getStageLabel } from '@/app/config/stageActions'
 
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
@@ -14,8 +15,7 @@ function whatsappLink(phone: string | null) {
   return `https://wa.me/${full}`
 }
 
-const STAGES = ['novo', 'contato', 'respondeu', 'negociacao', 'fechado', 'perdido'] as const
-type Stage = (typeof STAGES)[number]
+type Stage = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
 
 const LOSS_REASONS = [
   'Sem resposta',
@@ -27,6 +27,13 @@ const LOSS_REASONS = [
   'Telefone inválido / contato incorreto',
   'Outro',
 ] as const
+
+/** Returns the next active stage in the funnel, or null if there is none */
+function getNextStage(currentStatus: string): Stage | null {
+  const flow: Stage[] = ['novo', 'contato', 'respondeu', 'negociacao']
+  const idx = flow.indexOf(currentStatus as Stage)
+  return idx >= 0 && idx < flow.length - 1 ? flow[idx + 1] : null
+}
 
 export default function LeadActions(props: {
   leadId: string
@@ -140,30 +147,32 @@ export default function LeadActions(props: {
           </a>
         ) : null}
 
-        <button type="button" style={btn} disabled={busy} onClick={() => doMove('contato')}>
-          Marcar Contato
-        </button>
-
-        <button type="button" style={btn} disabled={busy} onClick={() => doMove('respondeu')}>
-          Marcar Respondeu
-        </button>
-
-        <button type="button" style={btn} disabled={busy} onClick={() => doMove('negociacao')}>
-          Ir p/ Negociação
-        </button>
-
-        <button type="button" style={btn} disabled={busy} onClick={() => doMove('fechado')}>
-          Fechar ✅
-        </button>
-
-        <button
-          type="button"
-          style={{ ...btn, borderColor: '#ef4444', color: '#ef4444' }}
-          disabled={busy}
-          onClick={() => setOpenLost(true)}
-        >
-          Perder ✖
-        </button>
+        {(() => {
+          const nextStage = getNextStage(props.currentStatus)
+          const isNegociacao = props.currentStatus === 'negociacao'
+          return (
+            <>
+              {nextStage && (
+                <button type="button" style={btn} disabled={busy} onClick={() => doMove(nextStage)}>
+                  Avançar p/ {getStageLabel(nextStage)}
+                </button>
+              )}
+              {isNegociacao && (
+                <button type="button" style={btn} disabled={busy} onClick={() => doMove('ganho')}>
+                  Fechar ✅
+                </button>
+              )}
+              <button
+                type="button"
+                style={{ ...btn, borderColor: '#ef4444', color: '#ef4444' }}
+                disabled={busy}
+                onClick={() => setOpenLost(true)}
+              >
+                Perder ✖
+              </button>
+            </>
+          )
+        })()}
       </div>
 
       {openLost && (

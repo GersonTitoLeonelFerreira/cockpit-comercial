@@ -16,7 +16,8 @@ import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
-import { QuickActionModal, logQuickAction, QuickActionType } from '@/app/components/leads/QuickActionModal'
+import { QuickActionModal, logQuickAction } from '@/app/components/leads/QuickActionModal'
+import { resolveActionId, getActionLabel } from '@/app/config/stageActions'
 import {
   moveCycleStage,
   setNextAction,
@@ -110,34 +111,11 @@ function DataRow({ label, value }: { label: string; value?: string | null }) {
 
 const TOAST_DURATION_MS = 4000
 
-const QUICK_ACTION_TOAST_LABELS: Record<QuickActionType, string> = {
-  // NOVO
-  quick_approach_contact: 'Abordagem registrada',
-  quick_call_done: 'Ligação registrada',
-  quick_whats_sent: 'WhatsApp registrado',
-  quick_email_sent: 'Email registrado',
-  quick_bad_data: 'Telefone incorreto registrado',
-  // CONTATO
-  quick_showed_interest: 'Interesse registrado',
-  quick_asked_info: 'Pedido de informação registrado',
-  quick_answered_doubt: 'Dúvida registrada',
-  quick_scheduled: 'Agendamento registrado',
-  quick_asked_proposal: 'Pedido de proposta registrado',
-  // RESPONDEU
-  quick_qualified: 'Qualificação registrada',
-  quick_proposal_presented: 'Proposta apresentada registrada',
-  quick_doubt_answered: 'Dúvida respondida registrada',
-  quick_visit_scheduled: 'Visita agendada registrada',
-  quick_negotiation_started: 'Negociação iniciada registrada',
-  // NEGOCIAÇÃO
-  quick_final_proposal_sent: 'Proposta final registrada',
-  quick_objection_registered: 'Objeção registrada',
-  quick_commercial_condition: 'Condição comercial registrada',
-  quick_closing_scheduled: 'Fechamento agendado registrado',
-  quick_closed_won: 'Fechamento registrado',
-  quick_closed_lost: 'Perda registrada',
-  // Genérica
-  quick_proposal: 'Proposta registrada',
+function getQuickActionToastLabel(actionId: string): string {
+  if (actionId === 'quick_closed_won') return 'Fechamento registrado'
+  if (actionId === 'quick_closed_lost') return 'Perda registrada'
+  const label = getActionLabel(resolveActionId(actionId))
+  return `${label} registrado`
 }
 
 // ---------------------------------------------------------------------------
@@ -1162,7 +1140,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             const userId = user?.id ?? ''
             const suggested = await logQuickAction(supabase, companyId, cycle.id, userId, actionType, detail, contactBannerChannel)
             setShowQuickActionModal(false)
-            setToastMessage(QUICK_ACTION_TOAST_LABELS[actionType] ?? 'Contato registrado')
+            setToastMessage(getQuickActionToastLabel(actionType))
             if (suggested && suggested !== cycle.status) {
               setSuggestedStatus(suggested)
             }
