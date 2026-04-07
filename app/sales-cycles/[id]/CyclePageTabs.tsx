@@ -103,12 +103,33 @@ function DataRow({ label, value }: { label: string; value?: string | null }) {
 const TOAST_DURATION_MS = 4000
 
 const QUICK_ACTION_TOAST_LABELS: Record<QuickActionType, string> = {
+  // NOVO
   quick_approach_contact: 'Abordagem registrada',
   quick_call_done: 'Ligação registrada',
+  quick_whats_sent: 'WhatsApp registrado',
+  quick_email_sent: 'Email registrado',
+  quick_bad_data: 'Telefone incorreto registrado',
+  // CONTATO
+  quick_showed_interest: 'Interesse registrado',
+  quick_asked_info: 'Pedido de informação registrado',
   quick_answered_doubt: 'Dúvida registrada',
   quick_scheduled: 'Agendamento registrado',
+  quick_asked_proposal: 'Pedido de proposta registrado',
+  // RESPONDEU
+  quick_qualified: 'Qualificação registrada',
+  quick_proposal_presented: 'Proposta apresentada registrada',
+  quick_doubt_answered: 'Dúvida respondida registrada',
+  quick_visit_scheduled: 'Visita agendada registrada',
+  quick_negotiation_started: 'Negociação iniciada registrada',
+  // NEGOCIAÇÃO
+  quick_final_proposal_sent: 'Proposta final registrada',
+  quick_objection_registered: 'Objeção registrada',
+  quick_commercial_condition: 'Condição comercial registrada',
+  quick_closing_scheduled: 'Fechamento agendado registrado',
+  quick_closed_won: 'Fechamento registrado',
+  quick_closed_lost: 'Perda registrada',
+  // Genérica
   quick_proposal: 'Proposta registrada',
-  quick_bad_data: 'Telefone incorreto registrado',
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,6 +1079,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       <QuickActionModal
         isOpen={showQuickActionModal}
         leadName={lead?.name || 'Lead'}
+        currentStatus={cycle.status}
         onClose={() => setShowQuickActionModal(false)}
         onSave={async (actionType, detail) => {
           setQuickActionLoading(true)
