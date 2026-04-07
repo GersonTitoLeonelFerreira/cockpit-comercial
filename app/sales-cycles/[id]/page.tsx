@@ -56,18 +56,38 @@ async function getSalesCycleDetail(cycleId: string) {
     .eq('company_id', cycleData.company_id)
     .maybeSingle()
 
+  // Fetch active group for this cycle (protected)
+  let activeGroupName: string | null = null
+  try {
+    const { data: groupCycle } = await supabase
+      .from('lead_group_cycles')
+      .select('lead_groups:group_id(name)')
+      .eq('cycle_id', cycleId)
+      .is('detached_at', null)
+      .maybeSingle()
+    if (groupCycle) {
+      const lg = groupCycle.lead_groups as { name?: string } | null
+      activeGroupName = lg?.name ?? null
+    }
+  } catch (e) {
+    // non-blocking — group name is optional
+    console.error('Failed to fetch active group for cycle:', e)
+  }
+
   return {
     cycle: cycleData,
     events: (eventsData || []) as CycleEvent[],
     leadProfile: leadProfile ?? null,
+    activeGroupName,
   }
 }
 
 export default async function SalesCycleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { cycle, events, leadProfile } = await getSalesCycleDetail(id)
+  const { cycle, events, leadProfile, activeGroupName } = await getSalesCycleDetail(id)
 
   const lead = cycle.leads as { name?: string; phone?: string; email?: string } | null
+  const product = cycle.products as { id?: string; name?: string; category?: string } | null
   const daysInStatus = cycle.stage_entered_at
     ? Math.floor((Date.now() - new Date(cycle.stage_entered_at as string).getTime()) / MILLISECONDS_PER_DAY)
     : null
@@ -90,7 +110,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
         >
           ← Voltar ao Pipeline
         </Link>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h1 style={{ color: '#f1f5f9', fontWeight: 800, fontSize: '1.8rem', margin: 0, lineHeight: 1.1 }}>
             {lead?.name ?? '—'}
           </h1>
@@ -103,13 +123,58 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
           }}>
             {statusLabel(cycle.status as string)}
           </span>
-          {lead?.phone && (
-            <span style={{ color: '#8b8fa2', fontSize: 13 }}>{lead.phone}</span>
+          {activeGroupName && (
+            <span style={{
+              background: 'rgba(167,139,250,0.1)',
+              color: '#a78bfa',
+              border: '1px solid rgba(167,139,250,0.3)',
+              borderRadius: 20,
+              padding: '3px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+            }}>
+              {activeGroupName}
+            </span>
+          )}
+          {product?.name && (
+            <span style={{
+              background: 'rgba(96,165,250,0.1)',
+              color: '#60a5fa',
+              border: '1px solid rgba(96,165,250,0.3)',
+              borderRadius: 20,
+              padding: '3px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+            }}>
+              {product.name}
+            </span>
           )}
         </div>
-        <p style={{ color: '#8b8fa2', fontSize: 12, margin: 0, marginTop: 6 }}>
-          Ciclo <span style={{ fontFamily: MONOSPACE_FONT }}>#{cycle.id}</span>
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 6, flexWrap: 'wrap' }}>
+          {lead?.phone && (
+            <span style={{ color: '#8b8fa2', fontSize: 12 }}>{lead.phone}</span>
+          )}
+          {product?.category && (
+            <span style={{ color: '#6b7280', fontSize: 12 }}>{product.category}</span>
+          )}
+          {cycle.created_at && (
+            <span style={{ color: '#6b7280', fontSize: 12 }}>
+              Criado em {fmtDateShort(cycle.created_at as string)}
+            </span>
+          )}
+          <span
+            style={{
+              color: '#4b5563',
+              fontSize: 10,
+              fontFamily: MONOSPACE_FONT,
+              userSelect: 'all' as const,
+              cursor: 'text',
+            }}
+            title={cycle.id}
+          >
+            #{(cycle.id as string).slice(0, 8)}
+          </span>
+        </div>
       </div>
 
       {/* MINI-CARDS DE CONTEXTO RÁPIDO */}
