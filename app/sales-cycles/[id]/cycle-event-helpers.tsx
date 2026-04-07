@@ -349,12 +349,7 @@ export function NextActionCard({ event }: { event: CycleEvent }) {
 
   const nextAction = (cp.next_action as string | undefined) ?? (m.next_action as string | undefined)
   const nextActionDate = (cp.next_action_date as string | undefined) ?? (m.next_action_date as string | undefined)
-  const formattedDate = nextActionDate
-    ? (() => {
-        const d = new Date(nextActionDate)
-        return isNaN(d.getTime()) ? null : d.toLocaleDateString('pt-BR')
-      })()
-    : null
+  const formattedDate = fmtDateShort(nextActionDate)
 
   return (
     <div>
@@ -365,7 +360,7 @@ export function NextActionCard({ event }: { event: CycleEvent }) {
       {nextAction && (
         <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 13, color: '#f1f5f9' }}>{nextAction}</div>
-          {formattedDate && (
+          {formattedDate !== '—' && (
             <div style={{ fontSize: 12, color: '#8b8fa2', marginTop: 4 }}>Para: {formattedDate}</div>
           )}
         </div>
