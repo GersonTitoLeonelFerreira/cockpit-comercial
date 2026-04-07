@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { STAGE_LABELS, resolveActionId } from '@/app/config/stageActions'
+import { classifyEvent } from '@/app/config/eventClassification'
 
 // ============================================================================
 // Helpers
@@ -109,17 +110,18 @@ function buildReportData(
     }
 
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
+    const kind = classifyEvent(ev)
 
-    if (ev.event_type === 'closed_won') {
+    if (kind === 'won') {
       totalWon++
       continue
     }
 
-    if (ev.event_type === 'closed_lost') {
+    if (kind === 'lost') {
       totalLost++
 
-      // Stage where the cycle was when closed
-      const stage = String(meta.from_status ?? meta.stage ?? '').toLowerCase() || 'negociacao'
+      // Stage where the cycle was when closed (check from_status, from_stage, then stage)
+      const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
       if (stageFilter && stage !== stageFilter) continue
 
       const reason = String(
@@ -133,14 +135,16 @@ function buildReportData(
       continue
     }
 
-    // Objection events: look for action_id resolving to OBJECTION_ACTION_ID
+    // Objection detection — two paths:
+    // 1. metadata.action_id resolves to OBJECTION_ACTION_ID via resolveActionId()
+    // 2. metadata.objection field is non-empty
     const rawId = String(meta.action_id ?? meta.quick_action ?? '').trim()
-    if (!rawId) continue
+    const resolvedId = rawId ? resolveActionId(rawId) : ''
+    const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
 
-    const resolvedId = resolveActionId(rawId)
-    if (resolvedId !== OBJECTION_ACTION_ID) continue
+    if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField) continue
 
-    const stage = String(meta.from_status ?? meta.stage ?? '').toLowerCase() || 'negociacao'
+    const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
     if (stageFilter && stage !== stageFilter) continue
 
     const text = String(
