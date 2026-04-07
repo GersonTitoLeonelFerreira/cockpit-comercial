@@ -104,7 +104,7 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
             {statusLabel(cycle.status as string)}
           </span>
           {lead?.phone && (
-            <span style={{ color: '#8b8fa2', fontSize: 13 }}>📱 {lead.phone}</span>
+            <span style={{ color: '#8b8fa2', fontSize: 13 }}>{lead.phone}</span>
           )}
         </div>
         <p style={{ color: '#8b8fa2', fontSize: 12, margin: 0, marginTop: 6 }}>
