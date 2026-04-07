@@ -217,8 +217,8 @@ const sections: Section[] = [
         icon: <IconMessageSquare />,
         title: 'Objeções e Perdas',
         desc: 'Motivos de perda mais frequentes e padrões de objeção por etapa',
-        href: '#',
-        comingSoon: true,
+        href: '/relatorios/operacao/objecoes-e-perdas',
+        comingSoon: false,
       },
       {
         icon: <IconListCheck />,
