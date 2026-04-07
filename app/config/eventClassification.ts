@@ -13,6 +13,9 @@ import { resolveActionId } from '@/app/config/stageActions'
 // Tipo principal
 // ---------------------------------------------------------------------------
 
+/** Prefixos das etapas usados na taxonomia de IDs de ação (Fase 2.1) */
+const STAGE_ACTION_PREFIX_RE = /^(novo|contato|respondeu|negociacao)_/
+
 /**
  * Categorias semânticas de evento:
  * - stage_move:   Movimentação real de etapa (from_stage ≠ to_stage)
@@ -101,7 +104,7 @@ export function classifyEvent(event: ClassifiableEvent): EventKind {
 
   // ── 6. IDs de ação do catálogo (Fase 2.1) ──────────────────────────────
   const resolved = resolveActionId(et)
-  if (/^(novo|contato|respondeu|negociacao)_/.test(resolved)) return 'activity'
+  if (STAGE_ACTION_PREFIX_RE.test(resolved)) return 'activity'
   // legacy quick_ IDs que não sejam won/lost
   if (et.startsWith('quick_') && et !== 'quick_closed_won' && et !== 'quick_closed_lost') return 'activity'
   // origem quick_action no metadata

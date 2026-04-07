@@ -216,7 +216,7 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
             const kind = classifyEvent(last)
             const isMove = kind === 'stage_move'
             const title = isMove && fromStage && toStage
-              ? `→ ${stageLabel(fromStage)} → ${stageLabel(toStage)}`
+              ? `${getEventKindIcon(kind)} ${stageLabel(fromStage)} → ${stageLabel(toStage)}`
               : `${getEventKindIcon(kind)} ${LEAD_EVENT_LABELS[last.event_type as keyof typeof LEAD_EVENT_LABELS] ?? resolveActionLabel(last.event_type)}`
             const dateStr = last.created_at ? new Date(last.created_at).toLocaleString('pt-BR') : '—'
             return (
@@ -253,17 +253,17 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                 : null
               let eventTitle: string
               if (kind === 'stage_move' && fromStage && toStage) {
-                eventTitle = `→ ${stageLabel(fromStage)} → ${stageLabel(toStage)}`
+                eventTitle = `${getEventKindIcon(kind)} ${stageLabel(fromStage)} → ${stageLabel(toStage)}`
               } else if (kind === 'won') {
-                eventTitle = `✅ ${LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? 'Ganho'}`
+                eventTitle = `${getEventKindIcon(kind)} ${LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? 'Ganho'}`
               } else if (kind === 'lost') {
-                eventTitle = `❌ ${LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? 'Perda'}`
+                eventTitle = `${getEventKindIcon(kind)} ${LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? 'Perda'}`
               } else if (kind === 'next_action') {
                 const action = cp.next_action ? String(cp.next_action) : null
-                eventTitle = `📅 Próxima ação${action ? ': ' + action : ''}`
+                eventTitle = `${getEventKindIcon(kind)} Próxima ação${action ? ': ' + action : ''}`
               } else {
                 const label = LEAD_EVENT_LABELS[ev.event_type as keyof typeof LEAD_EVENT_LABELS] ?? resolveActionLabel(ev.event_type)
-                eventTitle = `📋 ${label}`
+                eventTitle = `${getEventKindIcon(kind)} ${label}`
               }
               const hasCheckpointFields = cp.action_channel || cp.action_result || cp.result_detail || cp.next_action || cp.note
               const hasLossFields = cp.lost_reason || cp.action_channel
