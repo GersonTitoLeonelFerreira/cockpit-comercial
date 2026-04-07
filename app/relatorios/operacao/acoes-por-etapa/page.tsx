@@ -556,12 +556,12 @@ export default function AcoesPorEtapaPage() {
           }}
         >
         {[
-            { label: 'Ações por Etapa', href: null as string | null, active: true, comingSoon: false },
-            { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' as string | null, active: false, comingSoon: false },
-            { label: 'Objeções e Perdas', href: null as string | null, active: false, comingSoon: true },
-            { label: 'Próximas Ações', href: null as string | null, active: false, comingSoon: true },
-            { label: 'Canais', href: null as string | null, active: false, comingSoon: true },
-            { label: 'Desempenho por Consultor', href: null as string | null, active: false, comingSoon: true },
+            { label: 'Ações por Etapa', href: null, active: true, comingSoon: false },
+            { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
+            { label: 'Objeções e Perdas', href: null, active: false, comingSoon: true },
+            { label: 'Próximas Ações', href: null, active: false, comingSoon: true },
+            { label: 'Canais', href: null, active: false, comingSoon: true },
+            { label: 'Desempenho por Consultor', href: null, active: false, comingSoon: true },
           ].map((tab) => (
             <button
               key={tab.label}

@@ -1258,7 +1258,7 @@ export default function AvancoPorAcaoPage() {
                   fontWeight: 600,
                   letterSpacing: '0.07em',
                   textTransform: 'uppercase',
-                  color: '#34d399',
+                  color: '#444',
                   textAlign: 'right',
                 }}
               >
