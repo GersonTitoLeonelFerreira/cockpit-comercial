@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 
 interface LeadFormProps {
   companyId: string
@@ -75,7 +76,7 @@ export default function LeadForm({ companyId, userId, onClose }: LeadFormProps) 
           cycle_id: cycleId,
           event_type: 'cycle_created',
           created_by: userId,
-          metadata: { lead_id: leadId },
+          metadata: { lead_id: leadId, source: EVENT_SOURCES.cycle_create },
         })
 
       if (eventErr) {

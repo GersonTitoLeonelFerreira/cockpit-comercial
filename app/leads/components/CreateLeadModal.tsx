@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useRef } from 'react'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
+import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 
 type LeadGroup = {
   id: string
@@ -306,6 +307,7 @@ export default function CreateLeadModal({
             lead_name: formData.name,
             owner_user_id: ownerFromSelect,
             group_id: selectedGroupId || null,
+            source: EVENT_SOURCES.cycle_create,
           },
           occurred_at: new Date().toISOString(),
         })

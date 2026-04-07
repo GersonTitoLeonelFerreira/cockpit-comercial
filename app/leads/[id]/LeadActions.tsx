@@ -4,6 +4,7 @@ import React, { useMemo, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import { getStageLabel } from '@/app/config/stageActions'
+import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 import type { LeadStatus } from '@/app/types/sales_cycles'
 
 function onlyDigits(v: string) {
@@ -77,7 +78,7 @@ export default function LeadActions(props: {
           from_stage: props.currentStatus,
           to_stage: toStage,
           seconds_in_from_stage: null,
-          metadata: { source: 'lead_detail_action', ...meta },
+          metadata: { source: EVENT_SOURCES.lead_detail, ...meta },
           created_at: nowIso,
         })
 

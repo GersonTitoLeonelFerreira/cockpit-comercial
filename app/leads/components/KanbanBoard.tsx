@@ -19,6 +19,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import { supabase } from '../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 
 type Lead = {
   id: string
@@ -365,7 +366,7 @@ export default function KanbanBoard({
       }
 
       const metadata = {
-        source: 'kanban_drag',
+        source: EVENT_SOURCES.kanban_drag,
         seconds_in_from_status: secondsInFromStage,
         ...extraMeta,
       }
