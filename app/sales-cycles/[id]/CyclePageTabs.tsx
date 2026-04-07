@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import CycleOperationalSummary from './CycleOperationalSummary'
 import CycleContextAlerts from './CycleContextAlerts'
+import CycleResumeContext from './CycleResumeContext'
 import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
@@ -438,6 +439,9 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             next_action_date: cycle.next_action_date as string | null,
           }}
         />
+
+        {/* Retomada inteligente */}
+        <CycleResumeContext events={events} cycle={cycle} />
 
         {/* Ações rápidas */}
         <div style={{
