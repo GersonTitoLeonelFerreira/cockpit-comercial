@@ -314,7 +314,7 @@ function SuggestionIconEl({ type, size }: { type: SuggestionIcon; size: number }
     case 'clock':           return <IconClock {...p} />
     case 'clipboard':       return <IconClipboard {...p} />
     case 'arrowRight':      return <IconArrowRight {...p} />
-    case 'arrowRightCircle':return <IconArrowRightCircle {...p} />
+    case 'arrowRightCircle': return <IconArrowRightCircle {...p} />
     case 'zap':             return <IconZap {...p} />
     case 'lightbulb':       return <IconLightbulb {...p} />
     case 'target':          return <IconTarget {...p} />
@@ -327,7 +327,7 @@ function CtaIconEl({ action, size }: { action: CtaAction; size: number }) {
   switch (action) {
     case 'openWhatsApp':    return <IconWhatsApp {...p} />
     case 'registerContact': return <IconClipboard {...p} />
-    case 'updateNextAction':return <IconPencil {...p} />
+    case 'updateNextAction': return <IconPencil {...p} />
     case 'moveStage':       return <IconArrowRight {...p} />
   }
 }
@@ -358,7 +358,7 @@ export default function CycleSuggestedAction({
     switch (suggestion.cta) {
       case 'openWhatsApp':    onOpenWhatsApp?.(); break
       case 'registerContact': onRegisterContact?.(); break
-      case 'updateNextAction':onUpdateNextAction?.(); break
+      case 'updateNextAction': onUpdateNextAction?.(); break
       case 'moveStage':       onMoveStage?.(); break
     }
   }
