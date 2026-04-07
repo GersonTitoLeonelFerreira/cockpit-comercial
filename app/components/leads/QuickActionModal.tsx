@@ -118,7 +118,7 @@ export function getActionsForStatus(status: string): { id: QuickActionType; labe
       return [
         { id: 'quick_approach_contact', label: 'Abordagem realizada' },
         { id: 'quick_call_done', label: 'Ligação feita' },
-        { id: 'quick_answered_doubt', label: 'Respondido dúvida' },
+        { id: 'quick_answered_doubt', label: 'Respondeu dúvida' },
         { id: 'quick_scheduled', label: 'Agendamento realizado' },
         { id: 'quick_proposal', label: 'Proposta realizada' },
         { id: 'quick_bad_data', label: 'Telefone incorreto' },
@@ -197,42 +197,35 @@ export function QuickActionModal({
   }
 
   const getActionStyle = (action: { id: QuickActionType; label: string }, isSelected: boolean) => {
-    if (action.id === 'quick_closed_won') {
-      return {
-        padding: '8px 10px',
-        borderRadius: 6,
-        border: isSelected ? '1px solid #10b981' : '1px solid #064e3b',
-        background: isSelected ? '#10b981' : '#052e16',
-        color: isSelected ? '#000' : '#6ee7b7',
-        cursor: 'pointer',
-        fontSize: 10,
-        fontWeight: 700,
-        transition: 'all 200ms',
-      }
-    }
-    if (action.id === 'quick_closed_lost') {
-      return {
-        padding: '8px 10px',
-        borderRadius: 6,
-        border: isSelected ? '1px solid #ef4444' : '1px solid #7f1d1d',
-        background: isSelected ? '#ef4444' : '#2d0a0a',
-        color: isSelected ? '#fff' : '#fca5a5',
-        cursor: 'pointer',
-        fontSize: 10,
-        fontWeight: 700,
-        transition: 'all 200ms',
-      }
-    }
-    return {
+    const base = {
       padding: '8px 10px',
       borderRadius: 6,
-      border: isSelected ? '1px solid #10b981' : '1px solid #2a2a2a',
-      background: isSelected ? '#10b981' : '#222',
-      color: isSelected ? '#000' : 'white',
       cursor: 'pointer',
       fontSize: 10,
       fontWeight: 700,
       transition: 'all 200ms',
+    }
+    if (action.id === 'quick_closed_won') {
+      return {
+        ...base,
+        border: isSelected ? '1px solid #10b981' : '1px solid #064e3b',
+        background: isSelected ? '#10b981' : '#052e16',
+        color: isSelected ? '#000' : '#6ee7b7',
+      }
+    }
+    if (action.id === 'quick_closed_lost') {
+      return {
+        ...base,
+        border: isSelected ? '1px solid #ef4444' : '1px solid #7f1d1d',
+        background: isSelected ? '#ef4444' : '#2d0a0a',
+        color: isSelected ? '#fff' : '#fca5a5',
+      }
+    }
+    return {
+      ...base,
+      border: isSelected ? '1px solid #10b981' : '1px solid #2a2a2a',
+      background: isSelected ? '#10b981' : '#222',
+      color: isSelected ? '#000' : 'white',
     }
   }
 
