@@ -4,6 +4,7 @@ import React, { useMemo, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import { getStageLabel } from '@/app/config/stageActions'
+import type { LeadStatus } from '@/app/types/sales_cycles'
 
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
@@ -15,7 +16,12 @@ function whatsappLink(phone: string | null) {
   return `https://wa.me/${full}`
 }
 
-type Stage = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
+/** Returns the next active stage in the funnel, or null if there is none */
+function getNextStage(currentStatus: string): LeadStatus | null {
+  const flow: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao']
+  const idx = flow.indexOf(currentStatus as LeadStatus)
+  return idx >= 0 && idx < flow.length - 1 ? flow[idx + 1] : null
+}
 
 const LOSS_REASONS = [
   'Sem resposta',
@@ -27,13 +33,6 @@ const LOSS_REASONS = [
   'Telefone inválido / contato incorreto',
   'Outro',
 ] as const
-
-/** Returns the next active stage in the funnel, or null if there is none */
-function getNextStage(currentStatus: string): Stage | null {
-  const flow: Stage[] = ['novo', 'contato', 'respondeu', 'negociacao']
-  const idx = flow.indexOf(currentStatus as Stage)
-  return idx >= 0 && idx < flow.length - 1 ? flow[idx + 1] : null
-}
 
 export default function LeadActions(props: {
   leadId: string
@@ -53,7 +52,7 @@ export default function LeadActions(props: {
   const [lossOther, setLossOther] = useState('')
 
   const doMove = useCallback(
-    async (toStage: Stage, meta?: any) => {
+    async (toStage: LeadStatus, meta?: any) => {
       if (busy) return
       setBusy(true)
 

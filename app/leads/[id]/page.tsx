@@ -406,7 +406,7 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                   <div>
-                    <strong>{resolveActionLabel(it.type ?? '') || (it.type ?? 'interação')}</strong>
+                    <strong>{it.type ? resolveActionLabel(it.type) : 'interação'}</strong>
                   </div>
                   <div style={{ opacity: 0.6, fontSize: 12 }}>{it.created_at}</div>
                 </div>

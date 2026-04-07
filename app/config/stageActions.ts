@@ -99,7 +99,8 @@ export const STAGE_LABELS: Record<string, string> = {
 }
 
 /** Retorna label pt-BR da etapa */
-export function getStageLabel(status: string): string {
+export function getStageLabel(status: string | null | undefined): string {
+  if (!status) return '—'
   return STAGE_LABELS[status] ?? status.charAt(0).toUpperCase() + status.slice(1)
 }
 
