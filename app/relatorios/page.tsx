@@ -9,8 +9,9 @@ import * as React from 'react'
 function IconGauge() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2C6.5 2 2 6.5 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2" />
-      <path d="M12 6v6l4 2" />
+      <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12" />
+      <path d="M12 12 8 8" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
     </svg>
   )
 }
@@ -93,6 +94,56 @@ function IconDatabase() {
   )
 }
 
+function IconTrendingUp() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  )
+}
+
+function IconAlertTriangle() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  )
+}
+
+function IconClock() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  )
+}
+
+function IconWifi() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <line x1="12" y1="20" x2="12.01" y2="20" />
+    </svg>
+  )
+}
+
+function IconUsers() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -151,35 +202,35 @@ const sections: Section[] = [
         href: '/relatorios/operacao/acoes-por-etapa',
       },
       {
-        icon: <IconActivity />,
+        icon: <IconTrendingUp />,
         title: 'Avanço por Ação',
         desc: 'Taxa de conversão para cada ação registrada — quais avançam o lead',
         href: '#',
         comingSoon: true,
       },
       {
-        icon: <IconChartLine />,
+        icon: <IconAlertTriangle />,
         title: 'Objeções e Perdas',
         desc: 'Padrões de objeção e análise de perdas por etapa e consultor',
         href: '#',
         comingSoon: true,
       },
       {
-        icon: <IconLayers />,
+        icon: <IconClock />,
         title: 'Próximas Ações',
         desc: 'Visão das próximas ações planejadas e pendências operacionais',
         href: '#',
         comingSoon: true,
       },
       {
-        icon: <IconBarChart />,
+        icon: <IconWifi />,
         title: 'Canais',
         desc: 'Performance por canal de contato: WhatsApp, ligação, e-mail e outros',
         href: '#',
         comingSoon: true,
       },
       {
-        icon: <IconChartLine />,
+        icon: <IconUsers />,
         title: 'Desempenho por Consultor',
         desc: 'Ranking e análise comparativa de produtividade por consultor',
         href: '#',
