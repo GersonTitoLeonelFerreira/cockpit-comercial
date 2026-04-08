@@ -1632,12 +1632,12 @@ export default function VisaoExecutivaPage() {
                       title={
                         d.topActionByAdvance
                           ? `Replicar: ${d.topActionByAdvance.actionLabel}`
-                          : `Priorizar canal: ${d.topChannelByWin!.channelLabel}`
+                          : `Priorizar canal: ${d.topChannelByWin?.channelLabel ?? ''}`
                       }
                       description={
                         d.topActionByAdvance
                           ? `${fmtPct(d.topActionByAdvance.advanceRate)} dos ciclos que usaram essa ação avançaram. Incentivar o time a aplicar mais essa abordagem.`
-                          : `${fmtPct(d.topChannelByWin!.winRate)} de conversão — melhor canal de fechamento no período.`
+                          : `${fmtPct(d.topChannelByWin?.winRate ?? 0)} de conversão — melhor canal de fechamento no período.`
                       }
                       tagColor="#34d399"
                     />
