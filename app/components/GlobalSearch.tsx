@@ -96,7 +96,7 @@ export default function GlobalSearch() {
   }, [open])
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', width: 'min(520px, 45vw)' }}>
+    <div ref={rootRef} style={{ position: 'relative', width: 'min(320px, 45vw)' }}>
       <input
         value={q}
         onChange={(e) => {

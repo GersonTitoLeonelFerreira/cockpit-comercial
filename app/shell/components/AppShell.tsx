@@ -722,7 +722,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Global search */}
-          <div style={{ flex: '1 1 0', maxWidth: 360, minWidth: 100 }}>
+          <div style={{ flex: '1 1 0', maxWidth: 160, minWidth: 100 }}>
             <GlobalSearch />
           </div>
 
