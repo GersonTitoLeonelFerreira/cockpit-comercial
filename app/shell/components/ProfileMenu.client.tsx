@@ -80,22 +80,27 @@ export default function ProfileMenu() {
     }
   }
 
+  // Initials avatar derived from name/email
+  const initials = React.useMemo(() => {
+    const src = label || ''
+    if (src.includes('@')) return src.slice(0, 2).toUpperCase()
+    const parts = src.trim().split(/\s+/)
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    return src.slice(0, 2).toUpperCase()
+  }, [label])
+
   if (isAuthed === null) {
     return (
-      <button
-        type="button"
-        disabled
+      <div
         style={{
-          padding: '8px 12px',
-          borderRadius: 10,
-          border: '1px solid #2a2a2a',
-          background: '#111',
-          color: 'white',
-          opacity: 0.7,
+          width: 32,
+          height: 32,
+          borderRadius: 8,
+          background: '#1a1f2e',
+          border: '1px solid #262d40',
+          opacity: 0.6,
         }}
-      >
-        …
-      </button>
+      />
     )
   }
 
@@ -104,13 +109,15 @@ export default function ProfileMenu() {
       <Link
         href="/login"
         style={{
-          padding: '8px 12px',
-          borderRadius: 10,
-          border: '1px solid #2a2a2a',
-          background: '#111',
-          color: 'white',
+          padding: '7px 14px',
+          borderRadius: 7,
+          border: '1px solid #262d40',
+          background: '#1a1f2e',
+          color: '#8892a4',
           textDecoration: 'none',
-          fontSize: 13,
+          fontSize: 12,
+          fontWeight: 500,
+          letterSpacing: '0.01em',
         }}
       >
         Entrar
@@ -123,61 +130,162 @@ export default function ProfileMenu() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          padding: '8px 12px',
-          borderRadius: 10,
-          border: '1px solid #2a2a2a',
-          background: '#111',
-          color: 'white',
-          cursor: 'pointer',
-          fontSize: 13,
-          maxWidth: 260,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
         title={label}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '5px 10px 5px 5px',
+          borderRadius: 8,
+          border: '1px solid #262d40',
+          background: open ? '#1e2436' : '#1a1f2e',
+          color: '#8892a4',
+          cursor: 'pointer',
+          fontSize: 12,
+          fontWeight: 500,
+          maxWidth: 200,
+          transition: 'background 140ms ease',
+        }}
       >
-        {label}
+        <div
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 6,
+            background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 10,
+            fontWeight: 700,
+            color: '#bfdbfe',
+            flexShrink: 0,
+            letterSpacing: '0.02em',
+          }}
+        >
+          {initials}
+        </div>
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: '#c8d0e0',
+            fontSize: 12,
+          }}
+        >
+          {label}
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          style={{
+            flexShrink: 0,
+            transform: open ? 'rotate(180deg)' : 'none',
+            transition: 'transform 140ms ease',
+          }}
+        >
+          <path
+            d="M6 9l6 6 6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
 
-      {open ? (
+      {open && (
         <div
           onMouseDown={(e) => e.preventDefault()}
           style={{
             position: 'absolute',
             right: 0,
-            top: 'calc(100% + 10px)',
-            width: 280,
-            border: '1px solid #2a2a2a',
-            background: '#0f0f0f',
-            borderRadius: 12,
+            top: 'calc(100% + 8px)',
+            width: 260,
+            border: '1px solid #1e2130',
+            background: '#13151a',
+            borderRadius: 10,
             overflow: 'hidden',
-            boxShadow: '0 20px 60px rgba(0,0,0,.55)',
+            boxShadow: '0 16px 48px rgba(0,0,0,.6)',
             zIndex: 9999,
           }}
         >
-          <div style={{ padding: 12, borderBottom: '1px solid #1f1f1f' }}>
-            <div style={{ fontWeight: 900 }}>Perfil</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>{label}</div>
+          <div
+            style={{
+              padding: '12px 14px',
+              borderBottom: '1px solid #1a1d27',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#bfdbfe',
+                flexShrink: 0,
+                letterSpacing: '0.02em',
+              }}
+            >
+              {initials}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#f1f5f9',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+              </div>
+              <div style={{ fontSize: 11, color: '#4a5568', marginTop: 1 }}>Usuário do sistema</div>
+            </div>
           </div>
 
-          <div style={{ padding: 8, display: 'grid', gap: 6 }}>
+          <div style={{ padding: '8px', display: 'grid', gap: 4 }}>
             <Link
               href="/perfil"
               onClick={() => setOpen(false)}
               style={{
-                padding: '10px 10px',
-                borderRadius: 10,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '9px 10px',
+                borderRadius: 7,
                 textDecoration: 'none',
-                color: 'white',
-                border: '1px solid #1f1f1f',
-                background: '#0b0b0b',
-                fontSize: 13,
-                fontWeight: 800,
+                color: '#8892a4',
+                border: '1px solid transparent',
+                background: 'transparent',
+                fontSize: 12,
+                fontWeight: 500,
+                transition: 'background 140ms ease, color 140ms ease',
               }}
             >
-              Editar Perfil →
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+              Editar Perfil
             </Link>
 
             <button
@@ -185,22 +293,51 @@ export default function ProfileMenu() {
               onClick={logout}
               disabled={loading}
               style={{
-                padding: '10px 10px',
-                borderRadius: 10,
-                color: '#fecaca',
-                border: '1px solid #7f1d1d',
-                background: '#1a0b0b',
-                fontSize: 13,
-                fontWeight: 900,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '9px 10px',
+                borderRadius: 7,
+                color: '#f87171',
+                border: '1px solid transparent',
+                background: 'transparent',
+                fontSize: 12,
+                fontWeight: 500,
                 cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
+                opacity: loading ? 0.6 : 1,
+                textAlign: 'left',
+                transition: 'background 140ms ease',
               }}
             >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <polyline
+                  points="16 17 21 12 16 7"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <line
+                  x1="21"
+                  y1="12"
+                  x2="9"
+                  y2="12"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
               {loading ? 'Saindo…' : 'Sair do sistema'}
             </button>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   )
 }

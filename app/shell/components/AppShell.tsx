@@ -6,6 +6,29 @@ import { usePathname } from 'next/navigation'
 import GlobalSearch from './GlobalSearch.client'
 import AuthButton from './AuthButton.client'
 
+// ─── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  sidebarBg: '#111318',
+  headerBg: '#13151a',
+  contentBg: '#0e1015',
+  border: '#1e2130',
+  borderSubtle: '#181c28',
+  textPrimary: '#f1f5f9',
+  textSecondary: '#8892a4',
+  textMuted: '#4a5568',
+  activeItemBg: 'rgba(59,130,246,0.10)',
+  activeItemBorder: '#3b82f6',
+  activeItemText: '#93c5fd',
+  hoverItemBg: '#1a1f2e',
+  collapseBtn: '#1a1f2e',
+  collapseBtnBorder: '#262d40',
+  iconColor: '#6b7a99',
+  iconActiveColor: '#93c5fd',
+  quickLinkBg: '#1a1f2e',
+  quickLinkBorder: '#262d40',
+} as const
+
+// ─── Icon set ──────────────────────────────────────────────────────────────────
 type IconName =
   | 'dashboard'
   | 'target'
@@ -14,14 +37,18 @@ type IconName =
   | 'users'
   | 'money'
   | 'settings'
+  | 'chevron-left'
+  | 'chevron-right'
+  | 'pipeline'
 
-function NavIcon({ name }: { name: IconName }) {
+function NavIcon({ name, size = 16 }: { name: IconName; size?: number }) {
   const common = {
-    width: 18,
-    height: 18,
+    width: size,
+    height: size,
     viewBox: '0 0 24 24',
     fill: 'none',
     xmlns: 'http://www.w3.org/2000/svg',
+    style: { flexShrink: 0 } as React.CSSProperties,
   } as const
 
   switch (name) {
@@ -172,9 +199,52 @@ function NavIcon({ name }: { name: IconName }) {
           />
         </svg>
       )
+
+    case 'chevron-left':
+      return (
+        <svg {...common}>
+          <path
+            d="M15 18l-6-6 6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )
+
+    case 'chevron-right':
+      return (
+        <svg {...common}>
+          <path
+            d="M9 18l6-6-6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )
+
+    case 'pipeline':
+      return (
+        <svg {...common}>
+          <path
+            d="M5 12h14M12 5l7 7-7 7"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )
+
+    default:
+      return null
   }
 }
 
+// ─── NavBtn ────────────────────────────────────────────────────────────────────
 function NavBtn({
   href,
   label,
@@ -188,66 +258,102 @@ function NavBtn({
   collapsed: boolean
   icon: IconName
 }) {
-  const content = collapsed ? (
-    <div
-      style={{
-        height: 38,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <NavIcon name={icon} />
-    </div>
-  ) : (
-    label
-  )
-
   return (
     <Link
       href={href}
       title={label}
       style={{
-        display: 'block',
-        padding: collapsed ? '8px 8px' : '10px 12px',
-        borderRadius: 10,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: collapsed ? '10px 0' : '9px 12px',
+        borderRadius: 8,
         textDecoration: 'none',
-        border: '1px solid #2a2a2a',
-        background: active ? '#151515' : 'transparent',
-        color: 'white',
+        background: active ? C.activeItemBg : 'transparent',
+        color: active ? C.activeItemText : C.textSecondary,
         fontSize: 13,
-        opacity: active ? 1 : 0.85,
+        fontWeight: active ? 600 : 400,
+        transition: 'background 140ms ease, color 140ms ease',
+        borderLeft: active ? `2px solid ${C.activeItemBorder}` : '2px solid transparent',
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        letterSpacing: '0.01em',
+        position: 'relative',
       }}
     >
-      {content}
+      <span
+        style={{
+          color: active ? C.iconActiveColor : C.iconColor,
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <NavIcon name={icon} size={16} />
+      </span>
+      {!collapsed && (
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label}
+        </span>
+      )}
     </Link>
   )
 }
 
-function NavGroup({
-  label,
-  collapsed,
-}: {
-  label: string
-  collapsed: boolean
-}) {
+// ─── NavGroup ─────────────────────────────────────────────────────────────────
+function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
   return (
     <div
       style={{
-        fontSize: 11,
-        fontWeight: 900,
-        opacity: 0.6,
-        paddingLeft: collapsed ? 0 : 10,
-        marginTop: 12,
-        marginBottom: 6,
-        textAlign: collapsed ? 'center' : 'left',
+        marginTop: 20,
+        marginBottom: 4,
+        paddingLeft: collapsed ? 0 : 14,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
       }}
     >
-      {collapsed ? '─' : label}
+      {!collapsed ? (
+        <>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: C.textMuted,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </span>
+          <div
+            style={{
+              flex: 1,
+              height: 1,
+              background: C.borderSubtle,
+            }}
+          />
+        </>
+      ) : (
+        <div
+          style={{
+            width: '100%',
+            height: 1,
+            background: C.borderSubtle,
+          }}
+        />
+      )}
     </div>
   )
 }
 
+// ─── AppShell ─────────────────────────────────────────────────────────────────
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
@@ -274,59 +380,191 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               ? 'Configurações'
               : 'Dashboard'
 
+  const topSubtitle =
+    pathname?.startsWith('/admin')
+      ? 'Gestão e administração do sistema'
+      : pathname?.startsWith('/leads')
+        ? 'Visualize e gerencie o funil de vendas'
+        : pathname?.startsWith('/relatorios')
+          ? 'Análise e inteligência comercial'
+          : pathname?.startsWith('/dashboard/simulador-meta')
+            ? 'Projeção e planejamento de metas'
+            : pathname?.startsWith('/platform')
+              ? 'Configurações da plataforma'
+              : 'Visão geral da operação comercial'
+
   return (
     <div
       style={{
         height: '100vh',
         display: 'flex',
-        background: '#0b0b0b',
-        color: 'white',
+        background: C.contentBg,
+        color: C.textPrimary,
         overflow: 'hidden',
+        fontFamily:
+          'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
-      {/* Sidebar */}
+      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
       <aside
         style={{
-          width: collapsed ? 72 : 260,
-          transition: 'width 160ms ease',
-          borderRight: '1px solid #222',
-          background: '#0f0f0f',
-          padding: 12,
+          width: collapsed ? 68 : 248,
+          minWidth: collapsed ? 68 : 248,
+          transition: 'width 180ms cubic-bezier(.4,0,.2,1), min-width 180ms cubic-bezier(.4,0,.2,1)',
+          borderRight: `1px solid ${C.border}`,
+          background: C.sidebarBg,
+          display: 'flex',
+          flexDirection: 'column',
           overflow: 'hidden',
         }}
       >
+        {/* Brand header */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: collapsed ? 'center' : 'space-between',
-            gap: 10,
-            padding: '10px 8px',
+            padding: collapsed ? '18px 0' : '18px 16px 18px 20px',
+            borderBottom: `1px solid ${C.borderSubtle}`,
+            flexShrink: 0,
           }}
         >
-          {!collapsed ? (
-            <div style={{ fontWeight: 800 }}>Cockpit Comercial</div>
-          ) : (
-            <div style={{ fontWeight: 800 }}>CC</div>
+          {!collapsed && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M9 22V12h6v10"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: C.textPrimary,
+                    letterSpacing: '-0.01em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  Cockpit Comercial
+                </div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: C.textMuted,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Plataforma Comercial
+                </div>
+              </div>
+            </div>
           )}
 
-          <button
-            onClick={() => setCollapsed((v) => !v)}
-            style={{
-              border: '1px solid #2a2a2a',
-              background: '#111',
-              color: 'white',
-              borderRadius: 10,
-              padding: '6px 10px',
-              cursor: 'pointer',
-            }}
-            title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-          >
-            {collapsed ? '>' : '<'}
-          </button>
+          {collapsed && (
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 7,
+                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M9 22V12h6v10"
+                  stroke="white"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          )}
+
+          {!collapsed && (
+            <button
+              onClick={() => setCollapsed(true)}
+              style={{
+                border: `1px solid ${C.collapseBtnBorder}`,
+                background: C.collapseBtn,
+                color: C.textMuted,
+                borderRadius: 6,
+                width: 26,
+                height: 26,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'color 140ms ease',
+              }}
+              title="Recolher menu"
+            >
+              <NavIcon name="chevron-left" size={14} />
+            </button>
+          )}
         </div>
 
-        <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+        {/* Navigation */}
+        <nav
+          style={{
+            flex: 1,
+            padding: collapsed ? '12px 8px' : '12px 10px',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
           <NavBtn
             href="/dashboard"
             label="Dashboard"
@@ -384,72 +622,152 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             collapsed={collapsed}
             active={isActive('/platform')}
           />
-        </div>
+        </nav>
+
+        {/* Collapse toggle (expanded → collapsed only via brand area, collapsed → expand here) */}
+        {collapsed && (
+          <div
+            style={{
+              borderTop: `1px solid ${C.borderSubtle}`,
+              padding: '10px 8px',
+              flexShrink: 0,
+            }}
+          >
+            <button
+              onClick={() => setCollapsed(false)}
+              style={{
+                border: `1px solid ${C.collapseBtnBorder}`,
+                background: C.collapseBtn,
+                color: C.textMuted,
+                borderRadius: 6,
+                width: '100%',
+                height: 32,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'color 140ms ease',
+              }}
+              title="Expandir menu"
+            >
+              <NavIcon name="chevron-right" size={14} />
+            </button>
+          </div>
+        )}
       </aside>
 
-      {/* Main */}
+      {/* ── Main ───────────────────────────────────────────────────────────── */}
       <main
         style={{
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          minWidth: 0,
         }}
       >
+        {/* Header / Topbar */}
         <header
           style={{
             flexShrink: 0,
-            borderBottom: '1px solid #222',
-            background: '#0f0f0f',
-            padding: '14px 18px',
+            height: 60,
+            borderBottom: `1px solid ${C.border}`,
+            background: C.headerBg,
+            padding: '0 24px',
             display: 'flex',
             alignItems: 'center',
-            gap: 14,
+            gap: 16,
           }}
         >
-          <div style={{ minWidth: 220 }}>
-            <div style={{ fontWeight: 800 }}>{topTitle}</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              Navegação governada por menu lateral (estilo SaaS).
+          {/* Page title */}
+          <div style={{ flexShrink: 0, minWidth: 200 }}>
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: C.textPrimary,
+                letterSpacing: '-0.01em',
+                lineHeight: 1.3,
+              }}
+            >
+              {topTitle}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: C.textMuted,
+                letterSpacing: '0.01em',
+                lineHeight: 1.3,
+                marginTop: 1,
+              }}
+            >
+              {topSubtitle}
             </div>
           </div>
 
-          <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          {/* Separator */}
+          <div
+            style={{
+              width: 1,
+              height: 28,
+              background: C.border,
+              flexShrink: 0,
+            }}
+          />
+
+          {/* Global search (centered) */}
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0 }}>
             <GlobalSearch />
           </div>
 
+          {/* Right actions */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
-              minWidth: 220,
-              justifyContent: 'flex-end',
+              gap: 8,
+              flexShrink: 0,
             }}
           >
-            {!pathname?.startsWith('/leads') ? (
+            {!pathname?.startsWith('/leads') && (
               <Link
                 href="/leads"
                 style={{
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: '1px solid #2a2a2a',
-                  background: '#111',
-                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '7px 12px',
+                  borderRadius: 7,
+                  border: `1px solid ${C.quickLinkBorder}`,
+                  background: C.quickLinkBg,
+                  color: C.textSecondary,
                   textDecoration: 'none',
-                  fontSize: 13,
+                  fontSize: 12,
+                  fontWeight: 500,
                   whiteSpace: 'nowrap',
+                  transition: 'color 140ms ease, border-color 140ms ease',
+                  letterSpacing: '0.01em',
                 }}
               >
-                Ir para Pipeline
+                <NavIcon name="pipeline" size={13} />
+                Pipeline
               </Link>
-            ) : null}
-
+            )}
             <AuthButton />
           </div>
         </header>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>{children}</div>
+        {/* Content area */}
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: '28px 32px',
+            background: C.contentBg,
+          }}
+        >
+          {children}
+        </div>
       </main>
     </div>
   )
