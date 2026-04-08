@@ -73,6 +73,7 @@ type SortKey =
   | 'lost'
   | 'advanceRate'
   | 'winRate'
+  | 'nextActions'
   | 'discipline'
 
 // ============================================================================
@@ -231,6 +232,7 @@ function sortStats(stats: ConsultantStat[], key: SortKey, dir: 'asc' | 'desc'): 
       case 'lost':       va = a.totalLost; vb = b.totalLost; break
       case 'advanceRate': va = a.advanceRate; vb = b.advanceRate; break
       case 'winRate':    va = a.winRate; vb = b.winRate; break
+      case 'nextActions': va = a.totalNextActions; vb = b.totalNextActions; break
       case 'discipline': va = a.disciplineRate; vb = b.disciplineRate; break
     }
     if (typeof va === 'string' && typeof vb === 'string') {
@@ -1193,7 +1195,7 @@ export default function DesempenhoConsultorPage() {
                     />
                     <ThCell
                       label="Próx. Ações"
-                      sortKey="discipline"
+                      sortKey="nextActions"
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
