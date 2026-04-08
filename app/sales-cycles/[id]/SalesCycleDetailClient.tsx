@@ -194,7 +194,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
               await setNextAction({
                 cycle_id: cycle.id,
                 next_action: payload.next_action,
-                next_action_date: payload.next_action_date,
+                next_action_date: new Date(payload.next_action_date).toISOString(),
               })
             }
 

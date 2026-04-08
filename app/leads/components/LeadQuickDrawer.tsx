@@ -36,6 +36,13 @@ const STATUS_LABELS: Record<string, string> = {
   perdido: 'Perdido',
 }
 
+function toLocalDatetimeInputValue(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: LeadQuickDrawerProps) {
   const [nextAction, setNextAction] = useState('')
   const [nextActionDate, setNextActionDate] = useState('')
@@ -55,7 +62,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
       setNextAction(item.next_action ?? '')
       setNextActionDate(
         item.next_action_date
-          ? new Date(item.next_action_date).toISOString().slice(0, 16)
+          ? toLocalDatetimeInputValue(item.next_action_date)
           : ''
       )
       setSaved(false)

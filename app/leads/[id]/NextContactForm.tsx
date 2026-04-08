@@ -4,6 +4,13 @@ import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
+function toLocalDatetimeInputValue(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export default function NextContactForm({
   leadId,
   initialAction,
@@ -16,7 +23,7 @@ export default function NextContactForm({
   const router = useRouter()
   const [nextAction, setNextAction] = useState(initialAction ?? '')
   const [nextContactAt, setNextContactAt] = useState(
-    initialNextContactAt ? new Date(initialNextContactAt).toISOString().slice(0, 16) : ''
+    initialNextContactAt ? toLocalDatetimeInputValue(initialNextContactAt) : ''
   )
   const [loading, setLoading] = useState(false)
 
