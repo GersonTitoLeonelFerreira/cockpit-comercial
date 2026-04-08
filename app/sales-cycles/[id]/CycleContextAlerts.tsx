@@ -173,10 +173,21 @@ function buildAlerts(events: CycleEvent[], lead: CycleAlertLead): Alert[] {
     })
   }
 
-  // Objeção registrada anteriormente (result_detail preenchido)
+  // Objeção registrada anteriormente — apenas quando explicitamente registrada como objeção
   const hasObjection = events.some(ev => {
+    const m = ev.metadata ?? {}
     const cp = getCheckpoint(ev)
-    return !!str(cp.result_detail)
+    // 1. Explicit action_id for objection
+    const actionId = typeof m.action_id === 'string' ? m.action_id : ''
+    if (
+      actionId === 'negociacao_objecao_registrada' ||
+      actionId === 'quick_objection_registered'
+    ) return true
+    // 2. Explicit objection field in metadata
+    if (typeof m.objection === 'string' && m.objection.trim().length > 0) return true
+    // 3. Checkpoint action_result explicitly identifies objection
+    if (cp.action_result === 'Objeção identificada') return true
+    return false
   })
   if (hasObjection) {
     alerts.push({

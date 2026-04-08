@@ -8,6 +8,7 @@ import {
   IconLink,
   IconX,
 } from '@/app/components/icons/UiIcons'
+import { toLocalDatetimeInputValue } from '@/app/lib/dateUtils'
 
 export type WorklistItem = {
   id: string
@@ -55,7 +56,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
       setNextAction(item.next_action ?? '')
       setNextActionDate(
         item.next_action_date
-          ? new Date(item.next_action_date).toISOString().slice(0, 16)
+          ? toLocalDatetimeInputValue(item.next_action_date)
           : ''
       )
       setSaved(false)

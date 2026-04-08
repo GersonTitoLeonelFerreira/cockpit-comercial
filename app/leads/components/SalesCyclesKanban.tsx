@@ -2217,10 +2217,16 @@ export default function SalesCyclesKanban({
 
       setCheckpointLoading(true)
       try {
+        const normalizedPayload = {
+          ...payload,
+          next_action_date: payload.next_action_date
+            ? new Date(payload.next_action_date).toISOString()
+            : null,
+        }
         const { data, error: err } = await supabase.rpc('rpc_move_cycle_stage_checkpoint', {
           p_cycle_id: pendingMove.cycleId,
           p_to_status: pendingMove.toStatus,
-          p_checkpoint: payload,
+          p_checkpoint: normalizedPayload,
         })
 
         if (err) throw err

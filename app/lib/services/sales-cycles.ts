@@ -40,7 +40,7 @@ export async function assignCycleOwner(req: AssignCycleOwnerRequest): Promise<Rp
 export async function setNextAction(req: SetNextActionRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
   const nextActionDate = typeof req.next_action_date === 'string'
-    ? req.next_action_date
+    ? new Date(req.next_action_date).toISOString()
     : req.next_action_date.toISOString()
   const { data, error } = await supabase.rpc('rpc_set_next_action', {
     p_cycle_id: req.cycle_id,

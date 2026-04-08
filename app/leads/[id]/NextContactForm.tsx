@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
+import { toLocalDatetimeInputValue } from '@/app/lib/dateUtils'
 
 export default function NextContactForm({
   leadId,
@@ -16,7 +17,7 @@ export default function NextContactForm({
   const router = useRouter()
   const [nextAction, setNextAction] = useState(initialAction ?? '')
   const [nextContactAt, setNextContactAt] = useState(
-    initialNextContactAt ? new Date(initialNextContactAt).toISOString().slice(0, 16) : ''
+    initialNextContactAt ? toLocalDatetimeInputValue(initialNextContactAt) : ''
   )
   const [loading, setLoading] = useState(false)
 
