@@ -855,7 +855,8 @@ export default function DesempenhoConsultorPage() {
               })
               const goalValue = Number(res?.goal_value ?? 0)
               goalMap.set(sellerId, { value: goalValue, hasGoal: goalValue > 0 })
-            } catch {
+            } catch (err: unknown) {
+              console.warn(`Erro ao buscar meta para seller ${sellerId}:`, err instanceof Error ? err.message : err)
               goalMap.set(sellerId, { value: 0, hasGoal: false })
             }
           }),
@@ -921,19 +922,19 @@ export default function DesempenhoConsultorPage() {
         .reduce((best, s) => s.disciplineRate > best.disciplineRate ? s : best, stats.filter(s => s.totalActivities >= 3)[0])
     : null
 
-  const topByRevenue = stats.filter(s => s.revenue > 0).length > 0
-    ? stats.filter(s => s.revenue > 0)
-        .reduce((best, s) => s.revenue > best.revenue ? s : best, stats.filter(s => s.revenue > 0)[0])
+  const eligibleRevenue = stats.filter(s => s.revenue > 0)
+  const topByRevenue = eligibleRevenue.length > 0
+    ? eligibleRevenue.reduce((best, s) => s.revenue > best.revenue ? s : best, eligibleRevenue[0])
     : null
 
-  const topByGoalPct = stats.filter(s => s.hasGoal && s.totalWon >= 1).length > 0
-    ? stats.filter(s => s.hasGoal && s.totalWon >= 1)
-        .reduce((best, s) => s.goalPct > best.goalPct ? s : best, stats.filter(s => s.hasGoal && s.totalWon >= 1)[0])
+  const eligibleGoalPct = stats.filter(s => s.hasGoal && s.totalWon >= 1)
+  const topByGoalPct = eligibleGoalPct.length > 0
+    ? eligibleGoalPct.reduce((best, s) => s.goalPct > best.goalPct ? s : best, eligibleGoalPct[0])
     : null
 
-  const topByEfficiency = stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1).length > 0
-    ? stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1)
-        .reduce((best, s) => s.revenuePerActivity > best.revenuePerActivity ? s : best, stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1)[0])
+  const eligibleEfficiency = stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1)
+  const topByEfficiency = eligibleEfficiency.length > 0
+    ? eligibleEfficiency.reduce((best, s) => s.revenuePerActivity > best.revenuePerActivity ? s : best, eligibleEfficiency[0])
     : null
 
   // ==========================================================================
