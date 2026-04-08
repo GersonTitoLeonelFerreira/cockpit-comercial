@@ -844,13 +844,20 @@ export default function DesempenhoConsultorPage() {
 
       const cycleOwnerMap = new Map<string, string>()
       if (cycleIds.length > 0) {
+        const batches: string[][] = []
         for (let i = 0; i < cycleIds.length; i += 500) {
-          const batch = cycleIds.slice(i, i + 500)
-          const { data: cycles } = await supabase
-            .from('sales_cycles')
-            .select('id, owner_user_id')
-            .in('id', batch)
-            .eq('company_id', companyId)
+          batches.push(cycleIds.slice(i, i + 500))
+        }
+        const batchResults = await Promise.all(
+          batches.map(batch =>
+            supabase
+              .from('sales_cycles')
+              .select('id, owner_user_id')
+              .in('id', batch)
+              .eq('company_id', companyId),
+          ),
+        )
+        for (const { data: cycles } of batchResults) {
           for (const c of (cycles ?? []) as Array<{ id: string; owner_user_id: string | null }>) {
             if (c.owner_user_id) {
               cycleOwnerMap.set(c.id, c.owner_user_id)
