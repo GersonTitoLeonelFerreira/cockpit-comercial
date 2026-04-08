@@ -9,10 +9,10 @@ type MeResponse =
   | { ok: true; full_name: string | null; email: string | null; role: string | null }
   | { error: string }
 
-const TEXT_MUTED = '#4a5568'
-const TEXT_SECONDARY = '#8892a4'
-const TEXT_PRIMARY = '#f1f5f9'
-const TEXT_LABEL = '#c8d0e0'
+const TEXT_MUTED = '#3d4b62'
+const TEXT_SECONDARY = '#7d8ea8'
+const TEXT_PRIMARY = '#edf2f7'
+const TEXT_LABEL = '#b8c4d8'
 
 export default function ProfileMenu() {
   const supabase = React.useMemo(() => supabaseBrowser(), [])
@@ -103,12 +103,12 @@ export default function ProfileMenu() {
     return (
       <div
         style={{
-          width: 32,
-          height: 32,
+          width: 34,
+          height: 34,
           borderRadius: 8,
-          background: '#1a1f2e',
-          border: '1px solid #262d40',
-          opacity: 0.6,
+          background: '#161829',
+          border: '1px solid #212840',
+          opacity: 0.5,
         }}
       />
     )
@@ -121,8 +121,8 @@ export default function ProfileMenu() {
         style={{
           padding: '7px 14px',
           borderRadius: 7,
-          border: '1px solid #262d40',
-          background: '#1a1f2e',
+          border: '1px solid #212840',
+          background: '#161829',
           color: TEXT_SECONDARY,
           textDecoration: 'none',
           fontSize: 12,
@@ -147,22 +147,22 @@ export default function ProfileMenu() {
           gap: 8,
           padding: '5px 10px 5px 5px',
           borderRadius: 8,
-          border: '1px solid #262d40',
-          background: open ? '#1e2436' : '#1a1f2e',
+          border: `1px solid ${open ? '#2a3350' : '#212840'}`,
+          background: open ? '#1c2238' : '#161829',
           color: TEXT_SECONDARY,
           cursor: 'pointer',
           fontSize: 12,
           fontWeight: 500,
           maxWidth: 200,
-          transition: 'background 140ms ease',
+          transition: 'background 200ms ease, border-color 200ms ease',
         }}
       >
         <div
           style={{
-            width: 24,
-            height: 24,
-            borderRadius: 6,
-            background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%)',
+            width: 26,
+            height: 26,
+            borderRadius: 7,
+            background: 'linear-gradient(140deg, #1e3a8a 0%, #1d4ed8 60%, #2563eb 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -171,6 +171,7 @@ export default function ProfileMenu() {
             color: '#bfdbfe',
             flexShrink: 0,
             letterSpacing: '0.02em',
+            boxShadow: '0 1px 4px rgba(37,99,235,0.25)',
           }}
         >
           {initials}
@@ -214,30 +215,31 @@ export default function ProfileMenu() {
             position: 'absolute',
             right: 0,
             top: 'calc(100% + 8px)',
-            width: 260,
-            border: '1px solid #1e2130',
-            background: '#13151a',
+            width: 264,
+            border: '1px solid #1c2034',
+            background: '#12141c',
             borderRadius: 10,
             overflow: 'hidden',
-            boxShadow: '0 16px 48px rgba(0,0,0,.6)',
+            boxShadow: '0 20px 56px rgba(0,0,0,.72), 0 4px 16px rgba(0,0,0,.4)',
             zIndex: 9999,
           }}
         >
           <div
             style={{
-              padding: '12px 14px',
-              borderBottom: '1px solid #1a1d27',
+              padding: '14px 14px',
+              borderBottom: '1px solid #181b2c',
               display: 'flex',
               alignItems: 'center',
               gap: 10,
+              background: '#13161f',
             }}
           >
             <div
               style={{
-                width: 32,
-                height: 32,
+                width: 34,
+                height: 34,
                 borderRadius: 8,
-                background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%)',
+                background: 'linear-gradient(140deg, #1e3a8a 0%, #1d4ed8 60%, #2563eb 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -246,6 +248,7 @@ export default function ProfileMenu() {
                 color: '#bfdbfe',
                 flexShrink: 0,
                 letterSpacing: '0.02em',
+                boxShadow: '0 2px 8px rgba(37,99,235,0.30)',
               }}
             >
               {initials}
@@ -267,7 +270,7 @@ export default function ProfileMenu() {
             </div>
           </div>
 
-          <div style={{ padding: '8px', display: 'grid', gap: 4 }}>
+          <div style={{ padding: '8px', display: 'grid', gap: 3 }}>
             <Link
               href="/perfil"
               onClick={() => setOpen(false)}
@@ -283,7 +286,7 @@ export default function ProfileMenu() {
                 background: 'transparent',
                 fontSize: 12,
                 fontWeight: 500,
-                transition: 'background 140ms ease, color 140ms ease',
+                transition: 'background 200ms ease, color 200ms ease',
               }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
@@ -316,7 +319,7 @@ export default function ProfileMenu() {
                 cursor: loading ? 'not-allowed' : 'pointer',
                 opacity: loading ? 0.6 : 1,
                 textAlign: 'left',
-                transition: 'background 140ms ease',
+                transition: 'background 200ms ease',
               }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
