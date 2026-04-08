@@ -5,8 +5,7 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
   STAGE_ACTIONS,
   STAGE_LABELS,
-  resolveActionId,
-  findActionById,
+  extractActionFromEvent,
 } from '@/app/config/stageActions'
 
 // ==============================================================================
@@ -407,22 +406,8 @@ export default function AcoesPorEtapaPage() {
       const countMap: Record<string, number> = {}
 
       for (const event of data ?? []) {
-        const meta = (event.metadata ?? {}) as Record<string, unknown>
-
-        // Extract raw action id from metadata or event_type (logQuickAction events store action id in event_type)
-        const rawId = (meta.action_id ?? meta.quick_action ?? event.event_type ?? null) as string | null
-
-        // Skip stage_changed events that have no action attached
-        if (event.event_type === 'stage_changed' && !rawId) continue
-
-        // Skip events with no action id entirely
-        if (!rawId) continue
-
-        const resolvedId = resolveActionId(rawId)
-        const actionDef = findActionById(resolvedId)
-
-        // Only count actions that belong to our taxonomy
-        if (!actionDef) continue
+        const resolvedId = extractActionFromEvent(event)
+        if (!resolvedId) continue
 
         countMap[resolvedId] = (countMap[resolvedId] ?? 0) + 1
       }

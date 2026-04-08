@@ -125,8 +125,16 @@ function buildReportData(
       if (stageFilter && stage !== stageFilter) continue
 
       const nestedMeta = (meta.metadata ?? {}) as Record<string, unknown>
+      const cp = (
+        meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
+        meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
+        {}
+      ) as Record<string, unknown>
       const reason = String(
-        meta.reason ?? nestedMeta.reason ?? meta.loss_reason ?? meta.details ?? nestedMeta.details ?? ''
+        meta.reason ?? nestedMeta.reason ?? meta.loss_reason ??
+        (cp as Record<string, unknown>).lost_reason ?? (cp as Record<string, unknown>).loss_reason ??
+        (cp as Record<string, unknown>).note ??
+        meta.details ?? nestedMeta.details ?? ''
       ).trim() || 'Sem motivo registrado'
 
       const existing = lossMap.get(reason) ?? { total: 0, byStage: {} }
@@ -136,20 +144,29 @@ function buildReportData(
       continue
     }
 
-    // Objection detection — two paths:
+    // Objection detection — three paths:
     // 1. metadata.action_id resolves to OBJECTION_ACTION_ID via resolveActionId()
     // 2. metadata.objection field is non-empty
+    // 3. checkpoint.action_result === "Objeção identificada" (stage_changed/stage_checkpoint events)
     const rawId = String(meta.action_id ?? meta.quick_action ?? ev.event_type ?? '').trim()
     const resolvedId = rawId ? resolveActionId(rawId) : ''
     const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
+    const cp = (
+      meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
+      meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
+      {}
+    ) as Record<string, unknown>
+    const hasCheckpointObjection = (cp as Record<string, unknown>).action_result === 'Objeção identificada'
 
-    if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField) continue
+    if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField && !hasCheckpointObjection) continue
 
-    const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
+    // Stage where the objection was registered: prefer to_status (where cycle arrived) for
+    // stage_changed events, otherwise fall back to from_status/from_stage/stage
+    const stage = String(meta.to_status ?? meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
     if (stageFilter && stage !== stageFilter) continue
 
     const text = String(
-      meta.result_detail ?? meta.objection ?? meta.details ?? ''
+      (cp as Record<string, unknown>).result_detail ?? meta.result_detail ?? meta.objection ?? meta.details ?? ''
     ).trim() || 'Sem detalhe registrado'
 
     const existing = objectionMap.get(text) ?? { total: 0, byStage: {} }

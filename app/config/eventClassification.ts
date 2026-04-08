@@ -75,8 +75,8 @@ function extractStages(event: ClassifiableEvent): { from: string; to: string } {
  * 1. Tipos explícitos de ganho/perda (closed_won, closed_lost)
  * 2. Tipo next_action_set
  * 3. Destino ganho/perdido via to_stage
- * 4. event_type === 'stage_changed' + from ≠ to  → stage_move
- * 5. event_type === 'stage_changed' + from === to → activity (falsa transição)
+ * 4. event_type === 'stage_changed'/'stage_checkpoint' + from ≠ to  → stage_move
+ * 5. event_type === 'stage_changed'/'stage_checkpoint' + from === to → activity (falsa transição)
  * 6. IDs de ação do catálogo (prefixo de etapa, legacy quick_, etc.) → activity
  * 7. Tipos de atividade explícitos (contacted, replied, note_added, etc.)
  * 8. Default → activity
@@ -88,6 +88,7 @@ export function classifyEvent(event: ClassifiableEvent): EventKind {
   // ── 1. Tipos explícitos de ganho/perda ─────────────────────────────────
   if (et === 'closed_won') return 'won'
   if (et === 'closed_lost') return 'lost'
+  if (et === 'cycle_lost') return 'lost'
 
   // ── 2. Próxima ação ────────────────────────────────────────────────────
   if (et === 'next_action_set') return 'next_action'
@@ -96,8 +97,8 @@ export function classifyEvent(event: ClassifiableEvent): EventKind {
   if (to === 'ganho') return 'won'
   if (to === 'perdido') return 'lost'
 
-  // ── 4 & 5. stage_changed: real move vs falsa transição ─────────────────
-  if (et === 'stage_changed') {
+  // ── 4 & 5. stage_changed / stage_checkpoint: real move vs falsa transição ─
+  if (et === 'stage_changed' || et === 'stage_checkpoint') {
     if (from && to && from !== to) return 'stage_move'
     return 'activity'
   }
