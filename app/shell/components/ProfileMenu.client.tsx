@@ -9,6 +9,11 @@ type MeResponse =
   | { ok: true; full_name: string | null; email: string | null; role: string | null }
   | { error: string }
 
+const TEXT_MUTED = '#4a5568'
+const TEXT_SECONDARY = '#8892a4'
+const TEXT_PRIMARY = '#f1f5f9'
+const TEXT_LABEL = '#c8d0e0'
+
 export default function ProfileMenu() {
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   const router = useRouter()
@@ -83,10 +88,15 @@ export default function ProfileMenu() {
   // Initials avatar derived from name/email
   const initials = React.useMemo(() => {
     const src = label || ''
-    if (src.includes('@')) return src.slice(0, 2).toUpperCase()
+    if (src.includes('@')) {
+      const username = src.split('@')[0]
+      const alpha = username.replace(/[^a-zA-Z]/g, '')
+      return (alpha.slice(0, 2) || username.slice(0, 2) || '??').toUpperCase()
+    }
     const parts = src.trim().split(/\s+/)
     if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-    return src.slice(0, 2).toUpperCase()
+    const alpha = src.replace(/[^a-zA-Z]/g, '')
+    return (alpha.slice(0, 2) || src.slice(0, 2) || '??').toUpperCase()
   }, [label])
 
   if (isAuthed === null) {
@@ -113,7 +123,7 @@ export default function ProfileMenu() {
           borderRadius: 7,
           border: '1px solid #262d40',
           background: '#1a1f2e',
-          color: '#8892a4',
+          color: TEXT_SECONDARY,
           textDecoration: 'none',
           fontSize: 12,
           fontWeight: 500,
@@ -139,7 +149,7 @@ export default function ProfileMenu() {
           borderRadius: 8,
           border: '1px solid #262d40',
           background: open ? '#1e2436' : '#1a1f2e',
-          color: '#8892a4',
+          color: TEXT_SECONDARY,
           cursor: 'pointer',
           fontSize: 12,
           fontWeight: 500,
@@ -170,7 +180,7 @@ export default function ProfileMenu() {
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            color: '#c8d0e0',
+            color: TEXT_LABEL,
             fontSize: 12,
           }}
         >
@@ -245,7 +255,7 @@ export default function ProfileMenu() {
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: '#f1f5f9',
+                  color: TEXT_PRIMARY,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -253,7 +263,7 @@ export default function ProfileMenu() {
               >
                 {label}
               </div>
-              <div style={{ fontSize: 11, color: '#4a5568', marginTop: 1 }}>Usuário do sistema</div>
+              <div style={{ fontSize: 11, color: TEXT_MUTED, marginTop: 1 }}>Usuário do sistema</div>
             </div>
           </div>
 
@@ -268,7 +278,7 @@ export default function ProfileMenu() {
                 padding: '9px 10px',
                 borderRadius: 7,
                 textDecoration: 'none',
-                color: '#8892a4',
+                color: TEXT_SECONDARY,
                 border: '1px solid transparent',
                 background: 'transparent',
                 fontSize: 12,
