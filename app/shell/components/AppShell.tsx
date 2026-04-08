@@ -8,26 +8,27 @@ import AuthButton from './AuthButton.client'
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
-  sidebarBg: '#0f1117',
-  headerBg: '#12141c',
-  contentBg: '#0b0d13',
-  border: '#1c2034',
-  borderSubtle: '#161829',
+  sidebarBg: '#0d0f14',
+  headerBg: '#111318',
+  contentBg: '#090b0f',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
   textPrimary: '#edf2f7',
-  textSecondary: '#7d8ea8',
-  textMuted: '#3d4b62',
-  activeItemBg: 'linear-gradient(90deg, rgba(37,99,235,0.16) 0%, rgba(37,99,235,0.05) 100%)',
-  activeItemBorder: '#2563eb',
-  activeItemText: '#a8c8ff',
-  hoverItemBg: 'rgba(24,30,50,0.85)',
-  collapseBtn: '#161829',
-  collapseBtnBorder: '#212840',
-  iconColor: '#52637f',
-  iconActiveColor: '#7db3ff',
-  quickLinkBg: '#161829',
-  quickLinkBorder: '#212840',
-  brandSeparator: '#181b2c',
-  adminSeparator: '#1a1e30',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  navGroupLabel: '#4a5569',
+  activeItemBg: 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.06) 100%)',
+  activeItemBorder: '#3b82f6',
+  activeItemText: '#93c5fd',
+  hoverItemBg: 'rgba(18,22,40,0.9)',
+  collapseBtn: '#13151f',
+  collapseBtnBorder: '#1e2236',
+  iconColor: '#4a5d75',
+  iconActiveColor: '#60a5fa',
+  quickLinkBg: '#161924',
+  quickLinkBorder: '#1e2438',
+  brandSeparator: '#15172a',
+  adminSeparator: '#171a2c',
 } as const
 
 // ─── Icon set ──────────────────────────────────────────────────────────────────
@@ -312,44 +313,40 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
   return (
     <div
       style={{
-        marginTop: 24,
-        marginBottom: 6,
-        paddingLeft: collapsed ? 0 : 12,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
+        marginTop: 20,
+        marginBottom: 4,
+        borderRadius: 6,
+        overflow: 'hidden',
       }}
     >
       {!collapsed ? (
-        <>
+        <div
+          style={{
+            padding: '6px 12px',
+            background: 'rgba(255,255,255,0.025)',
+            borderRadius: 6,
+          }}
+        >
           <span
             style={{
               fontSize: 9,
               fontWeight: 700,
-              letterSpacing: '0.12em',
+              letterSpacing: '0.14em',
               textTransform: 'uppercase',
-              color: C.textMuted,
+              color: C.navGroupLabel,
               whiteSpace: 'nowrap',
-              opacity: 0.7,
             }}
           >
             {label}
           </span>
-          <div
-            style={{
-              flex: 1,
-              height: 1,
-              background: C.adminSeparator,
-            }}
-          />
-        </>
+        </div>
       ) : (
         <div
           style={{
             width: '100%',
             height: 1,
             background: C.adminSeparator,
-            opacity: 0.6,
+            opacity: 0.5,
           }}
         />
       )}
@@ -415,11 +412,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           width: collapsed ? 64 : 252,
           minWidth: collapsed ? 64 : 252,
           transition: 'width 220ms cubic-bezier(.4,0,.2,1), min-width 220ms cubic-bezier(.4,0,.2,1)',
-          borderRight: `1px solid ${C.border}`,
+          boxShadow: '2px 0 16px rgba(0,0,0,0.4)',
           background: C.sidebarBg,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          zIndex: 10,
         }}
       >
         {/* Brand header */}
@@ -428,8 +426,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: collapsed ? 'center' : 'space-between',
-            padding: collapsed ? '20px 0' : '20px 14px 20px 18px',
-            borderBottom: `1px solid ${C.brandSeparator}`,
+            padding: collapsed ? '18px 0' : '18px 14px 18px 16px',
+            background: 'linear-gradient(180deg, rgba(37,99,235,0.07) 0%, transparent 100%)',
+            boxShadow: `0 1px 0 ${C.brandSeparator}`,
             flexShrink: 0,
           }}
         >
@@ -437,20 +436,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <div
                 style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
                   background: 'linear-gradient(140deg, #1e40af 0%, #1d4ed8 60%, #2563eb 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(37,99,235,0.30)',
+                  boxShadow: '0 3px 10px rgba(37,99,235,0.38)',
                 }}
               >
                 <svg
-                  width="15"
-                  height="15"
+                  width="16"
+                  height="16"
                   viewBox="0 0 24 24"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
@@ -487,11 +486,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <div
                   style={{
                     fontSize: 10,
-                    color: C.textMuted,
+                    color: '#6a7d96',
                     letterSpacing: '0.04em',
                     whiteSpace: 'nowrap',
                     marginTop: 2,
-                    opacity: 0.8,
                   }}
                 >
                   Plataforma Comercial
@@ -503,20 +501,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {collapsed && (
             <div
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
+                width: 34,
+                height: 34,
+                borderRadius: 9,
                 background: 'linear-gradient(140deg, #1e40af 0%, #1d4ed8 60%, #2563eb 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(37,99,235,0.30)',
+                boxShadow: '0 3px 10px rgba(37,99,235,0.38)',
               }}
             >
               <svg
-                width="15"
-                height="15"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -636,7 +634,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {collapsed && (
           <div
             style={{
-              borderTop: `1px solid ${C.brandSeparator}`,
+              boxShadow: `0 -1px 0 ${C.brandSeparator}`,
               padding: '10px 8px',
               flexShrink: 0,
             }}
@@ -679,20 +677,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           style={{
             flexShrink: 0,
             height: 62,
-            borderBottom: `1px solid ${C.border}`,
+            boxShadow: `0 1px 0 ${C.border}, 0 2px 12px rgba(0,0,0,0.28)`,
             background: C.headerBg,
-            padding: '0 24px',
+            padding: '0 20px 0 24px',
             display: 'flex',
             alignItems: 'center',
-            gap: 16,
+            gap: 12,
+            zIndex: 5,
           }}
         >
           {/* Page title */}
           <div
             style={{
               flexShrink: 0,
-              minWidth: 180,
-              paddingLeft: 10,
+              paddingLeft: 12,
               borderLeft: `2px solid ${C.activeItemBorder}`,
             }}
           >
@@ -703,6 +701,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 color: C.textPrimary,
                 letterSpacing: '-0.02em',
                 lineHeight: 1.2,
+                whiteSpace: 'nowrap',
               }}
             >
               {topTitle}
@@ -710,32 +709,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div
               style={{
                 fontSize: 11,
-                color: C.textMuted,
+                color: C.textSecondary,
                 letterSpacing: '0.01em',
                 lineHeight: 1.3,
                 marginTop: 2,
+                whiteSpace: 'nowrap',
+                opacity: 0.75,
               }}
             >
               {topSubtitle}
             </div>
           </div>
 
-          {/* Separator */}
-          <div
-            style={{
-              width: 1,
-              height: 24,
-              background: C.border,
-              flexShrink: 0,
-              opacity: 0.8,
-            }}
-          />
-
-          {/* Global search (centered) */}
-          <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0 }}>
-            <div style={{ width: '100%', maxWidth: 480 }}>
-              <GlobalSearch />
-            </div>
+          {/* Global search */}
+          <div style={{ flex: '1 1 0', maxWidth: 360, minWidth: 100 }}>
+            <GlobalSearch />
           </div>
 
           {/* Right actions */}
@@ -745,6 +733,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               alignItems: 'center',
               gap: 8,
               flexShrink: 0,
+              marginLeft: 'auto',
             }}
           >
             {!pathname?.startsWith('/leads') && (
@@ -763,6 +752,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   fontSize: 12,
                   fontWeight: 500,
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                   transition: 'color 200ms ease, border-color 200ms ease, background 200ms ease',
                   letterSpacing: '0.01em',
                 }}
@@ -782,6 +772,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             overflow: 'auto',
             padding: '32px 36px',
             background: C.contentBg,
+            boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.2)',
           }}
         >
           {children}
