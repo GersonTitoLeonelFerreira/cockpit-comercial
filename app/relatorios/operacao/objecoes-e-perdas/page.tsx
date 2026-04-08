@@ -746,7 +746,7 @@ export default function ObjecoesEPerdasPage() {
             { label: 'Objeções e Perdas', href: null, active: true, comingSoon: false },
             { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes', active: false, comingSoon: false },
             { label: 'Canais', href: '/relatorios/operacao/canais', active: false, comingSoon: false },
-            { label: 'Desempenho por Consultor', href: null, active: false, comingSoon: true },
+            { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor', active: false, comingSoon: false },
           ].map((tab) => {
             if (tab.active) {
               return (
