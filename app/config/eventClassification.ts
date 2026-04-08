@@ -89,6 +89,8 @@ export function classifyEvent(event: ClassifiableEvent): EventKind {
   if (et === 'closed_won') return 'won'
   if (et === 'closed_lost') return 'lost'
   if (et === 'cycle_lost') return 'lost'
+  if (et === 'quick_closed_won') return 'won'
+  if (et === 'quick_closed_lost') return 'lost'
 
   // ── 2. Próxima ação ────────────────────────────────────────────────────
   if (et === 'next_action_set') return 'next_action'

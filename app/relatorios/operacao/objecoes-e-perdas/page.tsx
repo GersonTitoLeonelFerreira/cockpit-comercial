@@ -131,7 +131,7 @@ function buildReportData(
       const reason = String(
         meta.reason ?? cp.reason ?? meta.loss_reason ??
         cp.lost_reason ?? cp.loss_reason ?? cp.note ??
-        meta.details ?? cp.details ?? ''
+        meta.detail ?? meta.details ?? cp.details ?? ''
       ).trim() || 'Sem motivo registrado'
 
       const existing = lossMap.get(reason) ?? { total: 0, byStage: {} }
@@ -160,7 +160,7 @@ function buildReportData(
     if (stageFilter && stage !== stageFilter) continue
 
     const text = String(
-      cp.result_detail ?? meta.result_detail ?? meta.objection ?? meta.details ?? ''
+      cp.result_detail ?? meta.result_detail ?? meta.objection ?? meta.detail ?? meta.details ?? ''
     ).trim() || 'Sem detalhe registrado'
 
     const existing = objectionMap.get(text) ?? { total: 0, byStage: {} }
