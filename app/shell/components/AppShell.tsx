@@ -8,24 +8,26 @@ import AuthButton from './AuthButton.client'
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const C = {
-  sidebarBg: '#111318',
-  headerBg: '#13151a',
-  contentBg: '#0e1015',
-  border: '#1e2130',
-  borderSubtle: '#181c28',
-  textPrimary: '#f1f5f9',
-  textSecondary: '#8892a4',
-  textMuted: '#4a5568',
-  activeItemBg: 'rgba(59,130,246,0.10)',
-  activeItemBorder: '#3b82f6',
-  activeItemText: '#93c5fd',
-  hoverItemBg: '#1a1f2e',
-  collapseBtn: '#1a1f2e',
-  collapseBtnBorder: '#262d40',
-  iconColor: '#6b7a99',
-  iconActiveColor: '#93c5fd',
-  quickLinkBg: '#1a1f2e',
-  quickLinkBorder: '#262d40',
+  sidebarBg: '#0f1117',
+  headerBg: '#12141c',
+  contentBg: '#0b0d13',
+  border: '#1c2034',
+  borderSubtle: '#161829',
+  textPrimary: '#edf2f7',
+  textSecondary: '#7d8ea8',
+  textMuted: '#3d4b62',
+  activeItemBg: 'linear-gradient(90deg, rgba(37,99,235,0.16) 0%, rgba(37,99,235,0.05) 100%)',
+  activeItemBorder: '#2563eb',
+  activeItemText: '#a8c8ff',
+  hoverItemBg: 'rgba(24,30,50,0.85)',
+  collapseBtn: '#161829',
+  collapseBtnBorder: '#212840',
+  iconColor: '#52637f',
+  iconActiveColor: '#7db3ff',
+  quickLinkBg: '#161829',
+  quickLinkBorder: '#212840',
+  brandSeparator: '#181b2c',
+  adminSeparator: '#1a1e30',
 } as const
 
 // ─── Icon set ──────────────────────────────────────────────────────────────────
@@ -266,15 +268,15 @@ function NavBtn({
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: collapsed ? '10px 0' : '9px 12px',
-        borderRadius: 8,
+        padding: collapsed ? '10px 0' : active ? '9px 12px 9px 11px' : '9px 12px',
+        borderRadius: 7,
         textDecoration: 'none',
         background: active ? C.activeItemBg : 'transparent',
         color: active ? C.activeItemText : C.textSecondary,
         fontSize: 13,
         fontWeight: active ? 600 : 400,
-        transition: 'background 140ms ease, color 140ms ease',
-        borderLeft: active ? `2px solid ${C.activeItemBorder}` : '2px solid transparent',
+        transition: 'background 200ms ease, color 200ms ease',
+        borderLeft: active ? `3px solid ${C.activeItemBorder}` : '3px solid transparent',
         justifyContent: collapsed ? 'center' : 'flex-start',
         letterSpacing: '0.01em',
         position: 'relative',
@@ -310,9 +312,9 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
   return (
     <div
       style={{
-        marginTop: 20,
-        marginBottom: 4,
-        paddingLeft: collapsed ? 0 : 14,
+        marginTop: 24,
+        marginBottom: 6,
+        paddingLeft: collapsed ? 0 : 12,
         display: 'flex',
         alignItems: 'center',
         gap: 8,
@@ -322,12 +324,13 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
         <>
           <span
             style={{
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: 700,
-              letterSpacing: '0.1em',
+              letterSpacing: '0.12em',
               textTransform: 'uppercase',
               color: C.textMuted,
               whiteSpace: 'nowrap',
+              opacity: 0.7,
             }}
           >
             {label}
@@ -336,7 +339,7 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
             style={{
               flex: 1,
               height: 1,
-              background: C.borderSubtle,
+              background: C.adminSeparator,
             }}
           />
         </>
@@ -345,7 +348,8 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
           style={{
             width: '100%',
             height: 1,
-            background: C.borderSubtle,
+            background: C.adminSeparator,
+            opacity: 0.6,
           }}
         />
       )}
@@ -408,9 +412,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Sidebar ────────────────────────────────────────────────────────── */}
       <aside
         style={{
-          width: collapsed ? 68 : 248,
-          minWidth: collapsed ? 68 : 248,
-          transition: 'width 180ms cubic-bezier(.4,0,.2,1), min-width 180ms cubic-bezier(.4,0,.2,1)',
+          width: collapsed ? 64 : 252,
+          minWidth: collapsed ? 64 : 252,
+          transition: 'width 220ms cubic-bezier(.4,0,.2,1), min-width 220ms cubic-bezier(.4,0,.2,1)',
           borderRight: `1px solid ${C.border}`,
           background: C.sidebarBg,
           display: 'flex',
@@ -424,8 +428,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: collapsed ? 'center' : 'space-between',
-            padding: collapsed ? '18px 0' : '18px 16px 18px 20px',
-            borderBottom: `1px solid ${C.borderSubtle}`,
+            padding: collapsed ? '20px 0' : '20px 14px 20px 18px',
+            borderBottom: `1px solid ${C.brandSeparator}`,
             flexShrink: 0,
           }}
         >
@@ -433,19 +437,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <div
                 style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 7,
-                  background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: 'linear-gradient(140deg, #1e40af 0%, #1d4ed8 60%, #2563eb 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(37,99,235,0.30)',
                 }}
               >
                 <svg
-                  width="14"
-                  height="14"
+                  width="15"
+                  height="15"
                   viewBox="0 0 24 24"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
@@ -467,13 +472,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div style={{ minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: 13,
-                    fontWeight: 700,
+                    fontSize: 14,
+                    fontWeight: 800,
                     color: C.textPrimary,
-                    letterSpacing: '-0.01em',
+                    letterSpacing: '-0.025em',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
+                    lineHeight: 1.2,
                   }}
                 >
                   Cockpit Comercial
@@ -482,9 +488,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   style={{
                     fontSize: 10,
                     color: C.textMuted,
-                    letterSpacing: '0.05em',
-                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
                     whiteSpace: 'nowrap',
+                    marginTop: 2,
+                    opacity: 0.8,
                   }}
                 >
                   Plataforma Comercial
@@ -496,19 +503,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {collapsed && (
             <div
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 7,
-                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'linear-gradient(140deg, #1e40af 0%, #1d4ed8 60%, #2563eb 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(37,99,235,0.30)',
               }}
             >
               <svg
-                width="14"
-                height="14"
+                width="15"
+                height="15"
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -536,19 +544,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 border: `1px solid ${C.collapseBtnBorder}`,
                 background: C.collapseBtn,
                 color: C.textMuted,
-                borderRadius: 6,
-                width: 26,
-                height: 26,
+                borderRadius: 7,
+                width: 28,
+                height: 28,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 flexShrink: 0,
-                transition: 'color 140ms ease',
+                transition: 'color 200ms ease, background 200ms ease',
               }}
               title="Recolher menu"
             >
-              <NavIcon name="chevron-left" size={14} />
+              <NavIcon name="chevron-left" size={13} />
             </button>
           )}
         </div>
@@ -557,7 +565,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <nav
           style={{
             flex: 1,
-            padding: collapsed ? '12px 8px' : '12px 10px',
+            padding: collapsed ? '14px 8px' : '14px 10px',
             overflowY: 'auto',
             overflowX: 'hidden',
             display: 'flex',
@@ -628,7 +636,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {collapsed && (
           <div
             style={{
-              borderTop: `1px solid ${C.borderSubtle}`,
+              borderTop: `1px solid ${C.brandSeparator}`,
               padding: '10px 8px',
               flexShrink: 0,
             }}
@@ -639,18 +647,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 border: `1px solid ${C.collapseBtnBorder}`,
                 background: C.collapseBtn,
                 color: C.textMuted,
-                borderRadius: 6,
+                borderRadius: 7,
                 width: '100%',
-                height: 32,
+                height: 34,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
-                transition: 'color 140ms ease',
+                transition: 'color 200ms ease, background 200ms ease',
               }}
               title="Expandir menu"
             >
-              <NavIcon name="chevron-right" size={14} />
+              <NavIcon name="chevron-right" size={13} />
             </button>
           </div>
         )}
@@ -670,7 +678,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <header
           style={{
             flexShrink: 0,
-            height: 60,
+            height: 62,
             borderBottom: `1px solid ${C.border}`,
             background: C.headerBg,
             padding: '0 24px',
@@ -680,14 +688,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           }}
         >
           {/* Page title */}
-          <div style={{ flexShrink: 0, minWidth: 200 }}>
+          <div
+            style={{
+              flexShrink: 0,
+              minWidth: 180,
+              paddingLeft: 10,
+              borderLeft: `2px solid ${C.activeItemBorder}`,
+            }}
+          >
             <div
               style={{
                 fontSize: 14,
                 fontWeight: 700,
                 color: C.textPrimary,
-                letterSpacing: '-0.01em',
-                lineHeight: 1.3,
+                letterSpacing: '-0.02em',
+                lineHeight: 1.2,
               }}
             >
               {topTitle}
@@ -698,7 +713,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 color: C.textMuted,
                 letterSpacing: '0.01em',
                 lineHeight: 1.3,
-                marginTop: 1,
+                marginTop: 2,
               }}
             >
               {topSubtitle}
@@ -709,15 +724,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div
             style={{
               width: 1,
-              height: 28,
+              height: 24,
               background: C.border,
               flexShrink: 0,
+              opacity: 0.8,
             }}
           />
 
           {/* Global search (centered) */}
           <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0 }}>
-            <GlobalSearch />
+            <div style={{ width: '100%', maxWidth: 480 }}>
+              <GlobalSearch />
+            </div>
           </div>
 
           {/* Right actions */}
@@ -745,7 +763,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   fontSize: 12,
                   fontWeight: 500,
                   whiteSpace: 'nowrap',
-                  transition: 'color 140ms ease, border-color 140ms ease',
+                  transition: 'color 200ms ease, border-color 200ms ease, background 200ms ease',
                   letterSpacing: '0.01em',
                 }}
               >
@@ -762,7 +780,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           style={{
             flex: 1,
             overflow: 'auto',
-            padding: '28px 32px',
+            padding: '32px 36px',
             background: C.contentBg,
           }}
         >
