@@ -126,6 +126,7 @@ function buildConsultantStats(
   revenueMap: Map<string, number>,
   goalMap: Map<string, { value: number; hasGoal: boolean }>,
   cycleOwnerMap: Map<string, string>,
+  memberIds: Set<string>,
 ): ConsultantStat[] {
   const rangeStart = `${dateStart}T00:00:00`
   const rangeEnd = `${dateEnd}T23:59:59`
@@ -173,11 +174,13 @@ function buildConsultantStats(
     // 3-level attribution hierarchy:
     // 1. Owner saved in event metadata (e.g. metadata.owner_user_id)
     // 2. Operational owner of the sales cycle (sales_cycles.owner_user_id)
-    // 3. created_by as fallback (the authenticated user who clicked)
+    // 3. created_by only when that user is a known seller — prevents admin ghost consultants
+    //    for pool cycles (owner_user_id = null) where created_by is an admin
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
     const metaOwner = meta.owner_user_id as string | undefined
     const cycleOwner = ev.cycle_id ? cycleOwnerMap.get(ev.cycle_id) : undefined
-    const sellerId = metaOwner ?? cycleOwner ?? ev.created_by
+    const createdByFallback = (ev.created_by && memberIds.has(ev.created_by)) ? ev.created_by : undefined
+    const sellerId = metaOwner ?? cycleOwner ?? createdByFallback
     if (!sellerId) continue
 
     // Non-admin: only their own events
@@ -835,6 +838,12 @@ export default function DesempenhoConsultorPage() {
       const rangeStart = `${dateStart}T00:00:00`
       const rangeEnd = `${dateEnd}T23:59:59`
 
+      // Build the set of legitimate seller IDs for fallback attribution.
+      // Only role=member sellers and revenue owners are considered legitimate consultants.
+      // This prevents admins from appearing as ghost consultants when they operate pool cycles.
+      const memberIds = new Set(sellers.map(s => s.id))
+      for (const id of revenueMap.keys()) memberIds.add(id)
+
       // Fetch owner_user_id for each cycle referenced in events, paginated in batches of 500
       const cycleIds = [...new Set(
         ((data ?? []) as RawEvent[])
@@ -869,11 +878,12 @@ export default function DesempenhoConsultorPage() {
       const activeSellers = new Set<string>()
       for (const ev of (data ?? []) as RawEvent[]) {
         if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
-        // 3-level attribution hierarchy
+        // 3-level attribution hierarchy (same logic as buildConsultantStats)
         const meta = (ev.metadata ?? {}) as Record<string, unknown>
         const metaOwner = meta.owner_user_id as string | undefined
         const cycleOwner = ev.cycle_id ? cycleOwnerMap.get(ev.cycle_id) : undefined
-        const sellerId = metaOwner ?? cycleOwner ?? ev.created_by
+        const createdByFallback = (ev.created_by && memberIds.has(ev.created_by)) ? ev.created_by : undefined
+        const sellerId = metaOwner ?? cycleOwner ?? createdByFallback
         if (!sellerId) continue
         if (!isAdmin && sellerId !== currentUserId) continue
         if (isAdmin && selectedSellerId && sellerId !== selectedSellerId) continue
@@ -947,6 +957,7 @@ export default function DesempenhoConsultorPage() {
         revenueMap,
         goalMap,
         cycleOwnerMap,
+        memberIds,
       )
       setStats(result)
     } catch (e: unknown) {
