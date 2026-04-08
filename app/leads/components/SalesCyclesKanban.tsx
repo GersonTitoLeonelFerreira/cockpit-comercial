@@ -1148,10 +1148,8 @@ flex: '0 0 320px',
         flexDirection: 'column',
         background: isOver ? `${STATUS_COLORS[status]}07` : DS.panelBg,
         borderRadius: DS.radiusContainer + 3,
-        borderTop: `3px solid ${STATUS_COLORS[status]}`,
         border: `1px solid ${DS.border}`,
-        borderTopColor: STATUS_COLORS[status],
-        borderTopWidth: 3,
+        borderTop: `3px solid ${STATUS_COLORS[status]}`,
         transition: 'background 200ms',
         maxHeight: 'calc(100vh - 200px)',
         overflow: 'hidden',
@@ -3130,6 +3128,7 @@ export default function SalesCyclesKanban({
               onClick={() => { void loadItems(); void loadTotals() }}
               style={pillStyle}
               title="Atualizar kanban"
+              aria-label="Atualizar kanban"
             >
               ↻
             </button>
@@ -3198,6 +3197,7 @@ export default function SalesCyclesKanban({
           transition: 'background 200ms',
         }}
         onClick={() => setInsightsExpanded((v) => !v)}
+        aria-label={insightsExpanded ? 'Recolher insights' : 'Expandir insights'}
       >
         <span style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, letterSpacing: '0.1em', whiteSpace: 'nowrap', flexShrink: 0 }}>
           {insightsExpanded ? '▾' : '▸'} INSIGHTS
@@ -3427,6 +3427,7 @@ export default function SalesCyclesKanban({
               <button
                 onClick={() => setFocusPanelOpen(false)}
                 style={{ background: 'none', border: 'none', color: DS.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
+                aria-label="Fechar fila do dia"
               >
                 ×
               </button>
