@@ -111,6 +111,14 @@ function buildReportData(
 
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
     const kind = classifyEvent(ev)
+    // Resolve checkpoint data — supports both storage formats:
+    //   Format 1: { checkpoint: { action_result, ... } }
+    //   Format 2: { metadata: { action_result, ... }, from_status, to_status }
+    const cp = (
+      meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
+      meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
+      {}
+    ) as Record<string, unknown>
 
     if (kind === 'won') {
       totalWon++
@@ -124,17 +132,10 @@ function buildReportData(
       const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
       if (stageFilter && stage !== stageFilter) continue
 
-      const nestedMeta = (meta.metadata ?? {}) as Record<string, unknown>
-      const cp = (
-        meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
-        meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
-        {}
-      ) as Record<string, unknown>
       const reason = String(
-        meta.reason ?? nestedMeta.reason ?? meta.loss_reason ??
-        (cp as Record<string, unknown>).lost_reason ?? (cp as Record<string, unknown>).loss_reason ??
-        (cp as Record<string, unknown>).note ??
-        meta.details ?? nestedMeta.details ?? ''
+        meta.reason ?? cp.reason ?? meta.loss_reason ??
+        cp.lost_reason ?? cp.loss_reason ?? cp.note ??
+        meta.details ?? cp.details ?? ''
       ).trim() || 'Sem motivo registrado'
 
       const existing = lossMap.get(reason) ?? { total: 0, byStage: {} }
@@ -151,12 +152,7 @@ function buildReportData(
     const rawId = String(meta.action_id ?? meta.quick_action ?? ev.event_type ?? '').trim()
     const resolvedId = rawId ? resolveActionId(rawId) : ''
     const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
-    const cp = (
-      meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
-      meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
-      {}
-    ) as Record<string, unknown>
-    const hasCheckpointObjection = (cp as Record<string, unknown>).action_result === 'Objeção identificada'
+    const hasCheckpointObjection = cp.action_result === 'Objeção identificada'
 
     if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField && !hasCheckpointObjection) continue
 
@@ -166,7 +162,7 @@ function buildReportData(
     if (stageFilter && stage !== stageFilter) continue
 
     const text = String(
-      (cp as Record<string, unknown>).result_detail ?? meta.result_detail ?? meta.objection ?? meta.details ?? ''
+      cp.result_detail ?? meta.result_detail ?? meta.objection ?? meta.details ?? ''
     ).trim() || 'Sem detalhe registrado'
 
     const existing = objectionMap.get(text) ?? { total: 0, byStage: {} }
