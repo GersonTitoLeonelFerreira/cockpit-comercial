@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import {
   STAGE_ACTIONS,
   STAGE_LABELS,
@@ -686,15 +687,12 @@ export default function AvancoPorAcaoPage() {
       // that happen after the action but within the same cycle
       const bufferEnd = addDays(dateEnd, 45)
 
-      const { data, error: fetchError } = await supabase
-        .from('cycle_events')
-        .select('id, cycle_id, event_type, metadata, occurred_at, created_by')
-        .eq('company_id', companyId)
-        .gte('occurred_at', `${dateStart}T00:00:00`)
-        .lte('occurred_at', `${bufferEnd}T23:59:59`)
-        .order('occurred_at', { ascending: true })
-
-      if (fetchError) throw fetchError
+      const data = await fetchAllCycleEvents(supabase, {
+        companyId,
+        dateStart,
+        dateEnd: bufferEnd,
+        columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
+      })
 
       const stats = buildActionStats(
         (data ?? []) as RawEvent[],
