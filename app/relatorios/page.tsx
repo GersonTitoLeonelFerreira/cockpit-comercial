@@ -154,6 +154,15 @@ function IconShare2() {
   )
 }
 
+function IconShieldCheck() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 // --- Types ---
 
 interface ReportItem {
@@ -299,6 +308,20 @@ const sections: Section[] = [
         title: 'Cadastro de Produtos',
         desc: 'Gerenciar catálogo de produtos (criar, editar, ativar/desativar)',
         href: '/admin/produtos',
+      },
+    ],
+  },
+  {
+    id: 'governanca',
+    icon: <IconShieldCheck />,
+    title: 'Governança',
+    subtitle: 'Disciplina operacional, uso correto do sistema e qualidade de processo',
+    items: [
+      {
+        icon: <IconShieldCheck />,
+        title: 'Score de Aderência',
+        desc: 'Score 0–100 por consultor: registro de atividades, disciplina de agenda, saúde da carteira e aderência ao processo',
+        href: '/relatorios/governanca/score-de-aderencia',
       },
     ],
   },
