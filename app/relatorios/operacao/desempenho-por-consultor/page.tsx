@@ -6,6 +6,7 @@ import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 import { extractChannelFromEvent, CHANNEL_LABELS } from '@/app/config/channelNormalization'
+import { getRevenueGoal } from '@/app/lib/services/simulator'
 
 // ============================================================================
 // Helpers
@@ -27,6 +28,15 @@ function safePct(num: number, den: number): number {
 
 function fmtPct(n: number): string {
   return `${n}%`
+}
+
+function fmtCurrency(n: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(n)
 }
 
 // ============================================================================
@@ -62,6 +72,12 @@ interface ConsultantStat {
   topStage: string | null
   topChannel: string | null
   channelBreakdown: Record<string, number>
+  revenue: number
+  revenueGoal: number
+  goalPct: number
+  hasGoal: boolean
+  revenuePerLead: number
+  revenuePerActivity: number
 }
 
 type SortKey =
@@ -75,6 +91,9 @@ type SortKey =
   | 'winRate'
   | 'nextActions'
   | 'discipline'
+  | 'revenue'
+  | 'goalPct'
+  | 'efficiency'
 
 // ============================================================================
 // Constants
@@ -104,6 +123,8 @@ function buildConsultantStats(
   currentUserId: string | null,
   selectedSellerId: string | null,
   stageFilter: string,
+  revenueMap: Map<string, number>,
+  goalMap: Map<string, { value: number; hasGoal: boolean }>,
 ): ConsultantStat[] {
   const rangeStart = `${dateStart}T00:00:00`
   const rangeEnd = `${dateEnd}T23:59:59`
@@ -196,6 +217,9 @@ function buildConsultantStats(
     const totalClosed = s.totalWon + s.totalLost
     const topStageEntry = Object.entries(s.stageCount).sort((a, b) => b[1] - a[1])[0]
     const topChannelEntry = Object.entries(s.channelCount).sort((a, b) => b[1] - a[1])[0]
+    const uniqueCount = s.uniqueCycles.size
+    const rev = revenueMap.get(sellerId) ?? 0
+    const goalEntry = goalMap.get(sellerId) ?? { value: 0, hasGoal: false }
 
     result.push({
       sellerId,
@@ -205,13 +229,19 @@ function buildConsultantStats(
       totalWon: s.totalWon,
       totalLost: s.totalLost,
       totalNextActions: s.totalNextActions,
-      uniqueCycles: s.uniqueCycles.size,
+      uniqueCycles: uniqueCount,
       advanceRate: safePct(s.totalAdvances, s.totalActivities),
       winRate: safePct(s.totalWon, totalClosed),
       disciplineRate: safePct(s.totalNextActions, s.totalActivities),
       topStage: topStageEntry ? topStageEntry[0] : null,
       topChannel: topChannelEntry ? topChannelEntry[0] : null,
       channelBreakdown: s.channelCount,
+      revenue: rev,
+      revenueGoal: goalEntry.value,
+      goalPct: goalEntry.hasGoal && goalEntry.value > 0 ? Math.round((rev / goalEntry.value) * 100) : 0,
+      hasGoal: goalEntry.hasGoal,
+      revenuePerLead: uniqueCount > 0 ? Math.round(rev / uniqueCount) : 0,
+      revenuePerActivity: s.totalActivities > 0 ? Math.round(rev / s.totalActivities) : 0,
     })
   }
 
@@ -234,6 +264,9 @@ function sortStats(stats: ConsultantStat[], key: SortKey, dir: 'asc' | 'desc'): 
       case 'winRate':    va = a.winRate; vb = b.winRate; break
       case 'nextActions': va = a.totalNextActions; vb = b.totalNextActions; break
       case 'discipline': va = a.disciplineRate; vb = b.disciplineRate; break
+      case 'revenue':    va = a.revenue; vb = b.revenue; break
+      case 'goalPct':    va = a.goalPct; vb = b.goalPct; break
+      case 'efficiency': va = a.revenuePerActivity; vb = b.revenuePerActivity; break
     }
     if (typeof va === 'string' && typeof vb === 'string') {
       return va.localeCompare(vb) * multiplier
@@ -314,6 +347,33 @@ function IconSort() {
   return (
     <svg width={12} height={12} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 4l-6 8h12l-6-8zM12 20l-6-8h12l-6 8z" fill="currentColor" opacity="0.3" />
+    </svg>
+  )
+}
+
+function IconDollarSign() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconTarget() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="12" cy="12" r="6" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="12" cy="12" r="2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  )
+}
+
+function IconZap() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -602,6 +662,34 @@ function ConsultantRow({ stat, rank }: { stat: ConsultantStat; rank: number }) {
           <span style={{ fontSize: 12, color: '#333' }}>—</span>
         )}
       </td>
+
+      {/* Faturamento */}
+      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: stat.revenue > 0 ? '#34d399' : '#555' }}>
+          {stat.revenue > 0 ? fmtCurrency(stat.revenue) : '—'}
+        </span>
+      </td>
+
+      {/* % Meta */}
+      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+        {stat.hasGoal ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+            <RateBar value={Math.min(stat.goalPct, 100)} color="#fbbf24" />
+            <span style={{ fontSize: 12, color: '#fbbf24', minWidth: 36, textAlign: 'right' }}>
+              {fmtPct(stat.goalPct)}
+            </span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 12, color: '#333' }}>—</span>
+        )}
+      </td>
+
+      {/* Fat/Atividade */}
+      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+        <span style={{ fontSize: 12, color: stat.revenuePerActivity > 0 ? '#888' : '#333' }}>
+          {stat.revenuePerActivity > 0 ? fmtCurrency(stat.revenuePerActivity) : '—'}
+        </span>
+      </td>
     </tr>
   )
 }
@@ -707,7 +795,7 @@ export default function DesempenhoConsultorPage() {
     if (!companyId) return
     setDataLoading(true)
     try {
-      // Fetch all events without seller filter — per-seller grouping done in JS
+      // 1. Fetch all cycle events (paginated)
       const data = await fetchAllCycleEvents(supabase, {
         companyId,
         dateStart,
@@ -715,6 +803,66 @@ export default function DesempenhoConsultorPage() {
         columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
       })
 
+      // 2. Fetch revenue from sales_cycles using frozen seller at win time (won_owner_user_id)
+      const { data: wonCycles } = await supabase
+        .from('sales_cycles')
+        .select('won_total, won_owner_user_id')
+        .eq('company_id', companyId)
+        .eq('status', 'ganho')
+        .gt('won_total', 0)
+        .gte('won_at', `${dateStart}T00:00:00`)
+        .lte('won_at', `${dateEnd}T23:59:59`)
+
+      // Group revenue by seller
+      const revenueMap = new Map<string, number>()
+      for (const cycle of (wonCycles ?? []) as Array<{ won_total: number; won_owner_user_id: string | null }>) {
+        if (!cycle.won_owner_user_id) continue
+        revenueMap.set(
+          cycle.won_owner_user_id,
+          (revenueMap.get(cycle.won_owner_user_id) ?? 0) + Number(cycle.won_total),
+        )
+      }
+
+      // 3. Collect active seller IDs from events + revenue (to know whom to fetch goals for)
+      const rangeStart = `${dateStart}T00:00:00`
+      const rangeEnd = `${dateEnd}T23:59:59`
+      const activeSellers = new Set<string>()
+      for (const ev of (data ?? []) as RawEvent[]) {
+        if (!ev.created_by) continue
+        if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
+        if (!isAdmin && ev.created_by !== currentUserId) continue
+        if (isAdmin && selectedSellerId && ev.created_by !== selectedSellerId) continue
+        activeSellers.add(ev.created_by)
+      }
+      // Also include sellers with revenue in the period
+      for (const sellerId of revenueMap.keys()) {
+        if (!isAdmin && sellerId !== currentUserId) continue
+        if (isAdmin && selectedSellerId && sellerId !== selectedSellerId) continue
+        activeSellers.add(sellerId)
+      }
+
+      // 4. Fetch goals per active seller in parallel
+      const goalMap = new Map<string, { value: number; hasGoal: boolean }>()
+      if (activeSellers.size > 0) {
+        await Promise.all(
+          Array.from(activeSellers).map(async (sellerId) => {
+            try {
+              const res = await getRevenueGoal({
+                companyId: companyId!,
+                ownerId: sellerId,
+                startDate: dateStart,
+                endDate: dateEnd,
+              })
+              const goalValue = Number(res?.goal_value ?? 0)
+              goalMap.set(sellerId, { value: goalValue, hasGoal: goalValue > 0 })
+            } catch {
+              goalMap.set(sellerId, { value: 0, hasGoal: false })
+            }
+          }),
+        )
+      }
+
+      // 5. Build consultant stats
       const result = buildConsultantStats(
         (data ?? []) as RawEvent[],
         sellers,
@@ -724,6 +872,8 @@ export default function DesempenhoConsultorPage() {
         currentUserId,
         selectedSellerId,
         selectedStage,
+        revenueMap,
+        goalMap,
       )
       setStats(result)
     } catch (e: unknown) {
@@ -769,6 +919,21 @@ export default function DesempenhoConsultorPage() {
   const topByDiscipline = stats.filter(s => s.totalActivities >= 3).length > 0
     ? stats.filter(s => s.totalActivities >= 3)
         .reduce((best, s) => s.disciplineRate > best.disciplineRate ? s : best, stats.filter(s => s.totalActivities >= 3)[0])
+    : null
+
+  const topByRevenue = stats.filter(s => s.revenue > 0).length > 0
+    ? stats.filter(s => s.revenue > 0)
+        .reduce((best, s) => s.revenue > best.revenue ? s : best, stats.filter(s => s.revenue > 0)[0])
+    : null
+
+  const topByGoalPct = stats.filter(s => s.hasGoal && s.totalWon >= 1).length > 0
+    ? stats.filter(s => s.hasGoal && s.totalWon >= 1)
+        .reduce((best, s) => s.goalPct > best.goalPct ? s : best, stats.filter(s => s.hasGoal && s.totalWon >= 1)[0])
+    : null
+
+  const topByEfficiency = stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1).length > 0
+    ? stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1)
+        .reduce((best, s) => s.revenuePerActivity > best.revenuePerActivity ? s : best, stats.filter(s => s.totalActivities >= 5 && s.totalWon >= 1)[0])
     : null
 
   // ==========================================================================
@@ -1083,6 +1248,36 @@ export default function DesempenhoConsultorPage() {
               icon={<IconShieldCheck />}
             />
           )}
+
+          {topByRevenue && (
+            <SummaryCard
+              label="Maior Faturamento"
+              value={topByRevenue.sellerName}
+              sub={`${fmtCurrency(topByRevenue.revenue)} em ${topByRevenue.totalWon} ganho${topByRevenue.totalWon === 1 ? '' : 's'}`}
+              accent="#34d399"
+              icon={<IconDollarSign />}
+            />
+          )}
+
+          {topByGoalPct && (
+            <SummaryCard
+              label="Maior % da Meta"
+              value={topByGoalPct.sellerName}
+              sub={`${fmtPct(topByGoalPct.goalPct)} da meta (${fmtCurrency(topByGoalPct.revenue)} / ${fmtCurrency(topByGoalPct.revenueGoal)})`}
+              accent="#fbbf24"
+              icon={<IconTarget />}
+            />
+          )}
+
+          {topByEfficiency && (
+            <SummaryCard
+              label="Melhor Eficiência"
+              value={topByEfficiency.sellerName}
+              sub={`${fmtCurrency(topByEfficiency.revenuePerActivity)} por atividade (${topByEfficiency.totalActivities} atividades)`}
+              accent="#a78bfa"
+              icon={<IconZap />}
+            />
+          )}
         </div>
 
         {/* Main table */}
@@ -1129,7 +1324,7 @@ export default function DesempenhoConsultorPage() {
 
             {/* Scrollable table */}
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1a1a1a' }}>
                     <th style={{ padding: '8px 10px', width: 28 }} />
@@ -1208,6 +1403,30 @@ export default function DesempenhoConsultorPage() {
                       onSort={handleSort}
                       minWidth={110}
                     />
+                    <ThCell
+                      label="Faturamento"
+                      sortKey="revenue"
+                      currentSortKey={sortKey}
+                      currentSortDir={sortDir}
+                      onSort={handleSort}
+                      minWidth={120}
+                    />
+                    <ThCell
+                      label="% Meta"
+                      sortKey="goalPct"
+                      currentSortKey={sortKey}
+                      currentSortDir={sortDir}
+                      onSort={handleSort}
+                      minWidth={100}
+                    />
+                    <ThCell
+                      label="Fat/Atividade"
+                      sortKey="efficiency"
+                      currentSortKey={sortKey}
+                      currentSortDir={sortDir}
+                      onSort={handleSort}
+                      minWidth={120}
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -1237,6 +1456,15 @@ export default function DesempenhoConsultorPage() {
               </span>
               <span style={{ fontSize: 11, color: '#333' }}>
                 Etapa destacada: onde o consultor mais atuou
+              </span>
+              <span style={{ fontSize: 11, color: '#333' }}>
+                Faturamento: soma dos valores de vendas ganhas no período
+              </span>
+              <span style={{ fontSize: 11, color: '#333' }}>
+                % Meta: percentual da meta individual atingida (— quando não definida)
+              </span>
+              <span style={{ fontSize: 11, color: '#333' }}>
+                Fat/Atividade: faturamento gerado por atividade registrada
               </span>
             </div>
           </div>
