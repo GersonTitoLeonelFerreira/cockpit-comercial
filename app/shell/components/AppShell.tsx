@@ -439,6 +439,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {!collapsed && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <div
+                onClick={() => setCollapsed(true)}
                 style={{
                   width: 34,
                   height: 34,
@@ -449,7 +450,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   justifyContent: 'center',
                   flexShrink: 0,
                   boxShadow: '0 3px 10px rgba(37,99,235,0.38)',
+                  cursor: 'pointer',
                 }}
+                title="Recolher menu"
               >
                 <svg
                   width="16"
@@ -504,6 +507,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
           {collapsed && (
             <div
+              onClick={() => setCollapsed(false)}
               style={{
                 width: 34,
                 height: 34,
@@ -514,7 +518,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 justifyContent: 'center',
                 flexShrink: 0,
                 boxShadow: '0 3px 10px rgba(37,99,235,0.38)',
+                cursor: 'pointer',
               }}
+              title="Expandir menu"
             >
               <svg
                 width="16"
@@ -554,7 +560,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 justifyContent: 'center',
                 cursor: 'pointer',
                 flexShrink: 0,
-                transition: 'color 200ms ease, background 200ms ease',
+                transition: 'color   200ms ease, background 200ms ease',
               }}
               title="Recolher menu"
             >
@@ -633,37 +639,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             active={isActive('/platform')}
           />
         </nav>
-
-        {/* Collapse toggle (expanded → collapsed only via brand area, collapsed → expand here) */}
-        {collapsed && (
-          <div
-            style={{
-              boxShadow: `0 -1px 0 ${C.brandSeparator}`,
-              padding: '10px 8px',
-              flexShrink: 0,
-            }}
-          >
-            <button
-              onClick={() => setCollapsed(false)}
-              style={{
-                border: `1px solid ${C.collapseBtnBorder}`,
-                background: C.collapseBtn,
-                color: C.textMuted,
-                borderRadius: 7,
-                width: '100%',
-                height: 34,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'color 200ms ease, background 200ms ease',
-              }}
-              title="Expandir menu"
-            >
-              <NavIcon name="chevron-right" size={13} />
-            </button>
-          </div>
-        )}
+        
       </aside>
 
       {/* ── Main ───────────────────────────────────────────────────────────── */}
@@ -784,4 +760,4 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </main>
     </div>
   )
-} 
+}
