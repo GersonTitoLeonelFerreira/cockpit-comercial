@@ -230,8 +230,8 @@ const sections: Section[] = [
         icon: <IconShare2 />,
         title: 'Canais',
         desc: 'Performance por canal de contato: ligação, WhatsApp, e-mail, visita',
-        href: '#',
-        comingSoon: true,
+        href: '/relatorios/operacao/canais',
+        comingSoon: false,
       },
       {
         icon: <IconUsers />,
