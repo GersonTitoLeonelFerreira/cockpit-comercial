@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS, resolveActionId, resolveCheckpointData } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 
@@ -117,16 +118,18 @@ function buildReportData(
     const cp = resolveCheckpointData(meta)
 
     if (kind === 'won') {
+      const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
+      if (stageFilter && stage !== stageFilter) continue
       totalWon++
       continue
     }
 
     if (kind === 'lost') {
-      totalLost++
-
       // Stage where the cycle was when closed (check from_status, from_stage, then stage)
       const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
       if (stageFilter && stage !== stageFilter) continue
+
+      totalLost++
 
       const reason = String(
         meta.reason ?? cp.reason ?? meta.loss_reason ??
@@ -560,15 +563,12 @@ export default function ObjecoesEPerdasPage() {
     if (!companyId) return
     setDataLoading(true)
     try {
-      const { data, error: fetchError } = await supabase
-        .from('cycle_events')
-        .select('id, cycle_id, event_type, metadata, occurred_at, created_by')
-        .eq('company_id', companyId)
-        .gte('occurred_at', `${dateStart}T00:00:00`)
-        .lte('occurred_at', `${dateEnd}T23:59:59`)
-        .order('occurred_at', { ascending: true })
-
-      if (fetchError) throw fetchError
+      const data = await fetchAllCycleEvents(supabase, {
+        companyId,
+        dateStart,
+        dateEnd,
+        columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
+      })
 
       const result = buildReportData(
         (data ?? []) as RawEvent[],

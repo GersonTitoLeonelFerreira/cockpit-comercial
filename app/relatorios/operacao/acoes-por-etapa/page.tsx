@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import {
   STAGE_ACTIONS,
   STAGE_LABELS,
@@ -385,27 +386,20 @@ export default function AcoesPorEtapaPage() {
     if (!companyId) return
     setDataLoading(true)
     try {
-      let query = supabase
-        .from('cycle_events')
-        .select('id, event_type, metadata, created_by, occurred_at')
-        .eq('company_id', companyId)
-        .gte('occurred_at', `${dateStart}T00:00:00`)
-        .lte('occurred_at', `${dateEnd}T23:59:59`)
+      const sellerId = isAdmin ? selectedSellerId : currentUserId
 
-      if (isAdmin && selectedSellerId) {
-        query = query.eq('created_by', selectedSellerId)
-      } else if (!isAdmin && currentUserId) {
-        query = query.eq('created_by', currentUserId)
-      }
-
-      const { data, error: fetchError } = await query
-
-      if (fetchError) throw fetchError
+      const data = await fetchAllCycleEvents(supabase, {
+        companyId,
+        dateStart,
+        dateEnd,
+        sellerId,
+        columns: 'id, event_type, metadata, created_by, occurred_at',
+      })
 
       // Build count map: resolvedActionId -> count
       const countMap: Record<string, number> = {}
 
-      for (const event of data ?? []) {
+      for (const event of data) {
         const resolvedId = extractActionFromEvent(event)
         if (!resolvedId) continue
 
