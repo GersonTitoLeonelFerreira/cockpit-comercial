@@ -261,10 +261,14 @@ function NavBtn({
   collapsed: boolean
   icon: IconName
 }) {
+  const [hovered, setHovered] = React.useState(false)
+
   return (
     <Link
       href={href}
       title={label}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -272,8 +276,8 @@ function NavBtn({
         padding: collapsed ? '10px 0' : active ? '9px 12px 9px 11px' : '9px 12px',
         borderRadius: 7,
         textDecoration: 'none',
-        background: active ? C.activeItemBg : 'transparent',
-        color: active ? C.activeItemText : C.textSecondary,
+        background: active ? C.activeItemBg : hovered ? C.hoverItemBg : 'transparent',
+        color: active ? C.activeItemText : hovered ? C.textPrimary : C.textSecondary,
         fontSize: 13,
         fontWeight: active ? 600 : 400,
         transition: 'background 200ms ease, color 200ms ease',
@@ -285,7 +289,7 @@ function NavBtn({
     >
       <span
         style={{
-          color: active ? C.iconActiveColor : C.iconColor,
+          color: active ? C.iconActiveColor : hovered ? C.textPrimary : C.iconColor,
           display: 'flex',
           alignItems: 'center',
           flexShrink: 0,
