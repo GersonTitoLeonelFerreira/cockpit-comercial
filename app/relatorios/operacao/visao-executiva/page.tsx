@@ -142,7 +142,7 @@ interface ExecutiveData {
 // ============================================================================
 
 const STAGE_ORDER = ['novo', 'contato', 'respondeu', 'negociacao'] as const
-const ACCENT = '#a78bfa'
+const ACCENT = '#38bdf8'
 const OBJECTION_ACTION_ID = 'negociacao_objecao_registrada'
 
 // ============================================================================
@@ -530,14 +530,6 @@ function IconLoader() {
   )
 }
 
-function IconActivity() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 function IconTrendUp() {
   return (
     <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -643,23 +635,6 @@ function IconListCheck() {
   )
 }
 
-function IconArrowRight() {
-  return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <polyline points="12 5 19 12 12 19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconHeart() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 // ============================================================================
 // Sub-navigation (shared across operational reports)
 // ============================================================================
@@ -675,10 +650,10 @@ const SUBNAV_TABS = [
 ]
 
 // ============================================================================
-// Sub-components
+// Sub-components — redesigned
 // ============================================================================
 
-function SummaryCard({
+function KpiCard({
   label,
   value,
   sub,
@@ -692,199 +667,172 @@ function SummaryCard({
   icon?: React.ReactNode
 }) {
   return (
-    <div
-      style={{
-        flex: '1 1 160px',
-        minWidth: 140,
-        maxWidth: 220,
-        background: '#0f0f0f',
-        border: '1px solid #1e1e1e',
-        borderRadius: 12,
-        padding: '16px 18px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        {icon && (
-          <span style={{ color: accent ?? '#555', opacity: 0.9 }}>{icon}</span>
-        )}
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-          {label}
-        </span>
-      </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: accent ?? 'white', lineHeight: 1, marginBottom: 6 }}>
-        {value}
-      </div>
-      {sub && (
-        <div style={{ fontSize: 11, color: '#444', marginTop: 4 }}>{sub}</div>
-      )}
-    </div>
-  )
-}
-
-function SectionHeader({ title, sub, icon, accent }: { title: string; sub?: string; icon: React.ReactNode; accent: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-      <span
+    <div style={{ flex: '1 1 0', minWidth: 110, padding: '20px 24px' }}>
+      <div
         style={{
-          display: 'inline-flex',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          color: '#555',
+          marginBottom: 12,
+          display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          background: `${accent}18`,
-          color: accent,
+          gap: 5,
         }}
       >
-        {icon}
-      </span>
+        {icon && <span style={{ color: accent ?? '#555', opacity: 0.75 }}>{icon}</span>}
+        {label}
+      </div>
+      <div style={{ fontSize: 32, fontWeight: 700, color: accent ?? 'white', lineHeight: 1, marginBottom: 4 }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{sub}</div>}
+    </div>
+  )
+}
+
+function DiagRow({
+  icon,
+  title,
+  detail,
+  accent,
+  isLast,
+}: {
+  icon: React.ReactNode
+  title: string
+  detail: string
+  accent: string
+  isLast?: boolean
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12,
+        padding: '13px 0',
+        borderBottom: isLast ? 'none' : '1px solid #161616',
+      }}
+    >
+      <span style={{ color: accent, flexShrink: 0, marginTop: 2, opacity: 0.85 }}>{icon}</span>
       <div>
-        <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em' }}>{title}</div>
-        {sub && <div style={{ fontSize: 12, color: '#555', marginTop: 1 }}>{sub}</div>}
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', marginBottom: 3, lineHeight: 1.3 }}>{title}</div>
+        <div style={{ fontSize: 12, color: '#555', lineHeight: 1.5 }}>{detail}</div>
       </div>
-    </div>
-  )
-}
-
-function GargaloCard({
-  label,
-  name,
-  detail,
-  accent,
-}: {
-  label: string
-  name: string
-  detail: string
-  accent?: string
-}) {
-  return (
-    <div
-      style={{
-        flex: '1 1 200px',
-        minWidth: 180,
-        background: '#0f0f0f',
-        border: `1px solid ${accent ? `${accent}30` : '#1e1e1e'}`,
-        borderRadius: 10,
-        padding: '14px 16px',
-      }}
-    >
-      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', marginBottom: 8 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: accent ?? '#f87171', marginBottom: 4, lineHeight: 1.3 }}>
-        {name}
-      </div>
-      <div style={{ fontSize: 12, color: '#555' }}>{detail}</div>
-    </div>
-  )
-}
-
-function AlavancaCard({
-  label,
-  name,
-  detail,
-  accent,
-}: {
-  label: string
-  name: string
-  detail: string
-  accent?: string
-}) {
-  return (
-    <div
-      style={{
-        flex: '1 1 200px',
-        minWidth: 180,
-        background: '#0f0f0f',
-        border: `1px solid ${accent ? `${accent}30` : '#1e1e1e'}`,
-        borderRadius: 10,
-        padding: '14px 16px',
-      }}
-    >
-      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', marginBottom: 8 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: accent ?? '#34d399', marginBottom: 4, lineHeight: 1.3 }}>
-        {name}
-      </div>
-      <div style={{ fontSize: 12, color: '#555' }}>{detail}</div>
     </div>
   )
 }
 
 type HealthStatus = 'green' | 'yellow' | 'red'
 
-function HealthBlock({
-  title,
+function HealthRow({
+  label,
   value,
   detail,
   status,
+  isLast,
 }: {
-  title: string
+  label: string
   value: string
   detail: string
   status: HealthStatus
+  isLast?: boolean
 }) {
-  const statusColors: Record<HealthStatus, { bg: string; border: string; dot: string }> = {
-    green: { bg: '#0a1f14', border: '#1a3a28', dot: '#34d399' },
-    yellow: { bg: '#1c1700', border: '#3a2f00', dot: '#fbbf24' },
-    red: { bg: '#1f0a0a', border: '#3a1818', dot: '#f87171' },
-  }
-  const colors = statusColors[status]
-
+  const dotColor = status === 'green' ? '#34d399' : status === 'yellow' ? '#fbbf24' : '#f87171'
   return (
     <div
       style={{
-        flex: '1 1 200px',
-        minWidth: 180,
-        background: colors.bg,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 10,
-        padding: '14px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        padding: '13px 0',
+        borderBottom: isLast ? 'none' : '1px solid #161616',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.dot, flexShrink: 0 }} />
-        <div style={{ fontSize: 12, fontWeight: 600, color: '#aaa' }}>{title}</div>
-      </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: colors.dot, marginBottom: 4 }}>{value}</div>
-      <div style={{ fontSize: 11, color: '#555' }}>{detail}</div>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+      <div style={{ flex: '0 0 190px', fontSize: 12, fontWeight: 600, color: '#666' }}>{label}</div>
+      <div style={{ flex: '0 0 90px', fontSize: 18, fontWeight: 700, color: dotColor }}>{value}</div>
+      <div style={{ fontSize: 12, color: '#444', lineHeight: 1.5 }}>{detail}</div>
     </div>
   )
 }
 
-function ShortcutLink({ href, icon, label, sub }: { href: string; icon: React.ReactNode; label: string; sub?: string }) {
+function FocoCard({
+  icon,
+  tag,
+  title,
+  description,
+  tagColor,
+}: {
+  icon: React.ReactNode
+  tag: string
+  title: string
+  description: string
+  tagColor: string
+}) {
+  return (
+    <div
+      style={{
+        flex: '1 1 0',
+        minWidth: 200,
+        padding: '22px 24px',
+        background: `${tagColor}0a`,
+        border: `1px solid ${tagColor}22`,
+        borderRadius: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <span style={{ color: tagColor, opacity: 0.85 }}>{icon}</span>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            color: tagColor,
+            opacity: 0.85,
+          }}
+        >
+          {tag}
+        </span>
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'white', marginBottom: 8, lineHeight: 1.3 }}>
+        {title}
+      </div>
+      <div style={{ fontSize: 12, color: '#555', lineHeight: 1.6 }}>{description}</div>
+    </div>
+  )
+}
+
+function NavLink({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
   return (
     <a
       href={href}
       style={{
-        flex: '1 1 160px',
-        minWidth: 150,
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: 12,
-        background: '#0f0f0f',
+        gap: 7,
+        padding: '8px 14px',
         border: '1px solid #1e1e1e',
-        borderRadius: 10,
-        padding: '12px 16px',
+        borderRadius: 7,
+        fontSize: 12,
+        fontWeight: 500,
+        color: '#777',
         textDecoration: 'none',
-        transition: 'border-color 0.15s',
+        transition: 'border-color 0.15s, color 0.15s',
       }}
       onMouseOver={(e) => {
-        e.currentTarget.style.borderColor = '#333'
+        e.currentTarget.style.borderColor = '#2e2e2e'
+        e.currentTarget.style.color = '#bbb'
       }}
       onMouseOut={(e) => {
         e.currentTarget.style.borderColor = '#1e1e1e'
+        e.currentTarget.style.color = '#777'
       }}
     >
-      <span style={{ color: '#555', flexShrink: 0 }}>{icon}</span>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: '#ccc' }}>{label}</div>
-        {sub && <div style={{ fontSize: 11, color: '#444', marginTop: 2 }}>{sub}</div>}
-      </div>
-      <span style={{ color: '#333', marginLeft: 'auto', flexShrink: 0 }}>
-        <IconArrowRight />
-      </span>
+      <span style={{ color: '#444', flexShrink: 0 }}>{icon}</span>
+      {label}
     </a>
   )
 }
@@ -1226,10 +1174,10 @@ export default function VisaoExecutivaPage() {
             alignItems: 'flex-end',
             gap: 12,
             flexWrap: 'wrap',
-            marginBottom: 32,
+            marginBottom: 40,
             padding: '16px 20px',
             background: '#0f0f0f',
-            border: '1px solid #1e1e1e',
+            border: '1px solid #1a1a1a',
             borderRadius: 12,
           }}
         >
@@ -1344,7 +1292,7 @@ export default function VisaoExecutivaPage() {
           <div
             style={{
               background: '#0f0f0f',
-              border: '1px solid #1e1e1e',
+              border: '1px solid #1a1a1a',
               borderRadius: 12,
               padding: '48px 32px',
               textAlign: 'center',
@@ -1359,45 +1307,47 @@ export default function VisaoExecutivaPage() {
         {d && hasData && (
           <>
             {/* ================================================================
-                1. PANORAMA EXECUTIVO DO PERÍODO
+                BLOCO 1 — PANORAMA DO PERÍODO
             ================================================================ */}
             <div style={{ marginBottom: 40 }}>
-              <SectionHeader
-                title="Panorama do Período"
-                sub="Totais consolidados da operação no intervalo selecionado"
-                icon={<IconActivity />}
-                accent={ACCENT}
-              />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <SummaryCard
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+                Panorama do Período
+              </div>
+              <div
+                style={{
+                  background: '#0f0f0f',
+                  border: '1px solid #1a1a1a',
+                  borderRadius: 12,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  overflow: 'hidden',
+                }}
+              >
+                <KpiCard
                   label="Leads trabalhados"
                   value={d.totalCycles}
-                  sub="ciclos únicos com atividade"
+                  sub="ciclos únicos"
                   accent={ACCENT}
                   icon={<IconUsers />}
                 />
-                <SummaryCard
-                  label="Atividades"
-                  value={d.totalActivities}
-                  sub="eventos registrados"
-                  accent="white"
-                  icon={<IconActivity />}
-                />
-                <SummaryCard
+                <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
+                <KpiCard
                   label="Avanços"
                   value={d.totalAdvances}
                   sub="movimentações de etapa"
                   accent="#60a5fa"
                   icon={<IconTrendUp />}
                 />
-                <SummaryCard
+                <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
+                <KpiCard
                   label="Ganhos"
                   value={d.totalWon}
                   sub={totalClosed > 0 ? `${fmtPct(d.winRate)} de conversão` : 'sem fechamentos'}
                   accent="#34d399"
                   icon={<IconCircleCheck />}
                 />
-                <SummaryCard
+                <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
+                <KpiCard
                   label="Perdas"
                   value={d.totalLost}
                   sub={totalClosed > 0 ? `${fmtPct(100 - d.winRate)} de perda` : 'sem fechamentos'}
@@ -1405,381 +1355,326 @@ export default function VisaoExecutivaPage() {
                   icon={<IconCircleX />}
                 />
                 {d.totalRevenue > 0 && (
-                  <SummaryCard
-                    label="Faturamento"
-                    value={fmtCurrency(d.totalRevenue)}
-                    sub="soma dos ciclos ganhos"
-                    accent="#fbbf24"
-                    icon={<IconDollarSign />}
-                  />
-                )}
-                <SummaryCard
-                  label="Taxa de avanço"
-                  value={fmtPct(d.advanceRate)}
-                  sub="avanços / (atividades + avanços)"
-                  accent={d.advanceRate >= 30 ? '#34d399' : d.advanceRate >= 15 ? '#fbbf24' : '#f87171'}
-                  icon={<IconTrendUp />}
-                />
-                {totalClosed > 0 && (
-                  <SummaryCard
-                    label="Taxa de ganho"
-                    value={fmtPct(d.winRate)}
-                    sub={`${totalClosed} fechamentos totais`}
-                    accent={d.winRate >= 30 ? '#34d399' : d.winRate >= 15 ? '#fbbf24' : '#f87171'}
-                    icon={<IconCircleCheck />}
-                  />
+                  <>
+                    <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
+                    <KpiCard
+                      label="Faturamento"
+                      value={fmtCurrency(d.totalRevenue)}
+                      sub="ciclos ganhos"
+                      accent="#fbbf24"
+                      icon={<IconDollarSign />}
+                    />
+                  </>
                 )}
                 {d.totalActivities > 0 && (
-                  <SummaryCard
-                    label="Disciplina geral"
-                    value={fmtPct(d.disciplineRate)}
-                    sub="próximas ações / atividades"
-                    accent={d.disciplineRate >= 50 ? '#34d399' : d.disciplineRate >= 25 ? '#fbbf24' : '#f87171'}
-                    icon={<IconListCheck />}
-                  />
+                  <>
+                    <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
+                    <KpiCard
+                      label="Disciplina geral"
+                      value={fmtPct(d.disciplineRate)}
+                      sub="próx. ações / atividades"
+                      accent={d.disciplineRate >= 50 ? '#34d399' : d.disciplineRate >= 25 ? '#fbbf24' : '#f87171'}
+                      icon={<IconListCheck />}
+                    />
+                  </>
                 )}
               </div>
             </div>
 
             {/* ================================================================
-                2. MAIORES GARGALOS
+                BLOCO 2 — DIAGNÓSTICO EXECUTIVO
             ================================================================ */}
             <div style={{ marginBottom: 40 }}>
-              <SectionHeader
-                title="Maiores Gargalos"
-                sub="Pontos críticos identificados nos dados do período"
-                icon={<IconAlertTriangle />}
-                accent="#f87171"
-              />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {d.stageBottleneck && (
-                  <GargaloCard
-                    label="Etapa com mais travamento"
-                    name={d.stageBottleneck.stageLabel}
-                    detail={`${d.stageBottleneck.activities} atividades, apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço`}
-                    accent="#f87171"
-                  />
-                )}
-                {d.overdueNextActions > 0 && d.totalNextActions > 0 && (
-                  <GargaloCard
-                    label="Agenda vencida"
-                    name={`${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
-                    detail={`${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das próximas ações estão atrasadas`}
-                    accent="#fb923c"
-                  />
-                )}
-                {d.topObjection && (
-                  <GargaloCard
-                    label="Objeção mais frequente"
-                    name={d.topObjection.text.length > 40 ? `${d.topObjection.text.slice(0, 40)}…` : d.topObjection.text}
-                    detail={`${d.topObjection.total} ocorrência${d.topObjection.total === 1 ? '' : 's'} no período`}
-                    accent="#fbbf24"
-                  />
-                )}
-                {d.channelWithMostLoss && (d.channelWithMostLoss.won + d.channelWithMostLoss.lost) >= 2 && (
-                  <GargaloCard
-                    label="Canal com mais perda"
-                    name={d.channelWithMostLoss.channelLabel}
-                    detail={`${fmtPct(d.channelWithMostLoss.lossRate)} de perda · ${d.channelWithMostLoss.lost} de ${d.channelWithMostLoss.won + d.channelWithMostLoss.lost} fechamentos`}
-                    accent="#f87171"
-                  />
-                )}
-                {d.consultantLeastDiscipline && (
-                  <GargaloCard
-                    label="Menor disciplina"
-                    name={d.consultantLeastDiscipline.sellerName}
-                    detail={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina · ${d.consultantLeastDiscipline.activities} atividades`}
-                    accent="#f472b6"
-                  />
-                )}
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+                Diagnóstico Executivo
               </div>
-              {!(d.stageBottleneck || d.overdueNextActions > 0 || d.topObjection || d.channelWithMostLoss || d.consultantLeastDiscipline) && (
-                <div style={{ fontSize: 13, color: '#444', padding: '12px 0' }}>
-                  Nenhum gargalo crítico identificado no período.
-                </div>
-              )}
-            </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
-            {/* ================================================================
-                3. MAIORES ALAVANCAS
-            ================================================================ */}
-            <div style={{ marginBottom: 40 }}>
-              <SectionHeader
-                title="Maiores Alavancas"
-                sub="O que está funcionando bem — onde investir mais esforço"
-                icon={<IconZap />}
-                accent="#34d399"
-              />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {d.topActionByAdvance && (
-                  <AlavancaCard
-                    label="Ação que mais gera avanço"
-                    name={d.topActionByAdvance.actionLabel}
-                    detail={`${fmtPct(d.topActionByAdvance.advanceRate)} de avanço · ${d.topActionByAdvance.total} ciclo${d.topActionByAdvance.total === 1 ? '' : 's'}`}
-                    accent="#34d399"
-                  />
-                )}
-                {d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2 && (
-                  <AlavancaCard
-                    label="Canal que mais gera ganho"
-                    name={d.topChannelByWin.channelLabel}
-                    detail={`${fmtPct(d.topChannelByWin.winRate)} de conversão · ${d.topChannelByWin.won} ganho${d.topChannelByWin.won === 1 ? '' : 's'}`}
-                    accent="#60a5fa"
-                  />
-                )}
-                {d.topConsultantByEfficiency && (
-                  <AlavancaCard
-                    label="Consultor mais eficiente"
-                    name={d.topConsultantByEfficiency.sellerName}
-                    detail={`${fmtCurrency(Math.round(d.topConsultantByEfficiency.revenue / d.topConsultantByEfficiency.activities))} por atividade · ${d.topConsultantByEfficiency.won} ganho${d.topConsultantByEfficiency.won === 1 ? '' : 's'}`}
-                    accent="#fbbf24"
-                  />
-                )}
-                {d.totalRevenue > 0 && totalClosed > 0 && (
-                  <AlavancaCard
-                    label="Fonte de maior faturamento"
-                    name={fmtCurrency(d.totalRevenue)}
-                    detail={`${d.totalWon} fechamento${d.totalWon === 1 ? '' : 's'} · média ${fmtCurrency(Math.round(d.totalRevenue / d.totalWon))} por ganho`}
-                    accent="#a78bfa"
-                  />
-                )}
-              </div>
-              {!(d.topActionByAdvance || (d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2) || d.topConsultantByEfficiency) && (
-                <div style={{ fontSize: 13, color: '#444', padding: '12px 0' }}>
-                  Volume insuficiente para identificar alavancas no período.
-                </div>
-              )}
-            </div>
-
-            {/* ================================================================
-                4. SAÚDE DA OPERAÇÃO
-            ================================================================ */}
-            <div style={{ marginBottom: 40 }}>
-              <SectionHeader
-                title="Saúde da Operação"
-                sub="Diagnóstico objetivo por dimensão — baseado nos dados reais do período"
-                icon={<IconHeart />}
-                accent="#a78bfa"
-              />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {d.totalActivities > 0 && (
-                  <HealthBlock
-                    title="Fluidez do funil"
-                    value={fmtPct(d.advanceRate)}
-                    detail={
-                      d.advanceRate >= 30
-                        ? 'Operação com boa fluidez — avanços consistentes'
-                        : d.advanceRate >= 15
-                        ? 'Fluidez moderada — parte das atividades não converte'
-                        : 'Baixa fluidez — leads estão travando no funil'
-                    }
-                    status={getAdvanceRateStatus(d.advanceRate)}
-                  />
-                )}
-                {d.totalActivities > 0 && (
-                  <HealthBlock
-                    title="Disciplina operacional"
-                    value={fmtPct(d.disciplineRate)}
-                    detail={
-                      d.disciplineRate >= 50
-                        ? 'Time registra próxima ação com regularidade'
-                        : d.disciplineRate >= 25
-                        ? 'Disciplina parcial — metade das atividades sem próxima ação'
-                        : 'Baixa disciplina — operação sem agenda definida'
-                    }
-                    status={getDisciplineStatus(d.disciplineRate)}
-                  />
-                )}
-                {d.totalNextActions > 0 && (
-                  <HealthBlock
-                    title="Controle da agenda"
-                    value={`${d.overdueNextActions} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
-                    detail={
-                      safePct(d.overdueNextActions, d.totalNextActions) <= 20
-                        ? `Agenda bem controlada — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} de atraso`
-                        : safePct(d.overdueNextActions, d.totalNextActions) <= 50
-                        ? `Atenção — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das ações estão vencidas`
-                        : `Agenda crítica — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das ações estão vencidas`
-                    }
-                    status={getOverdueStatus(d.overdueNextActions, d.totalNextActions)}
-                  />
-                )}
-                {totalClosed > 0 && (
-                  <HealthBlock
-                    title="Eficácia em fechamento"
-                    value={fmtPct(d.winRate)}
-                    detail={
-                      d.winRate >= 30
-                        ? `${d.totalWon} de ${totalClosed} fechamentos ganhos — boa conversão`
-                        : d.winRate >= 15
-                        ? `${d.totalWon} de ${totalClosed} fechamentos ganhos — conversão moderada`
-                        : `${d.totalWon} de ${totalClosed} fechamentos ganhos — baixa conversão`
-                    }
-                    status={getWinRateStatus(d.winRate, totalClosed)}
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* ================================================================
-                5. FOCO DE AÇÃO DO GESTOR
-            ================================================================ */}
-            {(d.stageBottleneck || d.topActionByAdvance || d.overdueNextActions > 0 || d.topChannelByWin) && (
-              <div style={{ marginBottom: 40 }}>
-                <SectionHeader
-                  title="Foco de Ação"
-                  sub="Onde agir agora — derivado dos dados do período"
-                  icon={<IconTarget />}
-                  accent="#fbbf24"
-                />
+                {/* Coluna esquerda: Gargalos */}
                 <div
                   style={{
                     background: '#0f0f0f',
-                    border: '1px solid #2a2000',
+                    border: '1px solid #1a1a1a',
                     borderRadius: 12,
                     padding: '20px 24px',
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: 24,
                   }}
                 >
-                  {/* Main problem */}
-                  {(d.stageBottleneck || d.overdueNextActions > 0) && (
-                    <div style={{ flex: '1 1 240px', minWidth: 220 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#f87171', marginBottom: 10 }}>
-                        Principal problema agora
-                      </div>
-                      {d.overdueNextActions > safePct(d.overdueNextActions, d.totalNextActions) && d.overdueNextActions > 3
-                        ? (
-                          <>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'white', marginBottom: 4 }}>
-                              Agenda vencida sem ação
-                            </div>
-                            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                              {d.overdueNextActions} próxima{d.overdueNextActions === 1 ? ' ação vencida' : 's ações vencidas'} — leads esperando sem seguimento ativo.
-                              Acesse Próximas Ações para priorizar.
-                            </div>
-                          </>
-                        )
-                        : d.stageBottleneck
-                        ? (
-                          <>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'white', marginBottom: 4 }}>
-                              Travamento na etapa {d.stageBottleneck.stageLabel}
-                            </div>
-                            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                              {d.stageBottleneck.activities} atividades com apenas {fmtPct(d.stageBottleneck.advanceRate)} de avanço.
-                              Revisar ações utilizadas nessa etapa.
-                            </div>
-                          </>
-                        )
-                        : null
-                      }
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                    <span style={{ color: '#f87171', opacity: 0.8 }}><IconAlertTriangle /></span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ccc' }}>Maiores Gargalos</div>
+                      <div style={{ fontSize: 11, color: '#444', marginTop: 1 }}>Pontos críticos identificados no período</div>
+                    </div>
+                  </div>
+                  {d.stageBottleneck && (
+                    <DiagRow
+                      icon={<IconLayers />}
+                      title={`Travamento em ${d.stageBottleneck.stageLabel}`}
+                      detail={`${d.stageBottleneck.activities} atividades, apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço`}
+                      accent="#f87171"
+                    />
+                  )}
+                  {d.overdueNextActions > 0 && d.totalNextActions > 0 && (
+                    <DiagRow
+                      icon={<IconAlertTriangle />}
+                      title={`${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
+                      detail={`${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das próximas ações estão atrasadas`}
+                      accent="#fb923c"
+                    />
+                  )}
+                  {d.topObjection && (
+                    <DiagRow
+                      icon={<IconCircleX />}
+                      title="Objeção mais frequente"
+                      detail={`"${d.topObjection.text.length > 50 ? `${d.topObjection.text.slice(0, 50)}…` : d.topObjection.text}" — ${d.topObjection.total} ocorrência${d.topObjection.total === 1 ? '' : 's'}`}
+                      accent="#fbbf24"
+                    />
+                  )}
+                  {d.channelWithMostLoss && (d.channelWithMostLoss.won + d.channelWithMostLoss.lost) >= 2 && (
+                    <DiagRow
+                      icon={<IconShare2 />}
+                      title={`Canal com mais perda: ${d.channelWithMostLoss.channelLabel}`}
+                      detail={`${fmtPct(d.channelWithMostLoss.lossRate)} de perda · ${d.channelWithMostLoss.lost} de ${d.channelWithMostLoss.won + d.channelWithMostLoss.lost} fechamentos`}
+                      accent="#f87171"
+                    />
+                  )}
+                  {d.consultantLeastDiscipline && (
+                    <DiagRow
+                      icon={<IconUsers />}
+                      title={`Menor disciplina: ${d.consultantLeastDiscipline.sellerName}`}
+                      detail={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina · ${d.consultantLeastDiscipline.activities} atividades`}
+                      accent="#f472b6"
+                      isLast
+                    />
+                  )}
+                  {!(d.stageBottleneck || d.overdueNextActions > 0 || d.topObjection || d.channelWithMostLoss || d.consultantLeastDiscipline) && (
+                    <div style={{ fontSize: 13, color: '#333', padding: '12px 0' }}>
+                      Nenhum gargalo crítico identificado.
                     </div>
                   )}
+                </div>
 
-                  {/* Main opportunity */}
-                  {(d.topActionByAdvance || d.topChannelByWin) && (
-                    <div style={{ flex: '1 1 240px', minWidth: 220 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#34d399', marginBottom: 10 }}>
-                        Principal oportunidade agora
-                      </div>
-                      {d.topActionByAdvance
-                        ? (
-                          <>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'white', marginBottom: 4 }}>
-                              Replicar: {d.topActionByAdvance.actionLabel}
-                            </div>
-                            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                              {fmtPct(d.topActionByAdvance.advanceRate)} dos ciclos que usaram essa ação avançaram.
-                              Incentivar o time a aplicar mais essa abordagem.
-                            </div>
-                          </>
-                        )
-                        : d.topChannelByWin
-                        ? (
-                          <>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'white', marginBottom: 4 }}>
-                              Priorizar canal: {d.topChannelByWin.channelLabel}
-                            </div>
-                            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                              {fmtPct(d.topChannelByWin.winRate)} de conversão — melhor canal de fechamento no período.
-                            </div>
-                          </>
-                        )
-                        : null
-                      }
+                {/* Coluna direita: Alavancas */}
+                <div
+                  style={{
+                    background: '#0f0f0f',
+                    border: '1px solid #1a1a1a',
+                    borderRadius: 12,
+                    padding: '20px 24px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                    <span style={{ color: '#34d399', opacity: 0.8 }}><IconZap /></span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ccc' }}>Maiores Alavancas</div>
+                      <div style={{ fontSize: 11, color: '#444', marginTop: 1 }}>O que está funcionando bem no período</div>
+                    </div>
+                  </div>
+                  {d.topActionByAdvance && (
+                    <DiagRow
+                      icon={<IconZap />}
+                      title={`Ação com maior avanço: ${d.topActionByAdvance.actionLabel}`}
+                      detail={`${fmtPct(d.topActionByAdvance.advanceRate)} de avanço · ${d.topActionByAdvance.total} ciclo${d.topActionByAdvance.total === 1 ? '' : 's'}`}
+                      accent="#34d399"
+                    />
+                  )}
+                  {d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2 && (
+                    <DiagRow
+                      icon={<IconShare2 />}
+                      title={`Canal que mais fecha: ${d.topChannelByWin.channelLabel}`}
+                      detail={`${fmtPct(d.topChannelByWin.winRate)} de conversão · ${d.topChannelByWin.won} ganho${d.topChannelByWin.won === 1 ? '' : 's'}`}
+                      accent="#60a5fa"
+                    />
+                  )}
+                  {d.topConsultantByEfficiency && (
+                    <DiagRow
+                      icon={<IconUsers />}
+                      title={`Consultor mais eficiente: ${d.topConsultantByEfficiency.sellerName}`}
+                      detail={`${fmtCurrency(Math.round(d.topConsultantByEfficiency.revenue / d.topConsultantByEfficiency.activities))} por atividade · ${d.topConsultantByEfficiency.won} ganho${d.topConsultantByEfficiency.won === 1 ? '' : 's'}`}
+                      accent="#fbbf24"
+                    />
+                  )}
+                  {d.totalRevenue > 0 && totalClosed > 0 && (
+                    <DiagRow
+                      icon={<IconDollarSign />}
+                      title={`Faturamento total: ${fmtCurrency(d.totalRevenue)}`}
+                      detail={`${d.totalWon} fechamento${d.totalWon === 1 ? '' : 's'} · média ${fmtCurrency(Math.round(d.totalRevenue / d.totalWon))} por ganho`}
+                      accent="#a78bfa"
+                      isLast
+                    />
+                  )}
+                  {!(d.topActionByAdvance || (d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2) || d.topConsultantByEfficiency) && (
+                    <div style={{ fontSize: 13, color: '#333', padding: '12px 0' }}>
+                      Volume insuficiente para identificar alavancas.
                     </div>
                   )}
+                </div>
 
-                  {/* Where to attack first */}
-                  {d.consultantLeastDiscipline && d.topConsultantByEfficiency && (
-                    <div style={{ flex: '1 1 240px', minWidth: 220 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#fbbf24', marginBottom: 10 }}>
-                        Onde atacar primeiro
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'white', marginBottom: 4 }}>
-                        Coaching de disciplina com {d.consultantLeastDiscipline.sellerName}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-                        {fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina.
-                        Referência: {d.topConsultantByEfficiency.sellerName} com maior eficiência por atividade.
-                      </div>
-                    </div>
+              </div>
+            </div>
+
+            {/* ================================================================
+                BLOCO 3 — SAÚDE DA OPERAÇÃO
+            ================================================================ */}
+            {(d.totalActivities > 0 || d.totalNextActions > 0 || totalClosed > 0) && (
+              <div style={{ marginBottom: 40 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+                  Saúde da Operação
+                </div>
+                <div
+                  style={{
+                    background: '#0f0f0f',
+                    border: '1px solid #1a1a1a',
+                    borderRadius: 12,
+                    padding: '20px 24px',
+                  }}
+                >
+                  {d.totalActivities > 0 && (
+                    <HealthRow
+                      label="Fluidez do funil"
+                      value={fmtPct(d.advanceRate)}
+                      detail={
+                        d.advanceRate >= 30
+                          ? 'Boa fluidez — avanços consistentes'
+                          : d.advanceRate >= 15
+                          ? 'Fluidez moderada — parte das atividades não converte'
+                          : 'Baixa fluidez — leads travando no funil'
+                      }
+                      status={getAdvanceRateStatus(d.advanceRate)}
+                    />
+                  )}
+                  {d.totalActivities > 0 && (
+                    <HealthRow
+                      label="Disciplina operacional"
+                      value={fmtPct(d.disciplineRate)}
+                      detail={
+                        d.disciplineRate >= 50
+                          ? 'Time registra próxima ação com regularidade'
+                          : d.disciplineRate >= 25
+                          ? 'Disciplina parcial — metade sem próxima ação'
+                          : 'Baixa disciplina — operação sem agenda definida'
+                      }
+                      status={getDisciplineStatus(d.disciplineRate)}
+                    />
+                  )}
+                  {d.totalNextActions > 0 && (
+                    <HealthRow
+                      label="Controle da agenda"
+                      value={`${d.overdueNextActions} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
+                      detail={
+                        safePct(d.overdueNextActions, d.totalNextActions) <= 20
+                          ? `Agenda controlada — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} de atraso`
+                          : safePct(d.overdueNextActions, d.totalNextActions) <= 50
+                          ? `Atenção — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das ações estão vencidas`
+                          : `Agenda crítica — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das ações estão vencidas`
+                      }
+                      status={getOverdueStatus(d.overdueNextActions, d.totalNextActions)}
+                      isLast={totalClosed === 0}
+                    />
+                  )}
+                  {totalClosed > 0 && (
+                    <HealthRow
+                      label="Eficácia em fechamento"
+                      value={fmtPct(d.winRate)}
+                      detail={
+                        d.winRate >= 30
+                          ? `${d.totalWon} de ${totalClosed} ganhos — boa conversão`
+                          : d.winRate >= 15
+                          ? `${d.totalWon} de ${totalClosed} ganhos — conversão moderada`
+                          : `${d.totalWon} de ${totalClosed} ganhos — baixa conversão`
+                      }
+                      status={getWinRateStatus(d.winRate, totalClosed)}
+                      isLast
+                    />
                   )}
                 </div>
               </div>
             )}
 
             {/* ================================================================
-                6. ATALHOS PARA RELATÓRIOS DETALHADOS
+                BLOCO 4 — FOCO DO GESTOR
+            ================================================================ */}
+            {(d.stageBottleneck || d.topActionByAdvance || d.overdueNextActions > 0 || d.topChannelByWin) && (
+              <div style={{ marginBottom: 40 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+                  Foco do Gestor
+                </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+
+                  {/* Principal problema */}
+                  {(d.stageBottleneck || d.overdueNextActions > 0) && (
+                    <FocoCard
+                      icon={<IconAlertTriangle />}
+                      tag="Principal problema agora"
+                      title={
+                        d.overdueNextActions > 3
+                          ? 'Agenda vencida sem ação'
+                          : d.stageBottleneck
+                          ? `Travamento na etapa ${d.stageBottleneck.stageLabel}`
+                          : 'Agenda com atrasos'
+                      }
+                      description={
+                        d.overdueNextActions > 3
+                          ? `${d.overdueNextActions} próxima${d.overdueNextActions === 1 ? ' ação vencida' : 's ações vencidas'} — leads esperando sem seguimento ativo.`
+                          : d.stageBottleneck
+                          ? `${d.stageBottleneck.activities} atividades com apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço. Revisar ações utilizadas nessa etapa.`
+                          : `${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'} — priorizar atendimento.`
+                      }
+                      tagColor="#f87171"
+                    />
+                  )}
+
+                  {/* Principal oportunidade */}
+                  {(d.topActionByAdvance || d.topChannelByWin) && (
+                    <FocoCard
+                      icon={<IconZap />}
+                      tag="Principal oportunidade agora"
+                      title={
+                        d.topActionByAdvance
+                          ? `Replicar: ${d.topActionByAdvance.actionLabel}`
+                          : `Priorizar canal: ${d.topChannelByWin!.channelLabel}`
+                      }
+                      description={
+                        d.topActionByAdvance
+                          ? `${fmtPct(d.topActionByAdvance.advanceRate)} dos ciclos que usaram essa ação avançaram. Incentivar o time a aplicar mais essa abordagem.`
+                          : `${fmtPct(d.topChannelByWin!.winRate)} de conversão — melhor canal de fechamento no período.`
+                      }
+                      tagColor="#34d399"
+                    />
+                  )}
+
+                  {/* Onde atacar */}
+                  {d.consultantLeastDiscipline && d.topConsultantByEfficiency && (
+                    <FocoCard
+                      icon={<IconTarget />}
+                      tag="Onde atacar primeiro"
+                      title={`Coaching com ${d.consultantLeastDiscipline.sellerName}`}
+                      description={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina. Referência: ${d.topConsultantByEfficiency.sellerName} com maior eficiência por atividade.`}
+                      tagColor="#fbbf24"
+                    />
+                  )}
+
+                </div>
+              </div>
+            )}
+
+            {/* ================================================================
+                BLOCO 5 — APROFUNDAR ANÁLISE
             ================================================================ */}
             <div style={{ marginBottom: 40 }}>
-              <SectionHeader
-                title="Relatórios Detalhados"
-                sub="Acesso direto às análises operacionais específicas"
-                icon={<IconLayers />}
-                accent="#555"
-              />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <ShortcutLink
-                  href="/relatorios/operacao/acoes-por-etapa"
-                  icon={<IconLayers />}
-                  label="Ações por Etapa"
-                  sub="Distribuição de ações em cada etapa do funil"
-                />
-                <ShortcutLink
-                  href="/relatorios/operacao/avanco-por-acao"
-                  icon={<IconTrendUp />}
-                  label="Avanço por Ação"
-                  sub="Quais ações realmente movem o funil"
-                />
-                <ShortcutLink
-                  href="/relatorios/operacao/objecoes-e-perdas"
-                  icon={<IconAlertTriangle />}
-                  label="Objeções e Perdas"
-                  sub="Motivos de perda e padrões de objeção"
-                />
-                <ShortcutLink
-                  href="/relatorios/operacao/proximas-acoes"
-                  icon={<IconListCheck />}
-                  label="Próximas Ações"
-                  sub="Agenda registrada e distribuição por etapa"
-                />
-                <ShortcutLink
-                  href="/relatorios/operacao/canais"
-                  icon={<IconShare2 />}
-                  label="Canais"
-                  sub="Performance por canal de contato"
-                />
-                <ShortcutLink
-                  href="/relatorios/operacao/desempenho-por-consultor"
-                  icon={<IconUsers />}
-                  label="Desempenho por Consultor"
-                  sub="Volume, conversão e disciplina por consultor"
-                />
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#333', marginBottom: 14 }}>
+                Aprofundar Análise
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <NavLink href="/relatorios/operacao/acoes-por-etapa" icon={<IconLayers />} label="Ações por Etapa" />
+                <NavLink href="/relatorios/operacao/avanco-por-acao" icon={<IconTrendUp />} label="Avanço por Ação" />
+                <NavLink href="/relatorios/operacao/objecoes-e-perdas" icon={<IconAlertTriangle />} label="Objeções e Perdas" />
+                <NavLink href="/relatorios/operacao/proximas-acoes" icon={<IconListCheck />} label="Próximas Ações" />
+                <NavLink href="/relatorios/operacao/canais" icon={<IconShare2 />} label="Canais" />
+                <NavLink href="/relatorios/operacao/desempenho-por-consultor" icon={<IconUsers />} label="Desempenho por Consultor" />
               </div>
             </div>
+
           </>
         )}
       </div>
