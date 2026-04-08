@@ -223,7 +223,7 @@ function buildConsultantStats(
 
     result.push({
       sellerId,
-      sellerName: sellerNameMap.get(sellerId) ?? sellerId,
+      sellerName: sellerNameMap.get(sellerId) ?? 'Consultor',
       totalActivities: s.totalActivities,
       totalAdvances: s.totalAdvances,
       totalWon: s.totalWon,
@@ -863,10 +863,36 @@ export default function DesempenhoConsultorPage() {
         )
       }
 
-      // 5. Build consultant stats
+      // 5. Enrich seller names: query profiles for any IDs not already in the sellers list
+      //    (e.g. admins who created events, sellers with non-member roles, won_owner_user_ids)
+      const knownIds = new Set(sellers.map((s) => s.id))
+      const unknownIdsSet = new Set<string>()
+      for (const id of activeSellers) {
+        if (!knownIds.has(id)) unknownIdsSet.add(id)
+      }
+      for (const id of revenueMap.keys()) {
+        if (!knownIds.has(id)) unknownIdsSet.add(id)
+      }
+      const unknownIds = [...unknownIdsSet]
+
+      let enrichedSellers = [...sellers]
+      if (unknownIds.length > 0) {
+        const { data: extraProfiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', unknownIds)
+        if (extraProfiles) {
+          enrichedSellers = [
+            ...sellers,
+            ...(extraProfiles as SellerOption[]),
+          ]
+        }
+      }
+
+      // 6. Build consultant stats
       const result = buildConsultantStats(
         (data ?? []) as RawEvent[],
-        sellers,
+        enrichedSellers,
         dateStart,
         dateEnd,
         isAdmin,
