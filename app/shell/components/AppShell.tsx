@@ -16,6 +16,7 @@ const C = {
   textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
   textMuted: '#546070',
+  navGroupLabel: '#4a5569',
   activeItemBg: 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.06) 100%)',
   activeItemBorder: '#3b82f6',
   activeItemText: '#93c5fd',
@@ -332,7 +333,7 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
               fontWeight: 700,
               letterSpacing: '0.14em',
               textTransform: 'uppercase',
-              color: '#4a5569',
+              color: C.navGroupLabel,
               whiteSpace: 'nowrap',
             }}
           >
@@ -689,7 +690,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div
             style={{
               flexShrink: 0,
-              paddingLeft: 10,
+              paddingLeft: 12,
               borderLeft: `2px solid ${C.activeItemBorder}`,
             }}
           >
