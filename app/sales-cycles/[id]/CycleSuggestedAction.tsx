@@ -192,10 +192,23 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
   }
 
   // ── Rule 3: Unanswered objection ─────────────────────────────────────────
-  // Primary: Registrar contato | Secondary: Atualizar próxima ação
+  // Only fires when there is an EXPLICIT objection event.
+  // Objection CANNOT be inferred from result_detail, note, proposal text,
+  // or any other free-text field. Requires one of:
+  //   1. action_id explicitly set to an objection action
+  //   2. metadata.objection field with a non-empty value
+  //   3. checkpoint.action_result === 'Objeção identificada'
   const objectionEvent = events.find(ev => {
+    const m = ev.metadata ?? {}
     const cp = getCheckpoint(ev)
-    return !!str(cp.result_detail)
+    const actionId = typeof m.action_id === 'string' ? m.action_id : ''
+    if (
+      actionId === 'negociacao_objecao_registrada' ||
+      actionId === 'quick_objection_registered'
+    ) return true
+    if (typeof m.objection === 'string' && m.objection.trim().length > 0) return true
+    if (cp.action_result === 'Objeção identificada') return true
+    return false
   })
   if (objectionEvent) {
     const objectionTime = new Date(objectionEvent.occurred_at).getTime()
@@ -209,12 +222,15 @@ function buildSuggestion(events: CycleEvent[], cycle: CycleCycle): Suggestion | 
       return hasActivityFields || isQuickAction
     })
     if (!hasNewerCommercialActivity) {
+      const m = objectionEvent.metadata ?? {}
       const cp = getCheckpoint(objectionEvent)
+      const objectionDetail =
+        str(cp.result_detail) ?? str(m.objection) ?? undefined
       return {
         iconType: 'alert',
         title: 'Responder à objeção registrada',
         reason: 'Baseado na última objeção registrada',
-        detail: str(cp.result_detail) ?? undefined,
+        detail: objectionDetail,
         urgency: 'medium',
         primaryCta: { action: 'registerContact', label: 'Registrar contato' },
         secondaryCtas: [{ action: 'updateNextAction', label: 'Atualizar próxima ação' }],

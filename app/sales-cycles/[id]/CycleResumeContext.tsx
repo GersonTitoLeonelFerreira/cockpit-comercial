@@ -114,19 +114,59 @@ function buildResumeItems(
 ): ResumeItem[] {
   const items: ResumeItem[] = []
 
-  // ── Faceta 1: Última objeção ──────────────────────────────────────────────
-  // Primeiro evento (mais recente) que tenha result_detail preenchido
+  // ── Faceta 1: Última objeção (somente explícita) ──────────────────────────
+  // Objection CANNOT be inferred from result_detail or any other free-text field.
+  // Requires one of:
+  //   1. action_id explicitly set to an objection action
+  //   2. metadata.objection field with a non-empty value
+  //   3. checkpoint.action_result === 'Objeção identificada'
   const objectionEvent = events.find(ev => {
+    const m = ev.metadata ?? {}
     const cp = getCheckpoint(ev)
-    return !!str(cp.result_detail)
+    const actionId = typeof m.action_id === 'string' ? m.action_id : ''
+    if (
+      actionId === 'negociacao_objecao_registrada' ||
+      actionId === 'quick_objection_registered'
+    ) return true
+    if (typeof m.objection === 'string' && m.objection.trim().length > 0) return true
+    if (cp.action_result === 'Objeção identificada') return true
+    return false
   })
   if (objectionEvent) {
+    const m = objectionEvent.metadata ?? {}
     const cp = getCheckpoint(objectionEvent)
+    const objectionDetail = str(cp.result_detail) ?? str(m.objection)
+    if (objectionDetail) {
+      items.push({
+        icon: <IconAlertTriangle size={11} color="#fcd34d" />,
+        label: 'Última objeção registrada',
+        content: <span style={{ color: '#fcd34d' }}>{objectionDetail}</span>,
+        date: objectionEvent.occurred_at,
+      })
+    }
+  }
+
+  // ── Faceta 1b: Último detalhe de contato (result_detail sem objeção explícita) ──
+  // Shows free-text contact details without mislabeling them as an objection.
+  const detailEvent = events.find(ev => {
+    const m = ev.metadata ?? {}
+    const cp = getCheckpoint(ev)
+    const actionId = typeof m.action_id === 'string' ? m.action_id : ''
+    const isExplicitObjection =
+      actionId === 'negociacao_objecao_registrada' ||
+      actionId === 'quick_objection_registered' ||
+      (typeof m.objection === 'string' && m.objection.trim().length > 0) ||
+      cp.action_result === 'Objeção identificada'
+    if (isExplicitObjection) return false
+    return !!str(cp.result_detail)
+  })
+  if (detailEvent) {
+    const cp = getCheckpoint(detailEvent)
     items.push({
-      icon: <IconAlertTriangle size={11} color="#fcd34d" />,
-      label: 'Última objeção registrada',
-      content: <span style={{ color: '#fcd34d' }}>{str(cp.result_detail)}</span>,
-      date: objectionEvent.occurred_at,
+      icon: <IconClipboard size={11} color="#93c5fd" />,
+      label: 'Último detalhe de contato',
+      content: <span style={{ opacity: 0.9 }}>{str(cp.result_detail)}</span>,
+      date: detailEvent.occurred_at,
     })
   }
 
