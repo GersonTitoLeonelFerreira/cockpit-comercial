@@ -190,64 +190,68 @@ export default function LeadsClient({
   }, [companyId, period])
 
   return (
-    <div style={{ color: 'white' }}>
-      {/* ... resto do seu JSX igual ... */}
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 18, fontWeight: 900 }}>Pipeline Comercial</div>
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          Logado como: {userLabel} ({role})
+    <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
+      {/* PAGE HEADER */}
+      <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #1a1d2e' }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#edf2f7', letterSpacing: '-0.01em' }}>Pipeline Comercial</div>
+        <div style={{ fontSize: 12, color: '#8fa3bc', marginTop: 3 }}>
+          {userLabel} · {role}
         </div>
         {period ? (
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
+          <div style={{ marginTop: 4, fontSize: 11, color: '#546070' }}>
             Período: {period.start} até {period.end}
           </div>
         ) : null}
       </div>
 
-      {/* seletor de meta exibida */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
-        <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>Meta exibida:</div>
+      {/* META SELECTOR */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#546070', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Meta exibida:</div>
         <select
           value={goalView}
           onChange={(e) => setGoalView(e.target.value as GoalView)}
           style={{
-            padding: '10px 12px',
-            borderRadius: 10,
-            border: '1px solid #2a2a2a',
-            background: '#111',
-            color: 'white',
-            minWidth: 240,
-            fontWeight: 900,
+            padding: '8px 12px',
+            borderRadius: 7,
+            border: '1px solid #1a1d2e',
+            background: '#111318',
+            color: '#edf2f7',
+            minWidth: 220,
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: 'pointer',
+            outline: 'none',
           }}
         >
           <option value="company">Meta da empresa</option>
           <option value="mine">Minha meta</option>
         </select>
 
-        {goalLoading ? <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando metas...</div> : null}
-        {goalError ? <div style={{ fontSize: 12, color: '#ffb3b3' }}>{goalError}</div> : null}
+        {goalLoading ? <div style={{ fontSize: 12, color: '#546070' }}>Carregando metas...</div> : null}
+        {goalError ? <div style={{ fontSize: 12, color: '#fca5a5' }}>{goalError}</div> : null}
 
         {goalView === 'mine' && goalMine <= 0 ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>(Minha meta ainda não foi definida pelo admin — exibindo 0)</div>
+          <div style={{ fontSize: 11, color: '#546070' }}>Meta pessoal não definida — exibindo 0</div>
         ) : null}
       </div>
 
       {/* KPI */}
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginBottom: 16 }}>
         {revenueError ? (
           <div
             style={{
-              padding: 12,
-              borderRadius: 12,
-              border: '1px solid #3a2222',
-              background: '#160b0b',
-              color: '#ffb3b3',
+              padding: '10px 14px',
+              borderRadius: 9,
+              border: '1px solid #3a1515',
+              background: '#130a0a',
+              color: '#fca5a5',
+              fontSize: 12,
             }}
           >
             {revenueError}
           </div>
         ) : revenueLoading ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando faturamento do período...</div>
+          <div style={{ fontSize: 12, color: '#546070' }}>Carregando faturamento do período...</div>
         ) : (
           <MetaSummaryHeader
             title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
@@ -257,18 +261,19 @@ export default function LeadsClient({
       </div>
 
       {/* BOTÕES */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18, paddingBottom: 18, borderBottom: '1px solid #1a1d2e' }}>
         <button
           onClick={() => setShowCreateLeadModal(true)}
           style={{
-            padding: '10px 16px',
-            borderRadius: 8,
-            border: 'none',
-            background: '#10b981',
-            color: 'white',
+            padding: '9px 16px',
+            borderRadius: 7,
+            border: '1px solid rgba(34,197,94,0.3)',
+            background: 'rgba(22,163,74,0.12)',
+            color: '#86efac',
             cursor: 'pointer',
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 700,
+            transition: 'all 200ms ease',
           }}
         >
           + Criar Lead
@@ -281,14 +286,15 @@ export default function LeadsClient({
             trigger={
               <button
                 style={{
-                  padding: '10px 16px',
-                  borderRadius: 8,
-                  border: '1px solid #10b981',
-                  background: 'transparent',
-                  color: '#10b981',
+                  padding: '9px 16px',
+                  borderRadius: 7,
+                  border: '1px solid #1a1d2e',
+                  background: '#111318',
+                  color: '#8fa3bc',
                   cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: 500,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  transition: 'all 200ms ease',
                 }}
               >
                 Importar Excel
@@ -306,14 +312,15 @@ export default function LeadsClient({
             trigger={
               <button
                 style={{
-                  padding: '10px 16px',
-                  borderRadius: 8,
-                  border: '1px solid #ef4444',
-                  background: 'transparent',
-                  color: '#ef4444',
+                  padding: '9px 16px',
+                  borderRadius: 7,
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  background: 'rgba(239,68,68,0.08)',
+                  color: '#fca5a5',
                   cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: 500,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  transition: 'all 200ms ease',
                 }}
               >
                 Deletar Leads
@@ -326,23 +333,24 @@ export default function LeadsClient({
         <button
           onClick={() => window.location.reload() /* TODO: substituir por router.refresh() */}
           style={{
-            padding: '10px 16px',
-            borderRadius: 8,
-            border: '1px solid #444',
-            background: 'transparent',
-            color: 'white',
+            padding: '9px 16px',
+            borderRadius: 7,
+            border: '1px solid #1a1d2e',
+            background: '#111318',
+            color: '#546070',
             cursor: 'pointer',
-            fontSize: 13,
-            fontWeight: 500,
+            fontSize: 12,
+            fontWeight: 600,
             marginLeft: 'auto',
+            transition: 'all 200ms ease',
           }}
         >
-          Refresh
+          ↻ Atualizar
         </button>
       </div>
 
       {/* KANBAN */}
-      <div style={{ marginTop: 18 }}>
+      <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
         <SalesCyclesKanban
           userId={userId}
           companyId={companyId}

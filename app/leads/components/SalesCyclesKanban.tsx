@@ -26,6 +26,38 @@ import { createPortal } from 'react-dom'
 import { DndContext, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+
+// ============================================================================
+// DESIGN TOKENS — shell DNA
+// ============================================================================
+const DS = {
+  contentBg:       '#090b0f',
+  panelBg:         '#0d0f14',
+  surfaceBg:       '#111318',
+  border:          '#1a1d2e',
+  borderSubtle:    '#13162a',
+  textPrimary:     '#edf2f7',
+  textSecondary:   '#8fa3bc',
+  textMuted:       '#546070',
+  textLabel:       '#4a5569',
+  blue:            '#3b82f6',
+  blueSoft:        '#93c5fd',
+  blueLight:       '#60a5fa',
+  greenBg:         'rgba(22,163,74,0.10)',
+  greenBorder:     'rgba(34,197,94,0.25)',
+  greenText:       '#86efac',
+  amberBg:         'rgba(245,158,11,0.12)',
+  amberBorder:     'rgba(245,158,11,0.3)',
+  amberText:       '#fef3c7',
+  redBg:           'rgba(239,68,68,0.10)',
+  redBorder:       'rgba(239,68,68,0.3)',
+  redText:         '#fca5a5',
+  selectBg:        '#0d0f14',
+  shadowCard:      '0 1px 4px rgba(0,0,0,0.4)',
+  radius:          7,
+  radiusContainer: 9,
+} as const
+
 // ============================================================================
 // TIPOS SLA
 // ============================================================================
@@ -268,7 +300,7 @@ function ReturnReasonModal({
         left: 0,
         right: 0,
         bottom: 0,
-        background: 'rgba(0,0,0,0.7)',
+        background: 'rgba(0,0,0,0.72)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -278,26 +310,27 @@ function ReturnReasonModal({
     >
       <div
         style={{
-          background: '#111',
-          border: '1px solid #333',
-          borderRadius: 12,
+          background: DS.surfaceBg,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radiusContainer + 3,
           padding: 24,
           width: '90%',
           maxWidth: 500,
-          color: 'white',
+          color: DS.textPrimary,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 16, color: DS.textPrimary }}>
           Devolver ao Pool
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 16, color: '#bfdbfe' }}>
-          Lead: <strong>{cycleName}</strong>
+        <div style={{ fontSize: 12, marginBottom: 16, color: DS.textSecondary }}>
+          Lead: <strong style={{ color: DS.blueSoft }}>{cycleName}</strong>
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             Motivo *
           </label>
           <select
@@ -305,12 +338,13 @@ function ReturnReasonModal({
             onChange={(e) => setReason(e.target.value)}
             style={{
               width: '100%',
-              padding: '10px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: '#222',
-              color: 'white',
+              padding: '9px 10px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.selectBg,
+              color: DS.textPrimary,
               fontSize: 12,
+              outline: 'none',
             }}
           >
             <option value="">Selecione motivo…</option>
@@ -323,7 +357,7 @@ function ReturnReasonModal({
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             Detalhes (mín. 15 caracteres) *
           </label>
           <textarea
@@ -333,17 +367,18 @@ function ReturnReasonModal({
             style={{
               width: '100%',
               minHeight: 80,
-              padding: '10px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: '#222',
-              color: 'white',
+              padding: '9px 10px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.selectBg,
+              color: DS.textPrimary,
               fontSize: 12,
               fontFamily: 'system-ui',
               resize: 'vertical',
+              outline: 'none',
             }}
           />
-          <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>
+          <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 4 }}>
             {details.trim().length}/15 caracteres
           </div>
         </div>
@@ -355,14 +390,15 @@ function ReturnReasonModal({
             style={{
               flex: 1,
               padding: '10px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: 'transparent',
-              color: 'white',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.panelBg,
+              color: DS.textSecondary,
               cursor: isLoading ? 'not-allowed' : 'pointer',
-              fontWeight: 900,
+              fontWeight: 700,
               fontSize: 12,
               opacity: isLoading ? 0.5 : 1,
+              transition: 'all 200ms ease',
             }}
           >
             Cancelar
@@ -373,14 +409,15 @@ function ReturnReasonModal({
             style={{
               flex: 1,
               padding: '10px',
-              borderRadius: 6,
+              borderRadius: DS.radius,
               border: 'none',
-              background: isValid && !isLoading ? '#dc2626' : '#1f2937',
-              color: 'white',
+              background: isValid && !isLoading ? '#dc2626' : DS.panelBg,
+              color: isValid && !isLoading ? '#fecaca' : DS.textMuted,
               cursor: isValid && !isLoading ? 'pointer' : 'not-allowed',
-              fontWeight: 900,
+              fontWeight: 700,
               fontSize: 12,
               opacity: isValid && !isLoading ? 1 : 0.5,
+              transition: 'all 200ms ease',
             }}
           >
             {isLoading ? 'Devolvendo…' : 'Confirmar'}
@@ -434,15 +471,15 @@ function CardActionsMenuPortal({
     position: 'fixed',
     top: anchorRect.bottom + 4,
     right: window.innerWidth - anchorRect.right,
-    background: '#1a1a1a',
-    border: '1px solid #333',
-    borderRadius: 10,
+    background: DS.surfaceBg,
+    border: `1px solid ${DS.border}`,
+    borderRadius: DS.radiusContainer,
     padding: 8,
     zIndex: 9001,
     minWidth: 240,
 flex: '1 1 0%',
     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-    color: 'white',
+    color: DS.textPrimary,
     fontSize: 13,
   }
 
@@ -454,24 +491,24 @@ flex: '1 1 0%',
       />
       <div style={menuStyle}>
         {/* Devolver ao Pool */}
-        <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: '1px solid #2a2a2a' }}>
+        <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: `1px solid ${DS.borderSubtle}` }}>
           <button
             style={{
               width: '100%',
               padding: '8px 12px',
               background: 'none',
               border: 'none',
-              color: '#fecaca',
+              color: DS.redText,
               cursor: 'pointer',
               textAlign: 'left',
-              borderRadius: 6,
+              borderRadius: DS.radius,
               fontSize: 12,
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
               gap: 8,
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,38,38,0.15)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,38,38,0.12)' }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
             onClick={() => {
               onReturnToPool(item.id, item.name)
@@ -484,8 +521,8 @@ flex: '1 1 0%',
 
         {/* Redistribuir (admin only) */}
         {isAdmin && sellers.length > 0 && (
-          <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: '1px solid #2a2a2a' }}>
-            <div style={{ fontSize: 10, fontWeight: 900, color: '#6b7280', padding: '4px 12px', letterSpacing: '0.08em' }}>
+          <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, padding: '4px 12px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               REDISTRIBUIR
             </div>
             <select
@@ -499,12 +536,13 @@ flex: '1 1 0%',
               style={{
                 width: '100%',
                 padding: '8px 12px',
-                background: '#222',
-                border: '1px solid #2a2a2a',
-                borderRadius: 6,
-                color: 'white',
+                background: DS.selectBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius,
+                color: DS.textPrimary,
                 fontSize: 12,
                 cursor: 'pointer',
+                outline: 'none',
               }}
             >
               <option value="">Para outro vendedor…</option>
@@ -519,7 +557,7 @@ flex: '1 1 0%',
 
         {/* Grupos */}
         <div>
-          <div style={{ fontSize: 10, fontWeight: 900, color: '#6b7280', padding: '4px 12px', letterSpacing: '0.08em' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, padding: '4px 12px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
             GRUPO
           </div>
           <select
@@ -531,13 +569,14 @@ flex: '1 1 0%',
             style={{
               width: '100%',
               padding: '8px 12px',
-              background: '#222',
-              border: '1px solid #2a2a2a',
-              borderRadius: 6,
-              color: 'white',
+              background: DS.selectBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radius,
+              color: DS.textPrimary,
               fontSize: 12,
               cursor: 'pointer',
               marginBottom: 4,
+              outline: 'none',
             }}
           >
             <option value="">Sem grupo</option>
@@ -554,17 +593,17 @@ flex: '1 1 0%',
                 padding: '8px 12px',
                 background: 'none',
                 border: 'none',
-                color: '#6ee7b7',
+                color: DS.greenText,
                 cursor: 'pointer',
                 textAlign: 'left',
-                borderRadius: 6,
+                borderRadius: DS.radius,
                 fontSize: 12,
                 fontWeight: 700,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(34,197,94,0.1)' }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(34,197,94,0.08)' }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
               onClick={() => {
                 onCreateGroup('card', item.id)
@@ -663,27 +702,27 @@ function KanbanCard({
     <div
       style={{
         background: isHovered
-          ? `linear-gradient(135deg, ${STATUS_COLORS[item.status]}08, ${STATUS_COLORS[item.status]}15)`
+          ? `linear-gradient(135deg, ${STATUS_COLORS[item.status]}06, ${STATUS_COLORS[item.status]}12)`
           : isSelected
-            ? 'rgba(34,197,94,0.08)'
-            : 'rgba(255,255,255,0.04)',
+            ? 'rgba(59,130,246,0.07)'
+            : DS.panelBg,
         borderTop: isHovered
-          ? `2px solid ${STATUS_COLORS[item.status]}88`
+          ? `1px solid ${STATUS_COLORS[item.status]}55`
           : isSelected
-            ? '1px solid rgba(34,197,94,0.4)'
-            : '1px solid rgba(255,255,255,0.08)',
+            ? '1px solid rgba(59,130,246,0.35)'
+            : `1px solid ${DS.border}`,
         borderRight: isHovered
-          ? `2px solid ${STATUS_COLORS[item.status]}88`
+          ? `1px solid ${STATUS_COLORS[item.status]}55`
           : isSelected
-            ? '1px solid rgba(34,197,94,0.4)'
-            : '1px solid rgba(255,255,255,0.08)',
+            ? '1px solid rgba(59,130,246,0.35)'
+            : `1px solid ${DS.border}`,
         borderBottom: isHovered
-          ? `2px solid ${STATUS_COLORS[item.status]}88`
+          ? `1px solid ${STATUS_COLORS[item.status]}55`
           : isSelected
-            ? '1px solid rgba(34,197,94,0.4)'
-            : '1px solid rgba(255,255,255,0.08)',
+            ? '1px solid rgba(59,130,246,0.35)'
+            : `1px solid ${DS.border}`,
         borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
-        borderRadius: 10,
+        borderRadius: DS.radius + 3,
         padding: '10px 8px',
         cursor: isSaving ? 'not-allowed' : 'grab',
         transition: 'transform 200ms ease, box-shadow 200ms ease, background 200ms ease, border-color 200ms ease',
@@ -691,10 +730,10 @@ function KanbanCard({
         overflow: 'hidden',
         maxWidth: '100%',
         boxSizing: 'border-box',
-        transform: isHovered ? 'translateY(-2px)' : 'none',
+        transform: isHovered ? 'translateY(-1px)' : 'none',
         boxShadow: isHovered
-          ? `0 0 0 1px ${STATUS_COLORS[item.status]}33, 0 8px 24px rgba(0,0,0,0.4), 0 0 12px ${STATUS_COLORS[item.status]}20`
-          : 'none',
+          ? `0 4px 16px rgba(0,0,0,0.4), 0 0 8px ${STATUS_COLORS[item.status]}18`
+          : DS.shadowCard,
       }}
       draggable
       onDragStart={(e) => {
@@ -736,7 +775,7 @@ function KanbanCard({
           right: 8,
           background: 'none',
           border: 'none',
-          color: '#6b7280',
+          color: DS.textLabel,
           cursor: 'pointer',
           fontSize: 14,
           lineHeight: 1,
@@ -755,7 +794,7 @@ function KanbanCard({
 >
         {/* ROW: Name + SLA badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-        <div style={{ fontWeight: 700, fontSize: 13, color: 'white', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: DS.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {item.name}
           </div>
           {/* SLA BADGE */}
@@ -764,10 +803,10 @@ function KanbanCard({
               title={`${getSLALabel(slaLevel)} — ${formatTimeInStage(minutesInStage)} no estágio`}
               style={{
                 fontSize: 9,
-                fontWeight: 800,
+                fontWeight: 700,
                 padding: '2px 6px',
                 borderRadius: 4,
-                background: `${getSLAColor(slaLevel)}20`,
+                background: `${getSLAColor(slaLevel)}18`,
                 color: getSLAColor(slaLevel),
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
@@ -779,18 +818,18 @@ function KanbanCard({
         </div>
 
         {/* Phone */}
-        <div style={{ fontSize: 11, color: '#9ca3af' }}>{item.phone || '—'}</div>
+        <div style={{ fontSize: 11, color: DS.textSecondary }}>{item.phone || '—'}</div>
 
         {/* Próxima ação */}
         {item.next_action && (
-          <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4, fontStyle: 'italic', color: '#9ca3af' }}>
+          <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 4, fontStyle: 'italic' }}>
             Próx: {item.next_action}
           </div>
         )}
 
         {/* Group name */}
         {groupName && (
-          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+          <div style={{ fontSize: 10, color: DS.textLabel, marginTop: 2 }}>
             {groupName}
           </div>
         )}
@@ -931,11 +970,11 @@ function KanbanCard({
           <div
             style={{
               padding: '6px 8px',
-              background: `${STATUS_COLORS[item.status]}10`,
-              border: `1px solid ${STATUS_COLORS[item.status]}25`,
-              borderRadius: 6,
+              background: `${STATUS_COLORS[item.status]}0c`,
+              border: `1px solid ${STATUS_COLORS[item.status]}20`,
+              borderRadius: DS.radius,
               fontSize: 10,
-              color: '#d1d5db',
+              color: DS.textSecondary,
               display: 'flex',
               flexDirection: 'column',
               gap: 3,
@@ -992,7 +1031,7 @@ function KanbanCard({
         </div>
 
         {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
-      </div>
+        </div>
 
       {/* QUICK ACTION MODAL */}
       {showQuickActionModal && (
@@ -1107,12 +1146,16 @@ maxWidth: 340,
 flex: '0 0 320px',
         display: 'flex',
         flexDirection: 'column',
-        background: isOver ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
-        borderRadius: 12,
+        background: isOver ? `${STATUS_COLORS[status]}07` : DS.panelBg,
+        borderRadius: DS.radiusContainer + 3,
         borderTop: `3px solid ${STATUS_COLORS[status]}`,
+        border: `1px solid ${DS.border}`,
+        borderTopColor: STATUS_COLORS[status],
+        borderTopWidth: 3,
         transition: 'background 200ms',
         maxHeight: 'calc(100vh - 200px)',
         overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -1129,17 +1172,17 @@ flex: '0 0 320px',
       {/* Header */}
       <div style={{
         padding: '10px 12px 8px',
-        background: `linear-gradient(to bottom, ${STATUS_COLORS[status]}15, transparent)`,
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: `linear-gradient(to bottom, ${STATUS_COLORS[status]}12, transparent)`,
+        borderBottom: `1px solid ${DS.border}`,
         position: 'sticky',
         top: 0,
         zIndex: 10,
       }}>
-        <div style={{ fontWeight: 900, fontSize: 11, letterSpacing: '0.1em', color: STATUS_COLORS[status] }}>
+        <div style={{ fontWeight: 800, fontSize: 11, letterSpacing: '0.1em', color: STATUS_COLORS[status], textTransform: 'uppercase' }}>
           {headerLabel}
         </div>
         {/* Progress bar */}
-        <div style={{ marginTop: 6, height: 2, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ marginTop: 6, height: 2, background: DS.borderSubtle, borderRadius: 2, overflow: 'hidden' }}>
           <div style={{
             height: '100%',
             width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
@@ -1153,7 +1196,7 @@ flex: '0 0 320px',
       {/* Scrollable cards area */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 20px' }}>
         {filteredCycles.length === 0 ? (
-          <div style={{ opacity: 0.35, fontSize: 11, textAlign: 'center', paddingTop: 32, color: '#9ca3af' }}>
+          <div style={{ color: DS.textMuted, fontSize: 11, textAlign: 'center', paddingTop: 32 }}>
             Vazio
           </div>
         ) : (
@@ -1406,8 +1449,8 @@ const { data, error: err } = await orderedQuery
 function KPIChip({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-      <span style={{ fontSize: 11, fontWeight: 900, color, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-      <span style={{ fontSize: 10, color: '#6b7280' }}>{label}</span>
+      <span style={{ fontSize: 11, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      <span style={{ fontSize: 10, color: DS.textMuted }}>{label}</span>
     </div>
   )
 }
@@ -2332,21 +2375,22 @@ export default function SalesCyclesKanban({
   // ============================================================================
   if (isAdmin && !selectedOwnerId) {
     return (
-      <div style={{ background: '#0b0b0b', minHeight: '100vh', color: 'white' }}>
+      <div style={{ background: DS.contentBg, minHeight: '100vh', color: DS.textPrimary }}>
         {/* FILTERS */}
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid #222', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ padding: '12px 20px', borderBottom: `1px solid ${DS.border}`, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: DS.surfaceBg }}>
           <select
             value={selectedOwnerId || ''}
             onChange={(e) => setSelectedOwnerId(e.target.value || null)}
             style={{
-              padding: '10px 12px',
-              borderRadius: 10,
-              border: '1px solid #2a2a2a',
-              background: '#111',
-              color: 'white',
+              padding: '9px 12px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.selectBg,
+              color: DS.textPrimary,
               cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 900,
+              fontSize: 12,
+              fontWeight: 700,
+              outline: 'none',
             }}
           >
             <option value="">Selecione um vendedor…</option>
@@ -2361,14 +2405,15 @@ export default function SalesCyclesKanban({
             value={selectedGroupId || ''}
             onChange={(e) => setSelectedGroupId(e.target.value || null)}
             style={{
-              padding: '10px 12px',
-              borderRadius: 10,
-              border: '1px solid #2a2a2a',
-              background: '#111',
-              color: 'white',
+              padding: '9px 12px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.selectBg,
+              color: DS.textPrimary,
               cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 900,
+              fontSize: 12,
+              fontWeight: 700,
+              outline: 'none',
             }}
           >
             <option value="">Todos os grupos</option>
@@ -2383,14 +2428,15 @@ export default function SalesCyclesKanban({
             <button
               onClick={() => void recallGroupToPool()}
               style={{
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid #ef4444',
-                background: '#7f1d1d',
-                color: '#fecaca',
+                padding: '9px 12px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.redBorder}`,
+                background: DS.redBg,
+                color: DS.redText,
                 cursor: 'pointer',
                 fontSize: 12,
-                fontWeight: 900,
+                fontWeight: 700,
+                transition: 'all 200ms ease',
               }}
             >
               Recolher Grupo
@@ -2402,15 +2448,16 @@ export default function SalesCyclesKanban({
               onClick={() => void distributeGroupPoolRoundRobin()}
               disabled={distributeGroupLoading}
               style={{
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid #10b981',
-                background: !distributeGroupLoading ? '#047857' : '#1f2937',
-                color: 'white',
+                padding: '9px 12px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.greenBorder}`,
+                background: DS.greenBg,
+                color: DS.greenText,
                 cursor: !distributeGroupLoading ? 'pointer' : 'not-allowed',
                 fontSize: 12,
-                fontWeight: 900,
+                fontWeight: 700,
                 opacity: !distributeGroupLoading ? 1 : 0.5,
+                transition: 'all 200ms ease',
               }}
             >
               {distributeGroupLoading ? 'Distribuindo…' : 'Distribuir Grupo'}
@@ -2421,14 +2468,14 @@ export default function SalesCyclesKanban({
             <button
               onClick={toggleSelectAllPool}
               style={{
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid #8b5cf6',
-                background: allPoolSelected ? '#8b5cf6' : 'transparent',
-                color: allPoolSelected ? '#000' : '#d8b4fe',
+                padding: '9px 12px',
+                borderRadius: DS.radius,
+                border: `1px solid ${allPoolSelected ? DS.blue : DS.border}`,
+                background: allPoolSelected ? `rgba(59,130,246,0.15)` : DS.panelBg,
+                color: allPoolSelected ? DS.blueSoft : DS.textSecondary,
                 cursor: 'pointer',
                 fontSize: 12,
-                fontWeight: 900,
+                fontWeight: 700,
                 transition: 'all 200ms',
               }}
             >
@@ -2439,14 +2486,15 @@ export default function SalesCyclesKanban({
               <button
                 onClick={() => setShowBulkModal(true)}
                 style={{
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: '1px solid #f59e0b',
-                  background: '#92400e',
-                  color: '#fef3c7',
+                  padding: '9px 12px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.amberBorder}`,
+                  background: DS.amberBg,
+                  color: DS.amberText,
                   cursor: 'pointer',
                   fontSize: 12,
-                  fontWeight: 900,
+                  fontWeight: 700,
+                  transition: 'all 200ms',
                 }}
               >
                 Ações ({selectedIds.size})
@@ -2457,58 +2505,58 @@ export default function SalesCyclesKanban({
 
         {/* ERROR MESSAGE */}
         {error && (
-          <div style={{ background: '#7f1d1d', color: '#fecaca', padding: 12, borderLeft: '4px solid #ef4444', margin: 20, borderRadius: 6, fontSize: 12 }}>
+          <div style={{ background: DS.redBg, color: DS.redText, padding: '10px 16px', borderLeft: `3px solid #ef4444`, margin: 20, borderRadius: DS.radius, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>
             {error}
           </div>
         )}
 
         {/* POOL CONTENT */}
         <div style={{ padding: '20px' }}>
-          <div style={{ border: '1px solid #222', borderRadius: 14, background: '#0f0f0f', padding: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 14 }}>
-                Pool de Leads {selectedGroupId && '(filtrado)'}
+          <div style={{ border: `1px solid ${DS.border}`, borderRadius: DS.radiusContainer + 3, background: DS.panelBg, padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>
+                Pool de Leads {selectedGroupId && <span style={{ color: DS.textMuted, fontWeight: 500 }}>(filtrado)</span>}
               </div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>{poolCycles.length} de {poolTotal}</div>
+              <div style={{ fontSize: 12, color: DS.textMuted }}>{poolCycles.length} de {poolTotal}</div>
             </div>
 
             {poolCycles.length === 0 ? (
-              <div style={{ opacity: 0.5, fontSize: 12, textAlign: 'center', paddingTop: 40 }}>
+              <div style={{ color: DS.textMuted, fontSize: 12, textAlign: 'center', paddingTop: 40 }}>
                 Nenhum lead no pool
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: 10, maxHeight: '70vh', overflowY: 'auto', marginBottom: 20 }}>
+              <div style={{ display: 'grid', gap: 8, maxHeight: '70vh', overflowY: 'auto', marginBottom: 20 }}>
                 {poolCycles.map((cycle) => (
                   <div
                     key={cycle.id}
                     style={{
-                      border: '1px solid #2a2a2a',
-                      borderRadius: 12,
-                      padding: 12,
-                      background: selectedIds.has(cycle.id) ? '#0f3d2e' : '#0b0b0b',
+                      border: `1px solid ${selectedIds.has(cycle.id) ? DS.blue : DS.border}`,
+                      borderRadius: DS.radiusContainer,
+                      padding: '12px 14px',
+                      background: selectedIds.has(cycle.id) ? 'rgba(59,130,246,0.07)' : DS.contentBg,
                       display: 'flex',
                       justifyContent: 'space-between',
                       gap: 12,
                       flexWrap: 'wrap',
                       alignItems: 'flex-start',
-                      transition: 'all 200ms',
+                      transition: 'all 200ms ease',
                     }}
                     onMouseEnter={(e) => {
                       if (!selectedIds.has(cycle.id)) {
-                        ;(e.currentTarget as HTMLElement).style.background = '#151515'
-                        ;(e.currentTarget as HTMLElement).style.borderColor = '#10b981'
+                        ;(e.currentTarget as HTMLElement).style.background = DS.panelBg
+                        ;(e.currentTarget as HTMLElement).style.borderColor = DS.blue
                       }
                     }}
                     onMouseLeave={(e) => {
-                      ;(e.currentTarget as HTMLElement).style.background = selectedIds.has(cycle.id) ? '#0f3d2e' : '#0b0b0b'
-                      ;(e.currentTarget as HTMLElement).style.borderColor = '#2a2a2a'
+                      ;(e.currentTarget as HTMLElement).style.background = selectedIds.has(cycle.id) ? 'rgba(59,130,246,0.07)' : DS.contentBg
+                      ;(e.currentTarget as HTMLElement).style.borderColor = selectedIds.has(cycle.id) ? DS.blue : DS.border
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={selectedIds.has(cycle.id)}
                       onChange={() => toggleSelect(cycle.id)}
-                      style={{ width: 20, height: 20, cursor: 'pointer', marginTop: 2 }}
+                      style={{ width: 16, height: 16, cursor: 'pointer', marginTop: 3, accentColor: DS.blue }}
                     />
 
 <div
@@ -2518,18 +2566,18 @@ export default function SalesCyclesKanban({
     window.location.href = `/sales-cycles/${(cycle as any).id}`
   }}
 >
-  <div style={{ fontWeight: 800, color: '#10b981' }}>{cycle.name}</div>
-  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
-    {cycle.phone ?? 'Sem telefone'} - {new Date(cycle.created_at).toLocaleString()}
+  <div style={{ fontWeight: 700, color: DS.greenText, fontSize: 13 }}>{cycle.name}</div>
+  <div style={{ fontSize: 11, color: DS.textSecondary, marginTop: 4 }}>
+    {cycle.phone ?? 'Sem telefone'} · {new Date(cycle.created_at).toLocaleString()}
   </div>
   
-  {/* GRUPO - Agora com badge visual melhorado */}
+  {/* GRUPO */}
   {cycle.lead_groups ? (
-    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4, color: '#10b981', fontWeight: 700, background: '#0f3d2e', padding: '4px 8px', borderRadius: 4, display: 'inline-block', border: '1px solid #10b981' }}>
+    <div style={{ fontSize: 10, marginTop: 5, color: DS.greenText, fontWeight: 700, background: DS.greenBg, padding: '3px 8px', borderRadius: 4, display: 'inline-block', border: `1px solid ${DS.greenBorder}` }}>
       [G] {cycle.lead_groups.name}
     </div>
   ) : (
-    <div style={{ fontSize: 11, opacity: 0.5, marginTop: 4, color: '#999', fontStyle: 'italic' }}>
+    <div style={{ fontSize: 10, marginTop: 5, color: DS.textLabel, fontStyle: 'italic' }}>
       Sem grupo
     </div>
   )}
@@ -2538,23 +2586,22 @@ export default function SalesCyclesKanban({
                         <div
                           style={{
                             fontSize: 10,
-                            opacity: 0.7,
                             marginTop: 6,
-                            background: '#1f2937',
+                            background: DS.amberBg,
                             padding: '6px 8px',
-                            borderRadius: 4,
-                            border: '1px solid #374151',
-                            color: '#fbbf24',
+                            borderRadius: DS.radius,
+                            border: `1px solid ${DS.amberBorder}`,
+                            color: DS.amberText,
                           }}
                         >
-                          <div style={{ fontWeight: 900, marginBottom: 2 }}>Retornado ao Pool</div>
+                          <div style={{ fontWeight: 800, marginBottom: 2 }}>Retornado ao Pool</div>
                           <div>
                             <strong>Motivo:</strong>{' '}
                             {RETURN_REASONS.find((r) => r.value === cycle.last_return_reason)?.label || cycle.last_return_reason}
                           </div>
-                          <div style={{ marginTop: 2, opacity: 0.85 }}>{cycle.last_return_details}</div>
+                          <div style={{ marginTop: 2, color: DS.textSecondary }}>{cycle.last_return_details}</div>
                           {cycle.last_return_at && (
-                            <div style={{ marginTop: 2, fontSize: 9, opacity: 0.7 }}>
+                            <div style={{ marginTop: 2, fontSize: 9, color: DS.textMuted }}>
                               {new Date(cycle.last_return_at).toLocaleString()}
                             </div>
                           )}
@@ -2572,15 +2619,16 @@ export default function SalesCyclesKanban({
                           }
                         }}
                         style={{
-                          padding: '10px 12px',
-                          borderRadius: 10,
-                          border: '1px solid #2a2a2a',
-                          background: '#111',
-                          color: 'white',
+                          padding: '9px 12px',
+                          borderRadius: DS.radius,
+                          border: `1px solid ${DS.border}`,
+                          background: DS.selectBg,
+                          color: DS.textPrimary,
                           cursor: 'pointer',
-                          minWidth: 220,
-                          fontWeight: 900,
+                          minWidth: 200,
+                          fontWeight: 700,
                           fontSize: 12,
+                          outline: 'none',
                         }}
                       >
                         <option value="">Encaminhar para…</option>
@@ -2598,20 +2646,20 @@ export default function SalesCyclesKanban({
 
             {/* PAGINATION */}
             {poolTotal > PAGE_SIZE && (
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid #222' }}>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${DS.border}` }}>
                 <button
                   onClick={() => loadPoolPage(poolPageNum - 1)}
                   disabled={poolLoading || poolPageNum === 1}
                   style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #2a2a2a',
-                    background: poolPageNum === 1 ? '#1f2937' : '#111',
-                    color: '#fff',
+                    padding: '5px 10px',
+                    borderRadius: DS.radius,
+                    border: `1px solid ${DS.border}`,
+                    background: DS.panelBg,
+                    color: DS.textSecondary,
                     cursor: poolLoading || poolPageNum === 1 ? 'not-allowed' : 'pointer',
                     fontSize: 12,
-                    fontWeight: 900,
-                    opacity: poolLoading || poolPageNum === 1 ? 0.5 : 1,
+                    fontWeight: 700,
+                    opacity: poolLoading || poolPageNum === 1 ? 0.4 : 1,
                   }}
                 >
                   {'<<'}
@@ -2628,15 +2676,16 @@ export default function SalesCyclesKanban({
                       onClick={() => loadPoolPage(pageNum)}
                       disabled={poolLoading}
                       style={{
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        border: isCurrentPage ? '1px solid #3b82f6' : '1px solid #2a2a2a',
-                        background: isCurrentPage ? '#3b82f6' : '#111',
-                        color: isCurrentPage ? '#000' : '#fff',
+                        padding: '5px 10px',
+                        borderRadius: DS.radius,
+                        border: isCurrentPage ? `1px solid ${DS.blue}` : `1px solid ${DS.border}`,
+                        background: isCurrentPage ? DS.blue : DS.panelBg,
+                        color: isCurrentPage ? '#fff' : DS.textSecondary,
                         cursor: poolLoading ? 'not-allowed' : 'pointer',
                         fontSize: 12,
-                        fontWeight: isCurrentPage ? 900 : 400,
+                        fontWeight: isCurrentPage ? 800 : 400,
                         opacity: poolLoading ? 0.5 : 1,
+                        transition: 'all 200ms ease',
                       }}
                     >
                       {pageNum}
@@ -2644,21 +2693,21 @@ export default function SalesCyclesKanban({
                   ) : null
                 })}
 
-                {totalPages > 7 && <span style={{ opacity: 0.5, fontSize: 12 }}>…</span>}
+                {totalPages > 7 && <span style={{ color: DS.textMuted, fontSize: 12 }}>…</span>}
 
                 <button
                   onClick={() => loadPoolPage(poolPageNum + 1)}
                   disabled={poolLoading || poolPageNum >= totalPages}
                   style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #2a2a2a',
-                    background: poolPageNum >= totalPages ? '#1f2937' : '#111',
-                    color: '#fff',
+                    padding: '5px 10px',
+                    borderRadius: DS.radius,
+                    border: `1px solid ${DS.border}`,
+                    background: DS.panelBg,
+                    color: DS.textSecondary,
                     cursor: poolLoading || poolPageNum >= totalPages ? 'not-allowed' : 'pointer',
                     fontSize: 12,
-                    fontWeight: 900,
-                    opacity: poolLoading || poolPageNum >= totalPages ? 0.5 : 1,
+                    fontWeight: 700,
+                    opacity: poolLoading || poolPageNum >= totalPages ? 0.4 : 1,
                   }}
                 >
                   {'>>'}
@@ -2690,7 +2739,7 @@ export default function SalesCyclesKanban({
               left: 0,
               right: 0,
               bottom: 0,
-              background: 'rgba(0,0,0,0.7)',
+              background: 'rgba(0,0,0,0.72)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -2700,24 +2749,25 @@ export default function SalesCyclesKanban({
           >
             <div
               style={{
-                background: '#111',
-                border: '1px solid #333',
-                borderRadius: 12,
+                background: DS.surfaceBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radiusContainer + 3,
                 padding: 24,
                 width: '90%',
                 maxWidth: 600,
-                color: 'white',
+                color: DS.textPrimary,
                 maxHeight: '80vh',
                 overflowY: 'auto',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 20, color: DS.textPrimary }}>
                 Ações em Massa ({selectedIds.size} leads)
               </div>
 
-              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-                <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 12 }}>
+              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 10, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                   Devolver ao Pool
                 </label>
                 <button
@@ -2725,15 +2775,16 @@ export default function SalesCyclesKanban({
                   disabled={assigningId === 'bulk'}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    borderRadius: 6,
+                    padding: '11px',
+                    borderRadius: DS.radius,
                     border: 'none',
-                    background: assigningId !== 'bulk' ? '#dc2626' : '#1f2937',
-                    color: assigningId !== 'bulk' ? '#fecaca' : '#999',
+                    background: assigningId !== 'bulk' ? 'rgba(220,38,38,0.85)' : DS.panelBg,
+                    color: assigningId !== 'bulk' ? '#fecaca' : DS.textMuted,
                     cursor: assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 12,
-                    marginBottom: 12,
+                    marginBottom: 4,
+                    transition: 'all 200ms ease',
                   }}
                   onMouseDown={(e) => {
                     e.preventDefault()
@@ -2744,11 +2795,11 @@ export default function SalesCyclesKanban({
                 </button>
               </div>
 
-              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-                <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 12 }}>
+              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 10, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                   Distribuição Automática
                 </label>
-                <p style={{ fontSize: 11, opacity: 0.7, marginBottom: 12 }}>
+                <p style={{ fontSize: 11, color: DS.textMuted, marginBottom: 12 }}>
                   Distribui {selectedIds.size} leads uniformemente entre {sellers.length} vendedores
                 </p>
                 <button
@@ -2756,15 +2807,16 @@ export default function SalesCyclesKanban({
                   disabled={assigningId === 'bulk' || sellers.length === 0}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: sellers.length > 0 && assigningId !== 'bulk' ? '#10b981' : '#1f2937',
-                    color: 'white',
+                    padding: '11px',
+                    borderRadius: DS.radius,
+                    border: `1px solid ${sellers.length > 0 && assigningId !== 'bulk' ? DS.greenBorder : DS.border}`,
+                    background: sellers.length > 0 && assigningId !== 'bulk' ? DS.greenBg : DS.panelBg,
+                    color: sellers.length > 0 && assigningId !== 'bulk' ? DS.greenText : DS.textMuted,
                     cursor: sellers.length > 0 && assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 12,
                     opacity: sellers.length > 0 && assigningId !== 'bulk' ? 1 : 0.5,
+                    transition: 'all 200ms ease',
                   }}
                   onMouseDown={(e) => {
                     e.preventDefault()
@@ -2775,12 +2827,12 @@ export default function SalesCyclesKanban({
                 </button>
               </div>
 
-              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-                <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 8 }}>
+              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 8, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                   Atribuir para Um Vendedor
                 </label>
                 {!canRedistribute ? (
-                  <div style={{ fontSize: 12, opacity: 0.7, color: '#f87171' }}>
+                  <div style={{ fontSize: 12, color: '#f87171' }}>
                     Nenhum vendedor disponível
                   </div>
                 ) : (
@@ -2790,13 +2842,14 @@ export default function SalesCyclesKanban({
                       onChange={(e) => setBulkSeller(e.target.value)}
                       style={{
                         width: '100%',
-                        padding: '8px',
-                        borderRadius: 6,
-                        border: '1px solid #2a2a2a',
-                        background: '#222',
-                        color: 'white',
+                        padding: '8px 10px',
+                        borderRadius: DS.radius,
+                        border: `1px solid ${DS.border}`,
+                        background: DS.selectBg,
+                        color: DS.textPrimary,
                         fontSize: 12,
-                        marginBottom: 12,
+                        marginBottom: 10,
+                        outline: 'none',
                       }}
                     >
                       <option value="">Selecione vendedor…</option>
@@ -2812,15 +2865,16 @@ export default function SalesCyclesKanban({
                       disabled={!bulkSeller || assigningId === 'bulk'}
                       style={{
                         width: '100%',
-                        padding: '12px',
-                        borderRadius: 6,
+                        padding: '11px',
+                        borderRadius: DS.radius,
                         border: 'none',
-                        background: bulkSeller && assigningId !== 'bulk' ? '#3b82f6' : '#1f2937',
+                        background: bulkSeller && assigningId !== 'bulk' ? DS.blue : DS.panelBg,
                         color: 'white',
                         cursor: bulkSeller && assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                        fontWeight: 900,
+                        fontWeight: 700,
                         fontSize: 12,
                         opacity: bulkSeller && assigningId !== 'bulk' ? 1 : 0.5,
+                        transition: 'all 200ms ease',
                       }}
                       onMouseDown={(e) => {
                         e.preventDefault()
@@ -2833,22 +2887,23 @@ export default function SalesCyclesKanban({
                 )}
               </div>
 
-              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-                <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 8 }}>
+              <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 8, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                   Vincular Grupo
                 </label>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                   <select
                     value={bulkGroup}
                     onChange={(e) => setBulkGroup(e.target.value)}
                     style={{
                       flex: 1,
-                      padding: '8px',
-                      borderRadius: 6,
-                      border: '1px solid #2a2a2a',
-                      background: '#222',
-                      color: 'white',
+                      padding: '8px 10px',
+                      borderRadius: DS.radius,
+                      border: `1px solid ${DS.border}`,
+                      background: DS.selectBg,
+                      color: DS.textPrimary,
                       fontSize: 12,
+                      outline: 'none',
                     }}
                   >
                     <option value="">Selecione grupo…</option>
@@ -2864,15 +2919,16 @@ export default function SalesCyclesKanban({
                       disabled={creatingGroup}
                       style={{
                         padding: '8px 12px',
-                        borderRadius: 6,
-                        border: '1px solid #10b981',
-                        background: !creatingGroup ? '#047857' : '#1f2937',
-                        color: 'white',
+                        borderRadius: DS.radius,
+                        border: `1px solid ${DS.greenBorder}`,
+                        background: DS.greenBg,
+                        color: DS.greenText,
                         cursor: !creatingGroup ? 'pointer' : 'not-allowed',
                         fontSize: 12,
-                        fontWeight: 900,
+                        fontWeight: 700,
                         opacity: !creatingGroup ? 1 : 0.5,
                         whiteSpace: 'nowrap',
+                        transition: 'all 200ms ease',
                       }}
                       onMouseDown={(e) => {
                         e.preventDefault()
@@ -2888,15 +2944,16 @@ export default function SalesCyclesKanban({
                   disabled={!bulkGroup || assigningId === 'bulk'}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    borderRadius: 6,
+                    padding: '11px',
+                    borderRadius: DS.radius,
                     border: 'none',
-                    background: bulkGroup && assigningId !== 'bulk' ? '#8b5cf6' : '#1f2937',
+                    background: bulkGroup && assigningId !== 'bulk' ? 'rgba(139,92,246,0.7)' : DS.panelBg,
                     color: 'white',
                     cursor: bulkGroup && assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                    fontWeight: 900,
+                    fontWeight: 700,
                     fontSize: 12,
                     opacity: bulkGroup && assigningId !== 'bulk' ? 1 : 0.5,
+                    transition: 'all 200ms ease',
                   }}
                   onMouseDown={(e) => {
                     e.preventDefault()
@@ -2912,13 +2969,14 @@ export default function SalesCyclesKanban({
                 style={{
                   width: '100%',
                   padding: '10px',
-                  borderRadius: 6,
-                  border: '1px solid #2a2a2a',
-                  background: 'transparent',
-                  color: 'white',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.border}`,
+                  background: DS.panelBg,
+                  color: DS.textSecondary,
                   cursor: 'pointer',
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 12,
+                  transition: 'all 200ms ease',
                 }}
                 onMouseDown={(e) => {
                   e.preventDefault()
@@ -2952,25 +3010,27 @@ export default function SalesCyclesKanban({
   // ============================================================================
 
   const pillStyle: React.CSSProperties = {
-    borderRadius: 20,
-    padding: '4px 12px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    color: 'white',
+    borderRadius: DS.radius,
+    padding: '7px 12px',
+    background: DS.panelBg,
+    border: `1px solid ${DS.border}`,
+    color: DS.textSecondary,
     fontSize: 12,
     cursor: 'pointer',
-    fontWeight: 700,
+    fontWeight: 600,
+    outline: 'none',
+    transition: 'all 200ms ease',
   }
 
   return (
-    <div style={{ background: '#09090b', minHeight: '100vh', color: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ background: DS.contentBg, minHeight: '100vh', color: DS.textPrimary, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* COMMAND BAR */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
-        background: 'rgba(9,9,11,0.85)',
+        background: 'rgba(17,19,24,0.94)',
         backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        borderBottom: `1px solid ${DS.border}`,
         padding: '8px 16px',
         display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
       }}>
@@ -3009,7 +3069,7 @@ export default function SalesCyclesKanban({
         >
           <option value="all">SLA: Todos</option>
           <option value="ok">SLA: OK</option>
-          <option value="warn">SLA: Atencao</option>
+          <option value="warn">SLA: Atenção</option>
           <option value="danger">SLA: Estourado</option>
         </select>
 
@@ -3021,7 +3081,7 @@ export default function SalesCyclesKanban({
           <option value="all">Agenda: Todos</option>
           <option value="today">Hoje ({todayCount})</option>
           <option value="overdue">Atrasados ({overdueCount})</option>
-          <option value="next7">Proximos 7d ({next7Count})</option>
+          <option value="next7">Próximos 7d ({next7Count})</option>
         </select>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -3031,23 +3091,24 @@ export default function SalesCyclesKanban({
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar por nome, telefone, CPF ou email..."
             style={{
-              borderRadius: 20,
-              padding: '4px 14px',
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              color: 'white',
+              borderRadius: DS.radius,
+              padding: '7px 14px',
+              background: DS.selectBg,
+              border: `1px solid ${DS.border}`,
+              color: DS.textPrimary,
               fontSize: 12,
-              minWidth: 200,
+              minWidth: 220,
               outline: 'none',
+              transition: 'border-color 200ms ease',
             }}
           />
           {searchTerm.trim() && !isSearching && searchCount !== null && (
-            <div style={{ fontSize: 10, color: '#93c5fd', fontWeight: 700, paddingLeft: 14 }}>
+            <div style={{ fontSize: 10, color: DS.blueSoft, fontWeight: 700, paddingLeft: 4 }}>
               {searchCount} resultado{searchCount !== 1 ? 's' : ''}
             </div>
           )}
           {isSearching && (
-            <div style={{ fontSize: 10, color: '#6b7280', paddingLeft: 14 }}>Buscando...</div>
+            <div style={{ fontSize: 10, color: DS.textMuted, paddingLeft: 4 }}>Buscando...</div>
           )}
         </div>
 
@@ -3056,9 +3117,9 @@ export default function SalesCyclesKanban({
             onClick={() => setFocusPanelOpen((v) => !v)}
             style={{
               ...pillStyle,
-              background: focusPanelOpen ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.06)',
-              border: focusPanelOpen ? '1px solid rgba(59,130,246,0.4)' : '1px solid rgba(255,255,255,0.12)',
-              color: focusPanelOpen ? '#93c5fd' : 'white',
+              background: focusPanelOpen ? 'rgba(59,130,246,0.14)' : DS.panelBg,
+              border: focusPanelOpen ? `1px solid rgba(59,130,246,0.4)` : `1px solid ${DS.border}`,
+              color: focusPanelOpen ? DS.blueSoft : DS.textSecondary,
             }}
           >
             {focusPanelOpen ? 'Fechar Fila' : 'Abrir Fila'} ({overdueCount + todayCount})
@@ -3070,7 +3131,7 @@ export default function SalesCyclesKanban({
               style={pillStyle}
               title="Atualizar kanban"
             >
-              Atualizar
+              ↻
             </button>
           )}
 
@@ -3078,9 +3139,9 @@ export default function SalesCyclesKanban({
             onClick={toggleSelectAllKanban}
             style={{
               ...pillStyle,
-              background: allKanbanSelected ? 'rgba(139,92,246,0.3)' : 'rgba(255,255,255,0.06)',
-              border: allKanbanSelected ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.12)',
-              color: allKanbanSelected ? '#d8b4fe' : 'white',
+              background: allKanbanSelected ? 'rgba(139,92,246,0.15)' : DS.panelBg,
+              border: allKanbanSelected ? '1px solid rgba(139,92,246,0.4)' : `1px solid ${DS.border}`,
+              color: allKanbanSelected ? '#c4b5fd' : DS.textSecondary,
             }}
           >
             {allKanbanSelected ? 'Desmarcar' : 'Selecionar'} ({allKanbanItems.length})
@@ -3091,12 +3152,12 @@ export default function SalesCyclesKanban({
               onClick={() => setShowBulkModal(true)}
               style={{
                 ...pillStyle,
-                background: 'rgba(245,158,11,0.2)',
-                border: '1px solid rgba(245,158,11,0.4)',
-                color: '#fef3c7',
+                background: DS.amberBg,
+                border: `1px solid ${DS.amberBorder}`,
+                color: DS.amberText,
               }}
             >
-              Acoes ({selectedIds.size})
+              Ações ({selectedIds.size})
             </button>
           )}
 
@@ -3104,9 +3165,9 @@ export default function SalesCyclesKanban({
             onClick={() => setShowCreateLeadModal(true)}
             style={{
               ...pillStyle,
-              background: 'rgba(34,197,94,0.15)',
-              border: '1px solid rgba(34,197,94,0.35)',
-              color: '#6ee7b7',
+              background: DS.greenBg,
+              border: `1px solid ${DS.greenBorder}`,
+              color: DS.greenText,
             }}
           >
             + Criar Lead
@@ -3125,8 +3186,8 @@ export default function SalesCyclesKanban({
       {/* INSIGHTS STRIP */}
       <div
         style={{
-          background: 'rgba(255,255,255,0.02)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: DS.panelBg,
+          borderBottom: `1px solid ${DS.border}`,
           padding: '0 16px',
           display: 'flex',
           alignItems: 'center',
@@ -3138,22 +3199,22 @@ export default function SalesCyclesKanban({
         }}
         onClick={() => setInsightsExpanded((v) => !v)}
       >
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', letterSpacing: '0.1em', whiteSpace: 'nowrap', flexShrink: 0 }}>
-          {insightsExpanded ? 'v' : '>'} INSIGHTS
+        <span style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, letterSpacing: '0.1em', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {insightsExpanded ? '▾' : '▸'} INSIGHTS
         </span>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <KPIChip label="Atrasados" value={overdueCount} color="#ef4444" />
           <KPIChip label="SLA estourado" value={dangerCount} color="#f59e0b" />
-          <KPIChip label="Agenda hoje" value={todayCount} color="#3b82f6" />
-          <KPIChip label="Proximos 7d" value={next7Count} color="#8b5cf6" />
+          <KPIChip label="Agenda hoje" value={todayCount} color={DS.blue} />
+          <KPIChip label="Próximos 7d" value={next7Count} color="#8b5cf6" />
         </div>
       </div>
 
             {/* INSIGHTS EXPANDED PANEL */}
             {insightsExpanded && (
         <div style={{
-          background: 'rgba(255,255,255,0.03)',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          background: DS.contentBg,
+          borderBottom: `1px solid ${DS.border}`,
           padding: '12px 16px',
           maxHeight: 300,
           overflowY: 'auto',
@@ -3184,40 +3245,41 @@ export default function SalesCyclesKanban({
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
                 {/* ATRASADOS */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#ef4444', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#ef4444', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <CircleAlertIcon size={12} color="#ef4444" /> Atrasados ({overdueItems.length})
                   </div>
                   {overdueItems.length === 0 ? (
-                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum atrasado</div>
+                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum atrasado</div>
                   ) : (
                     overdueItems.slice(0, 10).map((c) => (
                       <div
                         key={c.id}
                         onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
                         style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
-                          background: 'rgba(239,68,68,0.08)', marginBottom: 4,
+                          fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
+                          background: 'rgba(239,68,68,0.07)', marginBottom: 4,
                           cursor: 'pointer', color: '#fecaca',
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          border: '1px solid rgba(239,68,68,0.12)',
                         }}
                       >
                         <span>{c.name}</span>
-                        <span style={{ fontSize: 9, opacity: 0.7 }}>{formatNextActionDate(c.next_action_date)}</span>
+                        <span style={{ fontSize: 9, color: DS.textMuted }}>{formatNextActionDate(c.next_action_date)}</span>
                       </div>
                     ))
                   )}
                   {overdueItems.length > 10 && (
-                    <div style={{ fontSize: 9, opacity: 0.5, color: '#9ca3af' }}>+{overdueItems.length - 10} mais</div>
+                    <div style={{ fontSize: 9, color: DS.textMuted }}>+{overdueItems.length - 10} mais</div>
                   )}
                 </div>
 
                 {/* SLA ESTOURADO */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#f59e0b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <WarningTriangleIcon size={12} color="#f59e0b" /> SLA Estourado ({dangerItems.length})
                   </div>
                   {dangerItems.length === 0 ? (
-                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum SLA estourado</div>
+                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum SLA estourado</div>
                   ) : (
                     dangerItems.slice(0, 10).map((c) => {
                       const mins = Math.floor((nowTick.getTime() - new Date(c.stage_entered_at || new Date()).getTime()) / 60000)
@@ -3226,14 +3288,15 @@ export default function SalesCyclesKanban({
                           key={c.id}
                           onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
                           style={{
-                            fontSize: 11, padding: '4px 8px', borderRadius: 6,
-                            background: 'rgba(245,158,11,0.08)', marginBottom: 4,
+                            fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
+                            background: 'rgba(245,158,11,0.07)', marginBottom: 4,
                             cursor: 'pointer', color: '#fef3c7',
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            border: '1px solid rgba(245,158,11,0.12)',
                           }}
                         >
                           <span>{c.name}</span>
-                          <span style={{ fontSize: 9, opacity: 0.7 }}>{formatTimeInStage(mins)} em {STATUS_LABELS[c.status]}</span>
+                          <span style={{ fontSize: 9, color: DS.textMuted }}>{formatTimeInStage(mins)} em {STATUS_LABELS[c.status]}</span>
                         </div>
                       )
                     })
@@ -3242,25 +3305,26 @@ export default function SalesCyclesKanban({
 
                 {/* AGENDA HOJE */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#3b82f6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <CalendarTodayIcon size={12} color="#3b82f6" /> Agenda Hoje ({todayItems.length})
+                  <div style={{ fontSize: 11, fontWeight: 800, color: DS.blue, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <CalendarTodayIcon size={12} color={DS.blue} /> Agenda Hoje ({todayItems.length})
                   </div>
                   {todayItems.length === 0 ? (
-                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum para hoje</div>
+                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum para hoje</div>
                   ) : (
                     todayItems.slice(0, 10).map((c) => (
                       <div
                         key={c.id}
                         onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
                         style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
-                          background: 'rgba(59,130,246,0.08)', marginBottom: 4,
-                          cursor: 'pointer', color: '#93c5fd',
+                          fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
+                          background: 'rgba(59,130,246,0.07)', marginBottom: 4,
+                          cursor: 'pointer', color: DS.blueSoft,
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          border: `1px solid rgba(59,130,246,0.12)`,
                         }}
                       >
                         <span>{c.name}</span>
-                        <span style={{ fontSize: 9, opacity: 0.7 }}>{formatNextActionDate(c.next_action_date)}</span>
+                        <span style={{ fontSize: 9, color: DS.textMuted }}>{formatNextActionDate(c.next_action_date)}</span>
                       </div>
                     ))
                   )}
@@ -3268,25 +3332,26 @@ export default function SalesCyclesKanban({
 
                 {/* PRÓXIMOS 7D */}
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#8b5cf6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#8b5cf6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <CalendarRangeIcon size={12} color="#8b5cf6" /> Próximos 7d ({next7Items.length})
                   </div>
                   {next7Items.length === 0 ? (
-                    <div style={{ fontSize: 10, opacity: 0.4, color: '#9ca3af' }}>Nenhum nos próximos 7 dias</div>
+                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum nos próximos 7 dias</div>
                   ) : (
                     next7Items.slice(0, 10).map((c) => (
                       <div
                         key={c.id}
                         onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
                         style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: 6,
-                          background: 'rgba(139,92,246,0.08)', marginBottom: 4,
+                          fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
+                          background: 'rgba(139,92,246,0.07)', marginBottom: 4,
                           cursor: 'pointer', color: '#c4b5fd',
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          border: '1px solid rgba(139,92,246,0.12)',
                         }}
                       >
                         <span>{c.name}</span>
-                        <span style={{ fontSize: 9, opacity: 0.7 }}>{formatNextActionDate(c.next_action_date)}</span>
+                        <span style={{ fontSize: 9, color: DS.textMuted }}>{formatNextActionDate(c.next_action_date)}</span>
                       </div>
                     ))
                   )}
@@ -3303,12 +3368,12 @@ export default function SalesCyclesKanban({
         {/* KANBAN AREA */}
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {error && (
-            <div style={{ background: '#7f1d1d', color: '#fecaca', padding: '8px 16px', borderLeft: '4px solid #ef4444', fontSize: 12 }}>
+            <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>
               {error}
             </div>
           )}
           {loading ? (
-            <div style={{ opacity: 0.6, padding: '40px', textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+            <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>
               Carregando...
             </div>
           ) : (
@@ -3351,20 +3416,19 @@ export default function SalesCyclesKanban({
           <div style={{
             width: 320,
             flexShrink: 0,
-            borderLeft: '1px solid rgba(255,255,255,0.06)',
-            background: 'rgba(255,255,255,0.02)',
-            backdropFilter: 'blur(12px)',
+            borderLeft: `1px solid ${DS.border}`,
+            background: DS.panelBg,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
           }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: 13 }}>Fila do Dia</span>
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${DS.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: DS.surfaceBg }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: DS.textPrimary }}>Fila do Dia</span>
               <button
                 onClick={() => setFocusPanelOpen(false)}
-                style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
+                style={{ background: 'none', border: 'none', color: DS.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
               >
-                x
+                ×
               </button>
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
@@ -3405,7 +3469,7 @@ export default function SalesCyclesKanban({
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
+            background: 'rgba(0,0,0,0.72)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -3415,24 +3479,25 @@ export default function SalesCyclesKanban({
         >
           <div
             style={{
-              background: '#111',
-              border: '1px solid #333',
-              borderRadius: 12,
+              background: DS.surfaceBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer + 3,
               padding: 24,
               width: '90%',
               maxWidth: 600,
-              color: 'white',
+              color: DS.textPrimary,
               maxHeight: '80vh',
               overflowY: 'auto',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 20 }}>
-              Acoes em Massa ({selectedIds.size} leads)
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 20, color: DS.textPrimary }}>
+              Ações em Massa ({selectedIds.size} leads)
             </div>
 
-            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-              <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 12 }}>
+            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+              <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 10, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 Devolver ao Pool
               </label>
               <button
@@ -3440,27 +3505,28 @@ export default function SalesCyclesKanban({
                 disabled={assigningId === 'bulk'}
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  borderRadius: 6,
+                  padding: '11px',
+                  borderRadius: DS.radius,
                   border: 'none',
-                  background: assigningId !== 'bulk' ? '#dc2626' : '#1f2937',
-                  color: assigningId !== 'bulk' ? '#fecaca' : '#999',
+                  background: assigningId !== 'bulk' ? 'rgba(220,38,38,0.85)' : DS.panelBg,
+                  color: assigningId !== 'bulk' ? '#fecaca' : DS.textMuted,
                   cursor: assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 12,
-                  marginBottom: 12,
+                  marginBottom: 4,
+                  transition: 'all 200ms ease',
                 }}
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
               >
-                {assigningId === 'bulk' ? 'Devolvendo...' : 'Devolver'}
+                {assigningId === 'bulk' ? 'Devolvendo…' : 'Devolver'}
               </button>
             </div>
 
-            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-              <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 12 }}>
-                Distribuicao Automatica
+            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+              <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 10, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                Distribuição Automática
               </label>
-              <p style={{ fontSize: 11, opacity: 0.7, marginBottom: 12 }}>
+              <p style={{ fontSize: 11, color: DS.textMuted, marginBottom: 12 }}>
                 Distribui {selectedIds.size} leads uniformemente entre {sellers.length} vendedores
               </p>
               <button
@@ -3468,29 +3534,30 @@ export default function SalesCyclesKanban({
                 disabled={assigningId === 'bulk' || sellers.length === 0}
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: sellers.length > 0 && assigningId !== 'bulk' ? '#10b981' : '#1f2937',
-                  color: 'white',
+                  padding: '11px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${sellers.length > 0 && assigningId !== 'bulk' ? DS.greenBorder : DS.border}`,
+                  background: sellers.length > 0 && assigningId !== 'bulk' ? DS.greenBg : DS.panelBg,
+                  color: sellers.length > 0 && assigningId !== 'bulk' ? DS.greenText : DS.textMuted,
                   cursor: sellers.length > 0 && assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 12,
                   opacity: sellers.length > 0 && assigningId !== 'bulk' ? 1 : 0.5,
+                  transition: 'all 200ms ease',
                 }}
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
               >
-                {assigningId === 'bulk' ? 'Distribuindo...' : 'Distribuir Automaticamente'}
+                {assigningId === 'bulk' ? 'Distribuindo…' : 'Distribuir Automaticamente'}
               </button>
             </div>
 
-            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-              <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 8 }}>
+            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+              <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 8, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 Atribuir para Um Vendedor
               </label>
               {!canRedistribute ? (
-                <div style={{ fontSize: 12, opacity: 0.7, color: '#f87171' }}>
-                  Nenhum vendedor disponivel
+                <div style={{ fontSize: 12, color: '#f87171' }}>
+                  Nenhum vendedor disponível
                 </div>
               ) : (
                 <>
@@ -3499,16 +3566,17 @@ export default function SalesCyclesKanban({
                     onChange={(e) => setBulkSeller(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '8px',
-                      borderRadius: 6,
-                      border: '1px solid #2a2a2a',
-                      background: '#222',
-                      color: 'white',
+                      padding: '8px 10px',
+                      borderRadius: DS.radius,
+                      border: `1px solid ${DS.border}`,
+                      background: DS.selectBg,
+                      color: DS.textPrimary,
                       fontSize: 12,
-                      marginBottom: 12,
+                      marginBottom: 10,
+                      outline: 'none',
                     }}
                   >
-                    <option value="">Selecione vendedor...</option>
+                    <option value="">Selecione vendedor…</option>
                     {validSellersForRedistribution.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.full_name} ({s.role})
@@ -3520,43 +3588,45 @@ export default function SalesCyclesKanban({
                     disabled={!bulkSeller || assigningId === 'bulk'}
                     style={{
                       width: '100%',
-                      padding: '12px',
-                      borderRadius: 6,
+                      padding: '11px',
+                      borderRadius: DS.radius,
                       border: 'none',
-                      background: bulkSeller && assigningId !== 'bulk' ? '#3b82f6' : '#1f2937',
+                      background: bulkSeller && assigningId !== 'bulk' ? DS.blue : DS.panelBg,
                       color: 'white',
                       cursor: bulkSeller && assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                      fontWeight: 900,
+                      fontWeight: 700,
                       fontSize: 12,
                       opacity: bulkSeller && assigningId !== 'bulk' ? 1 : 0.5,
+                      transition: 'all 200ms ease',
                     }}
                     onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
                   >
-                    {assigningId === 'bulk' ? 'Atribuindo...' : 'Atribuir Todos'}
+                    {assigningId === 'bulk' ? 'Atribuindo…' : 'Atribuir Todos'}
                   </button>
                 </>
               )}
             </div>
 
-            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #222' }}>
-              <label style={{ fontSize: 13, fontWeight: 900, display: 'block', marginBottom: 8 }}>
+            <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+              <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 8, color: DS.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                 Vincular Grupo
               </label>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <select
                   value={bulkGroup}
                   onChange={(e) => setBulkGroup(e.target.value)}
                   style={{
                     flex: 1,
-                    padding: '8px',
-                    borderRadius: 6,
-                    border: '1px solid #2a2a2a',
-                    background: '#222',
-                    color: 'white',
+                    padding: '8px 10px',
+                    borderRadius: DS.radius,
+                    border: `1px solid ${DS.border}`,
+                    background: DS.selectBg,
+                    color: DS.textPrimary,
                     fontSize: 12,
+                    outline: 'none',
                   }}
                 >
-                  <option value="">Selecione grupo...</option>
+                  <option value="">Selecione grupo…</option>
                   {groups.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.name}
@@ -3569,19 +3639,20 @@ export default function SalesCyclesKanban({
                     disabled={creatingGroup}
                     style={{
                       padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #10b981',
-                      background: !creatingGroup ? '#047857' : '#1f2937',
-                      color: 'white',
+                      borderRadius: DS.radius,
+                      border: `1px solid ${DS.greenBorder}`,
+                      background: DS.greenBg,
+                      color: DS.greenText,
                       cursor: !creatingGroup ? 'pointer' : 'not-allowed',
                       fontSize: 12,
-                      fontWeight: 900,
+                      fontWeight: 700,
                       opacity: !creatingGroup ? 1 : 0.5,
                       whiteSpace: 'nowrap',
+                      transition: 'all 200ms ease',
                     }}
                     onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
                   >
-                    {creatingGroup ? 'Criando...' : '+'}
+                    {creatingGroup ? 'Criando…' : '+'}
                   </button>
                 )}
               </div>
@@ -3590,19 +3661,20 @@ export default function SalesCyclesKanban({
                 disabled={!bulkGroup || assigningId === 'bulk'}
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  borderRadius: 6,
+                  padding: '11px',
+                  borderRadius: DS.radius,
                   border: 'none',
-                  background: bulkGroup && assigningId !== 'bulk' ? '#8b5cf6' : '#1f2937',
+                  background: bulkGroup && assigningId !== 'bulk' ? 'rgba(139,92,246,0.7)' : DS.panelBg,
                   color: 'white',
                   cursor: bulkGroup && assigningId !== 'bulk' ? 'pointer' : 'not-allowed',
-                  fontWeight: 900,
+                  fontWeight: 700,
                   fontSize: 12,
                   opacity: bulkGroup && assigningId !== 'bulk' ? 1 : 0.5,
+                  transition: 'all 200ms ease',
                 }}
                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
               >
-                {assigningId === 'bulk' ? 'Agrupando...' : 'Agrupar Todos'}
+                {assigningId === 'bulk' ? 'Agrupando…' : 'Agrupar Todos'}
               </button>
             </div>
 
@@ -3611,13 +3683,14 @@ export default function SalesCyclesKanban({
               style={{
                 width: '100%',
                 padding: '10px',
-                borderRadius: 6,
-                border: '1px solid #2a2a2a',
-                background: 'transparent',
-                color: 'white',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.border}`,
+                background: DS.panelBg,
+                color: DS.textSecondary,
                 cursor: 'pointer',
-                fontWeight: 900,
+                fontWeight: 700,
                 fontSize: 12,
+                transition: 'all 200ms ease',
               }}
               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
             >
