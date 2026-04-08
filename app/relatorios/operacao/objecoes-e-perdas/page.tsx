@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { STAGE_LABELS, resolveActionId } from '@/app/config/stageActions'
+import { STAGE_LABELS, resolveActionId, resolveCheckpointData } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 
 // ============================================================================
@@ -114,11 +114,7 @@ function buildReportData(
     // Resolve checkpoint data — supports both storage formats:
     //   Format 1: { checkpoint: { action_result, ... } }
     //   Format 2: { metadata: { action_result, ... }, from_status, to_status }
-    const cp = (
-      meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
-      meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
-      {}
-    ) as Record<string, unknown>
+    const cp = resolveCheckpointData(meta)
 
     if (kind === 'won') {
       totalWon++
@@ -156,8 +152,10 @@ function buildReportData(
 
     if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField && !hasCheckpointObjection) continue
 
-    // Stage where the objection was registered: prefer to_status (where cycle arrived) for
-    // stage_changed events, otherwise fall back to from_status/from_stage/stage
+    // Stage where the objection was registered. `to_status` is preferred because
+    // checkpoint-based objections come from stage_changed events where the objection
+    // was recorded at the destination stage. Falls back to from_status / stage for
+    // quick_action events that lack to_status in their metadata.
     const stage = String(meta.to_status ?? meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
     if (stageFilter && stage !== stageFilter) continue
 

@@ -167,6 +167,18 @@ export const ACTION_RESULT_MAP: Record<string, string> = {
 }
 
 /**
+ * Extracts checkpoint data from event metadata, supporting both storage formats:
+ *   Format 1: { checkpoint: { action_result, result_detail, ... } }
+ *   Format 2: { metadata: { action_result, ... }, from_status, to_status }
+ * Returns the checkpoint object, or an empty object if none is found.
+ */
+export function resolveCheckpointData(meta: Record<string, unknown>): Record<string, unknown> {
+  if (meta.checkpoint && typeof meta.checkpoint === 'object') return meta.checkpoint as Record<string, unknown>
+  if (meta.metadata && typeof meta.metadata === 'object') return meta.metadata as Record<string, unknown>
+  return {}
+}
+
+/**
  * Extracts the resolved taxonomy action ID from an event, trying sources in order:
  * 1. metadata.action_id
  * 2. metadata.quick_action
@@ -197,15 +209,8 @@ export function extractActionFromEvent(event: {
 
   // 4. Checkpoint action_result (for stage_changed / stage_checkpoint with checkpoint data)
   if (et === 'stage_changed' || et === 'stage_checkpoint') {
-    // Support both checkpoint formats:
-    //   Format 1: { checkpoint: { action_result, ... } }
-    //   Format 2: { metadata: { action_result, ... }, from_status, to_status }
-    const cp = (
-      (meta.checkpoint && typeof meta.checkpoint === 'object' ? meta.checkpoint :
-       meta.metadata && typeof meta.metadata === 'object' ? meta.metadata :
-       null)
-    ) as Record<string, unknown> | null
-    const actionResult = cp?.action_result as string | undefined
+    const cp = resolveCheckpointData(meta)
+    const actionResult = cp.action_result as string | undefined
     if (actionResult) {
       const mapped = ACTION_RESULT_MAP[actionResult]
       if (mapped && findActionById(mapped)) return mapped
