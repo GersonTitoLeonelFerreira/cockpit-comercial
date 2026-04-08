@@ -3,14 +3,7 @@
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
-import { STAGE_LABELS } from '@/app/config/stageActions'
-import { classifyEvent } from '@/app/config/eventClassification'
-import {
-  CANONICAL_CHANNELS,
-  CHANNEL_COLORS,
-  CHANNEL_LABELS,
-  extractChannelFromEvent,
-} from '@/app/config/channelNormalization'
+import { STAGE_LABELS, resolveCheckpointData } from '@/app/config/stageActions'
 
 // ============================================================================
 // Helpers
@@ -48,12 +41,19 @@ interface RawEvent {
   created_by: string | null
 }
 
-interface ChannelStat {
-  channel: string
+interface NextActionStat {
+  label: string        // display text (first occurrence, original casing)
   total: number
-  advances: number
-  advancePct: number
   byStage: Record<string, number>
+  withDate: number
+  withoutDate: number
+}
+
+interface ReportData {
+  actions: NextActionStat[]
+  totalEvents: number
+  totalWithDate: number
+  totalWithoutDate: number
 }
 
 // ============================================================================
@@ -69,11 +69,14 @@ const STAGE_COLORS: Record<string, string> = {
   negociacao: '#fbbf24',
 }
 
+const ACCENT = '#fde68a'
+const DOT_COLOR = '#f59e0b'
+
 // ============================================================================
 // Core analytics
 // ============================================================================
 
-function buildChannelStats(
+function buildReportData(
   events: RawEvent[],
   dateStart: string,
   dateEnd: string,
@@ -81,13 +84,18 @@ function buildChannelStats(
   isAdmin: boolean,
   currentUserId: string | null,
   stageFilter: string,
-): ChannelStat[] {
+): ReportData {
   const rangeStart = `${dateStart}T00:00:00`
   const rangeEnd = `${dateEnd}T23:59:59`
 
-  const totalMap = new Map<string, number>()
-  const advanceMap = new Map<string, number>()
-  const stageMap = new Map<string, Record<string, number>>()
+  // normalized key → stat accumulator
+  const actionMap = new Map<string, {
+    label: string
+    total: number
+    byStage: Record<string, number>
+    withDate: number
+    withoutDate: number
+  }>()
 
   for (const ev of events) {
     if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
@@ -100,56 +108,104 @@ function buildChannelStats(
     }
 
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
+    const cp = resolveCheckpointData(meta)
 
-    // Stage filter
+    // Extract next_action text — prefer event-level, fallback to checkpoint
+    const rawAction = String(
+      meta.next_action ?? cp.next_action ?? ''
+    ).trim()
+
+    if (!rawAction) continue
+
+    // Extract next_action_date
+    const rawDate = String(
+      meta.next_action_date ?? cp.next_action_date ?? ''
+    ).trim()
+
+    // Determine stage
     const stage = String(
-      meta.from_status ?? meta.from_stage ?? meta.stage ?? ''
-    ).toLowerCase() || 'desconhecido'
+      meta.to_status ?? meta.from_status ?? meta.from_stage ?? meta.stage ?? ''
+    ).toLowerCase() || 'desconhecida'
+
+    // Apply stage filter BEFORE counting
     if (stageFilter && stage !== stageFilter) continue
 
-    // Extract channel
-    const channel = extractChannelFromEvent(meta)
-    if (!channel) continue
+    // Normalize for grouping: trim + lowercase only (no aggressive fusion)
+    const key = rawAction.toLowerCase()
 
-    // Count total
-    totalMap.set(channel, (totalMap.get(channel) ?? 0) + 1)
-
-    // Count by stage
-    if (!stageMap.has(channel)) stageMap.set(channel, {})
-    const stageEntry = stageMap.get(channel)!
-    stageEntry[stage] = (stageEntry[stage] ?? 0) + 1
-
-    // Count advances (stage_move)
-    const kind = classifyEvent(ev)
-    if (kind === 'stage_move') {
-      advanceMap.set(channel, (advanceMap.get(channel) ?? 0) + 1)
+    const existing = actionMap.get(key)
+    if (existing) {
+      existing.total++
+      existing.byStage[stage] = (existing.byStage[stage] ?? 0) + 1
+      if (rawDate) existing.withDate++
+      else existing.withoutDate++
+    } else {
+      actionMap.set(key, {
+        label: rawAction,  // preserve original casing from first occurrence
+        total: 1,
+        byStage: { [stage]: 1 },
+        withDate: rawDate ? 1 : 0,
+        withoutDate: rawDate ? 0 : 1,
+      })
     }
   }
 
-  return CANONICAL_CHANNELS.map((channel) => {
-    const total = totalMap.get(channel) ?? 0
-    const advances = advanceMap.get(channel) ?? 0
-    return {
-      channel,
-      total,
-      advances,
-      advancePct: safePct(advances, total),
-      byStage: stageMap.get(channel) ?? {},
-    }
-  })
+  const actions: NextActionStat[] = []
+  for (const [, val] of actionMap.entries()) {
+    actions.push({
+      label: val.label,
+      total: val.total,
+      byStage: val.byStage,
+      withDate: val.withDate,
+      withoutDate: val.withoutDate,
+    })
+  }
+  actions.sort((a, b) => b.total - a.total)
+
+  const totalEvents = actions.reduce((s, a) => s + a.total, 0)
+  const totalWithDate = actions.reduce((s, a) => s + a.withDate, 0)
+  const totalWithoutDate = actions.reduce((s, a) => s + a.withoutDate, 0)
+
+  return { actions, totalEvents, totalWithDate, totalWithoutDate }
 }
 
 // ============================================================================
 // SVG Icons
 // ============================================================================
 
-function IconShare2() {
+function IconListCheck() {
   return (
     <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="9" y="3" width="6" height="4" rx="1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconCalendar() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconLayers() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2 2 7l10 5 10-5-10-5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M2 17l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function IconHash() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -171,15 +227,6 @@ function IconLoader() {
   )
 }
 
-function IconTrendUp() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M22 7l-8.5 8.5-5-5L2 17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 7h6v6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 // ============================================================================
 // Sub-components
 // ============================================================================
@@ -192,7 +239,7 @@ function SummaryCard({
   icon,
 }: {
   label: string
-  value: string | number
+  value: React.ReactNode
   sub?: string
   accent?: string
   icon?: React.ReactNode
@@ -211,53 +258,87 @@ function SummaryCard({
         minWidth: 0,
       }}
     >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#555' }}>
+          {label}
+        </span>
+        {icon && <span style={{ color: accent ?? '#444' }}>{icon}</span>}
+      </div>
       <span
         style={{
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: '#555',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        {icon && <span style={{ color: accent ?? '#555' }}>{icon}</span>}
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: 22,
+          fontSize: 18,
           fontWeight: 700,
           color: accent ?? 'white',
-          lineHeight: 1.1,
-          whiteSpace: 'nowrap',
+          lineHeight: 1.2,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
         }}
       >
         {value}
       </span>
-      {sub && (
-        <span style={{ fontSize: 12, color: '#555' }}>{sub}</span>
-      )}
+      {sub && <span style={{ fontSize: 12, color: '#555', lineHeight: 1.4 }}>{sub}</span>}
     </div>
   )
 }
 
-function ChannelRow({
-  stat,
-  maxTotal,
-}: {
-  stat: ChannelStat
-  maxTotal: number
-}) {
-  const color = CHANNEL_COLORS[stat.channel] ?? '#6b7280'
-  const label = CHANNEL_LABELS[stat.channel] ?? stat.channel
-  const barWidth = maxTotal > 0 ? (stat.total / maxTotal) * 100 : 0
-  const stageEntries = Object.entries(stat.byStage).sort((a, b) => b[1] - a[1])
+function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const fill = max > 0 ? (value / max) * 100 : 0
+  return (
+    <div
+      style={{
+        flex: '1 1 0',
+        height: 4,
+        background: '#1e1e1e',
+        borderRadius: 2,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          width: `${fill}%`,
+          height: '100%',
+          background: color,
+          borderRadius: 2,
+          transition: 'width 0.3s ease',
+        }}
+      />
+    </div>
+  )
+}
 
+function StageDots({ byStage }: { byStage: Record<string, number> }) {
+  const entries = STAGE_ORDER.filter(s => byStage[s] > 0)
+  if (entries.length === 0) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+      {entries.map((stage) => (
+        <div
+          key={stage}
+          title={`${STAGE_LABELS[stage] ?? stage}: ${byStage[stage]}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+          }}
+        >
+          <div
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: STAGE_COLORS[stage] ?? '#555',
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ fontSize: 10, color: '#555' }}>{byStage[stage]}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ActionRow({ stat, maxTotal }: { stat: NextActionStat; maxTotal: number }) {
   return (
     <div
       style={{
@@ -265,82 +346,55 @@ function ChannelRow({
         alignItems: 'center',
         gap: 10,
         padding: '10px 0',
-        borderBottom: '1px solid #161616',
+        borderBottom: '1px solid #181818',
       }}
     >
-      {/* Channel color dot + name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 120px', minWidth: 0 }}>
-        <div
+      <div style={{ flex: '1 1 0', minWidth: 0 }}>
+        <span
           style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: color,
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ fontSize: 13, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
-        </span>
-      </div>
-
-      {/* Stage dots */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, width: 80 }}>
-        {stageEntries.slice(0, 4).map(([stage, count]) => (
-          <div
-            key={stage}
-            title={`${STAGE_LABELS[stage] ?? stage}: ${count}`}
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: STAGE_COLORS[stage] ?? '#555',
-              opacity: 0.85,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Progress bar */}
-      <div style={{ flex: '2 1 80px', minWidth: 0 }}>
-        <div
-          style={{
-            height: 6,
-            background: '#1a1a1a',
-            borderRadius: 3,
+            fontSize: 13,
+            fontWeight: 500,
+            color: 'white',
+            display: 'block',
             overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
-          <div
-            style={{
-              height: '100%',
-              width: `${barWidth}%`,
-              background: color,
-              borderRadius: 3,
-              transition: 'width 0.3s ease',
-            }}
-          />
-        </div>
+          {stat.label}
+        </span>
       </div>
-
-      {/* Advances */}
-      <span style={{ fontSize: 12, color: '#34d399', flexShrink: 0, width: 56, textAlign: 'center' }}>
-        {stat.advances > 0 ? `${stat.advances} av.` : '—'}
+      <StageDots byStage={stat.byStage} />
+      <ProgressBar value={stat.total} max={maxTotal} color={DOT_COLOR} />
+      <span
+        style={{
+          fontSize: 12,
+          color: '#555',
+          flexShrink: 0,
+          minWidth: 28,
+          textAlign: 'right',
+        }}
+      >
+        {stat.withDate}
       </span>
-
-      {/* Advance % */}
-      <span style={{ fontSize: 12, color: stat.advancePct > 0 ? '#34d399' : '#555', flexShrink: 0, width: 42, textAlign: 'center' }}>
-        {stat.advancePct > 0 ? `${stat.advancePct}%` : '—'}
+      <span
+        style={{
+          fontSize: 12,
+          color: '#555',
+          flexShrink: 0,
+          minWidth: 28,
+          textAlign: 'right',
+        }}
+      >
+        {stat.withoutDate}
       </span>
-
-      {/* Total */}
       <span
         style={{
           fontSize: 13,
           fontWeight: 700,
-          color: stat.total > 0 ? '#aaa' : '#333',
+          color: ACCENT,
           flexShrink: 0,
-          minWidth: 28,
+          minWidth: 24,
           textAlign: 'right',
         }}
       >
@@ -350,10 +404,15 @@ function ChannelRow({
   )
 }
 
-function EmptyState({ message }: { message: string }) {
+function EmptyState() {
   return (
-    <div style={{ padding: '28px 20px', textAlign: 'center' }}>
-      <p style={{ color: '#555', fontSize: 13, margin: 0 }}>{message}</p>
+    <div
+      style={{
+        padding: '28px 20px',
+        textAlign: 'center',
+      }}
+    >
+      <p style={{ color: '#555', fontSize: 13, margin: 0 }}>Nenhuma próxima ação registrada no período.</p>
       <p style={{ color: '#444', fontSize: 12, margin: '6px 0 0' }}>
         Tente ampliar o intervalo de datas ou remover filtros.
       </p>
@@ -365,7 +424,7 @@ function EmptyState({ message }: { message: string }) {
 // Main Page
 // ============================================================================
 
-export default function CanaisPage() {
+export default function ProximasAcoesPage() {
   const supabase = supabaseBrowser()
 
   // Auth/profile
@@ -383,7 +442,12 @@ export default function CanaisPage() {
   const [selectedStage, setSelectedStage] = React.useState('')
 
   // Data
-  const [channelStats, setChannelStats] = React.useState<ChannelStat[]>([])
+  const [reportData, setReportData] = React.useState<ReportData>({
+    actions: [],
+    totalEvents: 0,
+    totalWithDate: 0,
+    totalWithoutDate: 0,
+  })
   const [dataLoading, setDataLoading] = React.useState(false)
 
   // ==========================================================================
@@ -452,7 +516,7 @@ export default function CanaisPage() {
         columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
       })
 
-      const stats = buildChannelStats(
+      const result = buildReportData(
         (data ?? []) as RawEvent[],
         dateStart,
         dateEnd,
@@ -461,7 +525,7 @@ export default function CanaisPage() {
         currentUserId,
         selectedStage,
       )
-      setChannelStats(stats)
+      setReportData(result)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar dados.')
     } finally {
@@ -472,24 +536,43 @@ export default function CanaisPage() {
   // ==========================================================================
   // Derived values
   // ==========================================================================
-  const activeStats = channelStats.filter(s => s.total > 0)
-  const grandTotal = channelStats.reduce((s, c) => s + c.total, 0)
-  const maxTotal = Math.max(...channelStats.map(s => s.total), 1)
 
-  const topChannel = activeStats.length > 0
-    ? activeStats.reduce((best, s) => (s.total > best.total ? s : best), activeStats[0])
+  const { actions, totalEvents, totalWithDate, totalWithoutDate } = reportData
+
+  const topAction = actions.length > 0 ? actions[0] : null
+  const pctWithDate = safePct(totalWithDate, totalEvents)
+  const pctWithoutDate = safePct(totalWithoutDate, totalEvents)
+
+  // Stage with most next actions
+  const stageTotals: Record<string, number> = {}
+  for (const a of actions) {
+    for (const [stage, count] of Object.entries(a.byStage)) {
+      stageTotals[stage] = (stageTotals[stage] ?? 0) + count
+    }
+  }
+  const topStage = Object.keys(stageTotals).length > 0
+    ? Object.entries(stageTotals).reduce<{ stage: string; count: number }>(
+        (best, [stage, count]) => count > best.count ? { stage, count } : best,
+        { stage: '', count: 0 }
+      )
     : null
 
-  const topAdvanceChannel = activeStats.length > 0
-    ? activeStats.reduce((best, s) => (s.advances > best.advances ? s : best), activeStats[0])
-    : null
+  const maxTotal = actions.length > 0 ? actions[0].total : 1
 
   // ==========================================================================
   // Loading / Error states
   // ==========================================================================
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#0c0c0c',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#666', fontSize: 14 }}>
           <IconLoader />
           Carregando...
@@ -500,10 +583,36 @@ export default function CanaisPage() {
 
   if (error) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: 12, padding: '24px 32px', maxWidth: 420, textAlign: 'center' }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#0c0c0c',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div
+          style={{
+            background: '#0f0f0f',
+            border: '1px solid #333',
+            borderRadius: 12,
+            padding: '24px 32px',
+            maxWidth: 420,
+            textAlign: 'center',
+          }}
+        >
           <p style={{ color: '#ef4444', fontSize: 14, margin: 0 }}>{error}</p>
-          <a href="/login" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: '#60a5fa', textDecoration: 'none' }}>
+          <a
+            href="/login"
+            style={{
+              display: 'inline-block',
+              marginTop: 16,
+              fontSize: 13,
+              color: '#60a5fa',
+              textDecoration: 'none',
+            }}
+          >
             Ir para o login
           </a>
         </div>
@@ -549,15 +658,15 @@ export default function CanaisPage() {
         {/* Page header */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <span style={{ color: '#f472b6' }}>
-              <IconShare2 />
+            <span style={{ color: ACCENT }}>
+              <IconListCheck />
             </span>
             <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
-              Canais
+              Próximas Ações
             </h1>
           </div>
           <p style={{ fontSize: 13, color: '#555', margin: 0 }}>
-            Performance por canal de contato: ligação, WhatsApp, e-mail, presencial e outros
+            Visão consolidada das próximas ações registradas no período — frequência, distribuição por etapa e agendamento
           </p>
         </div>
 
@@ -576,8 +685,8 @@ export default function CanaisPage() {
             { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa', active: false, comingSoon: false },
             { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
             { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas', active: false, comingSoon: false },
-            { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes', active: false, comingSoon: false },
-            { label: 'Canais', href: null, active: true, comingSoon: false },
+            { label: 'Próximas Ações', href: null, active: true, comingSoon: false },
+            { label: 'Canais', href: '/relatorios/operacao/canais', active: false, comingSoon: false },
             { label: 'Desempenho por Consultor', href: null, active: false, comingSoon: true },
           ].map((tab) => {
             if (tab.active) {
@@ -588,12 +697,12 @@ export default function CanaisPage() {
                   style={{
                     background: 'none',
                     border: 'none',
-                    borderBottom: '2px solid #f472b6',
+                    borderBottom: `2px solid ${ACCENT}`,
                     cursor: 'default',
                     padding: '8px 14px',
                     fontSize: 13,
                     fontWeight: 600,
-                    color: '#f472b6',
+                    color: ACCENT,
                     marginBottom: -1,
                   }}
                 >
@@ -783,87 +892,53 @@ export default function CanaisPage() {
           )}
         </div>
 
-        {/* Summary cards */}
+        {/* Executive Summary — 5 cards */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
           <SummaryCard
-            label="Canal mais usado"
-            value={topChannel ? (CHANNEL_LABELS[topChannel.channel] ?? topChannel.channel) : '—'}
-            sub={topChannel ? `${topChannel.total} contato(s) no período` : 'sem dados'}
-            accent={topChannel ? CHANNEL_COLORS[topChannel.channel] : undefined}
-            icon={<IconShare2 />}
+            label="Próxima ação mais frequente"
+            value={topAction ? topAction.label : '—'}
+            sub={topAction ? `${topAction.total}× registrada` : 'sem dados'}
+            accent={ACCENT}
+            icon={<IconListCheck />}
           />
           <SummaryCard
-            label="Total de contatos por canal"
-            value={grandTotal > 0 ? grandTotal : '—'}
-            sub={grandTotal > 0 ? `${activeStats.length} canal(is) ativo(s)` : 'sem dados'}
-          />
-          <SummaryCard
-            label="Canal com mais avanço"
-            value={topAdvanceChannel && topAdvanceChannel.advances > 0
-              ? (CHANNEL_LABELS[topAdvanceChannel.channel] ?? topAdvanceChannel.channel)
-              : '—'}
-            sub={topAdvanceChannel && topAdvanceChannel.advances > 0
-              ? `${topAdvanceChannel.advances} avanço(s) — ${topAdvanceChannel.advancePct}% de conversão`
-              : 'sem dados'}
+            label="Total com data agendada"
+            value={totalWithDate > 0 ? `${totalWithDate}` : '—'}
+            sub={totalWithDate > 0 ? `${pctWithDate}% dos registros` : 'sem dados'}
             accent="#34d399"
-            icon={<IconTrendUp />}
+            icon={<IconCalendar />}
           />
-          {/* Distribution mini-bar card */}
-          <div
-            style={{
-              background: '#0f0f0f',
-              border: '1px solid #202020',
-              borderRadius: 12,
-              padding: '18px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              flex: '1 1 180px',
-              minWidth: 0,
-            }}
-          >
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#555' }}>
-              Distribuição
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
-              {activeStats.map((s) => (
-                <div key={s.channel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: CHANNEL_COLORS[s.channel] ?? '#6b7280', flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#666', minWidth: 70 }}>{CHANNEL_LABELS[s.channel] ?? s.channel}</span>
-                  <span style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>
-                    {grandTotal > 0 ? Math.round((s.total / grandTotal) * 100) : 0}%
-                  </span>
-                </div>
-              ))}
-              {activeStats.length === 0 && (
-                <span style={{ fontSize: 11, color: '#444' }}>sem dados</span>
-              )}
-            </div>
-            {/* Distribution bar */}
-            {grandTotal > 0 && (
-              <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: 4 }}>
-                {activeStats.map((s) => (
-                  <div
-                    key={s.channel}
-                    style={{
-                      height: '100%',
-                      width: `${(s.total / grandTotal) * 100}%`,
-                      background: CHANNEL_COLORS[s.channel] ?? '#6b7280',
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          <SummaryCard
+            label="Total sem data"
+            value={totalWithoutDate > 0 ? `${totalWithoutDate}` : '—'}
+            sub={totalWithoutDate > 0 ? `${pctWithoutDate}% dos registros` : 'sem dados'}
+            accent="#f87171"
+            icon={<IconCalendar />}
+          />
+          <SummaryCard
+            label="Etapa com mais agendamentos"
+            value={topStage ? (STAGE_LABELS[topStage.stage] ?? topStage.stage) : '—'}
+            sub={topStage ? `${topStage.count} ocorrência(s)` : 'sem dados'}
+            accent={topStage ? (STAGE_COLORS[topStage.stage] ?? '#555') : undefined}
+            icon={<IconLayers />}
+          />
+          <SummaryCard
+            label="Total de registros"
+            value={totalEvents > 0 ? `${totalEvents}` : '—'}
+            sub={totalEvents > 0 ? `no período selecionado` : 'sem dados'}
+            accent="#aaa"
+            icon={<IconHash />}
+          />
         </div>
 
-        {/* Channel table */}
+        {/* Main table section */}
         <div
           style={{
             background: '#0f0f0f',
             border: '1px solid #1e1e1e',
             borderRadius: 14,
             padding: '20px 24px',
+            marginBottom: 20,
           }}
         >
           {/* Section header */}
@@ -878,21 +953,21 @@ export default function CanaisPage() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: '#f472b6' }}>
-                <IconShare2 />
+              <span style={{ color: ACCENT }}>
+                <IconListCheck />
               </span>
               <div>
                 <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'white' }}>
-                  Por Canal
+                  Próximas Ações Registradas
                 </h2>
                 <p style={{ fontSize: 12, color: '#555', margin: '2px 0 0' }}>
-                  Volume de contatos e taxa de avanço por canal de comunicação
+                  Todas as próximas ações definidas no período, agrupadas por texto
                 </p>
               </div>
             </div>
             <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>
-              {grandTotal}{' '}
-              <span style={{ fontSize: 11, fontWeight: 400, color: '#555' }}>contato(s)</span>
+              {totalEvents}{' '}
+              <span style={{ fontSize: 11, fontWeight: 400, color: '#555' }}>registro(s)</span>
             </span>
           </div>
 
@@ -907,35 +982,72 @@ export default function CanaisPage() {
               marginBottom: 2,
             }}
           >
-            <span style={{ flex: '1 1 120px', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
-              Canal
+            <span style={{ flex: '1 1 0', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
+              Ação
             </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 80 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 60 }}>
               Etapas
             </span>
-            <span style={{ flex: '2 1 80px', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
+            <span style={{ flex: '1 1 0', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
               Volume
             </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 56, textAlign: 'center' }}>
-              Avanços
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 42, textAlign: 'center' }}>
-              % Av.
+            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
+              C/ data
             </span>
             <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
+              S/ data
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 24, textAlign: 'right' }}>
               Qtd
             </span>
           </div>
 
-          {activeStats.length > 0 ? (
-            channelStats
-              .filter(s => s.total > 0)
-              .map((stat) => (
-                <ChannelRow key={stat.channel} stat={stat} maxTotal={maxTotal} />
-              ))
+          {actions.length > 0 ? (
+            actions.map((stat) => (
+              <ActionRow key={stat.label} stat={stat} maxTotal={maxTotal} />
+            ))
           ) : (
-            <EmptyState message="Nenhum evento com canal registrado no período." />
+            <EmptyState />
           )}
+        </div>
+
+        {/* Legend */}
+        <div
+          style={{
+            marginTop: 8,
+            padding: '14px 20px',
+            background: '#0a0a0a',
+            border: '1px solid #161616',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 24,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ fontSize: 11, color: '#444', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+            Legenda de etapas
+          </span>
+          {STAGE_ORDER.map((stage) => (
+            <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: STAGE_COLORS[stage],
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ fontSize: 11, color: '#555' }}>{STAGE_LABELS[stage]}</span>
+            </div>
+          ))}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 12, height: 4, borderRadius: 2, background: DOT_COLOR }} />
+              <span style={{ fontSize: 11, color: '#555' }}>Próximas Ações</span>
+            </div>
+          </div>
         </div>
 
       </div>

@@ -223,8 +223,8 @@ const sections: Section[] = [
         icon: <IconListCheck />,
         title: 'Próximas Ações',
         desc: 'Visão consolidada das próximas ações agendadas por consultor',
-        href: '#',
-        comingSoon: true,
+        href: '/relatorios/operacao/proximas-acoes',
+        comingSoon: false,
       },
       {
         icon: <IconShare2 />,
