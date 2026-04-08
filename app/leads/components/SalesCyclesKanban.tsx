@@ -33,6 +33,8 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 const DS = {
   contentBg:       '#090b0f',
   panelBg:         '#0d0f14',
+  panelBg:         '#0d0f14',
+  cardBg:          '#141722',
   surfaceBg:       '#111318',
   border:          '#1a1d2e',
   borderSubtle:    '#13162a',
@@ -705,7 +707,7 @@ function KanbanCard({
           ? `linear-gradient(135deg, ${STATUS_COLORS[item.status]}06, ${STATUS_COLORS[item.status]}12)`
           : isSelected
             ? 'rgba(59,130,246,0.07)'
-            : DS.panelBg,
+            : DS.cardBg,
         borderTop: isHovered
           ? `1px solid ${STATUS_COLORS[item.status]}55`
           : isSelected
