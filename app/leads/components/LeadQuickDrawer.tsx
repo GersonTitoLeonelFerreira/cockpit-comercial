@@ -8,6 +8,7 @@ import {
   IconLink,
   IconX,
 } from '@/app/components/icons/UiIcons'
+import { toLocalDatetimeInputValue } from '@/app/lib/dateUtils'
 
 export type WorklistItem = {
   id: string
@@ -34,13 +35,6 @@ const STATUS_LABELS: Record<string, string> = {
   negociacao: 'Negociação',
   ganho: 'Ganho',
   perdido: 'Perdido',
-}
-
-function toLocalDatetimeInputValue(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: LeadQuickDrawerProps) {
