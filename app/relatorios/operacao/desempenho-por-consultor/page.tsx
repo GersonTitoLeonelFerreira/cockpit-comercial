@@ -109,6 +109,7 @@ const STAGE_COLORS: Record<string, string> = {
 }
 
 const ACCENT = '#38bdf8'
+const MAX_TABLE_HEIGHT = 580
 
 // ============================================================================
 // Core analytics
@@ -405,15 +406,6 @@ function IconLoader() {
   )
 }
 
-function IconUser() {
-  return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  )
-}
-
 // ============================================================================
 // Sub-components
 // ============================================================================
@@ -473,9 +465,9 @@ function RateBar({ value, color }: { value: number; color: string }) {
   return (
     <div
       style={{
-        width: 48,
-        height: 4,
-        background: '#1e1e1e',
+        width: 36,
+        height: 3,
+        background: 'rgba(255,255,255,0.05)',
         borderRadius: 2,
         overflow: 'hidden',
         flexShrink: 0,
@@ -486,6 +478,7 @@ function RateBar({ value, color }: { value: number; color: string }) {
           width: `${value}%`,
           height: '100%',
           background: color,
+          opacity: 0.65,
           borderRadius: 2,
           transition: 'width 0.3s ease',
         }}
@@ -526,6 +519,8 @@ function ThCell({
   onSort,
   align,
   minWidth,
+  stickyTop,
+  borderLeft,
 }: {
   label: string
   sortKey: SortKey
@@ -534,22 +529,28 @@ function ThCell({
   onSort: (key: SortKey) => void
   align?: 'left' | 'right'
   minWidth?: number
+  stickyTop?: number
+  borderLeft?: boolean
 }) {
   const isActive = currentSortKey === sortKey
   return (
     <th
       style={{
         textAlign: align ?? 'right',
-        padding: '8px 10px',
+        padding: '9px 12px',
         fontWeight: 600,
-        fontSize: 11,
-        letterSpacing: '0.06em',
+        fontSize: 10,
+        letterSpacing: '0.07em',
         textTransform: 'uppercase',
-        color: isActive ? ACCENT : '#444',
+        color: isActive ? ACCENT : '#3d3d3d',
         cursor: 'pointer',
         userSelect: 'none',
         whiteSpace: 'nowrap',
-        minWidth: minWidth,
+        minWidth,
+        background: '#0d0d0d',
+        borderBottom: '1px solid #1e1e1e',
+        ...(stickyTop !== undefined ? { position: 'sticky' as const, top: stickyTop, zIndex: 2 } : {}),
+        ...(borderLeft ? { borderLeft: '1px solid #1e1e1e' } : {}),
       }}
       onClick={() => onSort(sortKey)}
     >
@@ -568,135 +569,205 @@ function ThCell({
 // Consultant table row
 // ============================================================================
 
+const RANK_COLORS: Record<number, string> = { 1: '#fbbf24', 2: '#94a3b8', 3: '#cd7c54' }
+
 function ConsultantRow({ stat, rank }: { stat: ConsultantStat; rank: number }) {
   const totalClosed = stat.totalWon + stat.totalLost
   const channel = stat.topChannel ? (CHANNEL_LABELS[stat.topChannel] ?? stat.topChannel) : null
+  const isTop3 = rank <= 3
+  const rankColor = RANK_COLORS[rank] ?? '#2a2a2a'
+
+  const initials = (stat.sellerName ?? '')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('')
+
+  const STICKY_BG = '#0f0f0f'
 
   return (
     <tr
-      style={{
-        borderBottom: '1px solid #181818',
+      style={{ borderBottom: '1px solid #151515', transition: 'background 0.12s' }}
+      onMouseEnter={(e) => {
+        ;(e.currentTarget as HTMLTableRowElement).style.background = '#111111'
+        ;(e.currentTarget.cells[0] as HTMLTableCellElement).style.background = '#111111'
+      }}
+      onMouseLeave={(e) => {
+        ;(e.currentTarget as HTMLTableRowElement).style.background = 'transparent'
+        ;(e.currentTarget.cells[0] as HTMLTableCellElement).style.background = STICKY_BG
       }}
     >
-      {/* Rank */}
-      <td style={{ padding: '12px 10px', textAlign: 'right', color: '#444', fontSize: 11, width: 28 }}>
-        {rank}
-      </td>
+      {/* Sticky: Rank + Consultant */}
+      <td
+        style={{
+          padding: '10px 14px 10px 16px',
+          position: 'sticky',
+          left: 0,
+          background: STICKY_BG,
+          zIndex: 1,
+          borderRight: '1px solid #1c1c1c',
+          minWidth: 240,
+          width: 240,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Rank badge */}
+          <span
+            style={{
+              fontSize: isTop3 ? 12 : 11,
+              fontWeight: isTop3 ? 700 : 500,
+              color: isTop3 ? rankColor : '#2e2e2e',
+              minWidth: 16,
+              textAlign: 'right',
+              flexShrink: 0,
+              lineHeight: 1,
+            }}
+          >
+            {rank}
+          </span>
 
-      {/* Name */}
-      <td style={{ padding: '12px 10px', textAlign: 'left' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: '#555' }}><IconUser /></span>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'white', whiteSpace: 'nowrap' }}>
+          {/* Initials avatar */}
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: '50%',
+              background: '#1a1a1a',
+              border: '1px solid #252525',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              fontSize: 10,
+              fontWeight: 700,
+              color: '#555',
+              letterSpacing: '0.04em',
+            }}
+          >
+            {initials.trim() || '?'}
+          </div>
+
+          {/* Name + subtitle */}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'white',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
               {stat.sellerName}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-              {stat.topStage && <StageDots topStage={stat.topStage} />}
-              {channel && (
-                <span style={{ fontSize: 11, color: '#444' }}>{channel}</span>
-              )}
-            </div>
+            {(stat.topStage || channel) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                {stat.topStage && <StageDots topStage={stat.topStage} />}
+                {channel && <span style={{ fontSize: 11, color: '#444' }}>{channel}</span>}
+              </div>
+            )}
           </div>
         </div>
       </td>
 
       {/* Atividades */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right', borderLeft: '1px solid #151515' }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: ACCENT }}>{stat.totalActivities}</span>
       </td>
 
       {/* Leads */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 13, color: '#888' }}>{stat.uniqueCycles}</span>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: '#aaa' }}>{stat.uniqueCycles}</span>
       </td>
 
       {/* Avanços */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 13, color: '#888' }}>{stat.totalAdvances}</span>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: '#aaa' }}>{stat.totalAdvances}</span>
       </td>
 
       {/* Taxa de avanço */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right', borderLeft: '1px solid #151515' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <RateBar value={stat.advanceRate} color="#34d399" />
-          <span style={{ fontSize: 12, color: '#34d399', minWidth: 32, textAlign: 'right' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#34d399', minWidth: 34, textAlign: 'right' }}>
             {fmtPct(stat.advanceRate)}
           </span>
         </div>
       </td>
 
       {/* Ganhos */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 13, color: stat.totalWon > 0 ? '#34d399' : '#555' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: stat.totalWon > 0 ? '#34d399' : '#2e2e2e' }}>
           {stat.totalWon}
         </span>
       </td>
 
       {/* Perdas */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 13, color: stat.totalLost > 0 ? '#f87171' : '#555' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: stat.totalLost > 0 ? '#f87171' : '#2e2e2e' }}>
           {stat.totalLost}
         </span>
       </td>
 
       {/* Taxa de ganho */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
         {totalClosed > 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
             <RateBar value={stat.winRate} color="#34d399" />
-            <span style={{ fontSize: 12, color: '#888', minWidth: 32, textAlign: 'right' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#aaa', minWidth: 34, textAlign: 'right' }}>
               {fmtPct(stat.winRate)}
             </span>
           </div>
         ) : (
-          <span style={{ fontSize: 12, color: '#333' }}>—</span>
+          <span style={{ fontSize: 12, color: '#252525' }}>—</span>
         )}
       </td>
 
       {/* Próximas ações */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 13, color: '#888' }}>{stat.totalNextActions}</span>
+      <td style={{ padding: '10px 12px', textAlign: 'right', borderLeft: '1px solid #151515' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: '#aaa' }}>{stat.totalNextActions}</span>
       </td>
 
       {/* Disciplina */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
         {stat.totalActivities > 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
             <RateBar value={stat.disciplineRate} color={ACCENT} />
-            <span style={{ fontSize: 12, color: '#888', minWidth: 32, textAlign: 'right' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#aaa', minWidth: 34, textAlign: 'right' }}>
               {fmtPct(stat.disciplineRate)}
             </span>
           </div>
         ) : (
-          <span style={{ fontSize: 12, color: '#333' }}>—</span>
+          <span style={{ fontSize: 12, color: '#252525' }}>—</span>
         )}
       </td>
 
       {/* Faturamento */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: stat.revenue > 0 ? '#34d399' : '#555' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right', borderLeft: '1px solid #151515' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: stat.revenue > 0 ? '#34d399' : '#2e2e2e' }}>
           {stat.revenue > 0 ? fmtCurrency(stat.revenue) : '—'}
         </span>
       </td>
 
       {/* % Meta */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
         {stat.hasGoal ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
             <RateBar value={Math.min(stat.goalPct, 100)} color="#fbbf24" />
-            <span style={{ fontSize: 12, color: '#fbbf24', minWidth: 36, textAlign: 'right' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#fbbf24', minWidth: 36, textAlign: 'right' }}>
               {fmtPct(stat.goalPct)}
             </span>
           </div>
         ) : (
-          <span style={{ fontSize: 12, color: '#333' }}>—</span>
+          <span style={{ fontSize: 12, color: '#252525' }}>—</span>
         )}
       </td>
 
       {/* Fat/Atividade */}
-      <td style={{ padding: '12px 10px', textAlign: 'right' }}>
-        <span style={{ fontSize: 12, color: stat.revenuePerActivity > 0 ? '#888' : '#333' }}>
+      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: stat.revenuePerActivity > 0 ? '#888' : '#252525' }}>
           {stat.revenuePerActivity > 0 ? fmtCurrency(stat.revenuePerActivity) : '—'}
         </span>
       </td>
@@ -1407,26 +1478,153 @@ export default function DesempenhoConsultorPage() {
             </div>
 
             {/* Scrollable table */}
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
+            <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: MAX_TABLE_HEIGHT }}>
+              <table style={{ borderCollapse: 'collapse', minWidth: 1240, width: '100%' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #1a1a1a' }}>
-                    <th style={{ padding: '8px 10px', width: 28 }} />
-                    <ThCell
-                      label="Consultor"
-                      sortKey="name"
-                      currentSortKey={sortKey}
-                      currentSortDir={sortDir}
-                      onSort={handleSort}
-                      align="left"
-                      minWidth={180}
+                  {/* Super-header group row */}
+                  <tr style={{ height: 28 }}>
+                    {/* Sticky corner: Consultor column header placeholder */}
+                    <th
+                      style={{
+                        position: 'sticky',
+                        top: 0,
+                        left: 0,
+                        zIndex: 5,
+                        background: '#0a0a0a',
+                        width: 240,
+                        minWidth: 240,
+                        borderBottom: '1px solid #1a1a1a',
+                      }}
                     />
+                    {/* Operação */}
+                    <th
+                      colSpan={3}
+                      style={{
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 2,
+                        background: '#0a0a0a',
+                        textAlign: 'center',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: '#2e2e2e',
+                        padding: '5px 12px 4px',
+                        borderBottom: '1px solid #1a1a1a',
+                        borderLeft: '1px solid #1e1e1e',
+                      }}
+                    >
+                      Operação
+                    </th>
+                    {/* Conversão */}
+                    <th
+                      colSpan={4}
+                      style={{
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 2,
+                        background: '#0a0a0a',
+                        textAlign: 'center',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: '#2e2e2e',
+                        padding: '5px 12px 4px',
+                        borderBottom: '1px solid #1a1a1a',
+                        borderLeft: '1px solid #1e1e1e',
+                      }}
+                    >
+                      Conversão
+                    </th>
+                    {/* Agenda */}
+                    <th
+                      colSpan={2}
+                      style={{
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 2,
+                        background: '#0a0a0a',
+                        textAlign: 'center',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: '#2e2e2e',
+                        padding: '5px 12px 4px',
+                        borderBottom: '1px solid #1a1a1a',
+                        borderLeft: '1px solid #1e1e1e',
+                      }}
+                    >
+                      Agenda
+                    </th>
+                    {/* Receita */}
+                    <th
+                      colSpan={3}
+                      style={{
+                        position: 'sticky',
+                        top: 0,
+                        zIndex: 2,
+                        background: '#0a0a0a',
+                        textAlign: 'center',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: '#2e2e2e',
+                        padding: '5px 12px 4px',
+                        borderBottom: '1px solid #1a1a1a',
+                        borderLeft: '1px solid #1e1e1e',
+                      }}
+                    >
+                      Receita
+                    </th>
+                  </tr>
+                  {/* Column header row */}
+                  <tr>
+                    {/* Sticky consultant column header */}
+                    <th
+                      style={{
+                        position: 'sticky',
+                        top: 28,
+                        left: 0,
+                        zIndex: 4,
+                        background: '#0d0d0d',
+                        textAlign: 'left',
+                        padding: '9px 14px 9px 16px',
+                        fontWeight: 600,
+                        fontSize: 10,
+                        letterSpacing: '0.07em',
+                        textTransform: 'uppercase',
+                        color: sortKey === 'name' ? ACCENT : '#3d3d3d',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                        borderBottom: '1px solid #1e1e1e',
+                        borderRight: '1px solid #1c1c1c',
+                        minWidth: 240,
+                        width: 240,
+                      }}
+                      onClick={() => handleSort('name')}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        Consultor
+                        {sortKey === 'name'
+                          ? sortDir === 'desc' ? <IconSortDesc /> : <IconSortAsc />
+                          : <IconSort />
+                        }
+                      </span>
+                    </th>
+                    {/* Operação group */}
                     <ThCell
                       label="Atividades"
                       sortKey="activities"
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
+                      stickyTop={28}
+                      borderLeft
                     />
                     <ThCell
                       label="Leads"
@@ -1434,6 +1632,7 @@ export default function DesempenhoConsultorPage() {
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
+                      stickyTop={28}
                     />
                     <ThCell
                       label="Avanços"
@@ -1441,7 +1640,9 @@ export default function DesempenhoConsultorPage() {
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
+                      stickyTop={28}
                     />
+                    {/* Conversão group */}
                     <ThCell
                       label="Taxa Avanço"
                       sortKey="advanceRate"
@@ -1449,6 +1650,8 @@ export default function DesempenhoConsultorPage() {
                       currentSortDir={sortDir}
                       onSort={handleSort}
                       minWidth={110}
+                      stickyTop={28}
+                      borderLeft
                     />
                     <ThCell
                       label="Ganhos"
@@ -1456,6 +1659,7 @@ export default function DesempenhoConsultorPage() {
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
+                      stickyTop={28}
                     />
                     <ThCell
                       label="Perdas"
@@ -1463,6 +1667,7 @@ export default function DesempenhoConsultorPage() {
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
+                      stickyTop={28}
                     />
                     <ThCell
                       label="Taxa Ganho"
@@ -1471,13 +1676,17 @@ export default function DesempenhoConsultorPage() {
                       currentSortDir={sortDir}
                       onSort={handleSort}
                       minWidth={110}
+                      stickyTop={28}
                     />
+                    {/* Agenda group */}
                     <ThCell
                       label="Próx. Ações"
                       sortKey="nextActions"
                       currentSortKey={sortKey}
                       currentSortDir={sortDir}
                       onSort={handleSort}
+                      stickyTop={28}
+                      borderLeft
                     />
                     <ThCell
                       label="Disciplina"
@@ -1486,7 +1695,9 @@ export default function DesempenhoConsultorPage() {
                       currentSortDir={sortDir}
                       onSort={handleSort}
                       minWidth={110}
+                      stickyTop={28}
                     />
+                    {/* Receita group */}
                     <ThCell
                       label="Faturamento"
                       sortKey="revenue"
@@ -1494,6 +1705,8 @@ export default function DesempenhoConsultorPage() {
                       currentSortDir={sortDir}
                       onSort={handleSort}
                       minWidth={120}
+                      stickyTop={28}
+                      borderLeft
                     />
                     <ThCell
                       label="% Meta"
@@ -1502,6 +1715,7 @@ export default function DesempenhoConsultorPage() {
                       currentSortDir={sortDir}
                       onSort={handleSort}
                       minWidth={100}
+                      stickyTop={28}
                     />
                     <ThCell
                       label="Fat/Atividade"
@@ -1510,6 +1724,7 @@ export default function DesempenhoConsultorPage() {
                       currentSortDir={sortDir}
                       onSort={handleSort}
                       minWidth={120}
+                      stickyTop={28}
                     />
                   </tr>
                 </thead>
