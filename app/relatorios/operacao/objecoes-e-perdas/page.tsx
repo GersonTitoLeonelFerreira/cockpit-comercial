@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { STAGE_LABELS, resolveActionId } from '@/app/config/stageActions'
+import { STAGE_LABELS, resolveActionId, resolveCheckpointData } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 
 // ============================================================================
@@ -111,6 +111,10 @@ function buildReportData(
 
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
     const kind = classifyEvent(ev)
+    // Resolve checkpoint data — supports both storage formats:
+    //   Format 1: { checkpoint: { action_result, ... } }
+    //   Format 2: { metadata: { action_result, ... }, from_status, to_status }
+    const cp = resolveCheckpointData(meta)
 
     if (kind === 'won') {
       totalWon++
@@ -124,9 +128,10 @@ function buildReportData(
       const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
       if (stageFilter && stage !== stageFilter) continue
 
-      const nestedMeta = (meta.metadata ?? {}) as Record<string, unknown>
       const reason = String(
-        meta.reason ?? nestedMeta.reason ?? meta.loss_reason ?? meta.details ?? nestedMeta.details ?? ''
+        meta.reason ?? cp.reason ?? meta.loss_reason ??
+        cp.lost_reason ?? cp.loss_reason ?? cp.note ??
+        meta.details ?? cp.details ?? ''
       ).trim() || 'Sem motivo registrado'
 
       const existing = lossMap.get(reason) ?? { total: 0, byStage: {} }
@@ -136,20 +141,26 @@ function buildReportData(
       continue
     }
 
-    // Objection detection — two paths:
+    // Objection detection — three paths:
     // 1. metadata.action_id resolves to OBJECTION_ACTION_ID via resolveActionId()
     // 2. metadata.objection field is non-empty
+    // 3. checkpoint.action_result === "Objeção identificada" (stage_changed/stage_checkpoint events)
     const rawId = String(meta.action_id ?? meta.quick_action ?? ev.event_type ?? '').trim()
     const resolvedId = rawId ? resolveActionId(rawId) : ''
     const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
+    const hasCheckpointObjection = cp.action_result === 'Objeção identificada'
 
-    if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField) continue
+    if (resolvedId !== OBJECTION_ACTION_ID && !hasObjectionField && !hasCheckpointObjection) continue
 
-    const stage = String(meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
+    // Stage where the objection was registered. `to_status` is preferred because
+    // checkpoint-based objections come from stage_changed events where the objection
+    // was recorded at the destination stage. Falls back to from_status / stage for
+    // quick_action events that lack to_status in their metadata.
+    const stage = String(meta.to_status ?? meta.from_status ?? meta.from_stage ?? meta.stage ?? '').toLowerCase() || 'negociacao'
     if (stageFilter && stage !== stageFilter) continue
 
     const text = String(
-      meta.result_detail ?? meta.objection ?? meta.details ?? ''
+      cp.result_detail ?? meta.result_detail ?? meta.objection ?? meta.details ?? ''
     ).trim() || 'Sem detalhe registrado'
 
     const existing = objectionMap.get(text) ?? { total: 0, byStage: {} }

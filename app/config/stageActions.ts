@@ -145,3 +145,77 @@ export function resolveActionLabel(actionId: string): string {
   const resolved = resolveActionId(actionId)
   return getActionLabel(resolved)
 }
+
+// ---------------------------------------------------------------------------
+// ACTION_RESULT_MAP — checkpoint.action_result → taxonomy action ID
+// Used to infer action IDs from stage_changed / stage_checkpoint events that
+// carry checkpoint data but no explicit action_id in metadata.
+// ---------------------------------------------------------------------------
+
+export const ACTION_RESULT_MAP: Record<string, string> = {
+  'Objeção identificada':                    'negociacao_objecao_registrada',
+  'Proposta enviada':                        'respondeu_proposta_apresentada',
+  'Proposta final enviada':                  'negociacao_proposta_final_enviada',
+  'Cliente demonstrou intenção de fechar':   'negociacao_fechamento_agendado',
+  'Cliente pediu condição comercial':        'negociacao_condicao_comercial',
+  'Pediu mais informações':                  'contato_pediu_informacoes',
+  'Demonstrou interesse':                    'contato_demonstrou_interesse',
+  'Agendamento realizado':                   'contato_agendamento_realizado',
+  'Tentativa de contato (sem resposta)':     'novo_abordagem_realizada',
+  'Mensagem enviada - aguardando retorno':   'novo_whatsapp_enviado',
+  'Ação realizada':                          'novo_abordagem_realizada',
+}
+
+/**
+ * Extracts checkpoint data from event metadata, supporting both storage formats:
+ *   Format 1: { checkpoint: { action_result, result_detail, ... } }
+ *   Format 2: { metadata: { action_result, ... }, from_status, to_status }
+ * Returns the checkpoint object, or an empty object if none is found.
+ */
+export function resolveCheckpointData(meta: Record<string, unknown>): Record<string, unknown> {
+  if (meta.checkpoint && typeof meta.checkpoint === 'object') return meta.checkpoint as Record<string, unknown>
+  if (meta.metadata && typeof meta.metadata === 'object') return meta.metadata as Record<string, unknown>
+  return {}
+}
+
+/**
+ * Extracts the resolved taxonomy action ID from an event, trying sources in order:
+ * 1. metadata.action_id
+ * 2. metadata.quick_action
+ * 3. event_type (via resolveActionId — works for quick_* legacy and taxonomy IDs)
+ * 4. checkpoint.action_result (via ACTION_RESULT_MAP — for stage_changed/stage_checkpoint)
+ *
+ * Returns the resolved taxonomy action ID if found in the catalog, or null.
+ */
+export function extractActionFromEvent(event: {
+  event_type: string
+  metadata?: Record<string, unknown> | null
+}): string | null {
+  const meta = (event.metadata ?? {}) as Record<string, unknown>
+
+  // 1 & 2. Direct metadata fields
+  const directId = (meta.action_id ?? meta.quick_action) as string | undefined
+  if (directId) {
+    const resolved = resolveActionId(directId)
+    if (findActionById(resolved)) return resolved
+  }
+
+  // 3. event_type fallback (taxonomy IDs and quick_* legacy IDs, but not stage_changed/stage_checkpoint)
+  const et = event.event_type
+  if (et && et !== 'stage_changed' && et !== 'stage_checkpoint') {
+    const resolved = resolveActionId(et)
+    if (findActionById(resolved)) return resolved
+  }
+
+  // 4. Checkpoint action_result (for stage_changed / stage_checkpoint with checkpoint data)
+  if (et === 'stage_changed' || et === 'stage_checkpoint') {
+    const cp = resolveCheckpointData(meta)
+    const actionResult = cp.action_result as string | undefined
+    if (actionResult) {
+      const mapped = ACTION_RESULT_MAP[actionResult]
+      if (mapped && findActionById(mapped)) return mapped
+    }
+  }
+
+  return null
+}

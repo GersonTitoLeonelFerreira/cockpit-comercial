@@ -5,8 +5,7 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
   STAGE_ACTIONS,
   STAGE_LABELS,
-  resolveActionId,
-  findActionById,
+  extractActionFromEvent,
 } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 
@@ -122,16 +121,8 @@ function buildActionStats(
       if (ev.created_by !== currentUserId) continue
     }
 
-    const meta = (ev.metadata ?? {}) as Record<string, unknown>
-    const rawId = (meta.action_id ?? meta.quick_action ?? ev.event_type ?? null) as string | null
-
-    // Skip stage_changed events with no action attached — these are movimentações
-    if (ev.event_type === 'stage_changed' && !rawId) continue
-    if (!rawId) continue
-
-    const resolvedId = resolveActionId(rawId)
-    const actionDef = findActionById(resolvedId)
-    if (!actionDef) continue
+    const resolvedId = extractActionFromEvent(ev)
+    if (!resolvedId) continue
 
     // Find subsequent events in the same cycle (including events beyond the date range)
     const cycleEvents = ev.cycle_id ? (cycleMap.get(ev.cycle_id) ?? []) : []
