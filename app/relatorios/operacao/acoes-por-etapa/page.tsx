@@ -538,7 +538,7 @@ export default function AcoesPorEtapaPage() {
             { label: 'Ações por Etapa', href: null, active: true, comingSoon: false },
             { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
             { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas', active: false, comingSoon: false },
-            { label: 'Próximas Ações', href: null, active: false, comingSoon: true },
+            { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes', active: false, comingSoon: false },
             { label: 'Canais', href: '/relatorios/operacao/canais', active: false, comingSoon: false },
             { label: 'Desempenho por Consultor', href: null, active: false, comingSoon: true },
           ].map((tab) => (
