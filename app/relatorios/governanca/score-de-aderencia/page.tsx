@@ -1765,7 +1765,7 @@ export default function ScoreAderenciaPage() {
               {
                 title: 'Saúde da Carteira',
                 pct: '25%',
-                desc: 'Estado atual dos leads ativos do consultor: há leads parados há mais de ' + STALE_DAYS + ' dias? Há leads sem nenhuma próxima ação definida?',
+                desc: `Estado atual dos leads ativos do consultor: há leads parados há mais de ${STALE_DAYS} dias? Há leads sem nenhuma próxima ação definida?`,
                 detail: '70 pts pela atualidade dos leads, 30 pts pelo comprometimento de agenda.',
               },
               {
