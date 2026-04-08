@@ -667,7 +667,15 @@ function KpiCard({
   icon?: React.ReactNode
 }) {
   return (
-    <div style={{ flex: '1 1 0', minWidth: 110, padding: '20px 24px' }}>
+    <div
+      style={{
+        padding: '20px 24px',
+        background: '#0f0f0f',
+        display: 'flex',
+        flexDirection: 'column',
+        minWidth: 0,
+      }}
+    >
       <div
         style={{
           fontSize: 11,
@@ -677,17 +685,20 @@ function KpiCard({
           color: '#555',
           marginBottom: 12,
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           gap: 5,
+          minHeight: 36,
         }}
       >
-        {icon && <span style={{ color: accent ?? '#555', opacity: 0.75 }}>{icon}</span>}
+        {icon && <span style={{ color: accent ?? '#555', opacity: 0.75, flexShrink: 0, marginTop: 1 }}>{icon}</span>}
         {label}
       </div>
       <div style={{ fontSize: 32, fontWeight: 700, color: accent ?? 'white', lineHeight: 1, marginBottom: 4 }}>
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{sub}</div>}
+      <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4, minHeight: 16 }}>
+        {sub ?? ''}
+      </div>
     </div>
   )
 }
@@ -1315,11 +1326,12 @@ export default function VisaoExecutivaPage() {
               </div>
               <div
                 style={{
-                  background: '#0f0f0f',
                   border: '1px solid #1a1a1a',
                   borderRadius: 12,
-                  display: 'flex',
-                  flexWrap: 'wrap',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(0, 1fr))',
+                  gap: '0 1px',
+                  background: '#1a1a1a',
                   overflow: 'hidden',
                 }}
               >
@@ -1330,7 +1342,6 @@ export default function VisaoExecutivaPage() {
                   accent={ACCENT}
                   icon={<IconUsers />}
                 />
-                <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
                 <KpiCard
                   label="Avanços"
                   value={d.totalAdvances}
@@ -1338,7 +1349,6 @@ export default function VisaoExecutivaPage() {
                   accent="#60a5fa"
                   icon={<IconTrendUp />}
                 />
-                <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
                 <KpiCard
                   label="Ganhos"
                   value={d.totalWon}
@@ -1346,7 +1356,6 @@ export default function VisaoExecutivaPage() {
                   accent="#34d399"
                   icon={<IconCircleCheck />}
                 />
-                <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
                 <KpiCard
                   label="Perdas"
                   value={d.totalLost}
@@ -1355,28 +1364,22 @@ export default function VisaoExecutivaPage() {
                   icon={<IconCircleX />}
                 />
                 {d.totalRevenue > 0 && (
-                  <>
-                    <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
-                    <KpiCard
-                      label="Faturamento"
-                      value={fmtCurrency(d.totalRevenue)}
-                      sub="ciclos ganhos"
-                      accent="#fbbf24"
-                      icon={<IconDollarSign />}
-                    />
-                  </>
+                  <KpiCard
+                    label="Faturamento"
+                    value={fmtCurrency(d.totalRevenue)}
+                    sub="ciclos ganhos"
+                    accent="#fbbf24"
+                    icon={<IconDollarSign />}
+                  />
                 )}
                 {d.totalActivities > 0 && (
-                  <>
-                    <div style={{ width: 1, background: '#1a1a1a', alignSelf: 'stretch' }} />
-                    <KpiCard
-                      label="Disciplina geral"
-                      value={fmtPct(d.disciplineRate)}
-                      sub="próx. ações / atividades"
-                      accent={d.disciplineRate >= 50 ? '#34d399' : d.disciplineRate >= 25 ? '#fbbf24' : '#f87171'}
-                      icon={<IconListCheck />}
-                    />
-                  </>
+                  <KpiCard
+                    label="Disciplina geral"
+                    value={fmtPct(d.disciplineRate)}
+                    sub="próx. ações / atividades"
+                    accent={d.disciplineRate >= 50 ? '#34d399' : d.disciplineRate >= 25 ? '#fbbf24' : '#f87171'}
+                    icon={<IconListCheck />}
+                  />
                 )}
               </div>
             </div>
