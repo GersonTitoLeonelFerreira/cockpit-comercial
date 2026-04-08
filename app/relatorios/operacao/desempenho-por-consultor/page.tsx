@@ -125,6 +125,7 @@ function buildConsultantStats(
   stageFilter: string,
   revenueMap: Map<string, number>,
   goalMap: Map<string, { value: number; hasGoal: boolean }>,
+  cycleOwnerMap: Map<string, string>,
 ): ConsultantStat[] {
   const rangeStart = `${dateStart}T00:00:00`
   const rangeEnd = `${dateEnd}T23:59:59`
@@ -169,7 +170,14 @@ function buildConsultantStats(
   for (const ev of events) {
     if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
 
-    const sellerId = ev.created_by
+    // 3-level attribution hierarchy:
+    // 1. Owner saved in event metadata (e.g. metadata.owner_user_id)
+    // 2. Operational owner of the sales cycle (sales_cycles.owner_user_id)
+    // 3. created_by as fallback (the authenticated user who clicked)
+    const meta = (ev.metadata ?? {}) as Record<string, unknown>
+    const metaOwner = meta.owner_user_id as string | undefined
+    const cycleOwner = ev.cycle_id ? cycleOwnerMap.get(ev.cycle_id) : undefined
+    const sellerId = metaOwner ?? cycleOwner ?? ev.created_by
     if (!sellerId) continue
 
     // Non-admin: only their own events
@@ -178,7 +186,6 @@ function buildConsultantStats(
     // Admin with single seller filter
     if (isAdmin && selectedSellerId && sellerId !== selectedSellerId) continue
 
-    const meta = (ev.metadata ?? {}) as Record<string, unknown>
     const kind = classifyEvent({ event_type: ev.event_type, metadata: ev.metadata ?? {} })
 
     // Stage filter
@@ -824,15 +831,53 @@ export default function DesempenhoConsultorPage() {
       }
 
       // 3. Collect active seller IDs from events + revenue (to know whom to fetch goals for)
+      //    Using the same 3-level attribution hierarchy as buildConsultantStats()
       const rangeStart = `${dateStart}T00:00:00`
       const rangeEnd = `${dateEnd}T23:59:59`
+
+      // Fetch owner_user_id for each cycle referenced in events, paginated in batches of 500
+      const cycleIds = [...new Set(
+        ((data ?? []) as RawEvent[])
+          .map(ev => ev.cycle_id)
+          .filter(Boolean),
+      )] as string[]
+
+      const cycleOwnerMap = new Map<string, string>()
+      if (cycleIds.length > 0) {
+        const batches: string[][] = []
+        for (let i = 0; i < cycleIds.length; i += 500) {
+          batches.push(cycleIds.slice(i, i + 500))
+        }
+        const batchResults = await Promise.all(
+          batches.map(batch =>
+            supabase
+              .from('sales_cycles')
+              .select('id, owner_user_id')
+              .in('id', batch)
+              .eq('company_id', companyId),
+          ),
+        )
+        for (const { data: cycles } of batchResults) {
+          for (const c of (cycles ?? []) as Array<{ id: string; owner_user_id: string | null }>) {
+            if (c.owner_user_id) {
+              cycleOwnerMap.set(c.id, c.owner_user_id)
+            }
+          }
+        }
+      }
+
       const activeSellers = new Set<string>()
       for (const ev of (data ?? []) as RawEvent[]) {
-        if (!ev.created_by) continue
         if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
-        if (!isAdmin && ev.created_by !== currentUserId) continue
-        if (isAdmin && selectedSellerId && ev.created_by !== selectedSellerId) continue
-        activeSellers.add(ev.created_by)
+        // 3-level attribution hierarchy
+        const meta = (ev.metadata ?? {}) as Record<string, unknown>
+        const metaOwner = meta.owner_user_id as string | undefined
+        const cycleOwner = ev.cycle_id ? cycleOwnerMap.get(ev.cycle_id) : undefined
+        const sellerId = metaOwner ?? cycleOwner ?? ev.created_by
+        if (!sellerId) continue
+        if (!isAdmin && sellerId !== currentUserId) continue
+        if (isAdmin && selectedSellerId && sellerId !== selectedSellerId) continue
+        activeSellers.add(sellerId)
       }
       // Also include sellers with revenue in the period
       for (const sellerId of revenueMap.keys()) {
@@ -901,6 +946,7 @@ export default function DesempenhoConsultorPage() {
         selectedStage,
         revenueMap,
         goalMap,
+        cycleOwnerMap,
       )
       setStats(result)
     } catch (e: unknown) {
