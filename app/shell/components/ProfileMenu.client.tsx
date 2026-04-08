@@ -9,8 +9,8 @@ type MeResponse =
   | { ok: true; full_name: string | null; email: string | null; role: string | null }
   | { error: string }
 
-const TEXT_MUTED = '#3d4b62'
-const TEXT_SECONDARY = '#7d8ea8'
+const TEXT_MUTED = '#546070'
+const TEXT_SECONDARY = '#8fa3bc'
 const TEXT_PRIMARY = '#edf2f7'
 const TEXT_LABEL = '#b8c4d8'
 
