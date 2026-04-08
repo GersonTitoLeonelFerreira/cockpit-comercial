@@ -535,6 +535,7 @@ export default function AcoesPorEtapaPage() {
           }}
         >
         {[
+            { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva', active: false, comingSoon: false },
             { label: 'Ações por Etapa', href: null, active: true, comingSoon: false },
             { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
             { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas', active: false, comingSoon: false },

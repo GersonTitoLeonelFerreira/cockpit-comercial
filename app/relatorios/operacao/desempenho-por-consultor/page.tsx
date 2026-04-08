@@ -780,6 +780,7 @@ function ConsultantRow({ stat, rank }: { stat: ConsultantStat; rank: number }) {
 // ============================================================================
 
 const SUBNAV_TABS = [
+  { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva' },
   { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa' },
   { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' },
   { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas' },

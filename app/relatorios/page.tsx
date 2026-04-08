@@ -202,6 +202,12 @@ const sections: Section[] = [
     subtitle: 'Relatórios operacionais detalhados por consultor e etapa',
     items: [
       {
+        icon: <IconGauge />,
+        title: 'Visão Executiva',
+        desc: 'Síntese gerencial da operação — sinais, gargalos, alavancas e prioridades do período',
+        href: '/relatorios/operacao/visao-executiva',
+      },
+      {
         icon: <IconLayers />,
         title: 'Ações por Etapa',
         desc: 'Distribuição das ações operacionais registradas em cada etapa do funil',
