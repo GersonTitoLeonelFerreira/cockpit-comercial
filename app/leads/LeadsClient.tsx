@@ -191,18 +191,6 @@ export default function LeadsClient({
 
   return (
     <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
-      {/* PAGE HEADER */}
-      <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #1a1d2e' }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: '#edf2f7', letterSpacing: '-0.01em' }}>Pipeline Comercial</div>
-        <div style={{ fontSize: 12, color: '#8fa3bc', marginTop: 3 }}>
-          {userLabel} · {role}
-        </div>
-        {period ? (
-          <div style={{ marginTop: 4, fontSize: 11, color: '#546070' }}>
-            Período: {period.start} até {period.end}
-          </div>
-        ) : null}
-      </div>
 
       {/* META SELECTOR */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
