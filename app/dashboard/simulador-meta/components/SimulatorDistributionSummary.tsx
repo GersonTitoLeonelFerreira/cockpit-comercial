@@ -210,8 +210,8 @@ export default function SimulatorDistributionSummary({
       {/* Sinais utilizados */}
       <div
         style={{
-          background: '#0d0d0d',
-          border: '1px solid #1a1a1a',
+          background: '#0d0f14',
+          border: '1px solid #1a1d2e',
           borderRadius: 10,
           padding: '14px 16px',
         }}
@@ -261,8 +261,8 @@ export default function SimulatorDistributionSummary({
       {observations.length > 0 ? (
         <div
           style={{
-            background: '#0d0d0d',
-            border: '1px solid #1a1a1a',
+            background: '#0d0f14',
+            border: '1px solid #1a1d2e',
             borderRadius: 10,
             padding: '14px 16px',
           }}

@@ -46,7 +46,7 @@ function RowDetail({ row }: { row: CalendarDistributionRow }) {
         style={{
           padding: '8px 16px 12px',
           background: '#111318',
-          borderBottom: '1px solid #1a1a1a',
+          borderBottom: '1px solid #1a1d2e',
           fontSize: 12,
           color: '#8fa3bc',
           lineHeight: 1.6,
@@ -54,7 +54,7 @@ function RowDetail({ row }: { row: CalendarDistributionRow }) {
       >
                 <strong style={{ color: '#edf2f7' }}>Motivo:</strong> {row.reason}
         {' · '}
-        <strong style={{ color: '#ddd' }}>Peso relativo:</strong>{' '}
+        <strong style={{ color: '#edf2f7' }}>Peso relativo:</strong>{' '}
         {(row.weight * 100).toFixed(1)}%
       </td>
     </tr>
@@ -117,7 +117,7 @@ export default function SimulatorDailyDistributionTable({
                 <tr
                   onClick={() => toggleExpand(row.date)}
                   style={{
-                    borderBottom: isExpanded ? 'none' : '1px solid #1a1a1a',
+                    borderBottom: isExpanded ? 'none' : '1px solid #1a1d2e',
                     cursor: 'pointer',
                     background: isExpanded ? '#0d0f14' : 'transparent',
                     transition: 'background 0.15s',
