@@ -35,9 +35,9 @@ export function getRevenueStatus(pacingRatio: number): RevenueStatus {
 }
 
 export function statusLabel(s: RevenueStatus): string {
-  if (s === 'no_ritmo') return '✅ No ritmo'
-  if (s === 'atencao') return '⚠️ Atenção'
-  return '🚨 Acelerar'
+  if (s === 'no_ritmo') return 'No ritmo'
+  if (s === 'atencao') return 'Atenção'
+  return 'Acelerar'
 }
 
 export function statusTone(s: RevenueStatus): Tone {
@@ -88,21 +88,24 @@ export function MetaCard({
   subtitle?: React.ReactNode
   tone?: Tone
 }) {
-  const border =
-    tone === 'good'
-      ? '1px solid #1f5f3a'
-      : tone === 'bad'
-        ? '1px solid #5f1f1f'
-        : '1px solid #2a2a2a'
-  const bg = tone === 'good' ? '#07140c' : tone === 'bad' ? '#140707' : '#0f0f0f'
+  const accentColor =
+    tone === 'good' ? '#10b981' : tone === 'bad' ? '#ef4444' : '#3b82f6'
 
   return (
-    <div style={{ border, background: bg, borderRadius: 14, padding: 14, minHeight: 92 }}>
-      <div style={{ fontSize: 12, opacity: 0.78, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{
+      borderTop: '1px solid #1a1d2e',
+      borderRight: '1px solid #1a1d2e',
+      borderBottom: '1px solid #1a1d2e',
+      borderLeft: `3px solid ${accentColor}`,
+      background: '#0d0f14',
+      borderRadius: 10,
+      padding: '10px 14px',
+    }}>
+      <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
         {title}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2 }}>{value}</div>
-      {subtitle ? <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75, lineHeight: 1.5 }}>{subtitle}</div> : null}
+      <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: -0.2, color: '#edf2f7' }}>{value}</div>
+      {subtitle ? <div style={{ marginTop: 4, fontSize: 11, color: '#546070', lineHeight: 1.4 }}>{subtitle}</div> : null}
     </div>
   )
 }
@@ -111,6 +114,31 @@ export function MetaCard({
 // MetaSummaryHeader — row of 5 KPI cards (single source of truth)
 // ============================================================================
 
+function StatusIcon({ status }: { status: RevenueStatus }) {
+  if (status === 'no_ritmo') {
+    return (
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </svg>
+    )
+  }
+  if (status === 'atencao') {
+    return (
+      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+    )
+  }
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  )
+}
+
 export default function MetaSummaryHeader({
   title,
   kpis,
@@ -118,11 +146,28 @@ export default function MetaSummaryHeader({
   title: string
   kpis: MetaSummaryKpis
 }) {
-  return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ fontWeight: 900, opacity: 0.9 }}>{title}</div>
+  const statusColor =
+    kpis.status === 'no_ritmo' ? '#10b981' : kpis.status === 'atencao' ? '#f59e0b' : '#ef4444'
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+  return (
+    <div style={{
+      display: 'grid',
+      gap: 10,
+      padding: '16px 18px',
+      borderRadius: 14,
+      background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
+      border: '1px solid rgba(59,130,246,0.18)',
+      boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
+    }}>
+      <div style={{
+        fontWeight: 900,
+        color: '#edf2f7',
+        fontSize: 13,
+        paddingLeft: 10,
+        borderLeft: '2px solid rgba(59,130,246,0.4)',
+      }}>{title}</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         <MetaCard title="Real no período" value={toBRL(kpis.totalReal)} />
         <MetaCard title="Meta do período" value={toBRL(kpis.goal)} />
         <MetaCard
@@ -135,12 +180,30 @@ export default function MetaSummaryHeader({
           value={toBRL(kpis.requiredPerBD)}
           subtitle={`${kpis.businessDaysRemaining} dias úteis restantes`}
         />
-        <MetaCard
-          title="Status (pacing)"
-          value={statusLabel(kpis.status)}
-          subtitle={`Projeção: ${toBRL(kpis.projection)} (${Math.round(kpis.pacingRatio * 100)}% da meta)`}
-          tone={statusTone(kpis.status)}
-        />
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '8px 14px',
+        borderRadius: 8,
+        background: 'rgba(13,15,20,0.6)',
+        border: `1px solid ${statusColor}22`,
+        borderLeft: `3px solid ${statusColor}`,
+      }}>
+        <StatusIcon status={kpis.status} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: statusColor }}>
+          {statusLabel(kpis.status)}
+        </span>
+        <div style={{ width: 1, height: 14, background: '#1a1d2e', flexShrink: 0 }} />
+        <span style={{ fontSize: 11, color: '#8fa3bc' }}>
+          Projeção: <b style={{ color: '#edf2f7' }}>{toBRL(kpis.projection)}</b> ({Math.round(kpis.pacingRatio * 100)}% da meta)
+        </span>
+        <div style={{ width: 1, height: 14, background: '#1a1d2e', flexShrink: 0 }} />
+        <span style={{ fontSize: 11, color: '#546070' }}>
+          {kpis.businessDaysRemaining} dias úteis restantes
+        </span>
       </div>
     </div>
   )

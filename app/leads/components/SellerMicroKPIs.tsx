@@ -9,6 +9,8 @@ type MicroKPIs = {
   stage_moves_today: number
   advance_rate: number
   period_days: number
+  worked_period?: number
+  won_period?: number
 }
 
 type SellerMicroKPIsProps = {
@@ -18,11 +20,24 @@ type SellerMicroKPIsProps = {
   refreshKey?: number
 }
 
+const DS = {
+  panelBg: '#0d0f14',
+  surfaceBg: '#111318',
+  cardBg: '#141722',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+} as const
+
 type KPICard = {
   label: string
   value: string | number
-  color: string
-  bg: string
+  accent: string
   icon: string
   title?: string
 }
@@ -59,22 +74,21 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
         style={{
           padding: '6px 16px',
           display: 'flex',
-          gap: 6,
+          gap: 8,
           alignItems: 'center',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(9,9,11,0.85)',
-          backdropFilter: 'blur(12px)',
-          height: 36,
+          borderBottom: `1px solid ${DS.border}`,
+          background: DS.panelBg,
+          height: 38,
         }}
       >
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
             style={{
-              height: 20,
-              width: 72,
-              background: 'rgba(255,255,255,0.06)',
-              borderRadius: 4,
+              height: 22,
+              width: 64,
+              background: DS.borderSubtle,
+              borderRadius: 5,
             }}
           />
         ))}
@@ -86,73 +100,78 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
 
   const cards: KPICard[] = [
     {
-      label: 'Trabalhados hoje',
+      label: 'Trabalhados',
       value: kpis.worked_today,
-      color: '#a5f3fc',
-      bg: 'rgba(14, 116, 144, 0.3)',
+      accent: '#60a5fa',
       icon: '*',
       title: 'Ciclos com atividade hoje',
     },
     {
       label: 'Atrasados',
       value: kpis.overdue_count,
-      color: kpis.overdue_count > 0 ? '#fca5a5' : '#6ee7b7',
-      bg: kpis.overdue_count > 0 ? 'rgba(127,29,29,0.3)' : 'rgba(6,78,59,0.3)',
+      accent: kpis.overdue_count > 0 ? '#ef4444' : '#22c55e',
       icon: '!',
       title: 'Leads com agenda vencida',
     },
     {
-      label: 'Agendados hoje',
+      label: 'Agendados',
       value: kpis.scheduled_today,
-      color: '#93c5fd',
-      bg: 'rgba(30,58,138,0.3)',
+      accent: '#3b82f6',
       icon: '>',
       title: 'Contatos agendados para hoje',
     },
     {
-      label: 'Movidos hoje',
+      label: 'Movidos',
       value: kpis.stage_moves_today,
-      color: '#c4b5fd',
-      bg: 'rgba(59,7,100,0.3)',
-      icon: '->',
+      accent: '#8b5cf6',
+      icon: '→',
       title: 'Movimentos de etapa hoje',
     },
     {
-      label: `Avanco ${kpis.period_days}d`,
+      label: `Conversão ${kpis.period_days}d`,
       value: `${kpis.advance_rate}%`,
-      color: kpis.advance_rate >= 50 ? '#6ee7b7' : kpis.advance_rate >= 25 ? '#fde68a' : '#fca5a5',
-      bg: kpis.advance_rate >= 50 ? 'rgba(6,78,59,0.3)' : kpis.advance_rate >= 25 ? 'rgba(120,53,15,0.3)' : 'rgba(127,29,29,0.3)',
-      icon: '^',
-      title: `Taxa de avanco nos ultimos ${kpis.period_days} dias`,
+      accent: kpis.advance_rate >= 10 ? '#22c55e' : kpis.advance_rate >= 5 ? '#eab308' : '#ef4444',
+      icon: '↑',
+      title: `Dos ${kpis.worked_period ?? 0} leads trabalhados nos últimos ${kpis.period_days} dias, ${kpis.won_period ?? 0} converteram em venda`,
     },
   ]
 
   return (
     <div
       style={{
-        background: 'rgba(9,9,11,0.85)',
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: DS.panelBg,
+        borderBottom: `1px solid ${DS.border}`,
       }}
     >
-      {/* Compact bar - always visible */}
-      <div
+            {/* ── Compact pill bar ── */}
+            <div
         style={{
-          padding: '4px 16px',
+          padding: '5px 16px',
           display: 'flex',
           alignItems: 'center',
           gap: 6,
           cursor: 'pointer',
           userSelect: 'none',
-          minHeight: 36,
+          minHeight: 34,
+          background: 'linear-gradient(180deg, rgba(59,130,246,0.05) 0%, transparent 100%)',
         }}
         onClick={() => setExpanded((v) => !v)}
         title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
       >
-        <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 700, marginRight: 4, letterSpacing: '0.1em' }}>
-          {expanded ? 'v' : '>'} KPIS
+        <span
+          style={{
+            fontSize: 9,
+            color: DS.textLabel,
+            fontWeight: 700,
+            marginRight: 2,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {expanded ? '▾' : '▸'} KPIS
         </span>
-        {cards.map((card) => (
+
+        {!expanded && cards.map((card) => (
           <div
             key={card.label}
             title={card.title}
@@ -160,27 +179,28 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
               display: 'flex',
               alignItems: 'center',
               gap: 4,
-              background: card.bg,
-              border: `1px solid ${card.color}33`,
-              borderRadius: 4,
+              background: `${card.accent}12`,
+              border: `1px solid ${card.accent}25`,
+              borderRadius: 5,
               padding: '2px 8px',
-              fontSize: 12,
-              fontWeight: 900,
-              color: card.color,
+              fontSize: 11,
+              fontWeight: 800,
+              color: card.accent,
               whiteSpace: 'nowrap',
+              fontVariantNumeric: 'tabular-nums',
             }}
           >
-            <span style={{ fontSize: 9, opacity: 0.8 }}>{card.icon}</span>
+            <span style={{ fontSize: 9, opacity: 0.7 }}>{card.icon}</span>
             <span>{card.value}</span>
           </div>
         ))}
       </div>
 
-      {/* Expanded cards */}
+      {/* ── Expanded cards ── */}
       {expanded && (
         <div
           style={{
-            padding: '8px 16px 12px',
+            padding: '6px 16px 10px',
             display: 'flex',
             gap: 8,
             alignItems: 'stretch',
@@ -192,20 +212,40 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
               key={card.label}
               title={card.title}
               style={{
-                background: card.bg,
-                border: `1px solid ${card.color}33`,
+                flex: '1 1 120px',
+                background: `linear-gradient(135deg, ${card.accent}0a 0%, ${DS.cardBg} 100%)`,
+                border: `1px solid ${card.accent}20`,
+                borderTop: `2px solid ${card.accent}`,
                 borderRadius: 8,
-                padding: '8px 14px',
+                padding: '10px 14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 2,
-                minWidth: 100,
+                gap: 4,
+                minWidth: 110,
               }}
             >
-              <div style={{ fontSize: 10, color: card.color, fontWeight: 700, opacity: 0.8 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: DS.textSecondary,
+                  fontWeight: 600,
+                  letterSpacing: '0.02em',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 {card.icon} {card.label}
               </div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: card.color, lineHeight: 1.1 }}>
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 900,
+                  color: card.accent,
+                  lineHeight: 1.1,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
                 {card.value}
               </div>
             </div>

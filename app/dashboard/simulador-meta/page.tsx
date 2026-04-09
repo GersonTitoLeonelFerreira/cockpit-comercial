@@ -200,10 +200,25 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section style={{ border: '1px solid #1a1d2e', background: '#0d0f14', borderRadius: 12, padding: 18 }}>
+    <section style={{
+      border: '1px solid rgba(59,130,246,0.18)',
+      background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
+      borderRadius: 14,
+      padding: '18px 18px',
+      boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
+    }}>
       <div>
-        <div style={{ fontSize: 14, fontWeight: 900, color: '#edf2f7', display: 'flex', alignItems: 'center', gap: 8 }}>{title}</div>
-        {description ? <div style={{ marginTop: 4, fontSize: 12, color: '#8fa3bc' }}>{description}</div> : null}
+        <div style={{
+          fontSize: 13,
+          fontWeight: 900,
+          color: '#edf2f7',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          paddingLeft: 10,
+          borderLeft: '2px solid rgba(59,130,246,0.4)',
+        }}>{title}</div>
+        {description ? <div style={{ marginTop: 4, fontSize: 12, color: '#546070', paddingLeft: 12 }}>{description}</div> : null}
       </div>
       <div style={{ marginTop: 14 }}>{children}</div>
     </section>
@@ -360,6 +375,10 @@ export default function SimuladorMetaPage() {
   const [distributionError, setDistributionError] = useState<string | null>(null)
   const [distributionOnlyWorking, setDistributionOnlyWorking] = useState(true)
 
+    // Período editável
+    const [periodStart, setPeriodStart] = useState<string>('')
+    const [periodEnd, setPeriodEnd] = useState<string>('')
+
   // Ticket source
   const [ticketSource, setTicketSource] = useState<'manual' | 'historico'>('manual')
   const [historicalTicket, setHistoricalTicket] = useState<HistoricalTicketResponse | null>(null)
@@ -388,8 +407,17 @@ export default function SimuladorMetaPage() {
         setIsAdmin(isAdminUser)
         setCompanyId(profile.company_id)
 
-        const comp = await getActiveCompetency()
+                const comp = await getActiveCompetency()
         setCompetency(comp)
+
+        // Corrigir month_end: a RPC retorna o 1º dia do próximo mês (exclusivo)
+        // Converter para o último dia do mês (inclusivo) para exibição
+        const rawEnd = new Date(toYMD(comp.month_end) + 'T00:00:00')
+        rawEnd.setDate(rawEnd.getDate() - 1)
+        const correctedEnd = rawEnd.toISOString().slice(0, 10)
+
+        setPeriodStart(toYMD(comp.month_start))
+        setPeriodEnd(correctedEnd)
 
         const endDate = new Date(toYMD(comp.month_end) + 'T00:00:00')
         const remainingDays = countRemainingWorkDays(endDate, workDays)
@@ -437,13 +465,13 @@ export default function SimuladorMetaPage() {
 
   // ✅ useEffect correto (fora do init): auto recalcular dias restantes
   useEffect(() => {
-    if (!competency) return
+    if (!periodEnd) return
     if (!autoRemainingDays) return
 
-    const endDate = new Date(toYMD(competency.month_end) + 'T00:00:00')
+    const endDate = new Date(periodEnd + 'T00:00:00')
     const remainingDays = countRemainingWorkDays(endDate, workDays)
     setRemainingBusinessDays(remainingDays)
-  }, [competency, workDays, autoRemainingDays])
+  }, [periodEnd, workDays, autoRemainingDays])
 
   // taxa real
   useEffect(() => {
@@ -474,26 +502,25 @@ export default function SimuladorMetaPage() {
     setResult(newResult)
   }, [targetWins, closeRatePercent, remainingBusinessDays, metrics])
 
-  // refetch metrics quando muda vendedor
-  useEffect(() => {
-    if (!competency || selectedSellerId === undefined) return
-    async function refetch() {
-      try {
-        const newMetrics = await getSalesCycleMetrics(selectedSellerId, competency.month_start)
-        setMetrics(newMetrics)
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao atualizar métricas.')
+    // refetch metrics quando muda vendedor ou período
+    useEffect(() => {
+      if (!periodStart || selectedSellerId === undefined) return
+      async function refetch() {
+        try {
+          const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
+          setMetrics(newMetrics)
+        } catch (e: any) {
+          setError(e?.message ?? 'Erro ao atualizar métricas.')
+        }
       }
-    }
-    void refetch()
-  }, [competency, selectedSellerId])
+      void refetch()
+    }, [periodStart, selectedSellerId])
 
   // conversão por grupo
   useEffect(() => {
-    if (!competency || !companyId || selectedSellerId === undefined) return
+    if (!periodStart || !periodEnd || !companyId || selectedSellerId === undefined) return
 
     const cid = companyId
-    const dateEnd = toYMD(competency.month_end)
 
     async function loadGroupConversion() {
       setGroupConversionLoading(true)
@@ -501,8 +528,8 @@ export default function SimuladorMetaPage() {
         const rows = await getGroupConversion({
           companyId: cid,
           ownerId: selectedSellerId,
-          dateStart: toYMD(competency.month_start),
-          dateEnd,
+          dateStart: periodStart,
+          dateEnd: periodEnd,
         })
         setGroupConversion(rows)
       } catch (e: any) {
@@ -514,15 +541,15 @@ export default function SimuladorMetaPage() {
     }
 
     void loadGroupConversion()
-  }, [competency, selectedSellerId, companyId])
+  }, [periodStart, periodEnd, selectedSellerId, companyId])
 
   const revenueDates = useMemo(() => {
-    if (!competency) return { start: '', end: '' }
+    if (!periodStart || !periodEnd) return { start: '', end: '' }
     return {
-      start: toYMD(competency.month_start),
-      end: toYMD(competency.month_end),
+      start: periodStart,
+      end: periodEnd,
     }
-  }, [competency])
+  }, [periodStart, periodEnd])
 
   const revenueGoalOwnerId = useMemo(() => {
     if (!competency) return null
@@ -643,8 +670,8 @@ export default function SimuladorMetaPage() {
     if (!companyId || !competency) return
 
     const cid = companyId
-    const dateStart = toYMD(competency.month_start)
-    const dateEnd = toYMD(competency.month_end)
+    const dateStart = periodStart
+    const dateEnd = periodEnd
 
     const histEnd = dateEnd
     const histStartDate = new Date(histEnd + 'T00:00:00')
@@ -751,7 +778,7 @@ export default function SimuladorMetaPage() {
     }
 
     void loadDistribution()
-  }, [activeTab, companyId, competency, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
+  }, [activeTab, companyId, periodStart, periodEnd, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
 
   async function handleSaveGoal() {
     if (!isAdmin) return
@@ -959,362 +986,530 @@ export default function SimuladorMetaPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Simulador de Meta</h1>
-          {competency ? (
-            <div style={{ fontSize: 12, opacity: 0.5 }}>
-              Período: {toYMD(competency.month_start)} a {toYMD(competency.month_end)}
-            </div>
-          ) : null}
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-
-          {/* Seller selector (admin only) */}
-          {isAdmin ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-              <IconUsers size={15} color="#60a5fa" />
-              <select
-                value={selectedSellerId ?? 'all'}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setSelectedSellerId(val === 'all' ? null : val)
-                }}
-                style={{
-                  padding: '8px 12px 8px 8px',
-                  borderRadius: 8,
-                  border: '1px solid #1a1d2e',
-                  background: '#0d0f14',
-                  color: '#edf2f7',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 8px center',
-                  paddingRight: 28,
-                  cursor: 'pointer',
-                  outline: 'none',
-                  transition: 'border-color 150ms ease',
-                }}
-                onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-                onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-              >
-                <option value="all">Empresa (todos)</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-
-          {/* Mode selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <IconBarChart size={15} color="#60a5fa" />
-            <select
-              value={mode}
-              onChange={(e) => {
-                const newMode = e.target.value as SimulatorMode
-                setMode(newMode)
-                if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
-                  setActiveTab('taxa-resultado')
-                }
-              }}
-              style={{
-                padding: '8px 12px 8px 8px',
-                borderRadius: 8,
-                border: '1px solid #1a1d2e',
-                background: '#0d0f14',
-                color: '#edf2f7',
-                fontSize: 13,
-                fontWeight: 600,
-                appearance: 'none',
-                WebkitAppearance: 'none',
-                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: 'right 8px center',
-                paddingRight: 28,
-                cursor: 'pointer',
-                outline: 'none',
-                transition: 'border-color 150ms ease',
-              }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-            >
-              <option value="ganhos">Ganhos (ciclos)</option>
-              <option value="faturamento">Faturamento (R$)</option>
-            </select>
-          </div>
-
-          {/* Dias trabalhados */}
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', padding: '4px 6px', borderRadius: 8, border: '1px solid #1a1d2e', background: '#090b0f' }}>
-            {daysLabels.map(({ dow, label }) => {
-              const isActive = !!workDays[dow]
-              return (
-                <button
-                  key={dow}
-                  type="button"
-                  onClick={() => setWorkDays((prev) => ({ ...prev, [dow]: !prev[dow] }))}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 6,
-                    border: isActive ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-                    background: isActive
-                      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
-                      : 'transparent',
-                    color: isActive ? '#93c5fd' : '#546070',
-                    fontSize: 12,
-                    fontWeight: isActive ? 700 : 400,
-                    cursor: 'pointer',
-                    transition: 'all 150ms ease',
-                    lineHeight: 1,
-                  }}
-                >
-                  {label}
-                </button>
-              )
-            })}
-            <div style={{ width: 1, height: 18, background: '#1a1d2e', marginInline: 4, flexShrink: 0 }} />
-            <button
-              type="button"
-              onClick={() => setAutoRemainingDays((prev) => !prev)}
-              style={{
-                padding: '5px 10px',
-                borderRadius: 6,
-                border: autoRemainingDays ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-                background: autoRemainingDays
-                  ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
-                  : 'transparent',
-                color: autoRemainingDays ? '#93c5fd' : '#546070',
-                fontSize: 11,
-                fontWeight: autoRemainingDays ? 700 : 400,
-                cursor: 'pointer',
-                transition: 'all 150ms ease',
-                lineHeight: 1,
-              }}
-            >
-              Auto dias
-            </button>
-          </div>
-
-          {/* Taxa de Conversão */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 12, color: '#8fa3bc' }}>Taxa planejada:</span>
-            <input
-              type="number"
-              step="1"
-              min="1"
-              max="90"
-              value={closeRatePercent}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 1
-                setCloseRatePercent(Math.max(1, Math.min(90, val)))
-              }}
-              style={{
-                width: 54,
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: '1px solid #1a1d2e',
-                background: '#111318',
-                color: 'white',
-                fontSize: 13,
-              }}
-            />
-            <span style={{ fontSize: 12, color: '#8fa3bc' }}>%</span>
-          </div>
-
-          {/* Dias Úteis Restantes */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 12, color: '#8fa3bc' }}>Dias rest.:</span>
-            <input
-              type="number"
-              value={remainingBusinessDays}
-              onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
-              disabled={autoRemainingDays}
-              style={{
-                width: 54,
-                padding: '6px 8px',
-                borderRadius: 8,
-                border: '1px solid #1a1d2e',
-                background: autoRemainingDays ? '#0d0f14' : '#111318',
-                color: 'white',
-                fontSize: 13,
-                opacity: autoRemainingDays ? 0.65 : 1,
-                cursor: autoRemainingDays ? 'not-allowed' : 'text',
-              }}
-            />
-          </div>
-
-          {/* Ticket Médio (quando mode === faturamento) */}
-          {mode === 'faturamento' && (
+          {periodStart && periodEnd ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#8fa3bc' }}>Ticket:</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button
-                  onClick={() => setTicketSource('manual')}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #1a1d2e',
-                    background: ticketSource === 'manual' ? 'rgba(59,130,246,0.15)' : '#111318',
-                    color: ticketSource === 'manual' ? '#93c5fd' : '#8fa3bc',
-                    cursor: 'pointer',
-                    fontSize: 11,
-                    fontWeight: ticketSource === 'manual' ? 700 : 400,
-                  }}
-                >
-                  Manual
-                </button>
-                <button
-                  onClick={() => setTicketSource('historico')}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #1a1d2e',
-                    background: ticketSource === 'historico' ? 'rgba(16,185,129,0.15)' : '#111318',
-                    color: ticketSource === 'historico' ? '#6ee7b7' : '#8fa3bc',
-                    cursor: 'pointer',
-                    fontSize: 11,
-                    fontWeight: ticketSource === 'historico' ? 700 : 400,
-                  }}
-                >
-                  Histórico
-                </button>
-              </div>
-              {ticketSource === 'manual' ? (
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={ticketMedioText}
-                  onChange={(e) => setTicketMedioText(e.target.value)}
-                  onFocus={() => {
-                    const n = Math.max(0, safeNumber(ticketMedioText))
-                    setTicketMedioText(String(n))
-                  }}
-                  onBlur={() => {
-                    const n = Math.max(0, safeNumber(ticketMedioText))
-                    setTicketMedioText(toBRL(n))
-                  }}
-                  style={{
-                    width: 120,
-                    padding: '6px 8px',
-                    borderRadius: 8,
-                    border: '1px solid #1a1d2e',
-                    background: '#111318',
-                    color: 'white',
-                    fontWeight: 700,
-                    fontSize: 13,
-                  }}
-                />
-              ) : (
-                <span style={{ fontSize: 13, fontWeight: 700, color: historicalTicket?.is_sufficient ? '#6ee7b7' : '#fca5a5' }}>
-                  {historicalTicketLoading
-                    ? '...'
-                    : historicalTicket?.is_sufficient
-                      ? toBRL(historicalTicket.ticket_medio)
-                      : 'Insuficiente'}
-                </span>
-              )}
-              {ticketSource === 'historico' && historicalTicket?.is_sufficient && (
-                <span style={{ fontSize: 10, color: '#546070' }}>
-                  ({historicalTicket.sample_size} vendas)
-                </span>
-              )}
-              {ticketSource === 'historico' && !historicalTicketLoading && !historicalTicket?.is_sufficient && (
-                <button
-                  onClick={() => setTicketSource('manual')}
-                  style={{
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                    border: '1px solid #1a1d2e',
-                    background: '#111318',
-                    color: '#8fa3bc',
-                    cursor: 'pointer',
-                    fontSize: 10,
-                  }}
-                >
-                  Usar manual
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Meta Financeira (quando mode !== 'ganhos') */}
-          {showRevenueMode ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: '#8fa3bc' }}>Meta R$:</span>
+              <span style={{ fontSize: 11, color: '#546070' }}>Período:</span>
               <input
-                type="text"
-                inputMode="decimal"
-                value={revenueGoalInputText}
-                onChange={(e) => setRevenueGoalInputText(e.target.value)}
-                onFocus={() => {
-                  const n = Math.max(0, safeNumber(revenueGoalInputText))
-                  setRevenueGoalInputText(String(n))
-                }}
-                onBlur={() => {
-                  const n = Math.max(0, safeNumber(revenueGoalInputText))
-                  setRevenueGoalInputText(toBRL(n))
-                }}
-                disabled={!isAdmin || goalLoading || goalSaving}
+                type="date"
+                value={periodStart}
+                onChange={(e) => setPeriodStart(e.target.value)}
                 style={{
-                  width: 130,
-                  padding: '6px 8px',
-                  borderRadius: 8,
+                  padding: '4px 8px',
+                  borderRadius: 6,
                   border: '1px solid #1a1d2e',
-                  background: !isAdmin ? '#0d0f14' : '#111318',
-                  color: 'white',
-                  fontWeight: 700,
-                  fontSize: 13,
+                  background: '#111318',
+                  color: '#edf2f7',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
                 }}
               />
-              {isAdmin ? (
-                <>
-                                    <button
-                    onClick={() => void handleSaveGoal()}
-                    disabled={goalSaving || goalLoading}
-                    style={{
-                      padding: '7px 16px',
-                      borderRadius: 8,
-                      border: '1px solid rgba(59,130,246,0.4)',
-                      background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
-                      color: '#93c5fd',
-                      fontWeight: 700,
-                      fontSize: 12,
-                      cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-                      opacity: goalSaving || goalLoading ? 0.5 : 1,
-                      transition: 'all 150ms ease',
-                      letterSpacing: '0.02em',
-                    }}
-                  >
-                    {goalSaving ? '...' : 'Salvar'}
-                  </button>
-                  <button
-                    onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
-                    disabled={goalSaving || goalLoading}
-                    style={{
-                      padding: '7px 14px',
-                      borderRadius: 8,
-                      border: '1px solid #1a1d2e',
-                      background: '#0d0f14',
-                      color: '#8fa3bc',
-                      fontSize: 12,
-                      fontWeight: 500,
-                      cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-                      opacity: goalSaving || goalLoading ? 0.5 : 1,
-                      transition: 'all 150ms ease',
-                    }}
-                  >
-                    Desfazer
-                  </button>
-                </>
+              <span style={{ fontSize: 11, color: '#546070' }}>a</span>
+              <input
+                type="date"
+                value={periodEnd}
+                onChange={(e) => setPeriodEnd(e.target.value)}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #1a1d2e',
+                  background: '#111318',
+                  color: '#edf2f7',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              />
+              {competency ? (
+                <button
+                  onClick={() => {
+                    const rawEnd = new Date(toYMD(competency.month_end) + 'T00:00:00')
+                    rawEnd.setDate(rawEnd.getDate() - 1)
+                    setPeriodStart(toYMD(competency.month_start))
+                    setPeriodEnd(rawEnd.toISOString().slice(0, 10))
+                  }}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    border: '1px solid #1a1d2e',
+                    background: '#0d0f14',
+                    color: '#8fa3bc',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                  }}
+                  title="Voltar ao período da competência ativa"
+                >
+                  Reset
+                </button>
               ) : null}
-              {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
-              {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
-              {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
             </div>
           ) : null}
-
         </div>
+
+                {/* ── ROW 1: Seller + Mode + Ticket + Meta ────────────── */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+
+{/* Seller selector (admin only) */}
+{isAdmin ? (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+    <IconUsers size={15} color="#60a5fa" />
+    <select
+      value={selectedSellerId ?? 'all'}
+      onChange={(e) => {
+        const val = e.target.value
+        setSelectedSellerId(val === 'all' ? null : val)
+      }}
+      style={{
+        padding: '8px 12px 8px 8px',
+        borderRadius: 8,
+        border: '1px solid #1a1d2e',
+        background: '#0d0f14',
+        color: '#edf2f7',
+        fontSize: 13,
+        fontWeight: 600,
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 8px center',
+        paddingRight: 28,
+        cursor: 'pointer',
+        outline: 'none',
+        transition: 'border-color 150ms ease',
+      }}
+      onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
+      onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
+    >
+      <option value="all">Empresa (todos)</option>
+      {sellers.map((s) => (
+        <option key={s.id} value={s.id}>{s.label}</option>
+      ))}
+    </select>
+  </div>
+) : null}
+
+{/* Mode selector */}
+<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+  <IconBarChart size={15} color="#60a5fa" />
+  <select
+    value={mode}
+    onChange={(e) => {
+      const newMode = e.target.value as SimulatorMode
+      setMode(newMode)
+      if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
+        setActiveTab('taxa-resultado')
+      }
+    }}
+    style={{
+      padding: '8px 12px 8px 8px',
+      borderRadius: 8,
+      border: '1px solid #1a1d2e',
+      background: '#0d0f14',
+      color: '#edf2f7',
+      fontSize: 13,
+      fontWeight: 600,
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'right 8px center',
+      paddingRight: 28,
+      cursor: 'pointer',
+      outline: 'none',
+      transition: 'border-color 150ms ease',
+    }}
+    onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
+    onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
+  >
+    <option value="ganhos">Ganhos (ciclos)</option>
+    <option value="faturamento">Faturamento (R$)</option>
+  </select>
+</div>
+
+{/* Ticket Médio (quando mode === faturamento) */}
+{mode === 'faturamento' && (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Ticket:</span>
+    <div style={{ display: 'flex', gap: 4 }}>
+      <button
+        onClick={() => setTicketSource('manual')}
+        style={{
+          padding: '4px 8px',
+          borderRadius: 6,
+          border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #1a1d2e',
+          background: ticketSource === 'manual' ? 'rgba(59,130,246,0.15)' : '#111318',
+          color: ticketSource === 'manual' ? '#93c5fd' : '#8fa3bc',
+          cursor: 'pointer',
+          fontSize: 11,
+          fontWeight: ticketSource === 'manual' ? 700 : 400,
+        }}
+      >
+        Manual
+      </button>
+      <button
+        onClick={() => setTicketSource('historico')}
+        style={{
+          padding: '4px 8px',
+          borderRadius: 6,
+          border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #1a1d2e',
+          background: ticketSource === 'historico' ? 'rgba(16,185,129,0.15)' : '#111318',
+          color: ticketSource === 'historico' ? '#6ee7b7' : '#8fa3bc',
+          cursor: 'pointer',
+          fontSize: 11,
+          fontWeight: ticketSource === 'historico' ? 700 : 400,
+        }}
+      >
+        Histórico
+      </button>
+    </div>
+    {ticketSource === 'manual' ? (
+      <input
+        type="text"
+        inputMode="decimal"
+        value={ticketMedioText}
+        onChange={(e) => setTicketMedioText(e.target.value)}
+        onFocus={() => {
+          const n = Math.max(0, safeNumber(ticketMedioText))
+          setTicketMedioText(String(n))
+        }}
+        onBlur={() => {
+          const n = Math.max(0, safeNumber(ticketMedioText))
+          setTicketMedioText(toBRL(n))
+        }}
+        style={{
+          width: 120,
+          padding: '6px 8px',
+          borderRadius: 8,
+          border: '1px solid #1a1d2e',
+          background: '#111318',
+          color: 'white',
+          fontWeight: 700,
+          fontSize: 13,
+        }}
+      />
+    ) : (
+      <span style={{ fontSize: 13, fontWeight: 700, color: historicalTicket?.is_sufficient ? '#6ee7b7' : '#fca5a5' }}>
+        {historicalTicketLoading
+          ? '...'
+          : historicalTicket?.is_sufficient
+            ? toBRL(historicalTicket.ticket_medio)
+            : 'Insuficiente'}
+      </span>
+    )}
+    {ticketSource === 'historico' && historicalTicket?.is_sufficient && (
+      <span style={{ fontSize: 10, color: '#546070' }}>
+        ({historicalTicket.sample_size} vendas)
+      </span>
+    )}
+    {ticketSource === 'historico' && !historicalTicketLoading && !historicalTicket?.is_sufficient && (
+      <button
+        onClick={() => setTicketSource('manual')}
+        style={{
+          padding: '3px 8px',
+          borderRadius: 6,
+          border: '1px solid #1a1d2e',
+          background: '#111318',
+          color: '#8fa3bc',
+          cursor: 'pointer',
+          fontSize: 10,
+        }}
+      >
+        Usar manual
+      </button>
+    )}
+  </div>
+)}
+
+{/* Meta Financeira */}
+{showRevenueMode ? (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Meta R$:</span>
+    <input
+      type="text"
+      inputMode="decimal"
+      value={revenueGoalInputText}
+      onChange={(e) => setRevenueGoalInputText(e.target.value)}
+      onFocus={() => {
+        const n = Math.max(0, safeNumber(revenueGoalInputText))
+        setRevenueGoalInputText(String(n))
+      }}
+      onBlur={() => {
+        const n = Math.max(0, safeNumber(revenueGoalInputText))
+        setRevenueGoalInputText(toBRL(n))
+      }}
+      disabled={!isAdmin || goalLoading || goalSaving}
+      style={{
+        width: 130,
+        padding: '6px 8px',
+        borderRadius: 8,
+        border: '1px solid #1a1d2e',
+        background: !isAdmin ? '#0d0f14' : '#111318',
+        color: 'white',
+        fontWeight: 700,
+        fontSize: 13,
+      }}
+    />
+    {isAdmin ? (
+      <>
+        <button
+          onClick={() => void handleSaveGoal()}
+          disabled={goalSaving || goalLoading}
+          style={{
+            padding: '7px 16px',
+            borderRadius: 8,
+            border: '1px solid rgba(59,130,246,0.4)',
+            background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
+            color: '#93c5fd',
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
+            opacity: goalSaving || goalLoading ? 0.5 : 1,
+            transition: 'all 150ms ease',
+            letterSpacing: '0.02em',
+          }}
+        >
+          {goalSaving ? '...' : 'Salvar'}
+        </button>
+        <button
+          onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
+          disabled={goalSaving || goalLoading}
+          style={{
+            padding: '7px 14px',
+            borderRadius: 8,
+            border: '1px solid #1a1d2e',
+            background: '#0d0f14',
+            color: '#8fa3bc',
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
+            opacity: goalSaving || goalLoading ? 0.5 : 1,
+            transition: 'all 150ms ease',
+          }}
+        >
+          Desfazer
+        </button>
+      </>
+    ) : null}
+    {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
+    {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
+    {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
+  </div>
+) : null}
+</div>
+
+{/* ── BLOCO: TAXA DE CONVERSÃO ────────────── */}
+{(() => {
+const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
+const taxaPlanejadaDecimal = closeRatePercent / 100
+const diferencaPp = taxaRealDecimal !== null
+  ? (taxaPlanejadaDecimal - taxaRealDecimal) * 100
+  : null
+
+let diagnostico = ''
+let diagnosticoColor = '#a78bfa'
+if (taxaRealDecimal !== null) {
+  if (taxaPlanejadaDecimal > taxaRealDecimal * 1.1) {
+    diagnostico = 'Plano otimista'
+    diagnosticoColor = '#f59e0b'
+  } else if (taxaPlanejadaDecimal >= taxaRealDecimal * 0.9) {
+    diagnostico = 'Plano realista'
+    diagnosticoColor = '#10b981'
+  } else {
+    diagnostico = 'Plano conservador'
+    diagnosticoColor = '#60a5fa'
+  }
+}
+
+return (
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+    padding: '8px 14px',
+    marginTop: 10,
+    borderRadius: 10,
+    border: '1px solid rgba(59,130,246,0.25)',
+    background: 'linear-gradient(90deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 100%)',
+    fontSize: 12,
+    width: '100%',
+    boxSizing: 'border-box',
+  }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ color: '#8fa3bc' }}>Real:</span>
+      <span style={{ fontWeight: 900, color: taxaRealDecimal !== null ? '#22d3ee' : 'rgba(255,255,255,0.25)' }}>
+        {taxaRealDecimal !== null ? `${(taxaRealDecimal * 100).toFixed(1)}%` : '—'}
+      </span>
+      {rateRealData?.vendor?.worked ? (
+        <span style={{ fontSize: 10, opacity: 0.4 }}>({rateRealData.vendor.worked} ciclos)</span>
+      ) : null}
+    </div>
+
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ color: '#8fa3bc' }}>Planejada:</span>
+      <input
+        type="number"
+        step="1"
+        min="1"
+        max="90"
+        value={closeRatePercent}
+        onChange={(e) => {
+          const val = parseFloat(e.target.value) || 1
+          setCloseRatePercent(Math.max(1, Math.min(90, val)))
+        }}
+        style={{
+          width: 48,
+          padding: '3px 6px',
+          borderRadius: 6,
+          border: '1px solid rgba(59,130,246,0.3)',
+          background: 'rgba(17,19,24,0.8)',
+          color: '#f59e0b',
+          fontSize: 13,
+          fontWeight: 900,
+        }}
+      />
+      <span style={{ fontWeight: 900, color: '#f59e0b' }}>%</span>
+    </div>
+
+    {diferencaPp !== null ? (
+      <span style={{ opacity: 0.7 }}>
+        <strong style={{ color: diferencaPp > 0 ? '#f59e0b' : diferencaPp < 0 ? '#60a5fa' : '#10b981' }}>
+          {diferencaPp > 0 ? '+' : ''}{diferencaPp.toFixed(1)}pp
+        </strong>
+      </span>
+    ) : null}
+
+    {diagnostico ? (
+      <span style={{ fontWeight: 700, color: diagnosticoColor }}>{diagnostico}</span>
+    ) : null}
+
+    <div style={{ height: 18, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
+
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ color: '#8fa3bc' }}>Usar:</span>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+        <input
+          type="radio"
+          name="rateSourceHeader"
+          value="planejada"
+          checked={rateSource === 'planejada'}
+          onChange={() => setRateSource('planejada')}
+          style={{ accentColor: '#f59e0b' }}
+        />
+        <span style={{ fontWeight: rateSource === 'planejada' ? 700 : 400 }}>Planejada</span>
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: taxaRealDecimal !== null ? 'pointer' : 'not-allowed', opacity: taxaRealDecimal !== null ? 1 : 0.4 }}>
+        <input
+          type="radio"
+          name="rateSourceHeader"
+          value="real"
+          checked={rateSource === 'real'}
+          onChange={() => setRateSource('real')}
+          disabled={taxaRealDecimal === null}
+          style={{ accentColor: '#22d3ee' }}
+        />
+        <span style={{ fontWeight: rateSource === 'real' ? 700 : 400 }}>Real</span>
+      </label>
+    </div>
+
+    <span style={{ fontSize: 11, opacity: 0.5 }}>
+      Mult: <strong style={{ color: '#f59e0b' }}>×{taxaUsadaNoCalculo > 0 ? (1 / taxaUsadaNoCalculo).toFixed(2) : '—'}</strong>
+    </span>
+  </div>
+)
+})()}
+
+{/* ��─ BLOCO: DIAS DA SEMANA + AUTO DIAS + DIAS REST. ────────────── */}
+<div style={{
+display: 'flex',
+alignItems: 'center',
+justifyContent: 'center',
+gap: 12,
+flexWrap: 'wrap',
+padding: '8px 14px',
+marginTop: 6,
+borderRadius: 10,
+border: '1px solid rgba(59,130,246,0.25)',
+background: 'linear-gradient(90deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 100%)',
+fontSize: 12,
+width: '100%',
+boxSizing: 'border-box',
+}}>
+<div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+  {daysLabels.map(({ dow, label }) => {
+    const isActive = !!workDays[dow]
+    return (
+      <button
+        key={dow}
+        type="button"
+        onClick={() => setWorkDays((prev) => ({ ...prev, [dow]: !prev[dow] }))}
+        style={{
+          padding: '5px 10px',
+          borderRadius: 6,
+          border: isActive ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
+          background: isActive
+            ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
+            : 'transparent',
+          color: isActive ? '#93c5fd' : '#546070',
+          fontSize: 12,
+          fontWeight: isActive ? 700 : 400,
+          cursor: 'pointer',
+          transition: 'all 150ms ease',
+          lineHeight: 1,
+        }}
+      >
+        {label}
+      </button>
+    )
+  })}
+</div>
+
+<button
+  type="button"
+  onClick={() => setAutoRemainingDays((prev) => !prev)}
+  style={{
+    padding: '5px 10px',
+    borderRadius: 6,
+    border: autoRemainingDays ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
+    background: autoRemainingDays
+      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
+      : 'transparent',
+    color: autoRemainingDays ? '#93c5fd' : '#546070',
+    fontSize: 11,
+    fontWeight: autoRemainingDays ? 700 : 400,
+    cursor: 'pointer',
+    transition: 'all 150ms ease',
+    lineHeight: 1,
+  }}
+>
+  Auto dias
+</button>
+
+<div style={{ height: 18, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
+
+<div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+  <span style={{ color: '#8fa3bc' }}>Dias rest.:</span>
+  <input
+    type="number"
+    value={remainingBusinessDays}
+    onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
+    disabled={autoRemainingDays}
+    style={{
+      width: 48,
+      padding: '3px 6px',
+      borderRadius: 6,
+      border: '1px solid rgba(59,130,246,0.3)',
+      background: autoRemainingDays ? 'rgba(13,15,20,0.8)' : 'rgba(17,19,24,0.8)',
+      color: 'white',
+      fontSize: 13,
+      fontWeight: 900,
+      opacity: autoRemainingDays ? 0.65 : 1,
+      cursor: autoRemainingDays ? 'not-allowed' : 'text',
+    }}
+  />
+</div>
+</div>
       </div>
 
       {/* ================================================================ */}
@@ -1364,132 +1559,7 @@ export default function SimuladorMetaPage() {
             >
               <div style={{ display: 'grid', gap: 28 }}>
 
-                {/* ── BLOCO 1: TAXA DE CONVERSÃO (compacto) ────────────── */}
-                {(() => {
-                  const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
-                  const taxaPlanejadaDecimal = closeRatePercent / 100
-                  const diferencaPp = taxaRealDecimal !== null
-                    ? (taxaPlanejadaDecimal - taxaRealDecimal) * 100
-                    : null
-
-                  let diagnostico = ''
-                  let diagnosticoColor = '#a78bfa'
-                  if (taxaRealDecimal !== null) {
-                    if (taxaPlanejadaDecimal > taxaRealDecimal * 1.1) {
-                      diagnostico = 'Plano otimista'
-                      diagnosticoColor = '#f59e0b'
-                    } else if (taxaPlanejadaDecimal >= taxaRealDecimal * 0.9) {
-                      diagnostico = 'Plano realista'
-                      diagnosticoColor = '#10b981'
-                    } else {
-                      diagnostico = 'Plano conservador'
-                      diagnosticoColor = '#60a5fa'
-                    }
-                  }
-
-                  return (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 16,
-                      flexWrap: 'wrap',
-                      padding: '14px 18px',
-                      borderRadius: 12,
-                      border: '1px solid rgba(59,130,246,0.25)',
-                      background: 'linear-gradient(90deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.04) 100%)',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.08)',
-                      fontSize: 12,
-                    }}>
-                      {/* Real */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ color: '#8fa3bc' }}>Real:</span>
-                        <span style={{ fontWeight: 900, color: taxaRealDecimal !== null ? '#22d3ee' : 'rgba(255,255,255,0.25)' }}>
-                          {taxaRealDecimal !== null ? `${(taxaRealDecimal * 100).toFixed(1)}%` : '—'}
-                        </span>
-                        {rateRealData?.vendor?.worked ? (
-                          <span style={{ fontSize: 10, opacity: 0.4 }}>({rateRealData.vendor.worked} ciclos)</span>
-                        ) : null}
-                      </div>
-
-                      {/* Planejada */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ color: '#8fa3bc' }}>Planejada:</span>
-                        <input
-                          type="number"
-                          step="1"
-                          min="1"
-                          max="90"
-                          value={closeRatePercent}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 1
-                            setCloseRatePercent(Math.max(1, Math.min(90, val)))
-                          }}
-                          style={{
-                            width: 50,
-                            padding: '3px 6px',
-                            borderRadius: 6,
-                            border: '1px solid rgba(59,130,246,0.3)',
-                            background: 'rgba(17,19,24,0.8)',
-                            color: '#f59e0b',
-                            fontSize: 13,
-                            fontWeight: 900,
-                          }}
-                        />
-                        <span style={{ fontWeight: 900, color: '#f59e0b' }}>%</span>
-                      </div>
-
-                      {/* Diferença */}
-                      {diferencaPp !== null ? (
-                        <span style={{ opacity: 0.7 }}>
-                          <strong style={{ color: diferencaPp > 0 ? '#f59e0b' : diferencaPp < 0 ? '#60a5fa' : '#10b981' }}>
-                            {diferencaPp > 0 ? '+' : ''}{diferencaPp.toFixed(1)}pp
-                          </strong>
-                        </span>
-                      ) : null}
-
-                      {/* Diagnóstico */}
-                      {diagnostico ? (
-                        <span style={{ fontWeight: 700, color: diagnosticoColor }}>{diagnostico}</span>
-                      ) : null}
-
-                      {/* Separador */}
-                      <div style={{ height: 20, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
-
-                      {/* Selector: qual usar */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ color: '#8fa3bc' }}>Usar:</span>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                          <input
-                            type="radio"
-                            name="rateSource"
-                            value="planejada"
-                            checked={rateSource === 'planejada'}
-                            onChange={() => setRateSource('planejada')}
-                            style={{ accentColor: '#f59e0b' }}
-                          />
-                          <span style={{ fontWeight: rateSource === 'planejada' ? 700 : 400 }}>Planejada</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: taxaRealDecimal !== null ? 'pointer' : 'not-allowed', opacity: taxaRealDecimal !== null ? 1 : 0.4 }}>
-                          <input
-                            type="radio"
-                            name="rateSource"
-                            value="real"
-                            checked={rateSource === 'real'}
-                            onChange={() => setRateSource('real')}
-                            disabled={taxaRealDecimal === null}
-                            style={{ accentColor: '#22d3ee' }}
-                          />
-                          <span style={{ fontWeight: rateSource === 'real' ? 700 : 400 }}>Real</span>
-                        </label>
-                      </div>
-
-                      {/* Multiplicador */}
-                      <span style={{ fontSize: 11, opacity: 0.5 }}>
-                        Mult: <strong style={{ color: '#f59e0b' }}>×{taxaUsadaNoCalculo > 0 ? (1 / taxaUsadaNoCalculo).toFixed(2) : '—'}</strong>
-                      </span>
-                    </div>
-                  )
-                })()}
+              
 
                 {/* ── BLOCO 2: RESULTADO DO ESFORÇO MÁXIMO ──────────────── */}
                 {theory10020Result ? (() => {
@@ -1890,16 +1960,29 @@ export default function SimuladorMetaPage() {
                   />
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <select
+                  <select
                       value={daysWindow}
                       onChange={(e) => setDaysWindow(parseInt(e.target.value))}
                       style={{
-                        padding: '10px 12px',
-                        borderRadius: 10,
+                        padding: '8px 12px 8px 8px',
+                        borderRadius: 8,
                         border: '1px solid #1a1d2e',
-                        background: '#111318',
-                        color: 'white',
+                        background: '#0d0f14',
+                        color: '#edf2f7',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 8px center',
+                        paddingRight: 28,
+                        cursor: 'pointer',
+                        outline: 'none',
+                        transition: 'border-color 150ms ease',
                       }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
                     >
                       <option value={30}>Últimos 30 dias</option>
                       <option value={60}>Últimos 60 dias</option>
@@ -1916,14 +1999,23 @@ export default function SimuladorMetaPage() {
                       }}
                       disabled={!rateRealData.vendor.close_rate || rateRealData.vendor.worked < 30}
                       style={{
-                        padding: '10px 12px',
-                        borderRadius: 10,
-                        border: '1px solid #1a1d2e',
-                        background: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 'rgba(16,185,129,0.15)' : '#111318',
-                        color: 'white',
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        border: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
+                          ? '1px solid rgba(59,130,246,0.4)'
+                          : '1px solid #1a1d2e',
+                        background: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
+                          ? 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)'
+                          : '#0d0f14',
+                        color: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
+                          ? '#93c5fd'
+                          : '#546070',
                         cursor: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 'pointer' : 'not-allowed',
-                        fontWeight: 900,
+                        fontWeight: 700,
+                        fontSize: 12,
                         opacity: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 1 : 0.5,
+                        transition: 'all 150ms ease',
+                        letterSpacing: '0.02em',
                       }}
                     >
                       Usar taxa real
@@ -1949,8 +2041,8 @@ export default function SimuladorMetaPage() {
             <Section title="Progresso" description="Seu desempenho atual no mês.">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                 <Card title="Ganhos Atuais" value={metrics?.current_wins ?? '—'} subtitle={result ? `${pct(result.progress_pct)} da meta (${result.needed_wins} alvo)` : undefined} tone={progressTone} />
-                <Card title="Ciclos Trabalhados" value={metrics?.worked_count ?? '—'} subtitle={metrics && result ? `Taxa real: ${pct(metrics.current_wins / Math.max(1, metrics.worked_count))}` : undefined} />
-                <Card title="Status" value={result?.on_track ? '✅ No ritmo!' : '⚠️ Acelerar'} tone={result?.on_track ? 'good' : 'bad'} />
+                <Card title="Ciclos Trabalhados" value={metrics?.worked_count ?? '—'} subtitle={metrics && result ? `Taxa real: ${pct(metrics.current_wins / Math.max(1, metrics.worked_count))}` : undefined} tone="neutral" />
+                <Card title="Status" value={result?.on_track ? 'No ritmo' : 'Acelerar'} tone={result?.on_track ? 'good' : 'bad'} />
               </div>
             </Section>
 
@@ -1964,13 +2056,31 @@ export default function SimuladorMetaPage() {
           <div style={{ display: 'grid', gap: 16 }}>
 
             <Section title="Funil do Período" description="Distribuição dos ciclos por estágio.">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
-                <Card title="Novo" value={metrics?.counts_by_status.novo ?? '—'} />
-                <Card title="Contato" value={metrics?.counts_by_status.contato ?? '—'} />
-                <Card title="Respondeu" value={metrics?.counts_by_status.respondeu ?? '—'} />
-                <Card title="Negociação" value={metrics?.counts_by_status.negociacao ?? '—'} />
-                <Card title="Ganho" value={metrics?.counts_by_status.ganho ?? '—'} tone="good" />
-                <Card title="Perdido" value={metrics?.counts_by_status.perdido ?? '—'} tone="bad" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #3b82f6', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Novo</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#3b82f6' }}>{metrics?.counts_by_status.novo ?? '—'}</div>
+                </div>
+                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #06b6d4', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Contato</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#06b6d4' }}>{metrics?.counts_by_status.contato ?? '—'}</div>
+                </div>
+                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #eab308', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Respondeu</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#eab308' }}>{metrics?.counts_by_status.respondeu ?? '—'}</div>
+                </div>
+                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #8b5cf6', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Negociação</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#8b5cf6' }}>{metrics?.counts_by_status.negociacao ?? '—'}</div>
+                </div>
+                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #22c55e', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Ganho</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#22c55e' }}>{metrics?.counts_by_status.ganho ?? '—'}</div>
+                </div>
+                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #ef4444', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Perdido</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#ef4444' }}>{metrics?.counts_by_status.perdido ?? '—'}</div>
+                </div>
               </div>
             </Section>
 
@@ -2034,7 +2144,7 @@ export default function SimuladorMetaPage() {
                 </label>
                 {distribution ? (
                   <span style={{ fontSize: 12, opacity: 0.5 }}>
-                    {distribution.summary.total_working_days} dias úteis · {toYMD(competency?.month_start ?? '')} a {toYMD(competency?.month_end ?? '')}
+                    {distribution.summary.total_working_days} dias úteis · {periodStart} a {periodEnd}
                   </span>
                 ) : null}
               </div>

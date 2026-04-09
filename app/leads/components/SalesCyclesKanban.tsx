@@ -19,7 +19,6 @@ import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import { QuickActionModal, logQuickAction, QuickActionType } from '@/app/components/leads/QuickActionModal'
 import SellerMicroKPIs from './SellerMicroKPIs'
-import SellerWorklist from './SellerWorklist'
 import { ToastContainer, useToast } from './Toast'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -1148,7 +1147,9 @@ maxWidth: 340,
 flex: '0 0 320px',
         display: 'flex',
         flexDirection: 'column',
-        background: isOver ? `${STATUS_COLORS[status]}07` : DS.panelBg,
+        background: isOver
+        ? `linear-gradient(180deg, ${STATUS_COLORS[status]}30 0%, ${DS.panelBg} 100%)`
+        : `linear-gradient(180deg, ${STATUS_COLORS[status]}50 0%, ${STATUS_COLORS[status]}08 90%, ${DS.panelBg} 100%)`,
         borderRadius: DS.radiusContainer + 3,
         border: `1px solid ${DS.border}`,
         borderTop: `3px solid ${STATUS_COLORS[status]}`,
@@ -1194,7 +1195,16 @@ flex: '0 0 320px',
       </div>
 
       {/* Scrollable cards area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 20px' }}>
+      <div
+        ref={(el) => {
+          if (el) {
+            el.style.scrollbarWidth = 'none'
+            ;(el.style as any).msOverflowStyle = 'none'
+          }
+        }}
+        className="kanban-column-scroll"
+        style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 20px' }}
+      >
         {filteredCycles.length === 0 ? (
           <div style={{ color: DS.textMuted, fontSize: 11, textAlign: 'center', paddingTop: 32 }}>
             Vazio
@@ -1571,8 +1581,8 @@ export default function SalesCyclesKanban({
     return getSLALevel(minutes, rule) === 'danger'
   }).length
 
-  const [focusPanelOpen, setFocusPanelOpen] = useState(false)
   const [insightsExpanded, setInsightsExpanded] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
 
   // SEARCH STATES
   const [searchTerm, setSearchTerm] = useState('')
@@ -1787,6 +1797,11 @@ export default function SalesCyclesKanban({
   useEffect(() => {
     void loadSLARules()
   }, [loadSLARules])
+
+      // FOCUS MODE — overlay
+  const toggleFocusMode = useCallback(() => {
+    setFocusMode((v) => !v)
+  }, [])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -3023,7 +3038,24 @@ export default function SalesCyclesKanban({
   }
 
   return (
-    <div style={{ background: DS.contentBg, minHeight: '100vh', color: DS.textPrimary, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{
+      background: DS.contentBg,
+      minHeight: '100vh',
+      color: DS.textPrimary,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      ...(focusMode ? {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 9999,
+        minHeight: '100vh',
+        height: '100vh',
+      } : {}),
+    }}>
 
       {/* COMMAND BAR */}
       <div style={{
@@ -3113,16 +3145,34 @@ export default function SalesCyclesKanban({
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button
-            onClick={() => setFocusPanelOpen((v) => !v)}
+
+        <button
+            onClick={() => setFocusMode((v) => !v)}
             style={{
               ...pillStyle,
-              background: focusPanelOpen ? 'rgba(59,130,246,0.14)' : DS.panelBg,
-              border: focusPanelOpen ? `1px solid rgba(59,130,246,0.4)` : `1px solid ${DS.border}`,
-              color: focusPanelOpen ? DS.blueSoft : DS.textSecondary,
+              background: focusMode ? 'rgba(59,130,246,0.14)' : DS.panelBg,
+              border: focusMode ? '1px solid rgba(59,130,246,0.4)' : `1px solid ${DS.border}`,
+              color: focusMode ? DS.blueSoft : DS.textSecondary,
             }}
+            title={focusMode ? 'Sair do modo foco' : 'Modo foco — só kanban'}
           >
-            {focusPanelOpen ? 'Fechar Fila' : 'Abrir Fila'} ({overdueCount + todayCount})
+            {focusMode ? '⊡' : '⊞'}
+          </button>
+
+          <button
+            onClick={toggleFocusMode}
+            style={{
+              ...pillStyle,
+              background: focusMode ? 'rgba(59,130,246,0.14)' : DS.panelBg,
+              border: focusMode ? '1px solid rgba(59,130,246,0.4)' : `1px solid ${DS.border}`,
+              color: focusMode ? DS.blueSoft : DS.textSecondary,
+              fontSize: 14,
+              padding: '5px 10px',
+              lineHeight: 1,
+            }}
+            title={focusMode ? 'Sair do modo foco (Esc)' : 'Modo foco — tela cheia'}
+          >
+            {focusMode ? '⊡' : '⊞'}
           </button>
 
           {selectedOwnerId && (
@@ -3176,6 +3226,7 @@ export default function SalesCyclesKanban({
         </div>
       </div>
 
+      <>
       {/* MICRO KPIs */}
       <SellerMicroKPIs
         userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
@@ -3192,50 +3243,72 @@ export default function SalesCyclesKanban({
           padding: '0 16px',
           display: 'flex',
           alignItems: 'center',
-          gap: 20,
-          minHeight: 40,
-          overflow: 'hidden',
+          gap: 6,
+          minHeight: 34,
           cursor: 'pointer',
           transition: 'background 200ms',
+          backgroundImage: 'linear-gradient(180deg, rgba(59,130,246,0.05) 0%, transparent 100%)',
         }}
         onClick={() => setInsightsExpanded((v) => !v)}
         aria-label={insightsExpanded ? 'Recolher insights' : 'Expandir insights'}
       >
-        <span style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, letterSpacing: '0.1em', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: DS.textLabel, letterSpacing: '0.12em', whiteSpace: 'nowrap', flexShrink: 0, textTransform: 'uppercase' }}>
           {insightsExpanded ? '▾' : '▸'} INSIGHTS
         </span>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-          <KPIChip label="Atrasados" value={overdueCount} color="#ef4444" />
-          <KPIChip label="SLA estourado" value={dangerCount} color="#f59e0b" />
-          <KPIChip label="Agenda hoje" value={todayCount} color={DS.blue} />
-          <KPIChip label="Próximos 7d" value={next7Count} color="#8b5cf6" />
-        </div>
+
+        {!insightsExpanded && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {[
+              { label: 'Atrasados', value: overdueCount, accent: '#ef4444' },
+              { label: 'SLA estourado', value: dangerCount, accent: '#f59e0b' },
+              { label: 'Agenda hoje', value: todayCount, accent: '#3b82f6' },
+              { label: 'Próximos 7d', value: next7Count, accent: '#8b5cf6' },
+            ].map((chip) => (
+              <div
+                key={chip.label}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: `${chip.accent}12`,
+                  border: `1px solid ${chip.accent}25`,
+                  borderRadius: 5,
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: chip.accent,
+                  whiteSpace: 'nowrap',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                <span>{chip.value}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.7 }}>{chip.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-            {/* INSIGHTS EXPANDED PANEL */}
-            {insightsExpanded && (
+      {/* INSIGHTS EXPANDED PANEL */}
+      {insightsExpanded && (
         <div style={{
           background: DS.contentBg,
           borderBottom: `1px solid ${DS.border}`,
-          padding: '12px 16px',
-          maxHeight: 300,
+          padding: '10px 16px 14px',
+          maxHeight: 320,
           overflowY: 'auto',
         }}>
-          {/* SLA ESTOURADO LIST */}
           {(() => {
-            const allItems = Object.values(items).flat()
-            const overdueItems = allItems.filter((c) => {
-              const agState = getAgendaState(c.next_action_date)
-              return agState === 'overdue'
-            })
-            const dangerItems = allItems.filter((c) => {
+            const insightAllItems = Object.values(items).flat()
+            const overdueItems = insightAllItems.filter((c) => getAgendaState(c.next_action_date) === 'overdue')
+            const dangerItems = insightAllItems.filter((c) => {
               if (c.status === 'ganho' || c.status === 'perdido') return false
               const mins = Math.floor((nowTick.getTime() - new Date(c.stage_entered_at || new Date()).getTime()) / 60000)
               const rule = slaRules[c.status] || { ...DEFAULT_SLA_RULES[c.status], id: 'default' }
               return getSLALevel(mins, rule) === 'danger'
             })
-            const todayItems = allItems.filter((c) => getAgendaState(c.next_action_date) === 'today')
-            const next7Items = allItems.filter((c) => {
+            const todayItems = insightAllItems.filter((c) => getAgendaState(c.next_action_date) === 'today')
+            const next7Items = insightAllItems.filter((c) => {
               const agState = getAgendaState(c.next_action_date)
               if (agState === 'none' || agState === 'overdue') return false
               const actionDate = new Date(c.next_action_date!)
@@ -3243,128 +3316,96 @@ export default function SalesCyclesKanban({
               return actionDate <= sevenDays
             })
 
-            return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
-                {/* ATRASADOS */}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#ef4444', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <CircleAlertIcon size={12} color="#ef4444" /> Atrasados ({overdueItems.length})
-                  </div>
-                  {overdueItems.length === 0 ? (
-                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum atrasado</div>
-                  ) : (
-                    overdueItems.slice(0, 10).map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
-                        style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
-                          background: 'rgba(239,68,68,0.07)', marginBottom: 4,
-                          cursor: 'pointer', color: '#fecaca',
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          border: '1px solid rgba(239,68,68,0.12)',
-                        }}
-                      >
-                        <span>{c.name}</span>
-                        <span style={{ fontSize: 9, color: DS.textMuted }}>{formatNextActionDate(c.next_action_date)}</span>
-                      </div>
-                    ))
-                  )}
-                  {overdueItems.length > 10 && (
-                    <div style={{ fontSize: 9, color: DS.textMuted }}>+{overdueItems.length - 10} mais</div>
-                  )}
-                </div>
+            const sections = [
+              { title: 'Atrasados', count: overdueItems.length, accent: '#ef4444', items: overdueItems, renderDetail: (c: PipelineItem) => formatNextActionDate(c.next_action_date) },
+              { title: 'SLA Estourado', count: dangerItems.length, accent: '#f59e0b', items: dangerItems, renderDetail: (c: PipelineItem) => {
+                const mins = Math.floor((nowTick.getTime() - new Date(c.stage_entered_at || new Date()).getTime()) / 60000)
+                return `${formatTimeInStage(mins)} em ${STATUS_LABELS[c.status]}`
+              }},
+              { title: 'Agenda Hoje', count: todayItems.length, accent: '#3b82f6', items: todayItems, renderDetail: (c: PipelineItem) => formatNextActionDate(c.next_action_date) },
+              { title: 'Próximos 7d', count: next7Items.length, accent: '#8b5cf6', items: next7Items, renderDetail: (c: PipelineItem) => formatNextActionDate(c.next_action_date) },
+            ]
 
-                {/* SLA ESTOURADO */}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <WarningTriangleIcon size={12} color="#f59e0b" /> SLA Estourado ({dangerItems.length})
-                  </div>
-                  {dangerItems.length === 0 ? (
-                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum SLA estourado</div>
-                  ) : (
-                    dangerItems.slice(0, 10).map((c) => {
-                      const mins = Math.floor((nowTick.getTime() - new Date(c.stage_entered_at || new Date()).getTime()) / 60000)
-                      return (
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+                {sections.map((sec) => (
+                  <div
+                    key={sec.title}
+                    style={{
+                      background: `linear-gradient(135deg, ${sec.accent}08 0%, ${DS.panelBg} 100%)`,
+                      border: `1px solid ${sec.accent}20`,
+                      borderTop: `2px solid ${sec.accent}`,
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: sec.accent,
+                      marginBottom: 8,
+                      letterSpacing: '0.04em',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}>
+                      {sec.title}
+                      <span style={{
+                        fontSize: 9,
+                        fontWeight: 800,
+                        background: `${sec.accent}18`,
+                        color: sec.accent,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                      }}>
+                        {sec.count}
+                      </span>
+                    </div>
+
+                    {sec.items.length === 0 ? (
+                      <div style={{ fontSize: 10, color: DS.textMuted, fontStyle: 'italic' }}>Nenhum</div>
+                    ) : (
+                      sec.items.slice(0, 10).map((c) => (
                         <div
                           key={c.id}
                           onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
                           style={{
-                            fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
-                            background: 'rgba(245,158,11,0.07)', marginBottom: 4,
-                            cursor: 'pointer', color: '#fef3c7',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            border: '1px solid rgba(245,158,11,0.12)',
+                            fontSize: 11,
+                            padding: '5px 8px',
+                            borderRadius: 6,
+                            background: `${sec.accent}08`,
+                            border: `1px solid ${sec.accent}12`,
+                            marginBottom: 4,
+                            cursor: 'pointer',
+                            color: DS.textPrimary,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                            transition: 'background 150ms ease',
                           }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = `${sec.accent}18` }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = `${sec.accent}08` }}
                         >
-                          <span>{c.name}</span>
-                          <span style={{ fontSize: 9, color: DS.textMuted }}>{formatTimeInStage(mins)} em {STATUS_LABELS[c.status]}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{c.name}</span>
+                          <span style={{ fontSize: 9, color: DS.textMuted, flexShrink: 0 }}>{sec.renderDetail(c)}</span>
                         </div>
-                      )
-                    })
-                  )}
-                </div>
-
-                {/* AGENDA HOJE */}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: DS.blue, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <CalendarTodayIcon size={12} color={DS.blue} /> Agenda Hoje ({todayItems.length})
+                      ))
+                    )}
+                    {sec.items.length > 10 && (
+                      <div style={{ fontSize: 9, color: DS.textMuted, marginTop: 4 }}>+{sec.items.length - 10} mais</div>
+                    )}
                   </div>
-                  {todayItems.length === 0 ? (
-                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum para hoje</div>
-                  ) : (
-                    todayItems.slice(0, 10).map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
-                        style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
-                          background: 'rgba(59,130,246,0.07)', marginBottom: 4,
-                          cursor: 'pointer', color: DS.blueSoft,
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          border: `1px solid rgba(59,130,246,0.12)`,
-                        }}
-                      >
-                        <span>{c.name}</span>
-                        <span style={{ fontSize: 9, color: DS.textMuted }}>{formatNextActionDate(c.next_action_date)}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* PRÓXIMOS 7D */}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: '#8b5cf6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <CalendarRangeIcon size={12} color="#8b5cf6" /> Próximos 7d ({next7Items.length})
-                  </div>
-                  {next7Items.length === 0 ? (
-                    <div style={{ fontSize: 10, color: DS.textMuted }}>Nenhum nos próximos 7 dias</div>
-                  ) : (
-                    next7Items.slice(0, 10).map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => { window.location.href = `/sales-cycles/${c.id}` }}
-                        style={{
-                          fontSize: 11, padding: '4px 8px', borderRadius: DS.radius,
-                          background: 'rgba(139,92,246,0.07)', marginBottom: 4,
-                          cursor: 'pointer', color: '#c4b5fd',
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          border: '1px solid rgba(139,92,246,0.12)',
-                        }}
-                      >
-                        <span>{c.name}</span>
-                        <span style={{ fontSize: 9, color: DS.textMuted }}>{formatNextActionDate(c.next_action_date)}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
+                ))}
               </div>
             )
           })()}
         </div>
       )}
+            </>
 
-      {/* MAIN AREA: KANBAN + FOCUS PANEL */}
+      {/* MAIN AREA: KANBAN */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
         {/* KANBAN AREA */}
@@ -3379,7 +3420,16 @@ export default function SalesCyclesKanban({
               Carregando...
             </div>
           ) : (
-            <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px 16px', display: 'flex', gap: 12 }}>
+            <div
+              ref={(el) => {
+                if (el) {
+                  el.style.scrollbarWidth = 'none'
+                  ;(el.style as any).msOverflowStyle = 'none'
+                }
+              }}
+              className="kanban-column-scroll"
+              style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px 16px', display: 'flex', gap: 12 }}
+            >
               <DndContext sensors={sensors} collisionDetection={closestCorners}>
                 {STATUSES.map((status) => (
                   <VirtualizedStatusColumn
@@ -3412,42 +3462,6 @@ export default function SalesCyclesKanban({
             </div>
           )}
         </div>
-
-        {/* FOCUS PANEL (RIGHT SIDE) */}
-        {focusPanelOpen && (
-          <div style={{
-            width: 320,
-            flexShrink: 0,
-            borderLeft: `1px solid ${DS.border}`,
-            background: DS.panelBg,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}>
-            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${DS.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: DS.surfaceBg }}>
-              <span style={{ fontWeight: 700, fontSize: 13, color: DS.textPrimary }}>Fila do Dia</span>
-              <button
-                onClick={() => setFocusPanelOpen(false)}
-                style={{ background: 'none', border: 'none', color: DS.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
-                aria-label="Fechar fila do dia"
-              >
-                ×
-              </button>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto' }}>
-              <SellerWorklist
-                userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
-                groupId={selectedGroupId}
-                supabase={supabase}
-                refreshKey={kpiRefreshKey}
-                onRefresh={() => {
-                  setKpiRefreshKey((k) => k + 1)
-                  addToast('Agenda salva!', 'success')
-                }}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       {showCreateLeadModal && (
@@ -3718,8 +3732,8 @@ export default function SalesCyclesKanban({
 
       <StageCheckpointModal
         open={checkpointOpen}
-        fromStatus={pendingMove?.fromStatus || 'novo'}
-        toStatus={pendingMove?.toStatus || 'novo'}
+        fromStatus={pendingMove ? pendingMove.fromStatus : 'novo'}
+        toStatus={pendingMove ? pendingMove.toStatus : 'novo'}
         onCancel={() => {
           setCheckpointOpen(false)
           setPendingMove(null)
