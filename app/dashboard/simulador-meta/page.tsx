@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
   getActiveCompetency,
@@ -225,6 +224,78 @@ function tabStyle(isActive: boolean) {
     fontWeight: isActive ? 700 : 400,
     transition: 'all 200ms ease',
   }
+}
+
+function IconUsers({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
+function IconBarChart({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <line x1="12" y1="20" x2="12" y2="10" />
+      <line x1="18" y1="20" x2="18" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="16" />
+    </svg>
+  )
+}
+
+function IconTag({ size = 14, color = '#a78bfa' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+      <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  )
+}
+
+function IconCrosshair({ size = 14, color = '#22d3ee' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="22" y1="12" x2="18" y2="12" />
+      <line x1="6" y1="12" x2="2" y2="12" />
+      <line x1="12" y1="6" x2="12" y2="2" />
+      <line x1="12" y1="22" x2="12" y2="18" />
+    </svg>
+  )
+}
+
+function IconTrophy({ size = 14, color = '#10b981' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+      <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+      <path d="M4 22h16" />
+      <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22" />
+      <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22" />
+      <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+    </svg>
+  )
+}
+
+function IconZap({ size = 14, color = '#22d3ee' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  )
+}
+
+function IconCheckCircle({ size = 14, color = '#10b981' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
+  )
 }
 
 export default function SimuladorMetaPage() {
@@ -472,7 +543,6 @@ export default function SimuladorMetaPage() {
   const activeGoalForKpis = isAdmin ? revenueGoalInputNumber : revenueGoalDb
 
   // Computed: taxa usada no cálculo da teoria
-  // rateSource === 'real' uses the historical vendor rate; 'planejada' uses closeRatePercent
   const taxaUsadaNoCalculo = useMemo(() => {
     const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
     if (rateSource === 'real' && taxaRealDecimal !== null) {
@@ -576,7 +646,6 @@ export default function SimuladorMetaPage() {
     const dateStart = toYMD(competency.month_start)
     const dateEnd = toYMD(competency.month_end)
 
-    // Lookback histórico: 2 anos para ter sazonalidade robusta
     const histEnd = dateEnd
     const histStartDate = new Date(histEnd + 'T00:00:00')
     histStartDate.setFullYear(histStartDate.getFullYear() - 2)
@@ -587,7 +656,6 @@ export default function SimuladorMetaPage() {
       setDistributionError(null)
 
       try {
-        // Carregar sinais das Fases anteriores em paralelo
         const [wdVocationSummary, monthlyPerfSummary, radarSummary] = await Promise.allSettled([
           getWeekdayVocation({
             companyId: cid,
@@ -609,10 +677,8 @@ export default function SimuladorMetaPage() {
           }),
         ])
 
-        // Construir sinais de entrada
         const inputSignals: DistributionInputSignals = {}
 
-        // Vocação por dia da semana
         if (wdVocationSummary.status === 'fulfilled') {
           const summary = wdVocationSummary.value
           const wdMap: DistributionInputSignals['weekdayVocation'] = {}
@@ -633,7 +699,6 @@ export default function SimuladorMetaPage() {
           inputSignals.weekdayVocation = wdMap
         }
 
-        // Sazonalidade do mês atual
         if (monthlyPerfSummary.status === 'fulfilled') {
           const summary = monthlyPerfSummary.value
           const currentMonth = new Date(dateStart + 'T00:00:00').getMonth() + 1
@@ -650,7 +715,6 @@ export default function SimuladorMetaPage() {
           }
         }
 
-        // Radar do período
         if (radarSummary.status === 'fulfilled') {
           const r = radarSummary.value
           inputSignals.periodRadar = {
@@ -660,7 +724,6 @@ export default function SimuladorMetaPage() {
           }
         }
 
-        // Calcular total de leads a partir da Teoria 100/20 ou da meta simples
         const totalLeadsForDist = theory10020Result?.leads_para_contatar
           ?? Math.ceil(targetWins / Math.max(0.01, percentToRate(closeRatePercent)))
 
@@ -884,7 +947,16 @@ export default function SimuladorMetaPage() {
       {/* ================================================================ */}
       {/* COMPACT HEADER — sempre visível acima das abas                   */}
       {/* ================================================================ */}
-      <div style={{ borderBottom: '1px solid #1a1d2e', paddingBottom: 14, marginBottom: 12 }}>
+      <div style={{
+        borderBottom: '1px solid rgba(59,130,246,0.18)',
+        paddingBottom: 16,
+        marginBottom: 12,
+        padding: '16px 18px',
+        borderRadius: 14,
+        background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
+        border: '1px solid rgba(59,130,246,0.18)',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Simulador de Meta</h1>
           {competency ? (
@@ -898,89 +970,130 @@ export default function SimuladorMetaPage() {
 
           {/* Seller selector (admin only) */}
           {isAdmin ? (
-            <select
-              value={selectedSellerId ?? 'all'}
-              onChange={(e) => {
-                const val = e.target.value
-                setSelectedSellerId(val === 'all' ? null : val)
-              }}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 8,
-                border: '1px solid #1a1d2e',
-                background: '#111318',
-                color: 'white',
-                fontSize: 13,
-              }}
-            >
-              <option value="all">👥 Empresa (todos)</option>
-              {sellers.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+              <IconUsers size={15} color="#60a5fa" />
+              <select
+                value={selectedSellerId ?? 'all'}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setSelectedSellerId(val === 'all' ? null : val)
+                }}
+                style={{
+                  padding: '8px 12px 8px 8px',
+                  borderRadius: 8,
+                  border: '1px solid #1a1d2e',
+                  background: '#0d0f14',
+                  color: '#edf2f7',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 8px center',
+                  paddingRight: 28,
+                  cursor: 'pointer',
+                  outline: 'none',
+                  transition: 'border-color 150ms ease',
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
+                onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
+              >
+                <option value="all">Empresa (todos)</option>
+                {sellers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+            </div>
           ) : null}
 
-          {/* Pipeline link */}
-          <Link
-            href="/leads"
-            style={{
-              padding: '8px 10px',
-              borderRadius: 8,
-              border: '1px solid #1a1d2e',
-              background: '#111318',
-              color: 'white',
-              textDecoration: 'none',
-              fontWeight: 900,
-              fontSize: 13,
-            }}
-          >
-            Pipeline →
-          </Link>
-
           {/* Mode selector */}
-          <select
-            value={mode}
-            onChange={(e) => {
-              const newMode = e.target.value as SimulatorMode
-              setMode(newMode)
-              if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
-                setActiveTab('taxa-resultado')
-              }
-            }}
-            style={{
-              padding: '8px 10px',
-              borderRadius: 8,
-              border: '1px solid #1a1d2e',
-              background: '#111318',
-              color: 'white',
-              fontSize: 13,
-              fontWeight: 700,
-            }}
-          >
-            <option value="ganhos">Ganhos (ciclos)</option>
-            <option value="faturamento">Faturamento (R$)</option>
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconBarChart size={15} color="#60a5fa" />
+            <select
+              value={mode}
+              onChange={(e) => {
+                const newMode = e.target.value as SimulatorMode
+                setMode(newMode)
+                if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
+                  setActiveTab('taxa-resultado')
+                }
+              }}
+              style={{
+                padding: '8px 12px 8px 8px',
+                borderRadius: 8,
+                border: '1px solid #1a1d2e',
+                background: '#0d0f14',
+                color: '#edf2f7',
+                fontSize: 13,
+                fontWeight: 600,
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 8px center',
+                paddingRight: 28,
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'border-color 150ms ease',
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
+            >
+              <option value="ganhos">Ganhos (ciclos)</option>
+              <option value="faturamento">Faturamento (R$)</option>
+            </select>
+          </div>
 
           {/* Dias trabalhados */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', padding: '6px 10px', borderRadius: 8, border: '1px solid #1a1d2e', background: '#0d0f14' }}>
-            {daysLabels.map(({ dow, label }) => (
-              <label key={dow} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={!!workDays[dow]}
-                  onChange={(e) => setWorkDays((prev) => ({ ...prev, [dow]: e.target.checked }))}
-                />
-                <span style={{ opacity: 0.8 }}>{label}</span>
-              </label>
-            ))}
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', marginLeft: 4, borderLeft: '1px solid #1a1d2e', paddingLeft: 8 }}>
-              <input
-                type="checkbox"
-                checked={autoRemainingDays}
-                onChange={(e) => setAutoRemainingDays(e.target.checked)}
-              />
-              <span style={{ opacity: 0.7 }}>Auto dias</span>
-            </label>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', padding: '4px 6px', borderRadius: 8, border: '1px solid #1a1d2e', background: '#090b0f' }}>
+            {daysLabels.map(({ dow, label }) => {
+              const isActive = !!workDays[dow]
+              return (
+                <button
+                  key={dow}
+                  type="button"
+                  onClick={() => setWorkDays((prev) => ({ ...prev, [dow]: !prev[dow] }))}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 6,
+                    border: isActive ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
+                    background: isActive
+                      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
+                      : 'transparent',
+                    color: isActive ? '#93c5fd' : '#546070',
+                    fontSize: 12,
+                    fontWeight: isActive ? 700 : 400,
+                    cursor: 'pointer',
+                    transition: 'all 150ms ease',
+                    lineHeight: 1,
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+            <div style={{ width: 1, height: 18, background: '#1a1d2e', marginInline: 4, flexShrink: 0 }} />
+            <button
+              type="button"
+              onClick={() => setAutoRemainingDays((prev) => !prev)}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 6,
+                border: autoRemainingDays ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
+                background: autoRemainingDays
+                  ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
+                  : 'transparent',
+                color: autoRemainingDays ? '#93c5fd' : '#546070',
+                fontSize: 11,
+                fontWeight: autoRemainingDays ? 700 : 400,
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+                lineHeight: 1,
+              }}
+            >
+              Auto dias
+            </button>
           </div>
 
           {/* Taxa de Conversão */}
@@ -1156,18 +1269,21 @@ export default function SimuladorMetaPage() {
               />
               {isAdmin ? (
                 <>
-                  <button
+                                    <button
                     onClick={() => void handleSaveGoal()}
                     disabled={goalSaving || goalLoading}
                     style={{
-                      padding: '6px 10px',
+                      padding: '7px 16px',
                       borderRadius: 8,
-                      border: 'none',
-                      background: '#10b981',
-                      color: 'white',
+                      border: '1px solid rgba(59,130,246,0.4)',
+                      background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
+                      color: '#93c5fd',
                       fontWeight: 700,
                       fontSize: 12,
                       cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
+                      opacity: goalSaving || goalLoading ? 0.5 : 1,
+                      transition: 'all 150ms ease',
+                      letterSpacing: '0.02em',
                     }}
                   >
                     {goalSaving ? '...' : 'Salvar'}
@@ -1176,13 +1292,16 @@ export default function SimuladorMetaPage() {
                     onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
                     disabled={goalSaving || goalLoading}
                     style={{
-                      padding: '6px 10px',
+                      padding: '7px 14px',
                       borderRadius: 8,
                       border: '1px solid #1a1d2e',
-                      background: '#111318',
-                      color: 'white',
+                      background: '#0d0f14',
+                      color: '#8fa3bc',
                       fontSize: 12,
+                      fontWeight: 500,
                       cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
+                      opacity: goalSaving || goalLoading ? 0.5 : 1,
+                      transition: 'all 150ms ease',
                     }}
                   >
                     Desfazer
@@ -1227,7 +1346,7 @@ export default function SimuladorMetaPage() {
       <div style={{ display: 'grid', gap: 16 }}>
 
         {/* ============================================================ */}
-        {/* ABA 1: TEORIA 100/20                                          */}
+        {/* ABA 1: ESFORÇO MÁXIMO                                         */}
         {/* ============================================================ */}
         {activeTab === 'teoria' && (
           mode === 'faturamento' ? (
@@ -1243,9 +1362,9 @@ export default function SimuladorMetaPage() {
               }
               description="Converte sua meta de faturamento em volume de leads e ganhos diários usando o multiplicador dinâmico (1 ÷ taxa)"
             >
-              <div style={{ display: 'grid', gap: 24 }}>
+              <div style={{ display: 'grid', gap: 28 }}>
 
-                {/* ── TAXA DE CONVERSÃO: REAL vs PLANEJADA (compacto) ────── */}
+                {/* ── BLOCO 1: TAXA DE CONVERSÃO (compacto) ────────────── */}
                 {(() => {
                   const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
                   const taxaPlanejadaDecimal = closeRatePercent / 100
@@ -1274,10 +1393,11 @@ export default function SimuladorMetaPage() {
                       alignItems: 'center',
                       gap: 16,
                       flexWrap: 'wrap',
-                      padding: '12px 16px',
-                      borderRadius: 10,
-                      border: '1px solid #1a1d2e',
-                      background: '#0d0f14',
+                      padding: '14px 18px',
+                      borderRadius: 12,
+                      border: '1px solid rgba(59,130,246,0.25)',
+                      background: 'linear-gradient(90deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.04) 100%)',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.08)',
                       fontSize: 12,
                     }}>
                       {/* Real */}
@@ -1308,8 +1428,8 @@ export default function SimuladorMetaPage() {
                             width: 50,
                             padding: '3px 6px',
                             borderRadius: 6,
-                            border: '1px solid #1a1d2e',
-                            background: '#111318',
+                            border: '1px solid rgba(59,130,246,0.3)',
+                            background: 'rgba(17,19,24,0.8)',
                             color: '#f59e0b',
                             fontSize: 13,
                             fontWeight: 900,
@@ -1333,7 +1453,7 @@ export default function SimuladorMetaPage() {
                       ) : null}
 
                       {/* Separador */}
-                      <div style={{ height: 20, width: 1, background: '#1a1d2e', flexShrink: 0 }} />
+                      <div style={{ height: 20, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
 
                       {/* Selector: qual usar */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1371,22 +1491,37 @@ export default function SimuladorMetaPage() {
                   )
                 })()}
 
-                {/* ── BLOCO 2: ESCADA DA TEORIA 100/20 ─────────────────── */}
+                {/* ── BLOCO 2: RESULTADO DO ESFORÇO MÁXIMO ──────────────── */}
                 {theory10020Result ? (() => {
                   const t = theory10020Result
                   return (
                     <>
-                      <div>
-                        <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: 14 }}>
-                        Resultado do Esforço Máximo
+                      <div style={{
+                        padding: '20px 18px',
+                        borderRadius: 14,
+                        background: 'linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
+                        border: '1px solid rgba(59,130,246,0.20)',
+                        boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
+                      }}>
+                        <div style={{
+                          fontSize: 10,
+                          fontWeight: 900,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.12em',
+                          color: 'rgba(147,197,253,0.5)',
+                          marginBottom: 14,
+                          paddingLeft: 10,
+                          borderLeft: '2px solid rgba(59,130,246,0.4)',
+                        }}>
+                          Resultado do Esforço Máximo
                         </div>
 
                         {/* Row 2: Steps 5 → 9 */}
                         <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
                           {/* Step 5 — Ticket médio */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(139,92,246,0.04))', border: '1px solid rgba(139,92,246,0.25)', borderLeft: '3px solid #8b5cf6' }}>
+                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #8b5cf6' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>5</div>
+                              <IconTag size={16} color="#a78bfa" />
                               <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ticket médio</div>
                             </div>
                             <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#a78bfa', lineHeight: 1 }}>{toBRL(t.ticket_medio)}</div>
@@ -1396,9 +1531,9 @@ export default function SimuladorMetaPage() {
                           <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>÷</div>
 
                           {/* Step 6 — Leads para contatar */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(6,182,212,0.10), rgba(6,182,212,0.04))', border: '1px solid rgba(6,182,212,0.25)', borderLeft: '3px solid #06b6d4' }}>
+                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #06b6d4' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#06b6d4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#0a0a0a', flexShrink: 0 }}>6</div>
+                              <IconCrosshair size={16} color="#22d3ee" />
                               <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads para contatar</div>
                             </div>
                             <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#22d3ee', lineHeight: 1 }}>{t.leads_para_contatar}</div>
@@ -1411,13 +1546,13 @@ export default function SimuladorMetaPage() {
                           </div>
 
                           {/* Step 7 — Ganhos esperados */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.04))', border: '1px solid rgba(16,185,129,0.30)', borderLeft: '3px solid #10b981' }}>
+                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #10b981' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: '#0a0a0a', flexShrink: 0 }}>7</div>
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(16,185,129,0.8)', fontWeight: 700 }}>Ganhos esperados</div>
+                              <IconTrophy size={16} color="#10b981" />
+                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos esperados</div>
                             </div>
                             <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#10b981', lineHeight: 1 }}>{t.ganhos_esperados}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(16,185,129,0.5)', marginTop: 6 }}>leads × conversão</div>
+                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>leads × conversão</div>
                           </div>
 
                           <div style={{ display: 'flex', alignItems: 'center', paddingInline: 6, color: 'rgba(255,255,255,0.18)', fontSize: 12, fontWeight: 300, flexShrink: 0, flexDirection: 'column', gap: 2 }}>
@@ -1428,12 +1563,10 @@ export default function SimuladorMetaPage() {
                           {/* Step 8 — Leads por dia útil */}
                           {(() => {
                             const lpdColor = t.leads_por_dia > 15 ? '#ef4444' : '#22d3ee'
-                            const lpdBg = '#0d0f14'
-                            const lpdBorder = '#1a1d2e'
                             return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: lpdBg, borderTop: `1px solid ${lpdBorder}`, borderRight: `1px solid ${lpdBorder}`, borderBottom: `1px solid ${lpdBorder}`, borderLeft: `3px solid ${lpdColor}` }}>
+                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: `3px solid ${lpdColor}` }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: lpdColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>8</div>
+                                <IconZap size={16} color={lpdColor} />
                                   <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads por dia útil</div>
                                 </div>
                                 <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: lpdColor, lineHeight: 1 }}>{t.leads_por_dia}</div>
@@ -1447,12 +1580,10 @@ export default function SimuladorMetaPage() {
                           {/* Step 9 — Ganhos por dia útil */}
                           {(() => {
                             const gpdColor = t.ganhos_por_dia > 5 ? '#ef4444' : '#10b981'
-                            const gpdBg = '#0d0f14'
-                            const gpdBorder = '#1a1d2e'
                             return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: gpdBg, borderTop: `1px solid ${gpdBorder}`, borderRight: `1px solid ${gpdBorder}`, borderBottom: `1px solid ${gpdBorder}`, borderLeft: `3px solid ${gpdColor}` }}>
+                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: `3px solid ${gpdColor}` }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                  <div style={{ width: 22, height: 22, borderRadius: '50%', background: gpdColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900, color: 'white', flexShrink: 0 }}>9</div>
+                                <IconCheckCircle size={16} color={gpdColor} />
                                   <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos por dia útil</div>
                                 </div>
                                 <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: gpdColor, lineHeight: 1 }}>{t.ganhos_por_dia}</div>
@@ -1465,8 +1596,23 @@ export default function SimuladorMetaPage() {
 
                       {/* ── BLOCO 3: SITUAÇÃO ATUAL ─────────────────────────── */}
                       {!t.meta_atingida && t.gap > 0 ? (
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: 14 }}>
+                        <div style={{
+                          padding: '20px 18px',
+                          borderRadius: 14,
+                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 50%, rgba(13,15,20,0.95) 100%)',
+                          border: '1px solid rgba(59,130,246,0.18)',
+                          boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.05)',
+                        }}>
+                          <div style={{
+                            fontSize: 10,
+                            fontWeight: 900,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.12em',
+                            color: 'rgba(147,197,253,0.5)',
+                            marginBottom: 14,
+                            paddingLeft: 10,
+                            borderLeft: '2px solid rgba(239,68,68,0.4)',
+                          }}>
                             Situação atual
                           </div>
                           {(() => {
@@ -1475,7 +1621,7 @@ export default function SimuladorMetaPage() {
                             const barColor = progressPct >= 0.8 ? '#10b981' : progressPct >= 0.5 ? '#f59e0b' : '#ef4444'
                             return (
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                                <div style={{ padding: '18px 20px', borderRadius: 14, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
+                                <div style={{ padding: '18px 20px', borderRadius: 14, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
                                   <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 8 }}>Realizado</div>
                                   <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.5px', color: barColor, lineHeight: 1 }}>{toBRL(t.total_real)}</div>
                                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6, marginBottom: 16 }}>de {toBRL(t.meta_total)} ({pctRounded}%)</div>
@@ -1503,27 +1649,27 @@ export default function SimuladorMetaPage() {
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                  <div style={{ gridColumn: '1 / -1', padding: '14px 16px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #ef4444' }}>
+                                  <div style={{ gridColumn: '1 / -1', padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', borderTop: '1px solid rgba(59,130,246,0.12)', borderRight: '1px solid rgba(59,130,246,0.12)', borderBottom: '1px solid rgba(59,130,246,0.12)', borderLeft: '3px solid #ef4444' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Falta para a meta</div>
                                     <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#ef4444', lineHeight: 1 }}>{toBRL(t.gap)}</div>
                                     <div style={{ fontSize: 11, color: 'rgba(239,68,68,0.6)', marginTop: 4 }}>Meta − Realizado</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>gap × {t.multiplicador.toFixed(2)} ÷ ticket</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. × conversão</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes/dia</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes_por_dia}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. ÷ dias úteis</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes/dia</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes_por_dia}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>ganhos rest. ÷ dias úteis</div>
@@ -1559,20 +1705,36 @@ export default function SimuladorMetaPage() {
 
                       {/* ── BLOCO 4: DIAGNÓSTICO OPERACIONAL ───────────────── */}
                       {!t.meta_atingida && t.gap > 0 ? (
-                        <div>
-                          <div style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.35)', marginBottom: 14 }}>
+                        <div style={{
+                          padding: '20px 18px',
+                          borderRadius: 14,
+                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 50%, rgba(13,15,20,0.95) 100%)',
+                          border: '1px solid rgba(59,130,246,0.18)',
+                          boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.05)',
+                        }}>
+                          <div style={{
+                            fontSize: 10,
+                            fontWeight: 900,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.12em',
+                            color: 'rgba(147,197,253,0.5)',
+                            marginBottom: 14,
+                            paddingLeft: 10,
+                            borderLeft: '2px solid rgba(245,158,11,0.4)',
+                          }}>
                             Diagnóstico operacional
                           </div>
                           <div style={{
                             padding: '20px 20px 20px 24px',
                             borderRadius: 14,
-                            background: '#0d0f14',
-                            borderTop: '1px solid #1a1d2e',
-                            borderRight: '1px solid #1a1d2e',
-                            borderBottom: '1px solid #1a1d2e',
+                            background: 'rgba(13,15,20,0.6)',
+                            borderTop: '1px solid rgba(59,130,246,0.10)',
+                            borderRight: '1px solid rgba(59,130,246,0.10)',
+                            borderBottom: '1px solid rgba(59,130,246,0.10)',
                             borderLeft: '4px solid #f59e0b',
                             position: 'relative',
                             overflow: 'hidden',
+                            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.15)',
                           }}>
                             <div style={{ fontSize: 13, lineHeight: 1.9, color: 'rgba(255,255,255,0.8)' }}>
                               <div>
