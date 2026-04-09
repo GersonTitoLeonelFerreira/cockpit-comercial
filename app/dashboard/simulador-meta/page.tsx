@@ -1128,8 +1128,8 @@ export default function SimuladorMetaPage() {
 
 {/* Ticket Médio (quando mode === faturamento) */}
 {mode === 'faturamento' && (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Ticket:</span>
+  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 130 }}>
+    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Ticket Médio:</span>
     <div style={{ display: 'flex', gap: 4 }}>
       <button
         onClick={() => setTicketSource('manual')}
@@ -1219,82 +1219,6 @@ export default function SimuladorMetaPage() {
     )}
   </div>
 )}
-
-{/* Meta Financeira */}
-{showRevenueMode ? (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Meta R$:</span>
-    <input
-      type="text"
-      inputMode="decimal"
-      value={revenueGoalInputText}
-      onChange={(e) => setRevenueGoalInputText(e.target.value)}
-      onFocus={() => {
-        const n = Math.max(0, safeNumber(revenueGoalInputText))
-        setRevenueGoalInputText(String(n))
-      }}
-      onBlur={() => {
-        const n = Math.max(0, safeNumber(revenueGoalInputText))
-        setRevenueGoalInputText(toBRL(n))
-      }}
-      disabled={!isAdmin || goalLoading || goalSaving}
-      style={{
-        width: 130,
-        padding: '6px 8px',
-        borderRadius: 8,
-        border: '1px solid #1a1d2e',
-        background: !isAdmin ? '#0d0f14' : '#111318',
-        color: 'white',
-        fontWeight: 700,
-        fontSize: 13,
-      }}
-    />
-    {isAdmin ? (
-      <>
-        <button
-          onClick={() => void handleSaveGoal()}
-          disabled={goalSaving || goalLoading}
-          style={{
-            padding: '7px 16px',
-            borderRadius: 8,
-            border: '1px solid rgba(59,130,246,0.4)',
-            background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
-            color: '#93c5fd',
-            fontWeight: 700,
-            fontSize: 12,
-            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-            opacity: goalSaving || goalLoading ? 0.5 : 1,
-            transition: 'all 150ms ease',
-            letterSpacing: '0.02em',
-          }}
-        >
-          {goalSaving ? '...' : 'Salvar'}
-        </button>
-        <button
-          onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
-          disabled={goalSaving || goalLoading}
-          style={{
-            padding: '7px 14px',
-            borderRadius: 8,
-            border: '1px solid #1a1d2e',
-            background: '#0d0f14',
-            color: '#8fa3bc',
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-            opacity: goalSaving || goalLoading ? 0.5 : 1,
-            transition: 'all 150ms ease',
-          }}
-        >
-          Desfazer
-        </button>
-      </>
-    ) : null}
-    {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
-    {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
-    {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
-  </div>
-) : null}
 </div>
 
 {/* ── BLOCO: TAXA DE CONVERSÃO ────────────── */}
@@ -1509,7 +1433,106 @@ boxSizing: 'border-box',
     }}
   />
 </div>
+<div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+  <span style={{ color: '#8fa3bc' }}>Dias rest.:</span>
+  <input
+    type="number"
+    value={remainingBusinessDays}
+    onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
+    disabled={autoRemainingDays}
+    style={{
+      width: 48,
+      padding: '3px 6px',
+      borderRadius: 6,
+      border: '1px solid rgba(59,130,246,0.3)',
+      background: autoRemainingDays ? 'rgba(13,15,20,0.8)' : 'rgba(17,19,24,0.8)',
+      color: 'white',
+      fontSize: 13,
+      fontWeight: 900,
+      opacity: autoRemainingDays ? 0.65 : 1,
+      cursor: autoRemainingDays ? 'not-allowed' : 'text',
+    }}
+  />
 </div>
+</div>
+
+{/* ── Meta R$ (esquerda) + Salvar/Desfazer (direita) ── */}
+{showRevenueMode ? (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <span style={{ fontSize: 12, color: '#8fa3bc' }}>Meta R$:</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={revenueGoalInputText}
+        onChange={(e) => setRevenueGoalInputText(e.target.value)}
+        onFocus={() => {
+          const n = Math.max(0, safeNumber(revenueGoalInputText))
+          setRevenueGoalInputText(String(n))
+        }}
+        onBlur={() => {
+          const n = Math.max(0, safeNumber(revenueGoalInputText))
+          setRevenueGoalInputText(toBRL(n))
+        }}
+        disabled={!isAdmin || goalLoading || goalSaving}
+        style={{
+          width: 130,
+          padding: '6px 8px',
+          borderRadius: 8,
+          border: '1px solid #1a1d2e',
+          background: !isAdmin ? '#0d0f14' : '#111318',
+          color: 'white',
+          fontWeight: 700,
+          fontSize: 13,
+        }}
+      />
+      {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
+      {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
+      {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
+    </div>
+    {isAdmin ? (
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          onClick={() => void handleSaveGoal()}
+          disabled={goalSaving || goalLoading}
+          style={{
+            padding: '7px 16px',
+            borderRadius: 8,
+            border: '1px solid rgba(59,130,246,0.4)',
+            background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
+            color: '#93c5fd',
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
+            opacity: goalSaving || goalLoading ? 0.5 : 1,
+            transition: 'all 150ms ease',
+            letterSpacing: '0.02em',
+          }}
+        >
+          {goalSaving ? '...' : 'Salvar'}
+        </button>
+        <button
+          onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
+          disabled={goalSaving || goalLoading}
+          style={{
+            padding: '7px 14px',
+            borderRadius: 8,
+            border: '1px solid #1a1d2e',
+            background: '#0d0f14',
+            color: '#8fa3bc',
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
+            opacity: goalSaving || goalLoading ? 0.5 : 1,
+            transition: 'all 150ms ease',
+          }}
+        >
+          Desfazer
+        </button>
+      </div>
+    ) : null}
+  </div>
+) : null}
       </div>
 
       {/* ================================================================ */}
