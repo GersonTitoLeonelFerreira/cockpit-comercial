@@ -55,22 +55,22 @@ function KpiCard({
       : '#e8e8e8'
   return (
     <div
-      style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 10,
-        padding: '14px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <div style={{ fontSize: 11, opacity: 0.55, textTransform: 'uppercase', letterSpacing: 1 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
-      {sub ? <div style={{ fontSize: 11, opacity: 0.6 }}>{sub}</div> : null}
+    style={{
+      background: '#0d0f14',
+      border: '1px solid #1a1d2e',
+      borderRadius: 10,
+      padding: '14px 16px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 4,
+    }}
+  >
+    <div style={{ fontSize: 11, color: '#4a5569', textTransform: 'uppercase', letterSpacing: 1 }}>
+      {label}
     </div>
+    <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
+    {sub ? <div style={{ fontSize: 11, color: '#546070' }}>{sub}</div> : null}
+  </div>
   )
 }
 
@@ -100,8 +100,9 @@ export default function SimulatorDistributionSummary({
           gap: 12,
           padding: '12px 16px',
           borderRadius: 10,
-          background: is_fallback ? '#1a1500' : '#0a1a0f',
-          border: `1px solid ${is_fallback ? '#a16207' : '#14532d'}`,
+          background: '#111318',
+          border: `1px solid #1a1d2e`,
+          borderLeft: `3px solid ${confidenceColor}`,
         }}
       >
         <div
@@ -161,8 +162,8 @@ export default function SimulatorDistributionSummary({
       {/* Distribuição por foco */}
       <div
         style={{
-          background: '#0d0d0d',
-          border: '1px solid #1a1a1a',
+          background: '#0d0f14',
+          border: '1px solid #1a1d2e',
           borderRadius: 10,
           padding: '14px 16px',
         }}
@@ -181,8 +182,8 @@ export default function SimulatorDistributionSummary({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
-                  background: '#111',
-                  border: `1px solid ${FOCUS_COLORS[type]}33`,
+                  background: '#111318',
+                  border: `1px solid ${FOCUS_COLORS[type]}30`,
                   borderRadius: 8,
                   padding: '6px 12px',
                   fontSize: 12,

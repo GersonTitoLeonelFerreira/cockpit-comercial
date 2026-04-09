@@ -45,14 +45,14 @@ function RowDetail({ row }: { row: CalendarDistributionRow }) {
         colSpan={7}
         style={{
           padding: '8px 16px 12px',
-          background: '#111',
+          background: '#111318',
           borderBottom: '1px solid #1a1a1a',
           fontSize: 12,
-          color: '#aaa',
+          color: '#8fa3bc',
           lineHeight: 1.6,
         }}
       >
-        <strong style={{ color: '#ddd' }}>Motivo:</strong> {row.reason}
+                <strong style={{ color: '#edf2f7' }}>Motivo:</strong> {row.reason}
         {' · '}
         <strong style={{ color: '#ddd' }}>Peso relativo:</strong>{' '}
         {(row.weight * 100).toFixed(1)}%
@@ -97,7 +97,7 @@ export default function SimulatorDailyDistributionTable({
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
-          <tr style={{ borderBottom: '1px solid #2a2a2a' }}>
+        <tr style={{ borderBottom: '1px solid #1a1d2e' }}>
             <th style={thStyle}>Data</th>
             <th style={thStyle}>Dia</th>
             <th style={thStyle}>Foco</th>
@@ -119,12 +119,12 @@ export default function SimulatorDailyDistributionTable({
                   style={{
                     borderBottom: isExpanded ? 'none' : '1px solid #1a1a1a',
                     cursor: 'pointer',
-                    background: isExpanded ? '#0d0d0d' : 'transparent',
+                    background: isExpanded ? '#0d0f14' : 'transparent',
                     transition: 'background 0.15s',
                   }}
                   onMouseEnter={(e) => {
                     if (!isExpanded) {
-                      ;(e.currentTarget as HTMLTableRowElement).style.background = '#0d0d0d'
+                      ;(e.currentTarget as HTMLTableRowElement).style.background = '#0d0f14'
                     }
                   }}
                   onMouseLeave={(e) => {
@@ -178,7 +178,7 @@ export default function SimulatorDailyDistributionTable({
           })}
         </tbody>
         <tfoot>
-          <tr style={{ borderTop: '2px solid #2a2a2a', background: '#0a0a0a' }}>
+        <tr style={{ borderTop: '2px solid #1a1d2e', background: '#090b0f' }}>
             <td colSpan={3} style={{ ...tdStyle, fontWeight: 700, opacity: 0.7, fontSize: 12 }}>
               TOTAL
             </td>
@@ -208,7 +208,7 @@ export default function SimulatorDailyDistributionTable({
 const thStyle: React.CSSProperties = {
   textAlign: 'left',
   padding: '8px 12px',
-  opacity: 0.6,
+  color: '#4a5569',
   fontWeight: 700,
   fontSize: 11,
   textTransform: 'uppercase',

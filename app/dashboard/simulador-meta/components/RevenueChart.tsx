@@ -185,16 +185,16 @@ export function RevenueChart({
     <div
       ref={containerRef}
       style={{
-        border: '1px solid #202020',
-        background: '#0c0c0c',
-        borderRadius: 16,
-        padding: 14,
+        border: '1px solid #1a1d2e',
+        background: '#0d0f14',
+        borderRadius: 12,
+        padding: 16,
         position: 'relative',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-        <div style={{ fontWeight: 900 }}>{title}</div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+      <div style={{ fontWeight: 900, color: '#edf2f7' }}>{title}</div>
+        <div style={{ fontSize: 12, color: '#8fa3bc' }}>
           Real: <b>{formatBRL(totalReal)}</b> • Meta: <b>{formatBRL(goal)}</b> • Dias úteis: <b>{businessCount}</b>
           {lastDate ? <span style={{ opacity: 0.6 }}> • até {lastDate}</span> : null}
         </div>
@@ -286,9 +286,9 @@ export function RevenueChart({
             top: tooltip.top,
             width: 280,
             pointerEvents: 'none',
-            border: '1px solid rgba(255,255,255,0.14)',
-            background: 'rgba(10,10,10,0.96)',
-            borderRadius: 12,
+            border: '1px solid #1a1d2e',
+            background: 'rgba(13,15,20,0.97)',
+            borderRadius: 10,
             padding: 10,
             boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
           }}
@@ -325,7 +325,7 @@ export function RevenueChart({
         </div>
       ) : null}
 
-      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+<div style={{ marginTop: 8, fontSize: 11, color: '#546070' }}>
         Linhas: acumulado real vs acumulado ideal (meta distribuída pelos dias úteis). Barras: valor diário.
       </div>
     </div>

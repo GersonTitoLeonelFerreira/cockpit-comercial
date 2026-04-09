@@ -169,17 +169,24 @@ function Card({
   subtitle?: React.ReactNode
   tone?: 'neutral' | 'good' | 'bad'
 }) {
-  const border =
-    tone === 'good' ? '1px solid #1f5f3a' : tone === 'bad' ? '1px solid #5f1f1f' : '1px solid #2a2a2a'
-  const bg = tone === 'good' ? '#07140c' : tone === 'bad' ? '#140707' : '#0f0f0f'
+  const valueColor =
+    tone === 'good' ? '#86efac' : tone === 'bad' ? '#fca5a5' : '#edf2f7'
+  const accentBorder =
+    tone === 'good' ? '#22c55e' : tone === 'bad' ? '#ef4444' : '#1a1d2e'
 
   return (
-    <div style={{ border, background: bg, borderRadius: 14, padding: 14 }}>
-      <div style={{ fontSize: 12, opacity: 0.78, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{
+      border: '1px solid #1a1d2e',
+      borderLeft: `3px solid ${accentBorder}`,
+      background: '#0d0f14',
+      borderRadius: 10,
+      padding: '14px 16px',
+    }}>
+      <div style={{ fontSize: 11, color: '#8fa3bc', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         {title}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2 }}>{value}</div>
-      {subtitle ? <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75, lineHeight: 1.5 }}>{subtitle}</div> : null}
+      <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2, color: valueColor }}>{value}</div>
+      {subtitle ? <div style={{ marginTop: 8, fontSize: 12, color: '#546070', lineHeight: 1.5 }}>{subtitle}</div> : null}
     </div>
   )
 }
@@ -194,10 +201,10 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section style={{ border: '1px solid #202020', background: '#0c0c0c', borderRadius: 16, padding: 16 }}>
+    <section style={{ border: '1px solid #1a1d2e', background: '#0d0f14', borderRadius: 12, padding: 18 }}>
       <div>
-        <div style={{ fontSize: 14, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 8 }}>{title}</div>
-        {description ? <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>{description}</div> : null}
+        <div style={{ fontSize: 14, fontWeight: 900, color: '#edf2f7', display: 'flex', alignItems: 'center', gap: 8 }}>{title}</div>
+        {description ? <div style={{ marginTop: 4, fontSize: 12, color: '#8fa3bc' }}>{description}</div> : null}
       </div>
       <div style={{ marginTop: 14 }}>{children}</div>
     </section>
@@ -207,13 +214,16 @@ function Section({
 function tabStyle(isActive: boolean) {
   return {
     padding: '8px 18px',
-    background: isActive ? '#1d4ed8' : '#1a1a1a',
-    color: isActive ? '#fff' : '#aaa',
-    border: isActive ? '1px solid #3b82f6' : '1px solid #333',
+    background: isActive
+      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.06) 100%)'
+      : '#0d0f14',
+    color: isActive ? '#93c5fd' : '#8fa3bc',
+    border: isActive ? '1px solid #3b82f6' : '1px solid #1a1d2e',
     borderRadius: 8,
     cursor: 'pointer' as const,
-    fontSize: 14,
-    fontWeight: isActive ? 600 : 400,
+    fontSize: 13,
+    fontWeight: isActive ? 700 : 400,
+    transition: 'all 200ms ease',
   }
 }
 
