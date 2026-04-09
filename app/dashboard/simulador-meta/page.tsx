@@ -884,7 +884,7 @@ export default function SimuladorMetaPage() {
       {/* ================================================================ */}
       {/* COMPACT HEADER — sempre visível acima das abas                   */}
       {/* ================================================================ */}
-      <div style={{ borderBottom: '1px solid #202020', paddingBottom: 14, marginBottom: 12 }}>
+      <div style={{ borderBottom: '1px solid #1a1d2e', paddingBottom: 14, marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
           <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Simulador de Meta</h1>
           {competency ? (
@@ -907,8 +907,8 @@ export default function SimuladorMetaPage() {
               style={{
                 padding: '8px 10px',
                 borderRadius: 8,
-                border: '1px solid #2a2a2a',
-                background: '#111',
+                border: '1px solid #1a1d2e',
+                background: '#111318',
                 color: 'white',
                 fontSize: 13,
               }}
@@ -926,8 +926,8 @@ export default function SimuladorMetaPage() {
             style={{
               padding: '8px 10px',
               borderRadius: 8,
-              border: '1px solid #2a2a2a',
-              background: '#151515',
+              border: '1px solid #1a1d2e',
+              background: '#111318',
               color: 'white',
               textDecoration: 'none',
               fontWeight: 900,
@@ -950,8 +950,8 @@ export default function SimuladorMetaPage() {
             style={{
               padding: '8px 10px',
               borderRadius: 8,
-              border: '1px solid #2a2a2a',
-              background: '#111',
+              border: '1px solid #1a1d2e',
+              background: '#111318',
               color: 'white',
               fontSize: 13,
               fontWeight: 700,
@@ -962,7 +962,7 @@ export default function SimuladorMetaPage() {
           </select>
 
           {/* Dias trabalhados */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', padding: '6px 10px', borderRadius: 8, border: '1px solid #1e1e1e', background: '#0d0d0d' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', padding: '6px 10px', borderRadius: 8, border: '1px solid #1a1d2e', background: '#0d0f14' }}>
             {daysLabels.map(({ dow, label }) => (
               <label key={dow} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
                 <input
@@ -973,7 +973,7 @@ export default function SimuladorMetaPage() {
                 <span style={{ opacity: 0.8 }}>{label}</span>
               </label>
             ))}
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', marginLeft: 4, borderLeft: '1px solid #2a2a2a', paddingLeft: 8 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', marginLeft: 4, borderLeft: '1px solid #1a1d2e', paddingLeft: 8 }}>
               <input
                 type="checkbox"
                 checked={autoRemainingDays}
@@ -985,7 +985,7 @@ export default function SimuladorMetaPage() {
 
           {/* Taxa de Conversão */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.6 }}>Taxa:</span>
+            <span style={{ fontSize: 12, color: '#8fa3bc' }}>Taxa:</span>
             <input
               type="number"
               step="1"
@@ -1000,18 +1000,18 @@ export default function SimuladorMetaPage() {
                 width: 54,
                 padding: '6px 8px',
                 borderRadius: 8,
-                border: '1px solid #2a2a2a',
-                background: '#111',
+                border: '1px solid #1a1d2e',
+                background: '#111318',
                 color: 'white',
                 fontSize: 13,
               }}
             />
-            <span style={{ fontSize: 12, opacity: 0.6 }}>%</span>
+            <span style={{ fontSize: 12, color: '#8fa3bc' }}>%</span>
           </div>
 
           {/* Dias Úteis Restantes */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.6 }}>Dias rest.:</span>
+            <span style={{ fontSize: 12, color: '#8fa3bc' }}>Dias rest.:</span>
             <input
               type="number"
               value={remainingBusinessDays}
@@ -1021,8 +1021,8 @@ export default function SimuladorMetaPage() {
                 width: 54,
                 padding: '6px 8px',
                 borderRadius: 8,
-                border: '1px solid #2a2a2a',
-                background: autoRemainingDays ? '#0f0f0f' : '#111',
+                border: '1px solid #1a1d2e',
+                background: autoRemainingDays ? '#0d0f14' : '#111318',
                 color: 'white',
                 fontSize: 13,
                 opacity: autoRemainingDays ? 0.65 : 1,
@@ -1034,7 +1034,7 @@ export default function SimuladorMetaPage() {
           {/* Meta Financeira (quando mode !== 'ganhos') */}
           {showRevenueMode ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, opacity: 0.6 }}>Meta R$:</span>
+              <span style={{ fontSize: 12, color: '#8fa3bc' }}>Meta R$:</span>
               <input
                 type="text"
                 inputMode="decimal"
@@ -1053,8 +1053,8 @@ export default function SimuladorMetaPage() {
                   width: 130,
                   padding: '6px 8px',
                   borderRadius: 8,
-                  border: '1px solid #2a2a2a',
-                  background: !isAdmin ? '#0f0f0f' : '#111',
+                  border: '1px solid #1a1d2e',
+                  background: !isAdmin ? '#0d0f14' : '#111318',
                   color: 'white',
                   fontWeight: 700,
                   fontSize: 13,
@@ -1084,8 +1084,8 @@ export default function SimuladorMetaPage() {
                     style={{
                       padding: '6px 10px',
                       borderRadius: 8,
-                      border: '1px solid #2a2a2a',
-                      background: '#111',
+                      border: '1px solid #1a1d2e',
+                      background: '#111318',
                       color: 'white',
                       fontSize: 12,
                       cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
@@ -1095,7 +1095,7 @@ export default function SimuladorMetaPage() {
                   </button>
                 </>
               ) : null}
-              {goalLoading ? <span style={{ fontSize: 11, opacity: 0.6 }}>Carregando...</span> : null}
+              {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
               {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
               {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
             </div>
@@ -1162,8 +1162,8 @@ export default function SimuladorMetaPage() {
                       style={{
                         padding: '6px 16px',
                         borderRadius: 8,
-                        border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #333',
-                        background: ticketSource === 'manual' ? '#1e3a5f' : '#111',
+                        border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #1a1d2e',
+                        background: ticketSource === 'manual' ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.06) 100%)' : '#111318',
                         color: '#fff',
                         cursor: 'pointer',
                         fontSize: 13,
@@ -1177,8 +1177,8 @@ export default function SimuladorMetaPage() {
                       style={{
                         padding: '6px 16px',
                         borderRadius: 8,
-                        border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #333',
-                        background: ticketSource === 'historico' ? '#0a2e1f' : '#111',
+                        border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #1a1d2e',
+                        background: ticketSource === 'historico' ? 'linear-gradient(90deg, rgba(16,185,129,0.22) 0%, rgba(16,185,129,0.06) 100%)' : '#111318',
                         color: '#fff',
                         cursor: 'pointer',
                         fontSize: 13,
@@ -1196,11 +1196,12 @@ export default function SimuladorMetaPage() {
                       padding: 14,
                       borderRadius: 12,
                       border: historicalTicket?.is_sufficient
-                        ? '1px solid #1f5f3a'
-                        : '1px solid #5f3f1f',
-                      background: historicalTicket?.is_sufficient
-                        ? '#07140c'
-                        : '#140f07',
+                        ? '1px solid #22c55e'
+                        : '1px solid #ef4444',
+                      borderLeft: historicalTicket?.is_sufficient
+                        ? '3px solid #22c55e'
+                        : '3px solid #ef4444',
+                      background: '#111318',
                     }}>
                       {historicalTicketLoading ? (
                         <div style={{ fontSize: 13, opacity: 0.6 }}>Calculando ticket histórico...</div>
@@ -1220,8 +1221,8 @@ export default function SimuladorMetaPage() {
                               marginTop: 8,
                               padding: '4px 12px',
                               borderRadius: 6,
-                              border: '1px solid #333',
-                              background: '#1a1a1a',
+                              border: '1px solid #1a1d2e',
+                              background: '#0d0f14',
                               color: '#fff',
                               cursor: 'pointer',
                               fontSize: 12,
@@ -1234,7 +1235,7 @@ export default function SimuladorMetaPage() {
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                             <div>
-                              <div style={{ fontSize: 11, opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                              <div style={{ fontSize: 11, color: '#8fa3bc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                                 Ticket Médio Histórico
                               </div>
                               <div style={{ fontSize: 28, fontWeight: 900, marginTop: 4 }}>
@@ -1242,7 +1243,7 @@ export default function SimuladorMetaPage() {
                               </div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 11, opacity: 0.6 }}>
+                              <div style={{ fontSize: 11, color: '#8fa3bc' }}>
                                 Base: {historicalTicket.sample_size} vendas
                               </div>
                               <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
@@ -1302,8 +1303,8 @@ export default function SimuladorMetaPage() {
                           marginTop: 4,
                           padding: '8px 12px',
                           borderRadius: 8,
-                          border: '1px solid #333',
-                          background: '#111',
+                          border: '1px solid #1a1d2e',
+                          background: '#111318',
                           color: '#fff',
                           fontSize: 16,
                           fontWeight: 700,
@@ -1416,8 +1417,8 @@ export default function SimuladorMetaPage() {
                                     width: 64,
                                     padding: '4px 8px',
                                     borderRadius: 8,
-                                    border: '1px solid #333',
-                                    background: '#111',
+                                    border: '1px solid #1a1d2e',
+                                    background: '#111318',
                                     color: '#f59e0b',
                                     fontSize: 18,
                                     fontWeight: 900,
@@ -1653,11 +1654,11 @@ export default function SimuladorMetaPage() {
                             const barColor = progressPct >= 0.8 ? '#10b981' : progressPct >= 0.5 ? '#f59e0b' : '#ef4444'
                             return (
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                                <div style={{ padding: '18px 20px', borderRadius: 14, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                <div style={{ padding: '18px 20px', borderRadius: 14, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
                                   <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 8 }}>Realizado</div>
                                   <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.5px', color: barColor, lineHeight: 1 }}>{toBRL(t.total_real)}</div>
                                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6, marginBottom: 16 }}>de {toBRL(t.meta_total)} ({pctRounded}%)</div>
-                                  <div style={{ height: 8, borderRadius: 4, background: '#1a1a1a', overflow: 'hidden' }}>
+                                  <div style={{ height: 8, borderRadius: 4, background: '#1a1d2e', overflow: 'hidden' }}>
                                     <div
                                       role="progressbar"
                                       aria-valuenow={Math.min(pctRounded, 100)}
@@ -1686,22 +1687,22 @@ export default function SimuladorMetaPage() {
                                     <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#ef4444', lineHeight: 1 }}>{toBRL(t.gap)}</div>
                                     <div style={{ fontSize: 11, color: 'rgba(239,68,68,0.6)', marginTop: 4 }}>Meta − Realizado</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>gap × {t.multiplicador.toFixed(2)} ÷ ticket</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. × conversão</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes/dia</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes_por_dia}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. ÷ dias úteis</div>
                                   </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0f0f0f', border: '1px solid #1e1e1e' }}>
+                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: '#0d0f14', border: '1px solid #1a1d2e' }}>
                                     <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes/dia</div>
                                     <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes_por_dia}</div>
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>ganhos rest. ÷ dias úteis</div>
@@ -1911,8 +1912,8 @@ export default function SimuladorMetaPage() {
                       style={{
                         padding: '10px 12px',
                         borderRadius: 10,
-                        border: '1px solid #2a2a2a',
-                        background: '#111',
+                        border: '1px solid #1a1d2e',
+                        background: '#111318',
                         color: 'white',
                       }}
                     >
@@ -1933,8 +1934,8 @@ export default function SimuladorMetaPage() {
                       style={{
                         padding: '10px 12px',
                         borderRadius: 10,
-                        border: '1px solid #2a2a2a',
-                        background: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? '#1f5f3a' : '#1a1a1a',
+                        border: '1px solid #1a1d2e',
+                        background: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 'rgba(16,185,129,0.15)' : '#111318',
                         color: 'white',
                         cursor: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 'pointer' : 'not-allowed',
                         fontWeight: 900,
@@ -1997,19 +1998,19 @@ export default function SimuladorMetaPage() {
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid #2a2a2a' }}>
-                        <th style={{ textAlign: 'left', padding: '8px 12px', opacity: 0.6, fontWeight: 700 }}>Grupo</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.6, fontWeight: 700 }}>Trabalhados</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.6, fontWeight: 700 }}>Ganhos</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.6, fontWeight: 700 }}>Taxa</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.6, fontWeight: 700 }}>Participação</th>
+                      <tr style={{ borderBottom: '1px solid #1a1d2e' }}>
+                        <th style={{ textAlign: 'left', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Grupo</th>
+                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Trabalhados</th>
+                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Ganhos</th>
+                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Taxa</th>
+                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Participação</th>
                       </tr>
                     </thead>
                     <tbody>
                       {groupConversion.map((row, i) => (
                         <tr
                           key={row.group_id ?? i}
-                          style={{ borderBottom: '1px solid #1a1a1a' }}
+                          style={{ borderBottom: '1px solid #1a1d2e' }}
                         >
                           <td style={{ padding: '8px 12px' }}>{row.group_name || '—'}</td>
                           <td style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.8 }}>{row.trabalhados}</td>
