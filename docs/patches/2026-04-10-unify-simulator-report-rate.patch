@@ -1,0 +1,295 @@
+diff --git a/app/lib/services/simulator.ts b/app/lib/services/simulator.ts
+--- a/app/lib/services/simulator.ts
++++ b/app/lib/services/simulator.ts
+@@
+ export type RevenueGoalResponse = {
+   success: boolean
+   goal_value: number
+   ticket_medio: number
++  close_rate_percent: number
++  rate_source: 'planejada' | 'real'
+ }
+@@
+ export async function upsertRevenueGoal(params: {
+   companyId: string
+   ownerId: string | null
+   startDate: string // YYYY-MM-DD
+   endDate: string // YYYY-MM-DD
+   goalValue: number
+   ticketMedio?: number
++  closeRatePercent?: number
++  rateSource?: 'planejada' | 'real'
+ }): Promise<{ success: boolean }> {
+@@
+   const { data, error } = await supabase.rpc('rpc_upsert_revenue_goal', {
+     p_company_id: params.companyId,
+     p_owner_id: params.ownerId,
+     p_date_start: params.startDate,
+     p_date_end: params.endDate,
+     p_goal_value: params.goalValue,
+     p_ticket_medio: params.ticketMedio ?? 0,
++    p_close_rate_percent: params.closeRatePercent ?? 20,
++    p_rate_source: params.rateSource ?? 'planejada',
+   })
+
+diff --git a/app/dashboard/simulador-meta/page.tsx b/app/dashboard/simulador-meta/page.tsx
+--- a/app/dashboard/simulador-meta/page.tsx
++++ b/app/dashboard/simulador-meta/page.tsx
+@@
+         const dbValue = Number(res?.goal_value || 0)
+         setRevenueGoalDb(dbValue)
+         setRevenueGoalInputText(String(dbValue))
+ 
+         const dbTicket = Number(res?.ticket_medio || 0)
+         if (dbTicket > 0) {
+           setTicketMedioText(String(dbTicket))
+           setTicketSource('manual')
+         }
++
++        const dbCloseRatePercent = Number(res?.close_rate_percent || 0)
++        if (dbCloseRatePercent > 0) {
++          setCloseRatePercent(dbCloseRatePercent)
++        }
++
++        const dbRateSource = res?.rate_source === 'real' ? 'real' : 'planejada'
++        setRateSource(dbRateSource)
+@@
+       await upsertRevenueGoal({
+         companyId,
+         ownerId: revenueGoalOwnerId ?? null,
+         startDate: revenueDates.start,
+         endDate: revenueDates.end,
+         goalValue,
+         ticketMedio: ticketValue,
++        closeRatePercent,
++        rateSource,
+       })
+
+diff --git a/app/relatorios/gerais/page.tsx b/app/relatorios/gerais/page.tsx
+--- a/app/relatorios/gerais/page.tsx
++++ b/app/relatorios/gerais/page.tsx
+@@
+ type MetaVsReal = {
+   meta_empresa: number
+   meta_start: string
+   meta_end: string
+   ticket_simulador: number
+-  ticket_simulador: number
+   total_ganhos: number
+   faturamento: number
+   ticket_medio: number
+@@
+ }
++
++type RevenueGoalConfig = {
++  success: boolean
++  goal_value: number
++  ticket_medio: number
++  close_rate_percent: number
++  rate_source: 'planejada' | 'real'
++}
+@@
+   const meta: MetaVsReal | null = metaRaw?.[0] ? {
+@@
+   } : null
++
++  const { data: goalConfigRaw } =
++    meta?.meta_start && meta?.meta_end
++      ? await supabase.rpc('rpc_get_revenue_goal', {
++          p_company_id: companyId,
++          p_owner_id: null,
++          p_date_start: meta.meta_start,
++          p_date_end: meta.meta_end,
++        })
++      : { data: null }
++
++  const goalConfig: RevenueGoalConfig | null = goalConfigRaw
++    ? {
++        success: Boolean(goalConfigRaw.success),
++        goal_value: Number(goalConfigRaw.goal_value ?? 0),
++        ticket_medio: Number(goalConfigRaw.ticket_medio ?? 0),
++        close_rate_percent: Number(goalConfigRaw.close_rate_percent ?? 20),
++        rate_source: goalConfigRaw.rate_source === 'real' ? 'real' : 'planejada',
++      }
++    : null
+@@
+-  const ticketSimulador = meta?.ticket_simulador ?? 0
++  const ticketSimulador = goalConfig?.ticket_medio ?? meta?.ticket_simulador ?? 0
+   const ticketReal = meta?.ticket_medio ?? 0
+   const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
+   const taxaReal = meta?.ciclos_trabalhados && meta.ciclos_trabalhados > 0
+     ? meta.total_ganhos / meta.ciclos_trabalhados
+     : 0
++  const taxaPlanejada = Math.max(0, Number(goalConfig?.close_rate_percent ?? 20)) / 100
++  const taxaUsadaNoSimulador =
++    goalConfig?.rate_source === 'real'
++      ? (taxaReal > 0 ? taxaReal : taxaPlanejada)
++      : taxaPlanejada
++  const fonteTaxaAplicada =
++    goalConfig?.rate_source === 'real' && taxaReal > 0 ? 'Real' : 'Planejada'
+@@
+-  const taxaConversao = taxaReal > 0 ? taxaReal : 0.20
++  const taxaConversao = taxaUsadaNoSimulador > 0 ? taxaUsadaNoSimulador : 0.20
+@@
+                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                   Taxa de conversão
+                 </div>
+                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Usada no simulador</span>
+-                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(0)}%</b>
++                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Planejada</span>
++                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaPlanejada * 100).toFixed(1)}%</b>
+                 </div>
+-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
++                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Real (ganho/trabalhado)</span>
+                   <b style={{ fontSize: 13, color: taxaReal >= taxaConversao ? DS.green : DS.yellow }}>{(taxaReal * 100).toFixed(1)}%</b>
+                 </div>
++                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
++                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Aplicada no plano</span>
++                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(1)}%</b>
++                </div>
++                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
++                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Fonte aplicada</span>
++                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{fonteTaxaAplicada}</b>
++                </div>
+               </div>
+
+diff --git a/supabase/migrations/016_unify_simulator_report_rate_source.sql b/supabase/migrations/016_unify_simulator_report_rate_source.sql
+new file mode 100644
+--- /dev/null
++++ b/supabase/migrations/016_unify_simulator_report_rate_source.sql
+@@
++-- =============================================================================
++-- Migration 016 — Unify simulator and report rate source
++-- =============================================================================
++
++ALTER TABLE public.revenue_goals
++  ADD COLUMN IF NOT EXISTS ticket_medio numeric NOT NULL DEFAULT 0,
++  ADD COLUMN IF NOT EXISTS close_rate_percent numeric NOT NULL DEFAULT 20,
++  ADD COLUMN IF NOT EXISTS rate_source text NOT NULL DEFAULT 'planejada';
++
++DO $$
++BEGIN
++  IF NOT EXISTS (
++    SELECT 1
++    FROM pg_constraint
++    WHERE conname = 'revenue_goals_rate_source_check'
++  ) THEN
++    ALTER TABLE public.revenue_goals
++      ADD CONSTRAINT revenue_goals_rate_source_check
++      CHECK (rate_source IN ('planejada', 'real'));
++  END IF;
++END $$;
++
++CREATE OR REPLACE FUNCTION public.rpc_get_revenue_goal(
++  p_company_id uuid,
++  p_owner_id uuid,
++  p_date_start date,
++  p_date_end date
++)
++RETURNS json
++LANGUAGE plpgsql
++AS $function$
++declare
++  v_goal numeric;
++  v_ticket_medio numeric;
++  v_close_rate_percent numeric;
++  v_rate_source text;
++begin
++  select
++    rg.goal_value,
++    coalesce(rg.ticket_medio, 0),
++    coalesce(rg.close_rate_percent, 20),
++    coalesce(rg.rate_source, 'planejada')
++    into v_goal, v_ticket_medio, v_close_rate_percent, v_rate_source
++  from public.revenue_goals rg
++  where rg.company_id = p_company_id
++    and rg.owner_id is not distinct from p_owner_id
++    and rg.date_start = p_date_start
++    and rg.date_end = p_date_end
++  limit 1;
++
++  return json_build_object(
++    'success', true,
++    'goal_value', coalesce(v_goal, 0),
++    'ticket_medio', coalesce(v_ticket_medio, 0),
++    'close_rate_percent', coalesce(v_close_rate_percent, 20),
++    'rate_source', coalesce(v_rate_source, 'planejada')
++  );
++end;
++$function$;
++
++REVOKE ALL ON FUNCTION public.rpc_get_revenue_goal(uuid, uuid, date, date) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.rpc_get_revenue_goal(uuid, uuid, date, date) TO authenticated;
++
++CREATE OR REPLACE FUNCTION public.rpc_upsert_revenue_goal(
++  p_company_id uuid,
++  p_owner_id uuid,
++  p_date_start date,
++  p_date_end date,
++  p_goal_value numeric,
++  p_ticket_medio numeric DEFAULT 0,
++  p_close_rate_percent numeric DEFAULT 20,
++  p_rate_source text DEFAULT 'planejada'
++)
++RETURNS json
++LANGUAGE plpgsql
++AS $function$
++declare
++  v_existing_id uuid;
++begin
++  if p_rate_source not in ('planejada', 'real') then
++    raise exception 'rate_source inválido: %', p_rate_source;
++  end if;
++
++  SELECT id INTO v_existing_id
++  FROM public.revenue_goals
++  WHERE company_id = p_company_id
++    AND date_start = p_date_start
++    AND date_end = p_date_end
++    AND (
++      (owner_id IS NULL AND p_owner_id IS NULL)
++      OR (owner_id = p_owner_id)
++    )
++  LIMIT 1;
++
++  IF v_existing_id IS NOT NULL THEN
++    UPDATE public.revenue_goals
++    SET goal_value = greatest(0, p_goal_value),
++        ticket_medio = greatest(0, coalesce(p_ticket_medio, 0)),
++        close_rate_percent = greatest(1, least(90, coalesce(p_close_rate_percent, 20))),
++        rate_source = p_rate_source,
++        updated_at = now()
++    WHERE id = v_existing_id;
++  ELSE
++    INSERT INTO public.revenue_goals (
++      company_id,
++      owner_id,
++      date_start,
++      date_end,
++      goal_value,
++      ticket_medio,
++      close_rate_percent,
++      rate_source,
++      created_by
++    )
++    VALUES (
++      p_company_id,
++      p_owner_id,
++      p_date_start,
++      p_date_end,
++      greatest(0, p_goal_value),
++      greatest(0, coalesce(p_ticket_medio, 0)),
++      greatest(1, least(90, coalesce(p_close_rate_percent, 20))),
++      p_rate_source,
++      auth.uid()
++    );
++  END IF;
++
++  RETURN json_build_object('success', true);
++end;
++$function$;
++
++REVOKE ALL ON FUNCTION public.rpc_upsert_revenue_goal(uuid, uuid, date, date, numeric, numeric, numeric, text) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.rpc_upsert_revenue_goal(uuid, uuid, date, date, numeric, numeric, numeric, text) TO authenticated;
