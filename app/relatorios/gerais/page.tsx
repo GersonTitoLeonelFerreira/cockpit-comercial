@@ -1,6 +1,36 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
+import ReportNavDropdown from '@/app/relatorios/components/ReportNavDropdown'
+
+// ==============================================================================
+// DESIGN TOKENS — mesmos do shell/kanban
+// ==============================================================================
+const DS = {
+  contentBg:     '#090b0f',
+  surfaceBg:     '#0d1017',
+  panelBg:       '#101420',
+  cardBg:        '#141722',
+  border:        '#1a1d2e',
+  textPrimary:   '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textLabel:     '#6b7fa3',
+  textMuted:     '#4a5568',
+  blueSoft:      '#7eb6ff',
+  blue:          '#3b82f6',
+  red:           '#ef4444',
+  redBg:         '#1c0a0a',
+  redBorder:     '#450a0a',
+  green:         '#22c55e',
+  yellow:        '#fbbf24',
+  radius:        7,
+  radiusContainer: 9,
+  shadowCard:    '0 2px 12px rgba(0,0,0,0.25)',
+}
+
+// ==============================================================================
+// Helpers
+// ==============================================================================
 
 function formatSeconds(secs: number) {
   const s = Math.max(0, Math.floor(secs || 0))
@@ -15,6 +45,10 @@ function formatSeconds(secs: number) {
   if (h > 0) return mm > 0 ? `${h}h ${mm}min` : `${h}h`
   return `${m}min`
 }
+
+// ==============================================================================
+// Types
+// ==============================================================================
 
 type StageTimeRow = {
   from_stage: string
@@ -51,6 +85,38 @@ type SlaRiskRow = {
   over_seconds: number
 }
 
+// ==============================================================================
+// Table styles
+// ==============================================================================
+
+const thStyle: React.CSSProperties = {
+  padding: '10px 8px',
+  fontSize: 10,
+  fontWeight: 800,
+  color: DS.textLabel,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  borderBottom: `1px solid ${DS.border}`,
+  textAlign: 'left',
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: '10px 8px',
+  fontSize: 13,
+  color: DS.textSecondary,
+  borderBottom: `1px solid ${DS.border}`,
+}
+
+const tdBold: React.CSSProperties = {
+  ...tdStyle,
+  color: DS.textPrimary,
+  fontWeight: 700,
+}
+
+// ==============================================================================
+// Main page
+// ==============================================================================
+
 export default async function RelatoriosGeraisPage() {
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -83,7 +149,7 @@ export default async function RelatoriosGeraisPage() {
 
   if (profileError || !profile?.company_id) {
     return (
-      <div style={{ width: 900, margin: '80px auto', color: 'white' }}>
+      <div style={{ width: 900, margin: '80px auto', color: DS.textPrimary }}>
         <h1>Relatórios</h1>
         <p>
           Erro ao buscar seu perfil/empresa:{' '}
@@ -174,71 +240,79 @@ export default async function RelatoriosGeraisPage() {
     .slice()
     .sort((a, b) => (b.loss_rate ?? 0) - (a.loss_rate ?? 0))[0]
 
-  const navLinkBase: React.CSSProperties = {
-    color: '#9aa',
-    textDecoration: 'none',
-    fontSize: 13,
-    padding: '8px 12px',
-    borderRadius: 10,
-    border: '1px solid #333',
-    background: 'transparent',
-  }
-
-  const navLinkActive: React.CSSProperties = {
-    ...navLinkBase,
-    color: 'white',
-    background: '#111',
-  }
+  // ============================================================================
+  // Render
+  // ============================================================================
 
   return (
-    <div style={{ width: '100%', padding: 40, color: 'white' }}>
-      <a href="/relatorios" style={{ color: '#9aa', textDecoration: 'none', fontSize: 13 }}>
-        ← Voltar
-      </a>
-
-      <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Relatórios</h1>
-
+    <div
+      style={{
+        width: '100%',
+        minHeight: '100vh',
+        padding: '0 0 60px 0',
+        color: DS.textPrimary,
+        background: DS.contentBg,
+      }}
+    >
+      {/* ================================================================== */}
+      {/* Header com degradê azul                                            */}
+      {/* ================================================================== */}
       <div
         style={{
+          background: `linear-gradient(135deg, ${DS.blue}18 0%, ${DS.contentBg} 60%)`,
+          borderBottom: `1px solid ${DS.border}`,
+          padding: '32px 40px 24px',
           display: 'flex',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          alignItems: 'center',
           gap: 12,
-          marginTop: 10,
-          marginBottom: 30,
-          flexWrap: 'wrap',
         }}
       >
-        <a href="/leads" style={navLinkBase}>
-          Pipeline
-        </a>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 22,
+            fontWeight: 800,
+            color: DS.textPrimary,
+            letterSpacing: '-0.02em',
+          }}
+        >
+          Relatórios Gerais
+        </h1>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 13,
+            color: DS.textSecondary,
+            maxWidth: 600,
+            textAlign: 'center',
+            lineHeight: 1.5,
+          }}
+        >
+          Conversão entre etapas, perdas por estágio, gargalos de tempo e leads em risco de SLA.
+        </p>
 
-        <a href="/prioridade" style={navLinkBase}>
-          Prioridade
-        </a>
-
-        <a href="/relatorios/gerais" style={navLinkActive}>
-          Relatórios
-        </a>
-
-        {/* Subpágina do Relatório IA */}
-        <a href="/relatorios/ia" style={navLinkBase} title="Relatório de IA (objeções, próximos passos, score)">
-          Relatório IA
-        </a>
-
-        {/* Subpágina de Performance por Produto (Fase 5.4) */}
-        <a href="/dashboard/relatorios/produto" style={navLinkBase} title="Ticket médio e conversão por produto">
-          Performance por Produto
-        </a>
+        {/* Navegação de relatórios — dropdown agrupado */}
+        <div style={{ marginTop: 8 }}>
+          <ReportNavDropdown currentPath="/relatorios/gerais" />
+        </div>
       </div>
 
-      <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 18 }}>
-        {/* SLA / Risco */}
+      {/* ================================================================== */}
+      {/* Conteúdo principal                                                 */}
+      {/* ================================================================== */}
+      <div style={{ maxWidth: 980, margin: '28px auto 0', padding: '0 24px', display: 'grid', gap: 20 }}>
+
+        {/* ============================================================== */}
+        {/* SLA / Risco                                                     */}
+        {/* ============================================================== */}
         <div
           style={{
-            border: '1px solid #333',
-            borderRadius: 12,
-            padding: 16,
-            background: '#0f0f0f',
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: DS.cardBg,
+            boxShadow: DS.shadowCard,
           }}
         >
           <div
@@ -246,21 +320,31 @@ export default async function RelatoriosGeraisPage() {
               display: 'flex',
               justifyContent: 'space-between',
               gap: 16,
-              alignItems: 'baseline',
+              alignItems: 'center',
+              flexWrap: 'wrap',
             }}
           >
             <div>
-              <h3 style={{ marginTop: 0, marginBottom: 6 }}>
+              <h3
+                style={{
+                  margin: '0 0 6px 0',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: DS.blueSoft,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}
+              >
                 Leads em risco (acima do SLA)
               </h3>
 
-              <div style={{ opacity: 0.85, fontSize: 12 }}>
-                Total em risco: <b>{slaCount}</b>
+              <div style={{ fontSize: 12, color: DS.textSecondary }}>
+                Total em risco: <b style={{ color: DS.textPrimary }}>{slaCount}</b>
                 {worstStageByCount ? (
                   <>
                     {' '}
                     | Etapa mais crítica:{' '}
-                    <b style={{ textTransform: 'capitalize' }}>{worstStageByCount}</b>
+                    <b style={{ textTransform: 'capitalize', color: DS.red }}>{worstStageByCount}</b>
                   </>
                 ) : null}
               </div>
@@ -269,16 +353,17 @@ export default async function RelatoriosGeraisPage() {
             <a
               href="/leads?risk=1"
               style={{
-                color: 'white',
+                color: DS.textPrimary,
                 textDecoration: 'none',
                 fontSize: 12,
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid #333',
-                background: '#111',
+                fontWeight: 600,
+                padding: '8px 14px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.border}`,
+                background: DS.panelBg,
                 whiteSpace: 'nowrap',
-                height: 'fit-content',
-                opacity: slaCount === 0 ? 0.8 : 1,
+                transition: 'all 200ms ease',
+                opacity: slaCount === 0 ? 0.6 : 1,
               }}
               title={
                 slaCount === 0
@@ -291,18 +376,29 @@ export default async function RelatoriosGeraisPage() {
           </div>
 
           {slaErr ? (
-            <div style={{ marginTop: 10, color: '#ef4444', fontSize: 13 }}>
+            <div
+              style={{
+                marginTop: 12,
+                background: DS.redBg,
+                border: `1px solid ${DS.redBorder}`,
+                borderLeft: `4px solid ${DS.red}`,
+                borderRadius: DS.radius,
+                padding: '10px 14px',
+                color: '#fca5a5',
+                fontSize: 13,
+              }}
+            >
               Erro ao buscar SLA/Risco: {slaErr.message}
             </div>
           ) : (
             <>
-              <p style={{ opacity: 0.75, marginTop: 10 }}>
+              <p style={{ color: DS.textSecondary, marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
                 Aqui aparecem leads em etapas ativas (exceto <b>fechado</b> e <b>perdido</b>)
                 cujo tempo na etapa ultrapassou o SLA padrão.
               </p>
 
               {slaRows.length === 0 ? (
-                <div style={{ marginTop: 12, opacity: 0.7, fontSize: 13 }}>
+                <div style={{ marginTop: 12, color: DS.textMuted, fontSize: 13 }}>
                   Nenhum lead acima do SLA no momento.
                 </div>
               ) : (
@@ -315,50 +411,39 @@ export default async function RelatoriosGeraisPage() {
                     }}
                   >
                     <thead>
-                      <tr style={{ textAlign: 'left', borderBottom: '1px solid #222' }}>
-                        <th style={{ padding: '10px 8px' }}>Lead</th>
-                        <th style={{ padding: '10px 8px' }}>Etapa</th>
-                        <th style={{ padding: '10px 8px' }}>Tempo na etapa</th>
-                        <th style={{ padding: '10px 8px' }}>SLA</th>
-                        <th style={{ padding: '10px 8px' }}>Atraso</th>
-                        <th style={{ padding: '10px 8px' }}>Contato</th>
+                      <tr>
+                        <th style={thStyle}>Lead</th>
+                        <th style={thStyle}>Etapa</th>
+                        <th style={thStyle}>Tempo na etapa</th>
+                        <th style={thStyle}>SLA</th>
+                        <th style={thStyle}>Atraso</th>
+                        <th style={thStyle}>Contato</th>
                       </tr>
                     </thead>
                     <tbody>
                       {topRiskLeads.map((r) => (
-                        <tr key={r.lead_id} style={{ borderBottom: '1px solid #1f1f1f' }}>
-                          <td style={{ padding: '10px 8px' }}>
+                        <tr key={r.lead_id}>
+                          <td style={tdStyle}>
                             <a
                               href={`/leads?risk=1&lead=${encodeURIComponent(r.lead_id)}`}
-                              style={{ color: 'white', textDecoration: 'none' }}
+                              style={{ color: DS.textPrimary, textDecoration: 'none', fontWeight: 700 }}
                               title="Abrir no Pipeline e destacar este lead"
                             >
-                              <b>{r.name}</b>
+                              {r.name}
                             </a>
                           </td>
-
-                          <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>
-                            {r.stage}
-                          </td>
-                          <td style={{ padding: '10px 8px' }}>
-                            {formatSeconds(r.seconds_in_stage)}
-                          </td>
-                          <td style={{ padding: '10px 8px' }}>
-                            {formatSeconds(r.sla_seconds)}
-                          </td>
-                          <td style={{ padding: '10px 8px' }}>
-                            <b>{formatSeconds(r.over_seconds)}</b>
-                          </td>
-                          <td style={{ padding: '10px 8px', opacity: 0.9 }}>
-                            {r.phone ?? '—'}
-                          </td>
+                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.stage}</td>
+                          <td style={tdStyle}>{formatSeconds(r.seconds_in_stage)}</td>
+                          <td style={tdStyle}>{formatSeconds(r.sla_seconds)}</td>
+                          <td style={tdBold}>{formatSeconds(r.over_seconds)}</td>
+                          <td style={tdStyle}>{r.phone ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
 
                   {slaRows.length > 20 ? (
-                    <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
+                    <div style={{ marginTop: 10, color: DS.textMuted, fontSize: 12 }}>
                       Mostrando top 20 por atraso. Total em risco: {slaRows.length}.
                     </div>
                   ) : null}
@@ -368,13 +453,16 @@ export default async function RelatoriosGeraisPage() {
           )}
         </div>
 
-        {/* Conversão */}
+        {/* ============================================================== */}
+        {/* Conversão                                                       */}
+        {/* ============================================================== */}
         <div
           style={{
-            border: '1px solid #333',
-            borderRadius: 12,
-            padding: 16,
-            background: '#0f0f0f',
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: DS.cardBg,
+            boxShadow: DS.shadowCard,
           }}
         >
           <div
@@ -382,62 +470,74 @@ export default async function RelatoriosGeraisPage() {
               display: 'flex',
               justifyContent: 'space-between',
               gap: 16,
-              alignItems: 'baseline',
+              alignItems: 'center',
+              flexWrap: 'wrap',
             }}
           >
-            <h3 style={{ marginTop: 0, marginBottom: 6 }}>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 13,
+                fontWeight: 800,
+                color: DS.blueSoft,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
               Taxa de conversão entre etapas
             </h3>
-            <div style={{ opacity: 0.85, fontSize: 12 }}>
-              Conversão final (Negociação → Fechado): <b>{finalConv.toFixed(2)}%</b>
+            <div style={{ fontSize: 12, color: DS.textSecondary }}>
+              Conversão final (Negociação → Fechado): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
             </div>
           </div>
 
           {convErr ? (
-            <div style={{ marginTop: 10, color: '#ef4444', fontSize: 13 }}>
+            <div
+              style={{
+                marginTop: 12,
+                background: DS.redBg,
+                border: `1px solid ${DS.redBorder}`,
+                borderLeft: `4px solid ${DS.red}`,
+                borderRadius: DS.radius,
+                padding: '10px 14px',
+                color: '#fca5a5',
+                fontSize: 13,
+              }}
+            >
               Erro ao buscar conversão: {convErr.message}
             </div>
           ) : (
             <>
-              <p style={{ opacity: 0.75, marginTop: 0 }}>
+              <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
                 Baseado em leads únicos que <b>entraram</b> na etapa e depois <b>progrediram</b> para a próxima.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
                   <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '1px solid #222' }}>
-                      <th style={{ padding: '10px 8px' }}>De</th>
-                      <th style={{ padding: '10px 8px' }}>Para</th>
-                      <th style={{ padding: '10px 8px' }}>Entraram</th>
-                      <th style={{ padding: '10px 8px' }}>Progrediram</th>
-                      <th style={{ padding: '10px 8px' }}>Conversão</th>
+                    <tr>
+                      <th style={thStyle}>De</th>
+                      <th style={thStyle}>Para</th>
+                      <th style={thStyle}>Entraram</th>
+                      <th style={thStyle}>Progrediram</th>
+                      <th style={thStyle}>Conversão</th>
                     </tr>
                   </thead>
                   <tbody>
                     {convRows.length === 0 ? (
                       <tr>
-                        <td style={{ padding: 12, opacity: 0.7 }} colSpan={5}>
+                        <td style={{ ...tdStyle, color: DS.textMuted }} colSpan={5}>
                           Sem dados ainda.
                         </td>
                       </tr>
                     ) : (
                       convRows.map((r) => (
-                        <tr
-                          key={`${r.from_stage}->${r.to_stage}`}
-                          style={{ borderBottom: '1px solid #1f1f1f' }}
-                        >
-                          <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>
-                            {r.from_stage}
-                          </td>
-                          <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>
-                            {r.to_stage}
-                          </td>
-                          <td style={{ padding: '10px 8px' }}>{r.entered}</td>
-                          <td style={{ padding: '10px 8px' }}>{r.progressed}</td>
-                          <td style={{ padding: '10px 8px' }}>
-                            <b>{r.conversion.toFixed(2)}%</b>
-                          </td>
+                        <tr key={`${r.from_stage}->${r.to_stage}`}>
+                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.from_stage}</td>
+                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.to_stage}</td>
+                          <td style={tdStyle}>{r.entered}</td>
+                          <td style={tdStyle}>{r.progressed}</td>
+                          <td style={tdBold}>{r.conversion.toFixed(2)}%</td>
                         </tr>
                       ))
                     )}
@@ -448,13 +548,16 @@ export default async function RelatoriosGeraisPage() {
           )}
         </div>
 
-        {/* Perdas */}
+        {/* ============================================================== */}
+        {/* Perdas                                                          */}
+        {/* ============================================================== */}
         <div
           style={{
-            border: '1px solid #333',
-            borderRadius: 12,
-            padding: 16,
-            background: '#0f0f0f',
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: DS.cardBg,
+            boxShadow: DS.shadowCard,
           }}
         >
           <div
@@ -462,54 +565,75 @@ export default async function RelatoriosGeraisPage() {
               display: 'flex',
               justifyContent: 'space-between',
               gap: 16,
-              alignItems: 'baseline',
+              alignItems: 'center',
+              flexWrap: 'wrap',
             }}
           >
-            <h3 style={{ marginTop: 0, marginBottom: 6 }}>Perdas por etapa</h3>
-            <div style={{ opacity: 0.85, fontSize: 12 }}>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 13,
+                fontWeight: 800,
+                color: DS.blueSoft,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
+              Perdas por etapa
+            </h3>
+            <div style={{ fontSize: 12, color: DS.textSecondary }}>
               Maior perda:{' '}
-              <b>{worstLoss ? `${worstLoss.stage} (${worstLoss.loss_rate.toFixed(2)}%)` : '—'}</b>
+              <b style={{ color: DS.red }}>
+                {worstLoss ? `${worstLoss.stage} (${worstLoss.loss_rate.toFixed(2)}%)` : '—'}
+              </b>
             </div>
           </div>
 
           {lossErr ? (
-            <div style={{ marginTop: 10, color: '#ef4444', fontSize: 13 }}>
+            <div
+              style={{
+                marginTop: 12,
+                background: DS.redBg,
+                border: `1px solid ${DS.redBorder}`,
+                borderLeft: `4px solid ${DS.red}`,
+                borderRadius: DS.radius,
+                padding: '10px 14px',
+                color: '#fca5a5',
+                fontSize: 13,
+              }}
+            >
               Erro ao buscar perdas: {lossErr.message}
             </div>
           ) : (
             <>
-              <p style={{ opacity: 0.75, marginTop: 0 }}>
+              <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
                 % de leads que saíram da etapa direto para <b>perdido</b>.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
                   <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '1px solid #222' }}>
-                      <th style={{ padding: '10px 8px' }}>Etapa</th>
-                      <th style={{ padding: '10px 8px' }}>Entraram</th>
-                      <th style={{ padding: '10px 8px' }}>Viraram perdido</th>
-                      <th style={{ padding: '10px 8px' }}>Taxa de perda</th>
+                    <tr>
+                      <th style={thStyle}>Etapa</th>
+                      <th style={thStyle}>Entraram</th>
+                      <th style={thStyle}>Viraram perdido</th>
+                      <th style={thStyle}>Taxa de perda</th>
                     </tr>
                   </thead>
                   <tbody>
                     {lossRows.length === 0 ? (
                       <tr>
-                        <td style={{ padding: 12, opacity: 0.7 }} colSpan={4}>
+                        <td style={{ ...tdStyle, color: DS.textMuted }} colSpan={4}>
                           Sem dados ainda.
                         </td>
                       </tr>
                     ) : (
                       lossRows.map((r) => (
-                        <tr key={`loss-${r.stage}`} style={{ borderBottom: '1px solid #1f1f1f' }}>
-                          <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>
-                            {r.stage}
-                          </td>
-                          <td style={{ padding: '10px 8px' }}>{r.entered}</td>
-                          <td style={{ padding: '10px 8px' }}>{r.lost}</td>
-                          <td style={{ padding: '10px 8px' }}>
-                            <b>{r.loss_rate.toFixed(2)}%</b>
-                          </td>
+                        <tr key={`loss-${r.stage}`}>
+                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.stage}</td>
+                          <td style={tdStyle}>{r.entered}</td>
+                          <td style={tdStyle}>{r.lost}</td>
+                          <td style={tdBold}>{r.loss_rate.toFixed(2)}%</td>
                         </tr>
                       ))
                     )}
@@ -520,53 +644,76 @@ export default async function RelatoriosGeraisPage() {
           )}
         </div>
 
-        {/* Gargalo */}
+        {/* ============================================================== */}
+        {/* Gargalo                                                         */}
+        {/* ============================================================== */}
         <div
           style={{
-            border: '1px solid #333',
-            borderRadius: 12,
-            padding: 16,
-            background: '#0f0f0f',
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: DS.cardBg,
+            boxShadow: DS.shadowCard,
           }}
         >
-          <h3 style={{ marginTop: 0 }}>Gargalo por etapa</h3>
+          <h3
+            style={{
+              margin: '0 0 6px 0',
+              fontSize: 13,
+              fontWeight: 800,
+              color: DS.blueSoft,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            Gargalo por etapa
+          </h3>
 
           {timeErr ? (
-            <div style={{ marginTop: 10, color: '#ef4444', fontSize: 13 }}>
+            <div
+              style={{
+                marginTop: 12,
+                background: DS.redBg,
+                border: `1px solid ${DS.redBorder}`,
+                borderLeft: `4px solid ${DS.red}`,
+                borderRadius: DS.radius,
+                padding: '10px 14px',
+                color: '#fca5a5',
+                fontSize: 13,
+              }}
+            >
               Erro ao buscar gargalo: {timeErr.message}
             </div>
           ) : (
             <>
-              <p style={{ opacity: 0.75, marginTop: 6 }}>
-                Baseado em eventos <code>stage_changed</code> (lead_events).
+              <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
+                Baseado em eventos <code style={{ background: DS.panelBg, padding: '1px 5px', borderRadius: 4, fontSize: 11 }}>stage_changed</code> (lead_events).
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                   <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '1px solid #222' }}>
-                      <th style={{ padding: '10px 8px' }}>Etapa (from)</th>
-                      <th style={{ padding: '10px 8px' }}>Movimentos</th>
-                      <th style={{ padding: '10px 8px' }}>Tempo médio</th>
-                      <th style={{ padding: '10px 8px' }}>Mediana</th>
+                    <tr>
+                      <th style={thStyle}>Etapa (from)</th>
+                      <th style={thStyle}>Movimentos</th>
+                      <th style={thStyle}>Tempo médio</th>
+                      <th style={thStyle}>Mediana</th>
                     </tr>
                   </thead>
                   <tbody>
                     {timeRows.length === 0 ? (
                       <tr>
-                        <td style={{ padding: 12, opacity: 0.7 }} colSpan={4}>
+                        <td style={{ ...tdStyle, color: DS.textMuted }} colSpan={4}>
                           Sem dados ainda.
                         </td>
                       </tr>
                     ) : (
                       timeRows.map((r) => (
-                        <tr key={r.from_stage} style={{ borderBottom: '1px solid #1f1f1f' }}>
-                          <td style={{ padding: '10px 8px', textTransform: 'capitalize' }}>
-                            {r.from_stage}
-                          </td>
-                          <td style={{ padding: '10px 8px' }}>{r.moves}</td>
-                          <td style={{ padding: '10px 8px' }}>{formatSeconds(r.avg_seconds)}</td>
-                          <td style={{ padding: '10px 8px' }}>{formatSeconds(r.median_seconds)}</td>
+                        <tr key={r.from_stage}>
+                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.from_stage}</td>
+                          <td style={tdStyle}>{r.moves}</td>
+                          <td style={tdStyle}>{formatSeconds(r.avg_seconds)}</td>
+                          <td style={tdStyle}>{formatSeconds(r.median_seconds)}</td>
                         </tr>
                       ))
                     )}

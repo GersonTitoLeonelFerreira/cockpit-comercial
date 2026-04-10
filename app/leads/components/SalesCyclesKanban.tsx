@@ -3147,19 +3147,6 @@ export default function SalesCyclesKanban({
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
 
         <button
-            onClick={() => setFocusMode((v) => !v)}
-            style={{
-              ...pillStyle,
-              background: focusMode ? 'rgba(59,130,246,0.14)' : DS.panelBg,
-              border: focusMode ? '1px solid rgba(59,130,246,0.4)' : `1px solid ${DS.border}`,
-              color: focusMode ? DS.blueSoft : DS.textSecondary,
-            }}
-            title={focusMode ? 'Sair do modo foco' : 'Modo foco — só kanban'}
-          >
-            {focusMode ? '⊡' : '⊞'}
-          </button>
-
-          <button
             onClick={toggleFocusMode}
             style={{
               ...pillStyle,
@@ -3170,7 +3157,7 @@ export default function SalesCyclesKanban({
               padding: '5px 10px',
               lineHeight: 1,
             }}
-            title={focusMode ? 'Sair do modo foco (Esc)' : 'Modo foco — tela cheia'}
+            title={focusMode ? 'Sair do modo foco (Esc) — voltar à visualização normal' : 'Modo foco — expande o kanban em tela cheia, ocultando menu lateral e cabeçalho'}
           >
             {focusMode ? '⊡' : '⊞'}
           </button>

@@ -2,6 +2,38 @@
 
 import * as React from 'react'
 
+// ============================================================================
+// DESIGN TOKENS — mesmos do shell/kanban
+// ============================================================================
+const DS = {
+  contentBg:     '#090b0f',
+  panelBg:       '#0d0f14',
+  cardBg:        '#141722',
+  surfaceBg:     '#111318',
+  border:        '#1a1d2e',
+  borderSubtle:  '#13162a',
+  textPrimary:   '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted:     '#546070',
+  textLabel:     '#4a5569',
+  blue:          '#3b82f6',
+  blueSoft:      '#93c5fd',
+  blueLight:     '#60a5fa',
+  greenBg:       'rgba(22,163,74,0.10)',
+  greenBorder:   'rgba(34,197,94,0.25)',
+  greenText:     '#86efac',
+  amberBg:       'rgba(245,158,11,0.12)',
+  amberBorder:   'rgba(245,158,11,0.3)',
+  amberText:     '#fef3c7',
+  redBg:         'rgba(239,68,68,0.10)',
+  redBorder:     'rgba(239,68,68,0.3)',
+  redText:       '#fca5a5',
+  selectBg:      '#0d0f14',
+  shadowCard:    '0 1px 4px rgba(0,0,0,0.4)',
+  radius:        7,
+  radiusContainer: 9,
+} as const
+
 // --- SVG Icons (inline, stroke-style, 20x20 viewBox 24x24) ---
 
 function IconGauge() {
@@ -327,18 +359,29 @@ const sections: Section[] = [
   },
 ]
 
+// --- Accent color per section ---
+const SECTION_ACCENTS: Record<string, string> = {
+  executiva: DS.blue,
+  operacao: '#06b6d4',
+  comercial: '#8b5cf6',
+  sazonalidade: '#f59e0b',
+  cadastros: '#22c55e',
+  governanca: '#ef4444',
+}
+
 // --- Components ---
 
-function ReportCard({ item }: { item: ReportItem }) {
+function ReportCard({ item, sectionId }: { item: ReportItem; sectionId: string }) {
   const [hovered, setHovered] = React.useState(false)
+  const accent = SECTION_ACCENTS[sectionId] || DS.blue
 
   if (item.comingSoon) {
     return (
       <div
         style={{
-          background: '#0f0f0f',
-          border: '1px solid #1a1a1a',
-          borderRadius: 12,
+          background: DS.panelBg,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radiusContainer,
           padding: '18px 20px',
           display: 'flex',
           flexDirection: 'column',
@@ -349,16 +392,16 @@ function ReportCard({ item }: { item: ReportItem }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ color: '#555' }}>{item.icon}</span>
+          <span style={{ color: DS.textMuted }}>{item.icon}</span>
           <span
             style={{
               fontSize: 10,
               fontWeight: 600,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
-              color: '#555',
-              background: '#1a1a1a',
-              border: '1px solid #252525',
+              color: DS.textMuted,
+              background: DS.surfaceBg,
+              border: `1px solid ${DS.border}`,
               borderRadius: 4,
               padding: '2px 7px',
             }}
@@ -366,8 +409,8 @@ function ReportCard({ item }: { item: ReportItem }) {
             Em breve
           </span>
         </div>
-        <span style={{ fontSize: 14, fontWeight: 600, color: '#666' }}>{item.title}</span>
-        <span style={{ fontSize: 12, color: '#444', lineHeight: 1.5 }}>{item.desc}</span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: DS.textLabel }}>{item.title}</span>
+        <span style={{ fontSize: 12, color: DS.textMuted, lineHeight: 1.5 }}>{item.desc}</span>
       </div>
     )
   }
@@ -376,41 +419,49 @@ function ReportCard({ item }: { item: ReportItem }) {
     <a
       href={item.href}
       style={{
-        background: hovered ? '#141414' : '#0f0f0f',
-        border: `1px solid ${hovered ? '#2e2e2e' : '#202020'}`,
-        borderRadius: 12,
+        background: hovered
+          ? `linear-gradient(135deg, ${accent}08, ${accent}14)`
+          : DS.cardBg,
+        border: `1px solid ${hovered ? `${accent}40` : DS.border}`,
+        borderRadius: DS.radiusContainer,
         padding: '18px 20px',
         textDecoration: 'none',
-        color: 'white',
+        color: DS.textPrimary,
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        transition: 'border-color 0.15s, background 0.15s',
+        transition: 'border-color 200ms ease, background 200ms ease, transform 200ms ease, box-shadow 200ms ease',
         cursor: 'pointer',
+        transform: hovered ? 'translateY(-2px)' : 'none',
+        boxShadow: hovered
+          ? `0 4px 16px rgba(0,0,0,0.4), 0 0 8px ${accent}18`
+          : DS.shadowCard,
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ color: hovered ? '#aaa' : '#666' }}>{item.icon}</span>
+        <span style={{ color: hovered ? accent : DS.textLabel, transition: 'color 200ms ease' }}>{item.icon}</span>
         <span
           style={{
-            color: hovered ? '#888' : '#444',
-            transition: 'color 0.15s, transform 0.15s',
-            transform: hovered ? 'translateX(2px)' : 'translateX(0)',
+            color: hovered ? accent : DS.textMuted,
+            transition: 'color 200ms ease, transform 200ms ease',
+            transform: hovered ? 'translateX(3px)' : 'translateX(0)',
             display: 'inline-flex',
           }}
         >
           <IconArrowRight />
         </span>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600 }}>{item.title}</span>
-      <span style={{ fontSize: 12, opacity: 0.5, lineHeight: 1.5 }}>{item.desc}</span>
+      <span style={{ fontSize: 14, fontWeight: 700 }}>{item.title}</span>
+      <span style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>{item.desc}</span>
     </a>
   )
 }
 
 function SectionBlock({ section }: { section: Section }) {
+  const accent = SECTION_ACCENTS[section.id] || DS.blue
+
   return (
     <div style={{ width: '100%' }}>
       {/* Section header */}
@@ -421,32 +472,39 @@ function SectionBlock({ section }: { section: Section }) {
           gap: 12,
           marginBottom: 16,
           paddingBottom: 14,
-          borderBottom: '1px solid #181818',
+          borderBottom: `1px solid ${DS.border}`,
         }}
       >
-        <span
+        <div
           style={{
-            color: '#555',
-            marginTop: 1,
+            width: 36,
+            height: 36,
+            borderRadius: DS.radius,
+            background: `${accent}15`,
+            border: `1px solid ${accent}30`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             flexShrink: 0,
+            color: accent,
           }}
         >
           {section.icon}
-        </span>
+        </div>
         <div>
           <h2
             style={{
               fontSize: 13,
-              fontWeight: 700,
+              fontWeight: 800,
               letterSpacing: '0.1em',
               textTransform: 'uppercase',
-              color: '#888',
+              color: accent,
               margin: 0,
             }}
           >
             {section.title}
           </h2>
-          <p style={{ fontSize: 12, color: '#444', margin: '3px 0 0', lineHeight: 1.4 }}>
+          <p style={{ fontSize: 12, color: DS.textSecondary, margin: '3px 0 0', lineHeight: 1.4 }}>
             {section.subtitle}
           </p>
         </div>
@@ -461,7 +519,7 @@ function SectionBlock({ section }: { section: Section }) {
         }}
       >
         {section.items.map((item) => (
-          <ReportCard key={item.title} item={item} />
+          <ReportCard key={item.title} item={item} sectionId={section.id} />
         ))}
       </div>
     </div>
@@ -475,28 +533,54 @@ export default function RelatoriosHubPage() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#0c0c0c',
-        color: 'white',
-        padding: '48px 24px 80px',
-        overflowY: 'auto',
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
-        {/* Page header */}
-        <div style={{ marginBottom: 48 }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 6px', letterSpacing: '-0.01em' }}>
+      {/* HEADER com degradê azul — mesmo padrão do Pipeline */}
+      <div
+        style={{
+          background: `linear-gradient(135deg, ${DS.blue}18 0%, ${DS.contentBg} 60%)`,
+          borderBottom: `1px solid ${DS.border}`,
+          padding: '32px 24px 28px',
+        }}
+      >
+        <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+          <h1
+            style={{
+              fontSize: 22,
+              fontWeight: 800,
+              margin: '0 0 6px',
+              letterSpacing: '-0.01em',
+              color: DS.textPrimary,
+            }}
+          >
             Relatórios
           </h1>
-          <p style={{ fontSize: 13, color: '#555', margin: 0 }}>
+          <p style={{ fontSize: 13, color: DS.textSecondary, margin: 0 }}>
             Central de análises e relatórios do seu time comercial
           </p>
         </div>
+      </div>
 
-        {/* Sections */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
-          {sections.map((section) => (
-            <SectionBlock key={section.id} section={section} />
-          ))}
+      {/* CONTEÚDO */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '32px 24px 80px',
+        }}
+      >
+        <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+          {/* Sections */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
+            {sections.map((section) => (
+              <SectionBlock key={section.id} section={section} />
+            ))}
+          </div>
         </div>
       </div>
     </div>
