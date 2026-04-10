@@ -116,6 +116,26 @@ type RevenueGoalConfig = {
   rate_source: 'planejada' | 'real'
 }
 
+type ReportPeriodSummary = {
+  success: boolean
+  competency_id: string
+  competency_name: string
+  start_date: string
+  end_date: string
+  worked_count: number
+  won_count: number
+  lost_count: number
+  revenue_total: number
+  total_pool_now: number
+  by_owner: Array<{
+    owner_user_id: string | null
+    worked_count: number
+    won_count: number
+    lost_count: number
+    revenue_total: number
+  }>
+}
+
 // ==============================================================================
 // Table styles
 // ==============================================================================
@@ -258,6 +278,31 @@ export default async function RelatoriosGeraisPage() {
       'report_meta_vs_real',
       { p_company_id: companyId }
     )
+
+    const { data: periodSummaryRaw } = await supabase.rpc('rpc_report_period_summary')
+
+const periodSummary: ReportPeriodSummary | null =
+  periodSummaryRaw && periodSummaryRaw.success
+    ? {
+        success: Boolean(periodSummaryRaw.success),
+        competency_id: String(periodSummaryRaw.competency_id),
+        competency_name: String(periodSummaryRaw.competency_name),
+        start_date: String(periodSummaryRaw.start_date),
+        end_date: String(periodSummaryRaw.end_date),
+        worked_count: Number(periodSummaryRaw.worked_count ?? 0),
+        won_count: Number(periodSummaryRaw.won_count ?? 0),
+        lost_count: Number(periodSummaryRaw.lost_count ?? 0),
+        revenue_total: Number(periodSummaryRaw.revenue_total ?? 0),
+        total_pool_now: Number(periodSummaryRaw.total_pool_now ?? 0),
+        by_owner: Array.isArray(periodSummaryRaw.by_owner) ? periodSummaryRaw.by_owner.map((row: any) => ({
+          owner_user_id: row.owner_user_id ?? null,
+          worked_count: Number(row.worked_count ?? 0),
+          won_count: Number(row.won_count ?? 0),
+          lost_count: Number(row.lost_count ?? 0),
+          revenue_total: Number(row.revenue_total ?? 0),
+        })) : [],
+      }
+    : null
   
     const meta: MetaVsReal | null = metaRaw?.[0] ? {
       meta_empresa: Number(metaRaw[0].meta_empresa ?? 0),
@@ -303,26 +348,31 @@ const goalConfig: RevenueGoalConfig | null = goalConfigRaw
   
       // --- Cálculos Simulador vs Realidade ---
       const metaVal = meta?.meta_empresa ?? 0
-      const faturReal = meta?.faturamento ?? 0
-      const ticketSimulador = goalConfig?.ticket_medio ?? meta?.ticket_simulador ?? 0
-      const ticketReal = meta?.ticket_medio ?? 0
-      const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
-      
-      const taxaRealRaw = Number(meta?.taxa_conversao_real ?? 0)
-      const taxaReal = taxaRealRaw > 1 ? taxaRealRaw / 100 : taxaRealRaw
-      
-      const taxaPlanejada = Math.max(0, Number(goalConfig?.close_rate_percent ?? 20)) / 100
-      
-      const taxaUsadaNoSimulador =
-        goalConfig?.rate_source === 'real'
-          ? (taxaReal > 0 ? taxaReal : taxaPlanejada)
-          : taxaPlanejada
-      
-      const fonteTaxaAplicada =
-        goalConfig?.rate_source === 'real' && taxaReal > 0 ? 'Real' : 'Planejada'
-  const diasUteisTot = meta?.dias_uteis_total ?? 22
-  const diasUteisPass = meta?.dias_uteis_passados ?? 0
-  const diasUteisRest = meta?.dias_uteis_restantes ?? 0
+
+const faturReal = periodSummary?.revenue_total ?? meta?.faturamento ?? 0
+const ganhosPeriodo = periodSummary?.won_count ?? meta?.total_ganhos ?? 0
+const perdidosPeriodo = periodSummary?.lost_count ?? 0
+const trabalhadosPeriodo = periodSummary?.worked_count ?? meta?.ciclos_trabalhados ?? 0
+
+const ticketSimulador = goalConfig?.ticket_medio ?? meta?.ticket_simulador ?? 0
+const ticketReal = ganhosPeriodo > 0 ? faturReal / ganhosPeriodo : (meta?.ticket_medio ?? 0)
+const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
+
+const taxaReal = trabalhadosPeriodo > 0 ? ganhosPeriodo / trabalhadosPeriodo : 0
+
+const taxaPlanejada = Math.max(0, Number(goalConfig?.close_rate_percent ?? 20)) / 100
+
+const taxaUsadaNoSimulador =
+  goalConfig?.rate_source === 'real'
+    ? (taxaReal > 0 ? taxaReal : taxaPlanejada)
+    : taxaPlanejada
+
+const fonteTaxaAplicada =
+  goalConfig?.rate_source === 'real' && taxaReal > 0 ? 'Real' : 'Planejada'
+
+const diasUteisTot = meta?.dias_uteis_total ?? 22
+const diasUteisPass = meta?.dias_uteis_passados ?? 0
+const diasUteisRest = meta?.dias_uteis_restantes ?? 0
 
   // Projeção
   const faturDiario = diasUteisPass > 0 ? faturReal / diasUteisPass : 0
@@ -453,7 +503,7 @@ const goalConfig: RevenueGoalConfig | null = goalConfigRaw
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px 0', fontSize: 13, fontWeight: 800, color: DS.blueSoft, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Meta vs Realidade — Abril 2026
+                Meta vs Realidade — {periodSummary?.competency_name ?? 'Período atual'}
                 </h3>
                 <div style={{ fontSize: 12, color: DS.textSecondary }}>
                   O simulador define o plano. Este relatório mostra a execução real.
@@ -579,7 +629,7 @@ const goalConfig: RevenueGoalConfig | null = goalConfigRaw
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Realizadas</span>
-                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{meta.total_ganhos}</b>
+                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{ganhosPeriodo}</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Faltam</span>
@@ -617,7 +667,7 @@ const goalConfig: RevenueGoalConfig | null = goalConfigRaw
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
             Dados calculados com base nos mesmos critérios do Simulador de Meta. Ticket médio real: {toBRL(ticketReal)}.
-              {meta.ciclos_trabalhados < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
+            {trabalhadosPeriodo < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>
         ) : (
