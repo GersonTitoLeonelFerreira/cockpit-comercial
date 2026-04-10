@@ -32,6 +32,12 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
         'Mensagem enviada - aguardando retorno',
         'Ligação feita',
         'Email enviado',
+        'Conheceu o produto',
+        'Testou o produto',
+        'Agendou um teste',
+        'Proposta realizada presencialmente',
+        'Visitou a empresa',
+        'Recebeu demonstração presencial',
       ],
       resultDetails: {
         'Tentativa de contato (sem resposta)': {
@@ -44,6 +50,46 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
           required: false,
           placeholder: 'Ex: Enviou apresentação do produto',
         },
+        'Ligação feita': {
+          label: 'Conteúdo da ligação *',
+          required: true,
+          placeholder: 'Ex: Falou com o decisor, demonstrou interesse no produto X, pediu retorno quinta…',
+        },
+        'Email enviado': {
+          label: 'Assunto/conteúdo do email',
+          required: false,
+          placeholder: 'Ex: Enviou proposta comercial, apresentação institucional…',
+        },
+        'Conheceu o produto': {
+          label: 'O que o cliente achou do produto?',
+          required: true,
+          placeholder: 'Ex: Gostou da funcionalidade X, pediu mais detalhes sobre Y…',
+        },
+        'Testou o produto': {
+          label: 'Como foi o teste?',
+          required: true,
+          placeholder: 'Ex: Testou por 30min, gostou da experiência, quer testar mais…',
+        },
+        'Agendou um teste': {
+          label: 'Quando e o que vai testar?',
+          required: true,
+          placeholder: 'Ex: Quinta às 14h, vai testar o plano Premium por 7 dias…',
+        },
+        'Proposta realizada presencialmente': {
+          label: 'Detalhes da proposta apresentada',
+          required: true,
+          placeholder: 'Ex: Apresentou plano X, valor Y, condições Z…',
+        },
+        'Visitou a empresa': {
+          label: 'O que aconteceu na visita?',
+          required: false,
+          placeholder: 'Ex: Conheceu o espaço, conversou com a equipe, tirou dúvidas…',
+        },
+        'Recebeu demonstração presencial': {
+          label: 'O que foi demonstrado?',
+          required: true,
+          placeholder: 'Ex: Demo do produto X, funcionalidades A, B e C…',
+        },
       },
       nextActions: [
         'Nova tentativa de contato',
@@ -51,6 +97,13 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
         'Whats follow-up',
         'Email follow-up',
         'Aguardar retorno',
+        'Confirmar presença no teste agendado',
+        'Acompanhar retorno da proposta',
+        'Realizar venda',
+        'Elaborar proposta final',
+        'Agendar nova visita',
+        'Enviar material complementar',
+        'Agendar reunião de fechamento',
       ],
       requiresNextAction: true,
     },
@@ -407,7 +460,12 @@ function CheckpointForm({
           </label>
           <select
             value={actionChannel}
-            onChange={(e) => setActionChannel(e.target.value)}
+            onChange={(e) => {
+              setActionChannel(e.target.value)
+              setActionResult('')
+              setResultDetail('')
+              setNextAction('')
+            }}
             disabled={loading}
             style={inputStyle}
           >
@@ -435,12 +493,23 @@ function CheckpointForm({
               disabled={loading}
               style={inputStyle}
             >
-              <option value="">Selecione…</option>
-              {config.results.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
+                            <option value="">Selecione…</option>
+              {config.results
+                                .filter((opt) => {
+                                  if (!actionChannel) return true
+                                  const ch = actionChannel.toLowerCase()
+                                  const o = opt.toLowerCase()
+                                  if (ch === 'ligação') return o.includes('ligação')
+                                  if (ch === 'email') return o.includes('email')
+                                  if (ch === 'whats') return o.includes('mensagem') || o.includes('tentativa')
+                                  if (ch === 'presencial') return o.includes('conheceu') || o.includes('testou') || o.includes('agendou um teste') || o.includes('proposta realizada') || o.includes('visitou') || o.includes('demonstração')
+                                  return true
+                                })
+                .map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
             </select>
           </div>
         )}
@@ -474,12 +543,23 @@ function CheckpointForm({
               disabled={loading}
               style={inputStyle}
             >
-              <option value="">Selecione…</option>
-              {config.nextActions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
+                            <option value="">Selecione…</option>
+              {config.nextActions
+                .filter((opt) => {
+                  if (!actionChannel) return true
+                  const ch = actionChannel.toLowerCase()
+                  const o = opt.toLowerCase()
+                  if (ch === 'presencial') return o.includes('confirmar presença') || o.includes('retorno da proposta') || o.includes('realizar venda') || o.includes('proposta final') || o.includes('nova visita') || o.includes('material complementar') || o.includes('fechamento') || o.includes('whats follow') || o.includes('email follow')
+                  if (ch === 'ligação') return o.includes('ligar') || o.includes('tentativa') || o.includes('aguardar') || o.includes('whats follow') || o.includes('email follow')
+                  if (ch === 'email') return o.includes('email') || o.includes('aguardar') || o.includes('tentativa')
+                  if (ch === 'whats') return o.includes('whats') || o.includes('aguardar') || o.includes('tentativa') || o.includes('ligar')
+                  return true
+                })
+                .map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
             </select>
           </div>
         )}

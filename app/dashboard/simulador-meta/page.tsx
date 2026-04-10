@@ -626,6 +626,12 @@ export default function SimuladorMetaPage() {
         const dbValue = Number(res?.goal_value || 0)
         setRevenueGoalDb(dbValue)
         setRevenueGoalInputText(String(dbValue))
+
+        const dbTicket = Number(res?.ticket_medio || 0)
+        if (dbTicket > 0) {
+          setTicketMedioText(String(dbTicket))
+          setTicketSource('manual')
+        }
       } catch (e: any) {
         setGoalError(e?.message ?? 'Erro ao carregar meta.')
         setRevenueGoalDb(0)
@@ -785,6 +791,7 @@ export default function SimuladorMetaPage() {
     if (!companyId || !competency) return
 
     const goalValue = Math.max(0, safeNumber(revenueGoalInputText))
+    const ticketValue = ticketSource === 'manual' ? Math.max(0, safeNumber(ticketMedioText)) : 0
 
     setGoalSaving(true)
     setGoalError(null)
@@ -797,6 +804,7 @@ export default function SimuladorMetaPage() {
         startDate: revenueDates.start,
         endDate: revenueDates.end,
         goalValue,
+        ticketMedio: ticketValue,
       })
 
       setRevenueGoalDb(goalValue)
@@ -1248,10 +1256,10 @@ return (
   <div style={{
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
+    justifyContent: 'space-evenly',
+    gap: 16,
     flexWrap: 'wrap',
-    padding: '8px 14px',
+    padding: '10px 20px',
     marginTop: 10,
     borderRadius: 10,
     border: '1px solid rgba(59,130,246,0.25)',
@@ -1348,10 +1356,10 @@ return (
 <div style={{
 display: 'flex',
 alignItems: 'center',
-justifyContent: 'center',
-gap: 12,
+justifyContent: 'space-evenly',
+gap: 16,
 flexWrap: 'wrap',
-padding: '8px 14px',
+padding: '10px 20px',
 marginTop: 6,
 borderRadius: 10,
 border: '1px solid rgba(59,130,246,0.25)',
@@ -1433,39 +1441,32 @@ boxSizing: 'border-box',
     }}
   />
 </div>
-<div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-  <span style={{ color: '#8fa3bc' }}>Dias rest.:</span>
-  <input
-    type="number"
-    value={remainingBusinessDays}
-    onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
-    disabled={autoRemainingDays}
-    style={{
-      width: 48,
-      padding: '3px 6px',
-      borderRadius: 6,
-      border: '1px solid rgba(59,130,246,0.3)',
-      background: autoRemainingDays ? 'rgba(13,15,20,0.8)' : 'rgba(17,19,24,0.8)',
-      color: 'white',
-      fontSize: 13,
-      fontWeight: 900,
-      opacity: autoRemainingDays ? 0.65 : 1,
-      cursor: autoRemainingDays ? 'not-allowed' : 'text',
-    }}
-  />
-</div>
 </div>
 
 {/* ── Meta R$ (esquerda) + Salvar/Desfazer (direita) ── */}
 {showRevenueMode ? (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <span style={{ fontSize: 12, color: '#8fa3bc' }}>Meta R$:</span>
+       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <span style={{
+        fontSize: 13,
+        fontWeight: 900,
+        color: '#93c5fd',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}>Meta R$:</span>
       <input
         type="text"
         inputMode="decimal"
         value={revenueGoalInputText}
         onChange={(e) => setRevenueGoalInputText(e.target.value)}
+        onFocus={() => {
+          const n = Math.max(0, safeNumber(revenueGoalInputText))
+          setRevenueGoalInputText(n > 0 ? String(n) : '')
+        }}
+        onBlur={() => {
+          const n = Math.max(0, safeNumber(revenueGoalInputText))
+          setRevenueGoalInputText(toBRL(n))
+        }}
         onFocus={() => {
           const n = Math.max(0, safeNumber(revenueGoalInputText))
           setRevenueGoalInputText(String(n))
@@ -1476,14 +1477,16 @@ boxSizing: 'border-box',
         }}
         disabled={!isAdmin || goalLoading || goalSaving}
         style={{
-          width: 130,
-          padding: '6px 8px',
+          width: 160,
+          padding: '8px 12px',
           borderRadius: 8,
-          border: '1px solid #1a1d2e',
-          background: !isAdmin ? '#0d0f14' : '#111318',
-          color: 'white',
-          fontWeight: 700,
-          fontSize: 13,
+          border: '1px solid rgba(59,130,246,0.4)',
+          background: !isAdmin ? '#0d0f14' : 'linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(13,15,20,0.9) 100%)',
+          color: '#6ee7b7',
+          fontWeight: 900,
+          fontSize: 16,
+          letterSpacing: '-0.3px',
+          boxShadow: '0 0 12px rgba(59,130,246,0.15), inset 0 1px 0 rgba(59,130,246,0.08)',
         }}
       />
       {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
