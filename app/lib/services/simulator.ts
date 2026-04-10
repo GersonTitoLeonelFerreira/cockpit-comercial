@@ -42,6 +42,19 @@ export async function getSalesCycleMetrics(
   return data as SimulatorMetrics
 }
 
+export async function getSimulatorPeriodMetrics(
+  ownerUserId?: string | null,
+): Promise<SimulatorPeriodMetricsResponse> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase.rpc('rpc_get_simulator_period_metrics', {
+    p_owner_user_id: ownerUserId ?? null,
+  })
+
+  if (error) throw error
+  return data as SimulatorPeriodMetricsResponse
+}
+
 export async function getGroupConversion(params: {
   companyId: string
   ownerId: string | null
@@ -119,6 +132,29 @@ export async function getRevenueGoal(params: {
 
   if (error) throw error
   return data as RevenueGoalResponse
+}
+
+export type SimulatorPeriodMetricsResponse = {
+  success: boolean
+  company_id: string
+  month: string
+  month_start: string
+  month_end: string
+  owner_user_id: string | null
+  current_wins: number
+  worked_count: number
+  lost_count: number
+  total_real: number
+  total_open: number
+  total_pool: number
+  counts_by_status: {
+    novo: number
+    contato: number
+    respondeu: number
+    negociacao: number
+    ganho: number
+    perdido: number
+  }
 }
 
 export async function upsertRevenueGoal(params: {

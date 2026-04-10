@@ -5,6 +5,7 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
   getActiveCompetency,
   getSalesCycleMetrics,
+  getSimulatorPeriodMetrics,
   calculateSimulatorResult,
   calculateTheory10020,
   getGroupConversion,
@@ -442,8 +443,8 @@ export default function SimuladorMetaPage() {
           setSelectedSellerId(uid)
         }
 
-        const m = await getSalesCycleMetrics(null, comp.month_start)
-        setMetrics(m)
+        const m = await getSimulatorPeriodMetrics(null)
+setMetrics(m)
 
         const res = calculateSimulatorResult(m, {
           target_wins: targetWins,
@@ -507,8 +508,8 @@ export default function SimuladorMetaPage() {
       if (!periodStart || selectedSellerId === undefined) return
       async function refetch() {
         try {
-          const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
-          setMetrics(newMetrics)
+          const newMetrics = await getSimulatorPeriodMetrics(selectedSellerId)
+setMetrics(newMetrics)
         } catch (e: any) {
           setError(e?.message ?? 'Erro ao atualizar métricas.')
         }

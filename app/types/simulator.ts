@@ -14,9 +14,11 @@ export interface SimulatorMetrics {
   month_start: string
   month_end: string
   owner_user_id: string | null
-  is_admin: boolean
+  is_admin?: boolean
   current_wins: number
   worked_count: number
+  lost_count?: number
+  total_real?: number
   total_open: number
   total_pool: number
   counts_by_status: {
