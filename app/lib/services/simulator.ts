@@ -98,6 +98,8 @@ export type RevenueGoalResponse = {
   success: boolean
   goal_value: number
   ticket_medio: number
+  close_rate_percent: number
+  rate_source: 'planejada' | 'real'
 }
 
 export async function getRevenueGoal(params: {
@@ -126,6 +128,8 @@ export async function upsertRevenueGoal(params: {
   endDate: string // YYYY-MM-DD
   goalValue: number
   ticketMedio?: number
+  closeRatePercent?: number
+  rateSource?: 'planejada' | 'real'
 }): Promise<{ success: boolean }> {
   const supabase = supabaseBrowser()
 
@@ -136,6 +140,8 @@ export async function upsertRevenueGoal(params: {
     p_date_end: params.endDate,
     p_goal_value: params.goalValue,
     p_ticket_medio: params.ticketMedio ?? 0,
+    p_close_rate_percent: params.closeRatePercent ?? 20,
+    p_rate_source: params.rateSource ?? 'planejada',
   })
 
   if (error) throw error

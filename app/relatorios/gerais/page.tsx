@@ -92,7 +92,6 @@ type MetaVsReal = {
   meta_start: string
   meta_end: string
   ticket_simulador: number
-  ticket_simulador: number
   total_ganhos: number
   faturamento: number
   ticket_medio: number
@@ -107,6 +106,14 @@ type MetaVsReal = {
   top_seller_name: string | null
   top_seller_wins: number
   top_seller_faturamento: number
+}
+
+type RevenueGoalConfig = {
+  success: boolean
+  goal_value: number
+  ticket_medio: number
+  close_rate_percent: number
+  rate_source: 'planejada' | 'real'
 }
 
 // ==============================================================================
@@ -273,16 +280,46 @@ export default async function RelatoriosGeraisPage() {
       top_seller_wins: Number(metaRaw[0].top_seller_wins ?? 0),
       top_seller_faturamento: Number(metaRaw[0].top_seller_faturamento ?? 0),
     } : null
+
+    const { data: goalConfigRaw } =
+  meta?.meta_start && meta?.meta_end
+    ? await supabase.rpc('rpc_get_revenue_goal', {
+        p_company_id: companyId,
+        p_owner_id: null,
+        p_date_start: meta.meta_start,
+        p_date_end: meta.meta_end,
+      })
+    : { data: null }
+
+const goalConfig: RevenueGoalConfig | null = goalConfigRaw
+  ? {
+      success: Boolean(goalConfigRaw.success),
+      goal_value: Number(goalConfigRaw.goal_value ?? 0),
+      ticket_medio: Number(goalConfigRaw.ticket_medio ?? 0),
+      close_rate_percent: Number(goalConfigRaw.close_rate_percent ?? 20),
+      rate_source: goalConfigRaw.rate_source === 'real' ? 'real' : 'planejada',
+    }
+  : null
   
       // --- Cálculos Simulador vs Realidade ---
-  const metaVal = meta?.meta_empresa ?? 0
-  const faturReal = meta?.faturamento ?? 0
-  const ticketSimulador = meta?.ticket_simulador ?? 0
-  const ticketReal = meta?.ticket_medio ?? 0
-  const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
-  const taxaReal = meta?.ciclos_trabalhados && meta.ciclos_trabalhados > 0
-    ? meta.total_ganhos / meta.ciclos_trabalhados
-    : 0
+      const metaVal = meta?.meta_empresa ?? 0
+      const faturReal = meta?.faturamento ?? 0
+      const ticketSimulador = goalConfig?.ticket_medio ?? meta?.ticket_simulador ?? 0
+      const ticketReal = meta?.ticket_medio ?? 0
+      const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
+      
+      const taxaRealRaw = Number(meta?.taxa_conversao_real ?? 0)
+      const taxaReal = taxaRealRaw > 1 ? taxaRealRaw / 100 : taxaRealRaw
+      
+      const taxaPlanejada = Math.max(0, Number(goalConfig?.close_rate_percent ?? 20)) / 100
+      
+      const taxaUsadaNoSimulador =
+        goalConfig?.rate_source === 'real'
+          ? (taxaReal > 0 ? taxaReal : taxaPlanejada)
+          : taxaPlanejada
+      
+      const fonteTaxaAplicada =
+        goalConfig?.rate_source === 'real' && taxaReal > 0 ? 'Real' : 'Planejada'
   const diasUteisTot = meta?.dias_uteis_total ?? 22
   const diasUteisPass = meta?.dias_uteis_passados ?? 0
   const diasUteisRest = meta?.dias_uteis_restantes ?? 0
@@ -296,7 +333,7 @@ export default async function RelatoriosGeraisPage() {
   const faturNecessarioDia = diasUteisRest > 0 ? gap / diasUteisRest : gap
 
   // Teoria 100/20 — usando ticket do simulador
-  const taxaConversao = taxaReal > 0 ? taxaReal : 0.20
+  const taxaConversao = taxaUsadaNoSimulador > 0 ? taxaUsadaNoSimulador : 0.20
   const vendasNecessarias = ticketParaCalc > 0 ? Math.ceil(metaVal / ticketParaCalc) : 0
   const ciclosNecessarios = taxaConversao > 0 ? Math.ceil(vendasNecessarias / taxaConversao) : 0
   const ciclosPorDia = diasUteisTot > 0 ? Math.ceil(ciclosNecessarios / diasUteisTot) : 0
@@ -482,13 +519,23 @@ export default async function RelatoriosGeraisPage() {
                   Faturamento / dia útil
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Necessário p/ meta</span>
-                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{toBRL(faturNecessarioDia)}</b>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Realizado (média)</span>
-                  <b style={{ fontSize: 13, color: faturDiario >= faturNecessarioDia ? DS.green : DS.red }}>{toBRL(faturDiario)}</b>
-                </div>
+  <span style={{ fontSize: 11, color: DS.textSecondary }}>Planejada</span>
+  <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaPlanejada * 100).toFixed(1)}%</b>
+</div>
+<div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+  <span style={{ fontSize: 11, color: DS.textSecondary }}>Real (ganho/trabalhado)</span>
+  <b style={{ fontSize: 13, color: taxaReal >= taxaConversao ? DS.green : DS.yellow }}>
+    {(taxaReal * 100).toFixed(1)}%
+  </b>
+</div>
+<div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+  <span style={{ fontSize: 11, color: DS.textSecondary }}>Aplicada no plano</span>
+  <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(1)}%</b>
+</div>
+<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+  <span style={{ fontSize: 11, color: DS.textSecondary }}>Fonte aplicada</span>
+  <b style={{ fontSize: 13, color: DS.textPrimary }}>{fonteTaxaAplicada}</b>
+</div>
               </div>
 
               {/* Card: Ciclos/dia */}
@@ -569,7 +616,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-              Dados calculados com base nos mesmos critérios do Simulador de Meta. Ticket médio real: {toBRL(ticketMedio)}.
+            Dados calculados com base nos mesmos critérios do Simulador de Meta. Ticket médio real: {toBRL(ticketReal)}.
               {meta.ciclos_trabalhados < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>

@@ -632,6 +632,13 @@ export default function SimuladorMetaPage() {
           setTicketMedioText(String(dbTicket))
           setTicketSource('manual')
         }
+        const dbCloseRatePercent = Number(res?.close_rate_percent || 0)
+if (dbCloseRatePercent > 0) {
+  setCloseRatePercent(dbCloseRatePercent)
+}
+
+const dbRateSource = res?.rate_source === 'real' ? 'real' : 'planejada'
+setRateSource(dbRateSource)
       } catch (e: any) {
         setGoalError(e?.message ?? 'Erro ao carregar meta.')
         setRevenueGoalDb(0)
@@ -805,6 +812,8 @@ export default function SimuladorMetaPage() {
         endDate: revenueDates.end,
         goalValue,
         ticketMedio: ticketValue,
+        closeRatePercent,
+        rateSource,
       })
 
       setRevenueGoalDb(goalValue)
