@@ -83,6 +83,8 @@ type SlaRiskRow = {
   seconds_in_stage: number
   sla_seconds: number
   over_seconds: number
+  owner_user_id: string | null
+  owner_name: string | null
 }
 
 // ==============================================================================
@@ -218,6 +220,8 @@ export default async function RelatoriosGeraisPage() {
     seconds_in_stage: Number(r.seconds_in_stage ?? 0),
     sla_seconds: Number(r.sla_seconds ?? 0),
     over_seconds: Number(r.over_seconds ?? 0),
+    owner_user_id: r.owner_user_id ?? null,
+    owner_name: r.owner_name ?? null,
   }))
 
   const slaCount = slaRows.length
@@ -229,7 +233,7 @@ export default async function RelatoriosGeraisPage() {
   const worstStageByCount =
     Object.entries(stageRiskCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-  const topRiskLeads = slaRows.slice(0, 20)
+    const topRiskLeads = slaRows.slice(0, 50)
 
   const finalStep = convRows.find(
     (r) => r.from_stage === 'negociacao' && r.to_stage === 'fechado'
@@ -412,7 +416,8 @@ export default async function RelatoriosGeraisPage() {
                   >
                     <thead>
                       <tr>
-                        <th style={thStyle}>Lead</th>
+                      <th style={thStyle}>Lead</th>
+                        <th style={thStyle}>Consultor</th>
                         <th style={thStyle}>Etapa</th>
                         <th style={thStyle}>Tempo na etapa</th>
                         <th style={thStyle}>SLA</th>
@@ -421,7 +426,7 @@ export default async function RelatoriosGeraisPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {topRiskLeads.map((r) => (
+                    {topRiskLeads.map((r) => (
                         <tr key={r.lead_id}>
                           <td style={tdStyle}>
                             <a
@@ -431,6 +436,9 @@ export default async function RelatoriosGeraisPage() {
                             >
                               {r.name}
                             </a>
+                          </td>
+                          <td style={tdStyle}>
+                            {r.owner_name ? r.owner_name : <span style={{ color: DS.textMuted, fontStyle: 'italic' }}>Sem dono</span>}
                           </td>
                           <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.stage}</td>
                           <td style={tdStyle}>{formatSeconds(r.seconds_in_stage)}</td>
@@ -442,9 +450,9 @@ export default async function RelatoriosGeraisPage() {
                     </tbody>
                   </table>
 
-                  {slaRows.length > 20 ? (
+                  {slaRows.length > 50 ? (
                     <div style={{ marginTop: 10, color: DS.textMuted, fontSize: 12 }}>
-                      Mostrando top 20 por atraso. Total em risco: {slaRows.length}.
+                      Mostrando top 50 por atraso. Total em risco: {slaRows.length}.
                     </div>
                   ) : null}
                 </div>
