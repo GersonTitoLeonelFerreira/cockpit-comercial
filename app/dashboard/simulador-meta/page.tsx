@@ -6,6 +6,7 @@ import {
   getActiveCompetency,
   getSalesCycleMetrics,
   getSimulatorPeriodMetrics,
+  getRevenuePeriodSummary,
   calculateSimulatorResult,
   calculateTheory10020,
   getGroupConversion,
@@ -25,6 +26,7 @@ import type {
   SimulatorResult,
   Theory10020Result,
 } from '@/app/types/simulator'
+import type { RevenuePeriodSummaryResponse } from '@/app/lib/services/simulator'
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
@@ -339,6 +341,8 @@ export default function SimuladorMetaPage() {
   const [revenueSeller, setRevenueSeller] = useState<RevenueSummaryResponse | null>(null)
   const [revenueLoading, setRevenueLoading] = useState(false)
   const [revenueError, setRevenueError] = useState<string | null>(null)
+  const [revenuePeriodCompany, setRevenuePeriodCompany] = useState<RevenuePeriodSummaryResponse | null>(null)
+  const [revenuePeriodSeller, setRevenuePeriodSeller] = useState<RevenuePeriodSummaryResponse | null>(null)
 
   // Revenue (meta do banco + input digitável)
   const [revenueGoalDb, setRevenueGoalDb] = useState<number>(0)
@@ -594,7 +598,11 @@ setMetrics(newMetrics)
       return
     }
 
-    const totalReal = Number(revenueSeller?.total_real || revenueCompany?.total_real || 0)
+    const totalReal = Number(
+      revenuePeriodSeller?.revenue_total ||
+      revenuePeriodCompany?.revenue_total ||
+      0
+    )
 
     const result = calculateTheory10020({
       meta_total: activeGoalForKpis,
@@ -604,7 +612,7 @@ setMetrics(newMetrics)
       total_real: totalReal,
     })
     setTheory10020Result(result)
-  }, [mode, ticketMedioText, ticketSource, historicalTicket, activeGoalForKpis, taxaUsadaNoCalculo, remainingBusinessDays, revenueSeller, revenueCompany])
+  }, [mode, ticketMedioText, ticketSource, historicalTicket, activeGoalForKpis, taxaUsadaNoCalculo, remainingBusinessDays, revenuePeriodSeller, revenuePeriodCompany])
 
   // Carregar meta do banco
   useEffect(() => {
@@ -861,29 +869,37 @@ setRateSource(dbRateSource)
                 metric,
               })
               setRevenueCompany(companyRes)
+        
+              const companyPeriodRes = await getRevenuePeriodSummary(null)
+              setRevenuePeriodCompany(companyPeriodRes)
             })(),
           )
         } else {
           setRevenueCompany(null)
+          setRevenuePeriodCompany(null)
         }
 
         const ownerIdForSeller = selectedSellerId ?? null
-        if (ownerIdForSeller) {
-          fetches.push(
-            (async () => {
-              const sellerRes = await getRevenueSummary({
-                companyId: cid,
-                ownerId: ownerIdForSeller,
-                startDate,
-                endDate,
-                metric,
-              })
-              setRevenueSeller(sellerRes)
-            })(),
-          )
-        } else {
-          setRevenueSeller(null)
-        }
+if (ownerIdForSeller) {
+  fetches.push(
+    (async () => {
+      const sellerRes = await getRevenueSummary({
+        companyId: cid,
+        ownerId: ownerIdForSeller,
+        startDate,
+        endDate,
+        metric,
+      })
+      setRevenueSeller(sellerRes)
+
+      const sellerPeriodRes = await getRevenuePeriodSummary(ownerIdForSeller)
+      setRevenuePeriodSeller(sellerPeriodRes)
+    })(),
+  )
+} else {
+  setRevenueSeller(null)
+  setRevenuePeriodSeller(null)
+}
 
         await Promise.all(fetches)
       } catch (e: any) {
@@ -930,16 +946,16 @@ setRateSource(dbRateSource)
   }
 
   const revenueCompanyKpis = useMemo(() => {
-    if (!revenueCompany?.success) return null
-    return buildRevenueKpis(Number(revenueCompany.total_real || 0), activeGoalForKpis)
+    if (!revenuePeriodCompany?.success) return null
+    return buildRevenueKpis(Number(revenuePeriodCompany.revenue_total || 0), activeGoalForKpis)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenueCompany, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
+  }, [revenuePeriodCompany, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
 
   const revenueSellerKpis = useMemo(() => {
-    if (!revenueSeller?.success) return null
-    return buildRevenueKpis(Number(revenueSeller.total_real || 0), activeGoalForKpis)
+    if (!revenuePeriodSeller?.success) return null
+    return buildRevenueKpis(Number(revenuePeriodSeller.revenue_total || 0), activeGoalForKpis)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
+  }, [revenuePeriodSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
 
   if (loading) {
     return (

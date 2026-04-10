@@ -18,6 +18,9 @@ export async function getActiveCompetency(): Promise<ActiveCompetency> {
   const { data, error } = await supabase.rpc('rpc_get_active_competency')
 
   if (error) throw error
+  if (!data || data.error) {
+    throw new Error(data?.error ?? 'active_competency_not_found')
+  }
 
   return {
     month: data.month,
@@ -53,6 +56,19 @@ export async function getSimulatorPeriodMetrics(
 
   if (error) throw error
   return data as SimulatorPeriodMetricsResponse
+}
+
+export async function getRevenuePeriodSummary(
+  ownerUserId?: string | null,
+): Promise<RevenuePeriodSummaryResponse> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase.rpc('rpc_get_revenue_period_summary', {
+    p_owner_user_id: ownerUserId ?? null,
+  })
+
+  if (error) throw error
+  return data as RevenuePeriodSummaryResponse
 }
 
 export async function getGroupConversion(params: {
@@ -155,6 +171,20 @@ export type SimulatorPeriodMetricsResponse = {
     ganho: number
     perdido: number
   }
+}
+
+export type RevenuePeriodSummaryResponse = {
+  success: boolean
+  competency_id: string
+  competency_name: string
+  start_date: string
+  end_date: string
+  owner_user_id: string | null
+  worked_count: number
+  won_count: number
+  lost_count: number
+  revenue_total: number
+  ticket_medio: number
 }
 
 export async function upsertRevenueGoal(params: {
