@@ -81,9 +81,37 @@ export default function LeadActions(props: {
           metadata: { source: EVENT_SOURCES.lead_detail, ...meta },
           created_at: nowIso,
         })
-
-        if (eventErr) console.log('Erro ao registrar lead_events:', eventErr)
-
+        
+        if (eventErr) {
+          console.log('Erro ao registrar lead_events:', eventErr)
+        }
+        
+        const touchType =
+          toStage === 'ganho'
+            ? 'won'
+            : toStage === 'perdido'
+              ? 'lost'
+              : 'move'
+        
+              const { data: touchData, error: touchErr } = await supabase.rpc('rpc_touch_lead_in_current_competency', {
+                p_lead_id: props.leadId,
+                p_touch_type: touchType,
+                p_touch_at: nowIso,
+                p_won_total: toStage === 'ganho' ? (meta?.won_total ?? null) : null,
+              })
+              
+              if (touchErr) {
+                throw new Error(`Erro ao registrar atividade por período: ${touchErr.message}`)
+              }
+              
+              if (!touchData?.success) {
+                throw new Error(`Falha ao registrar atividade por período: ${JSON.stringify(touchData)}`)
+              }          
+        
+        if (touchErr) {
+          console.log('Erro ao registrar atividade por período:', touchErr)
+        }
+        
         router.refresh()
       } catch (e: any) {
         alert('Falha ao atualizar lead: ' + (e?.message ?? String(e)))

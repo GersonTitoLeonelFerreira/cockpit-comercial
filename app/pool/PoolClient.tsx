@@ -86,10 +86,21 @@ export default function PoolClient({
         p_cycle_id: cycleId,
         p_new_owner_user_id: newOwnerId,
       })
-  
+      
       if (err) throw err
       if (!data?.success) throw new Error('Falha ao redistribuir ciclo')
-  
+      
+      const { error: touchErr } = await supabase.rpc('rpc_touch_cycle_in_current_competency', {
+        p_cycle_id: cycleId,
+        p_touch_type: 'worked',
+        p_touch_at: new Date().toISOString(),
+        p_won_total: null,
+      })
+      
+      if (touchErr) {
+        console.log('Erro ao registrar atividade por período:', touchErr)
+      }
+      
       setCycles((prev) => prev.filter((c) => c.id !== cycleId))
     } catch (e: any) {
       setError(`Erro ao atribuir: ${e?.message ?? String(e)}`)
