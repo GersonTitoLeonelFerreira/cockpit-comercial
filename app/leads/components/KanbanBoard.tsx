@@ -117,7 +117,7 @@ export default function KanbanBoard({
   const searchParams = useSearchParams()
 
   const columns = useMemo(
-    () => ['novo', 'contato', 'respondeu', 'negociacao', 'fechado', 'perdido'],
+    () => ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido'],
     []
   )
 
@@ -395,11 +395,9 @@ export default function KanbanBoard({
       )
 
       if (touchErr) {
-        throw new Error(`Erro ao registrar atividade por período: ${touchErr.message}`)
-      }
-
-      if (!touchData?.success) {
-        throw new Error(`Falha ao registrar atividade por período: ${JSON.stringify(touchData)}`)
+        console.warn('Erro ao registrar atividade por período:', touchErr)
+      } else if (!touchData?.success) {
+        console.warn('Falha ao registrar atividade por período:', touchData)
       }
 
       setMoving(null)
