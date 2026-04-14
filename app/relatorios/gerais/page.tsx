@@ -415,9 +415,9 @@ const diasUteisRest = meta?.dias_uteis_restantes ?? 0
 
     const topRiskLeads = slaRows.slice(0, 50)
 
-  const finalStep = convRows.find(
-    (r) => r.from_stage === 'negociacao' && r.to_stage === 'fechado'
-  )
+    const finalStep = convRows.find(
+      (r) => r.from_stage === 'negociacao' && r.to_stage === 'fechado'
+    )
   const finalConv = finalStep ? finalStep.conversion : 0
 
   const worstLoss = lossRows
@@ -780,7 +780,7 @@ const diasUteisRest = meta?.dias_uteis_restantes ?? 0
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
-                Aqui aparecem leads em etapas ativas (exceto <b>fechado</b> e <b>perdido</b>)
+              Aqui aparecem leads em etapas ativas (exceto <b>ganho</b> e <b>perdido</b>)
                 cujo tempo na etapa ultrapassou o SLA padrão.
               </p>
 
@@ -878,7 +878,7 @@ const diasUteisRest = meta?.dias_uteis_restantes ?? 0
               Taxa de conversão entre etapas
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
-              Conversão final (Negociação → Fechado): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
+            Conversão final (Negociação → Ganho): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
             </div>
           </div>
 
