@@ -355,6 +355,24 @@ export default function KanbanBoard({
         throw new Error(updateErr.message)
       }
 
+      const { error: cycleErr } = await supabase
+  .from('sales_cycles')
+  .update({ status: toStatus })
+  .eq('lead_id', leadId)
+  .eq('company_id', companyId)
+
+if (cycleErr) {
+  setLocalLeads((prevList) =>
+    prevList.map((l) =>
+      l.id === leadId
+        ? { ...l, status: fromStatus, stage_entered_at: prevStageEnteredAt }
+        : l
+    )
+  )
+  setMoving(null)
+  throw new Error(`Erro ao atualizar sales_cycles: ${cycleErr.message}`)
+}
+
       const metadata = {
         source: EVENT_SOURCES.kanban_drag,
         seconds_in_from_status: secondsInFromStage,

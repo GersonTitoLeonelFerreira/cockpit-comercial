@@ -68,6 +68,14 @@ export default function LeadActions(props: {
 
         if (updateErr) throw new Error(updateErr.message)
 
+        const { error: cycleErr } = await supabase
+  .from('sales_cycles')
+  .update({ status: toStage })
+  .eq('lead_id', props.leadId)
+  .eq('company_id', props.companyId)
+
+if (cycleErr) throw new Error(`Erro ao atualizar sales_cycles: ${cycleErr.message}`)
+
         const { error: eventErr } = await supabase.from('lead_events').insert({
           company_id: props.companyId,
           lead_id: props.leadId,
