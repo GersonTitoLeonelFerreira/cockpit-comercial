@@ -1,18 +1,3 @@
-// ✅ PRINCIPAIS PROBLEMAS NO SEU ARQUIVO (e o que vamos tirar):
-// 1) Você recebe userId/companyId por props, MAS declarou de novo como state:
-//    const [userId, setUserId] = useState...
-//    => isso dá conflito (e foi o erro do print).
-// 2) Você está usando "leads" dentro do Kanban, mas o componente NÃO recebe leads por props.
-//    const [localLeads, setLocalLeads] = useState<Lead[]>(leads ?? [])
-//    => "leads" está undefined.
-// 3) Você importou AdminLeadsTable errado e nem usa ele nesse arquivo.
-//
-// ✅ CORREÇÃO MÍNIMA PARA VOLTAR A FUNCIONAR AGORA (sem implementar paginação ainda):
-// - Remover toda a parte "Auth / company" (authReady, setUserId, loadAuth, setCompanyId).
-// - Remover o uso de "leads ?? []" e iniciar localLeads vazio.
-// - Adicionar um fetch simples de leads no Kanban (somente MY para vendedor) com limit 50 por status depois.
-//   Por enquanto, vamos só carregar um lote pra não quebrar a tela.
-
 'use client'
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
@@ -30,7 +15,7 @@ type Lead = {
   stage_entered_at?: string | null
   owner_id: string | null
   pinned?: boolean
-  importance?: number // 0..3
+  importance?: number
 }
 
 function formatTempo(totalSeconds: number) {
@@ -115,7 +100,6 @@ type MovingState = {
 
 type BoardView = 'MY' | 'POOL' | 'ALL'
 
-// ✅ Só bloqueia “vazar” pro DnD. NÃO usa preventDefault.
 function stopBubble(e: any) {
   e.stopPropagation?.()
 }
@@ -132,26 +116,30 @@ export default function KanbanBoard({
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const columns = useMemo(() => ['novo', 'contato', 'respondeu', 'negociacao', 'fechado', 'perdido'], [])
+  const columns = useMemo(
+    () => ['novo', 'contato', 'respondeu', 'negociacao', 'fechado', 'perdido'],
+    []
+  )
 
-  // ✅ antes estava: useState(leads ?? []) -> leads não existe aqui
   const [localLeads, setLocalLeads] = useState<Lead[]>([])
-
-  // View
   const [view, setView] = useState<BoardView>('MY')
+  const [mounted, setMounted] = useState(false)
+  const [nowMs, setNowMs] = useState<number>(0)
+  const [highlightLeadId, setHighlightLeadId] = useState<string | null>(null)
+  const [moving, setMoving] = useState<MovingState | null>(null)
+  const [pendingLostMove, setPendingLostMove] = useState<PendingLostMove | null>(null)
+  const [lossReason, setLossReason] = useState<string>('')
+  const [lossReasonOther, setLossReasonOther] = useState<string>('')
+  const [savingLost, setSavingLost] = useState<boolean>(false)
+
   useEffect(() => {
     if (!isAdmin) setView('MY')
   }, [isAdmin])
 
-  // Hydration safety
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
-  // ✅ Antes havia authReady/userId/companyId state duplicados.
-  // Agora userId/companyId vêm por props e são a fonte da verdade.
-
-  // ✅ Carregamento mínimo: para vendedor, carrega apenas os leads dele (limitado).
-  // (Depois vamos evoluir para 20 por coluna + "carregar mais" até 50.)
   const loadMyLeads = useCallback(async () => {
     if (!userId || !companyId) return
 
@@ -161,24 +149,20 @@ export default function KanbanBoard({
       .eq('company_id', companyId)
       .eq('owner_id', userId)
       .order('created_at', { ascending: false })
-      .limit(300) // mantém leve por enquanto
+      .limit(300)
 
     if (error) {
       console.warn('Erro ao carregar leads do Kanban:', error.message)
       return
     }
 
-    setLocalLeads((data ?? []) as any)
+    setLocalLeads((data ?? []) as Lead[])
   }, [userId, companyId])
 
   useEffect(() => {
-    // vendedor
     if (!isAdmin) loadMyLeads()
-    // admin, se entrar no Kanban depois, a gente implementa modo "ver vendedor"
   }, [isAdmin, loadMyLeads])
 
-  // Clock
-  const [nowMs, setNowMs] = useState<number>(0)
   useEffect(() => {
     setNowMs(Date.now())
     const t = setInterval(() => setNowMs(Date.now()), 30_000)
@@ -258,16 +242,15 @@ export default function KanbanBoard({
   const columnCounts = useMemo(() => {
     const acc: Record<string, number> = {}
     for (const col of columns) acc[col] = 0
+
     for (const l of visibleLeads) {
       const st = (l.status || '').toLowerCase()
       if (acc[st] == null) acc[st] = 0
       acc[st] += 1
     }
+
     return acc
   }, [visibleLeads, columns])
-
-  // Deep link highlight
-  const [highlightLeadId, setHighlightLeadId] = useState<string | null>(null)
 
   const scrollToLead = useCallback((leadId: string) => {
     let tries = 0
@@ -304,15 +287,7 @@ export default function KanbanBoard({
     return () => clearTimeout(t)
   }, [searchParams, localLeads, scrollToLead, mounted])
 
-  // Moving state
-  const [moving, setMoving] = useState<MovingState | null>(null)
   const isMovingLead = useCallback((id: string) => moving?.leadId === id, [moving])
-
-  // Modal perdido
-  const [pendingLostMove, setPendingLostMove] = useState<PendingLostMove | null>(null)
-  const [lossReason, setLossReason] = useState<string>('')
-  const [lossReasonOther, setLossReasonOther] = useState<string>('')
-  const [savingLost, setSavingLost] = useState<boolean>(false)
 
   const closeLostModal = useCallback(() => {
     setPendingLostMove(null)
@@ -332,10 +307,15 @@ export default function KanbanBoard({
   }, [lossReason, lossReasonOther])
 
   const performMove = useCallback(
-    async (leadId: string, fromStatus: string, toStatus: string, secondsInFromStage: number, extraMeta?: any) => {
+    async (
+      leadId: string,
+      fromStatus: string,
+      toStatus: string,
+      secondsInFromStage: number,
+      extraMeta?: any
+    ) => {
       if (!userId) throw new Error('Você precisa estar logado.')
       if (!companyId) throw new Error('Erro: não encontrei sua empresa (company_id).')
-      // Guard: never register a stage_changed event if from === to
       if (fromStatus === toStatus) return
 
       const nowIso = new Date().toISOString()
@@ -343,10 +323,18 @@ export default function KanbanBoard({
       const prev = localLeads.find((l) => l.id === leadId)
       const prevStageEnteredAt = prev?.stage_entered_at ?? null
 
-      setMoving({ leadId, fromStatus, toStatus, prevStageEnteredAt, nextStageEnteredAt: nowIso })
+      setMoving({
+        leadId,
+        fromStatus,
+        toStatus,
+        prevStageEnteredAt,
+        nextStageEnteredAt: nowIso,
+      })
 
       setLocalLeads((prevList) =>
-        prevList.map((l) => (l.id === leadId ? { ...l, status: toStatus, stage_entered_at: nowIso } : l))
+        prevList.map((l) =>
+          l.id === leadId ? { ...l, status: toStatus, stage_entered_at: nowIso } : l
+        )
       )
 
       const { error: updateErr } = await supabase
@@ -358,7 +346,9 @@ export default function KanbanBoard({
       if (updateErr) {
         setLocalLeads((prevList) =>
           prevList.map((l) =>
-            l.id === leadId ? { ...l, status: fromStatus, stage_entered_at: prevStageEnteredAt } : l
+            l.id === leadId
+              ? { ...l, status: fromStatus, stage_entered_at: prevStageEnteredAt }
+              : l
           )
         )
         setMoving(null)
@@ -382,37 +372,36 @@ export default function KanbanBoard({
         metadata,
         created_at: nowIso,
       })
-      
+
       if (eventErr) {
         console.log('Erro ao registrar evento lead_events:', eventErr)
       }
-      
+
       const touchType =
         toStatus === 'ganho'
           ? 'won'
           : toStatus === 'perdido'
             ? 'lost'
             : 'move'
-      
-            const { data: touchData, error: touchErr } = await supabase.rpc('rpc_touch_lead_in_current_competency', {
-              p_lead_id: leadId,
-              p_touch_type: touchType,
-              p_touch_at: nowIso,
-              p_won_total: toStatus === 'ganho' ? (extraMeta?.won_total ?? null) : null,
-            })
-            
-            if (touchErr) {
-              throw new Error(`Erro ao registrar atividade por período: ${touchErr.message}`)
-            }
-            
-            if (!touchData?.success) {
-              throw new Error(`Falha ao registrar atividade por período: ${JSON.stringify(touchData)}`)
-            }
-      
+
+      const { data: touchData, error: touchErr } = await supabase.rpc(
+        'rpc_touch_lead_in_current_competency',
+        {
+          p_lead_id: leadId,
+          p_touch_type: touchType,
+          p_touch_at: nowIso,
+          p_won_total: toStatus === 'ganho' ? (extraMeta?.won_total ?? null) : null,
+        }
+      )
+
       if (touchErr) {
-        console.log('Erro ao registrar atividade por período:', touchErr)
+        throw new Error(`Erro ao registrar atividade por período: ${touchErr.message}`)
       }
-      
+
+      if (!touchData?.success) {
+        throw new Error(`Falha ao registrar atividade por período: ${JSON.stringify(touchData)}`)
+      }
+
       setMoving(null)
       router.refresh()
     },
@@ -439,7 +428,12 @@ export default function KanbanBoard({
     const secondsInFromStage = diff > 0 ? diff : 1
 
     if (toStatus === 'perdido') {
-      setPendingLostMove({ leadId, fromStatus, toStatus: 'perdido', secondsInFromStage })
+      setPendingLostMove({
+        leadId,
+        fromStatus,
+        toStatus: 'perdido',
+        secondsInFromStage,
+      })
       setLossReason('')
       setLossReasonOther('')
       return
@@ -502,7 +496,6 @@ export default function KanbanBoard({
 
   return (
     <>
-      {/* Barra de visão */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <button onClick={() => setView('MY')} style={pillBtnStyle}>
           Minha carteira
@@ -558,19 +551,21 @@ export default function KanbanBoard({
                     .sort(sortWithinStage)
                     .map((lead, index) => {
                       const wa = whatsappLink(lead.phone)
-
                       const secs = mounted ? secondsInCurrentStatus(lead) : 0
                       const tempoLabel = mounted ? formatTempo(secs) : '—'
-
                       const pinned = !!lead.pinned
                       const importance = lead.importance ?? 0
                       const isPriority = pinned || importance >= 2
                       const isHighlighted = highlightLeadId === lead.id
-
                       const savingThis = isMovingLead(lead.id)
 
                       return (
-                        <Draggable draggableId={lead.id} index={index} key={lead.id} isDragDisabled={!!moving || isAdmin}>
+                        <Draggable
+                          draggableId={lead.id}
+                          index={index}
+                          key={lead.id}
+                          isDragDisabled={!!moving || isAdmin}
+                        >
                           {(provided) => (
                             <div
                               ref={provided.innerRef}
@@ -712,7 +707,9 @@ export default function KanbanBoard({
                                   Criado: {mounted ? new Date(lead.created_at).toLocaleString() : '—'}
                                 </div>
 
-                                <div style={{ opacity: 0.7, fontSize: 11, marginTop: 6 }}>Tempo no status: {tempoLabel}</div>
+                                <div style={{ opacity: 0.7, fontSize: 11, marginTop: 6 }}>
+                                  Tempo no status: {tempoLabel}
+                                </div>
 
                                 <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center' }}>
                                   <button
@@ -774,7 +771,100 @@ export default function KanbanBoard({
         </div>
       </DragDropContext>
 
-      {/* ... resto do modal perdido permanece igual ... */}
+      {pendingLostMove && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !savingLost) closeLostModal()
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              background: '#0b0b0b',
+              border: '1px solid #2a2a2a',
+              borderRadius: 14,
+              padding: 16,
+              color: 'white',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+              <h3 style={{ margin: 0 }}>Motivo da perda (obrigatório)</h3>
+              <button
+                type="button"
+                onClick={() => !savingLost && closeLostModal()}
+                style={pillBtnStyle}
+                disabled={savingLost}
+              >
+                Cancelar
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+              <label style={{ fontSize: 12, opacity: 0.8 }}>Selecione um motivo</label>
+
+              <select
+                value={lossReason}
+                onChange={(e) => setLossReason(e.target.value)}
+                disabled={savingLost}
+                style={{
+                  width: '100%',
+                  background: '#111',
+                  border: '1px solid #2a2a2a',
+                  color: 'white',
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  outline: 'none',
+                }}
+              >
+                <option value="">— selecione —</option>
+                {LOSS_REASONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+
+              {lossReason === 'Outro' && (
+                <>
+                  <label style={{ fontSize: 12, opacity: 0.8 }}>Descreva</label>
+                  <input
+                    value={lossReasonOther}
+                    onChange={(e) => setLossReasonOther(e.target.value)}
+                    disabled={savingLost}
+                    placeholder="Ex.: Mudou de cidade / etc."
+                    style={{
+                      width: '100%',
+                      background: '#111',
+                      border: '1px solid #2a2a2a',
+                      color: 'white',
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      outline: 'none',
+                    }}
+                  />
+                </>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+              <button type="button" onClick={confirmLostMove} disabled={savingLost} style={pillBtnStyle}>
+                {savingLost ? 'Salvando...' : 'Confirmar perda'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
