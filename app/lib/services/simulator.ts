@@ -7,7 +7,6 @@ import type {
   SimulatorConfig,
   SimulatorMetrics,
   SimulatorResult,
-  TicketFallbackLevel,
   Theory10020Config,
   Theory10020Result,
 } from '../../types/simulator'
@@ -45,6 +44,29 @@ export async function getSalesCycleMetrics(
   return data as SimulatorMetrics
 }
 
+export type SimulatorPeriodMetricsResponse = {
+  success: boolean
+  company_id: string
+  month: string
+  month_start: string
+  month_end: string
+  owner_user_id: string | null
+  current_wins: number
+  worked_count: number
+  lost_count: number
+  total_real: number
+  total_open: number
+  total_pool: number
+  counts_by_status: {
+    novo: number
+    contato: number
+    respondeu: number
+    negociacao: number
+    ganho: number
+    perdido: number
+  }
+}
+
 export async function getSimulatorPeriodMetrics(
   ownerUserId?: string | null,
 ): Promise<SimulatorPeriodMetricsResponse> {
@@ -56,6 +78,20 @@ export async function getSimulatorPeriodMetrics(
 
   if (error) throw error
   return data as SimulatorPeriodMetricsResponse
+}
+
+export type RevenuePeriodSummaryResponse = {
+  success: boolean
+  competency_id: string
+  competency_name: string
+  start_date: string
+  end_date: string
+  owner_user_id: string | null
+  worked_count: number
+  won_count: number
+  lost_count: number
+  revenue_total: number
+  ticket_medio: number
 }
 
 export async function getRevenuePeriodSummary(
@@ -101,15 +137,15 @@ export async function getGroupConversion(params: {
 export async function getRevenueSummary(params: {
   companyId: string
   ownerId: string | null
-  startDate: string // YYYY-MM-DD
-  endDate: string // YYYY-MM-DD
+  startDate: string
+  endDate: string
   metric: 'faturamento' | 'recebimento'
 }): Promise<RevenueSummaryResponse> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase.rpc('rpc_revenue_summary', {
     p_company_id: params.companyId,
-    p_owner_id: params.ownerId, // ✅ nome certo da RPC (p_owner_id)
+    p_owner_id: params.ownerId,
     p_start_date: params.startDate,
     p_end_date: params.endDate,
     p_metric: params.metric,
@@ -134,8 +170,8 @@ export type RevenueGoalResponse = {
 export async function getRevenueGoal(params: {
   companyId: string
   ownerId: string | null
-  startDate: string // YYYY-MM-DD
-  endDate: string // YYYY-MM-DD
+  startDate: string
+  endDate: string
 }): Promise<RevenueGoalResponse> {
   const supabase = supabaseBrowser()
 
@@ -150,48 +186,11 @@ export async function getRevenueGoal(params: {
   return data as RevenueGoalResponse
 }
 
-export type SimulatorPeriodMetricsResponse = {
-  success: boolean
-  company_id: string
-  month: string
-  month_start: string
-  month_end: string
-  owner_user_id: string | null
-  current_wins: number
-  worked_count: number
-  lost_count: number
-  total_real: number
-  total_open: number
-  total_pool: number
-  counts_by_status: {
-    novo: number
-    contato: number
-    respondeu: number
-    negociacao: number
-    ganho: number
-    perdido: number
-  }
-}
-
-export type RevenuePeriodSummaryResponse = {
-  success: boolean
-  competency_id: string
-  competency_name: string
-  start_date: string
-  end_date: string
-  owner_user_id: string | null
-  worked_count: number
-  won_count: number
-  lost_count: number
-  revenue_total: number
-  ticket_medio: number
-}
-
 export async function upsertRevenueGoal(params: {
   companyId: string
   ownerId: string | null
-  startDate: string // YYYY-MM-DD
-  endDate: string // YYYY-MM-DD
+  startDate: string
+  endDate: string
   goalValue: number
   ticketMedio?: number
   closeRatePercent?: number
@@ -228,12 +227,13 @@ export function calculateSimulatorResult(
 
   const BUSINESS_DAYS_IN_MONTH = 22
   const daily_worked_needed = Math.ceil(needed_worked_cycles / BUSINESS_DAYS_IN_MONTH)
-  const daily_worked_remaining = Math.ceil(remaining_worked_cycles / Math.max(1, remaining_business_days))
+  const daily_worked_remaining = Math.ceil(
+    remaining_worked_cycles / Math.max(1, remaining_business_days),
+  )
 
   const simulation_15pct = Math.ceil(target_wins / 0.15)
   const simulation_25pct = Math.ceil(target_wins / 0.25)
 
-  // pct: você usa na UI como (v * 100)
   const progress_pct = target_wins > 0 ? current_wins / target_wins : 0
   const current_rate = worked_count > 0 ? current_wins / worked_count : 0
   const on_track = current_rate >= close_rate
@@ -271,90 +271,37 @@ export function calculateTheory10020(config: Theory10020Config): Theory10020Resu
   const safeDays = Math.max(0, remaining_business_days || 0)
   const safeReal = Math.max(0, total_real || 0)
 
-  // TEORIA 100/20 — CORRECT LADDER
-  // Dynamic multiplier: 1 / taxa_decimal (e.g. 20% → ×5, 15% → ×6.67, 25% → ×4)
-  // When safeRate is 0 (invalid input), multiplicador is 0 and all downstream values are 0.
-  // The UI enforces rate >= 1% (min="1"), so this only occurs in edge cases.
-  const multiplicador = safeRate > 0 ? (1 / safeRate) : 0
-
-  // Step 1: Gross effort = meta × multiplicador
+  const multiplicador = safeRate > 0 ? 1 / safeRate : 0
   const esforco_bruto = safeMeta * multiplicador
+  const garantia_minima = safeMeta * 0.2
 
-  // Step 2: Minimum guarantee (20% of meta) — informational
-  const garantia_minima = safeMeta * 0.20
-
-  // Step 3: Leads to contact = gross effort / average ticket
-  const leads_para_contatar = safeTicket > 0
-    ? Math.ceil(esforco_bruto / safeTicket)
-    : 0
-
-  // Step 4: Expected wins = leads × conversion rate (MULTIPLY, not divide!)
+  const leads_para_contatar = safeTicket > 0 ? Math.ceil(esforco_bruto / safeTicket) : 0
   const ganhos_esperados = Math.ceil(leads_para_contatar * safeRate)
 
-  // Step 5: Per business day
-  const leads_por_dia = safeDays > 0
-    ? Math.ceil(leads_para_contatar / safeDays)
-    : leads_para_contatar
+  const leads_por_dia = safeDays > 0 ? Math.ceil(leads_para_contatar / safeDays) : leads_para_contatar
+  const ganhos_por_dia = safeDays > 0 ? Math.ceil(ganhos_esperados / safeDays) : ganhos_esperados
 
-  const ganhos_por_dia = safeDays > 0
-    ? Math.ceil(ganhos_esperados / safeDays)
-    : ganhos_esperados
-
-  // Gap and remaining (against the ORIGINAL META)
   const gap = Math.max(0, safeMeta - safeReal)
   const meta_atingida = safeReal >= safeMeta && safeMeta > 0
 
-  // Remaining: same ladder logic applied to gap
-  // esforco_bruto_restante = gap × multiplicador
-  // leads_restantes = esforco_bruto_restante / ticket_medio
-  // ganhos_restantes = leads_restantes × close_rate
   const esforco_bruto_restante = gap * multiplicador
-  const leads_restantes = safeTicket > 0
-    ? Math.ceil(esforco_bruto_restante / safeTicket)
-    : 0
-
+  const leads_restantes = safeTicket > 0 ? Math.ceil(esforco_bruto_restante / safeTicket) : 0
   const ganhos_restantes = Math.ceil(leads_restantes * safeRate)
 
-  const leads_restantes_por_dia = safeDays > 0
-    ? Math.ceil(leads_restantes / safeDays)
-    : leads_restantes
-
-  const ganhos_restantes_por_dia = safeDays > 0
-    ? Math.ceil(ganhos_restantes / safeDays)
-    : ganhos_restantes
+  const leads_restantes_por_dia = safeDays > 0 ? Math.ceil(leads_restantes / safeDays) : leads_restantes
+  const ganhos_restantes_por_dia = safeDays > 0 ? Math.ceil(ganhos_restantes / safeDays) : ganhos_restantes
 
   const progress_pct = safeMeta > 0 ? safeReal / safeMeta : 0
 
-  // ---- Campos nomenclatura Teoria 100/20 (spec-compliant) ----
-  // vendas_necessarias: quantas vendas (fechamentos) são necessárias para atingir a meta
-  const vendas_necessarias = safeTicket > 0
-    ? Math.ceil(safeMeta / safeTicket)
-    : 0
-
-  // ciclos_trabalhados_necessarios: quantos ciclos de trabalho (contatos) são necessários
-  const ciclos_trabalhados_necessarios = safeRate > 0
-    ? Math.ceil(vendas_necessarias / safeRate)
-    : 0
-
-  // ciclos_por_dia: ciclos de trabalho por dia útil restante
+  const vendas_necessarias = safeTicket > 0 ? Math.ceil(safeMeta / safeTicket) : 0
+  const ciclos_trabalhados_necessarios = safeRate > 0 ? Math.ceil(vendas_necessarias / safeRate) : 0
   const ciclos_por_dia = safeDays > 0
     ? Math.ceil(ciclos_trabalhados_necessarios / safeDays)
     : ciclos_trabalhados_necessarios
 
-  // vendas_restantes: quantas vendas ainda faltam para fechar o gap
-  const vendas_restantes = safeTicket > 0
-    ? Math.ceil(gap / safeTicket)
-    : 0
-
-  // ciclos_restantes: ciclos de trabalho necessários para fechar o gap
-  const ciclos_restantes = safeRate > 0
-    ? Math.ceil(vendas_restantes / safeRate)
-    : 0
-
-  // ciclos_restantes_por_dia: ciclos restantes por dia útil restante
-  const ciclos_restantes_por_dia = safeDays > 0
-    ? Math.ceil(ciclos_restantes / safeDays)
-    : ciclos_restantes
+  const vendas_restantes = safeTicket > 0 ? Math.ceil(gap / safeTicket) : 0
+  const ciclos_restantes = safeRate > 0 ? Math.ceil(vendas_restantes / safeRate) : 0
+  const ciclos_restantes_por_dia = safeDays > 0 ? Math.ceil(ciclos_restantes / safeDays) : ciclos_restantes
 
   return {
     meta_total: safeMeta,
@@ -393,14 +340,19 @@ const MIN_SAMPLE_SIZE = 5
 
 export async function getHistoricalTicket(params: {
   companyId: string
-  ownerId: string | null       // null = empresa toda
-  dateStart: string            // YYYY-MM-DD (início da competência)
-  dateEnd: string              // YYYY-MM-DD (fim da competência)
+  ownerId: string | null
+  dateStart: string
+  dateEnd: string
 }): Promise<HistoricalTicketResponse> {
   const supabase = supabaseBrowser()
 
-  // ---- Attempt 1: within the competency period ----
-  const periodResult = await queryTicket(supabase, params.companyId, params.ownerId, params.dateStart, params.dateEnd)
+  const periodResult = await queryTicket(
+    supabase,
+    params.companyId,
+    params.ownerId,
+    params.dateStart,
+    params.dateEnd,
+  )
 
   if (periodResult.sample_size >= MIN_SAMPLE_SIZE) {
     return {
@@ -414,14 +366,19 @@ export async function getHistoricalTicket(params: {
     }
   }
 
-  // ---- Attempt 2: last 90 days from today ----
   const today = new Date()
   const d90ago = new Date(today)
   d90ago.setDate(d90ago.getDate() - 90)
   const fallbackStart = d90ago.toISOString().split('T')[0]
   const fallbackEnd = today.toISOString().split('T')[0]
 
-  const fallbackResult = await queryTicket(supabase, params.companyId, params.ownerId, fallbackStart, fallbackEnd)
+  const fallbackResult = await queryTicket(
+    supabase,
+    params.companyId,
+    params.ownerId,
+    fallbackStart,
+    fallbackEnd,
+  )
 
   if (fallbackResult.sample_size >= MIN_SAMPLE_SIZE) {
     return {
@@ -435,9 +392,14 @@ export async function getHistoricalTicket(params: {
     }
   }
 
-  // ---- Attempt 3: last 90 days, company-wide (if ownerId was set) ----
   if (params.ownerId) {
-    const companyFallback = await queryTicket(supabase, params.companyId, null, fallbackStart, fallbackEnd)
+    const companyFallback = await queryTicket(
+      supabase,
+      params.companyId,
+      null,
+      fallbackStart,
+      fallbackEnd,
+    )
 
     if (companyFallback.sample_size >= MIN_SAMPLE_SIZE) {
       return {
@@ -445,14 +407,13 @@ export async function getHistoricalTicket(params: {
         source_window: 'last_90_days',
         fallback_level: 'last_90_days',
         is_sufficient: true,
-        owner_id: null, // fell back to company
+        owner_id: null,
         date_start: fallbackStart,
         date_end: fallbackEnd,
       }
     }
   }
 
-  // ---- Insufficient ----
   return {
     ticket_medio: 0,
     sample_size: 0,
@@ -480,7 +441,7 @@ async function queryTicket(
     .eq('status', 'ganho')
     .gt('won_total', 0)
     .gte('won_at', dateStart)
-    .lte('won_at', dateEnd + 'T23:59:59')
+    .lte('won_at', `${dateEnd}T23:59:59`)
 
   if (ownerId) {
     query = query.eq('owner_user_id', ownerId)
