@@ -355,7 +355,7 @@ export default async function RelatoriosGeraisPage() {
   const ganhosPeriodo = periodSummary?.won_count ?? 0
   const perdidosPeriodo = periodSummary?.lost_count ?? 0
   const trabalhadosPeriodo = periodSummary?.worked_count ?? 0
-  const totalPoolAgora = periodSummary?.total_pool_now ?? meta?.total_pool ?? 0
+  const totalPoolAgora = periodSummary?.total_pool_now ?? 0
 
   const ticketSimulador = goalConfig?.ticket_medio ?? meta?.ticket_simulador ?? 0
   const ticketReal = ganhosPeriodo > 0 ? faturReal / ganhosPeriodo : 0
@@ -381,9 +381,7 @@ export default async function RelatoriosGeraisPage() {
   const topSellerFromPeriod =
     periodSummary?.by_owner?.slice().sort((a, b) => b.revenue_total - a.revenue_total)[0] ?? null
 
-  const topSellerName = topSellerFromPeriod?.owner_user_id
-    ? (meta?.top_seller_name ?? null)
-    : (meta?.top_seller_name ?? null)
+    const topSellerName = meta?.top_seller_name ?? null
 
   const topSellerWins = topSellerFromPeriod?.won_count ?? meta?.top_seller_wins ?? 0
   const topSellerRevenue = topSellerFromPeriod?.revenue_total ?? meta?.top_seller_faturamento ?? 0
@@ -508,7 +506,7 @@ export default async function RelatoriosGeraisPage() {
           gap: 20,
         }}
       >
-        {meta && metaVal > 0 ? (
+        {metaVal > 0 ? (
           <div
             style={{
               border: `1px solid ${DS.border}`,
