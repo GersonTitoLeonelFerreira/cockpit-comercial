@@ -39,11 +39,14 @@ type PatchBody = {
   cep?: string | null
 }
 
-async function getActorCompanyAndRole() {
+async function getActorCompanyAndRole(): Promise<
+  | { error: string }
+  | { actorId: string; companyId: string; ok: true }
+> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !anon) {
-    return { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY' as const }
+    return { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY' }
   }
 
   const cookieStore = await cookies()
@@ -61,9 +64,9 @@ async function getActorCompanyAndRole() {
   })
 
   const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr) return { error: userErr.message as const }
+  if (userErr) return { error: userErr.message }
   const actor = userData?.user
-  if (!actor) return { error: 'Não autenticado' as const }
+  if (!actor) return { error: 'Não autenticado' }
 
   const { data: actorProfile, error: actorProfileErr } = await supabase
     .from('profiles')
@@ -71,14 +74,14 @@ async function getActorCompanyAndRole() {
     .eq('id', actor.id)
     .single()
 
-  if (actorProfileErr) return { error: actorProfileErr.message as const }
-  if (!actorProfile || actorProfile.role !== 'admin') return { error: 'Acesso negado (admin only)' as const }
-  if (!actorProfile.company_id) return { error: 'company_id do admin não encontrado' as const }
+    if (actorProfileErr) return { error: actorProfileErr.message }
+  if (!actorProfile || actorProfile.role !== 'admin') return { error: 'Acesso negado (admin only)' }
+  if (!actorProfile.company_id) return { error: 'company_id do admin não encontrado' }
 
   return { actorId: actor.id, companyId: actorProfile.company_id, ok: true as const }
 }
 
-function nullIfEmpty(v: any) {
+function nullIfEmpty(v: unknown) {
   const s = (v ?? '').toString().trim()
   return s ? s : null
 }
@@ -97,7 +100,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const actor = await getActorCompanyAndRole()
-  if ((actor as any).error) return NextResponse.json({ error: (actor as any).error }, { status: 401 })
+  if ('error' in actor) return NextResponse.json({ error: actor.error }, { status: 401 })
+  const actorOk = actor
 
   const { id } = await ctx.params
   const admin = createClient(envUrl, serviceKey)
@@ -112,7 +116,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   if (profErr) return NextResponse.json({ error: profErr.message }, { status: 400 })
   if (!profile) return NextResponse.json({ error: 'Vendedor não encontrado' }, { status: 404 })
-  if (profile.company_id !== (actor as any).companyId) return NextResponse.json({ error: 'Acesso negado (empresa diferente)' }, { status: 403 })
+  if (profile.company_id !== actorOk.companyId) return NextResponse.json({ error: 'Acesso negado (empresa diferente)' }, { status: 403 })
 
   const { data: details, error: detErr } = await admin.from('profile_details').select('*').eq('profile_id', id).maybeSingle()
   if (detErr) return NextResponse.json({ ok: true, profile, details: null })
@@ -130,7 +134,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const actor = await getActorCompanyAndRole()
-  if ((actor as any).error) return NextResponse.json({ error: (actor as any).error }, { status: 401 })
+  if ('error' in actor) return NextResponse.json({ error: actor.error }, { status: 401 })
+  const actorOk = actor
 
   const { id } = await ctx.params
   const body = (await req.json().catch(() => ({}))) as PatchBody
@@ -145,7 +150,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   if (existingErr) return NextResponse.json({ error: existingErr.message }, { status: 400 })
   if (!existing) return NextResponse.json({ error: 'Vendedor não encontrado' }, { status: 404 })
-  if (existing.company_id !== (actor as any).companyId) return NextResponse.json({ error: 'Acesso negado (empresa diferente)' }, { status: 403 })
+  if (existing.company_id !== actorOk.companyId) return NextResponse.json({ error: 'Acesso negado (empresa diferente)' }, { status: 403 })
 
   // Detecta existência de details de um jeito que não depende de maybeSingle()
   const { data: detRows, error: detRowsErr } = await admin

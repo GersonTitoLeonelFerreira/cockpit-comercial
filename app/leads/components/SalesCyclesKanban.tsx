@@ -32,7 +32,6 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 const DS = {
   contentBg:       '#090b0f',
   panelBg:         '#0d0f14',
-  panelBg:         '#0d0f14',
   cardBg:          '#141722',
   surfaceBg:       '#111318',
   border:          '#1a1d2e',

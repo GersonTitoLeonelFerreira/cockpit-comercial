@@ -1,10 +1,9 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
   getActiveCompetency,
-  getSalesCycleMetrics,
   getSimulatorPeriodMetrics,
   getRevenuePeriodSummary,
   calculateSimulatorResult,
@@ -17,6 +16,7 @@ import {
 } from '@/app/lib/services/simulator'
 import { getCloseRateReal, percentToRate } from '@/app/lib/services/simulatorRateReal'
 import type {
+  ActiveCompetency,
   GroupConversionRow,
   HistoricalTicketResponse,
   RevenueDayPoint,
@@ -30,7 +30,7 @@ import type { RevenuePeriodSummaryResponse } from '@/app/lib/services/simulator'
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
-import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel, statusTone } from '@/app/components/meta/MetaSummaryCard'
+import MetaSummaryHeader, { toBRL, getRevenueStatus } from '@/app/components/meta/MetaSummaryCard'
 import { buildCalendarDistribution } from '@/app/lib/services/calendarDistribution'
 import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
@@ -48,7 +48,7 @@ function pct(n: number) {
   return `${Math.round(v * 100)}%`
 }
 
-function safeNumber(v: any) {
+function safeNumber(v: unknown) {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0
   const s = String(v ?? '')
     .trim()
@@ -57,6 +57,13 @@ function safeNumber(v: any) {
     .replace(/[^\d.-]/g, '')
   const n = parseFloat(s || '0')
   return Number.isFinite(n) ? n : 0
+}
+
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  return fallback
 }
 
 // ============================
@@ -321,7 +328,7 @@ export default function SimuladorMetaPage() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [competency, setCompetency] = useState<any>(null)
+  const [competency, setCompetency] = useState<ActiveCompetency | null>(null)
   const [metrics, setMetrics] = useState<SimulatorMetrics | null>(null)
   const [result, setResult] = useState<SimulatorResult | null>(null)
 
@@ -332,7 +339,7 @@ export default function SimuladorMetaPage() {
   const [autoRemainingDays, setAutoRemainingDays] = useState(true)
 
   // Ganhos
-  const [targetWins, setTargetWins] = useState(20)
+  const [targetWins] = useState(20)
   const [closeRatePercent, setCloseRatePercent] = useState(20)
   const [remainingBusinessDays, setRemainingBusinessDays] = useState(15)
 
@@ -436,7 +443,7 @@ export default function SimuladorMetaPage() {
             .eq('role', 'member')
             .order('full_name')
 
-          const sellersList = (sellersData ?? []).map((s: any) => ({
+          const sellersList = ((sellersData ?? []) as Array<{ id: string; full_name: string | null }>).map((s) => ({
             id: s.id,
             label: s.full_name || s.id,
           }))
@@ -457,16 +464,15 @@ setMetrics(m)
           remaining_business_days: remainingDays,
         })
         setResult(res)
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao carregar simulador.')
+      } catch (error: unknown) {
+        setError(getErrorMessage(error, 'Erro ao carregar simulador.'))
       } finally {
         setLoading(false)
       }
     }
 
     void init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase])
+  }, [supabase, workDays, targetWins, closeRatePercent])
 
   // ✅ useEffect correto (fora do init): auto recalcular dias restantes
   useEffect(() => {
@@ -485,8 +491,8 @@ setMetrics(m)
       try {
         const data = await getCloseRateReal(selectedSellerId, daysWindow)
         setRateRealData(data)
-      } catch (e: any) {
-        console.warn('Erro ao carregar taxa real:', e.message)
+      } catch (error: unknown) {
+        console.warn('Erro ao carregar taxa real:', getErrorMessage(error, 'Erro desconhecido'))
         setRateRealData(null)
       } finally {
         setRateRealLoading(false)
@@ -514,8 +520,8 @@ setMetrics(m)
         try {
           const newMetrics = await getSimulatorPeriodMetrics(selectedSellerId)
 setMetrics(newMetrics)
-        } catch (e: any) {
-          setError(e?.message ?? 'Erro ao atualizar métricas.')
+        } catch (error: unknown) {
+          setError(getErrorMessage(error, 'Erro ao atualizar métricas.'))
         }
       }
       void refetch()
@@ -537,8 +543,8 @@ setMetrics(newMetrics)
           dateEnd: periodEnd,
         })
         setGroupConversion(rows)
-      } catch (e: any) {
-        console.warn('Erro ao carregar conversão por grupo:', e.message)
+      } catch (error: unknown) {
+        console.warn('Erro ao carregar conversão por grupo:', getErrorMessage(error, 'Erro desconhecido'))
         setGroupConversion([])
       } finally {
         setGroupConversionLoading(false)
@@ -561,11 +567,6 @@ setMetrics(newMetrics)
     if (isAdmin) return selectedSellerId
     return selectedSellerId
   }, [isAdmin, selectedSellerId, competency])
-
-  const revenueGoalContextLabel = useMemo(() => {
-    if (!isAdmin) return 'Meta do vendedor (definida pelo admin)'
-    return revenueGoalOwnerId ? 'Meta do vendedor' : 'Meta da empresa'
-  }, [isAdmin, revenueGoalOwnerId])
 
   const revenueGoalInputNumber = useMemo(
     () => Math.max(0, safeNumber(revenueGoalInputText)),
@@ -619,6 +620,7 @@ setMetrics(newMetrics)
     if (!companyId || !competency) return
     if (mode === 'ganhos') return
 
+    const cid = companyId
     async function loadGoal() {
       setGoalLoading(true)
       setGoalError(null)
@@ -626,7 +628,7 @@ setMetrics(newMetrics)
 
       try {
         const res = await getRevenueGoal({
-          companyId,
+          companyId: cid,
           ownerId: revenueGoalOwnerId ?? null,
           startDate: revenueDates.start,
           endDate: revenueDates.end,
@@ -648,8 +650,8 @@ if (dbCloseRatePercent > 0) {
 
 const dbRateSource = res?.rate_source === 'real' ? 'real' : 'planejada'
 setRateSource(dbRateSource)
-      } catch (e: any) {
-        setGoalError(e?.message ?? 'Erro ao carregar meta.')
+      } catch (error: unknown) {
+        setGoalError(getErrorMessage(error, 'Erro ao carregar meta.'))
         setRevenueGoalDb(0)
         setRevenueGoalInputText('0')
       } finally {
@@ -665,18 +667,21 @@ setRateSource(dbRateSource)
     if (!companyId || !competency) return
     if (mode !== 'faturamento') return
 
+    const cid = companyId
+    const comp = competency
+
     async function loadHistoricalTicket() {
       setHistoricalTicketLoading(true)
       try {
         const data = await getHistoricalTicket({
-          companyId: companyId!,
+          companyId: cid,
           ownerId: selectedSellerId ?? null,
-          dateStart: toYMD(competency!.month_start),
-          dateEnd: toYMD(competency!.month_end),
+          dateStart: toYMD(comp.month_start),
+          dateEnd: toYMD(comp.month_end),
         })
         setHistoricalTicket(data)
-      } catch (e: any) {
-        console.warn('Erro ao carregar ticket histórico:', e.message)
+      } catch (error: unknown) {
+        console.warn('Erro ao carregar ticket histórico:', getErrorMessage(error, 'Erro desconhecido'))
         setHistoricalTicket(null)
       } finally {
         setHistoricalTicketLoading(false)
@@ -791,8 +796,8 @@ setRateSource(dbRateSource)
         )
 
         setDistribution(dist)
-      } catch (e: any) {
-        setDistributionError(e?.message ?? 'Erro ao gerar distribuição.')
+      } catch (error: unknown) {
+        setDistributionError(getErrorMessage(error, 'Erro ao gerar distribuição.'))
         setDistribution(null)
       } finally {
         setDistributionLoading(false)
@@ -828,8 +833,8 @@ setRateSource(dbRateSource)
       setRevenueGoalDb(goalValue)
       setRevenueGoalInputText(String(goalValue))
       setGoalSuccess('✓ Meta salva!')
-    } catch (e: any) {
-      setGoalError(e?.message ?? 'Erro ao salvar meta.')
+    } catch (error: unknown) {
+      setGoalError(getErrorMessage(error, 'Erro ao salvar meta.'))
     } finally {
       setGoalSaving(false)
     }
@@ -838,6 +843,8 @@ setRateSource(dbRateSource)
   // revenue (dados)
   useEffect(() => {
     if (!competency || !companyId) return
+
+    const cid = companyId
 
     async function loadRevenue() {
       if (mode === 'ganhos') {
@@ -850,7 +857,6 @@ setRateSource(dbRateSource)
       setRevenueLoading(true)
       setRevenueError(null)
 
-      const cid = companyId
       const metric = mode === 'faturamento' ? 'faturamento' : 'recebimento'
       const startDate = revenueDates.start
       const endDate = revenueDates.end
@@ -902,9 +908,9 @@ if (ownerIdForSeller) {
 }
 
         await Promise.all(fetches)
-      } catch (e: any) {
-        console.warn('Erro ao carregar revenue:', e?.message ?? String(e))
-        setRevenueError(e?.message ?? 'Erro ao carregar faturamento/recebimento.')
+      } catch (error: unknown) {
+        console.warn('Erro ao carregar revenue:', getErrorMessage(error, 'Erro desconhecido'))
+        setRevenueError(getErrorMessage(error, 'Erro ao carregar faturamento/recebimento.'))
         setRevenueCompany(null)
         setRevenueSeller(null)
       } finally {
@@ -951,12 +957,6 @@ if (ownerIdForSeller) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revenuePeriodCompany, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
 
-  const revenueSellerKpis = useMemo(() => {
-    if (!revenuePeriodSeller?.success) return null
-    return buildRevenueKpis(Number(revenuePeriodSeller.revenue_total || 0), activeGoalForKpis)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenuePeriodSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
-
   if (loading) {
     return (
       <div style={{ padding: 20 }}>
@@ -986,7 +986,6 @@ if (ownerIdForSeller) {
   const progressTone =
     (result?.progress_pct ?? 0) >= 1 ? 'good' : (result?.progress_pct ?? 0) >= 0.5 ? 'neutral' : 'bad'
 
-  const revenueMetricLabel = mode === 'faturamento' ? 'Faturamento' : 'Recebimento'
   const showRevenueMode = mode !== 'ganhos'
   const showCompanyChart = showRevenueMode && isAdmin
   const showSellerChart = showRevenueMode && selectedSellerId !== null
@@ -1023,59 +1022,33 @@ if (ownerIdForSeller) {
           {periodStart && periodEnd ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: '#546070' }}>Período:</span>
-              <input
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
+              <div
                 style={{
-                  padding: '4px 8px',
+                  padding: '4px 10px',
                   borderRadius: 6,
                   border: '1px solid #1a1d2e',
                   background: '#111318',
                   color: '#edf2f7',
                   fontSize: 12,
                   fontWeight: 600,
-                  cursor: 'pointer',
                 }}
-              />
+              >
+                {periodStart}
+              </div>
               <span style={{ fontSize: 11, color: '#546070' }}>a</span>
-              <input
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
+              <div
                 style={{
-                  padding: '4px 8px',
+                  padding: '4px 10px',
                   borderRadius: 6,
                   border: '1px solid #1a1d2e',
                   background: '#111318',
                   color: '#edf2f7',
                   fontSize: 12,
                   fontWeight: 600,
-                  cursor: 'pointer',
                 }}
-              />
-              {competency ? (
-                <button
-                  onClick={() => {
-                    const rawEnd = new Date(toYMD(competency.month_end) + 'T00:00:00')
-                    rawEnd.setDate(rawEnd.getDate() - 1)
-                    setPeriodStart(toYMD(competency.month_start))
-                    setPeriodEnd(rawEnd.toISOString().slice(0, 10))
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: '1px solid #1a1d2e',
-                    background: '#0d0f14',
-                    color: '#8fa3bc',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                  }}
-                  title="Voltar ao período da competência ativa"
-                >
-                  Reset
-                </button>
-              ) : null}
+              >
+                {periodEnd}
+              </div>
             </div>
           ) : null}
         </div>
@@ -1378,7 +1351,7 @@ return (
 )
 })()}
 
-{/* ��─ BLOCO: DIAS DA SEMANA + AUTO DIAS + DIAS REST. ────────────── */}
+{/* ── BLOCO: DIAS DA SEMANA + AUTO DIAS + DIAS REST. ────────────── */}
 <div style={{
 display: 'flex',
 alignItems: 'center',
@@ -1488,14 +1461,6 @@ boxSizing: 'border-box',
         onFocus={() => {
           const n = Math.max(0, safeNumber(revenueGoalInputText))
           setRevenueGoalInputText(n > 0 ? String(n) : '')
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(toBRL(n))
-        }}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(String(n))
         }}
         onBlur={() => {
           const n = Math.max(0, safeNumber(revenueGoalInputText))

@@ -10,6 +10,10 @@ type LeadGroup = {
   archived_at: string | null
 }
 
+type SalesCycleIdRow = {
+  id: string
+} 
+
 export default function GruposClient({ companyId, userId }: { companyId: string; userId: string }) {
   const supabase = useMemo(() => supabaseBrowser(), [])
 
@@ -108,14 +112,14 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
         if (fetchErr) throw fetchErr
 
         await Promise.all(
-          (cycles ?? []).map((cycle) =>
+          ((cycles ?? []) as SalesCycleIdRow[]).map((cycle) =>
             supabase
               .rpc('rpc_set_cycle_group', {
                 p_cycle_id: cycle.id,
                 p_group_id: null,
               })
-              .then(({ error: err }) => {
-                if (err) throw err
+              .then((result: { error: Error | null }) => {
+                if (result.error) throw result.error
               })
           )
         )

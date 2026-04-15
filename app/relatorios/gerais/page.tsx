@@ -855,7 +855,7 @@ const hasTopSellerFromPeriod = topSellerWins > 0 || topSellerRevenue > 0
                     <b style={{ color: DS.textPrimary }}>{ciclosRestantesPorDia} ciclos/dia</b>.{' '}
                   </>
                 ) : null}
-                {hasTopSellerFromPeriod ? (
+                {hasTopSellerFromPeriod ? ( 
   <>
     Destaque do período: <b style={{ color: DS.green }}>{topSellerWins} vendas</b> e{' '}
     <b style={{ color: DS.green }}>{toBRL(topSellerRevenue)}</b> em faturamento.

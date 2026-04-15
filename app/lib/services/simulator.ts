@@ -428,7 +428,7 @@ export async function getHistoricalTicket(params: {
 }
 
 async function queryTicket(
-  supabase: any,
+  supabase: ReturnType<typeof supabaseBrowser>,
   companyId: string,
   ownerId: string | null,
   dateStart: string,
