@@ -379,12 +379,11 @@ export default async function RelatoriosGeraisPage() {
   const diasUteisRest = meta?.dias_uteis_restantes ?? 0
 
   const topSellerFromPeriod =
-    periodSummary?.by_owner?.slice().sort((a, b) => b.revenue_total - a.revenue_total)[0] ?? null
+  periodSummary?.by_owner?.slice().sort((a, b) => b.revenue_total - a.revenue_total)[0] ?? null
 
-    const topSellerName = meta?.top_seller_name ?? null
-
-  const topSellerWins = topSellerFromPeriod?.won_count ?? meta?.top_seller_wins ?? 0
-  const topSellerRevenue = topSellerFromPeriod?.revenue_total ?? meta?.top_seller_faturamento ?? 0
+const topSellerWins = topSellerFromPeriod?.won_count ?? 0
+const topSellerRevenue = topSellerFromPeriod?.revenue_total ?? 0
+const hasTopSellerFromPeriod = topSellerWins > 0 || topSellerRevenue > 0
 
   // Projeção
   const faturDiario = diasUteisPass > 0 ? faturReal / diasUteisPass : 0
@@ -856,12 +855,12 @@ export default async function RelatoriosGeraisPage() {
                     <b style={{ color: DS.textPrimary }}>{ciclosRestantesPorDia} ciclos/dia</b>.{' '}
                   </>
                 ) : null}
-                {topSellerName ? (
-                  <>
-                    Destaque: <b style={{ color: DS.green }}>{topSellerName}</b> ({topSellerWins}{' '}
-                    vendas, {toBRL(topSellerRevenue)}).
-                  </>
-                ) : null}
+                {hasTopSellerFromPeriod ? (
+  <>
+    Destaque do período: <b style={{ color: DS.green }}>{topSellerWins} vendas</b> e{' '}
+    <b style={{ color: DS.green }}>{toBRL(topSellerRevenue)}</b> em faturamento.
+  </>
+) : null} 
               </div>
             </div>
 
