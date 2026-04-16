@@ -63,7 +63,9 @@ export function LostDealModal({
   const [error, setError] = useState<string | null>(null)
 
   const isLostWithOther = lostReason === LOST_REASON_OTHER
-  const isValid = !!actionChannel && !!lostReason && (!isLostWithOther || !!note.trim())
+  const normalizedNote = note.trim()
+  const finalLostReason = isLostWithOther ? normalizedNote : lostReason
+  const isValid = !!actionChannel && !!lostReason && (!isLostWithOther || !!normalizedNote)
 
   const handleSave = async () => {
     if (!isValid) return
@@ -80,8 +82,8 @@ export function LostDealModal({
           action_result: '',
           next_action: '',
           next_action_date: null,
-          note: note.trim(),
-          lost_reason: lostReason,
+          note: isLostWithOther ? '' : normalizedNote,
+          lost_reason: finalLostReason,
         },
       })
 
@@ -94,8 +96,9 @@ export function LostDealModal({
 
       onSuccess()
       onClose()
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao salvar')
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Erro ao salvar'
+      setError(message)
       console.error('Erro:', e)
     } finally {
       setSaving(false)
@@ -134,7 +137,6 @@ export function LostDealModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
           <IconCircleX size={20} color="#f87171" />
           Marcar Deal como Perdido
@@ -156,7 +158,6 @@ export function LostDealModal({
           </div>
         )}
 
-        {/* Erro */}
         {error && (
           <div
             style={{
@@ -172,7 +173,6 @@ export function LostDealModal({
           </div>
         )}
 
-        {/* Canal de Ação */}
         <div style={sectionStyle}>
           <label style={labelStyle}>Canal de Ação *</label>
           <select
@@ -190,7 +190,6 @@ export function LostDealModal({
           </select>
         </div>
 
-        {/* Motivo da Perda */}
         <div style={sectionStyle}>
           <label style={labelStyle}>Motivo da Perda *</label>
           <select
@@ -211,7 +210,6 @@ export function LostDealModal({
           </select>
         </div>
 
-        {/* Detalhe quando "Outro" */}
         {isLostWithOther && (
           <div style={sectionStyle}>
             <label style={labelStyle}>Qual foi o motivo da perda? *</label>
@@ -230,7 +228,6 @@ export function LostDealModal({
           </div>
         )}
 
-        {/* Observação opcional */}
         {!isLostWithOther && (
           <div style={sectionStyle}>
             <label style={labelStyle}>Observação (opcional)</label>
@@ -249,7 +246,6 @@ export function LostDealModal({
           </div>
         )}
 
-        {/* Botões */}
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={handleSave}
@@ -267,7 +263,13 @@ export function LostDealModal({
               opacity: isValid && !saving ? 1 : 0.5,
             }}
           >
-            {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconLoader size={14} /> Salvando...</span> : 'Confirmar Perda'}
+            {saving ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <IconLoader size={14} /> Salvando...
+              </span>
+            ) : (
+              'Confirmar Perda'
+            )}
           </button>
           <button
             onClick={onClose}
