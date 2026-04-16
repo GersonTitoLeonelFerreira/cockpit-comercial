@@ -51,7 +51,7 @@ export async function getMonthlySalesAnalysis(): Promise<any[]> {
 }
 
 /**
- * Retorna análise de motivos de perda (agora com dados corretos)
+ * Retorna análise de motivos de perda
  */
 export async function getLostAnalysis(): Promise<any[]> {
   const supabase = supabaseBrowser()
@@ -127,12 +127,10 @@ export async function getUpcomingDeals(daysAhead: number = 7): Promise<any[]> {
 }
 
 export interface MarkDealWonOptions {
-  revenueDateRef?: string // YYYY-MM-DD (opcional)
+  revenueDateRef?: string
   wonNote?: string
-  // Produto
   productId?: string | null
   wonUnitPrice?: number | null
-  // Forma de pagamento
   paymentMethod?: string | null
   paymentType?: string | null
   entryAmount?: number | null
@@ -142,77 +140,44 @@ export interface MarkDealWonOptions {
 }
 
 /**
- * Marca um deal como GANHO.
- *
- * Se revenueDateRef vier preenchida (YYYY-MM-DD), ela define a data usada no faturamento diário
- * (via view v_revenue_daily_seller).
- *
- * IMPORTANTE:
- * - Não somamos faturamento via RPC aqui.
- * - O faturamento é calculado pelas views a partir de sales_cycles/leads (+ overrides).
+ * Marca um deal como ganho usando a RPC formal de fechamento.
  */
 export async function markDealWonWithRevenue(
   dealId: string,
   wonValue: number,
-  revenueDateRef?: string, // YYYY-MM-DD (opcional) — mantido por compatibilidade
+  revenueDateRef?: string,
   wonNote?: string,
   options?: MarkDealWonOptions
 ): Promise<any> {
   const supabase = supabaseBrowser()
 
-  // Mesclar revenueDateRef / wonNote com options (options tem prioridade)
-  const revDate = options?.revenueDateRef ?? revenueDateRef
-  const note = options?.wonNote ?? wonNote
+  const revDate = options?.revenueDateRef ?? revenueDateRef ?? null
+  const note = options?.wonNote ?? wonNote ?? null
 
-  // 1) Buscar o owner atual ANTES de atualizar (para congelar)
-  const { data: cycle, error: fetchErr } = await supabase
-    .from('sales_cycles')
-    .select('owner_user_id')
-    .eq('id', dealId)
-    .single()
-
-  if (fetchErr || !cycle) {
-    throw new Error(`Erro ao buscar ciclo para congelar vendedor: ${fetchErr?.message || 'ciclo não encontrado'}`)
-  }
-
-  // 2) Usar auth user como fallback (caso cycle esteja no pool sem owner)
-  let frozenWonOwner = cycle.owner_user_id
-  if (!frozenWonOwner) {
-    const { data: authData } = await supabase.auth.getUser()
-    frozenWonOwner = authData?.user?.id || null
-  }
-
-  // 3) Update com won_owner_user_id congelado + novos campos de produto/pagamento
-  const wonAt = new Date().toISOString()
-  const { data, error } = await supabase
-    .from('sales_cycles')
-    .update({
-      status: 'ganho',
-      won_at: wonAt,
-      closed_at: wonAt, // closed_at deve refletir won_at (regra Fase 1)
-      won_total: wonValue,
-      won_owner_user_id: frozenWonOwner,
-      revenue_seller_ref_date: revDate || null,
-      won_value_source: revDate ? 'revenue' : 'manual',
-      won_note: note || null,
-      // Produto
-      product_id: options?.productId ?? null,
-      won_unit_price: options?.wonUnitPrice ?? null,
-      // Forma de pagamento
-      payment_method: options?.paymentMethod ?? null,
-      payment_type: options?.paymentType ?? null,
-      entry_amount: options?.entryAmount ?? null,
-      installments_count: options?.installmentsCount ?? null,
-      installment_amount: options?.installmentAmount ?? null,
-      payment_notes: options?.paymentNotes ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', dealId)
-    .select()
+  const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
+    p_cycle_id: dealId,
+    p_won_value: wonValue,
+    p_revenue_date_ref: revDate,
+    p_won_note: note,
+    p_product_id: options?.productId ?? null,
+    p_won_unit_price: options?.wonUnitPrice ?? null,
+    p_payment_method: options?.paymentMethod ?? null,
+    p_payment_type: options?.paymentType ?? null,
+    p_entry_amount: options?.entryAmount ?? null,
+    p_installments_count: options?.installmentsCount ?? null,
+    p_installment_amount: options?.installmentAmount ?? null,
+    p_payment_notes: options?.paymentNotes ?? null,
+  })
 
   if (error) {
     throw new Error(`Erro ao marcar ganho: ${error.message}`)
   }
 
-  return data?.[0]
+  const result = Array.isArray(data) ? data[0] : data
+
+  if (!result?.success) {
+    throw new Error(result?.error_message || result?.error || 'Operação não confirmada')
+  }
+
+  return result
 }

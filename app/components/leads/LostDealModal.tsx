@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { useState } from 'react'
+import { closeCycleLost } from '@/app/lib/services/sales-cycles'
 import { IconCircleX, IconLoader } from '@/app/components/icons/UiIcons'
 
 const ACTION_CHANNELS = ['Whats', 'Ligação', 'Email', 'Presencial', 'DM', 'Outro']
@@ -54,8 +54,6 @@ export function LostDealModal({
   onClose,
   onSuccess,
 }: LostDealModalProps) {
-  const supabase = useMemo(() => supabaseBrowser(), [])
-
   const [actionChannel, setActionChannel] = useState('')
   const [lostReason, setLostReason] = useState('')
   const [note, setNote] = useState('')
@@ -74,21 +72,12 @@ export function LostDealModal({
       setSaving(true)
       setError(null)
 
-      const { data, error: err } = await supabase.rpc('rpc_move_cycle_stage_checkpoint', {
-        p_cycle_id: dealId,
-        p_to_status: 'perdido',
-        p_checkpoint: {
-          action_channel: actionChannel,
-          action_result: '',
-          next_action: '',
-          next_action_date: null,
-          note: isLostWithOther ? '' : normalizedNote,
-          lost_reason: finalLostReason,
-        },
+      await closeCycleLost({
+        cycle_id: dealId,
+        lost_reason: finalLostReason,
+        note: isLostWithOther ? null : (normalizedNote || null),
+        action_channel: actionChannel || null,
       })
-
-      if (err) throw err
-      if (!data?.success) throw new Error('Operação não confirmada')
 
       setActionChannel('')
       setLostReason('')

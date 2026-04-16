@@ -33,6 +33,9 @@ export const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 export type CycleEventType =
   | 'cycle_created'
   | 'owner_assigned'
+  | 'owner_reassigned'
+  | 'group_changed'
+  | 'returned_to_pool'
   | 'stage_changed'
   | 'contacted'
   | 'replied'
@@ -151,6 +154,7 @@ export interface RpcCycleResponse {
   lead_id: string
   owner_user_id: string | null
   status: LeadStatus
+  previous_status?: LeadStatus | null
   stage_entered_at: string
   next_action: string | null
   next_action_date: string | null
@@ -158,6 +162,11 @@ export interface RpcCycleResponse {
   created_at: string
   updated_at: string
   closed_at: string | null
+  won_at?: string | null
+  lost_at?: string | null
+  won_total?: number | null
+  won_owner_user_id?: string | null
+  lost_reason?: string | null
   error_message?: string | null
 }
 
@@ -198,6 +207,8 @@ export type PaymentType =
 export interface CloseCycleWonRequest {
   cycle_id: string
   won_value?: number
+  revenue_date_ref?: string | null
+  won_note?: string | null
   product_id?: string | null
   won_unit_price?: number | null
   payment_method?: PaymentMethod | null
@@ -211,4 +222,6 @@ export interface CloseCycleWonRequest {
 export interface CloseCycleLostRequest {
   cycle_id: string
   lost_reason?: string
+  note?: string | null
+  action_channel?: string | null
 }

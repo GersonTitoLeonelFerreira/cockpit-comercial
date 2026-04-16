@@ -39,42 +39,70 @@ export async function assignCycleOwner(req: AssignCycleOwnerRequest): Promise<Rp
 
 export async function setNextAction(req: SetNextActionRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
-  const nextActionDate = typeof req.next_action_date === 'string'
-    ? new Date(req.next_action_date).toISOString()
-    : req.next_action_date.toISOString()
+  const nextActionDate =
+    typeof req.next_action_date === 'string'
+      ? new Date(req.next_action_date).toISOString()
+      : req.next_action_date.toISOString()
+
   const { data, error } = await supabase.rpc('rpc_set_next_action', {
     p_cycle_id: req.cycle_id,
     p_next_action: req.next_action,
     p_next_action_date: nextActionDate,
   })
+
   if (error) throw new Error(`Erro ao atualizar ação: ${error.message}`)
   const result = Array.isArray(data) ? data[0] : data
   if (result?.error_message) throw new Error(result.error_message)
   return result as RpcCycleResponse
 }
 
-// TODO: consolidar lógica de close cycle no service layer
 export async function closeCycleWon(req: CloseCycleWonRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
     p_cycle_id: req.cycle_id,
     p_won_value: req.won_value ?? null,
+    p_revenue_date_ref: req.revenue_date_ref ?? null,
+    p_won_note: req.won_note ?? null,
+    p_product_id: req.product_id ?? null,
+    p_won_unit_price: req.won_unit_price ?? null,
+    p_payment_method: req.payment_method ?? null,
+    p_payment_type: req.payment_type ?? null,
+    p_entry_amount: req.entry_amount ?? null,
+    p_installments_count: req.installments_count ?? null,
+    p_installment_amount: req.installment_amount ?? null,
+    p_payment_notes: req.payment_notes ?? null,
   })
+
   if (error) throw new Error(`Erro ao fechar ciclo como ganho: ${error.message}`)
+
   const result = Array.isArray(data) ? data[0] : data
-  if (result?.error_message) throw new Error(result.error_message)
+
+  if (result?.error_message || result?.error) {
+    throw new Error(result.error_message ?? result.error)
+  }
+
   return result as RpcCycleResponse
 }
 
 export async function closeCycleLost(req: CloseCycleLostRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase.rpc('rpc_close_cycle_lost', {
     p_cycle_id: req.cycle_id,
-    p_loss_reason: req.loss_reason ?? null,
+    p_lost_reason: req.lost_reason ?? null,
+    p_note: req.note ?? null,
+    p_action_channel: req.action_channel ?? null,
   })
+
   if (error) throw new Error(`Erro ao fechar ciclo como perdido: ${error.message}`)
+
   const result = Array.isArray(data) ? data[0] : data
-  if (result?.error_message) throw new Error(result.error_message)
+
+  if (result?.error_message || result?.error) {
+    throw new Error(result.error_message ?? result.error)
+  }
+
   return result as RpcCycleResponse
 }
 
@@ -115,6 +143,7 @@ export async function getCycleEvents(cycleId: string): Promise<CycleEvent[]> {
     .select('*')
     .eq('cycle_id', cycleId)
     .order('occurred_at', { ascending: false })
+
   if (error) throw new Error(`Erro ao buscar eventos: ${error.message}`)
   return (data || []) as CycleEvent[]
 }
@@ -129,6 +158,7 @@ export async function getSalesCycleWithLead(cycleId: string): Promise<any> {
     `)
     .eq('id', cycleId)
     .single()
+
   if (error) throw new Error(`Erro ao buscar ciclo: ${error.message}`)
   return data
 }

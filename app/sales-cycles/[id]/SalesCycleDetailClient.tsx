@@ -6,6 +6,7 @@ import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
 import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
+import ConversationCopilot from './components/ConversationCopilot'
 import {
   moveCycleStage,
   setNextAction,
@@ -124,7 +125,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
 
   // ============================================================================
-  // Move stage (agora abre o modal correto)
+  // Move stage
   // ============================================================================
   const handleMoveStage = async (newStatus: LeadStatus) => {
     openCheckpoint(newStatus)
@@ -156,6 +157,9 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
 
   return (
     <>
+      {/* COPILOTO COMERCIAL */}
+      <ConversationCopilot cycle={cycle} />
+
       {/* Status selector */}
       <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
         <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Mover para</h3>
@@ -316,7 +320,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
         }}
       />
 
-      {/* Lost Deal Modal — mesmo modal do Kanban */}
+      {/* Lost Deal Modal */}
       <LostDealModal
         isOpen={showLostDealModal}
         dealId={cycle.id}
