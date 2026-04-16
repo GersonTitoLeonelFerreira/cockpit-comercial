@@ -61,6 +61,18 @@ const STATUS_STYLE: Record<
     activeBg: 'bg-red-700/25',
     activeText: 'text-red-100',
   },
+  pausado: {
+    border: 'border-yellow-500/70 hover:border-yellow-400',
+    glow: 'hover:shadow-[0_0_0_1px_rgba(234,179,8,0.35),0_0_18px_rgba(234,179,8,0.18)]',
+    activeBg: 'bg-yellow-700/25',
+    activeText: 'text-yellow-100',
+  },
+  cancelado: {
+    border: 'border-gray-500/70 hover:border-gray-400',
+    glow: 'hover:shadow-[0_0_0_1px_rgba(107,114,128,0.35),0_0_18px_rgba(107,114,128,0.18)]',
+    activeBg: 'bg-gray-700/25',
+    activeText: 'text-gray-100',
+  },
 }
 
 type SalesCycleWithLead = SalesCycle & {
