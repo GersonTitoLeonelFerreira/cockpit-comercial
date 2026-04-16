@@ -26,17 +26,8 @@ export type LeadStatus =
   | 'ganho'
   | 'perdido'
 
-/** Estados que representam ciclos ativos (não finalizados comercialmente) */
 export const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
-
-/**
- * Estados de fechamento comercial.
- * Apenas 'ganho' e 'perdido' preenchem won_at/lost_at/closed_at.
- * 'cancelado' usa canceled_at/canceled_reason (sem closed_at).
- */
 export const COMMERCIAL_CLOSE_STATUSES: LeadStatus[] = ['ganho', 'perdido']
-
-/** Estados que representam ciclos encerrados (não retornam ao funil ativo) */
 export const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
 export type CycleEventType =
@@ -63,28 +54,16 @@ export interface SalesCycle {
   current_group_id: string | null
   created_at: string
   updated_at: string
-  // --- Campos de fechamento comercial (regras Fase 1) ---
-  /** Data de fechamento real: igual a won_at quando ganho, igual a lost_at quando perdido, NULL para outros estados */
   closed_at: string | null
-  /** Preenchido somente quando status = 'ganho'. closed_at deve ser igual a won_at. */
   won_at: string | null
-  /** Preenchido somente quando status = 'perdido'. closed_at deve ser igual a lost_at. */
   lost_at: string | null
-  /** Vendedor congelado no momento do fechamento como ganho */
   won_owner_user_id: string | null
-  /** Motivo da perda — obrigatório quando status = 'perdido' */
+  lost_owner_user_id: string | null
   lost_reason: string | null
-  /** Valor total do ciclo ganho */
   won_total: number | null
-  // --- Campos de pausa (status = 'pausado') ---
-  /** Data em que o ciclo foi pausado — obrigatório quando status = 'pausado' */
   paused_at: string | null
-  /** Motivo da pausa — obrigatório quando status = 'pausado' */
   paused_reason: string | null
-  // --- Campos de cancelamento (status = 'cancelado') ---
-  /** Data de cancelamento — obrigatório quando status = 'cancelado' */
   canceled_at: string | null
-  /** Motivo do cancelamento — obrigatório quando status = 'cancelado' */
   canceled_reason: string | null
 }
 
@@ -199,7 +178,6 @@ export interface SetNextActionRequest {
   next_action_date: string | Date
 }
 
-// Meio de pagamento (como o cliente pagou)
 export type PaymentMethod =
   | 'credito'
   | 'debito'
@@ -210,7 +188,6 @@ export type PaymentMethod =
   | 'misto'
   | 'outro'
 
-// Estrutura da negociação (como foi parcelado / dividido)
 export type PaymentType =
   | 'avista'
   | 'entrada_parcelas'
@@ -221,10 +198,8 @@ export type PaymentType =
 export interface CloseCycleWonRequest {
   cycle_id: string
   won_value?: number
-  // Produto
   product_id?: string | null
   won_unit_price?: number | null
-  // Forma de pagamento
   payment_method?: PaymentMethod | null
   payment_type?: PaymentType | null
   entry_amount?: number | null
@@ -235,5 +210,5 @@ export interface CloseCycleWonRequest {
 
 export interface CloseCycleLostRequest {
   cycle_id: string
-  loss_reason?: string
+  lost_reason?: string
 }
