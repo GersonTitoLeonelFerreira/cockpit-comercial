@@ -14,31 +14,46 @@ import {
 
 export async function moveCycleStage(req: MoveCycleStageRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase.rpc('rpc_move_cycle_stage', {
     p_cycle_id: req.cycle_id,
     p_to_status: req.to_status,
     p_metadata: req.metadata || {},
   })
+
   if (error) throw new Error(`Erro ao mover ciclo: ${error.message}`)
+
   const result = Array.isArray(data) ? data[0] : data
-  if (result?.error_message) throw new Error(result.error_message)
+
+  if (result?.error_message || result?.error) {
+    throw new Error(result.error_message ?? result.error)
+  }
+
   return result as RpcCycleResponse
 }
 
 export async function assignCycleOwner(req: AssignCycleOwnerRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase.rpc('rpc_assign_cycle_owner', {
     p_cycle_id: req.cycle_id,
     p_owner_user_id: req.owner_user_id,
   })
+
   if (error) throw new Error(`Erro ao atribuir ciclo: ${error.message}`)
+
   const result = Array.isArray(data) ? data[0] : data
-  if (result?.error_message) throw new Error(result.error_message)
+
+  if (result?.error_message || result?.error) {
+    throw new Error(result.error_message ?? result.error)
+  }
+
   return result as RpcCycleResponse
 }
 
 export async function setNextAction(req: SetNextActionRequest): Promise<RpcCycleResponse> {
   const supabase = supabaseBrowser()
+
   const nextActionDate =
     typeof req.next_action_date === 'string'
       ? new Date(req.next_action_date).toISOString()
@@ -51,8 +66,13 @@ export async function setNextAction(req: SetNextActionRequest): Promise<RpcCycle
   })
 
   if (error) throw new Error(`Erro ao atualizar ação: ${error.message}`)
+
   const result = Array.isArray(data) ? data[0] : data
-  if (result?.error_message) throw new Error(result.error_message)
+
+  if (result?.error_message || result?.error) {
+    throw new Error(result.error_message ?? result.error)
+  }
+
   return result as RpcCycleResponse
 }
 
@@ -106,6 +126,65 @@ export async function closeCycleLost(req: CloseCycleLostRequest): Promise<RpcCyc
   return result as RpcCycleResponse
 }
 
+export async function logAIAnalysis(
+  cycleId: string,
+  suggestion: Record<string, any>,
+  conversationExcerpt?: string
+): Promise<void> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase.rpc('rpc_log_ai_analysis', {
+    p_cycle_id: cycleId,
+    p_suggestion: suggestion,
+    p_conversation_excerpt: conversationExcerpt ?? null,
+  })
+
+  if (error) throw new Error(`Erro ao registrar análise da IA: ${error.message}`)
+
+  const result = Array.isArray(data) ? data[0] : data
+  if (result?.error || result?.error_message) {
+    throw new Error(result.error ?? result.error_message)
+  }
+}
+
+export async function logAISuggestionApplied(
+  cycleId: string,
+  payload: Record<string, any>
+): Promise<void> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase.rpc('rpc_log_ai_suggestion_applied', {
+    p_cycle_id: cycleId,
+    p_payload: payload,
+  })
+
+  if (error) throw new Error(`Erro ao registrar aplicação da IA: ${error.message}`)
+
+  const result = Array.isArray(data) ? data[0] : data
+  if (result?.error || result?.error_message) {
+    throw new Error(result.error ?? result.error_message)
+  }
+}
+
+export async function logAISuggestionRejected(
+  cycleId: string,
+  payload: Record<string, any>
+): Promise<void> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase.rpc('rpc_log_ai_suggestion_rejected', {
+    p_cycle_id: cycleId,
+    p_payload: payload,
+  })
+
+  if (error) throw new Error(`Erro ao registrar rejeição da IA: ${error.message}`)
+
+  const result = Array.isArray(data) ? data[0] : data
+  if (result?.error || result?.error_message) {
+    throw new Error(result.error ?? result.error_message)
+  }
+}
+
 export async function getUserSalesCycles(
   ownerUserId?: string,
   status?: LeadStatus,
@@ -113,13 +192,16 @@ export async function getUserSalesCycles(
   offset: number = 0
 ): Promise<UserCycle[]> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase.rpc('rpc_get_user_sales_cycles', {
     p_owner_user_id: ownerUserId || null,
     p_status: status || null,
     p_limit: limit,
     p_offset: offset,
   })
+
   if (error) throw new Error(`Erro ao buscar ciclos: ${error.message}`)
+
   return (data || []) as UserCycle[]
 }
 
@@ -128,16 +210,20 @@ export async function getPoolCycles(
   offset: number = 0
 ): Promise<PoolCycle[]> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase.rpc('rpc_get_pool_cycles', {
     p_limit: limit,
     p_offset: offset,
   })
+
   if (error) throw new Error(`Erro ao buscar pool: ${error.message}`)
+
   return (data || []) as PoolCycle[]
 }
 
 export async function getCycleEvents(cycleId: string): Promise<CycleEvent[]> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase
     .from('cycle_events')
     .select('*')
@@ -145,11 +231,13 @@ export async function getCycleEvents(cycleId: string): Promise<CycleEvent[]> {
     .order('occurred_at', { ascending: false })
 
   if (error) throw new Error(`Erro ao buscar eventos: ${error.message}`)
+
   return (data || []) as CycleEvent[]
 }
 
 export async function getSalesCycleWithLead(cycleId: string): Promise<any> {
   const supabase = supabaseBrowser()
+
   const { data, error } = await supabase
     .from('sales_cycles')
     .select(`
@@ -160,5 +248,6 @@ export async function getSalesCycleWithLead(cycleId: string): Promise<any> {
     .single()
 
   if (error) throw new Error(`Erro ao buscar ciclo: ${error.message}`)
+
   return data
 }

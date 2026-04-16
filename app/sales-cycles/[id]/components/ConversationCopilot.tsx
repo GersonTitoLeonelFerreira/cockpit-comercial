@@ -3,7 +3,13 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { analyzeConversation } from '@/app/lib/services/ai-sales-copilot'
-import { moveCycleStage, setNextAction } from '@/app/lib/services/sales-cycles'
+import {
+  moveCycleStage,
+  setNextAction,
+  logAIAnalysis,
+  logAISuggestionApplied,
+  logAISuggestionRejected,
+} from '@/app/lib/services/sales-cycles'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
 import type { AISalesSuggestion, ConversationSource } from '@/app/types/ai-sales'
 
@@ -23,10 +29,6 @@ interface ConversationCopilotProps {
 const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
 const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
-function isOpenStatus(status: LeadStatus): boolean {
-  return OPEN_STATUSES.includes(status)
-}
-
 function isTerminalStatus(status: LeadStatus): boolean {
   return TERMINAL_STATUSES.includes(status)
 }
@@ -44,6 +46,12 @@ function toDatetimeLocalValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function excerpt(text: string, max = 400): string {
+  const trimmed = text.trim()
+  if (trimmed.length <= max) return trimmed
+  return `${trimmed.slice(0, max)}...`
+}
+
 export default function ConversationCopilot({ cycle }: ConversationCopilotProps) {
   const router = useRouter()
 
@@ -59,7 +67,6 @@ export default function ConversationCopilot({ cycle }: ConversationCopilotProps)
   const [editableSummary, setEditableSummary] = useState('')
 
   const canAnalyze = conversationText.trim().length >= 15
-
   const terminalSuggestion = suggestion ? isTerminalStatus(suggestion.recommended_status) : false
 
   const currentLeadName = useMemo(() => {
@@ -87,6 +94,8 @@ export default function ConversationCopilot({ cycle }: ConversationCopilotProps)
       setEditableNextAction(response.suggestion.next_action || '')
       setEditableNextActionDate(toDatetimeLocalValue(response.suggestion.next_action_date))
       setEditableSummary(response.suggestion.summary || '')
+
+      await logAIAnalysis(cycle.id, response.suggestion, excerpt(conversationText))
     } catch (e: any) {
       setError(e?.message || 'Erro ao analisar conversa.')
       setSuggestion(null)
@@ -131,9 +140,20 @@ export default function ConversationCopilot({ cycle }: ConversationCopilotProps)
         })
       }
 
-      if (editableStatus === 'novo') {
-        // Em novo, não gravamos next_action automática nesta fase.
-      }
+      await logAISuggestionApplied(cycle.id, {
+        original_status: cycle.status,
+        applied_status: editableStatus,
+        next_action: editableStatus === 'novo' ? null : editableNextAction.trim() || null,
+        next_action_date:
+          editableStatus === 'novo'
+            ? null
+            : editableNextActionDate
+              ? new Date(editableNextActionDate).toISOString()
+              : null,
+        suggestion,
+        edited_summary: editableSummary,
+        source: 'ai_copilot_detail',
+      })
 
       router.refresh()
       setConversationText('')
@@ -146,6 +166,26 @@ export default function ConversationCopilot({ cycle }: ConversationCopilotProps)
     } finally {
       setApplying(false)
     }
+  }
+
+  const handleReject = async () => {
+    try {
+      if (suggestion) {
+        await logAISuggestionRejected(cycle.id, {
+          original_status: cycle.status,
+          suggested_status: suggestion.recommended_status,
+          suggestion,
+          source: 'ai_copilot_detail',
+        })
+      }
+    } catch {
+      // não bloqueia a UX por falha de auditoria
+    }
+
+    setSuggestion(null)
+    setEditableSummary('')
+    setEditableNextAction('')
+    setEditableNextActionDate('')
   }
 
   return (
@@ -352,12 +392,7 @@ export default function ConversationCopilot({ cycle }: ConversationCopilotProps)
             </button>
 
             <button
-              onClick={() => {
-                setSuggestion(null)
-                setEditableSummary('')
-                setEditableNextAction('')
-                setEditableNextActionDate('')
-              }}
+              onClick={handleReject}
               disabled={applying}
               className="rounded-md border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
             >

@@ -2,20 +2,6 @@
 // Types: Sales Cycles
 // ==============================================================================
 
-/**
- * Estados possíveis de um ciclo de vendas.
- *
- * Estados ativos (ciclo em andamento — won_at/lost_at/closed_at DEVEM ser NULL):
- *   'novo' | 'contato' | 'respondeu' | 'negociacao' | 'pausado'
- *
- * Estados de fechamento comercial:
- *   'ganho'   → exige won_at NOT NULL, closed_at = won_at, won_owner_user_id NOT NULL
- *   'perdido' → exige lost_at NOT NULL, closed_at = lost_at, lost_reason NOT NULL
- *
- * Estado de cancelamento administrativo:
- *   'cancelado' → exige canceled_at NOT NULL, canceled_reason NOT NULL
- *                 (won_at, lost_at, closed_at continuam NULL — não é fechamento comercial)
- */
 export type LeadStatus =
   | 'novo'
   | 'contato'
@@ -43,6 +29,9 @@ export type CycleEventType =
   | 'next_action_set'
   | 'closed_won'
   | 'closed_lost'
+  | 'ai_analysis_generated'
+  | 'ai_suggestion_applied'
+  | 'ai_suggestion_rejected'
 
 export interface SalesCycle {
   id: string
@@ -168,6 +157,7 @@ export interface RpcCycleResponse {
   won_owner_user_id?: string | null
   lost_reason?: string | null
   error_message?: string | null
+  error?: string | null
 }
 
 export interface MoveCycleStageRequest {

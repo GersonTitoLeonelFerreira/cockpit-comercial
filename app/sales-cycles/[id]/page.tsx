@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
 import CyclePageTabs from './CyclePageTabs'
+import ConversationCopilot from './components/ConversationCopilot'
 import {
   type CycleEvent,
   statusLabel,
@@ -220,6 +221,11 @@ export default async function SalesCycleDetailPage({ params }: { params: Promise
             <div style={{ fontSize: 12, color: '#8b8fa2' }}>Sem movimentação</div>
           )}
         </div>
+      </div>
+
+            {/* COPILOTO COMERCIAL */}
+            <div style={{ marginBottom: 24 }}>
+        <ConversationCopilot cycle={cycle as any} />
       </div>
 
       {/* ABAS OPERACIONAIS */}

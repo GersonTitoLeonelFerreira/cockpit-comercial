@@ -26,7 +26,6 @@ type ProviderRawSuggestion = {
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini'
 
-const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
 const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
 function clampConfidence(value: unknown): number {
@@ -194,6 +193,8 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     'negociar',
     'negociação',
     'negociacao',
+    'achou caro',
+    'achou o valor alto',
   ])
 
   if (negotiationEvidence) {
@@ -210,7 +211,7 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
       should_close_won: false,
       should_close_lost: false,
       close_reason: null,
-      reason_for_recommendation: 'Foram identificados sinais de proposta, condição comercial ou objeção.',
+      reason_for_recommendation: 'Foram identificados sinais de proposta, condição comercial ou objeção. Avanço direto para negociação é permitido porque a conversa já demonstra estágio comercial mais avançado.',
       source: 'fallback',
     }
   }
@@ -357,7 +358,8 @@ function buildSystemPrompt(): string {
     'Sua função é ler uma conversa de vendas e devolver JSON puro.',
     'Nunca escreva texto fora do JSON.',
     'Analise o contexto do ciclo atual e recomende o estágio mais fiel ao que aconteceu de verdade.',
-    'Você pode recomendar avanço direto de novo para respondeu ou negociação se a conversa mostrar que isso já aconteceu na prática.',
+    'Você pode recomendar avanço direto de novo para respondeu ou negociacao se a conversa mostrar que isso já aconteceu na prática.',
+    'Você não deve forçar passagem obrigatória por todas as etapas se a conversa já indicar estágio mais avançado.',
     'Só recomende ganho ou perdido quando houver evidência explícita.',
     'Se não houver evidência forte, seja conservador.',
     'Campos obrigatórios no JSON:',
@@ -366,7 +368,7 @@ function buildSystemPrompt(): string {
     'Se o estágio recomendado for novo, a próxima ação padrão deve ser Entrar em contato.',
     'Se houver tentativa sem resposta, normalmente o estágio correto é contato.',
     'Se houver resposta real do lead, normalmente o estágio correto é respondeu.',
-    'Se houver proposta, objeção, condição comercial ou pedido de pensar, normalmente o estágio correto é negociacao.',
+    'Se houver proposta, objeção, condição comercial ou pedido de pensar, o estágio correto pode ser negociacao mesmo que o ciclo ainda esteja em novo.',
     'Se a conversa indicar compra concluída, use ganho.',
     'Se a conversa indicar desinteresse definitivo ou perda clara, use perdido.',
   ].join(' ')

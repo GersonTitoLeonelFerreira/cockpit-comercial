@@ -1,7 +1,3 @@
-// ==============================================================================
-// API: Close Cycle (WON/LOST)
-// ==============================================================================
-
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
@@ -31,7 +27,6 @@ async function getAuthedSupabase() {
   return { supabase, user: data.user }
 }
 
-// POST /api/sales-cycles/close?action=won|lost
 export async function POST(req: Request) {
   try {
     const { supabase } = await getAuthedSupabase()
