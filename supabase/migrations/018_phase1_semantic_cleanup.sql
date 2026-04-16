@@ -167,7 +167,14 @@ BEGIN
     NEW.closed_at := NEW.won_at;
     -- Congelar won_owner_user_id
     IF NEW.won_owner_user_id IS NULL THEN
-      NEW.won_owner_user_id := COALESCE(NEW.owner_user_id, OLD.owner_user_id);
+      NEW.won_owner_user_id := COALESCE(
+        NEW.owner_user_id,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.owner_user_id ELSE NULL END
+      );
+      -- Se ainda NULL após todas as tentativas, bloquear o registro
+      IF NEW.won_owner_user_id IS NULL THEN
+        RAISE EXCEPTION 'won_owner_user_id não pode ser NULL para status=ganho (Fase 1)';
+      END IF;
     END IF;
     -- Garantir lost_reason e lost_at nulos (ciclo ganho não é perdido)
     NEW.lost_at := NULL;
