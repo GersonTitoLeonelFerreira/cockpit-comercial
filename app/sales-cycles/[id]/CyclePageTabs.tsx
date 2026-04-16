@@ -80,6 +80,8 @@ const STATUS_COLOR_MAP: Record<LeadStatus, string> = {
   contato: '#a855f7',
   respondeu: '#e879f9',
   negociacao: '#fb923c',
+  pausado: '#facc15',
+  cancelado: '#6b7280',
   ganho: '#34d399',
   perdido: '#f87171',
 }

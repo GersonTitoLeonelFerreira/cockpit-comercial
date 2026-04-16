@@ -183,11 +183,13 @@ export async function markDealWonWithRevenue(
   }
 
   // 3) Update com won_owner_user_id congelado + novos campos de produto/pagamento
+  const wonAt = new Date().toISOString()
   const { data, error } = await supabase
     .from('sales_cycles')
     .update({
       status: 'ganho',
-      won_at: new Date().toISOString(),
+      won_at: wonAt,
+      closed_at: wonAt, // closed_at deve refletir won_at (regra Fase 1)
       won_total: wonValue,
       won_owner_user_id: frozenWonOwner,
       revenue_seller_ref_date: revDate || null,

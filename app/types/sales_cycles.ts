@@ -2,7 +2,34 @@
 // Types: Sales Cycles
 // ==============================================================================
 
-export type LeadStatus = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
+/**
+ * Estados possíveis de um ciclo de vendas.
+ *
+ * Estados abertos (ciclo ativo):
+ *   'novo' | 'contato' | 'respondeu' | 'negociacao' | 'pausado'
+ *
+ * Estados fechados (ciclo encerrado):
+ *   'ganho'   → exige won_at, closed_at (= won_at), won_owner_user_id
+ *   'perdido' → exige lost_at, closed_at (= lost_at), lost_reason
+ *
+ * Estado especial:
+ *   'cancelado' → exige canceled_at, canceled_reason
+ */
+export type LeadStatus =
+  | 'novo'
+  | 'contato'
+  | 'respondeu'
+  | 'negociacao'
+  | 'pausado'
+  | 'cancelado'
+  | 'ganho'
+  | 'perdido'
+
+/** Estados que representam ciclos abertos (não finalizados) */
+export const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
+
+/** Estados que representam ciclos fechados */
+export const CLOSED_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
 export type CycleEventType =
   | 'cycle_created'
@@ -21,13 +48,26 @@ export interface SalesCycle {
   lead_id: string
   owner_user_id: string | null
   status: LeadStatus
+  previous_status: LeadStatus | null
   stage_entered_at: string
   next_action: string | null
   next_action_date: string | null
   current_group_id: string | null
   created_at: string
   updated_at: string
+  // --- Campos de fechamento (regras Fase 1) ---
+  /** Data de fechamento real: igual a won_at quando ganho, igual a lost_at quando perdido, NULL quando aberto */
   closed_at: string | null
+  /** Preenchido somente quando status = 'ganho'. closed_at deve ser igual a won_at. */
+  won_at: string | null
+  /** Preenchido somente quando status = 'perdido'. closed_at deve ser igual a lost_at. */
+  lost_at: string | null
+  /** Vendedor congelado no momento do fechamento como ganho */
+  won_owner_user_id: string | null
+  /** Motivo da perda — obrigatório quando status = 'perdido' */
+  lost_reason: string | null
+  /** Valor total do ciclo ganho */
+  won_total: number | null
 }
 
 export interface CycleEvent {
