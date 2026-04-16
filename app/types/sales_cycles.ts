@@ -5,15 +5,16 @@
 /**
  * Estados possíveis de um ciclo de vendas.
  *
- * Estados abertos (ciclo ativo):
+ * Estados ativos (ciclo em andamento — won_at/lost_at/closed_at DEVEM ser NULL):
  *   'novo' | 'contato' | 'respondeu' | 'negociacao' | 'pausado'
  *
- * Estados fechados (ciclo encerrado):
- *   'ganho'   → exige won_at, closed_at (= won_at), won_owner_user_id
- *   'perdido' → exige lost_at, closed_at (= lost_at), lost_reason
+ * Estados de fechamento comercial:
+ *   'ganho'   → exige won_at NOT NULL, closed_at = won_at, won_owner_user_id NOT NULL
+ *   'perdido' → exige lost_at NOT NULL, closed_at = lost_at, lost_reason NOT NULL
  *
- * Estado especial:
- *   'cancelado' → exige canceled_at, canceled_reason
+ * Estado de cancelamento administrativo:
+ *   'cancelado' → exige canceled_at NOT NULL, canceled_reason NOT NULL
+ *                 (won_at, lost_at, closed_at continuam NULL — não é fechamento comercial)
  */
 export type LeadStatus =
   | 'novo'
@@ -25,11 +26,18 @@ export type LeadStatus =
   | 'ganho'
   | 'perdido'
 
-/** Estados que representam ciclos abertos (não finalizados) */
+/** Estados que representam ciclos ativos (não finalizados comercialmente) */
 export const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
 
-/** Estados que representam ciclos fechados */
-export const CLOSED_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
+/**
+ * Estados de fechamento comercial.
+ * Apenas 'ganho' e 'perdido' preenchem won_at/lost_at/closed_at.
+ * 'cancelado' usa canceled_at/canceled_reason (sem closed_at).
+ */
+export const COMMERCIAL_CLOSE_STATUSES: LeadStatus[] = ['ganho', 'perdido']
+
+/** Estados que representam ciclos encerrados (não retornam ao funil ativo) */
+export const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
 export type CycleEventType =
   | 'cycle_created'
@@ -55,8 +63,8 @@ export interface SalesCycle {
   current_group_id: string | null
   created_at: string
   updated_at: string
-  // --- Campos de fechamento (regras Fase 1) ---
-  /** Data de fechamento real: igual a won_at quando ganho, igual a lost_at quando perdido, NULL quando aberto */
+  // --- Campos de fechamento comercial (regras Fase 1) ---
+  /** Data de fechamento real: igual a won_at quando ganho, igual a lost_at quando perdido, NULL para outros estados */
   closed_at: string | null
   /** Preenchido somente quando status = 'ganho'. closed_at deve ser igual a won_at. */
   won_at: string | null
@@ -68,6 +76,16 @@ export interface SalesCycle {
   lost_reason: string | null
   /** Valor total do ciclo ganho */
   won_total: number | null
+  // --- Campos de pausa (status = 'pausado') ---
+  /** Data em que o ciclo foi pausado — obrigatório quando status = 'pausado' */
+  paused_at: string | null
+  /** Motivo da pausa — obrigatório quando status = 'pausado' */
+  paused_reason: string | null
+  // --- Campos de cancelamento (status = 'cancelado') ---
+  /** Data de cancelamento — obrigatório quando status = 'cancelado' */
+  canceled_at: string | null
+  /** Motivo do cancelamento — obrigatório quando status = 'cancelado' */
+  canceled_reason: string | null
 }
 
 export interface CycleEvent {

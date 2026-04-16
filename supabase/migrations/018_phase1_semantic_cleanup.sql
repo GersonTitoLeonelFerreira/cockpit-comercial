@@ -205,7 +205,7 @@ $$;
 DROP TRIGGER IF EXISTS trg_sales_cycles_lifecycle_018 ON public.sales_cycles;
 
 CREATE TRIGGER trg_sales_cycles_lifecycle_018
-  BEFORE INSERT OR UPDATE OF status
+  BEFORE INSERT OR UPDATE
   ON public.sales_cycles
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_sales_cycles_lifecycle_018();
