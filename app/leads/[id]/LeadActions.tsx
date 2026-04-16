@@ -10,6 +10,7 @@ import type { LeadStatus } from '@/app/types/sales_cycles'
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
 }
+
 function whatsappLink(phone: string | null) {
   const digits = onlyDigits(phone ?? '')
   if (!digits) return null
@@ -17,7 +18,6 @@ function whatsappLink(phone: string | null) {
   return `https://wa.me/${full}`
 }
 
-/** Returns the next active stage in the funnel, or null if there is none */
 function getNextStage(currentStatus: string): LeadStatus | null {
   const flow: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao']
   const idx = flow.indexOf(currentStatus as LeadStatus)
@@ -46,8 +46,6 @@ export default function LeadActions(props: {
   const wa = useMemo(() => whatsappLink(props.phone), [props.phone])
 
   const [busy, setBusy] = useState(false)
-
-  // modal perdido
   const [openLost, setOpenLost] = useState(false)
   const [lossReason, setLossReason] = useState('')
   const [lossOther, setLossOther] = useState('')
@@ -55,8 +53,8 @@ export default function LeadActions(props: {
   const doMove = useCallback(
     async (toStage: LeadStatus, meta?: any) => {
       if (busy) return
-      // Guard: never register a stage_changed event if from === to
       if (props.currentStatus === toStage) return
+
       setBusy(true)
 
       try {
@@ -70,6 +68,14 @@ export default function LeadActions(props: {
 
         if (updateErr) throw new Error(updateErr.message)
 
+        const { error: cycleErr } = await supabase
+  .from('sales_cycles')
+  .update({ status: toStage })
+  .eq('lead_id', props.leadId)
+  .eq('company_id', props.companyId)
+
+if (cycleErr) throw new Error(`Erro ao atualizar sales_cycles: ${cycleErr.message}`)
+
         const { error: eventErr } = await supabase.from('lead_events').insert({
           company_id: props.companyId,
           lead_id: props.leadId,
@@ -82,7 +88,32 @@ export default function LeadActions(props: {
           created_at: nowIso,
         })
 
-        if (eventErr) console.log('Erro ao registrar lead_events:', eventErr)
+        if (eventErr) {
+          console.warn('Erro ao registrar lead_events:', eventErr)
+        }
+
+        const touchType =
+          toStage === 'ganho'
+            ? 'won'
+            : toStage === 'perdido'
+              ? 'lost'
+              : 'move'
+
+        const { data: touchData, error: touchErr } = await supabase.rpc(
+          'rpc_touch_lead_in_current_competency',
+          {
+            p_lead_id: props.leadId,
+            p_touch_type: touchType,
+            p_touch_at: nowIso,
+            p_won_total: toStage === 'ganho' ? (meta?.won_total ?? null) : null,
+          }
+        )
+
+        if (touchErr) {
+          console.warn('Erro ao registrar atividade por período:', touchErr)
+        } else if (!touchData?.success) {
+          console.warn('Falha ao registrar atividade por período:', touchData)
+        }
 
         router.refresh()
       } catch (e: any) {
@@ -152,6 +183,7 @@ export default function LeadActions(props: {
         {(() => {
           const nextStage = getNextStage(props.currentStatus)
           const isNegociacao = props.currentStatus === 'negociacao'
+
           return (
             <>
               {nextStage && (
@@ -159,11 +191,13 @@ export default function LeadActions(props: {
                   Avançar p/ {getStageLabel(nextStage)}
                 </button>
               )}
+
               {isNegociacao && (
                 <button type="button" style={btn} disabled={busy} onClick={() => doMove('ganho')}>
                   Fechar ✅
                 </button>
               )}
+
               <button
                 type="button"
                 style={{ ...btn, borderColor: '#ef4444', color: '#ef4444' }}
