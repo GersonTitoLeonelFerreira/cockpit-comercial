@@ -27,8 +27,8 @@ export function LostAnalysisChart() {
   // Transformar dados para o gráfico
   const chartData = lost.map((item) => ({
     name: item.lost_reason || 'Sem motivo',
-    value: item.total_deals_perdidos,
-    percentual: item.percentual_pct, // ✅ Agora sim!
+    value: Number(item.total_deals_perdidos ?? 0),
+    percentual: Number(item.percentual_pct ?? 0),
   }))
 
   return (
@@ -43,9 +43,9 @@ export function LostAnalysisChart() {
             cy="50%"
             labelLine={false}
             label={({ name }) => {
-                const item = chartData.find(d => d.name === name)
-                return `${name}: ${item?.percentual.toFixed(1)}%`
-              }}
+              const item = chartData.find((d) => d.name === name)
+              return `${name}: ${Number(item?.percentual ?? 0).toFixed(1)}%`
+            }}
             outerRadius={100}
             fill="#8884d8"
             dataKey="value"
@@ -88,7 +88,7 @@ export function LostAnalysisChart() {
                 {item.total_deals_perdidos}
               </div>
               <div className="text-xs text-gray-500">
-                {item.percentual_pct.toFixed(1)}%
+              {Number(item.percentual_pct ?? 0).toFixed(1)}%
               </div>
             </div>
           </div>
