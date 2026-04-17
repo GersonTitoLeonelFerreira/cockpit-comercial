@@ -2,6 +2,19 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 
+type LeadRow = {
+  id: string
+  name: string
+  phone: string | null
+  updated_at?: string | null
+}
+
+type CycleRow = {
+  id: string
+  lead_id: string
+  created_at?: string | null
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const q = (url.searchParams.get('q') ?? '').trim()
@@ -35,17 +48,52 @@ export async function GET(req: Request) {
   const digits = q.replace(/\D/g, '')
   const hasDigits = digits.length >= 6
 
-  let query = supabase
+  let leadQuery = supabase
     .from('leads')
-    .select('id,name,phone')
+    .select('id,name,phone,updated_at')
     .eq('company_id', profile.company_id)
     .order('updated_at', { ascending: false })
-    .limit(8)
+    .limit(12)
 
-  query = hasDigits ? query.or(`phone_norm.ilike.%${digits}%,phone.ilike.%${q}%`) : query.ilike('name', `%${q}%`)
+  if (hasDigits) {
+    leadQuery = leadQuery.or(`phone_norm.ilike.%${digits}%,phone.ilike.%${q}%`)
+  } else {
+    leadQuery = leadQuery.ilike('name', `%${q}%`)
+  }
 
-  const { data, error } = await query
-  if (error) return NextResponse.json({ leads: [] })
+  const { data: matchedLeads, error: leadsErr } = await leadQuery
+  if (leadsErr || !matchedLeads || matchedLeads.length === 0) {
+    return NextResponse.json({ leads: [] })
+  }
 
-  return NextResponse.json({ leads: data ?? [] })
+  const leadIds = (matchedLeads as LeadRow[]).map((l) => l.id)
+
+  const { data: cycles, error: cycleErr } = await supabase
+    .from('sales_cycles')
+    .select('id,lead_id,created_at')
+    .eq('company_id', profile.company_id)
+    .in('lead_id', leadIds)
+    .order('created_at', { ascending: false })
+
+  if (cycleErr || !cycles || cycles.length === 0) {
+    return NextResponse.json({ leads: [] })
+  }
+
+  const latestCycleByLead = new Map<string, CycleRow>()
+  for (const cycle of cycles as CycleRow[]) {
+    if (!latestCycleByLead.has(cycle.lead_id)) {
+      latestCycleByLead.set(cycle.lead_id, cycle)
+    }
+  }
+
+  const results = (matchedLeads as LeadRow[])
+    .filter((lead) => latestCycleByLead.has(lead.id))
+    .map((lead) => ({
+      id: latestCycleByLead.get(lead.id)!.id,
+      name: lead.name,
+      phone: lead.phone,
+    }))
+    .slice(0, 8)
+
+  return NextResponse.json({ leads: results })
 }

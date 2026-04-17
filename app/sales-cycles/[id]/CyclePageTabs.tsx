@@ -628,139 +628,226 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // ABA 3 — Dados do Lead
   // --------------------------------------------------------------------------
 
-  const renderLeadData = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-      {/* Dados básicos */}
-      <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 16, padding: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Dados do Lead
-          </h3>
-          <button
-            onClick={() => setEditingLead(!editingLead)}
-            style={{
-              padding: '6px 12px', background: '#2a2a3e',
-              border: '1px solid #3a3a4e', borderRadius: 8,
-              color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            {editingLead ? 'Cancelar' : 'Editar informações'}
-          </button>
-        </div>
-
-        {editingLead ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Nome</label>
-              <input
-                type="text"
-                value={leadName}
-                onChange={(e) => setLeadName(e.target.value)}
-                disabled={leadEditLoading}
-                style={{
-                  width: '100%', padding: '8px 12px',
-                  background: '#181824', border: '1px solid #3a3a4e',
-                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
-                  boxSizing: 'border-box',
-                }}
-              />
+  const renderLeadData = () => {
+    const sectionStyle: React.CSSProperties = {
+      background: '#111318',
+      border: '1px solid #1a1d2e',
+      borderRadius: 16,
+      padding: 20,
+    }
+  
+    const titleStyle: React.CSSProperties = {
+      color: '#edf2f7',
+      fontWeight: 700,
+      fontSize: 14,
+      margin: 0,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+    }
+  
+    const birthDateLabel = leadProfile?.birth_date
+      ? new Date(`${leadProfile.birth_date}T00:00:00`).toLocaleDateString('pt-BR')
+      : null
+  
+    return (
+      <div style={{ display: 'grid', gap: 16 }}>
+        <div
+          style={{
+            background: '#111318',
+            border: '1px solid #1a1d2e',
+            borderRadius: 16,
+            padding: 18,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <div style={{ color: '#edf2f7', fontSize: 16, fontWeight: 800 }}>Dados do Lead</div>
+            <div style={{ color: '#8fa3bc', fontSize: 12, marginTop: 4 }}>
+              Visualização completa do cadastro operacional e cadastral
             </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Telefone</label>
-              <input
-                type="text"
-                value={leadPhone}
-                onChange={(e) => setLeadPhone(e.target.value)}
-                disabled={leadEditLoading}
-                style={{
-                  width: '100%', padding: '8px 12px',
-                  background: '#181824', border: '1px solid #3a3a4e',
-                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Email</label>
-              <input
-                type="email"
-                value={leadEmail}
-                onChange={(e) => setLeadEmail(e.target.value)}
-                disabled={leadEditLoading}
-                style={{
-                  width: '100%', padding: '8px 12px',
-                  background: '#181824', border: '1px solid #3a3a4e',
-                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
+          </div>
+  
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
-              onClick={handleSaveLead}
-              disabled={leadEditLoading}
+              onClick={() => setEditingLead(!editingLead)}
               style={{
-                padding: '10px 16px', background: '#0066cc',
-                border: 'none', borderRadius: 8,
-                color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                opacity: leadEditLoading ? 0.5 : 1,
+                padding: '8px 12px',
+                background: '#1f2937',
+                border: '1px solid #374151',
+                borderRadius: 8,
+                color: '#93c5fd',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
               }}
             >
-              {leadEditLoading ? 'Salvando...' : 'Salvar'}
+              {editingLead ? 'Cancelar edição básica' : 'Editar informações básicas'}
+            </button>
+  
+            <button
+              onClick={() => setShowEditProfile(true)}
+              style={{
+                padding: '8px 12px',
+                background: '#1f2937',
+                border: '1px solid #374151',
+                borderRadius: 8,
+                color: '#93c5fd',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Editar cadastro completo
             </button>
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <DataRow label="Nome" value={lead?.name} />
-            <DataRow label="Telefone" value={lead?.phone} />
-            <DataRow label="Email" value={lead?.email || leadProfile?.email} />
-            {!lead?.name && !lead?.phone && !lead?.email && !leadProfile?.email && (
-              <div style={{ fontSize: 12, color: '#8b8fa2', fontStyle: 'italic', textAlign: 'center', padding: '10px 0' }}>
-                Nenhum dado básico registrado
+        </div>
+  
+        {editingLead ? (
+          <div style={sectionStyle}>
+            <h3 style={{ ...titleStyle, marginBottom: 16 }}>Dados básicos</h3>
+  
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#8fa3bc', marginBottom: 4 }}>Nome</label>
+                <input
+                  type="text"
+                  value={leadName}
+                  onChange={(e) => setLeadName(e.target.value)}
+                  disabled={leadEditLoading}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: '#0d0f14',
+                    border: '1px solid #1a1d2e',
+                    borderRadius: 8,
+                    color: '#edf2f7',
+                    fontSize: 13,
+                    boxSizing: 'border-box',
+                  }}
+                />
               </div>
-            )}
+  
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#8fa3bc', marginBottom: 4 }}>Telefone</label>
+                <input
+                  type="text"
+                  value={leadPhone}
+                  onChange={(e) => setLeadPhone(e.target.value)}
+                  disabled={leadEditLoading}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: '#0d0f14',
+                    border: '1px solid #1a1d2e',
+                    borderRadius: 8,
+                    color: '#edf2f7',
+                    fontSize: 13,
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+  
+              <div>
+                <label style={{ display: 'block', fontSize: 12, color: '#8fa3bc', marginBottom: 4 }}>Email</label>
+                <input
+                  type="email"
+                  value={leadEmail}
+                  onChange={(e) => setLeadEmail(e.target.value)}
+                  disabled={leadEditLoading}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: '#0d0f14',
+                    border: '1px solid #1a1d2e',
+                    borderRadius: 8,
+                    color: '#edf2f7',
+                    fontSize: 13,
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+  
+              <button
+                onClick={handleSaveLead}
+                disabled={leadEditLoading}
+                style={{
+                  padding: '10px 16px',
+                  background: '#2563eb',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: 'white',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  opacity: leadEditLoading ? 0.5 : 1,
+                }}
+              >
+                {leadEditLoading ? 'Salvando...' : 'Salvar informações básicas'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={sectionStyle}>
+              <h3 style={{ ...titleStyle, marginBottom: 16 }}>Dados básicos</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <DataRow label="Nome" value={lead?.name} />
+                <DataRow label="Tipo" value={leadProfile?.lead_type} />
+                <DataRow label="Telefone principal" value={lead?.phone} />
+                <DataRow label="Email principal" value={lead?.email || leadProfile?.email} />
+                <DataRow label="Celular" value={leadProfile?.phone_mobile} />
+                <DataRow label="Telefone residencial" value={leadProfile?.phone_residential} />
+                <DataRow label="Telefone comercial" value={leadProfile?.phone_commercial} />
+                <DataRow label="Razão social" value={leadProfile?.razao_social} />
+              </div>
+            </div>
+  
+            <div style={sectionStyle}>
+              <h3 style={{ ...titleStyle, marginBottom: 16 }}>Documentos e perfil</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <DataRow label="CPF" value={leadProfile?.cpf} />
+                <DataRow label="CNPJ" value={leadProfile?.cnpj} />
+                <DataRow label="RG" value={leadProfile?.rg} />
+                <DataRow label="Órgão emissor" value={leadProfile?.rg_issuer} />
+                <DataRow label="UF do RG" value={leadProfile?.rg_state} />
+                <DataRow label="Data de nascimento" value={birthDateLabel} />
+                <DataRow label="Sexo biológico" value={leadProfile?.biological_sex} />
+                <DataRow label="Profissão" value={leadProfile?.profession} />
+                <DataRow label="Escolaridade" value={leadProfile?.education_level} />
+                <DataRow label="Estado civil" value={leadProfile?.marital_status} />
+              </div>
+            </div>
+  
+            <div style={sectionStyle}>
+              <h3 style={{ ...titleStyle, marginBottom: 16 }}>Endereço</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <DataRow label="CEP" value={leadProfile?.cep} />
+                <DataRow label="Rua" value={leadProfile?.address_street} />
+                <DataRow label="Número" value={leadProfile?.address_number} />
+                <DataRow label="Complemento" value={leadProfile?.address_complement} />
+                <DataRow label="Bairro" value={leadProfile?.address_neighborhood} />
+                <DataRow label="Cidade" value={leadProfile?.address_city} />
+                <DataRow label="Estado" value={leadProfile?.address_state} />
+                <DataRow label="País" value={leadProfile?.address_country} />
+              </div>
+            </div>
+  
+            <div style={sectionStyle}>
+              <h3 style={{ ...titleStyle, marginBottom: 16 }}>Contato de emergência</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <DataRow label="Nome" value={leadProfile?.emergency_contact_name} />
+                <DataRow label="Telefone" value={leadProfile?.emergency_contact_phone} />
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Dados cadastrais */}
-      <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 16, padding: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Dados Cadastrais
-          </h3>
-          <button
-            onClick={() => setShowEditProfile(true)}
-            style={{
-              padding: '6px 12px', background: '#2a2a3e',
-              border: '1px solid #3a3a4e', borderRadius: 8,
-              color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            Editar
-          </button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <DataRow label="CPF" value={leadProfile?.cpf} />
-          <DataRow label="CEP" value={leadProfile?.cep} />
-          <DataRow label="Rua" value={leadProfile?.address_street} />
-          <DataRow label="Número" value={leadProfile?.address_number} />
-          <DataRow label="Complemento" value={leadProfile?.address_complement} />
-          <DataRow label="Bairro" value={leadProfile?.address_neighborhood} />
-          <DataRow label="Cidade" value={leadProfile?.address_city} />
-          <DataRow label="Estado" value={leadProfile?.address_state} />
-          <DataRow label="País" value={leadProfile?.address_country} />
-          {!leadProfile && (
-            <div style={{ fontSize: 12, color: '#8b8fa2', fontStyle: 'italic', textAlign: 'center', padding: '10px 0' }}>
-              Nenhum dado cadastral registrado.<br />
-              <span style={{ color: '#60a5fa', cursor: 'pointer' }} onClick={() => setShowEditProfile(true)}>
-                Clique em Editar para adicionar.
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+    )
+  }
 
   // --------------------------------------------------------------------------
   // ABA 4 — Ações

@@ -4,14 +4,15 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-type SearchLead = { id: string; name: string; phone: string | null }
+type SearchCycle = { id: string; name: string; phone: string | null }
 type SearchResult =
   | { type: 'page'; label: string; href: string }
-  | { type: 'lead'; label: string; href: string; meta?: string }
+  | { type: 'cycle'; label: string; href: string; meta?: string }
 
 const PAGES: SearchResult[] = [
   { type: 'page', label: 'Dashboard', href: '/dashboard' },
-  { type: 'page', label: 'Pipeline (Leads)', href: '/leads' },
+  { type: 'page', label: 'Cockpit Comercial', href: '/leads' },
+  { type: 'page', label: 'Pool', href: '/pool' },
   { type: 'page', label: 'Relatórios', href: '/relatorios' },
   { type: 'page', label: 'Configurações', href: '/platform' },
 ]
@@ -55,18 +56,18 @@ export default function GlobalSearch() {
     setLoading(true)
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal })
-      const json = (await res.json()) as { leads?: SearchLead[] }
+      const json = (await res.json()) as { leads?: SearchCycle[] }
 
       if (lastQueryRef.current !== trimmed) return
 
-      const leadMatches: SearchResult[] = (json.leads ?? []).map((l) => ({
-        type: 'lead',
+      const cycleMatches: SearchResult[] = (json.leads ?? []).map((l) => ({
+        type: 'cycle',
         label: l.name,
-        href: `/leads/${l.id}`,
+        href: `/sales-cycles/${l.id}`,
         meta: l.phone ?? undefined,
       }))
 
-      setResults([...pages, ...leadMatches].slice(0, 12))
+      setResults([...pages, ...cycleMatches].slice(0, 12))
     } catch (e: any) {
       if (e?.name === 'AbortError') return
       setResults(pageMatches(trimmed).slice(0, 12))
@@ -138,7 +139,7 @@ export default function GlobalSearch() {
           }}
         >
           <div style={{ padding: 10, borderBottom: '1px solid #1f1f1f', fontSize: 12, opacity: 0.75 }}>
-            {q.trim() ? (loading ? 'Buscando…' : `${results.length} resultado(s)`) : 'Digite para pesquisar (leads e páginas)'}
+            {q.trim() ? (loading ? 'Buscando…' : `${results.length} resultado(s)`) : 'Digite para pesquisar'}
           </div>
 
           {q.trim() && results.length === 0 ? (
@@ -148,9 +149,7 @@ export default function GlobalSearch() {
               <Link
                 key={`${r.type}-${idx}-${r.href}`}
                 href={r.href}
-                onClick={() => {
-                  setOpen(false)
-                }}
+                onClick={() => setOpen(false)}
                 style={{
                   display: 'block',
                   padding: '10px 12px',
@@ -161,7 +160,9 @@ export default function GlobalSearch() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <div style={{ fontWeight: 900, fontSize: 13 }}>{r.label}</div>
-                  <div style={{ fontSize: 11, opacity: 0.65 }}>{r.type === 'page' ? 'Página' : 'Lead'}</div>
+                  <div style={{ fontSize: 11, opacity: 0.65 }}>
+                    {r.type === 'page' ? 'Página' : 'Ciclo'}
+                  </div>
                 </div>
                 {'meta' in r && r.meta ? (
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 3 }}>{r.meta}</div>
