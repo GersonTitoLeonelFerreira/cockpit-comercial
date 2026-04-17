@@ -85,6 +85,7 @@ type PipelineItem = {
   name: string
   phone: string | null
   email: string | null
+  cpf?: string | null
   next_action: string | null
   next_action_date: string | null
   lead_groups?: { name: string } | null
@@ -1341,7 +1342,7 @@ async function loadKanbanWithCursor(
       try {
         let query = supabase
           .from('v_pipeline_items')
-          .select('id, lead_id, name, phone, email, status, stage_entered_at, owner_id, group_id, next_action, next_action_date, lead_groups(name)')
+          .select('id, lead_id, name, phone, email, cpf, status, stage_entered_at, owner_id, group_id, next_action, next_action_date, lead_groups(name)')
           .eq('company_id', companyId)
           .eq('owner_id', ownerToFilter)
           .eq('status', status)
@@ -1350,6 +1351,7 @@ async function loadKanbanWithCursor(
 
         if (searchTerm.trim()) {
           const searchType = detectSearchType(searchTerm)
+        
           if (searchType === 'phone') {
             const digits = searchTerm.replace(/\D/g, '')
             query = query.or(`phone.ilike.%${digits}%,phone.ilike.%${searchTerm}%`)
@@ -1357,7 +1359,7 @@ async function loadKanbanWithCursor(
             query = query.ilike('email', `%${searchTerm}%`)
           } else if (searchType === 'cpf') {
             const digits = searchTerm.replace(/\D/g, '')
-            query = query.or(`phone.ilike.%${digits}%,name.ilike.%${searchTerm}%`)
+            query = query.ilike('cpf', `%${digits}%`)
           } else {
             query = query.ilike('name', `%${searchTerm}%`)
           }
@@ -1391,7 +1393,7 @@ async function loadKanbanWithCursor(
         countQuery = countQuery.ilike('email', `%${searchTerm}%`)
       } else if (searchType === 'cpf') {
         const digits = searchTerm.replace(/\D/g, '')
-        countQuery = countQuery.or(`phone.ilike.%${digits}%,name.ilike.%${searchTerm}%`)
+        countQuery = countQuery.ilike('cpf', `%${digits}%`)
       } else {
         countQuery = countQuery.ilike('name', `%${searchTerm}%`)
       }
