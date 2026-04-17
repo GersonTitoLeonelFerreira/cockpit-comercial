@@ -18,6 +18,7 @@ import StageCheckpointModal from './StageCheckpointModal'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import { QuickActionModal, logQuickAction, QuickActionType } from '@/app/components/leads/QuickActionModal'
+import LeadCopilotPanel from '@/app/components/leads/LeadCopilotPanel'  
 import SellerMicroKPIs from './SellerMicroKPIs'
 import { ToastContainer, useToast } from './Toast'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -622,6 +623,107 @@ flex: '1 1 0%',
   return createPortal(menuContent, document.body)
 }
 
+function CopilotDrawerPortal({
+  open,
+  item,
+  companyId,
+  onClose,
+  onApplied,
+}: {
+  open: boolean
+  item: PipelineItem | null
+  companyId: string
+  onClose: () => void
+  onApplied: () => void | Promise<void>
+}) {
+  if (!open || !item) return null
+
+  return createPortal(
+    <>
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.72)',
+          zIndex: 10000,
+          display: 'flex',
+          justifyContent: 'flex-end',
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            width: 'min(560px, 100vw)',
+            height: '100vh',
+            background: '#0f1117',
+            borderLeft: `1px solid ${DS.border}`,
+            boxShadow: '-8px 0 30px rgba(0,0,0,0.45)',
+            overflowY: 'auto',
+            padding: 16,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: DS.textPrimary }}>
+              Copiloto Comercial
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: DS.textSecondary,
+                cursor: 'pointer',
+                fontSize: 20,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          <LeadCopilotPanel
+            variant="compact"
+            cycle={{
+              ...(item as any),
+              company_id: companyId,
+              owner_user_id: item.owner_id,
+              previous_status: null,
+              stage_entered_at: item.stage_entered_at,
+              current_group_id: item.group_id,
+              closed_at: null,
+              won_at: null,
+              lost_at: null,
+              won_owner_user_id: null,
+              lost_owner_user_id: null,
+              lost_reason: null,
+              won_total: null,
+              paused_at: null,
+              paused_reason: null,
+              canceled_at: null,
+              canceled_reason: null,
+              leads: {
+                id: item.lead_id,
+                name: item.name,
+                phone: item.phone,
+                email: item.email,
+              },
+            }}
+            onApplied={async () => {
+              await onApplied()
+              onClose()
+            }}
+            onRejected={async () => {
+              await onApplied()
+            }}
+          />
+        </div>
+      </div>
+    </>,
+    document.body
+  )
+}
+
 // ============================================================================
 // KanbanCard
 // ============================================================================
@@ -632,6 +734,7 @@ function KanbanCard({
   onToggleSelect,
   onOpenMenu,
   onMoveItem,
+  onCopilotSaved,
   supabase,
   companyId,
   currentUserId,
@@ -644,6 +747,7 @@ function KanbanCard({
   onToggleSelect: (cycleId: string) => void
   onOpenMenu: (item: PipelineItem, anchorRect: DOMRect) => void
   onMoveItem: (cycleId: string, toStatus: Status) => void
+  onCopilotSaved: () => void | Promise<void>
   supabase: any
   companyId: string
   currentUserId: string
@@ -656,6 +760,7 @@ function KanbanCard({
   const [suggestedStatus, setSuggestedStatus] = useState<string | null>(null)
   const [lastChannel, setLastChannel] = useState<'whatsapp' | 'copy'>('copy')
   const [isHovered, setIsHovered] = useState(false)
+  const [showCopilot, setShowCopilot] = useState(false)
 
   const minutesInStage = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at || new Date()).getTime()) / 60000)
   const slaRule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
@@ -857,7 +962,29 @@ function KanbanCard({
           {agendaState === 'none' && <div />}
 
           {/* QUICK ACTION BUTTONS: WA + Copy */}
-          <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowCopilot(true)
+              }}
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation() }}
+              title="Registrar conversa com IA"
+              style={{
+                background: 'rgba(59,130,246,0.15)',
+                border: '1px solid rgba(59,130,246,0.3)',
+                borderRadius: 5,
+                padding: '3px 7px',
+                cursor: 'pointer',
+                fontSize: 11,
+                color: '#93c5fd',
+                fontWeight: 800,
+                lineHeight: 1,
+              }}
+            >
+              IA
+            </button>
+
             {item.phone && (
               <>
                 <button
@@ -1034,6 +1161,26 @@ function KanbanCard({
         {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
         </div>
 
+            <CopilotDrawerPortal
+        open={showCopilot}
+        item={item}
+        companyId={companyId}
+        onClose={() => setShowCopilot(false)}
+        onApplied={async () => {
+          await onCopilotSaved()
+        }}
+      />
+
+<CopilotDrawerPortal
+        open={showCopilot}
+        item={item}
+        companyId={companyId}
+        onClose={() => setShowCopilot(false)}
+        onApplied={async () => {
+          await onCopilotSaved()
+        }}
+      />
+
       {/* QUICK ACTION MODAL */}
       {showQuickActionModal && (
         <QuickActionModal
@@ -1045,9 +1192,6 @@ function KanbanCard({
           isLoading={quickActionLoading}
         />
       )}
-    </div>
-  )
-}
 
 // ============================================================================
 // VirtualizedStatusColumn
@@ -1072,6 +1216,7 @@ type VirtualizedStatusColumnProps = {
   sellers: Profile[]
   isAdmin: boolean
   onMoveItem: (cycleId: string, toStatus: Status) => void
+  onCopilotSaved: () => void | Promise<void>
   supabase: any
   companyId: string
   currentUserId: string
@@ -1097,6 +1242,7 @@ function VirtualizedStatusColumn({
   sellers,
   isAdmin,
   onMoveItem,
+  onCopilotSaved,
   supabase,
   companyId,
   currentUserId,
@@ -1220,6 +1366,7 @@ flex: '0 0 320px',
                             onToggleSelect={onToggleSelect}
                             onOpenMenu={handleOpenMenu}
                             onMoveItem={onMoveItem}
+                            onCopilotSaved={onCopilotSaved}
                             supabase={supabase}
                             companyId={companyId}
                             currentUserId={currentUserId}
@@ -1861,6 +2008,14 @@ export default function SalesCyclesKanban({
     setAllPoolSelected(false)
   }, [poolCycles])
 
+  const handleCopilotSaved = useCallback(async () => {
+    await Promise.all([
+      loadItems(searchTerm),
+      loadTotals(),
+      isAdmin ? loadPoolAndSellers() : Promise.resolve(),
+    ])
+    setKpiRefreshKey((k) => k + 1)
+  }, [loadItems, loadTotals, loadPoolAndSellers, isAdmin, searchTerm])
   const moveItem = useCallback(
     async (cycleId: string, toStatus: Status) => {
       setSavingId(cycleId)
@@ -3440,6 +3595,7 @@ export default function SalesCyclesKanban({
                     sellers={sellers}
                     isAdmin={isAdmin}
                     onMoveItem={handleDrop}
+                    onCopilotSaved={handleCopilotSaved}
                     supabase={supabase}
                     companyId={companyId}
                     currentUserId={userId}
