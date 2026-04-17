@@ -494,22 +494,35 @@ function CheckpointForm({
               style={inputStyle}
             >
                             <option value="">Selecione…</option>
-              {config.results
-                                .filter((opt) => {
-                                  if (!actionChannel) return true
-                                  const ch = actionChannel.toLowerCase()
-                                  const o = opt.toLowerCase()
-                                  if (ch === 'ligação') return o.includes('ligação')
-                                  if (ch === 'email') return o.includes('email')
-                                  if (ch === 'whats') return o.includes('mensagem') || o.includes('tentativa')
-                                  if (ch === 'presencial') return o.includes('conheceu') || o.includes('testou') || o.includes('agendou um teste') || o.includes('proposta realizada') || o.includes('visitou') || o.includes('demonstração')
-                                  return true
-                                })
-                .map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
+                            {(() => {
+  const filtered = config.results.filter((opt) => {
+    if (!actionChannel) return true
+    const ch = actionChannel.toLowerCase()
+    const o = opt.toLowerCase()
+    if (ch === 'ligação') return o.includes('ligação')
+    if (ch === 'email') return o.includes('email')
+    if (ch === 'whats') return o.includes('mensagem') || o.includes('tentativa')
+    if (ch === 'presencial') {
+      return (
+        o.includes('conheceu') ||
+        o.includes('testou') ||
+        o.includes('agendou um teste') ||
+        o.includes('proposta realizada') ||
+        o.includes('visitou') ||
+        o.includes('demonstração')
+      )
+    }
+    return true
+  })
+
+  const options = filtered.length > 0 ? filtered : config.results
+
+  return options.map((opt) => (
+    <option key={opt} value={opt}>
+      {opt}
+    </option>
+  ))
+})()}
             </select>
           </div>
         )}
@@ -544,22 +557,38 @@ function CheckpointForm({
               style={inputStyle}
             >
                             <option value="">Selecione…</option>
-              {config.nextActions
-                .filter((opt) => {
-                  if (!actionChannel) return true
-                  const ch = actionChannel.toLowerCase()
-                  const o = opt.toLowerCase()
-                  if (ch === 'presencial') return o.includes('confirmar presença') || o.includes('retorno da proposta') || o.includes('realizar venda') || o.includes('proposta final') || o.includes('nova visita') || o.includes('material complementar') || o.includes('fechamento') || o.includes('whats follow') || o.includes('email follow')
-                  if (ch === 'ligação') return o.includes('ligar') || o.includes('tentativa') || o.includes('aguardar') || o.includes('whats follow') || o.includes('email follow')
-                  if (ch === 'email') return o.includes('email') || o.includes('aguardar') || o.includes('tentativa')
-                  if (ch === 'whats') return o.includes('whats') || o.includes('aguardar') || o.includes('tentativa') || o.includes('ligar')
-                  return true
-                })
-                .map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
+                            {(() => {
+  const filtered = config.nextActions.filter((opt) => {
+    if (!actionChannel) return true
+    const ch = actionChannel.toLowerCase()
+    const o = opt.toLowerCase()
+    if (ch === 'presencial') {
+      return (
+        o.includes('confirmar presença') ||
+        o.includes('retorno da proposta') ||
+        o.includes('realizar venda') ||
+        o.includes('proposta final') ||
+        o.includes('nova visita') ||
+        o.includes('material complementar') ||
+        o.includes('fechamento') ||
+        o.includes('whats follow') ||
+        o.includes('email follow')
+      )
+    }
+    if (ch === 'ligação') return o.includes('ligar') || o.includes('tentativa') || o.includes('aguardar') || o.includes('whats follow') || o.includes('email follow')
+    if (ch === 'email') return o.includes('email') || o.includes('aguardar') || o.includes('tentativa')
+    if (ch === 'whats') return o.includes('whats') || o.includes('aguardar') || o.includes('tentativa') || o.includes('ligar')
+    return true
+  })
+
+  const options = filtered.length > 0 ? filtered : config.nextActions
+
+  return options.map((opt) => (
+    <option key={opt} value={opt}>
+      {opt}
+    </option>
+  ))
+})()}
             </select>
           </div>
         )}

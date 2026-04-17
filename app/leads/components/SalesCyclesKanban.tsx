@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DndContext, PointerSensor, closestCorners, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
 
 import {
   WhatsAppIcon,
@@ -440,6 +439,8 @@ function CardActionsMenuPortal({
     }
   }, [onClose])
 
+  const canReturnToPool = item.status !== 'ganho' && item.status !== 'perdido'
+
   const menu = (
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9000 }} onClick={onClose} />
@@ -459,28 +460,30 @@ function CardActionsMenuPortal({
           fontSize: 13,
         }}
       >
-        <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: `1px solid ${DS.borderSubtle}` }}>
-          <button
-            onClick={() => {
-              onReturnToPool(item.id, item.name)
-              onClose()
-            }}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              background: 'none',
-              border: 'none',
-              color: DS.redText,
-              cursor: 'pointer',
-              textAlign: 'left',
-              borderRadius: DS.radius,
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            ↩ Devolver ao Pool
-          </button>
-        </div>
+        {canReturnToPool && (
+          <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: `1px solid ${DS.borderSubtle}` }}>
+            <button
+              onClick={() => {
+                onReturnToPool(item.id, item.name)
+                onClose()
+              }}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                background: 'none',
+                border: 'none',
+                color: DS.redText,
+                cursor: 'pointer',
+                textAlign: 'left',
+                borderRadius: DS.radius,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              ↩ Devolver ao Pool
+            </button>
+          </div>
+        )}
 
         {isAdmin && sellers.length > 0 && (
           <div style={{ paddingBottom: 4, marginBottom: 4, borderBottom: `1px solid ${DS.borderSubtle}` }}>
@@ -516,7 +519,9 @@ function CardActionsMenuPortal({
         )}
 
         <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, padding: '4px 12px' }}>GRUPO</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: DS.textLabel, padding: '4px 12px' }}>
+            GRUPO
+          </div>
           <select
             value={item.group_id ?? ''}
             onChange={(e) => {
@@ -1156,8 +1161,8 @@ function VirtualizedStatusColumn({
   companyId,
   currentUserId,
 }: VirtualizedStatusColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: status })
   const [menuState, setMenuState] = useState<{ item: PipelineItem; anchorRect: DOMRect } | null>(null)
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
 
   const filteredCycles = cycles.filter((item) => {
     if (slaFilter !== 'all') {
@@ -1192,14 +1197,13 @@ function VirtualizedStatusColumn({
   return (
     <>
       <div
-        ref={setNodeRef}
         style={{
           minWidth: 300,
           maxWidth: 340,
           flex: '0 0 320px',
           display: 'flex',
           flexDirection: 'column',
-          background: isOver
+          background: isDraggingOver
             ? `linear-gradient(180deg, ${STATUS_COLORS[status]}30 0%, ${DS.panelBg} 100%)`
             : `linear-gradient(180deg, ${STATUS_COLORS[status]}50 0%, ${STATUS_COLORS[status]}08 90%, ${DS.panelBg} 100%)`,
           borderRadius: DS.radiusContainer + 3,
@@ -1209,13 +1213,22 @@ function VirtualizedStatusColumn({
           overflow: 'hidden',
           boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
         }}
+        onDragEnter={(e) => {
+          e.preventDefault()
+          setIsDraggingOver(true)
+        }}
         onDragOver={(e) => {
           e.preventDefault()
           e.dataTransfer.dropEffect = 'move'
+          if (!isDraggingOver) setIsDraggingOver(true)
+        }}
+        onDragLeave={() => {
+          setIsDraggingOver(false)
         }}
         onDrop={(e) => {
           e.preventDefault()
           const cycleId = e.dataTransfer.getData('cycleId')
+          setIsDraggingOver(false)
           if (cycleId) onDrop(cycleId, status)
         }}
       >
@@ -1229,11 +1242,33 @@ function VirtualizedStatusColumn({
             zIndex: 10,
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: 11, letterSpacing: '0.1em', color: STATUS_COLORS[status], textTransform: 'uppercase' }}>
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 11,
+              letterSpacing: '0.1em',
+              color: STATUS_COLORS[status],
+              textTransform: 'uppercase',
+            }}
+          >
             {headerLabel}
           </div>
-          <div style={{ marginTop: 6, height: 2, background: DS.borderSubtle, borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`, background: STATUS_COLORS[status] }} />
+          <div
+            style={{
+              marginTop: 6,
+              height: 2,
+              background: DS.borderSubtle,
+              borderRadius: 2,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                height: '100%',
+                width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
+                background: STATUS_COLORS[status],
+              }}
+            />
           </div>
         </div>
 
@@ -1462,7 +1497,6 @@ export default function SalesCyclesKanban({
   const [searchCount, setSearchCount] = useState<number | null>(null)
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const allItems = Object.values(items).flat()
   const operationalItems = allItems.filter((item) => supportsOperationalAgenda(item.status))
@@ -1762,24 +1796,45 @@ export default function SalesCyclesKanban({
 
   const bulkReturnToPool = useCallback(async () => {
     if (selectedIds.size === 0) return
+  
+    const selectedCycles = allItems.filter((item) => selectedIds.has(item.id))
+    const eligibleCycleIds = selectedCycles
+      .filter((item) => item.status !== 'ganho' && item.status !== 'perdido')
+      .map((item) => item.id)
+  
+    const skippedCount = selectedCycles.length - eligibleCycleIds.length
+  
+    if (eligibleCycleIds.length === 0) {
+      addToast('Selecione leads que não estejam em ganho ou perdido.')
+      return
+    }
+  
     setAssigningId('bulk')
     setError(null)
+  
     try {
-      const cycleIds = Array.from(selectedIds)
       const rpcName = isAdmin ? 'rpc_bulk_return_cycles_to_pool' : 'rpc_bulk_return_cycles_to_pool_self'
-      const { data, error } = await supabase.rpc(rpcName, { p_cycle_ids: cycleIds })
+      const { data, error } = await supabase.rpc(rpcName, { p_cycle_ids: eligibleCycleIds })
+  
       if (error) throw error
       if (!data?.success) throw new Error('Operação não confirmada')
+  
       await Promise.all([loadItems(searchTerm), loadTotals()])
+  
       setSelectedIds(new Set())
       setShowBulkModal(false)
-      addToast(`${cycleIds.length} leads devolvidos ao pool!`)
+  
+      if (skippedCount > 0) {
+        addToast(`${eligibleCycleIds.length} leads devolvidos ao pool. ${skippedCount} ignorados por estarem em ganho/perdido.`)
+      } else {
+        addToast(`${eligibleCycleIds.length} leads devolvidos ao pool!`)
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Erro ao devolver leads')
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, isAdmin, supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, allItems, isAdmin, supabase, loadItems, loadTotals, searchTerm, addToast])
 
   const bulkReassignToSeller = useCallback(async (sellerId: string) => {
     if (selectedIds.size === 0 || !sellerId || !isAdmin) return
@@ -2206,40 +2261,38 @@ export default function SalesCyclesKanban({
             <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
           ) : (
             <div className="kanban-column-scroll" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px 16px', display: 'flex', gap: 12 }}>
-              <DndContext sensors={sensors} collisionDetection={closestCorners}>
-                {STATUSES.map((status) => (
-                  <VirtualizedStatusColumn
-                    key={status}
-                    status={status}
-                    cycles={items[status]}
-                    totalCount={totals[status] ?? 0}
-                    savingId={savingId}
-                    onDrop={handleDrop}
-                    selectedIds={selectedIds}
-                    onToggleSelect={toggleSelect}
-                    slaRules={slaRules}
-                    nowTick={nowTick}
-                    slaFilter={slaFilter}
-                    agendaFilter={agendaFilter}
-                    onReturnToPool={(cycleId, cycleName) => {
-                      setReturnCycleId(cycleId)
-                      setReturnCycleName(cycleName)
-                      setReturnReasonModalOpen(true)
-                    }}
-                    onReassign={reassignCycle}
-                    onSetGroup={setGroupForCycle}
-                    onCreateGroup={handleCreateGroupInline}
-                    groups={groups}
-                    sellers={sellers}
-                    isAdmin={isAdmin}
-                    onMoveItem={handleDrop}
-                    onCopilotSaved={handleCopilotSaved}
-                    supabase={supabase}
-                    companyId={companyId}
-                    currentUserId={userId}
-                  />
-                ))}
-              </DndContext>
+              {STATUSES.map((status) => (
+  <VirtualizedStatusColumn
+    key={status}
+    status={status}
+    cycles={items[status]}
+    totalCount={totals[status] ?? 0}
+    savingId={savingId}
+    onDrop={handleDrop}
+    selectedIds={selectedIds}
+    onToggleSelect={toggleSelect}
+    slaRules={slaRules}
+    nowTick={nowTick}
+    slaFilter={slaFilter}
+    agendaFilter={agendaFilter}
+    onReturnToPool={(cycleId, cycleName) => {
+      setReturnCycleId(cycleId)
+      setReturnCycleName(cycleName)
+      setReturnReasonModalOpen(true)
+    }}
+    onReassign={reassignCycle}
+    onSetGroup={setGroupForCycle}
+    onCreateGroup={handleCreateGroupInline}
+    groups={groups}
+    sellers={sellers}
+    isAdmin={isAdmin}
+    onMoveItem={handleDrop}
+    onCopilotSaved={handleCopilotSaved}
+    supabase={supabase}
+    companyId={companyId}
+    currentUserId={userId}
+  />
+))}
             </div>
           )}
         </div>
