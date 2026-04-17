@@ -479,7 +479,6 @@ function CardActionsMenuPortal({
     padding: 8,
     zIndex: 9001,
     minWidth: 240,
-flex: '1 1 0%',
     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
     color: DS.textPrimary,
     fontSize: 13,
@@ -640,26 +639,27 @@ function CopilotDrawerPortal({
 
   return createPortal(
     <>
-      <div
+            <div
         style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0,0,0,0.72)',
+          background: 'rgba(0,0,0,0.16)',
           zIndex: 10000,
           display: 'flex',
           justifyContent: 'flex-end',
+          pointerEvents: 'none',
         }}
-        onClick={onClose}
       >
-        <div
+                <div
           style={{
             width: 'min(560px, 100vw)',
             height: '100vh',
             background: '#0f1117',
             borderLeft: `1px solid ${DS.border}`,
-            boxShadow: '-8px 0 30px rgba(0,0,0,0.45)',
+            boxShadow: '-12px 0 36px rgba(0,0,0,0.52)',
             overflowY: 'auto',
             padding: 16,
+            pointerEvents: 'auto',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1159,9 +1159,9 @@ function KanbanCard({
         </div>
 
         {isSaving && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>Salvando...</div>}
-        </div>
+      </div>
 
-            <CopilotDrawerPortal
+      <CopilotDrawerPortal
         open={showCopilot}
         item={item}
         companyId={companyId}
@@ -1192,6 +1192,9 @@ function KanbanCard({
           isLoading={quickActionLoading}
         />
       )}
+    </div>
+  )
+}
 
 // ============================================================================
 // VirtualizedStatusColumn

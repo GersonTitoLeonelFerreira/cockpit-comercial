@@ -174,6 +174,9 @@ export function getEventTitle(event: CycleEvent): string {
     note_added: 'Nota adicionada',
     contacted: 'Contato registrado',
     replied: 'Resposta registrada',
+    ai_analysis_generated: 'Análise da IA gerada',
+    ai_suggestion_applied: 'Sugestão da IA aplicada',
+    ai_suggestion_rejected: 'Sugestão da IA descartada',
   }
   return EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 }
@@ -436,6 +439,11 @@ export function WonCard({ cycle }: { cycle: Record<string, unknown> }) {
 
 export function AdminCard({ event }: { event: CycleEvent }) {
   const m = event.metadata ?? {}
+  const suggestion =
+    m.suggestion && typeof m.suggestion === 'object'
+      ? (m.suggestion as Record<string, unknown>)
+      : null
+
   const EVENT_LABELS: Record<string, string> = {
     assigned: 'Ciclo atribuído',
     reassigned: 'Ciclo reatribuído',
@@ -446,19 +454,73 @@ export function AdminCard({ event }: { event: CycleEvent }) {
     note_added: 'Nota adicionada',
     contacted: 'Contato registrado',
     replied: 'Resposta registrada',
+    ai_analysis_generated: 'Análise da IA gerada',
+    ai_suggestion_applied: 'Sugestão da IA aplicada',
+    ai_suggestion_rejected: 'Sugestão da IA descartada',
   }
+
   const label = EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
+
+  const suggestedStatus =
+    (suggestion?.recommended_status as string | undefined) ??
+    (m.suggested_status as string | undefined) ??
+    (m.applied_status as string | undefined)
+
+  const nextAction =
+    (suggestion?.next_action as string | undefined) ??
+    (m.next_action as string | undefined)
+
+  const summary =
+    (suggestion?.summary as string | undefined) ??
+    (m.edited_summary as string | undefined)
+
+  const confidence =
+    typeof suggestion?.confidence === 'number'
+      ? Math.round((suggestion.confidence as number) * 100)
+      : null
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <span style={{ color: '#8b8fa2', fontWeight: 600 }}>{label}</span>
         <span style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(event.occurred_at)}</span>
       </div>
+
+      {(event.event_type === 'ai_analysis_generated' ||
+        event.event_type === 'ai_suggestion_applied' ||
+        event.event_type === 'ai_suggestion_rejected') && (
+        <div style={{ marginTop: 8 }}>
+          {suggestedStatus && (
+            <FieldRow
+              label="Status sugerido"
+              value={
+                <span style={{ ...statusBadgeStyle(suggestedStatus), padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 700 }}>
+                  {statusLabel(suggestedStatus)}
+                </span>
+              }
+            />
+          )}
+
+          {confidence !== null && (
+            <FieldRow label="Confiança" value={`${confidence}%`} />
+          )}
+
+          {!!nextAction && (
+            <FieldRow label="Próxima ação" value={nextAction} />
+          )}
+
+          {!!summary && (
+            <FieldRow label="Resumo" value={<em>{summary}</em>} />
+          )}
+        </div>
+      )}
+
       {!!m.reason && (
         <div style={{ marginTop: 4, color: '#8b8fa2', fontSize: 13 }}>
           <span>Motivo: </span><em>{String(m.reason)}</em>
         </div>
       )}
+
       {!!m.details && (
         <div style={{ marginTop: 4, color: '#8b8fa2', fontSize: 13 }}>
           <span>Detalhe: </span><em>{String(m.details)}</em>
