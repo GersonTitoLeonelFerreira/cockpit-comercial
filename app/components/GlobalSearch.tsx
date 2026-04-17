@@ -83,7 +83,13 @@ export default function GlobalSearch() {
   }, [q, open])
 
   React.useEffect(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    lastQueryRef.current = ''
+    setQ('')
     setOpen(false)
+    setLoading(false)
+    setResults([])
   }, [pathname])
 
   React.useEffect(() => {
@@ -107,7 +113,11 @@ export default function GlobalSearch() {
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') void doSearch(q)
-          if (e.key === 'Escape') setOpen(false)
+          if (e.key === 'Escape') {
+            setOpen(false)
+            setQ('')
+            setResults([])
+          }
         }}
         placeholder="Pesquisar…"
         style={{
@@ -149,7 +159,12 @@ export default function GlobalSearch() {
               <Link
                 key={`${r.type}-${idx}-${r.href}`}
                 href={r.href}
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  setQ('')
+                  setOpen(false)
+                  setLoading(false)
+                  setResults([])
+                }}
                 style={{
                   display: 'block',
                   padding: '10px 12px',
