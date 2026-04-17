@@ -1656,7 +1656,9 @@ export default function SalesCyclesKanban({
 
   const [sellers, setSellers] = useState<Profile[]>([])
   const [poolCycles, setPoolCycles] = useState<PoolItem[]>([])
-  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(defaultOwnerId ?? null)
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(
+    defaultOwnerId ?? (isAdmin ? userId : null)
+  )
 
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -2546,7 +2548,7 @@ export default function SalesCyclesKanban({
   // ============================================================================
   // ADMIN VIEW - Pool
   // ============================================================================
-  if (isAdmin && !selectedOwnerId) {
+  if (false && isAdmin && !selectedOwnerId) {
     return (
       <div style={{ background: DS.contentBg, minHeight: '100vh', color: DS.textPrimary }}>
         {/* FILTERS */}
@@ -3225,19 +3227,19 @@ export default function SalesCyclesKanban({
         display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
       }}>
         {isAdmin && (
-          <select
-            value={selectedOwnerId || ''}
-            onChange={(e) => setSelectedOwnerId(e.target.value || null)}
-            style={pillStyle}
-          >
-            <option value="">Mudar vendedor...</option>
-            {sellers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.full_name ?? s.email} ({s.role})
-              </option>
-            ))}
-          </select>
-        )}
+  <select
+    value={selectedOwnerId || userId}
+    onChange={(e) => setSelectedOwnerId(e.target.value || userId)}
+    style={pillStyle}
+  >
+    <option value={userId}>Meu Cockpit</option>
+    {sellers.map((s) => (
+      <option key={s.id} value={s.id}>
+        {s.full_name ?? s.email} ({s.role})
+      </option>
+    ))}
+  </select>
+)}
 
         <select
           value={selectedGroupId || ''}

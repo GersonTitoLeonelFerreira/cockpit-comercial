@@ -26,11 +26,13 @@ const C = {
   collapseBtnBorder: '#1e2236',
   iconColor: '#4a5d75',
   iconActiveColor: '#60a5fa',
-  quickLinkBg: '#161924',
-  quickLinkBorder: '#1e2438',
   brandSeparator: '#15172a',
   adminSeparator: '#171a2c',
 } as const
+
+type MeResponse =
+  | { ok: true; full_name: string | null; email: string | null; role: string | null }
+  | { error: string }
 
 // ─── Icon set ───────────────────────────────────────────────────────────────
 type IconName =
@@ -43,7 +45,7 @@ type IconName =
   | 'settings'
   | 'chevron-left'
   | 'chevron-right'
-  | 'pipeline'
+  | 'pool'
 
 function NavIcon({ name, size = 16 }: { name: IconName; size?: number }) {
   const common = {
@@ -127,10 +129,13 @@ function NavIcon({ name, size = 16 }: { name: IconName; size?: number }) {
           <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )
-    case 'pipeline':
+    case 'pool':
       return (
         <svg {...common}>
-          <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4 7.5h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M6 7.5v9.8c0 1.5 1.2 2.7 2.7 2.7h6.6c1.5 0 2.7-1.2 2.7-2.7V7.5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M9 11.2h6M9 14.8h4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M9 4h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       )
     default:
@@ -171,9 +176,7 @@ const RELATORIOS_SUBMENU: SubMenuGroup[] = [
   },
   {
     title: 'Comercial',
-    items: [
-      { label: 'Performance por Produto', href: '/dashboard/relatorios/produto' },
-    ],
+    items: [{ label: 'Performance por Produto', href: '/dashboard/relatorios/produto' }],
   },
   {
     title: 'Sazonalidade',
@@ -185,15 +188,11 @@ const RELATORIOS_SUBMENU: SubMenuGroup[] = [
   },
   {
     title: 'Cadastros',
-    items: [
-      { label: 'Cadastro de Produtos', href: '/admin/produtos' },
-    ],
+    items: [{ label: 'Cadastro de Produtos', href: '/admin/produtos' }],
   },
   {
     title: 'Governança',
-    items: [
-      { label: 'Score de Aderência', href: '/relatorios/governanca/score-de-aderencia' },
-    ],
+    items: [{ label: 'Score de Aderência', href: '/relatorios/governanca/score-de-aderencia' }],
   },
 ]
 
@@ -341,7 +340,6 @@ function NavBtnWithSubmenu({
           zIndex: 9999,
         }}
       >
-        {/* Header */}
         <div
           style={{
             padding: '8px 14px 10px',
@@ -537,10 +535,44 @@ function NavGroup({ label, collapsed }: { label: string; collapsed: boolean }) {
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
+  const [userRole, setUserRole] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let active = true
+
+    ;(async () => {
+      try {
+        const res = await fetch('/api/me', { method: 'GET', cache: 'no-store' })
+        const json = (await res.json()) as MeResponse
+        if (!active) return
+
+        if (res.ok && 'ok' in json && json.ok) {
+          setUserRole(json.role ?? null)
+          return
+        }
+
+        setUserRole(null)
+      } catch {
+        if (active) setUserRole(null)
+      }
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const isAdminUser = userRole === 'admin'
 
   const isActive = (href: string) => {
     if (!pathname) return false
     if (href === '/dashboard') return pathname === '/dashboard'
+    if (href === '/leads') {
+      return pathname === '/leads' || pathname.startsWith('/leads/') || pathname.startsWith('/sales-cycles')
+    }
+    if (href === '/pool') {
+      return pathname === '/pool' || pathname.startsWith('/pool/')
+    }
     if (href === '/admin/vendedores') {
       return pathname === '/admin/vendedores' || pathname.startsWith('/admin/vendedores/')
     }
@@ -548,30 +580,34 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const topTitle =
-    pathname?.startsWith('/admin')
-      ? 'Admin'
-      : pathname?.startsWith('/leads')
-        ? 'Pipeline Comercial'
-        : pathname?.startsWith('/relatorios')
-          ? 'Relatórios'
-          : pathname?.startsWith('/dashboard/simulador-meta')
-            ? 'Simulador de Meta'
-            : pathname?.startsWith('/platform')
-              ? 'Configurações'
-              : 'Dashboard'
+    pathname?.startsWith('/pool')
+      ? 'Pool'
+      : pathname?.startsWith('/admin')
+        ? 'Admin'
+        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+          ? 'Cockpit Comercial'
+          : pathname?.startsWith('/relatorios')
+            ? 'Relatórios'
+            : pathname?.startsWith('/dashboard/simulador-meta')
+              ? 'Simulador de Meta'
+              : pathname?.startsWith('/platform')
+                ? 'Configurações'
+                : 'Dashboard'
 
   const topSubtitle =
-    pathname?.startsWith('/admin')
-      ? 'Gestão e administração do sistema'
-      : pathname?.startsWith('/leads')
-        ? 'Visualize e gerencie o funil de vendas'
-        : pathname?.startsWith('/relatorios')
-          ? 'Análise e inteligência comercial'
-          : pathname?.startsWith('/dashboard/simulador-meta')
-            ? 'Projeção e planejamento de metas'
-            : pathname?.startsWith('/platform')
-              ? 'Configurações da plataforma'
-              : 'Visão geral da operação comercial'
+    pathname?.startsWith('/pool')
+      ? 'Administre, distribua e organize a entrada de leads'
+      : pathname?.startsWith('/admin')
+        ? 'Gestão e administração do sistema'
+        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+          ? 'Execução comercial da operação'
+          : pathname?.startsWith('/relatorios')
+            ? 'Análise e inteligência comercial'
+            : pathname?.startsWith('/dashboard/simulador-meta')
+              ? 'Projeção e planejamento de metas'
+              : pathname?.startsWith('/platform')
+                ? 'Configurações da plataforma'
+                : 'Visão geral da operação comercial'
 
   return (
     <div
@@ -584,7 +620,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
-      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside
         style={{
           width: collapsed ? 64 : 252,
@@ -598,7 +633,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           zIndex: 10,
         }}
       >
-        {/* Brand header */}
         <div
           style={{
             display: 'flex',
@@ -692,7 +726,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        {/* Navigation */}
         <nav
           style={{
             flex: 1,
@@ -720,7 +753,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           />
           <NavBtn
             href="/leads"
-            label="Pipeline (Kanban)"
+            label="Cockpit Comercial"
             icon="kanban"
             collapsed={collapsed}
             active={isActive('/leads')}
@@ -735,22 +768,35 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             pathname={pathname}
           />
 
-          <NavGroup label="Admin" collapsed={collapsed} />
+          {isAdminUser && <NavGroup label="Admin" collapsed={collapsed} />}
 
-          <NavBtn
-            href="/admin/vendedores"
-            label="Gestão de Vendedores"
-            icon="users"
-            collapsed={collapsed}
-            active={isActive('/admin/vendedores')}
-          />
-          <NavBtn
-            href="/admin/faturamento"
-            label="Gestão de Faturamento"
-            icon="money"
-            collapsed={collapsed}
-            active={isActive('/admin/faturamento')}
-          />
+          {isAdminUser && (
+            <NavBtn
+              href="/pool"
+              label="Pool"
+              icon="pool"
+              collapsed={collapsed}
+              active={isActive('/pool')}
+            />
+          )}
+          {isAdminUser && (
+            <NavBtn
+              href="/admin/vendedores"
+              label="Gestão de Vendedores"
+              icon="users"
+              collapsed={collapsed}
+              active={isActive('/admin/vendedores')}
+            />
+          )}
+          {isAdminUser && (
+            <NavBtn
+              href="/admin/faturamento"
+              label="Gestão de Faturamento"
+              icon="money"
+              collapsed={collapsed}
+              active={isActive('/admin/faturamento')}
+            />
+          )}
           <NavBtn
             href="/platform"
             label="Configurações"
@@ -761,7 +807,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
 
-      {/* ── Main ─────────────────────────────────────────────────────────── */}
       <main
         style={{
           flex: 1,
@@ -771,7 +816,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           minWidth: 0,
         }}
       >
-        {/* Header / Topbar */}
         <header
           style={{
             flexShrink: 0,
@@ -799,36 +843,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 'auto' }}>
-            {!pathname?.startsWith('/leads') && (
-              <Link
-                href="/leads"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '7px 12px',
-                  borderRadius: 7,
-                  border: `1px solid ${C.quickLinkBorder}`,
-                  background: C.quickLinkBg,
-                  color: C.textSecondary,
-                  textDecoration: 'none',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  transition: 'color 200ms ease, border-color 200ms ease, background 200ms ease',
-                  letterSpacing: '0.01em',
-                }}
-              >
-                <NavIcon name="pipeline" size={13} />
-                Pipeline
-              </Link>
-            )}
             <AuthButton />
           </div>
         </header>
 
-        {/* Content area */}
         <div
           style={{
             flex: 1,

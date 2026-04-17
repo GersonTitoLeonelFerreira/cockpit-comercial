@@ -11,7 +11,11 @@ export default async function LeadsPage(props: {
 
   const ownerParamRaw = searchParams?.owner
   const ownerParam =
-    typeof ownerParamRaw === 'string' ? ownerParamRaw : Array.isArray(ownerParamRaw) ? ownerParamRaw[0] : null
+    typeof ownerParamRaw === 'string'
+      ? ownerParamRaw
+      : Array.isArray(ownerParamRaw)
+        ? ownerParamRaw[0]
+        : null
 
   const cookieStore = await cookies()
 
@@ -41,12 +45,15 @@ export default async function LeadsPage(props: {
     .eq('id', user.id)
     .single()
 
-  // Usuário existe no auth, mas não tem profile ou company -> manda pro login por enquanto
-  // (Se quiser, depois criamos /cadastro/complete-profile)
   if (profErr || !profile?.company_id) redirect('/login')
 
   const role = (profile.role ?? 'member') as string
   const label = (profile.full_name ?? profile.email ?? user.email ?? user.id) as string
+
+  const effectiveDefaultOwnerId =
+    role === 'admin'
+      ? (ownerParam ?? user.id)
+      : (ownerParam ?? null)
 
   return (
     <LeadsClient
@@ -54,7 +61,7 @@ export default async function LeadsPage(props: {
       companyId={profile.company_id}
       role={role}
       userLabel={label}
-      defaultOwnerId={ownerParam}
+      defaultOwnerId={effectiveDefaultOwnerId}
     />
   )
 }
