@@ -5,6 +5,7 @@
 // sales cycle detail page.
 // ---------------------------------------------------------------------------
 
+import * as React from 'react'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
