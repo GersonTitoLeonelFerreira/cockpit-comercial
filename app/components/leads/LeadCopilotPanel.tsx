@@ -31,6 +31,17 @@ interface LeadCopilotPanelProps {
 const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
 const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
+const STATUS_LABELS: Record<LeadStatus, string> = {
+  novo: 'NOVO',
+  contato: 'CONTATO',
+  respondeu: 'AGENDA',
+  negociacao: 'NEGOCIAÇÃO',
+  pausado: 'PAUSADO',
+  ganho: 'GANHO',
+  perdido: 'PERDIDO',
+  cancelado: 'CANCELADO',
+}
+
 function isTerminalStatus(status: LeadStatus): boolean {
   return TERMINAL_STATUSES.includes(status)
 }
@@ -279,12 +290,12 @@ export default function LeadCopilotPanel({
                 className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
               >
                 {OPEN_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status.toUpperCase()}
-                  </option>
-                ))}
-                <option value="ganho">GANHO</option>
-                <option value="perdido">PERDIDO</option>
+  <option key={status} value={status}>
+    {STATUS_LABELS[status]}
+  </option>
+))}
+<option value="ganho">{STATUS_LABELS.ganho}</option>
+<option value="perdido">{STATUS_LABELS.perdido}</option>
               </select>
             </div>
 
