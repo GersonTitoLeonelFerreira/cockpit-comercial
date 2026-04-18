@@ -108,25 +108,47 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
       requiresNextAction: true,
     },
     respondeu: {
-      results: ['Respondeu mensagem', 'Ligou de volta', 'Confirmou interesse'],
+      results: [
+        'Agendou reunião',
+        'Agendou visita',
+        'Agendou demonstração',
+        'Agendou aula experimental',
+        'Retorno agendado',
+      ],
       resultDetails: {
-        'Respondeu mensagem': {
-          label: 'O que foi respondido?',
-          required: false,
-          placeholder: 'Ex: Pediu mais informações, confirmou interesse inicial…',
-        },
-        'Ligou de volta': {
-          label: 'O que foi discutido na ligação?',
-          required: false,
-          placeholder: 'Ex: Interesse confirmado, pediu proposta, tem dúvidas…',
-        },
-        'Confirmou interesse': {
-          label: 'Qual interesse foi confirmado?',
+        'Agendou reunião': {
+          label: 'Quando será a reunião? *',
           required: true,
-          placeholder: 'Ex: Produto X, plano mensal, quer visita técnica…',
+          placeholder: 'Ex: Quinta-feira às 15h, reunião presencial com o decisor…',
+        },
+        'Agendou visita': {
+          label: 'Detalhes da visita *',
+          required: true,
+          placeholder: 'Ex: Segunda às 10h, visita na empresa/unidade…',
+        },
+        'Agendou demonstração': {
+          label: 'Detalhes da demonstração *',
+          required: true,
+          placeholder: 'Ex: Demo online do produto X na sexta às 14h…',
+        },
+        'Agendou experimental': {
+          label: 'Detalhes da aula experimental *',
+          required: true,
+          placeholder: 'Ex: realizar experimental terça às 19h com foco em musculação…',
+        },
+        'Retorno agendado': {
+          label: 'Quando será o retorno? *',
+          required: true,
+          placeholder: 'Ex: Retornar contato na quarta às 11h…',
         },
       },
-      nextActions: ['Qualificar lead', 'Enviar proposta', 'Agendar reunião', 'Enviar contrato'],
+      nextActions: [
+        'Confirmar presença',
+        'Preparar reunião',
+        'Preparar demonstração',
+        'Preparar experimental',
+        'Realizar contato no horário marcado',
+      ],
       requiresNextAction: true,
     },
     negociacao: {
@@ -210,45 +232,45 @@ const TRANSITION_CONFIGS: Partial<Record<Status, Partial<Record<Status, Transiti
   contato: {
     respondeu: {
       results: [
-        'Demonstrou interesse',
-        'Pediu mais informações',
-        'Aceitou continuar a conversa',
-        'Pediu proposta',
-        'Aceitou agendar visita/aula',
+        'Reunião agendada',
+        'Visita agendada',
+        'Demonstração agendada',
+        'Experimental agendada',
+        'Retorno agendado',
       ],
       resultDetails: {
-        'Demonstrou interesse': {
-          label: 'Qual foi o interesse?',
-          required: false,
-          placeholder: 'Ex: Produto X, solução Y, interesse em conhecer mais…',
-        },
-        'Pediu mais informações': {
-          label: 'Que informação ele pediu?',
-          required: false,
-          placeholder: 'Ex: Preço, funcionamento, comparativo com concorrente…',
-        },
-        'Aceitou continuar a conversa': {
-          label: 'O que ele sinalizou?',
-          required: false,
-          placeholder: 'Ex: Quer retornar, pediu para ligar depois, mostrou abertura…',
-        },
-        'Pediu proposta': {
-          label: 'Qual problema ou necessidade ele quer resolver?',
-          required: false,
-          placeholder: 'Ex: Precisa de X, quer resolver Y, orçamento em torno de Z…',
-        },
-        'Aceitou agendar visita/aula': {
-          label: 'Qual data/horário foi combinado?',
+        'Reunião agendada': {
+          label: 'Qual data/horário foi combinado? *',
           required: true,
-          placeholder: 'Ex: Segunda-feira às 14h, quinta às 10h…',
+          placeholder: 'Ex: Segunda às 14h com o responsável pela decisão…',
+        },
+        'Visita agendada': {
+          label: 'Detalhes da visita *',
+          required: true,
+          placeholder: 'Ex: Quinta às 10h, visita presencial na unidade…',
+        },
+        'Demonstração agendada': {
+          label: 'Detalhes da demonstração *',
+          required: true,
+          placeholder: 'Ex: Demo online sexta às 16h…',
+        },
+        'Aula experimental agendada': {
+          label: 'Detalhes da experimental *',
+          required: true,
+          placeholder: 'Ex: Experimental terça às 19h…',
+        },
+        'Retorno agendado': {
+          label: 'Quando será o retorno? *',
+          required: true,
+          placeholder: 'Ex: Retorno por telefone quarta às 11h…',
         },
       },
       nextActions: [
-        'Qualificar necessidade',
-        'Enviar informações',
-        'Enviar proposta',
-        'Agendar visita',
-        'Agendar retorno',
+        'Confirmar presença',
+        'Preparar visita',
+        'Preparar demonstração',
+        'Preparar experimental',
+        'Realizar contato no horário marcado',
       ],
       requiresNextAction: true,
     },

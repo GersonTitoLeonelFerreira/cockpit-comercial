@@ -1,12 +1,12 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { analyzeConversation } from '@/app/lib/services/ai-sales-copilot'
 import {
-  moveCycleStage,
-  setNextAction,
+  analyzeConversation,
+  applyAISuggestion,
+} from '@/app/lib/services/ai-sales-copilot'
+import {
   logAIAnalysis,
-  logAISuggestionApplied,
   logAISuggestionRejected,
 } from '@/app/lib/services/sales-cycles'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
@@ -116,65 +116,40 @@ export default function LeadCopilotPanel({
 
   const handleApply = async () => {
     if (!suggestion) return
-
+  
     if (isTerminalStatus(editableStatus)) {
       setError('Nesta fase, sugestões de ganho ou perdido ainda não são aplicadas por este botão. Use os botões próprios de fechamento.')
       return
     }
-
+  
     try {
       setApplying(true)
       setError(null)
-
-      if (editableStatus !== cycle.status) {
-        await moveCycleStage({
-          cycle_id: cycle.id,
-          to_status: editableStatus,
-          metadata: {
-            source: 'ai_copilot',
-            action_channel: suggestion.action_channel,
-            action_result: suggestion.action_result,
-            result_detail: suggestion.result_detail,
-            note: editableSummary,
-          },
-        })
-      }
-
-      if (editableNextAction.trim() && editableStatus !== 'novo') {
-        await setNextAction({
-          cycle_id: cycle.id,
-          next_action: editableNextAction.trim(),
-          next_action_date: editableNextActionDate
-            ? new Date(editableNextActionDate).toISOString()
-            : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        })
-      }
-
-      try {
-        await logAISuggestionApplied(cycle.id, {
-          original_status: cycle.status,
-          applied_status: editableStatus,
-          next_action: editableStatus === 'novo' ? null : editableNextAction.trim() || null,
-          next_action_date:
-            editableStatus === 'novo'
-              ? null
-              : editableNextActionDate
-                ? new Date(editableNextActionDate).toISOString()
-                : null,
-          suggestion,
-          edited_summary: editableSummary,
-          source: compact ? 'ai_copilot_kanban' : 'ai_copilot_detail',
-        })
-      } catch {
-        // não bloqueia a UX por falha de auditoria
-      }
-
+  
+      await applyAISuggestion({
+        cycle_id: cycle.id,
+        applied_status: editableStatus,
+        next_action:
+          editableStatus === 'novo'
+            ? null
+            : editableNextAction.trim() || null,
+        next_action_date:
+          editableStatus === 'novo'
+            ? null
+            : editableNextActionDate
+              ? new Date(editableNextActionDate).toISOString()
+              : null,
+        edited_summary: editableSummary || null,
+        suggestion,
+        source: compact ? 'ai_copilot_kanban' : 'ai_copilot_detail',
+      })
+  
       setConversationText('')
       setSuggestion(null)
       setEditableSummary('')
       setEditableNextAction('')
       setEditableNextActionDate('')
-
+  
       await onApplied?.()
     } catch (e: any) {
       setError(e?.message || 'Erro ao aplicar sugestão.')

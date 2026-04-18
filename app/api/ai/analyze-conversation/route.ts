@@ -6,6 +6,7 @@ import type {
   AnalyzeConversationRequest,
   AnalyzeConversationResponse,
   AISalesContext,
+  AISalesRecentEvent,
 } from '@/app/types/ai-sales'
 
 async function getAuthedSupabase() {
@@ -53,47 +54,41 @@ export async function POST(req: Request) {
 
     const { supabase } = await getAuthedSupabase()
 
-    const { data: cycleRow, error: cycleError } = await supabase
-      .from('sales_cycles')
-      .select(`
-        id,
-        company_id,
-        lead_id,
-        owner_user_id,
-        status,
-        next_action,
-        next_action_date,
-        current_group_id,
-        leads:lead_id (
-          name,
-          phone,
-          email
-        )
-      `)
-      .eq('id', body.cycle_id)
-      .single()
+    const { data, error } = await supabase.rpc('rpc_get_cycle_ai_context', {
+      p_cycle_id: body.cycle_id,
+      p_events_limit: 12,
+    })
 
-    if (cycleError || !cycleRow) {
+    if (error) {
       return NextResponse.json<AnalyzeConversationResponse>(
-        { ok: false, error: 'Ciclo não encontrado ou sem permissão.' },
+        { ok: false, error: error.message || 'Erro ao montar contexto da IA.' },
+        { status: 400 }
+      )
+    }
+
+    const rpcResult = Array.isArray(data) ? data[0] : data
+
+    if (!rpcResult?.success || !rpcResult?.cycle || !rpcResult?.lead) {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        { ok: false, error: rpcResult?.error || 'Ciclo não encontrado ou sem permissão.' },
         { status: 404 }
       )
     }
 
-    const lead = Array.isArray((cycleRow as any).leads)
-      ? (cycleRow as any).leads[0]
-      : (cycleRow as any).leads
-
     const context: AISalesContext = {
-      cycle_id: cycleRow.id,
-      current_status: cycleRow.status,
-      lead_name: lead?.name ?? null,
-      lead_phone: lead?.phone ?? null,
-      lead_email: lead?.email ?? null,
-      owner_user_id: cycleRow.owner_user_id ?? null,
-      current_next_action: cycleRow.next_action ?? null,
-      current_next_action_date: cycleRow.next_action_date ?? null,
-      current_group_id: cycleRow.current_group_id ?? null,
+      cycle_id: rpcResult.cycle.id,
+      current_status: rpcResult.cycle.status,
+      lead_name: rpcResult.lead.name ?? null,
+      lead_phone: rpcResult.lead.phone ?? null,
+      lead_email: rpcResult.lead.email ?? null,
+      owner_user_id: rpcResult.cycle.owner_user_id ?? null,
+      current_next_action: rpcResult.cycle.next_action ?? null,
+      current_next_action_date: rpcResult.cycle.next_action_date ?? null,
+      current_group_id: rpcResult.cycle.current_group_id ?? null,
+      current_group_name: rpcResult.cycle.current_group_name ?? null,
+      recent_events: Array.isArray(rpcResult.recent_events)
+        ? (rpcResult.recent_events as AISalesRecentEvent[])
+        : [],
     }
 
     const suggestion = await analyzeConversationWithCopilot({

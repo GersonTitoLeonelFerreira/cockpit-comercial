@@ -358,6 +358,8 @@ function buildSystemPrompt(): string {
     'Sua função é ler uma conversa de vendas e devolver JSON puro.',
     'Nunca escreva texto fora do JSON.',
     'Analise o contexto do ciclo atual e recomende o estágio mais fiel ao que aconteceu de verdade.',
+    'O contexto pode incluir recent_events, que trazem o histórico recente do ciclo. Use esse histórico para entender o que já aconteceu antes da conversa atual.',
+    'Se recent_events mostrar resposta, objeção, proposta, negociação ou retorno combinado, mantenha coerência com essa trajetória.',
     'Você pode recomendar avanço direto de novo para respondeu ou negociacao se a conversa mostrar que isso já aconteceu na prática.',
     'Você não deve forçar passagem obrigatória por todas as etapas se a conversa já indicar estágio mais avançado.',
     'Só recomende ganho ou perdido quando houver evidência explícita.',

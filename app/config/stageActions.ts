@@ -92,7 +92,7 @@ export function getActionLabel(actionId: string): string {
 export const STAGE_LABELS: Record<string, string> = {
   novo: 'Novo',
   contato: 'Contato',
-  respondeu: 'Respondeu',
+  respondeu: 'Agenda',
   negociacao: 'Negociação',
   ganho: 'Ganho',
   perdido: 'Perdido',
