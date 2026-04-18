@@ -234,10 +234,10 @@ BEGIN
     v_cycle.next_action IS DISTINCT FROM v_next_action
     OR v_cycle.next_action_date IS DISTINCT FROM v_next_action_date;
 
-  UPDATE public.sales_cycles
+    UPDATE public.sales_cycles
   SET
     previous_status = CASE
-      WHEN v_status_changed THEN v_cycle.status
+      WHEN v_status_changed THEN v_cycle.status::text
       ELSE previous_status
     END,
     status = CASE

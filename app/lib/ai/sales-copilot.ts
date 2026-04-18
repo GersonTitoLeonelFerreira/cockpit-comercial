@@ -1,5 +1,10 @@
 import type { LeadStatus } from '@/app/types/sales_cycles'
 import type { AISalesContext, AISalesSuggestion, ConversationSource } from '@/app/types/ai-sales'
+import {
+  TERMINAL_SALES_CYCLE_STATUSES as TERMINAL_STATUSES,
+  buildSalesCycleAIGuide,
+  getSalesCycleLabel,
+} from '@/app/lib/sales-cycle-status'
 
 type AnalyzeConversationInput = {
   context: AISalesContext
@@ -26,8 +31,6 @@ type ProviderRawSuggestion = {
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini'
 
-const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
-
 function clampConfidence(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return 0.6
@@ -35,8 +38,10 @@ function clampConfidence(value: unknown): number {
 }
 
 function isLeadStatus(value: unknown): value is LeadStatus {
-  return typeof value === 'string' &&
+  return (
+    typeof value === 'string' &&
     ['novo', 'contato', 'respondeu', 'negociacao', 'pausado', 'cancelado', 'ganho', 'perdido'].includes(value)
+  )
 }
 
 function normalizeWhitespace(text: string): string {
@@ -71,7 +76,7 @@ function defaultNextActionForStatus(status: LeadStatus): string | null {
     case 'contato':
       return 'Nova tentativa de contato'
     case 'respondeu':
-      return 'Qualificar necessidade'
+      return 'Confirmar agenda / próximo passo'
     case 'negociacao':
       return 'Retornar negociação'
     default:
@@ -86,11 +91,111 @@ function extractTags(text: string): string[] {
   if (containsAny(text, ['proposta', 'condição', 'condicao', 'parcelado', 'avista', 'pix'])) tags.add('condicao_comercial')
   if (containsAny(text, ['respondeu', 'retornou', 'me respondeu', 'falou comigo'])) tags.add('houve_resposta')
   if (containsAny(text, ['sem resposta', 'não respondeu', 'nao respondeu', 'visualizou e não respondeu', 'visualizou e nao respondeu'])) tags.add('sem_resposta')
-  if (containsAny(text, ['agendar', 'marcou', 'sexta', 'amanhã', 'amanha', 'retorno'])) tags.add('retorno_agendado')
+  if (containsAny(text, ['agendar', 'agenda', 'marcou', 'quarta', 'quinta', 'sexta', 'amanhã', 'amanha', 'horário', 'horario', 'retorno', 'retorna'])) tags.add('retorno_agendado')
   if (containsAny(text, ['fechou', 'pagou', 'assinou', 'matriculou', 'confirmou pagamento'])) tags.add('fechamento_confirmado')
   if (containsAny(text, ['sem interesse', 'não quer', 'nao quer', 'desistiu', 'concorrente'])) tags.add('risco_perda')
 
   return Array.from(tags)
+}
+
+function textHasNegotiationEvidence(text: string): boolean {
+  return containsAny(text, [
+    'proposta',
+    'valor',
+    'preço',
+    'preco',
+    'desconto',
+    'parcelado',
+    'avista',
+    'pix',
+    'condição',
+    'condicao',
+    'pensar até',
+    'retorna na sexta',
+    'retorno na sexta',
+    'negociar',
+    'negociação',
+    'negociacao',
+    'achou caro',
+    'achou o valor alto',
+    'concorrente',
+    'comparando plano',
+    'comparando preço',
+    'comparando preco',
+    'condição especial',
+    'condicao especial',
+  ])
+}
+
+function textHasAgendaEvidence(text: string): boolean {
+  return containsAny(text, [
+    'respondeu',
+    'me respondeu',
+    'retornou',
+    'quer saber',
+    'pediu mais informações',
+    'pediu mais informacoes',
+    'demonstrou interesse',
+    'aceitou continuar',
+    'aceitou falar',
+    'agendar',
+    'agenda',
+    'marcou',
+    'marcamos',
+    'quarta',
+    'quinta',
+    'sexta',
+    'amanhã',
+    'amanha',
+    'horário',
+    'horario',
+    'retorno',
+    'retorna',
+    'combinado',
+    'vai vir',
+    'vai passar',
+    'passa aqui',
+    'visita',
+    'vir aqui',
+  ])
+}
+
+function recentEventsSuggestNegotiation(context: AISalesContext): boolean {
+  return (context.recent_events ?? []).some((event) => {
+    const haystack = [
+      event.to_status,
+      event.action_result,
+      event.result_detail,
+      event.next_action,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+
+    return (
+      event.to_status === 'negociacao' ||
+      textHasNegotiationEvidence(haystack)
+    )
+  })
+}
+
+function recentEventsSuggestAgenda(context: AISalesContext): boolean {
+  return (context.recent_events ?? []).some((event) => {
+    const haystack = [
+      event.to_status,
+      event.action_result,
+      event.result_detail,
+      event.next_action,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+
+    return (
+      event.to_status === 'respondeu' ||
+      textHasAgendaEvidence(haystack)
+    )
+  })
 }
 
 function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion {
@@ -176,34 +281,15 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  const negotiationEvidence = containsAny(text, [
-    'proposta',
-    'valor',
-    'preço',
-    'preco',
-    'desconto',
-    'parcelado',
-    'avista',
-    'pix',
-    'condição',
-    'condicao',
-    'pensar até',
-    'retorna na sexta',
-    'retorno na sexta',
-    'negociar',
-    'negociação',
-    'negociacao',
-    'achou caro',
-    'achou o valor alto',
-  ])
+  const negotiationEvidence = textHasNegotiationEvidence(text) || recentEventsSuggestNegotiation(input.context)
 
   if (negotiationEvidence) {
     return {
       recommended_status: 'negociacao',
-      confidence: 0.84,
+      confidence: 0.86,
       action_channel: channel,
-      action_result: 'Objeção identificada',
-      result_detail: 'A conversa mostra discussão comercial ou objeção ativa.',
+      action_result: 'Objeção ou discussão comercial identificada',
+      result_detail: `A conversa mostra sinais claros de ${getSalesCycleLabel('negociacao').toLowerCase()}: preço, proposta, condição comercial, comparação ou objeção.`,
       next_action: 'Retornar negociação',
       next_action_date: buildFutureIso(24),
       summary: 'Há sinais de negociação ativa ou objeção comercial em andamento.',
@@ -211,38 +297,28 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
       should_close_won: false,
       should_close_lost: false,
       close_reason: null,
-      reason_for_recommendation: 'Foram identificados sinais de proposta, condição comercial ou objeção. Avanço direto para negociação é permitido porque a conversa já demonstra estágio comercial mais avançado.',
+      reason_for_recommendation: 'Foi detectada semântica de negociação. Nesse caso, não é só agenda: já existe discussão comercial em curso.',
       source: 'fallback',
     }
   }
 
-  const repliedEvidence = containsAny(text, [
-    'respondeu',
-    'me respondeu',
-    'retornou',
-    'quer saber',
-    'pediu mais informações',
-    'pediu mais informacoes',
-    'demonstrou interesse',
-    'aceitou continuar',
-    'aceitou falar',
-  ])
+  const agendaEvidence = textHasAgendaEvidence(text) || recentEventsSuggestAgenda(input.context)
 
-  if (repliedEvidence) {
+  if (agendaEvidence) {
     return {
       recommended_status: 'respondeu',
-      confidence: 0.8,
+      confidence: 0.82,
       action_channel: channel,
-      action_result: 'Demonstrou interesse',
-      result_detail: 'O lead respondeu e demonstrou abertura para continuidade.',
-      next_action: 'Qualificar necessidade',
+      action_result: 'Lead respondeu com continuidade concreta',
+      result_detail: `No sistema, ${getSalesCycleLabel('respondeu')} é o nome visual da etapa interna "respondeu". A conversa indica resposta com próximo passo concreto.`,
+      next_action: 'Confirmar agenda / próximo passo',
       next_action_date: buildFutureIso(12),
-      summary: 'O lead respondeu e abriu espaço para avanço comercial.',
+      summary: 'O lead respondeu e existe continuidade objetiva para a conversa ou visita.',
       tags: extractTags(text),
       should_close_won: false,
       should_close_lost: false,
       close_reason: null,
-      reason_for_recommendation: 'Foi detectada resposta real do lead, mas ainda sem negociação clara.',
+      reason_for_recommendation: 'Foi detectada resposta real do lead com continuidade concreta, mas sem sinais fortes de negociação comercial.',
       source: 'fallback',
     }
   }
@@ -339,6 +415,10 @@ function sanitizeSuggestion(
     suggestion.next_action_date = null
   }
 
+  if (suggestion.recommended_status === 'respondeu' && !suggestion.next_action) {
+    suggestion.next_action = 'Confirmar agenda / próximo passo'
+  }
+
   if (suggestion.recommended_status === 'ganho') {
     suggestion.should_close_won = true
     suggestion.should_close_lost = false
@@ -358,8 +438,9 @@ function buildSystemPrompt(): string {
     'Sua função é ler uma conversa de vendas e devolver JSON puro.',
     'Nunca escreva texto fora do JSON.',
     'Analise o contexto do ciclo atual e recomende o estágio mais fiel ao que aconteceu de verdade.',
+    buildSalesCycleAIGuide(),
     'O contexto pode incluir recent_events, que trazem o histórico recente do ciclo. Use esse histórico para entender o que já aconteceu antes da conversa atual.',
-    'Se recent_events mostrar resposta, objeção, proposta, negociação ou retorno combinado, mantenha coerência com essa trajetória.',
+    'Mantenha coerência entre o texto atual e os eventos recentes.',
     'Você pode recomendar avanço direto de novo para respondeu ou negociacao se a conversa mostrar que isso já aconteceu na prática.',
     'Você não deve forçar passagem obrigatória por todas as etapas se a conversa já indicar estágio mais avançado.',
     'Só recomende ganho ou perdido quando houver evidência explícita.',
@@ -367,9 +448,9 @@ function buildSystemPrompt(): string {
     'Campos obrigatórios no JSON:',
     'recommended_status, confidence, action_channel, action_result, result_detail, next_action, next_action_date, summary, tags, should_close_won, should_close_lost, close_reason, reason_for_recommendation',
     'Use os status válidos: novo, contato, respondeu, negociacao, ganho, perdido.',
-    'Se o estágio recomendado for novo, a próxima ação padrão deve ser Entrar em contato.',
+    'Lembre que respondeu é o nome interno da etapa visual AGENDA.',
     'Se houver tentativa sem resposta, normalmente o estágio correto é contato.',
-    'Se houver resposta real do lead, normalmente o estágio correto é respondeu.',
+    'Se houver resposta real do lead com próximo passo concreto, normalmente o estágio correto é respondeu/AGENDA.',
     'Se houver proposta, objeção, condição comercial ou pedido de pensar, o estágio correto pode ser negociacao mesmo que o ciclo ainda esteja em novo.',
     'Se a conversa indicar compra concluída, use ganho.',
     'Se a conversa indicar desinteresse definitivo ou perda clara, use perdido.',

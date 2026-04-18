@@ -21,6 +21,7 @@ import CreateLeadModal from './CreateLeadModal'
 import SellerMicroKPIs from './SellerMicroKPIs'
 import StageCheckpointModal, { CheckpointPayload } from './StageCheckpointModal'
 import { ToastContainer, useToast } from './Toast'
+import { SALES_CYCLE_VISUAL_LABELS as STATUS_LABELS } from '@/app/lib/sales-cycle-status'
 
 const DS = {
   contentBg: '#090b0f',
@@ -100,15 +101,6 @@ const STATUS_COLORS: Record<Status, string> = {
   negociacao: '#8b5cf6',
   ganho: '#22c55e',
   perdido: '#ef4444',
-}
-
-const STATUS_LABELS: Record<Status, string> = {
-  novo: 'NOVO',
-  contato: 'CONTATO',
-  respondeu: 'AGENDA',
-  negociacao: 'NEGOCIAÇÃO',
-  ganho: 'GANHO',
-  perdido: 'PERDIDO',
 }
 
 const RETURN_REASONS = [
@@ -976,7 +968,7 @@ function KanbanCard({
             onClick={(e) => e.stopPropagation()}
           >
             <span style={{ color: '#93c5fd' }}>
-              Mover → {STATUS_LABELS[suggestedStatus as Status] || suggestedStatus}?
+            Mover → {STATUS_LABELS[suggestedStatus as keyof typeof STATUS_LABELS] || suggestedStatus}?
             </span>
             <div style={{ display: 'flex', gap: 4 }}>
               <button
@@ -1193,7 +1185,7 @@ function VirtualizedStatusColumn({
 
  const shown = filteredCycles.length
 const total = totalCount ?? shown
-const statusLabel = STATUS_LABELS[status] ?? status.toUpperCase()
+const statusLabel = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status.toUpperCase()
 const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `${statusLabel} (${total})`
 
   return (
@@ -2216,7 +2208,7 @@ export default function SalesCyclesKanban({
 
             const sections = [
               { title: 'Atrasados', count: overdueItems.length, accent: '#ef4444', items: overdueItems, renderDetail: (c: PipelineItem) => formatNextActionDate(c.next_action_date) },
-              { title: 'SLA Estourado', count: dangerItems.length, accent: '#f59e0b', items: dangerItems, renderDetail: (c: PipelineItem) => `${formatTimeInStage(Math.floor((nowTick.getTime() - new Date(c.stage_entered_at).getTime()) / 60000))} em ${STATUS_LABELS[c.status]}` },
+              { title: 'SLA Estourado', count: dangerItems.length, accent: '#f59e0b', items: dangerItems, renderDetail: (c: PipelineItem) => `${formatTimeInStage(Math.floor((nowTick.getTime() - new Date(c.stage_entered_at).getTime()) / 60000))} em ${STATUS_LABELS[c.status as keyof typeof STATUS_LABELS]}` },
               { title: 'Agenda Hoje', count: todayItems.length, accent: '#3b82f6', items: todayItems, renderDetail: (c: PipelineItem) => formatNextActionDate(c.next_action_date) },
               { title: 'Próximos 7d', count: next7Items.length, accent: '#8b5cf6', items: next7Items, renderDetail: (c: PipelineItem) => formatNextActionDate(c.next_action_date) },
             ]

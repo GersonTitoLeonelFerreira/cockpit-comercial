@@ -9,6 +9,11 @@ import {
   logAIAnalysis,
   logAISuggestionRejected,
 } from '@/app/lib/services/sales-cycles'
+import {
+  OPEN_SALES_CYCLE_STATUSES as OPEN_STATUSES,
+  TERMINAL_SALES_CYCLE_STATUSES as TERMINAL_STATUSES,
+  SALES_CYCLE_VISUAL_LABELS as STATUS_LABELS,
+} from '@/app/lib/sales-cycle-status'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
 import type { AISalesSuggestion, ConversationSource } from '@/app/types/ai-sales'
 
@@ -26,20 +31,6 @@ interface LeadCopilotPanelProps {
   variant?: 'full' | 'compact'
   onApplied?: () => void | Promise<void>
   onRejected?: () => void | Promise<void>
-}
-
-const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
-const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
-
-const STATUS_LABELS: Record<LeadStatus, string> = {
-  novo: 'NOVO',
-  contato: 'CONTATO',
-  respondeu: 'AGENDA',
-  negociacao: 'NEGOCIAÇÃO',
-  pausado: 'PAUSADO',
-  ganho: 'GANHO',
-  perdido: 'PERDIDO',
-  cancelado: 'CANCELADO',
 }
 
 function isTerminalStatus(status: LeadStatus): boolean {
