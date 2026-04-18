@@ -105,7 +105,7 @@ const STATUS_COLORS: Record<Status, string> = {
 const STATUS_LABELS: Record<Status, string> = {
   novo: 'NOVO',
   contato: 'CONTATO',
-  respondeu: 'RESPONDEU',
+  respondeu: 'AGENDA',
   negociacao: 'NEGOCIAÇÃO',
   ganho: 'GANHO',
   perdido: 'PERDIDO',
@@ -1191,9 +1191,10 @@ function VirtualizedStatusColumn({
     return true
   })
 
-  const shown = filteredCycles.length
-  const total = totalCount ?? shown
-  const headerLabel = total > shown ? `${status.toUpperCase()} (${shown} de ${total})` : `${status.toUpperCase()} (${total})`
+ const shown = filteredCycles.length
+const total = totalCount ?? shown
+const statusLabel = STATUS_LABELS[status] ?? status.toUpperCase()
+const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `${statusLabel} (${total})`
 
   return (
     <>
