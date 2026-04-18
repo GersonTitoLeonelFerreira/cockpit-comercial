@@ -5,6 +5,7 @@ import {
   buildSalesCycleAIGuide,
   getSalesCycleLabel,
 } from '@/app/lib/sales-cycle-status'
+import { buildSalesCopilotExamplesGuide } from '@/app/lib/ai/sales-copilot-examples'
 
 type AnalyzeConversationInput = {
   context: AISalesContext
@@ -48,8 +49,19 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+function normalizeForCompare(text: string): string {
+  return normalizeWhitespace(text)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function containsAny(text: string, terms: string[]): boolean {
-  return terms.some((term) => text.includes(term))
+  const haystack = normalizeForCompare(text)
+  return terms.some((term) => haystack.includes(normalizeForCompare(term)))
 }
 
 function inferChannel(text: string, source: ConversationSource): string | null {
@@ -57,8 +69,8 @@ function inferChannel(text: string, source: ConversationSource): string | null {
   if (source === 'phone_summary') return 'Ligação'
 
   if (containsAny(text, ['whatsapp', 'wpp', 'zap', 'mensagem'])) return 'Whats'
-  if (containsAny(text, ['ligação', 'ligacao', 'telefone', 'liguei', 'falamos por telefone'])) return 'Ligação'
-  if (containsAny(text, ['email', 'e-mail'])) return 'Email'
+  if (containsAny(text, ['ligacao', 'liguei', 'telefone', 'falamos por telefone'])) return 'Ligação'
+  if (containsAny(text, ['email', 'e mail'])) return 'Email'
   if (containsAny(text, ['presencial', 'pessoalmente', 'visita'])) return 'Presencial'
 
   return null
@@ -87,54 +99,115 @@ function defaultNextActionForStatus(status: LeadStatus): string | null {
 function extractTags(text: string): string[] {
   const tags = new Set<string>()
 
-  if (containsAny(text, ['preço', 'preco', 'caro', 'desconto', 'valor'])) tags.add('objecao_preco')
-  if (containsAny(text, ['proposta', 'condição', 'condicao', 'parcelado', 'avista', 'pix'])) tags.add('condicao_comercial')
+  if (containsAny(text, ['preco', 'preço', 'caro', 'desconto', 'valor'])) tags.add('objecao_preco')
+  if (containsAny(text, ['proposta', 'condicao', 'condição', 'parcelado', 'avista', 'pix'])) tags.add('condicao_comercial')
   if (containsAny(text, ['respondeu', 'retornou', 'me respondeu', 'falou comigo'])) tags.add('houve_resposta')
-  if (containsAny(text, ['sem resposta', 'não respondeu', 'nao respondeu', 'visualizou e não respondeu', 'visualizou e nao respondeu'])) tags.add('sem_resposta')
-  if (containsAny(text, ['agendar', 'agenda', 'marcou', 'quarta', 'quinta', 'sexta', 'amanhã', 'amanha', 'horário', 'horario', 'retorno', 'retorna'])) tags.add('retorno_agendado')
-  if (containsAny(text, ['fechou', 'pagou', 'assinou', 'matriculou', 'confirmou pagamento'])) tags.add('fechamento_confirmado')
-  if (containsAny(text, ['sem interesse', 'não quer', 'nao quer', 'desistiu', 'concorrente'])) tags.add('risco_perda')
+  if (containsAny(text, ['sem resposta', 'nao respondeu', 'não respondeu', 'visualizou e nao respondeu', 'visualizou e não respondeu'])) tags.add('sem_resposta')
+  if (containsAny(text, ['agendar', 'agenda', 'marcou', 'horario', 'horário', 'amanha', 'amanhã', 'quarta', 'quinta', 'sexta', 'retorno', 'retornar'])) tags.add('retorno_agendado')
+  if (containsAny(text, ['pagou', 'assinou', 'matriculou', 'confirmou pagamento', 'contrato assinado'])) tags.add('fechamento_confirmado')
+  if (containsAny(text, ['sem interesse', 'nao quer', 'não quer', 'concorrente'])) tags.add('risco_perda')
 
   return Array.from(tags)
+}
+
+function textHasLostEvidence(text: string): boolean {
+  return containsAny(text, [
+    'fechou com concorrente',
+    'fechou com a concorrente',
+    'fechou com o concorrente',
+    'sem interesse',
+    'nao tem interesse',
+    'não tem interesse',
+    'nao tem mais interesse',
+    'não tem mais interesse',
+    'nao quer',
+    'não quer',
+    'nao quer mais',
+    'não quer mais',
+    'desistiu',
+    'fora do perfil',
+    'contato invalido',
+    'contato inválido',
+    'nao entrar mais em contato',
+    'não entrar mais em contato',
+  ])
+}
+
+function textHasWonEvidence(text: string): boolean {
+  return containsAny(text, [
+    'confirmou pagamento',
+    'pagou',
+    'assinou',
+    'matriculou',
+    'contrato assinado',
+    'cadastro concluido',
+    'cadastro concluído',
+    'fechou comigo',
+    'fechou conosco',
+    'fechou com a gente',
+    'fechou o plano',
+  ])
 }
 
 function textHasNegotiationEvidence(text: string): boolean {
   return containsAny(text, [
     'proposta',
     'valor',
-    'preço',
     'preco',
+    'preço',
     'desconto',
     'parcelado',
     'avista',
     'pix',
-    'condição',
     'condicao',
+    'condição',
+    'pensar ate',
     'pensar até',
     'retorna na sexta',
     'retorno na sexta',
     'negociar',
-    'negociação',
     'negociacao',
+    'negociação',
     'achou caro',
     'achou o valor alto',
     'concorrente',
     'comparando plano',
-    'comparando preço',
     'comparando preco',
-    'condição especial',
+    'comparando preço',
     'condicao especial',
+    'condição especial',
+    'fidelidade',
+  ])
+}
+
+function textHasNoResponseEvidence(text: string): boolean {
+  return containsAny(text, [
+    'sem resposta',
+    'nao respondeu',
+    'não respondeu',
+    'mensagem enviada',
+    'tentativa de contato',
+    'liguei e nao atendeu',
+    'liguei e não atendeu',
+    'visualizou e nao respondeu',
+    'visualizou e não respondeu',
+    'nao retornou',
+    'não retornou',
   ])
 }
 
 function textHasAgendaEvidence(text: string): boolean {
+  if (textHasNoResponseEvidence(text)) return false
+
   return containsAny(text, [
-    'respondeu',
+    'cliente respondeu',
+    'respondeu e pediu',
     'me respondeu',
     'retornou',
-    'quer saber',
-    'pediu mais informações',
+    'pediu para retornar',
+    'pediu retorno',
     'pediu mais informacoes',
+    'pediu mais informações',
     'demonstrou interesse',
     'aceitou continuar',
     'aceitou falar',
@@ -145,18 +218,18 @@ function textHasAgendaEvidence(text: string): boolean {
     'quarta',
     'quinta',
     'sexta',
-    'amanhã',
     'amanha',
-    'horário',
+    'amanhã',
     'horario',
-    'retorno',
-    'retorna',
+    'horário',
     'combinado',
     'vai vir',
     'vai passar',
     'passa aqui',
     'visita',
     'vir aqui',
+    'perguntou os horarios',
+    'perguntou os horários',
   ])
 }
 
@@ -170,12 +243,8 @@ function recentEventsSuggestNegotiation(context: AISalesContext): boolean {
     ]
       .filter(Boolean)
       .join(' ')
-      .toLowerCase()
 
-    return (
-      event.to_status === 'negociacao' ||
-      textHasNegotiationEvidence(haystack)
-    )
+    return event.to_status === 'negociacao' || textHasNegotiationEvidence(haystack)
   })
 }
 
@@ -189,17 +258,13 @@ function recentEventsSuggestAgenda(context: AISalesContext): boolean {
     ]
       .filter(Boolean)
       .join(' ')
-      .toLowerCase()
 
-    return (
-      event.to_status === 'respondeu' ||
-      textHasAgendaEvidence(haystack)
-    )
+    return event.to_status === 'respondeu' || textHasAgendaEvidence(haystack)
   })
 }
 
 function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion {
-  const text = normalizeWhitespace(input.conversationText).toLowerCase()
+  const text = normalizeWhitespace(input.conversationText)
   const currentStatus = input.context.current_status
   const channel = inferChannel(text, input.source)
 
@@ -222,17 +287,28 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  const explicitWon = containsAny(text, [
-    'fechou',
-    'pagou',
-    'assinou',
-    'matriculou',
-    'confirmou pagamento',
-    'comprou',
-    'contrato assinado',
-  ])
+  // 1) PERDIDO vem antes de GANHO para evitar colisão em frases como "fechou com concorrente"
+  if (textHasLostEvidence(text)) {
+    return {
+      recommended_status: 'perdido',
+      confidence: 0.93,
+      action_channel: channel,
+      action_result: null,
+      result_detail: 'Há evidência textual clara de perda comercial.',
+      next_action: null,
+      next_action_date: null,
+      summary: 'A conversa indica perda do lead.',
+      tags: extractTags(text),
+      should_close_won: false,
+      should_close_lost: true,
+      close_reason: containsAny(text, ['preco', 'preço', 'caro']) ? 'Preço' : 'Sem interesse',
+      reason_for_recommendation: 'Foram detectados sinais claros de encerramento negativo.',
+      source: 'fallback',
+    }
+  }
 
-  if (explicitWon) {
+  // 2) GANHO só com frases realmente positivas, não com a palavra genérica "fechou"
+  if (textHasWonEvidence(text)) {
     return {
       recommended_status: 'ganho',
       confidence: 0.93,
@@ -251,42 +327,11 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  const explicitLost = containsAny(text, [
-    'sem interesse',
-    'não quer',
-    'nao quer',
-    'desistiu',
-    'fechou com concorrente',
-    'contato inválido',
-    'contato invalido',
-    'fora do perfil',
-  ])
-
-  if (explicitLost) {
-    return {
-      recommended_status: 'perdido',
-      confidence: 0.9,
-      action_channel: channel,
-      action_result: null,
-      result_detail: 'Há evidência textual clara de perda comercial.',
-      next_action: null,
-      next_action_date: null,
-      summary: 'A conversa indica perda do lead.',
-      tags: extractTags(text),
-      should_close_won: false,
-      should_close_lost: true,
-      close_reason: containsAny(text, ['preço', 'preco', 'caro']) ? 'Preço' : 'Sem interesse',
-      reason_for_recommendation: 'Foram detectados sinais claros de encerramento negativo.',
-      source: 'fallback',
-    }
-  }
-
-  const negotiationEvidence = textHasNegotiationEvidence(text) || recentEventsSuggestNegotiation(input.context)
-
-  if (negotiationEvidence) {
+  // 3) NEGOCIAÇÃO antes de agenda
+  if (textHasNegotiationEvidence(text) || recentEventsSuggestNegotiation(input.context)) {
     return {
       recommended_status: 'negociacao',
-      confidence: 0.86,
+      confidence: 0.87,
       action_channel: channel,
       action_result: 'Objeção ou discussão comercial identificada',
       result_detail: `A conversa mostra sinais claros de ${getSalesCycleLabel('negociacao').toLowerCase()}: preço, proposta, condição comercial, comparação ou objeção.`,
@@ -297,48 +342,16 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
       should_close_won: false,
       should_close_lost: false,
       close_reason: null,
-      reason_for_recommendation: 'Foi detectada semântica de negociação. Nesse caso, não é só agenda: já existe discussão comercial em curso.',
+      reason_for_recommendation: 'Foi detectada discussão comercial real. Aqui não é só agenda: já existe negociação em curso.',
       source: 'fallback',
     }
   }
 
-  const agendaEvidence = textHasAgendaEvidence(text) || recentEventsSuggestAgenda(input.context)
-
-  if (agendaEvidence) {
-    return {
-      recommended_status: 'respondeu',
-      confidence: 0.82,
-      action_channel: channel,
-      action_result: 'Lead respondeu com continuidade concreta',
-      result_detail: `No sistema, ${getSalesCycleLabel('respondeu')} é o nome visual da etapa interna "respondeu". A conversa indica resposta com próximo passo concreto.`,
-      next_action: 'Confirmar agenda / próximo passo',
-      next_action_date: buildFutureIso(12),
-      summary: 'O lead respondeu e existe continuidade objetiva para a conversa ou visita.',
-      tags: extractTags(text),
-      should_close_won: false,
-      should_close_lost: false,
-      close_reason: null,
-      reason_for_recommendation: 'Foi detectada resposta real do lead com continuidade concreta, mas sem sinais fortes de negociação comercial.',
-      source: 'fallback',
-    }
-  }
-
-  const noResponseEvidence = containsAny(text, [
-    'sem resposta',
-    'não respondeu',
-    'nao respondeu',
-    'mensagem enviada',
-    'tentativa de contato',
-    'liguei e não atendeu',
-    'liguei e nao atendeu',
-    'visualizou e não respondeu',
-    'visualizou e nao respondeu',
-  ])
-
-  if (noResponseEvidence) {
+  // 4) CONTATO sem resposta antes de agenda para não confundir "não respondeu" com "respondeu"
+  if (textHasNoResponseEvidence(text)) {
     return {
       recommended_status: 'contato',
-      confidence: 0.78,
+      confidence: 0.84,
       action_channel: channel,
       action_result: 'Tentativa de contato (sem resposta)',
       result_detail: 'Houve ação de contato, mas sem retorno do lead.',
@@ -349,7 +362,27 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
       should_close_won: false,
       should_close_lost: false,
       close_reason: null,
-      reason_for_recommendation: 'A conversa indica tentativa de contato sem resposta, portanto o ciclo deve sair de novo para contato.',
+      reason_for_recommendation: 'A conversa indica tentativa de contato sem resposta, então a etapa correta é CONTATO.',
+      source: 'fallback',
+    }
+  }
+
+  // 5) AGENDA / respondeu
+  if (textHasAgendaEvidence(text) || recentEventsSuggestAgenda(input.context)) {
+    return {
+      recommended_status: 'respondeu',
+      confidence: 0.86,
+      action_channel: channel,
+      action_result: 'Lead respondeu com continuidade concreta',
+      result_detail: `No sistema, ${getSalesCycleLabel('respondeu')} é o nome visual da etapa interna "respondeu". A conversa indica resposta com próximo passo concreto.`,
+      next_action: 'Confirmar agenda / próximo passo',
+      next_action_date: buildFutureIso(12),
+      summary: 'O lead respondeu e existe continuidade objetiva para a conversa ou visita.',
+      tags: extractTags(text),
+      should_close_won: false,
+      should_close_lost: false,
+      close_reason: null,
+      reason_for_recommendation: 'Foi detectada resposta real do lead com próximo passo concreto, mas sem negociação comercial em andamento.',
       source: 'fallback',
     }
   }
@@ -439,6 +472,7 @@ function buildSystemPrompt(): string {
     'Nunca escreva texto fora do JSON.',
     'Analise o contexto do ciclo atual e recomende o estágio mais fiel ao que aconteceu de verdade.',
     buildSalesCycleAIGuide(),
+    buildSalesCopilotExamplesGuide(),
     'O contexto pode incluir recent_events, que trazem o histórico recente do ciclo. Use esse histórico para entender o que já aconteceu antes da conversa atual.',
     'Mantenha coerência entre o texto atual e os eventos recentes.',
     'Você pode recomendar avanço direto de novo para respondeu ou negociacao se a conversa mostrar que isso já aconteceu na prática.',
