@@ -3,6 +3,7 @@ import type {
   AnalyzeConversationResponse,
   AISalesSuggestion,
   AISalesContext,
+  AIAuditDiagnostics,
   ApplyAISuggestionRequest,
   ApplyAISuggestionResponse,
 } from '@/app/types/ai-sales'
@@ -12,6 +13,7 @@ export async function analyzeConversation(
 ): Promise<{
   context: AISalesContext
   suggestion: AISalesSuggestion
+  diagnostics?: AIAuditDiagnostics
 }> {
   const res = await fetch('/api/ai/analyze-conversation', {
     method: 'POST',

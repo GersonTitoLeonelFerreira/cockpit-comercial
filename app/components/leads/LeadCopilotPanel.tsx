@@ -15,7 +15,7 @@ import {
   SALES_CYCLE_VISUAL_LABELS as STATUS_LABELS,
 } from '@/app/lib/sales-cycle-status'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
-import type { AISalesSuggestion, ConversationSource } from '@/app/types/ai-sales'
+import type { AISalesSuggestion, ConversationSource, AIAuditDiagnostics } from '@/app/types/ai-sales'
 
 type SalesCycleWithLead = SalesCycle & {
   leads?: {
@@ -68,6 +68,7 @@ export default function LeadCopilotPanel({
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<AISalesSuggestion | null>(null)
+  const [auditDiagnostics, setAuditDiagnostics] = useState<AIAuditDiagnostics | null>(null)
   const [editableStatus, setEditableStatus] = useState<LeadStatus>(cycle.status)
   const [editableNextAction, setEditableNextAction] = useState('')
   const [editableNextActionDate, setEditableNextActionDate] = useState('')
@@ -98,6 +99,7 @@ export default function LeadCopilotPanel({
       })
 
       setSuggestion(response.suggestion)
+      setAuditDiagnostics(response.diagnostics ?? null)
       setEditableStatus(response.suggestion.recommended_status)
       setEditableNextAction(response.suggestion.next_action || '')
       setEditableNextActionDate(toDatetimeLocalValue(response.suggestion.next_action_date))
@@ -111,6 +113,7 @@ export default function LeadCopilotPanel({
     } catch (e: any) {
       setError(e?.message || 'Erro ao analisar conversa.')
       setSuggestion(null)
+      setAuditDiagnostics(null)
     } finally {
       setLoading(false)
     }
@@ -148,6 +151,7 @@ export default function LeadCopilotPanel({
   
       setConversationText('')
       setSuggestion(null)
+      setAuditDiagnostics(null)
       setEditableSummary('')
       setEditableNextAction('')
       setEditableNextActionDate('')
@@ -175,6 +179,7 @@ export default function LeadCopilotPanel({
     }
 
     setSuggestion(null)
+    setAuditDiagnostics(null)
     setEditableSummary('')
     setEditableNextAction('')
     setEditableNextActionDate('')
@@ -244,6 +249,7 @@ export default function LeadCopilotPanel({
             onClick={() => {
               setConversationText('')
               setSuggestion(null)
+              setAuditDiagnostics(null)
               setEditableSummary('')
               setEditableNextAction('')
               setEditableNextActionDate('')
@@ -369,6 +375,81 @@ export default function LeadCopilotPanel({
               </div>
             </div>
           </div>
+
+          {auditDiagnostics && (
+  <div className="mt-5 rounded-xl border border-amber-900/60 bg-amber-950/20 p-4">
+    <div className="text-sm font-bold text-amber-300 mb-3">Auditoria da IA</div>
+
+    <div className="grid gap-3 md:grid-cols-2 text-xs">
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="text-gray-400 uppercase font-bold mb-1">Motor final</div>
+        <div className="text-white">{auditDiagnostics.engine}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="text-gray-400 uppercase font-bold mb-1">Regra escolhida</div>
+        <div className="text-white">{auditDiagnostics.selected_rule}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="text-gray-400 uppercase font-bold mb-1">Usou histórico</div>
+        <div className="text-white">{auditDiagnostics.used_history ? 'Sim' : 'Não'}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="text-gray-400 uppercase font-bold mb-1">Múltiplos sinais no texto</div>
+        <div className="text-white">{auditDiagnostics.multiple_text_signals ? 'Sim' : 'Não'}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
+        <div className="text-gray-400 uppercase font-bold mb-1">Preview do texto auditado</div>
+        <div className="text-white whitespace-pre-wrap">{auditDiagnostics.text_preview}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
+        <div className="text-gray-400 uppercase font-bold mb-2">Provider</div>
+        <div className="text-white">Tentou usar provider: {auditDiagnostics.provider.attempted ? 'Sim' : 'Não'}</div>
+        <div className="text-white">Modelo: {auditDiagnostics.provider.model || '—'}</div>
+        <div className="text-white">Sucesso: {auditDiagnostics.provider.success ? 'Sim' : 'Não'}</div>
+        <div className="text-white">Falha: {auditDiagnostics.provider.failure_reason || '—'}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="text-gray-400 uppercase font-bold mb-2">Sinais de texto</div>
+        <div className="text-white">Perdido: {auditDiagnostics.text_signals.lost.join(', ') || '—'}</div>
+        <div className="text-white">Ganho: {auditDiagnostics.text_signals.won.join(', ') || '—'}</div>
+        <div className="text-white">Negociação: {auditDiagnostics.text_signals.negotiation.join(', ') || '—'}</div>
+        <div className="text-white">Contato sem resposta: {auditDiagnostics.text_signals.no_response.join(', ') || '—'}</div>
+        <div className="text-white">Agenda: {auditDiagnostics.text_signals.agenda.join(', ') || '—'}</div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
+        <div className="text-gray-400 uppercase font-bold mb-2">Sinais do histórico</div>
+        <div className="text-white whitespace-pre-wrap">
+          Negociação:
+          {' '}
+          {auditDiagnostics.history_signals.negotiation.length > 0
+            ? auditDiagnostics.history_signals.negotiation.join('\n')
+            : '—'}
+        </div>
+        <div className="text-white whitespace-pre-wrap mt-2">
+          Agenda:
+          {' '}
+          {auditDiagnostics.history_signals.agenda.length > 0
+            ? auditDiagnostics.history_signals.agenda.join('\n')
+            : '—'}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
+        <div className="text-gray-400 uppercase font-bold mb-2">Notas</div>
+        <div className="text-white whitespace-pre-wrap">
+          {auditDiagnostics.notes.length > 0 ? auditDiagnostics.notes.join('\n') : '—'}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
           {terminalSuggestion && (
             <div className="mt-4 rounded-md border border-amber-800 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">

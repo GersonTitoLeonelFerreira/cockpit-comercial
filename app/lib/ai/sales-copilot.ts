@@ -1,5 +1,10 @@
 import type { LeadStatus } from '@/app/types/sales_cycles'
-import type { AISalesContext, AISalesSuggestion, ConversationSource } from '@/app/types/ai-sales'
+import type {
+  AISalesContext,
+  AISalesSuggestion,
+  AIAuditDiagnostics,
+  ConversationSource,
+} from '@/app/types/ai-sales'
 import {
   TERMINAL_SALES_CYCLE_STATUSES as TERMINAL_STATUSES,
   buildSalesCycleAIGuide,
@@ -29,8 +34,129 @@ type ProviderRawSuggestion = {
   reason_for_recommendation?: string
 }
 
+type ProviderCallResult = {
+  raw: ProviderRawSuggestion | null
+  failureReason: string | null
+}
+
+type FallbackAuditBuild = {
+  suggestion: AISalesSuggestion
+  diagnostics: AIAuditDiagnostics
+}
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini'
+
+const LOST_TERMS = [
+  'fechou com concorrente',
+  'fechou com a concorrente',
+  'fechou com o concorrente',
+  'sem interesse',
+  'nao tem interesse',
+  'não tem interesse',
+  'nao tem mais interesse',
+  'não tem mais interesse',
+  'nao quer',
+  'não quer',
+  'nao quer mais',
+  'não quer mais',
+  'desistiu',
+  'fora do perfil',
+  'contato invalido',
+  'contato inválido',
+  'nao entrar mais em contato',
+  'não entrar mais em contato',
+]
+
+const WON_TERMS = [
+  'confirmou pagamento',
+  'pagou',
+  'assinou',
+  'matriculou',
+  'contrato assinado',
+  'cadastro concluido',
+  'cadastro concluído',
+  'fechou comigo',
+  'fechou conosco',
+  'fechou com a gente',
+  'fechou o plano',
+]
+
+const NEGOTIATION_TERMS = [
+  'proposta',
+  'valor',
+  'preco',
+  'preço',
+  'desconto',
+  'parcelado',
+  'avista',
+  'pix',
+  'condicao',
+  'condição',
+  'pensar ate',
+  'pensar até',
+  'retorna na sexta',
+  'retorno na sexta',
+  'negociar',
+  'negociacao',
+  'negociação',
+  'achou caro',
+  'achou o valor alto',
+  'concorrente',
+  'comparando plano',
+  'comparando preco',
+  'comparando preço',
+  'condicao especial',
+  'condição especial',
+  'fidelidade',
+]
+
+const NO_RESPONSE_TERMS = [
+  'sem resposta',
+  'nao respondeu',
+  'não respondeu',
+  'mensagem enviada',
+  'tentativa de contato',
+  'liguei e nao atendeu',
+  'liguei e não atendeu',
+  'visualizou e nao respondeu',
+  'visualizou e não respondeu',
+  'nao retornou',
+  'não retornou',
+]
+
+const AGENDA_TERMS = [
+  'cliente respondeu',
+  'respondeu e pediu',
+  'me respondeu',
+  'retornou',
+  'pediu para retornar',
+  'pediu retorno',
+  'pediu mais informacoes',
+  'pediu mais informações',
+  'demonstrou interesse',
+  'aceitou continuar',
+  'aceitou falar',
+  'agendar',
+  'agenda',
+  'marcou',
+  'marcamos',
+  'quarta',
+  'quinta',
+  'sexta',
+  'amanha',
+  'amanhã',
+  'horario',
+  'horário',
+  'combinado',
+  'vai vir',
+  'vai passar',
+  'passa aqui',
+  'visita',
+  'vir aqui',
+  'perguntou os horarios',
+  'perguntou os horários',
+]
 
 function clampConfidence(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value)
@@ -59,9 +185,19 @@ function normalizeForCompare(text: string): string {
     .trim()
 }
 
-function containsAny(text: string, terms: string[]): boolean {
+function textPreview(text: string, max = 220): string {
+  const normalized = normalizeWhitespace(text)
+  if (normalized.length <= max) return normalized
+  return `${normalized.slice(0, max)}...`
+}
+
+function matchedTerms(text: string, terms: string[]): string[] {
   const haystack = normalizeForCompare(text)
-  return terms.some((term) => haystack.includes(normalizeForCompare(term)))
+  return terms.filter((term) => haystack.includes(normalizeForCompare(term)))
+}
+
+function containsAny(text: string, terms: string[]): boolean {
+  return matchedTerms(text, terms).length > 0
 }
 
 function inferChannel(text: string, source: ConversationSource): string | null {
@@ -110,165 +246,52 @@ function extractTags(text: string): string[] {
   return Array.from(tags)
 }
 
-function textHasLostEvidence(text: string): boolean {
-  return containsAny(text, [
-    'fechou com concorrente',
-    'fechou com a concorrente',
-    'fechou com o concorrente',
-    'sem interesse',
-    'nao tem interesse',
-    'não tem interesse',
-    'nao tem mais interesse',
-    'não tem mais interesse',
-    'nao quer',
-    'não quer',
-    'nao quer mais',
-    'não quer mais',
-    'desistiu',
-    'fora do perfil',
-    'contato invalido',
-    'contato inválido',
-    'nao entrar mais em contato',
-    'não entrar mais em contato',
-  ])
+function buildHistorySignalList(
+  context: AISalesContext,
+  mode: 'negotiation' | 'agenda'
+): string[] {
+  return (context.recent_events ?? [])
+    .map((event) => {
+      const haystack = [
+        event.to_status,
+        event.action_result,
+        event.result_detail,
+        event.next_action,
+      ]
+        .filter(Boolean)
+        .join(' ')
+
+      const matches =
+        mode === 'negotiation'
+          ? event.to_status === 'negociacao' || matchedTerms(haystack, NEGOTIATION_TERMS).length > 0
+          : event.to_status === 'respondeu' || matchedTerms(haystack, AGENDA_TERMS).length > 0
+
+      if (!matches) return null
+
+      return [
+        event.occurred_at ? `when=${event.occurred_at}` : null,
+        event.to_status ? `to=${event.to_status}` : null,
+        event.action_result ? `result=${event.action_result}` : null,
+        event.result_detail ? `detail=${event.result_detail}` : null,
+        event.next_action ? `next=${event.next_action}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ')
+    })
+    .filter((v): v is string => Boolean(v))
 }
 
-function textHasWonEvidence(text: string): boolean {
-  return containsAny(text, [
-    'confirmou pagamento',
-    'pagou',
-    'assinou',
-    'matriculou',
-    'contrato assinado',
-    'cadastro concluido',
-    'cadastro concluído',
-    'fechou comigo',
-    'fechou conosco',
-    'fechou com a gente',
-    'fechou o plano',
-  ])
-}
-
-function textHasNegotiationEvidence(text: string): boolean {
-  return containsAny(text, [
-    'proposta',
-    'valor',
-    'preco',
-    'preço',
-    'desconto',
-    'parcelado',
-    'avista',
-    'pix',
-    'condicao',
-    'condição',
-    'pensar ate',
-    'pensar até',
-    'retorna na sexta',
-    'retorno na sexta',
-    'negociar',
-    'negociacao',
-    'negociação',
-    'achou caro',
-    'achou o valor alto',
-    'concorrente',
-    'comparando plano',
-    'comparando preco',
-    'comparando preço',
-    'condicao especial',
-    'condição especial',
-    'fidelidade',
-  ])
-}
-
-function textHasNoResponseEvidence(text: string): boolean {
-  return containsAny(text, [
-    'sem resposta',
-    'nao respondeu',
-    'não respondeu',
-    'mensagem enviada',
-    'tentativa de contato',
-    'liguei e nao atendeu',
-    'liguei e não atendeu',
-    'visualizou e nao respondeu',
-    'visualizou e não respondeu',
-    'nao retornou',
-    'não retornou',
-  ])
-}
-
-function textHasAgendaEvidence(text: string): boolean {
-  if (textHasNoResponseEvidence(text)) return false
-
-  return containsAny(text, [
-    'cliente respondeu',
-    'respondeu e pediu',
-    'me respondeu',
-    'retornou',
-    'pediu para retornar',
-    'pediu retorno',
-    'pediu mais informacoes',
-    'pediu mais informações',
-    'demonstrou interesse',
-    'aceitou continuar',
-    'aceitou falar',
-    'agendar',
-    'agenda',
-    'marcou',
-    'marcamos',
-    'quarta',
-    'quinta',
-    'sexta',
-    'amanha',
-    'amanhã',
-    'horario',
-    'horário',
-    'combinado',
-    'vai vir',
-    'vai passar',
-    'passa aqui',
-    'visita',
-    'vir aqui',
-    'perguntou os horarios',
-    'perguntou os horários',
-  ])
-}
-
-function recentEventsSuggestNegotiation(context: AISalesContext): boolean {
-  return (context.recent_events ?? []).some((event) => {
-    const haystack = [
-      event.to_status,
-      event.action_result,
-      event.result_detail,
-      event.next_action,
-    ]
-      .filter(Boolean)
-      .join(' ')
-
-    return event.to_status === 'negociacao' || textHasNegotiationEvidence(haystack)
-  })
-}
-
-function recentEventsSuggestAgenda(context: AISalesContext): boolean {
-  return (context.recent_events ?? []).some((event) => {
-    const haystack = [
-      event.to_status,
-      event.action_result,
-      event.result_detail,
-      event.next_action,
-    ]
-      .filter(Boolean)
-      .join(' ')
-
-    return event.to_status === 'respondeu' || textHasAgendaEvidence(haystack)
-  })
-}
-
-function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion {
+function buildFallbackSuggestion(
+  input: AnalyzeConversationInput,
+  diagnostics: AIAuditDiagnostics
+): AISalesSuggestion {
   const text = normalizeWhitespace(input.conversationText)
   const currentStatus = input.context.current_status
   const channel = inferChannel(text, input.source)
 
   if (TERMINAL_STATUSES.includes(currentStatus)) {
+    diagnostics.selected_rule = 'terminal_current_status'
+    diagnostics.notes.push('O ciclo já estava terminal antes da análise.')
     return {
       recommended_status: currentStatus,
       confidence: 0.95,
@@ -287,8 +310,16 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  // 1) PERDIDO vem antes de GANHO para evitar colisão em frases como "fechou com concorrente"
-  if (textHasLostEvidence(text)) {
+  const lost = diagnostics.text_signals.lost
+  const won = diagnostics.text_signals.won
+  const negotiation = diagnostics.text_signals.negotiation
+  const noResponse = diagnostics.text_signals.no_response
+  const agenda = diagnostics.text_signals.agenda
+  const historyNegotiation = diagnostics.history_signals.negotiation
+  const historyAgenda = diagnostics.history_signals.agenda
+
+  if (lost.length > 0) {
+    diagnostics.selected_rule = 'lost_text'
     return {
       recommended_status: 'perdido',
       confidence: 0.93,
@@ -307,8 +338,8 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  // 2) GANHO só com frases realmente positivas, não com a palavra genérica "fechou"
-  if (textHasWonEvidence(text)) {
+  if (won.length > 0) {
+    diagnostics.selected_rule = 'won_text'
     return {
       recommended_status: 'ganho',
       confidence: 0.93,
@@ -327,8 +358,9 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  // 3) NEGOCIAÇÃO antes de agenda
-  if (textHasNegotiationEvidence(text) || recentEventsSuggestNegotiation(input.context)) {
+  if (negotiation.length > 0 || historyNegotiation.length > 0) {
+    diagnostics.selected_rule = negotiation.length > 0 ? 'negotiation_text' : 'negotiation_history'
+    diagnostics.used_history = negotiation.length === 0 && historyNegotiation.length > 0
     return {
       recommended_status: 'negociacao',
       confidence: 0.87,
@@ -347,8 +379,8 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  // 4) CONTATO sem resposta antes de agenda para não confundir "não respondeu" com "respondeu"
-  if (textHasNoResponseEvidence(text)) {
+  if (noResponse.length > 0) {
+    diagnostics.selected_rule = 'contact_no_response_text'
     return {
       recommended_status: 'contato',
       confidence: 0.84,
@@ -367,8 +399,9 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
-  // 5) AGENDA / respondeu
-  if (textHasAgendaEvidence(text) || recentEventsSuggestAgenda(input.context)) {
+  if (agenda.length > 0 || historyAgenda.length > 0) {
+    diagnostics.selected_rule = agenda.length > 0 ? 'agenda_text' : 'agenda_history'
+    diagnostics.used_history = agenda.length === 0 && historyAgenda.length > 0
     return {
       recommended_status: 'respondeu',
       confidence: 0.86,
@@ -387,6 +420,8 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     }
   }
 
+  diagnostics.selected_rule = 'fallback_current_status'
+  diagnostics.notes.push('Nenhuma regra forte foi encontrada. O fallback manteve o estado atual do ciclo.')
   return {
     recommended_status: currentStatus === 'novo' ? 'novo' : currentStatus,
     confidence: 0.55,
@@ -403,6 +438,59 @@ function heuristicSuggestion(input: AnalyzeConversationInput): AISalesSuggestion
     reason_for_recommendation: 'Sem evidência suficiente para classificação mais avançada.',
     source: 'fallback',
   }
+}
+
+function buildFallbackAudit(input: AnalyzeConversationInput): FallbackAuditBuild {
+  const text = normalizeWhitespace(input.conversationText)
+
+  const diagnostics: AIAuditDiagnostics = {
+    engine: 'fallback',
+    selected_rule: 'unknown',
+    fallback_rule: null,
+    used_history: false,
+    multiple_text_signals: false,
+    text_preview: textPreview(text),
+    text_signals: {
+      lost: matchedTerms(text, LOST_TERMS),
+      won: matchedTerms(text, WON_TERMS),
+      negotiation: matchedTerms(text, NEGOTIATION_TERMS),
+      no_response: matchedTerms(text, NO_RESPONSE_TERMS),
+      agenda: matchedTerms(text, AGENDA_TERMS),
+    },
+    history_signals: {
+      negotiation: buildHistorySignalList(input.context, 'negotiation'),
+      agenda: buildHistorySignalList(input.context, 'agenda'),
+    },
+    provider: {
+      attempted: Boolean(OPENAI_API_KEY),
+      model: OPENAI_API_KEY ? OPENAI_MODEL : null,
+      success: false,
+      failure_reason: OPENAI_API_KEY ? null : 'OPENAI_API_KEY ausente',
+    },
+    notes: [],
+  }
+
+  const activeTextSignalCount = [
+    diagnostics.text_signals.lost.length > 0,
+    diagnostics.text_signals.won.length > 0,
+    diagnostics.text_signals.negotiation.length > 0,
+    diagnostics.text_signals.no_response.length > 0,
+    diagnostics.text_signals.agenda.length > 0,
+  ].filter(Boolean).length
+
+  diagnostics.multiple_text_signals = activeTextSignalCount > 1
+
+  if (diagnostics.multiple_text_signals) {
+    diagnostics.notes.push('O texto atual contém múltiplos sinais de estágio ao mesmo tempo.')
+  }
+
+  if (diagnostics.history_signals.negotiation.length > 0 || diagnostics.history_signals.agenda.length > 0) {
+    diagnostics.notes.push('Há sinais relevantes no histórico recente do ciclo.')
+  }
+
+  const suggestion = buildFallbackSuggestion(input, diagnostics)
+
+  return { suggestion, diagnostics }
 }
 
 function sanitizeSuggestion(
@@ -491,8 +579,13 @@ function buildSystemPrompt(): string {
   ].join(' ')
 }
 
-async function callOpenAI(input: AnalyzeConversationInput): Promise<ProviderRawSuggestion | null> {
-  if (!OPENAI_API_KEY) return null
+async function callOpenAI(input: AnalyzeConversationInput): Promise<ProviderCallResult> {
+  if (!OPENAI_API_KEY) {
+    return {
+      raw: null,
+      failureReason: 'OPENAI_API_KEY ausente',
+    }
+  }
 
   const promptPayload = {
     context: input.context,
@@ -500,61 +593,114 @@ async function callOpenAI(input: AnalyzeConversationInput): Promise<ProviderRawS
     conversation_text: input.conversationText,
   }
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: buildSystemPrompt(),
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(promptPayload),
-        },
-      ],
-    }),
-  })
-
-  if (!response.ok) {
-    return null
-  }
-
-  const data = await response.json()
-  const content = data?.choices?.[0]?.message?.content
-
-  if (!content || typeof content !== 'string') {
-    return null
-  }
-
   try {
-    return JSON.parse(content) as ProviderRawSuggestion
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: buildSystemPrompt(),
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(promptPayload),
+          },
+        ],
+      }),
+    })
+
+    if (!response.ok) {
+      return {
+        raw: null,
+        failureReason: `openai_http_${response.status}`,
+      }
+    }
+
+    const data = await response.json()
+    const content = data?.choices?.[0]?.message?.content
+
+    if (!content || typeof content !== 'string') {
+      return {
+        raw: null,
+        failureReason: 'openai_empty_content',
+      }
+    }
+
+    try {
+      return {
+        raw: JSON.parse(content) as ProviderRawSuggestion,
+        failureReason: null,
+      }
+    } catch {
+      return {
+        raw: null,
+        failureReason: 'openai_invalid_json',
+      }
+    }
   } catch {
-    return null
+    return {
+      raw: null,
+      failureReason: 'openai_fetch_failed',
+    }
+  }
+}
+
+export async function analyzeConversationWithCopilotDetailed(
+  input: AnalyzeConversationInput
+): Promise<{
+  suggestion: AISalesSuggestion
+  diagnostics: AIAuditDiagnostics
+}> {
+  const normalizedInput: AnalyzeConversationInput = {
+    ...input,
+    conversationText: normalizeWhitespace(input.conversationText),
+  }
+
+  const fallbackDecision = buildFallbackAudit(normalizedInput)
+  const diagnostics = fallbackDecision.diagnostics
+
+  const providerResult = await callOpenAI(normalizedInput)
+
+  diagnostics.provider = {
+    attempted: Boolean(OPENAI_API_KEY),
+    model: OPENAI_API_KEY ? OPENAI_MODEL : null,
+    success: Boolean(providerResult.raw),
+    failure_reason: providerResult.failureReason,
+  }
+
+  if (!providerResult.raw) {
+    return {
+      suggestion: fallbackDecision.suggestion,
+      diagnostics,
+    }
+  }
+
+  const aiSuggestion = sanitizeSuggestion(providerResult.raw, fallbackDecision.suggestion, normalizedInput.context)
+
+  return {
+    suggestion: aiSuggestion,
+    diagnostics: {
+      ...diagnostics,
+      engine: 'ai',
+      fallback_rule: diagnostics.selected_rule,
+      selected_rule: `provider_${aiSuggestion.recommended_status}`,
+      used_history: false,
+      notes: [...diagnostics.notes, 'A resposta final veio do provider externo.'],
+    },
   }
 }
 
 export async function analyzeConversationWithCopilot(
   input: AnalyzeConversationInput
 ): Promise<AISalesSuggestion> {
-  const normalizedInput: AnalyzeConversationInput = {
-    ...input,
-    conversationText: normalizeWhitespace(input.conversationText),
-  }
-
-  const fallback = heuristicSuggestion(normalizedInput)
-
-  try {
-    const aiRaw = await callOpenAI(normalizedInput)
-    return sanitizeSuggestion(aiRaw, fallback, input.context)
-  } catch {
-    return fallback
-  }
+  const result = await analyzeConversationWithCopilotDetailed(input)
+  return result.suggestion
 }

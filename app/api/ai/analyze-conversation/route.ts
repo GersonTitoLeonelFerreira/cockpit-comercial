@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
-import { analyzeConversationWithCopilot } from '@/app/lib/ai/sales-copilot'
+import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import type {
   AnalyzeConversationRequest,
   AnalyzeConversationResponse,
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
         : [],
     }
 
-    const suggestion = await analyzeConversationWithCopilot({
+    const result = await analyzeConversationWithCopilotDetailed({
       context,
       conversationText: body.conversation_text,
       source: body.source ?? 'notes',
@@ -101,7 +101,8 @@ export async function POST(req: Request) {
       ok: true,
       data: {
         context,
-        suggestion,
+        suggestion: result.suggestion,
+        diagnostics: result.diagnostics,
       },
     })
   } catch (e: any) {

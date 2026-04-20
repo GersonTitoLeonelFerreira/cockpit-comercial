@@ -30,6 +30,35 @@ export interface AISalesContext {
   recent_events?: AISalesRecentEvent[]
 }
 
+export interface AIAuditProviderInfo {
+  attempted: boolean
+  model: string | null
+  success: boolean
+  failure_reason: string | null
+}
+
+export interface AIAuditDiagnostics {
+  engine: 'fallback' | 'ai'
+  selected_rule: string
+  fallback_rule?: string | null
+  used_history: boolean
+  multiple_text_signals: boolean
+  text_preview: string
+  text_signals: {
+    lost: string[]
+    won: string[]
+    negotiation: string[]
+    no_response: string[]
+    agenda: string[]
+  }
+  history_signals: {
+    negotiation: string[]
+    agenda: string[]
+  }
+  provider: AIAuditProviderInfo
+  notes: string[]
+}
+
 export interface AnalyzeConversationRequest {
   cycle_id: string
   conversation_text: string
@@ -58,6 +87,7 @@ export interface AnalyzeConversationResponse {
   data?: {
     context: AISalesContext
     suggestion: AISalesSuggestion
+    diagnostics?: AIAuditDiagnostics
   }
   error?: string
 }
