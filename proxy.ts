@@ -56,7 +56,6 @@ export const config = {
     '/leads/:path*',
     '/admin/:path*',
     '/agenda/:path*',
-    '/cadastro/:path*',
     '/importar/:path*',
     '/perfil/:path*',
     '/platform/:path*',
