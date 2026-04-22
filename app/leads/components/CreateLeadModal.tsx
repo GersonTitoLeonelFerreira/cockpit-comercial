@@ -61,6 +61,12 @@ function getLeadTypeFromDocument(document: string | null): 'PF' | 'PJ' | null {
   return null
 }
 
+type LeadConflictCheck = {
+  document: boolean
+  phone: boolean
+  email: boolean
+}
+
 export default function CreateLeadModal({
   companyId,
   userId,
@@ -103,6 +109,8 @@ export default function CreateLeadModal({
   const [newGroupName, setNewGroupName] = useState('')
   const [fetchingCEP, setFetchingCEP] = useState(false)
   const [cpfWarning, setCpfWarning] = useState<string | null>(null)
+  const [phoneWarning, setPhoneWarning] = useState<string | null>(null)
+  const [emailWarning, setEmailWarning] = useState<string | null>(null)
   const cpfTimerRef = useRef<number | null>(null)
 
   React.useEffect(() => {
@@ -165,6 +173,9 @@ export default function CreateLeadModal({
   }
 
   const handleFormChange = (field: keyof LeadFormData, value: string) => {
+    if (field === 'phone') setPhoneWarning(null)
+    if (field === 'email') setEmailWarning(null)
+  
     setFormData(prev => ({
       ...prev,
       [field]: value,
@@ -209,47 +220,101 @@ export default function CreateLeadModal({
     }
   }
 
-  const checkCPFExists = async (rawDocument: string): Promise<boolean> => {
+  const checkLeadConflicts = async ({
+    rawDocument,
+    rawPhone,
+    rawEmail,
+  }: {
+    rawDocument?: string | null
+    rawPhone?: string | null
+    rawEmail?: string | null
+  }): Promise<LeadConflictCheck> => {
     const document = normalizeDocument(rawDocument)
+    const phone = normalizePhone(rawPhone)
+    const email = normalizeEmail(rawEmail)
   
-    if (!document) return false
-    if (![11, 14].includes(document.length)) return false
+    const result: LeadConflictCheck = {
+      document: false,
+      phone: false,
+      email: false,
+    }
   
     try {
-      const { data: leadMatches, error: leadErr } = await supabase
-        .from('leads')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('cpf_cnpj', document)
-        .limit(1)
-  
-      if (leadErr) throw leadErr
-      if ((leadMatches ?? []).length > 0) return true
-  
-      if (document.length === 11) {
-        const { data: profileMatches, error: profileErr } = await supabase
-          .from('lead_profiles')
-          .select('lead_id')
+      if (document && [11, 14].includes(document.length)) {
+        const { data: leadMatches, error: leadErr } = await supabase
+          .from('leads')
+          .select('id')
           .eq('company_id', companyId)
-          .eq('cpf', document)
+          .eq('cpf_cnpj', document)
           .limit(1)
   
-        if (profileErr) throw profileErr
-        return (profileMatches ?? []).length > 0
+        if (leadErr) throw leadErr
+        if ((leadMatches ?? []).length > 0) {
+          result.document = true
+        } else if (document.length === 11) {
+          const { data: profileMatches, error: profileErr } = await supabase
+            .from('lead_profiles')
+            .select('lead_id')
+            .eq('company_id', companyId)
+            .eq('cpf', document)
+            .limit(1)
+  
+          if (profileErr) throw profileErr
+          result.document = (profileMatches ?? []).length > 0
+        } else {
+          const { data: profileMatches, error: profileErr } = await supabase
+            .from('lead_profiles')
+            .select('lead_id')
+            .eq('company_id', companyId)
+            .eq('cnpj', document)
+            .limit(1)
+  
+          if (profileErr) throw profileErr
+          result.document = (profileMatches ?? []).length > 0
+        }
       }
   
-      const { data: profileMatches, error: profileErr } = await supabase
-        .from('lead_profiles')
-        .select('lead_id')
-        .eq('company_id', companyId)
-        .eq('cnpj', document)
-        .limit(1)
+      if (phone) {
+        const { data: phoneMatches, error: phoneErr } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('phone', phone)
+          .limit(1)
   
-      if (profileErr) throw profileErr
-      return (profileMatches ?? []).length > 0
+        if (phoneErr) throw phoneErr
+        result.phone = (phoneMatches ?? []).length > 0
+      }
+  
+      if (email) {
+        const { data: emailLeadMatches, error: emailLeadErr } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('email', email)
+          .limit(1)
+  
+        if (emailLeadErr) throw emailLeadErr
+  
+        if ((emailLeadMatches ?? []).length > 0) {
+          result.email = true
+        } else {
+          const { data: emailProfileMatches, error: emailProfileErr } = await supabase
+            .from('lead_profiles')
+            .select('lead_id')
+            .eq('company_id', companyId)
+            .eq('email', email)
+            .limit(1)
+  
+          if (emailProfileErr) throw emailProfileErr
+          result.email = (emailProfileMatches ?? []).length > 0
+        }
+      }
+  
+      return result
     } catch (e: any) {
-      console.error('Erro ao verificar CPF/CNPJ:', e)
-      return false
+      console.error('Erro ao verificar conflitos do lead:', e)
+      return result
     }
   }
 
@@ -271,13 +336,47 @@ export default function CreateLeadModal({
     if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
   
     cpfTimerRef.current = window.setTimeout(async () => {
-      const cpfExists = await checkCPFExists(normalizedDocument)
-      if (cpfExists) {
+      const conflicts = await checkLeadConflicts({ rawDocument: normalizedDocument })
+      if (conflicts.document) {
         setCpfWarning('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
       } else {
         setCpfWarning(null)
       }
     }, 500)
+  }
+  
+  const handlePhoneBlur = async () => {
+    const normalizedPhone = normalizePhone(formData.phone)
+  
+    if (!normalizedPhone) {
+      setPhoneWarning(null)
+      return
+    }
+  
+    const conflicts = await checkLeadConflicts({ rawPhone: normalizedPhone })
+  
+    if (conflicts.phone) {
+      setPhoneWarning('⚠️ Este telefone já existe em outro lead. Verifique antes de continuar.')
+    } else {
+      setPhoneWarning(null)
+    }
+  }
+  
+  const handleEmailBlur = async () => {
+    const normalizedEmail = normalizeEmail(formData.email)
+  
+    if (!normalizedEmail) {
+      setEmailWarning(null)
+      return
+    }
+  
+    const conflicts = await checkLeadConflicts({ rawEmail: normalizedEmail })
+  
+    if (conflicts.email) {
+      setEmailWarning('⚠️ Este email já existe em outro lead. Verifique antes de continuar.')
+    } else {
+      setEmailWarning(null)
+    }
   }
 
   const handleNextStep = () => {
@@ -306,12 +405,23 @@ export default function CreateLeadModal({
       return
     }
   
-    if (normalizedDocument) {
-      const cpfExists = await checkCPFExists(normalizedDocument)
-      if (cpfExists) {
-        setError('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
-        return
-      }
+    const conflicts = await checkLeadConflicts({
+      rawDocument: normalizedDocument,
+      rawPhone: normalizedPhone,
+      rawEmail: normalizedEmail,
+    })
+    
+    if (conflicts.document) {
+      setError('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
+      return
+    }
+    
+    if (conflicts.phone) {
+      setPhoneWarning('⚠️ Este telefone já existe em outro lead. Verifique antes de continuar.')
+    }
+    
+    if (conflicts.email) {
+      setEmailWarning('⚠️ Este email já existe em outro lead. Verifique antes de continuar.')
     }
   
     setLoading(true)
@@ -535,38 +645,50 @@ if (profileErr) throw profileErr
               <div>
                 <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Telefone</label>
                 <input
-                  type="tel"
-                  placeholder="(11) 99999-9999"
-                  value={formData.phone || ''}
-                  onChange={(e) => handleFormChange('phone', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    borderRadius: 8,
-                    border: '1px solid #2a2a2a',
-                    background: '#222',
-                    color: 'white',
-                    fontSize: 13,
-                  }}
-                />
+  type="tel"
+  placeholder="(11) 99999-9999"
+  value={formData.phone || ''}
+  onChange={(e) => handleFormChange('phone', e.target.value)}
+  onBlur={() => void handlePhoneBlur()}
+  style={{
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: phoneWarning ? '2px solid #f59e0b' : '1px solid #2a2a2a',
+    background: '#222',
+    color: 'white',
+    fontSize: 13,
+  }}
+/>
+{phoneWarning && (
+  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>
+    {phoneWarning}
+  </div>
+)}
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Email</label>
                 <input
-                  type="email"
-                  placeholder="email@exemplo.com"
-                  value={formData.email || ''}
-                  onChange={(e) => handleFormChange('email', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    borderRadius: 8,
-                    border: '1px solid #2a2a2a',
-                    background: '#222',
-                    color: 'white',
-                    fontSize: 13,
-                  }}
-                />
+  type="email"
+  placeholder="email@exemplo.com"
+  value={formData.email || ''}
+  onChange={(e) => handleFormChange('email', e.target.value)}
+  onBlur={() => void handleEmailBlur()}
+  style={{
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: emailWarning ? '2px solid #f59e0b' : '1px solid #2a2a2a',
+    background: '#222',
+    color: 'white',
+    fontSize: 13,
+  }}
+/>
+{emailWarning && (
+  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>
+    {emailWarning}
+  </div>
+)}
               </div>
             </div>
 

@@ -11,7 +11,6 @@ import {
   AuthInlineMessage,
   AuthPrimaryButton,
   AuthScaffold,
-  AuthSecondaryLink,
   AuthTextInput,
 } from '../components/auth/AuthUI'
 
@@ -165,8 +164,38 @@ export default function LoginPage() {
 
         <AuthDivider label="ou" />
 
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <AuthSecondaryLink href="/cadastro">Quero uma demonstração</AuthSecondaryLink>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            position: 'relative',
+            zIndex: 50,
+            pointerEvents: 'auto',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => router.push('/cadastro')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 46,
+              borderRadius: 12,
+              border: '1px solid #1a1d2e',
+              background: 'rgba(17,19,24,0.92)',
+              color: '#8fa3bc',
+              fontSize: 14,
+              fontWeight: 700,
+              padding: '0 16px',
+              cursor: 'pointer',
+              position: 'relative',
+              zIndex: 60,
+              pointerEvents: 'auto',
+            }}
+          >
+            Quero uma demonstração
+          </button>
         </div>
 
         <AuthInfoCard

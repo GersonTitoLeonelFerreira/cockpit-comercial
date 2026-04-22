@@ -39,7 +39,6 @@ const AUTH = {
   textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
   textMuted: '#546070',
-  textLabel: '#4a5569',
   blue: '#3b82f6',
   blueSoft: '#93c5fd',
   green: '#22c55e',
@@ -70,6 +69,19 @@ const DEFAULT_FEATURES: AuthFeature[] = [
   },
 ]
 
+function useIsMobile(breakpoint = 980) {
+  const [isMobile, setIsMobile] = React.useState(false)
+
+  React.useEffect(() => {
+    const update = () => setIsMobile(window.innerWidth < breakpoint)
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [breakpoint])
+
+  return isMobile
+}
+
 export function AuthScaffold({
   pageBadge,
   title,
@@ -83,358 +95,362 @@ export function AuthScaffold({
   stats = DEFAULT_STATS,
   features = DEFAULT_FEATURES,
 }: AuthScaffoldProps) {
+  const isMobile = useIsMobile()
+
   return (
-    <>
-      <style jsx>{`
-        .auth-shell {
-          min-height: 100vh;
-          background:
-            radial-gradient(circle at top left, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0) 32%),
-            radial-gradient(circle at bottom right, rgba(37,99,235,0.12) 0%, rgba(37,99,235,0) 28%),
-            linear-gradient(180deg, ${AUTH.contentBg} 0%, #07090d 100%);
-          color: ${AUTH.textPrimary};
-          font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-
-        .auth-frame {
-          max-width: 1240px;
-          margin: 0 auto;
-          min-height: 100vh;
-          padding: 28px;
-          display: grid;
-          grid-template-columns: minmax(0, 1.08fr) minmax(420px, 488px);
-          gap: 28px;
-          align-items: stretch;
-        }
-
-        .auth-hero {
-          display: flex;
-          flex-direction: column;
-          min-height: 0;
-        }
-
-        .auth-brandbar {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          padding: 14px 0 18px;
-        }
-
-        .auth-brandmark {
-          width: 44px;
-          height: 44px;
-          border-radius: 14px;
-          display: grid;
-          place-items: center;
-          background: linear-gradient(145deg, #2563eb 0%, #1d4ed8 100%);
-          color: white;
-          font-size: 18px;
-          font-weight: 800;
-          box-shadow: 0 10px 24px rgba(37,99,235,0.28);
-        }
-
-        .auth-brandtext {
-          min-width: 0;
-        }
-
-        .auth-brandtitle {
-          font-size: 22px;
-          font-weight: 800;
-          letter-spacing: -0.02em;
-          color: ${AUTH.textPrimary};
-        }
-
-        .auth-brandsubtitle {
-          margin-top: 3px;
-          font-size: 13px;
-          color: ${AUTH.textSecondary};
-        }
-
-        .auth-hero-card {
-          flex: 1;
-          min-height: 0;
-          border-radius: 28px;
-          border: 1px solid ${AUTH.border};
-          background:
-            linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(59,130,246,0.02) 20%, rgba(17,19,24,0.98) 100%);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.03),
-            0 24px 80px rgba(0,0,0,0.34);
-          padding: 34px;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .auth-hero-card::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(135deg, rgba(96,165,250,0.08) 0%, transparent 45%);
-          pointer-events: none;
-        }
-
-        .auth-side-badge {
-          align-self: flex-start;
-          position: relative;
-          z-index: 1;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          min-height: 30px;
-          padding: 0 12px;
-          border-radius: 999px;
-          border: 1px solid rgba(59,130,246,0.28);
-          background: rgba(59,130,246,0.10);
-          color: ${AUTH.blueSoft};
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-        }
-
-        .auth-side-title {
-          position: relative;
-          z-index: 1;
-          margin-top: 18px;
-          font-size: 42px;
-          line-height: 1.02;
-          font-weight: 800;
-          letter-spacing: -0.04em;
-          max-width: 620px;
-        }
-
-        .auth-side-subtitle {
-          position: relative;
-          z-index: 1;
-          margin-top: 14px;
-          max-width: 620px;
-          font-size: 16px;
-          line-height: 1.65;
-          color: ${AUTH.textSecondary};
-        }
-
-        .auth-stats {
-          position: relative;
-          z-index: 1;
-          margin-top: 28px;
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 12px;
-        }
-
-        .auth-stat {
-          border-radius: 18px;
-          border: 1px solid rgba(59,130,246,0.12);
-          background: rgba(9,11,15,0.72);
-          padding: 16px;
-        }
-
-        .auth-stat-value {
-          font-size: 16px;
-          font-weight: 800;
-          color: ${AUTH.textPrimary};
-          letter-spacing: -0.02em;
-        }
-
-        .auth-stat-label {
-          margin-top: 6px;
-          font-size: 12px;
-          color: ${AUTH.textSecondary};
-        }
-
-        .auth-features {
-          position: relative;
-          z-index: 1;
-          margin-top: 24px;
-          display: grid;
-          gap: 12px;
-        }
-
-        .auth-feature {
-          border-radius: 18px;
-          border: 1px solid ${AUTH.border};
-          background: rgba(9,11,15,0.72);
-          padding: 18px;
-        }
-
-        .auth-feature-title {
-          font-size: 15px;
-          font-weight: 800;
-          color: ${AUTH.textPrimary};
-          letter-spacing: -0.02em;
-        }
-
-        .auth-feature-description {
-          margin-top: 8px;
-          font-size: 13px;
-          line-height: 1.65;
-          color: ${AUTH.textSecondary};
-        }
-
-        .auth-panel {
-          display: flex;
-          align-items: center;
-          min-height: 0;
-        }
-
-        .auth-panel-card {
-          width: 100%;
-          border-radius: 28px;
-          border: 1px solid ${AUTH.border};
-          background:
-            linear-gradient(180deg, rgba(17,19,24,0.98) 0%, rgba(13,15,20,0.98) 100%);
-          box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.03),
-            0 24px 80px rgba(0,0,0,0.34);
-          padding: 30px;
-        }
-
-        .auth-panel-badge {
-          display: inline-flex;
-          align-items: center;
-          min-height: 28px;
-          padding: 0 11px;
-          border-radius: 999px;
-          border: 1px solid rgba(59,130,246,0.24);
-          background: rgba(59,130,246,0.10);
-          color: ${AUTH.blueSoft};
-          font-size: 11px;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        .auth-panel-title {
-          margin-top: 18px;
-          font-size: 32px;
-          line-height: 1.08;
-          font-weight: 800;
-          letter-spacing: -0.04em;
-        }
-
-        .auth-panel-subtitle {
-          margin-top: 10px;
-          font-size: 14px;
-          line-height: 1.7;
-          color: ${AUTH.textSecondary};
-        }
-
-        .auth-panel-body {
-          margin-top: 24px;
-        }
-
-        .auth-footer-links {
-          margin-top: 22px;
-          padding-top: 18px;
-          border-top: 1px solid ${AUTH.borderSubtle};
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px 16px;
-        }
-
-        .auth-footer-link {
-          color: ${AUTH.textSecondary};
-          font-size: 12px;
-          text-decoration: none;
-        }
-
-        .auth-footer-link:hover {
-          color: ${AUTH.blueSoft};
-        }
-
-        @media (max-width: 980px) {
-          .auth-frame {
-            grid-template-columns: 1fr;
-            padding: 20px;
-            gap: 20px;
-          }
-
-          .auth-hero {
-            order: 2;
-          }
-
-          .auth-panel {
-            order: 1;
-          }
-
-          .auth-side-title {
-            font-size: 32px;
-          }
-
-          .auth-stats {
-            grid-template-columns: 1fr;
-          }
-
-          .auth-hero-card,
-          .auth-panel-card {
-            padding: 24px;
-            border-radius: 24px;
-          }
-        }
-      `}</style>
-
-      <div className="auth-shell">
-        <div className="auth-frame">
-          <section className="auth-hero">
-            <div className="auth-brandbar">
-              <div className="auth-brandmark">C</div>
-              <div className="auth-brandtext">
-                <div className="auth-brandtitle">{asideTitle}</div>
-                <div className="auth-brandsubtitle">Plataforma comercial com padrão executivo</div>
-              </div>
+    <div
+      style={{
+        minHeight: '100vh',
+        background:
+          'radial-gradient(circle at top left, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0) 32%), radial-gradient(circle at bottom right, rgba(37,99,235,0.12) 0%, rgba(37,99,235,0) 28%), linear-gradient(180deg, #090b0f 0%, #07090d 100%)',
+        color: AUTH.textPrimary,
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1240,
+          margin: '0 auto',
+          minHeight: '100vh',
+          padding: isMobile ? 20 : 28,
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.08fr) minmax(420px, 488px)',
+          gap: isMobile ? 20 : 28,
+          alignItems: 'stretch',
+        }}
+      >
+        <section
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            order: isMobile ? 2 : 1,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '14px 0 18px',
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                display: 'grid',
+                placeItems: 'center',
+                background: 'linear-gradient(145deg, #2563eb 0%, #1d4ed8 100%)',
+                color: 'white',
+                fontSize: 18,
+                fontWeight: 800,
+                boxShadow: '0 10px 24px rgba(37,99,235,0.28)',
+                flexShrink: 0,
+              }}
+            >
+              C
             </div>
 
-            <div className="auth-hero-card">
-              <div>
-                <div className="auth-side-badge">{sideBadge}</div>
-                <h1 className="auth-side-title">{heroTitle}</h1>
-                <p className="auth-side-subtitle">{asideSubtitle}</p>
+            <div>
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 800,
+                  letterSpacing: '-0.02em',
+                  color: AUTH.textPrimary,
+                }}
+              >
+                {asideTitle}
+              </div>
+              <div
+                style={{
+                  marginTop: 3,
+                  fontSize: 13,
+                  color: AUTH.textSecondary,
+                }}
+              >
+                Plataforma comercial com padrão executivo
+              </div>
+            </div>
+          </div>
 
-                <div className="auth-stats">
-                  {stats.map((item) => (
-                    <div className="auth-stat" key={item.value + item.label}>
-                      <div className="auth-stat-value">{item.value}</div>
-                      <div className="auth-stat-label">{item.label}</div>
-                    </div>
-                  ))}
-                </div>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              borderRadius: isMobile ? 24 : 28,
+              border: `1px solid ${AUTH.border}`,
+              background:
+                'linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(59,130,246,0.02) 20%, rgba(17,19,24,0.98) 100%)',
+              boxShadow:
+                'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
+              padding: isMobile ? 24 : 34,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'linear-gradient(135deg, rgba(96,165,250,0.08) 0%, transparent 45%)',
+                pointerEvents: 'none',
+              }}
+            />
+
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  minHeight: 30,
+                  padding: '0 12px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(59,130,246,0.28)',
+                  background: 'rgba(59,130,246,0.10)',
+                  color: AUTH.blueSoft,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: '0.02em',
+                }}
+              >
+                {sideBadge}
               </div>
 
-              <div className="auth-features">
-                {features.map((feature) => (
-                  <div className="auth-feature" key={feature.title}>
-                    <div className="auth-feature-title">{feature.title}</div>
-                    <div className="auth-feature-description">{feature.description}</div>
+              <h1
+                style={{
+                  marginTop: 18,
+                  fontSize: isMobile ? 32 : 42,
+                  lineHeight: 1.02,
+                  fontWeight: 800,
+                  letterSpacing: '-0.04em',
+                  maxWidth: 620,
+                  marginBottom: 0,
+                }}
+              >
+                {heroTitle}
+              </h1>
+
+              <p
+                style={{
+                  marginTop: 14,
+                  maxWidth: 620,
+                  fontSize: 16,
+                  lineHeight: 1.65,
+                  color: AUTH.textSecondary,
+                  marginBottom: 0,
+                }}
+              >
+                {asideSubtitle}
+              </p>
+
+              <div
+                style={{
+                  marginTop: 28,
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {stats.map((item) => (
+                  <div
+                    key={item.value + item.label}
+                    style={{
+                      borderRadius: 18,
+                      border: '1px solid rgba(59,130,246,0.12)',
+                      background: 'rgba(9,11,15,0.72)',
+                      padding: 16,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 800,
+                        color: AUTH.textPrimary,
+                        letterSpacing: '-0.02em',
+                      }}
+                    >
+                      {item.value}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 12,
+                        color: AUTH.textSecondary,
+                      }}
+                    >
+                      {item.label}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
-          </section>
 
-          <section className="auth-panel">
-            <div className="auth-panel-card">
-              {pageBadge ? <div className="auth-panel-badge">{pageBadge}</div> : null}
-              <div className="auth-panel-title">{title}</div>
-              <div className="auth-panel-subtitle">{subtitle}</div>
-
-              <div className="auth-panel-body">{children}</div>
-
-              {footerLinks && footerLinks.length > 0 ? (
-                <div className="auth-footer-links">
-                  {footerLinks.map((item) => (
-                    <Link key={item.href} href={item.href} className="auth-footer-link">
-                      {item.label}
-                    </Link>
-                  ))}
+            <div
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                marginTop: 24,
+                display: 'grid',
+                gap: 12,
+              }}
+            >
+              {features.map((feature) => (
+                <div
+                  key={feature.title}
+                  style={{
+                    borderRadius: 18,
+                    border: `1px solid ${AUTH.border}`,
+                    background: 'rgba(9,11,15,0.72)',
+                    padding: 18,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: AUTH.textPrimary,
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    {feature.title}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 13,
+                      lineHeight: 1.65,
+                      color: AUTH.textSecondary,
+                    }}
+                  >
+                    {feature.description}
+                  </div>
                 </div>
-              ) : null}
+              ))}
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            minHeight: 0,
+            order: isMobile ? 1 : 2,
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              borderRadius: isMobile ? 24 : 28,
+              border: `1px solid ${AUTH.border}`,
+              background:
+                'linear-gradient(180deg, rgba(17,19,24,0.98) 0%, rgba(13,15,20,0.98) 100%)',
+              boxShadow:
+                'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
+              padding: isMobile ? 24 : 30,
+              position: 'relative',
+              zIndex: 2,
+              isolation: 'isolate',
+            }}
+          >
+            {pageBadge ? (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  minHeight: 28,
+                  padding: '0 11px',
+                  borderRadius: 999,
+                  border: '1px solid rgba(59,130,246,0.24)',
+                  background: 'rgba(59,130,246,0.10)',
+                  color: AUTH.blueSoft,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {pageBadge}
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                marginTop: 18,
+                fontSize: 32,
+                lineHeight: 1.08,
+                fontWeight: 800,
+                letterSpacing: '-0.04em',
+              }}
+            >
+              {title}
+            </div>
+
+            <div
+              style={{
+                marginTop: 10,
+                fontSize: 14,
+                lineHeight: 1.7,
+                color: AUTH.textSecondary,
+              }}
+            >
+              {subtitle}
+            </div>
+
+            <div style={{ marginTop: 24, position: 'relative', zIndex: 4 }}>{children}</div>
+
+            {footerLinks && footerLinks.length > 0 ? (
+              <div
+                style={{
+                  marginTop: 22,
+                  paddingTop: 18,
+                  borderTop: `1px solid ${AUTH.borderSubtle}`,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  position: 'relative',
+                  zIndex: 5,
+                }}
+              >
+                {footerLinks.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: 38,
+                      padding: '0 14px',
+                      borderRadius: 10,
+                      border: `1px solid ${AUTH.border}`,
+                      background: 'rgba(17,19,24,0.84)',
+                      color: AUTH.textSecondary,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      cursor: 'pointer',
+                      position: 'relative',
+                      zIndex: 6,
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </section>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -451,12 +467,33 @@ export function AuthField({
 }) {
   return (
     <label style={{ display: 'grid', gap: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
-        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.02em', color: AUTH.textPrimary }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          alignItems: 'baseline',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: '0.02em',
+            color: AUTH.textPrimary,
+          }}
+        >
           {label} {required ? <span style={{ color: '#f87171' }}>*</span> : null}
         </span>
-        {hint ? <span style={{ fontSize: 11, color: AUTH.textMuted }}>{hint}</span> : null}
+
+        {hint ? (
+          <span style={{ fontSize: 11, color: AUTH.textMuted }}>
+            {hint}
+          </span>
+        ) : null}
       </div>
+
       {children}
     </label>
   )
@@ -564,6 +601,8 @@ export function AuthPrimaryButton({
         letterSpacing: '-0.01em',
         cursor: disabled ? 'not-allowed' : 'pointer',
         boxShadow: disabled ? 'none' : '0 14px 28px rgba(37,99,235,0.28)',
+        position: 'relative',
+        zIndex: 10,
       }}
     >
       {children}
@@ -594,6 +633,10 @@ export function AuthSecondaryLink({
         fontSize: 14,
         fontWeight: 700,
         padding: '0 16px',
+        cursor: 'pointer',
+        position: 'relative',
+        zIndex: 30,
+        pointerEvents: 'auto',
       }}
     >
       {children}
@@ -650,7 +693,14 @@ export function AuthDivider({ label }: { label?: string }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{ flex: 1, height: 1, background: AUTH.borderSubtle }} />
       {label ? (
-        <span style={{ fontSize: 11, color: AUTH.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <span
+          style={{
+            fontSize: 11,
+            color: AUTH.textMuted,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+          }}
+        >
           {label}
         </span>
       ) : null}
@@ -676,7 +726,16 @@ export function AuthInfoCard({
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 800, color: AUTH.textPrimary }}>{title}</div>
-      <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.7, color: AUTH.textSecondary }}>{description}</div>
+      <div
+        style={{
+          marginTop: 8,
+          fontSize: 13,
+          lineHeight: 1.7,
+          color: AUTH.textSecondary,
+        }}
+      >
+        {description}
+      </div>
     </div>
   )
 }

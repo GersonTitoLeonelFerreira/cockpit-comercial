@@ -7,9 +7,10 @@ import AppShell from './components/AppShell'
 export default function ShellGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
-  // Rotas sem shell
+  const authRoutes = ['/login', '/esqueci-senha', '/reset-senha', '/cadastro']
+
   const noShell =
-    pathname === '/login' ||
+    authRoutes.includes(pathname || '') ||
     pathname?.startsWith('/auth') ||
     pathname?.startsWith('/_next') ||
     pathname?.startsWith('/api')
