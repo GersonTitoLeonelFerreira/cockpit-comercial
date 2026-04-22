@@ -1450,6 +1450,8 @@ async function loadKanbanWithCursor(
           if (searchType === 'phone') {
             const digits = searchTerm.replace(/\D/g, '')
             query = query.or(`phone.ilike.%${digits}%,phone.ilike.%${searchTerm}%`)
+          } else if (searchType === 'email') {
+            query = query.ilike('email', `%${searchTerm}%`)
           } else if (searchType === 'cpf') {
             const digits = searchTerm.replace(/\D/g, '')
             query = query.ilike('document', `%${digits}%`)
