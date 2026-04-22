@@ -88,6 +88,8 @@ type PipelineItem = {
   email: string | null
   cpf?: string | null
   document?: string | null
+  phone_digits?: string | null
+  document_digits?: string | null
   next_action: string | null
   next_action_date: string | null
   lead_groups?: { name: string } | null
@@ -1444,7 +1446,7 @@ async function loadKanbanWithCursor(
       try {
         let query = supabase
           .from('v_pipeline_items')
-          .select('id, lead_id, name, phone, email, cpf, document, status, stage_entered_at, owner_id, group_id, next_action, next_action_date, lead_groups(name)')
+          .select('id, lead_id, name, phone, email, cpf, document, phone_digits, document_digits, status, stage_entered_at, owner_id, group_id, next_action, next_action_date, lead_groups(name)')
           .eq('company_id', companyId)
           .eq('owner_id', ownerToFilter)
           .eq('status', status)
@@ -1456,7 +1458,7 @@ async function loadKanbanWithCursor(
         
           if (searchType === 'numeric') {
             const digits = searchTerm.replace(/\D/g, '')
-            query = query.or(`phone.ilike.%${digits}%,document.ilike.%${digits}%`)
+            query = query.or(`phone_digits.ilike.%${digits}%,document_digits.ilike.%${digits}%`)
           } else if (searchType === 'email') {
             query = query.ilike('email', `%${searchTerm}%`)
           } else {
@@ -1487,7 +1489,7 @@ async function loadKanbanWithCursor(
 
       if (searchType === 'numeric') {
         const digits = searchTerm.replace(/\D/g, '')
-        countQuery = countQuery.or(`phone.ilike.%${digits}%,document.ilike.%${digits}%`)
+        countQuery = countQuery.or(`phone_digits.ilike.%${digits}%,document_digits.ilike.%${digits}%`)
       } else if (searchType === 'email') {
         countQuery = countQuery.ilike('email', `%${searchTerm}%`)
       } else {

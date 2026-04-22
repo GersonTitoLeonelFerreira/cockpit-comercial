@@ -7,6 +7,8 @@ type SearchRow = {
   phone: string | null
   email: string | null
   document: string | null
+  phone_digits?: string | null
+  document_digits?: string | null
   stage_entered_at?: string | null
 }
 
@@ -53,18 +55,18 @@ export async function GET(req: Request) {
 
     let query = supabase
       .from('v_pipeline_items')
-      .select('id, name, phone, email, document, stage_entered_at')
+      .select('id, name, phone, email, document, phone_digits, document_digits, stage_entered_at')
       .eq('company_id', companyId)
       .order('stage_entered_at', { ascending: false })
       .limit(8)
 
-    if (digits.length >= 6) {
-      query = query.or(`document.ilike.%${digits}%,phone.ilike.%${digits}%`)
-    } else if (safeText.includes('@')) {
-      query = query.or(`email.ilike.%${safeText}%,name.ilike.%${safeText}%`)
-    } else {
-      query = query.or(`name.ilike.%${safeText}%,email.ilike.%${safeText}%`)
-    }
+      if (digits.length >= 6) {
+        query = query.or(`document_digits.ilike.%${digits}%,phone_digits.ilike.%${digits}%`)
+      } else if (safeText.includes('@')) {
+        query = query.or(`email.ilike.%${safeText}%,name.ilike.%${safeText}%`)
+      } else {
+        query = query.or(`name.ilike.%${safeText}%,email.ilike.%${safeText}%`)
+      }
 
     const { data, error } = await query
 
