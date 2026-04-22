@@ -24,6 +24,43 @@ type LeadFormData = {
   notes: string | null
 }
 
+function onlyDigits(value: any): string {
+  return String(value ?? '').replace(/\D/g, '')
+}
+
+function cleanText(value: any): string | null {
+  const text = String(value ?? '').trim()
+  return text ? text : null
+}
+
+function normalizeEmail(value: any): string | null {
+  const text = String(value ?? '').trim().toLowerCase()
+  return text ? text : null
+}
+
+function normalizePhone(value: any): string | null {
+  const digits = onlyDigits(value)
+  return digits || null
+}
+
+function normalizeDocument(value: any): string | null {
+  const digits = onlyDigits(value)
+  if (digits.length === 11 || digits.length === 14) return digits
+  return digits || null
+}
+
+function normalizeCEP(value: any): string | null {
+  const digits = onlyDigits(value)
+  return digits || null
+}
+
+function getLeadTypeFromDocument(document: string | null): 'PF' | 'PJ' | null {
+  if (!document) return null
+  if (document.length === 11) return 'PF'
+  if (document.length === 14) return 'PJ'
+  return null
+}
+
 export default function CreateLeadModal({
   companyId,
   userId,
@@ -68,6 +105,12 @@ export default function CreateLeadModal({
   const [cpfWarning, setCpfWarning] = useState<string | null>(null)
   const cpfTimerRef = useRef<number | null>(null)
 
+  React.useEffect(() => {
+    return () => {
+      if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
+    }
+  }, [])
+  
   React.useEffect(() => {
     if (!isAdmin) return
     
@@ -166,34 +209,69 @@ export default function CreateLeadModal({
     }
   }
 
-  const checkCPFExists = async (cpf: string): Promise<boolean> => {
-    if (!cpf || !cpf.trim()) return false
-
+  const checkCPFExists = async (rawDocument: string): Promise<boolean> => {
+    const document = normalizeDocument(rawDocument)
+  
+    if (!document) return false
+    if (![11, 14].includes(document.length)) return false
+  
     try {
-      const { data, error } = await supabase
+      const { data: leadMatches, error: leadErr } = await supabase
         .from('leads')
-        .select('id', { count: 'exact' })
+        .select('id')
         .eq('company_id', companyId)
-        .eq('cpf_cnpj', cpf.trim())
-
-        return data ? data.length > 0 : false
-                } catch (e: any) {
-      console.error('Erro ao verificar CPF:', e)
+        .eq('cpf_cnpj', document)
+        .limit(1)
+  
+      if (leadErr) throw leadErr
+      if ((leadMatches ?? []).length > 0) return true
+  
+      if (document.length === 11) {
+        const { data: profileMatches, error: profileErr } = await supabase
+          .from('lead_profiles')
+          .select('lead_id')
+          .eq('company_id', companyId)
+          .eq('cpf', document)
+          .limit(1)
+  
+        if (profileErr) throw profileErr
+        return (profileMatches ?? []).length > 0
+      }
+  
+      const { data: profileMatches, error: profileErr } = await supabase
+        .from('lead_profiles')
+        .select('lead_id')
+        .eq('company_id', companyId)
+        .eq('cnpj', document)
+        .limit(1)
+  
+      if (profileErr) throw profileErr
+      return (profileMatches ?? []).length > 0
+    } catch (e: any) {
+      console.error('Erro ao verificar CPF/CNPJ:', e)
       return false
     }
   }
 
   const handleCPFChange = (value: string) => {
     handleFormChange('cpf_cnpj', value)
-    
-    if (!value || !value.trim()) {
+  
+    const normalizedDocument = normalizeDocument(value)
+  
+    if (!normalizedDocument) {
       setCpfWarning(null)
       return
     }
-
+  
+    if (![11, 14].includes(normalizedDocument.length)) {
+      setCpfWarning(null)
+      return
+    }
+  
     if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
-    cpfTimerRef.current = setTimeout(async () => {
-      const cpfExists = await checkCPFExists(value.trim())
+  
+    cpfTimerRef.current = window.setTimeout(async () => {
+      const cpfExists = await checkCPFExists(normalizedDocument)
       if (cpfExists) {
         setCpfWarning('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
       } else {
@@ -212,46 +290,94 @@ export default function CreateLeadModal({
   }
 
   const handleCreateLead = async () => {
-    if (!formData.name.trim()) {
+    const normalizedName = cleanText(formData.name)
+    const normalizedPhone = normalizePhone(formData.phone)
+    const normalizedEmail = normalizeEmail(formData.email)
+    const normalizedDocument = normalizeDocument(formData.cpf_cnpj)
+    const normalizedCEP = normalizeCEP(formData.address_cep)
+  
+    if (!normalizedName) {
       setError('Nome é obrigatório')
       return
     }
-
-    if (formData.cpf_cnpj && formData.cpf_cnpj.trim()) {
-      const cpfExists = await checkCPFExists(formData.cpf_cnpj.trim())
+  
+    if (normalizedDocument && ![11, 14].includes(normalizedDocument.length)) {
+      setError('CPF/CNPJ inválido')
+      return
+    }
+  
+    if (normalizedDocument) {
+      const cpfExists = await checkCPFExists(normalizedDocument)
       if (cpfExists) {
         setError('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
         return
       }
     }
-
+  
     setLoading(true)
     setError(null)
-
+  
     try {
       const { data: leadData, error: leadErr } = await supabase
-        .from('leads')
-        .insert({
-          company_id: companyId,
-          name: formData.name.trim(),
-          phone: formData.phone || null,
-          email: formData.email || null,
-          cpf_cnpj: formData.cpf_cnpj || null,
-          address_cep: formData.address_cep || null,
-          address_street: formData.address_street || null,
-          address_number: formData.address_number || null,
-          address_complement: formData.address_complement || null,
-          address_neighborhood: formData.address_neighborhood || null,
-          address_city: formData.address_city || null,
-          address_state: formData.address_state || null,
-          notes: formData.notes || null,
-          created_by: userId,
-          entry_mode: 'manual',
-        })
-        .select('id')
-        .single()
+  .from('leads')
+  .insert({
+    company_id: companyId,
+    name: normalizedName,
+    phone: normalizedPhone,
+    email: normalizedEmail,
+    cpf_cnpj: normalizedDocument,
+    address_cep: normalizedCEP,
+    address_street: cleanText(formData.address_street),
+    address_number: cleanText(formData.address_number),
+    address_complement: cleanText(formData.address_complement),
+    address_neighborhood: cleanText(formData.address_neighborhood),
+    address_city: cleanText(formData.address_city),
+    address_state: cleanText(formData.address_state),
+    notes: cleanText(formData.notes),
+    created_by: userId,
+    entry_mode: 'manual',
+  })
+  .select('id')
+  .single()
 
       if (leadErr) throw leadErr
+
+      const leadType = getLeadTypeFromDocument(normalizedDocument)
+
+const profilePayload: Record<string, any> = {
+  lead_id: leadData.id,
+  company_id: companyId,
+  lead_type: leadType,
+  email: normalizedEmail,
+  cep: normalizedCEP,
+  address_street: cleanText(formData.address_street),
+  address_number: cleanText(formData.address_number),
+  address_complement: cleanText(formData.address_complement),
+  address_neighborhood: cleanText(formData.address_neighborhood),
+  address_city: cleanText(formData.address_city),
+  address_state: cleanText(formData.address_state),
+  address_country: 'Brasil',
+}
+
+if (normalizedDocument?.length === 11) {
+  profilePayload.cpf = normalizedDocument
+  profilePayload.cnpj = null
+} else if (normalizedDocument?.length === 14) {
+  profilePayload.cnpj = normalizedDocument
+  profilePayload.cpf = null
+}
+
+Object.keys(profilePayload).forEach((key) => {
+  if (profilePayload[key] === null || profilePayload[key] === undefined || profilePayload[key] === '') {
+    delete profilePayload[key]
+  }
+})
+
+const { error: profileErr } = await supabase
+  .from('lead_profiles')
+  .upsert(profilePayload, { onConflict: 'lead_id' })
+
+if (profileErr) throw profileErr
 
       // ✅ MUDANÇA: Admin → owner_id = NULL (Pool), Vendedor → owner_id = userId
       const ownerUserId = isAdmin ? null : userId
