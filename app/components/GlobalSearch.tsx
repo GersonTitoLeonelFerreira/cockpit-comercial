@@ -102,6 +102,23 @@ export default function GlobalSearch() {
     return () => window.removeEventListener('mousedown', onDown)
   }, [open])
 
+  React.useEffect(() => {
+    if (!open) return
+
+    const closeDropdown = () => {
+      setOpen(false)
+    }
+
+    // use capture=true para pegar também scroll de containers internos
+    window.addEventListener('scroll', closeDropdown, true)
+    window.addEventListener('resize', closeDropdown)
+
+    return () => {
+      window.removeEventListener('scroll', closeDropdown, true)
+      window.removeEventListener('resize', closeDropdown)
+    }
+  }, [open])
+
   return (
     <div ref={rootRef} style={{ position: 'relative', width: 'min(320px, 45vw)' }}>
       <input
@@ -133,7 +150,7 @@ export default function GlobalSearch() {
         }}
       />
 
-      {open ? (
+            {open ? (
         <div
           style={{
             position: 'absolute',
@@ -146,6 +163,8 @@ export default function GlobalSearch() {
             overflow: 'hidden',
             zIndex: 2000,
             boxShadow: '0 20px 50px rgba(0,0,0,.55)',
+            maxHeight: 'min(360px, calc(100vh - 140px))',
+            overflowY: 'auto',
           }}
         >
           <div style={{ padding: 10, borderBottom: '1px solid #1f1f1f', fontSize: 12, opacity: 0.75 }}>
