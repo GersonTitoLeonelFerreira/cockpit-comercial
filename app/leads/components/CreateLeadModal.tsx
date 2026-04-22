@@ -61,10 +61,17 @@ function getLeadTypeFromDocument(document: string | null): 'PF' | 'PJ' | null {
   return null
 }
 
+type ConflictLeadRef = {
+  id: string
+  name: string | null
+  phone: string | null
+  email: string | null
+}
+
 type LeadConflictCheck = {
-  document: boolean
-  phone: boolean
-  email: boolean
+  document: ConflictLeadRef | null
+  phone: ConflictLeadRef | null
+  email: ConflictLeadRef | null
 }
 
 export default function CreateLeadModal({
@@ -182,6 +189,33 @@ export default function CreateLeadModal({
     }))
   }
 
+  const fetchLeadSummaryById = async (leadId: string): Promise<ConflictLeadRef | null> => {
+    const { data, error } = await supabase
+      .from('leads')
+      .select('id, name, phone, email')
+      .eq('company_id', companyId)
+      .eq('id', leadId)
+      .maybeSingle()
+  
+    if (error || !data) return null
+  
+    return {
+      id: data.id,
+      name: data.name ?? null,
+      phone: data.phone ?? null,
+      email: data.email ?? null,
+    }
+  }
+  
+  const formatConflictLeadLabel = (lead: ConflictLeadRef | null): string => {
+    if (!lead) return 'lead existente'
+  
+    const name = cleanText(lead.name) || 'Sem nome'
+    const shortId = lead.id.slice(0, 8)
+  
+    return `${name} (${shortId})`
+  }
+
   const fetchAddressFromCEP = async (cep: string) => {
     if (!cep || cep.length < 8) return
 
@@ -220,103 +254,137 @@ export default function CreateLeadModal({
     }
   }
 
-  const checkLeadConflicts = async ({
-    rawDocument,
-    rawPhone,
-    rawEmail,
-  }: {
-    rawDocument?: string | null
-    rawPhone?: string | null
-    rawEmail?: string | null
-  }): Promise<LeadConflictCheck> => {
-    const document = normalizeDocument(rawDocument)
-    const phone = normalizePhone(rawPhone)
-    const email = normalizeEmail(rawEmail)
-  
-    const result: LeadConflictCheck = {
-      document: false,
-      phone: false,
-      email: false,
-    }
-  
-    try {
-      if (document && [11, 14].includes(document.length)) {
-        const { data: leadMatches, error: leadErr } = await supabase
-          .from('leads')
-          .select('id')
+const checkLeadConflicts = async ({
+  rawDocument,
+  rawPhone,
+  rawEmail,
+}: {
+  rawDocument?: string | null
+  rawPhone?: string | null
+  rawEmail?: string | null
+}): Promise<LeadConflictCheck> => {
+  const document = normalizeDocument(rawDocument)
+  const phone = normalizePhone(rawPhone)
+  const email = normalizeEmail(rawEmail)
+
+  const result: LeadConflictCheck = {
+    document: null,
+    phone: null,
+    email: null,
+  }
+
+  try {
+    if (document && [11, 14].includes(document.length)) {
+      const { data: leadMatches, error: leadErr } = await supabase
+        .from('leads')
+        .select('id, name, phone, email')
+        .eq('company_id', companyId)
+        .eq('cpf_cnpj', document)
+        .limit(1)
+
+      if (leadErr) throw leadErr
+
+      if ((leadMatches ?? []).length > 0) {
+        const lead = leadMatches![0]
+        result.document = {
+          id: lead.id,
+          name: lead.name ?? null,
+          phone: lead.phone ?? null,
+          email: lead.email ?? null,
+        }
+      } else if (document.length === 11) {
+        const { data: profileMatches, error: profileErr } = await supabase
+          .from('lead_profiles')
+          .select('lead_id')
           .eq('company_id', companyId)
-          .eq('cpf_cnpj', document)
+          .eq('cpf', document)
           .limit(1)
-  
-        if (leadErr) throw leadErr
-        if ((leadMatches ?? []).length > 0) {
-          result.document = true
-        } else if (document.length === 11) {
-          const { data: profileMatches, error: profileErr } = await supabase
-            .from('lead_profiles')
-            .select('lead_id')
-            .eq('company_id', companyId)
-            .eq('cpf', document)
-            .limit(1)
-  
-          if (profileErr) throw profileErr
-          result.document = (profileMatches ?? []).length > 0
-        } else {
-          const { data: profileMatches, error: profileErr } = await supabase
-            .from('lead_profiles')
-            .select('lead_id')
-            .eq('company_id', companyId)
-            .eq('cnpj', document)
-            .limit(1)
-  
-          if (profileErr) throw profileErr
-          result.document = (profileMatches ?? []).length > 0
+
+        if (profileErr) throw profileErr
+
+        const leadId = profileMatches?.[0]?.lead_id
+        if (leadId) {
+          result.document = await fetchLeadSummaryById(leadId)
+        }
+      } else {
+        const { data: profileMatches, error: profileErr } = await supabase
+          .from('lead_profiles')
+          .select('lead_id')
+          .eq('company_id', companyId)
+          .eq('cnpj', document)
+          .limit(1)
+
+        if (profileErr) throw profileErr
+
+        const leadId = profileMatches?.[0]?.lead_id
+        if (leadId) {
+          result.document = await fetchLeadSummaryById(leadId)
         }
       }
-  
-      if (phone) {
-        const { data: phoneMatches, error: phoneErr } = await supabase
-          .from('leads')
-          .select('id')
-          .eq('company_id', companyId)
-          .eq('phone', phone)
-          .limit(1)
-  
-        if (phoneErr) throw phoneErr
-        result.phone = (phoneMatches ?? []).length > 0
+    }
+
+    if (phone) {
+      const { data: phoneMatches, error: phoneErr } = await supabase
+        .from('leads')
+        .select('id, name, phone, email')
+        .eq('company_id', companyId)
+        .eq('phone', phone)
+        .limit(1)
+
+      if (phoneErr) throw phoneErr
+
+      if ((phoneMatches ?? []).length > 0) {
+        const lead = phoneMatches![0]
+        result.phone = {
+          id: lead.id,
+          name: lead.name ?? null,
+          phone: lead.phone ?? null,
+          email: lead.email ?? null,
+        }
       }
-  
-      if (email) {
-        const { data: emailLeadMatches, error: emailLeadErr } = await supabase
-          .from('leads')
-          .select('id')
+    }
+
+    if (email) {
+      const { data: emailLeadMatches, error: emailLeadErr } = await supabase
+        .from('leads')
+        .select('id, name, phone, email')
+        .eq('company_id', companyId)
+        .eq('email', email)
+        .limit(1)
+
+      if (emailLeadErr) throw emailLeadErr
+
+      if ((emailLeadMatches ?? []).length > 0) {
+        const lead = emailLeadMatches![0]
+        result.email = {
+          id: lead.id,
+          name: lead.name ?? null,
+          phone: lead.phone ?? null,
+          email: lead.email ?? null,
+        }
+      } else {
+        const { data: emailProfileMatches, error: emailProfileErr } = await supabase
+          .from('lead_profiles')
+          .select('lead_id')
           .eq('company_id', companyId)
           .eq('email', email)
           .limit(1)
-  
-        if (emailLeadErr) throw emailLeadErr
-  
-        if ((emailLeadMatches ?? []).length > 0) {
-          result.email = true
-        } else {
-          const { data: emailProfileMatches, error: emailProfileErr } = await supabase
-            .from('lead_profiles')
-            .select('lead_id')
-            .eq('company_id', companyId)
-            .eq('email', email)
-            .limit(1)
-  
-          if (emailProfileErr) throw emailProfileErr
-          result.email = (emailProfileMatches ?? []).length > 0
+
+        if (emailProfileErr) throw emailProfileErr
+
+        const leadId = emailProfileMatches?.[0]?.lead_id
+        if (leadId) {
+          result.email = await fetchLeadSummaryById(leadId)
         }
       }
-  
-      return result
-    } catch (e: any) {
-      console.error('Erro ao verificar conflitos do lead:', e)
-      return result
     }
+
+    return result
+  } catch (e: any) {
+    console.error('Erro ao verificar conflitos do lead:', e)
+    return result
   }
+}
 
   const handleCPFChange = (value: string) => {
     handleFormChange('cpf_cnpj', value)
@@ -338,9 +406,8 @@ export default function CreateLeadModal({
     cpfTimerRef.current = window.setTimeout(async () => {
       const conflicts = await checkLeadConflicts({ rawDocument: normalizedDocument })
       if (conflicts.document) {
-        setCpfWarning('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
-      } else {
-        setCpfWarning(null)
+        setError(`⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`)
+        return
       }
     }, 500)
   }
@@ -356,7 +423,7 @@ export default function CreateLeadModal({
     const conflicts = await checkLeadConflicts({ rawPhone: normalizedPhone })
   
     if (conflicts.phone) {
-      setPhoneWarning('⚠️ Este telefone já existe em outro lead. Verifique antes de continuar.')
+      setPhoneWarning(`⚠️ Este telefone já existe no lead ${formatConflictLeadLabel(conflicts.phone)}.`)
     } else {
       setPhoneWarning(null)
     }
@@ -373,7 +440,7 @@ export default function CreateLeadModal({
     const conflicts = await checkLeadConflicts({ rawEmail: normalizedEmail })
   
     if (conflicts.email) {
-      setEmailWarning('⚠️ Este email já existe em outro lead. Verifique antes de continuar.')
+      setEmailWarning(`⚠️ Este email já existe no lead ${formatConflictLeadLabel(conflicts.email)}.`)
     } else {
       setEmailWarning(null)
     }
