@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
+import Image from 'next/image'
 
 function useIsMobile(breakpoint = 980) {
   const [isMobile, setIsMobile] = useState(false)
@@ -566,53 +567,37 @@ export default function LoginPage() {
         }}
       >
         <section style={{ display: 'grid', gap: 22 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 14,
-                display: 'grid',
-                placeItems: 'center',
-                background: 'linear-gradient(145deg, #2563eb 0%, #1d4ed8 100%)',
-                color: 'white',
-                fontSize: 18,
-                fontWeight: 900,
-                boxShadow: '0 10px 24px rgba(37,99,235,0.28)',
-                flexShrink: 0,
-              }}
-            >
-              Y
-            </div>
+        <div
+  style={{
+    display: 'grid',
+    gap: 8,
+    justifyContent: 'start',
+  }}
+>
+  <Image
+    src="/branding/yolen-logo-white.png"
+    alt="Yolen"
+    width={220}
+    height={72}
+    priority
+    style={{
+      width: isMobile ? 150 : 220,
+      height: 'auto',
+      display: 'block',
+      objectFit: 'contain',
+    }}
+  />
 
-            <div>
-              <div
-                style={{
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: DS.textPrimary,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                Yolen
-              </div>
-              <div
-                style={{
-                  marginTop: 2,
-                  fontSize: 13,
-                  color: DS.textSecondary,
-                }}
-              >
-                Cockpit comercial para equipes de vendas
-              </div>
-            </div>
-          </div>
+  <div
+    style={{
+      fontSize: 13,
+      color: DS.textSecondary,
+      marginLeft: 2,
+    }}
+  >
+    Cockpit comercial para equipes de vendas
+  </div>
+</div>
 
           <div
             style={{
