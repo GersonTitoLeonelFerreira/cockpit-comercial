@@ -566,32 +566,48 @@ export default function LoginPage() {
           boxSizing: 'border-box',
         }}
       >
-        <section style={{ display: 'grid', gap: 22 }}>
+        <section style={{ display: 'grid', gap: 18 }}>
         <div
   style={{
     display: 'grid',
-    gap: 8,
+    gap: 10,
     justifyContent: 'start',
+    alignSelf: 'start',
   }}
 >
-  <Image
-    src="/branding/yolen-logo-white.png"
-    alt="Yolen"
-    width={220}
-    height={72}
-    priority
+  <div
     style={{
-      width: isMobile ? 150 : 220,
-      height: 'auto',
-      display: 'block',
-      objectFit: 'contain',
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: isMobile ? '12px 14px' : '14px 18px',
+      borderRadius: 18,
+      border: '1px solid rgba(59,130,246,0.14)',
+      background: 'linear-gradient(135deg, rgba(59,130,246,0.08) 0%, rgba(17,19,24,0.46) 100%)',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+      width: 'fit-content',
     }}
-  />
+  >
+    <Image
+      src="/branding/yolen-logo-white.png"
+      alt="Yolen"
+      width={320}
+      height={88}
+      priority
+      style={{
+        width: isMobile ? 190 : 320,
+        height: 'auto',
+        display: 'block',
+        objectFit: 'contain',
+      }}
+    />
+  </div>
 
   <div
     style={{
-      fontSize: 13,
+      fontSize: 14,
       color: DS.textSecondary,
+      lineHeight: 1.45,
+      maxWidth: 360,
       marginLeft: 2,
     }}
   >

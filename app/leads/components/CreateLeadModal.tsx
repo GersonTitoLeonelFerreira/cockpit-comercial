@@ -118,6 +118,10 @@ export default function CreateLeadModal({
   const [cpfWarning, setCpfWarning] = useState<string | null>(null)
   const [phoneWarning, setPhoneWarning] = useState<string | null>(null)
   const [emailWarning, setEmailWarning] = useState<string | null>(null)
+  const [cpfConflictLead, setCpfConflictLead] = useState<ConflictLeadRef | null>(null)
+  const [phoneConflictLead, setPhoneConflictLead] = useState<ConflictLeadRef | null>(null)
+  const [emailConflictLead, setEmailConflictLead] = useState<ConflictLeadRef | null>(null)
+  const [errorConflictLead, setErrorConflictLead] = useState<ConflictLeadRef | null>(null)
   const cpfTimerRef = useRef<number | null>(null)
 
   React.useEffect(() => {
@@ -178,11 +182,17 @@ export default function CreateLeadModal({
       setCreatingGroup(false)
     }
   }
-
   const handleFormChange = (field: keyof LeadFormData, value: string) => {
-    if (field === 'phone') setPhoneWarning(null)
-    if (field === 'email') setEmailWarning(null)
-
+    if (field === 'phone') {
+      setPhoneWarning(null)
+      setPhoneConflictLead(null)
+    }
+  
+    if (field === 'email') {
+      setEmailWarning(null)
+      setEmailConflictLead(null)
+    }
+  
     setFormData((prev) => ({
       ...prev,
       [field]: value,
@@ -214,6 +224,11 @@ export default function CreateLeadModal({
     const shortId = lead.id.slice(0, 8)
 
     return `${name} (${shortId})`
+  }
+
+  const openConflictLead = (lead: ConflictLeadRef | null) => {
+    if (!lead?.id) return
+    window.open(`/leads/${lead.id}`, '_blank', 'noopener,noreferrer')
   }
 
   const fetchAddressFromCEP = async (cep: string) => {
@@ -393,11 +408,13 @@ export default function CreateLeadModal({
 
     if (!normalizedDocument) {
       setCpfWarning(null)
+      setCpfConflictLead(null)
       return
     }
-
+    
     if (![11, 14].includes(normalizedDocument.length)) {
       setCpfWarning(null)
+      setCpfConflictLead(null)
       return
     }
 
@@ -409,43 +426,51 @@ export default function CreateLeadModal({
         setCpfWarning(
           `⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`
         )
+        setCpfConflictLead(conflicts.document)
       } else {
         setCpfWarning(null)
+        setCpfConflictLead(null)
       }
     }, 500)
   }
 
   const handlePhoneBlur = async () => {
     const normalizedPhone = normalizePhone(formData.phone)
-
+  
     if (!normalizedPhone) {
       setPhoneWarning(null)
+      setPhoneConflictLead(null)
       return
     }
-
+  
     const conflicts = await checkLeadConflicts({ rawPhone: normalizedPhone })
-
+  
     if (conflicts.phone) {
       setPhoneWarning(`⚠️ Este telefone já existe no lead ${formatConflictLeadLabel(conflicts.phone)}.`)
+      setPhoneConflictLead(conflicts.phone)
     } else {
       setPhoneWarning(null)
+      setPhoneConflictLead(null)
     }
   }
 
   const handleEmailBlur = async () => {
     const normalizedEmail = normalizeEmail(formData.email)
-
+  
     if (!normalizedEmail) {
       setEmailWarning(null)
+      setEmailConflictLead(null)
       return
     }
-
+  
     const conflicts = await checkLeadConflicts({ rawEmail: normalizedEmail })
-
+  
     if (conflicts.email) {
       setEmailWarning(`⚠️ Este email já existe no lead ${formatConflictLeadLabel(conflicts.email)}.`)
+      setEmailConflictLead(conflicts.email)
     } else {
       setEmailWarning(null)
+      setEmailConflictLead(null)
     }
   }
 
@@ -483,19 +508,31 @@ export default function CreateLeadModal({
 
     if (conflicts.document) {
       setError(`⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`)
+      setErrorConflictLead(conflicts.document)
+      setCpfConflictLead(conflicts.document)
       return
     }
-
+    
+    setError(null)
+    setErrorConflictLead(null)
+    
     if (conflicts.phone) {
       setPhoneWarning(`⚠️ Este telefone já existe no lead ${formatConflictLeadLabel(conflicts.phone)}.`)
+      setPhoneConflictLead(conflicts.phone)
+    } else {
+      setPhoneWarning(null)
+      setPhoneConflictLead(null)
     }
-
+    
     if (conflicts.email) {
       setEmailWarning(`⚠️ Este email já existe no lead ${formatConflictLeadLabel(conflicts.email)}.`)
+      setEmailConflictLead(conflicts.email)
+    } else {
+      setEmailWarning(null)
+      setEmailConflictLead(null)
     }
-
+    
     setLoading(true)
-    setError(null)
 
     try {
       const { data: leadData, error: leadErr } = await supabase
@@ -676,19 +713,43 @@ export default function CreateLeadModal({
         </div>
 
         {error && (
-          <div
-            style={{
-              background: '#7f1d1d',
-              color: '#fecaca',
-              padding: 12,
-              borderRadius: 10,
-              marginBottom: 16,
-              fontSize: 12,
-            }}
-          >
-            {error}
-          </div>
-        )}
+  <div
+    style={{
+      background: '#7f1d1d',
+      color: '#fecaca',
+      padding: 12,
+      borderRadius: 10,
+      marginBottom: 16,
+      fontSize: 12,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    }}
+  >
+    <div>{error}</div>
+
+    {errorConflictLead?.id && (
+      <button
+        type="button"
+        onClick={() => openConflictLead(errorConflictLead)}
+        style={{
+          border: '1px solid #fecaca',
+          background: 'transparent',
+          color: '#fecaca',
+          borderRadius: 8,
+          padding: '8px 10px',
+          fontSize: 11,
+          fontWeight: 800,
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Abrir lead
+      </button>
+    )}
+  </div>
+)}
 
         {step === 'form' ? (
           <>
@@ -738,8 +799,40 @@ export default function CreateLeadModal({
                   }}
                 />
                 {phoneWarning && (
-                  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>{phoneWarning}</div>
-                )}
+  <div
+    style={{
+      fontSize: 11,
+      color: '#fcd34d',
+      marginTop: 6,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    }}
+  >
+    <span>{phoneWarning}</span>
+
+    {phoneConflictLead?.id && (
+      <button
+        type="button"
+        onClick={() => openConflictLead(phoneConflictLead)}
+        style={{
+          border: '1px solid #fcd34d',
+          background: 'transparent',
+          color: '#fcd34d',
+          borderRadius: 8,
+          padding: '6px 8px',
+          fontSize: 10,
+          fontWeight: 800,
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Abrir lead
+      </button>
+    )}
+  </div>
+)}
               </div>
 
               <div>
@@ -763,8 +856,40 @@ export default function CreateLeadModal({
                   }}
                 />
                 {emailWarning && (
-                  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>{emailWarning}</div>
-                )}
+  <div
+    style={{
+      fontSize: 11,
+      color: '#fcd34d',
+      marginTop: 6,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    }}
+  >
+    <span>{emailWarning}</span>
+
+    {emailConflictLead?.id && (
+      <button
+        type="button"
+        onClick={() => openConflictLead(emailConflictLead)}
+        style={{
+          border: '1px solid #fcd34d',
+          background: 'transparent',
+          color: '#fcd34d',
+          borderRadius: 8,
+          padding: '6px 8px',
+          fontSize: 10,
+          fontWeight: 800,
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Abrir lead
+      </button>
+    )}
+  </div>
+)}  
               </div>
             </div>
 
@@ -788,8 +913,40 @@ export default function CreateLeadModal({
                 }}
               />
               {cpfWarning && (
-                <div style={{ fontSize: 11, color: '#fecaca', marginTop: 6 }}>{cpfWarning}</div>
-              )}
+  <div
+    style={{
+      fontSize: 11,
+      color: '#fecaca',
+      marginTop: 6,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    }}
+  >
+    <span>{cpfWarning}</span>
+
+    {cpfConflictLead?.id && (
+      <button
+        type="button"
+        onClick={() => openConflictLead(cpfConflictLead)}
+        style={{
+          border: '1px solid #fecaca',
+          background: 'transparent',
+          color: '#fecaca',
+          borderRadius: 8,
+          padding: '6px 8px',
+          fontSize: 10,
+          fontWeight: 800,
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Abrir lead
+      </button>
+    )}
+  </div>
+)}
             </div>
 
             <div style={{ marginBottom: 16 }}>
