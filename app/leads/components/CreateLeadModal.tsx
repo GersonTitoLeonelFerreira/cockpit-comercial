@@ -125,10 +125,10 @@ export default function CreateLeadModal({
       if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
     }
   }, [])
-  
+
   React.useEffect(() => {
     if (!isAdmin) return
-    
+
     const loadSellers = async () => {
       try {
         const { data, error: err } = await supabase
@@ -145,7 +145,7 @@ export default function CreateLeadModal({
       }
     }
 
-    loadSellers()
+    void loadSellers()
   }, [isAdmin, companyId, supabase])
 
   const createNewGroup = async () => {
@@ -182,8 +182,8 @@ export default function CreateLeadModal({
   const handleFormChange = (field: keyof LeadFormData, value: string) => {
     if (field === 'phone') setPhoneWarning(null)
     if (field === 'email') setEmailWarning(null)
-  
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
       [field]: value,
     }))
@@ -196,9 +196,9 @@ export default function CreateLeadModal({
       .eq('company_id', companyId)
       .eq('id', leadId)
       .maybeSingle()
-  
+
     if (error || !data) return null
-  
+
     return {
       id: data.id,
       name: data.name ?? null,
@@ -206,13 +206,13 @@ export default function CreateLeadModal({
       email: data.email ?? null,
     }
   }
-  
+
   const formatConflictLeadLabel = (lead: ConflictLeadRef | null): string => {
     if (!lead) return 'lead existente'
-  
+
     const name = cleanText(lead.name) || 'Sem nome'
     const shortId = lead.id.slice(0, 8)
-  
+
     return `${name} (${shortId})`
   }
 
@@ -238,7 +238,7 @@ export default function CreateLeadModal({
         return
       }
 
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         address_street: data.logradouro || '',
         address_neighborhood: data.bairro || '',
@@ -254,191 +254,194 @@ export default function CreateLeadModal({
     }
   }
 
-const checkLeadConflicts = async ({
-  rawDocument,
-  rawPhone,
-  rawEmail,
-}: {
-  rawDocument?: string | null
-  rawPhone?: string | null
-  rawEmail?: string | null
-}): Promise<LeadConflictCheck> => {
-  const document = normalizeDocument(rawDocument)
-  const phone = normalizePhone(rawPhone)
-  const email = normalizeEmail(rawEmail)
+  const checkLeadConflicts = async ({
+    rawDocument,
+    rawPhone,
+    rawEmail,
+  }: {
+    rawDocument?: string | null
+    rawPhone?: string | null
+    rawEmail?: string | null
+  }): Promise<LeadConflictCheck> => {
+    const document = normalizeDocument(rawDocument)
+    const phone = normalizePhone(rawPhone)
+    const email = normalizeEmail(rawEmail)
 
-  const result: LeadConflictCheck = {
-    document: null,
-    phone: null,
-    email: null,
-  }
-
-  try {
-    if (document && [11, 14].includes(document.length)) {
-      const { data: leadMatches, error: leadErr } = await supabase
-        .from('leads')
-        .select('id, name, phone, email')
-        .eq('company_id', companyId)
-        .eq('cpf_cnpj', document)
-        .limit(1)
-
-      if (leadErr) throw leadErr
-
-      if ((leadMatches ?? []).length > 0) {
-        const lead = leadMatches![0]
-        result.document = {
-          id: lead.id,
-          name: lead.name ?? null,
-          phone: lead.phone ?? null,
-          email: lead.email ?? null,
-        }
-      } else if (document.length === 11) {
-        const { data: profileMatches, error: profileErr } = await supabase
-          .from('lead_profiles')
-          .select('lead_id')
-          .eq('company_id', companyId)
-          .eq('cpf', document)
-          .limit(1)
-
-        if (profileErr) throw profileErr
-
-        const leadId = profileMatches?.[0]?.lead_id
-        if (leadId) {
-          result.document = await fetchLeadSummaryById(leadId)
-        }
-      } else {
-        const { data: profileMatches, error: profileErr } = await supabase
-          .from('lead_profiles')
-          .select('lead_id')
-          .eq('company_id', companyId)
-          .eq('cnpj', document)
-          .limit(1)
-
-        if (profileErr) throw profileErr
-
-        const leadId = profileMatches?.[0]?.lead_id
-        if (leadId) {
-          result.document = await fetchLeadSummaryById(leadId)
-        }
-      }
+    const result: LeadConflictCheck = {
+      document: null,
+      phone: null,
+      email: null,
     }
 
-    if (phone) {
-      const { data: phoneMatches, error: phoneErr } = await supabase
-        .from('leads')
-        .select('id, name, phone, email')
-        .eq('company_id', companyId)
-        .eq('phone', phone)
-        .limit(1)
+    try {
+      if (document && [11, 14].includes(document.length)) {
+        const { data: leadMatches, error: leadErr } = await supabase
+          .from('leads')
+          .select('id, name, phone, email')
+          .eq('company_id', companyId)
+          .eq('cpf_cnpj', document)
+          .limit(1)
 
-      if (phoneErr) throw phoneErr
+        if (leadErr) throw leadErr
 
-      if ((phoneMatches ?? []).length > 0) {
-        const lead = phoneMatches![0]
-        result.phone = {
-          id: lead.id,
-          name: lead.name ?? null,
-          phone: lead.phone ?? null,
-          email: lead.email ?? null,
+        if ((leadMatches ?? []).length > 0) {
+          const lead = leadMatches![0]
+          result.document = {
+            id: lead.id,
+            name: lead.name ?? null,
+            phone: lead.phone ?? null,
+            email: lead.email ?? null,
+          }
+        } else if (document.length === 11) {
+          const { data: profileMatches, error: profileErr } = await supabase
+            .from('lead_profiles')
+            .select('lead_id')
+            .eq('company_id', companyId)
+            .eq('cpf', document)
+            .limit(1)
+
+          if (profileErr) throw profileErr
+
+          const leadId = profileMatches?.[0]?.lead_id
+          if (leadId) {
+            result.document = await fetchLeadSummaryById(leadId)
+          }
+        } else {
+          const { data: profileMatches, error: profileErr } = await supabase
+            .from('lead_profiles')
+            .select('lead_id')
+            .eq('company_id', companyId)
+            .eq('cnpj', document)
+            .limit(1)
+
+          if (profileErr) throw profileErr
+
+          const leadId = profileMatches?.[0]?.lead_id
+          if (leadId) {
+            result.document = await fetchLeadSummaryById(leadId)
+          }
         }
       }
-    }
 
-    if (email) {
-      const { data: emailLeadMatches, error: emailLeadErr } = await supabase
-        .from('leads')
-        .select('id, name, phone, email')
-        .eq('company_id', companyId)
-        .eq('email', email)
-        .limit(1)
+      if (phone) {
+        const { data: phoneMatches, error: phoneErr } = await supabase
+          .from('leads')
+          .select('id, name, phone, email')
+          .eq('company_id', companyId)
+          .eq('phone', phone)
+          .limit(1)
 
-      if (emailLeadErr) throw emailLeadErr
+        if (phoneErr) throw phoneErr
 
-      if ((emailLeadMatches ?? []).length > 0) {
-        const lead = emailLeadMatches![0]
-        result.email = {
-          id: lead.id,
-          name: lead.name ?? null,
-          phone: lead.phone ?? null,
-          email: lead.email ?? null,
+        if ((phoneMatches ?? []).length > 0) {
+          const lead = phoneMatches![0]
+          result.phone = {
+            id: lead.id,
+            name: lead.name ?? null,
+            phone: lead.phone ?? null,
+            email: lead.email ?? null,
+          }
         }
-      } else {
-        const { data: emailProfileMatches, error: emailProfileErr } = await supabase
-          .from('lead_profiles')
-          .select('lead_id')
+      }
+
+      if (email) {
+        const { data: emailLeadMatches, error: emailLeadErr } = await supabase
+          .from('leads')
+          .select('id, name, phone, email')
           .eq('company_id', companyId)
           .eq('email', email)
           .limit(1)
 
-        if (emailProfileErr) throw emailProfileErr
+        if (emailLeadErr) throw emailLeadErr
 
-        const leadId = emailProfileMatches?.[0]?.lead_id
-        if (leadId) {
-          result.email = await fetchLeadSummaryById(leadId)
+        if ((emailLeadMatches ?? []).length > 0) {
+          const lead = emailLeadMatches![0]
+          result.email = {
+            id: lead.id,
+            name: lead.name ?? null,
+            phone: lead.phone ?? null,
+            email: lead.email ?? null,
+          }
+        } else {
+          const { data: emailProfileMatches, error: emailProfileErr } = await supabase
+            .from('lead_profiles')
+            .select('lead_id')
+            .eq('company_id', companyId)
+            .eq('email', email)
+            .limit(1)
+
+          if (emailProfileErr) throw emailProfileErr
+
+          const leadId = emailProfileMatches?.[0]?.lead_id
+          if (leadId) {
+            result.email = await fetchLeadSummaryById(leadId)
+          }
         }
       }
-    }
 
-    return result
-  } catch (e: any) {
-    console.error('Erro ao verificar conflitos do lead:', e)
-    return result
+      return result
+    } catch (e: any) {
+      console.error('Erro ao verificar conflitos do lead:', e)
+      return result
+    }
   }
-}
 
   const handleCPFChange = (value: string) => {
     handleFormChange('cpf_cnpj', value)
-  
+
     const normalizedDocument = normalizeDocument(value)
-  
+
     if (!normalizedDocument) {
       setCpfWarning(null)
       return
     }
-  
+
     if (![11, 14].includes(normalizedDocument.length)) {
       setCpfWarning(null)
       return
     }
-  
+
     if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
-  
+
     cpfTimerRef.current = window.setTimeout(async () => {
       const conflicts = await checkLeadConflicts({ rawDocument: normalizedDocument })
       if (conflicts.document) {
-        setError(`⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`)
-        return
+        setCpfWarning(
+          `⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`
+        )
+      } else {
+        setCpfWarning(null)
       }
     }, 500)
   }
-  
+
   const handlePhoneBlur = async () => {
     const normalizedPhone = normalizePhone(formData.phone)
-  
+
     if (!normalizedPhone) {
       setPhoneWarning(null)
       return
     }
-  
+
     const conflicts = await checkLeadConflicts({ rawPhone: normalizedPhone })
-  
+
     if (conflicts.phone) {
       setPhoneWarning(`⚠️ Este telefone já existe no lead ${formatConflictLeadLabel(conflicts.phone)}.`)
     } else {
       setPhoneWarning(null)
     }
   }
-  
+
   const handleEmailBlur = async () => {
     const normalizedEmail = normalizeEmail(formData.email)
-  
+
     if (!normalizedEmail) {
       setEmailWarning(null)
       return
     }
-  
+
     const conflicts = await checkLeadConflicts({ rawEmail: normalizedEmail })
-  
+
     if (conflicts.email) {
       setEmailWarning(`⚠️ Este email já existe no lead ${formatConflictLeadLabel(conflicts.email)}.`)
     } else {
@@ -461,102 +464,105 @@ const checkLeadConflicts = async ({
     const normalizedEmail = normalizeEmail(formData.email)
     const normalizedDocument = normalizeDocument(formData.cpf_cnpj)
     const normalizedCEP = normalizeCEP(formData.address_cep)
-  
+
     if (!normalizedName) {
       setError('Nome é obrigatório')
       return
     }
-  
+
     if (normalizedDocument && ![11, 14].includes(normalizedDocument.length)) {
       setError('CPF/CNPJ inválido')
       return
     }
-  
+
     const conflicts = await checkLeadConflicts({
       rawDocument: normalizedDocument,
       rawPhone: normalizedPhone,
       rawEmail: normalizedEmail,
     })
-    
+
     if (conflicts.document) {
-      setError('⚠️ Este CPF/CNPJ já está cadastrado no sistema')
+      setError(`⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`)
       return
     }
-    
+
     if (conflicts.phone) {
-      setPhoneWarning('⚠️ Este telefone já existe em outro lead. Verifique antes de continuar.')
+      setPhoneWarning(`⚠️ Este telefone já existe no lead ${formatConflictLeadLabel(conflicts.phone)}.`)
     }
-    
+
     if (conflicts.email) {
-      setEmailWarning('⚠️ Este email já existe em outro lead. Verifique antes de continuar.')
+      setEmailWarning(`⚠️ Este email já existe no lead ${formatConflictLeadLabel(conflicts.email)}.`)
     }
-  
+
     setLoading(true)
     setError(null)
-  
+
     try {
       const { data: leadData, error: leadErr } = await supabase
-  .from('leads')
-  .insert({
-    company_id: companyId,
-    name: normalizedName,
-    phone: normalizedPhone,
-    email: normalizedEmail,
-    cpf_cnpj: normalizedDocument,
-    address_cep: normalizedCEP,
-    address_street: cleanText(formData.address_street),
-    address_number: cleanText(formData.address_number),
-    address_complement: cleanText(formData.address_complement),
-    address_neighborhood: cleanText(formData.address_neighborhood),
-    address_city: cleanText(formData.address_city),
-    address_state: cleanText(formData.address_state),
-    notes: cleanText(formData.notes),
-    created_by: userId,
-    entry_mode: 'manual',
-  })
-  .select('id')
-  .single()
+        .from('leads')
+        .insert({
+          company_id: companyId,
+          name: normalizedName,
+          phone: normalizedPhone,
+          email: normalizedEmail,
+          cpf_cnpj: normalizedDocument,
+          address_cep: normalizedCEP,
+          address_street: cleanText(formData.address_street),
+          address_number: cleanText(formData.address_number),
+          address_complement: cleanText(formData.address_complement),
+          address_neighborhood: cleanText(formData.address_neighborhood),
+          address_city: cleanText(formData.address_city),
+          address_state: cleanText(formData.address_state),
+          notes: cleanText(formData.notes),
+          created_by: userId,
+          entry_mode: 'manual',
+        })
+        .select('id')
+        .single()
 
       if (leadErr) throw leadErr
 
       const leadType = getLeadTypeFromDocument(normalizedDocument)
 
-const profilePayload: Record<string, any> = {
-  lead_id: leadData.id,
-  company_id: companyId,
-  lead_type: leadType,
-  email: normalizedEmail,
-  cep: normalizedCEP,
-  address_street: cleanText(formData.address_street),
-  address_number: cleanText(formData.address_number),
-  address_complement: cleanText(formData.address_complement),
-  address_neighborhood: cleanText(formData.address_neighborhood),
-  address_city: cleanText(formData.address_city),
-  address_state: cleanText(formData.address_state),
-  address_country: 'Brasil',
-}
+      const profilePayload: Record<string, any> = {
+        lead_id: leadData.id,
+        company_id: companyId,
+        lead_type: leadType,
+        email: normalizedEmail,
+        cep: normalizedCEP,
+        address_street: cleanText(formData.address_street),
+        address_number: cleanText(formData.address_number),
+        address_complement: cleanText(formData.address_complement),
+        address_neighborhood: cleanText(formData.address_neighborhood),
+        address_city: cleanText(formData.address_city),
+        address_state: cleanText(formData.address_state),
+        address_country: 'Brasil',
+      }
 
-if (normalizedDocument?.length === 11) {
-  profilePayload.cpf = normalizedDocument
-  profilePayload.cnpj = null
-} else if (normalizedDocument?.length === 14) {
-  profilePayload.cnpj = normalizedDocument
-  profilePayload.cpf = null
-}
+      if (normalizedDocument?.length === 11) {
+        profilePayload.cpf = normalizedDocument
+        profilePayload.cnpj = null
+      } else if (normalizedDocument?.length === 14) {
+        profilePayload.cnpj = normalizedDocument
+        profilePayload.cpf = null
+      }
 
-Object.keys(profilePayload).forEach((key) => {
-  if (profilePayload[key] === null || profilePayload[key] === undefined || profilePayload[key] === '') {
-    delete profilePayload[key]
-  }
-})
+      Object.keys(profilePayload).forEach((key) => {
+        if (
+          profilePayload[key] === null ||
+          profilePayload[key] === undefined ||
+          profilePayload[key] === ''
+        ) {
+          delete profilePayload[key]
+        }
+      })
 
-const { error: profileErr } = await supabase
-  .from('lead_profiles')
-  .upsert(profilePayload, { onConflict: 'lead_id' })
+      const { error: profileErr } = await supabase
+        .from('lead_profiles')
+        .upsert(profilePayload, { onConflict: 'lead_id' })
 
-if (profileErr) throw profileErr
+      if (profileErr) throw profileErr
 
-      // ✅ MUDANÇA: Admin → owner_id = NULL (Pool), Vendedor → owner_id = userId
       const ownerUserId = isAdmin ? null : userId
       const ownerFromSelect = selectedOwnerId || ownerUserId
 
@@ -587,33 +593,29 @@ if (profileErr) throw profileErr
 
         if (lgcErr) throw lgcErr
 
-        await supabase
-          .from('cycle_events')
-          .insert({
-            company_id: companyId,
-            cycle_id: cycleData.id,
-            event_type: 'group_attached',
-            created_by: userId,
-            metadata: { group_id: selectedGroupId },
-            occurred_at: new Date().toISOString(),
-          })
-      }
-
-      await supabase
-        .from('cycle_events')
-        .insert({
+        await supabase.from('cycle_events').insert({
           company_id: companyId,
           cycle_id: cycleData.id,
-          event_type: 'cycle_created',
+          event_type: 'group_attached',
           created_by: userId,
-          metadata: {
-            lead_name: formData.name,
-            owner_user_id: ownerFromSelect,
-            group_id: selectedGroupId || null,
-            source: EVENT_SOURCES.cycle_create,
-          },
+          metadata: { group_id: selectedGroupId },
           occurred_at: new Date().toISOString(),
         })
+      }
+
+      await supabase.from('cycle_events').insert({
+        company_id: companyId,
+        cycle_id: cycleData.id,
+        event_type: 'cycle_created',
+        created_by: userId,
+        metadata: {
+          lead_name: formData.name,
+          owner_user_id: ownerFromSelect,
+          group_id: selectedGroupId || null,
+          source: EVENT_SOURCES.cycle_create,
+        },
+        occurred_at: new Date().toISOString(),
+      })
 
       onLeadCreated()
       onClose()
@@ -654,7 +656,9 @@ if (profileErr) throw profileErr
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}
+        >
           <div style={{ fontSize: 18, fontWeight: 900 }}>Criar Novo Lead</div>
           <button
             onClick={onClose}
@@ -689,7 +693,9 @@ if (profileErr) throw profileErr
         {step === 'form' ? (
           <>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Nome *</label>
+              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                Nome *
+              </label>
               <input
                 type="text"
                 placeholder="Nome completo"
@@ -708,59 +714,64 @@ if (profileErr) throw profileErr
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div
+              style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}
+            >
               <div>
-                <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Telefone</label>
+                <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                  Telefone
+                </label>
                 <input
-  type="tel"
-  placeholder="(11) 99999-9999"
-  value={formData.phone || ''}
-  onChange={(e) => handleFormChange('phone', e.target.value)}
-  onBlur={() => void handlePhoneBlur()}
-  style={{
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: phoneWarning ? '2px solid #f59e0b' : '1px solid #2a2a2a',
-    background: '#222',
-    color: 'white',
-    fontSize: 13,
-  }}
-/>
-{phoneWarning && (
-  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>
-    {phoneWarning}
-  </div>
-)}
+                  type="tel"
+                  placeholder="(11) 99999-9999"
+                  value={formData.phone || ''}
+                  onChange={(e) => handleFormChange('phone', e.target.value)}
+                  onBlur={() => void handlePhoneBlur()}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: phoneWarning ? '2px solid #f59e0b' : '1px solid #2a2a2a',
+                    background: '#222',
+                    color: 'white',
+                    fontSize: 13,
+                  }}
+                />
+                {phoneWarning && (
+                  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>{phoneWarning}</div>
+                )}
               </div>
+
               <div>
-                <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Email</label>
+                <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                  Email
+                </label>
                 <input
-  type="email"
-  placeholder="email@exemplo.com"
-  value={formData.email || ''}
-  onChange={(e) => handleFormChange('email', e.target.value)}
-  onBlur={() => void handleEmailBlur()}
-  style={{
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: emailWarning ? '2px solid #f59e0b' : '1px solid #2a2a2a',
-    background: '#222',
-    color: 'white',
-    fontSize: 13,
-  }}
-/>
-{emailWarning && (
-  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>
-    {emailWarning}
-  </div>
-)}
+                  type="email"
+                  placeholder="email@exemplo.com"
+                  value={formData.email || ''}
+                  onChange={(e) => handleFormChange('email', e.target.value)}
+                  onBlur={() => void handleEmailBlur()}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: emailWarning ? '2px solid #f59e0b' : '1px solid #2a2a2a',
+                    background: '#222',
+                    color: 'white',
+                    fontSize: 13,
+                  }}
+                />
+                {emailWarning && (
+                  <div style={{ fontSize: 11, color: '#fcd34d', marginTop: 6 }}>{emailWarning}</div>
+                )}
               </div>
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>CPF/CNPJ</label>
+              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                CPF/CNPJ
+              </label>
               <input
                 type="text"
                 placeholder="000.000.000-00"
@@ -777,21 +788,21 @@ if (profileErr) throw profileErr
                 }}
               />
               {cpfWarning && (
-                <div style={{ fontSize: 11, color: '#fecaca', marginTop: 6 }}>
-                  {cpfWarning}
-                </div>
+                <div style={{ fontSize: 11, color: '#fecaca', marginTop: 6 }}>{cpfWarning}</div>
               )}
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Endereço</label>
+              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                Endereço
+              </label>
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <input
                   type="text"
                   placeholder="CEP"
                   value={formData.address_cep || ''}
                   onChange={(e) => handleFormChange('address_cep', e.target.value)}
-                  onBlur={(e) => fetchAddressFromCEP(e.target.value)}
+                  onBlur={(e) => void fetchAddressFromCEP(e.target.value)}
                   disabled={fetchingCEP}
                   style={{
                     flex: 1,
@@ -804,7 +815,9 @@ if (profileErr) throw profileErr
                     opacity: fetchingCEP ? 0.6 : 1,
                   }}
                 />
-                {fetchingCEP && <div style={{ fontSize: 11, color: '#fbbf24', alignSelf: 'center' }}>Buscando…</div>}
+                {fetchingCEP && (
+                  <div style={{ fontSize: 11, color: '#fbbf24', alignSelf: 'center' }}>Buscando…</div>
+                )}
               </div>
 
               <input
@@ -823,7 +836,10 @@ if (profileErr) throw profileErr
                   marginBottom: 8,
                 }}
               />
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr', gap: 8, marginBottom: 8 }}>
+
+              <div
+                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr', gap: 8, marginBottom: 8 }}
+              >
                 <input
                   type="text"
                   placeholder="Número"
@@ -853,6 +869,7 @@ if (profileErr) throw profileErr
                   }}
                 />
               </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <input
                   type="text"
@@ -886,7 +903,9 @@ if (profileErr) throw profileErr
             </div>
 
             <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Notas</label>
+              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                Notas
+              </label>
               <textarea
                 placeholder="Observações gerais..."
                 value={formData.notes || ''}
@@ -942,7 +961,9 @@ if (profileErr) throw profileErr
         ) : (
           <>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Grupo (opcional)</label>
+              <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                Grupo (opcional)
+              </label>
               <select
                 value={selectedGroupId || ''}
                 onChange={(e) => setSelectedGroupId(e.target.value || null)}
@@ -1004,7 +1025,9 @@ if (profileErr) throw profileErr
 
             {isAdmin && (
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>Atribuir para (opcional)</label>
+                <label style={{ fontSize: 12, fontWeight: 900, display: 'block', marginBottom: 6 }}>
+                  Atribuir para (opcional)
+                </label>
                 <select
                   value={selectedOwnerId || ''}
                   onChange={(e) => setSelectedOwnerId(e.target.value || null)}
