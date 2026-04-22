@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import CreateLeadModal from './components/CreateLeadModal'
 import ImportExcelDialog from './components/ImportExcelDialog'
@@ -68,7 +67,6 @@ export default function LeadsClient({
   userLabel: string
   defaultOwnerId?: string | null
 }) {
-  const router = useRouter()
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   void supabase
   void userLabel
@@ -92,10 +90,11 @@ export default function LeadsClient({
   const [revenueBDRemaining, setRevenueBDRemaining] = React.useState<number>(0)
   const [revenueLoading, setRevenueLoading] = React.useState(false)
   const [revenueError, setRevenueError] = React.useState<string | null>(null)
+  const [refreshVersion, setRefreshVersion] = React.useState(0)
 
   const handleRefresh = React.useCallback(() => {
-    router.refresh()
-  }, [router])
+    setRefreshVersion((v) => v + 1)
+  }, [])
 
   React.useEffect(() => {
     async function loadCompetency() {
@@ -148,7 +147,7 @@ export default function LeadsClient({
     }
 
     void loadGoals()
-  }, [companyId, userId, period])
+  }, [companyId, userId, period, refreshVersion])
 
   React.useEffect(() => {
     if (!period) return
@@ -190,7 +189,7 @@ export default function LeadsClient({
     }
 
     void loadRevenueKpi()
-  }, [companyId, period])
+  }, [companyId, period, refreshVersion])
 
   return (
     <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
@@ -348,12 +347,13 @@ export default function LeadsClient({
       </div>
 
       <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
-        <SalesCyclesKanban
-          userId={userId}
-          companyId={companyId}
-          isAdmin={isAdmin}
-          defaultOwnerId={defaultOwnerId ?? undefined}
-        />
+      <SalesCyclesKanban
+  key={`kanban-${refreshVersion}`}
+  userId={userId}
+  companyId={companyId}
+  isAdmin={isAdmin}
+  defaultOwnerId={defaultOwnerId ?? undefined}
+/>
       </div>
 
       {showCreateLeadModal && (
