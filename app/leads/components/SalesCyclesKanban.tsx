@@ -1299,8 +1299,8 @@ const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `$
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-            ? `linear-gradient(180deg, ${STATUS_COLORS[status]}30 0%, ${DS.panelBg} 100%)`
-            : `linear-gradient(180deg, ${STATUS_COLORS[status]}50 0%, ${STATUS_COLORS[status]}08 90%, ${DS.panelBg} 100%)`,
+  ? `linear-gradient(to top, rgba(96,165,250,0.22) 0%, rgba(59,130,246,0.12) 28%, ${DS.panelBg} 100%)`
+  : `linear-gradient(to top, rgba(96,165,250,0.16) 0%, rgba(59,130,246,0.08) 26%, rgba(30,41,59,0.04) 48%, ${DS.panelBg} 100%)`,
           borderRadius: DS.radiusContainer + 3,
           border: `1px solid ${DS.border}`,
           borderTop: `3px solid ${STATUS_COLORS[status]}`,

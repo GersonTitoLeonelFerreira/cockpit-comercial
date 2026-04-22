@@ -1,7 +1,58 @@
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import * as XLSX from 'xlsx'
+import { getAuthedSupabase } from '@/app/lib/supabase/server'
+import { EVENT_SOURCES } from '@/app/config/analyticsBase'
+
+type InputRow = {
+  rowNumber?: number
+  name?: string
+  cpf_cnpj?: string | null
+  phone?: string | null
+  email?: string | null
+  birth_date?: string | null
+  address_cep?: string | null
+  address_street?: string | null
+  address_number?: string | null
+  address_complement?: string | null
+  address_neighborhood?: string | null
+  address_city?: string | null
+  address_state?: string | null
+}
+
+type NormalizedRow = {
+  rowNumber: number
+  name: string
+  cpf_cnpj: string | null
+  phone: string | null
+  email: string | null
+  birth_date: string | null
+  address_cep: string | null
+  address_street: string | null
+  address_number: string | null
+  address_complement: string | null
+  address_neighborhood: string | null
+  address_city: string | null
+  address_state: string | null
+}
+
+type LeadRow = {
+  id: string
+  phone: string | null
+  email: string | null
+  cpf_cnpj: string | null
+}
+
+type ProfileRow = {
+  lead_id: string
+  cpf: string | null
+  cnpj: string | null
+  email: string | null
+}
+
+type CycleRow = {
+  id: string
+  lead_id: string
+  current_group_id: string | null
+}
 
 function onlyDigits(v: any) {
   return String(v ?? '').replace(/\D/g, '')
@@ -17,334 +68,569 @@ function normEmail(v: any) {
   return s ? s : null
 }
 
-function guessLeadName(row: any) {
-  return cleanStr(row.nome ?? row.name ?? row.Nome ?? row.NAME ?? row['Nome do lead'])
+function isDuplicateError(message: string) {
+  const msg = String(message || '').toLowerCase()
+  return msg.includes('duplicate') || msg.includes('unique')
 }
 
-function guessPhone(row: any) {
-  const p = onlyDigits(row.telefone ?? row.phone ?? row.Telefone ?? row.PHONE ?? row['Telefone'])
-  return p ? p : null
+function buildLeadType(document: string | null) {
+  if (!document) return null
+  if (document.length === 14) return 'PJ'
+  if (document.length === 11) return 'PF'
+  return null
 }
 
-/**
- * [Inference] Colunas possíveis no Excel:
- * cpf, cnpj, email, cep, rua, numero, complemento, bairro, cidade, estado, pais, razao_social
- * Ajuste conforme seu padrão de planilha.
- */
-function pickProfileFields(row: any) {
-  const cpf = onlyDigits(row.cpf ?? row.CPF)
-  const cnpj = onlyDigits(row.cnpj ?? row.CNPJ)
-  const email = normEmail(row.email ?? row['e-mail'] ?? row.Email ?? row['E-mail'])
-  const cep = onlyDigits(row.cep ?? row.CEP)
-
-  const lead_type_raw = cleanStr(row.tipo ?? row.Tipo ?? row.lead_type)
-  const lead_type = lead_type_raw ? String(lead_type_raw).toUpperCase() : null // "PF" | "PJ"
-
-  const razao_social = cleanStr(row.razao_social ?? row['Razão Social'] ?? row['razao social'])
-  const rua = cleanStr(row.rua ?? row['Rua/Av.'] ?? row['Rua'] ?? row['logradouro'])
-  const numero = cleanStr(row.numero ?? row['Número'] ?? row['Numero'])
-  const complemento = cleanStr(row.complemento ?? row['Complemento'])
-  const bairro = cleanStr(row.bairro ?? row['Bairro'])
-  const cidade = cleanStr(row.cidade ?? row['Cidade'])
-  const estado = cleanStr(row.estado ?? row['UF'] ?? row['Estado'])
-  const pais = cleanStr(row.pais ?? row['País'] ?? row['Pais']) ?? 'Brasil'
-
+function normalizeRow(row: InputRow, index: number): NormalizedRow {
   return {
-    lead_type,
-    cpf: cpf || null,
-    cnpj: cnpj || null,
-    email,
-    cep: cep || null,
-    razao_social,
-    rua,
-    numero,
-    complemento,
-    bairro,
-    cidade,
-    estado,
-    pais,
+    rowNumber: Number(row?.rowNumber || index + 2),
+    name: cleanStr(row?.name) || '',
+    cpf_cnpj: onlyDigits(row?.cpf_cnpj) || null,
+    phone: onlyDigits(row?.phone) || null,
+    email: normEmail(row?.email),
+    birth_date: cleanStr(row?.birth_date),
+    address_cep: onlyDigits(row?.address_cep) || null,
+    address_street: cleanStr(row?.address_street),
+    address_number: cleanStr(row?.address_number),
+    address_complement: cleanStr(row?.address_complement),
+    address_neighborhood: cleanStr(row?.address_neighborhood),
+    address_city: cleanStr(row?.address_city),
+    address_state: cleanStr(row?.address_state),
   }
 }
 
-async function getAuthedSupabase() {
-  const cookieStore = await cookies()
+function buildLeadPatch(row: NormalizedRow) {
+  const patch: Record<string, any> = {}
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        async getAll() {
-          return cookieStore.getAll()
-        },
-        async setAll() {},
-      },
+  if (row.name) patch.name = row.name
+  if (row.phone) patch.phone = row.phone
+  if (row.email) patch.email = row.email
+  if (row.cpf_cnpj) patch.cpf_cnpj = row.cpf_cnpj
+  if (row.address_cep) patch.address_cep = row.address_cep
+  if (row.address_street) patch.address_street = row.address_street
+  if (row.address_number) patch.address_number = row.address_number
+  if (row.address_complement) patch.address_complement = row.address_complement
+  if (row.address_neighborhood) patch.address_neighborhood = row.address_neighborhood
+  if (row.address_city) patch.address_city = row.address_city
+  if (row.address_state) patch.address_state = row.address_state
+
+  return patch
+}
+
+function buildProfilePayload(companyId: string, leadId: string, row: NormalizedRow) {
+  const leadType = buildLeadType(row.cpf_cnpj)
+
+  const payload: Record<string, any> = {
+    lead_id: leadId,
+    company_id: companyId,
+    lead_type: leadType,
+    email: row.email,
+    birth_date: row.birth_date,
+    cep: row.address_cep,
+    address_street: row.address_street,
+    address_number: row.address_number,
+    address_complement: row.address_complement,
+    address_neighborhood: row.address_neighborhood,
+    address_city: row.address_city,
+    address_state: row.address_state,
+    address_country: 'Brasil',
+  }
+
+  if (row.cpf_cnpj?.length === 11) {
+    payload.cpf = row.cpf_cnpj
+    payload.cnpj = null
+  } else if (row.cpf_cnpj?.length === 14) {
+    payload.cnpj = row.cpf_cnpj
+    payload.cpf = null
+  }
+
+  Object.keys(payload).forEach((key) => {
+    if (payload[key] === null || payload[key] === undefined || payload[key] === '') {
+      delete payload[key]
     }
-  )
+  })
 
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data?.user) return { supabase, user: null as any, error: 'not_authenticated' }
+  return payload
+}
 
-  return { supabase, user: data.user, error: null as any }
+function registerLeadMaps(
+  lead: LeadRow,
+  byId: Map<string, LeadRow>,
+  byDoc: Map<string, string>,
+  byEmail: Map<string, string>,
+  byPhone: Map<string, string>,
+) {
+  byId.set(lead.id, lead)
+
+  if (lead.cpf_cnpj) byDoc.set(lead.cpf_cnpj, lead.id)
+  if (lead.email) byEmail.set(lead.email.toLowerCase(), lead.id)
+  if (lead.phone) byPhone.set(lead.phone, lead.id)
 }
 
 export async function POST(req: Request) {
   try {
-    const { supabase, user, error: authErr } = await getAuthedSupabase()
-    if (authErr) {
+    let supabase, user
+    try {
+      ;({ supabase, user } = await getAuthedSupabase())
+    } catch {
       return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
     }
 
-    const form = await req.formData()
+    const body = await req.json().catch(() => ({} as any))
+    const rowsInput: InputRow[] = Array.isArray(body?.rows) ? body.rows : []
+    const groupId = cleanStr(body?.group_id)
 
-    const file = form.get('file')
-    const list_id = String(form.get('list_id') ?? '').trim()
-    const new_list_name = String(form.get('new_list_name') ?? '').trim()
-
-    if (!file || typeof file === 'string') {
-      return NextResponse.json({ error: 'Arquivo não enviado.' }, { status: 400 })
+    if (rowsInput.length === 0) {
+      return NextResponse.json({ error: 'Nenhuma linha recebida.' }, { status: 400 })
     }
 
-    // company_id do usuário
-    const { data: profile, error: profileErr } = await supabase
+    const { data: actorProfile, error: actorErr } = await supabase
       .from('profiles')
-      .select('company_id')
+      .select('company_id, role, is_active')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
 
-    if (profileErr || !profile?.company_id) {
-      return NextResponse.json({ error: 'company_id não encontrado para o usuário.' }, { status: 400 })
+    if (actorErr) {
+      return NextResponse.json({ error: actorErr.message }, { status: 400 })
     }
 
-    const companyId = String(profile.company_id)
+    if (!actorProfile?.company_id) {
+      return NextResponse.json({ error: 'company_id não encontrado.' }, { status: 400 })
+    }
 
-    // Resolve/Cria lista
-    let resolvedListId: string | null = null
+    if (actorProfile.is_active === false) {
+      return NextResponse.json({ error: 'Usuário inativo.' }, { status: 403 })
+    }
 
-    if (list_id) resolvedListId = list_id
+    const companyId = String(actorProfile.company_id)
+    const defaultOwnerUserId = actorProfile.role === 'admin' ? null : user.id
 
-    if (!resolvedListId && new_list_name) {
-      const { data: createdList, error: createListErr } = await supabase
-        .from('lead_lists')
-        .insert({
-          company_id: companyId,
-          name: new_list_name,
-        })
+    if (groupId) {
+      const { data: group, error: groupErr } = await supabase
+        .from('lead_groups')
         .select('id')
-        .single()
+        .eq('company_id', companyId)
+        .eq('id', groupId)
+        .is('archived_at', null)
+        .maybeSingle()
 
-      if (createListErr || !createdList?.id) {
-        return NextResponse.json(
-          { error: `Falha ao criar lista: ${createListErr?.message ?? 'erro'}` },
-          { status: 400 }
-        )
+      if (groupErr) {
+        return NextResponse.json({ error: groupErr.message }, { status: 400 })
       }
-      resolvedListId = String(createdList.id)
+
+      if (!group?.id) {
+        return NextResponse.json({ error: 'Grupo inválido para esta empresa.' }, { status: 400 })
+      }
     }
 
-    if (!resolvedListId) {
-      return NextResponse.json({ error: 'Selecione uma lista ou crie uma nova.' }, { status: 400 })
+    const rows = rowsInput.map(normalizeRow)
+
+    const documents = Array.from(
+      new Set(rows.map((r) => r.cpf_cnpj).filter((v): v is string => !!v)),
+    )
+    const emails = Array.from(
+      new Set(rows.map((r) => r.email).filter((v): v is string => !!v)),
+    )
+    const phones = Array.from(
+      new Set(rows.map((r) => r.phone).filter((v): v is string => !!v)),
+    )
+
+    const cpfs = documents.filter((d) => d.length === 11)
+    const cnpjs = documents.filter((d) => d.length === 14)
+
+    const existingLeadById = new Map<string, LeadRow>()
+    const leadIdByDoc = new Map<string, string>()
+    const leadIdByEmail = new Map<string, string>()
+    const leadIdByPhone = new Map<string, string>()
+    const cycleByLeadId = new Map<string, CycleRow>()
+
+    if (cpfs.length > 0) {
+      const { data } = await supabase
+        .from('lead_profiles')
+        .select('lead_id, cpf, cnpj, email')
+        .eq('company_id', companyId)
+        .in('cpf', cpfs)
+
+      for (const row of (data ?? []) as ProfileRow[]) {
+        if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
+        if (row.email) leadIdByEmail.set(row.email.toLowerCase(), row.lead_id)
+      }
     }
 
-    // Ler XLSX
-    const ab = await (file as Blob).arrayBuffer()
-    const wb = XLSX.read(ab, { type: 'array' })
+    if (cnpjs.length > 0) {
+      const { data } = await supabase
+        .from('lead_profiles')
+        .select('lead_id, cpf, cnpj, email')
+        .eq('company_id', companyId)
+        .in('cnpj', cnpjs)
 
-    const sheetName = wb.SheetNames?.[0]
-    if (!sheetName) {
-      return NextResponse.json({ error: 'Planilha vazia.' }, { status: 400 })
+      for (const row of (data ?? []) as ProfileRow[]) {
+        if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
+        if (row.email) leadIdByEmail.set(row.email.toLowerCase(), row.lead_id)
+      }
     }
 
-    const ws = wb.Sheets[sheetName]
-    const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: null })
+    if (emails.length > 0) {
+      const { data } = await supabase
+        .from('lead_profiles')
+        .select('lead_id, cpf, cnpj, email')
+        .eq('company_id', companyId)
+        .in('email', emails)
 
-    const total_rows = rows.length
-    let valid_rows = 0
+      for (const row of (data ?? []) as ProfileRow[]) {
+        if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
+        if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
+        if (row.email) leadIdByEmail.set(row.email.toLowerCase(), row.lead_id)
+      }
+    }
+
+    const leadIdsFromProfiles = Array.from(
+      new Set([
+        ...Array.from(leadIdByDoc.values()),
+        ...Array.from(leadIdByEmail.values()),
+      ]),
+    )
+
+    if (leadIdsFromProfiles.length > 0) {
+      const { data } = await supabase
+        .from('leads')
+        .select('id, phone, email, cpf_cnpj')
+        .eq('company_id', companyId)
+        .in('id', leadIdsFromProfiles)
+
+      for (const lead of (data ?? []) as LeadRow[]) {
+        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
+      }
+    }
+
+    if (phones.length > 0) {
+      const { data } = await supabase
+        .from('leads')
+        .select('id, phone, email, cpf_cnpj')
+        .eq('company_id', companyId)
+        .in('phone', phones)
+
+      for (const lead of (data ?? []) as LeadRow[]) {
+        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
+      }
+    }
+
+    if (emails.length > 0) {
+      const { data } = await supabase
+        .from('leads')
+        .select('id, phone, email, cpf_cnpj')
+        .eq('company_id', companyId)
+        .in('email', emails)
+
+      for (const lead of (data ?? []) as LeadRow[]) {
+        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
+      }
+    }
+
+    if (documents.length > 0) {
+      const { data } = await supabase
+        .from('leads')
+        .select('id, phone, email, cpf_cnpj')
+        .eq('company_id', companyId)
+        .in('cpf_cnpj', documents)
+
+      for (const lead of (data ?? []) as LeadRow[]) {
+        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
+      }
+    }
+
+    const allKnownLeadIds = Array.from(existingLeadById.keys())
+
+    if (allKnownLeadIds.length > 0) {
+      const { data } = await supabase
+        .from('sales_cycles')
+        .select('id, lead_id, current_group_id')
+        .eq('company_id', companyId)
+        .in('lead_id', allKnownLeadIds)
+        .order('created_at', { ascending: false })
+
+      for (const cycle of (data ?? []) as CycleRow[]) {
+        if (!cycleByLeadId.has(cycle.lead_id)) {
+          cycleByLeadId.set(cycle.lead_id, cycle)
+        }
+      }
+    }
+
+    const errors: Array<{ row: number; error: string }> = []
+    const seenDocs = new Set<string>()
+    const seenEmails = new Set<string>()
+    const seenPhones = new Set<string>()
+
     let created = 0
     let updated = 0
-    const errors: any[] = []
+    let createdCycles = 0
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      const name = guessLeadName(row)
-      const phone = guessPhone(row)
-
-      if (!name && !phone) {
-        // linha inválida (sem mínimo)
+    for (const row of rows) {
+      if (!row.name) {
+        errors.push({ row: row.rowNumber, error: 'Nome é obrigatório.' })
         continue
       }
 
-      valid_rows++
-
-      const profileFields = pickProfileFields(row)
-
-      // Dedup (best-effort):
-      // 1) CPF/CNPJ/Email via lead_profiles + join leads.company_id
-      // 2) Phone via leads.phone
-      let existingLeadId: string | null = null
-
-      // [Inference] lead_profiles tem lead_id e se relaciona com leads
-      if (profileFields.cpf) {
-        const { data } = await supabase
-          .from('lead_profiles')
-          .select('lead_id, leads!inner(company_id)')
-          .eq('cpf', profileFields.cpf)
-          .eq('leads.company_id', companyId)
-          .limit(1)
-
-        if (data?.[0]?.lead_id) existingLeadId = String(data[0].lead_id)
+      if (!row.cpf_cnpj || ![11, 14].includes(row.cpf_cnpj.length)) {
+        errors.push({ row: row.rowNumber, error: 'CPF/CNPJ inválido.' })
+        continue
       }
 
-      if (!existingLeadId && profileFields.cnpj) {
-        const { data } = await supabase
-          .from('lead_profiles')
-          .select('lead_id, leads!inner(company_id)')
-          .eq('cnpj', profileFields.cnpj)
-          .eq('leads.company_id', companyId)
-          .limit(1)
-
-        if (data?.[0]?.lead_id) existingLeadId = String(data[0].lead_id)
+      if (row.email && seenEmails.has(row.email)) {
+        errors.push({ row: row.rowNumber, error: 'E-mail duplicado no payload.' })
+        continue
       }
 
-      if (!existingLeadId && profileFields.email) {
-        const { data } = await supabase
-          .from('lead_profiles')
-          .select('lead_id, leads!inner(company_id)')
-          .eq('email', profileFields.email)
-          .eq('leads.company_id', companyId)
-          .limit(1)
-
-        if (data?.[0]?.lead_id) existingLeadId = String(data[0].lead_id)
+      if (row.phone && seenPhones.has(row.phone)) {
+        errors.push({ row: row.rowNumber, error: 'Telefone duplicado no payload.' })
+        continue
       }
 
-      if (!existingLeadId && phone) {
-        const { data } = await supabase
-          .from('leads')
-          .select('id')
-          .eq('company_id', companyId)
-          .eq('phone', phone)
-          .limit(1)
-
-        if (data?.[0]?.id) existingLeadId = String(data[0].id)
+      if (seenDocs.has(row.cpf_cnpj)) {
+        errors.push({ row: row.rowNumber, error: 'CPF/CNPJ duplicado no payload.' })
+        continue
       }
+
+      seenDocs.add(row.cpf_cnpj)
+      if (row.email) seenEmails.add(row.email)
+      if (row.phone) seenPhones.add(row.phone)
 
       try {
-        let leadIdToUse: string
+        let leadId =
+          leadIdByDoc.get(row.cpf_cnpj) ||
+          (row.email ? leadIdByEmail.get(row.email) : null) ||
+          (row.phone ? leadIdByPhone.get(row.phone) : null) ||
+          null
 
-        if (!existingLeadId) {
-          // cria lead
-          const { data: newLead, error: insErr } = await supabase
+        if (!leadId) {
+          const insertLeadPayload = {
+            company_id: companyId,
+            name: row.name,
+            phone: row.phone,
+            email: row.email,
+            cpf_cnpj: row.cpf_cnpj,
+            address_cep: row.address_cep,
+            address_street: row.address_street,
+            address_number: row.address_number,
+            address_complement: row.address_complement,
+            address_neighborhood: row.address_neighborhood,
+            address_city: row.address_city,
+            address_state: row.address_state,
+            created_by: user.id,
+            entry_mode: 'import_excel',
+          }
+
+          const { data: newLead, error: leadErr } = await supabase
             .from('leads')
-            .insert({
-              company_id: companyId,
-              owner_id: user.id,
-              name: name ?? 'Lead',
-              phone: phone,
-              status: 'novo',
-              entry_mode: 'import_api',
-            })
-            .select('id')
+            .insert(insertLeadPayload)
+            .select('id, phone, email, cpf_cnpj')
             .single()
 
-          if (insErr || !newLead?.id) {
-            errors.push({ row: i + 2, error: insErr?.message ?? 'Falha ao criar lead' })
+          if (leadErr || !newLead?.id) {
+            errors.push({
+              row: row.rowNumber,
+              error: leadErr?.message || 'Falha ao criar lead.',
+            })
             continue
           }
 
-          leadIdToUse = String(newLead.id)
+          leadId = newLead.id
           created++
+
+          registerLeadMaps(
+            {
+              id: newLead.id,
+              phone: newLead.phone,
+              email: newLead.email,
+              cpf_cnpj: newLead.cpf_cnpj,
+            },
+            existingLeadById,
+            leadIdByDoc,
+            leadIdByEmail,
+            leadIdByPhone,
+          )
         } else {
-          leadIdToUse = existingLeadId
+          const patch = buildLeadPatch(row)
 
-          // atualiza dados básicos se vierem
-          const patch: any = {}
-          if (name) patch.name = name
-          if (phone) patch.phone = phone
-
-          if (Object.keys(patch).length) {
-            const { error: upErr } = await supabase
+          if (Object.keys(patch).length > 0) {
+            const { error: updateErr } = await supabase
               .from('leads')
               .update(patch)
-              .eq('id', leadIdToUse)
+              .eq('id', leadId)
               .eq('company_id', companyId)
 
-            if (upErr) {
-              errors.push({ row: i + 2, error: upErr.message })
+            if (updateErr) {
+              errors.push({ row: row.rowNumber, error: updateErr.message })
               continue
             }
           }
 
           updated++
+
+          const currentLead = existingLeadById.get(leadId)
+          registerLeadMaps(
+            {
+              id: leadId,
+              phone: row.phone || currentLead?.phone || null,
+              email: row.email || currentLead?.email || null,
+              cpf_cnpj: row.cpf_cnpj || currentLead?.cpf_cnpj || null,
+            },
+            existingLeadById,
+            leadIdByDoc,
+            leadIdByEmail,
+            leadIdByPhone,
+          )
         }
 
-        // Upsert profile (dados extras) — ajuste nomes de colunas se necessário
-        // [Inference] lead_profiles PK = lead_id
-        const profileUpsert: any = {
-          lead_id: leadIdToUse,
-          lead_type: profileFields.lead_type,
-          cpf: profileFields.cpf,
-          cnpj: profileFields.cnpj,
-          email: profileFields.email,
-          razao_social: profileFields.razao_social,
-          cep: profileFields.cep,
-          rua: profileFields.rua,
-          numero: profileFields.numero,
-          complemento: profileFields.complemento,
-          bairro: profileFields.bairro,
-          cidade: profileFields.cidade,
-          estado: profileFields.estado,
-          pais: profileFields.pais,
-        }
+        const profilePayload = buildProfilePayload(companyId, leadId, row)
 
-        // remove nulls pra não sobrescrever com vazio
-        Object.keys(profileUpsert).forEach((k) => {
-          if (profileUpsert[k] === null || profileUpsert[k] === undefined || profileUpsert[k] === '') {
-            delete profileUpsert[k]
-          }
-        })
+        const { error: profileErr } = await supabase
+          .from('lead_profiles')
+          .upsert(profilePayload, { onConflict: 'lead_id' })
 
-        // se sobrou algo além do lead_id, salva
-        if (Object.keys(profileUpsert).length > 1) {
-          const { error: profErr } = await supabase
-            .from('lead_profiles')
-            .upsert(profileUpsert, { onConflict: 'lead_id' })
-
-          if (profErr) {
-            errors.push({ row: i + 2, error: `Perfil: ${profErr.message}` })
-            // não aborta o lead, segue
-          }
-        }
-
-        // vincula na lista/carteira
-        const { error: linkErr } = await supabase
-          .from('lead_list_members')
-          .insert({
-            company_id: companyId,
-            list_id: resolvedListId,
-            lead_id: leadIdToUse,
+        if (profileErr) {
+          errors.push({
+            row: row.rowNumber,
+            error: `Perfil: ${profileErr.message}`,
           })
+          continue
+        }
 
-        // se já existe, pode falhar por unique → ignorar
-        if (linkErr && !String(linkErr.message).toLowerCase().includes('duplicate')) {
-          // dependendo do supabase, vem "duplicate key value violates unique constraint"
-          if (!String(linkErr.message).toLowerCase().includes('unique')) {
-            errors.push({ row: i + 2, error: `Vínculo lista: ${linkErr.message}` })
+        let cycle = cycleByLeadId.get(leadId) || null
+
+        if (!cycle) {
+          const { data: createdCycle, error: cycleErr } = await supabase
+            .from('sales_cycles')
+            .insert({
+              company_id: companyId,
+              lead_id: leadId,
+              owner_user_id: defaultOwnerUserId,
+              status: 'novo',
+              current_group_id: groupId || null,
+              stage_entered_at: new Date().toISOString(),
+            })
+            .select('id, lead_id, current_group_id')
+            .single()
+
+          if (cycleErr || !createdCycle?.id) {
+            errors.push({
+              row: row.rowNumber,
+              error: cycleErr?.message || 'Falha ao criar ciclo.',
+            })
+            continue
+          }
+
+          cycle = createdCycle as CycleRow
+          cycleByLeadId.set(leadId, cycle)
+          createdCycles++
+
+          const { error: cycleCreatedEventErr } = await supabase
+            .from('cycle_events')
+            .insert({
+              company_id: companyId,
+              cycle_id: cycle.id,
+              event_type: 'cycle_created',
+              created_by: user.id,
+              metadata: {
+                lead_name: row.name,
+                owner_user_id: defaultOwnerUserId,
+                group_id: groupId || null,
+                source: EVENT_SOURCES.cycle_create,
+              },
+              occurred_at: new Date().toISOString(),
+            })
+
+          void cycleCreatedEventErr
+
+          if (groupId) {
+            const { error: linkErr } = await supabase
+              .from('lead_group_cycles')
+              .insert({
+                company_id: companyId,
+                group_id: groupId,
+                cycle_id: cycle.id,
+                attached_by: user.id,
+              })
+
+            if (linkErr && !isDuplicateError(linkErr.message)) {
+              errors.push({
+                row: row.rowNumber,
+                error: `Grupo: ${linkErr.message}`,
+              })
+            }
+
+            const { error: groupEventErr } = await supabase
+              .from('cycle_events')
+              .insert({
+                company_id: companyId,
+                cycle_id: cycle.id,
+                event_type: 'group_attached',
+                created_by: user.id,
+                metadata: { group_id: groupId },
+                occurred_at: new Date().toISOString(),
+              })
+
+            void groupEventErr
+          }
+        } else if (groupId && !cycle.current_group_id) {
+          const { error: cycleUpdateErr } = await supabase
+            .from('sales_cycles')
+            .update({ current_group_id: groupId })
+            .eq('id', cycle.id)
+            .eq('company_id', companyId)
+
+          if (!cycleUpdateErr) {
+            cycle.current_group_id = groupId
+            cycleByLeadId.set(leadId, cycle)
+
+            const { error: linkErr } = await supabase
+              .from('lead_group_cycles')
+              .insert({
+                company_id: companyId,
+                group_id: groupId,
+                cycle_id: cycle.id,
+                attached_by: user.id,
+              })
+
+            if (linkErr && !isDuplicateError(linkErr.message)) {
+              errors.push({
+                row: row.rowNumber,
+                error: `Grupo: ${linkErr.message}`,
+              })
+            }
+
+            const { error: groupEventErr } = await supabase
+              .from('cycle_events')
+              .insert({
+                company_id: companyId,
+                cycle_id: cycle.id,
+                event_type: 'group_attached',
+                created_by: user.id,
+                metadata: { group_id: groupId },
+                occurred_at: new Date().toISOString(),
+              })
+
+            void groupEventErr
           }
         }
       } catch (e: any) {
-        errors.push({ row: i + 2, error: e?.message ?? 'Erro inesperado' })
+        errors.push({
+          row: row.rowNumber,
+          error: e?.message || 'Erro inesperado ao processar linha.',
+        })
       }
     }
 
     return NextResponse.json({
-      total_rows,
-      valid_rows,
+      ok: true,
       created,
       updated,
+      created_cycles: createdCycles,
       errors,
-      list_id: resolvedListId,
     })
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Erro inesperado' }, { status: 500 })
+    return NextResponse.json(
+      { error: e?.message || 'Erro inesperado' },
+      { status: 500 },
+    )
   }
 }

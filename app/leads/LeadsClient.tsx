@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import CreateLeadModal from './components/CreateLeadModal'
 import ImportExcelDialog from './components/ImportExcelDialog'
@@ -52,10 +53,6 @@ function countBusinessDaysUntilToday(startYMD: string, endYMD: string) {
   return count
 }
 
-// ============================================================================
-// Page
-// ============================================================================
-
 type GoalView = 'company' | 'mine'
 
 export default function LeadsClient({
@@ -71,8 +68,10 @@ export default function LeadsClient({
   userLabel: string
   defaultOwnerId?: string | null
 }) {
+  const router = useRouter()
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   void supabase
+  void userLabel
 
   const isAdmin = role === 'admin'
   const [showCreateLeadModal, setShowCreateLeadModal] = React.useState(false)
@@ -94,6 +93,10 @@ export default function LeadsClient({
   const [revenueLoading, setRevenueLoading] = React.useState(false)
   const [revenueError, setRevenueError] = React.useState<string | null>(null)
 
+  const handleRefresh = React.useCallback(() => {
+    router.refresh()
+  }, [router])
+
   React.useEffect(() => {
     async function loadCompetency() {
       try {
@@ -102,7 +105,7 @@ export default function LeadsClient({
           start: toYMD(comp.month_start),
           end: toYMD(comp.month_end),
         })
-      } catch (e: any) {
+      } catch {
         setPeriod(null)
       }
     }
@@ -191,10 +194,10 @@ export default function LeadsClient({
 
   return (
     <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
-
-      {/* META SELECTOR */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#546070', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Meta exibida:</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#546070', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Meta exibida:
+        </div>
         <select
           value={goalView}
           onChange={(e) => setGoalView(e.target.value as GoalView)}
@@ -223,7 +226,6 @@ export default function LeadsClient({
         ) : null}
       </div>
 
-      {/* KPI */}
       <div style={{ marginBottom: 16 }}>
         {revenueError ? (
           <div
@@ -248,8 +250,17 @@ export default function LeadsClient({
         )}
       </div>
 
-      {/* BOTÕES */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18, paddingBottom: 18, borderBottom: '1px solid #1a1d2e' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          marginBottom: 18,
+          paddingBottom: 18,
+          borderBottom: '1px solid #1a1d2e',
+        }}
+      >
         <button
           onClick={() => setShowCreateLeadModal(true)}
           style={{
@@ -266,11 +277,12 @@ export default function LeadsClient({
         >
           + Criar Lead
         </button>
+
         {isAdmin && (
           <ImportExcelDialog
             userId={userId}
             companyId={companyId}
-            onImported={() => window.location.reload() /* TODO: substituir por router.refresh() */}
+            onImported={handleRefresh}
             trigger={
               <button
                 style={{
@@ -291,12 +303,11 @@ export default function LeadsClient({
           />
         )}
 
-        {/* Deletar Leads - ADMIN ONLY */}
         {isAdmin && (
           <DeleteLeadsDialog
             companyId={companyId}
             isAdmin={isAdmin}
-            onDeleted={() => window.location.reload() /* TODO: substituir por router.refresh() */}
+            onDeleted={handleRefresh}
             trigger={
               <button
                 style={{
@@ -317,9 +328,8 @@ export default function LeadsClient({
           />
         )}
 
-        {/* Atualizar (Refresh) */}
         <button
-          onClick={() => window.location.reload() /* TODO: substituir por router.refresh() */}
+          onClick={handleRefresh}
           style={{
             padding: '9px 16px',
             borderRadius: 7,
@@ -337,7 +347,6 @@ export default function LeadsClient({
         </button>
       </div>
 
-      {/* KANBAN */}
       <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
         <SalesCyclesKanban
           userId={userId}
@@ -347,7 +356,6 @@ export default function LeadsClient({
         />
       </div>
 
-      {/* MODAL CRIAR LEAD */}
       {showCreateLeadModal && (
         <CreateLeadModal
           companyId={companyId}
@@ -356,7 +364,7 @@ export default function LeadsClient({
           groups={[]}
           onLeadCreated={() => {
             setShowCreateLeadModal(false)
-            window.location.reload() // TODO: substituir por router.refresh()
+            handleRefresh()
           }}
           onClose={() => setShowCreateLeadModal(false)}
         />
