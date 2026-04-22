@@ -569,6 +569,107 @@ function CardActionsMenuPortal({
   return createPortal(menu, document.body)
 }
 
+function CopilotMovePortal({
+  open,
+  pending,
+  companyId,
+  onClose,
+  onApplied,
+  onTerminalApply,
+}: {
+  open: boolean
+  pending: {
+    cycleId: string
+    fromStatus: Status
+    toStatus: Status
+    cycle: PipelineItem | null
+  } | null
+  companyId: string
+  onClose: () => void
+  onApplied: () => void | Promise<void>
+  onTerminalApply: (status: 'ganho' | 'perdido') => void
+}) {
+  if (!open || !pending || !pending.cycle) return null
+  const item = pending.cycle
+
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.16)',
+        zIndex: 10000,
+        display: 'flex',
+        justifyContent: 'flex-end',
+        pointerEvents: 'none',
+      }}
+    >
+      <div
+        style={{
+          width: 'min(560px, 100vw)',
+          height: '100vh',
+          background: '#0f1117',
+          borderLeft: `1px solid ${DS.border}`,
+          boxShadow: '-12px 0 36px rgba(0,0,0,0.52)',
+          overflowY: 'auto',
+          padding: 16,
+          pointerEvents: 'auto',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: DS.textPrimary }}>
+            Confirmar movimentação com IA
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: DS.textSecondary, cursor: 'pointer', fontSize: 20 }}>
+            ×
+          </button>
+        </div>
+
+        <LeadCopilotPanel
+          variant="compact"
+          forcedInitialStatus={pending.toStatus as any}
+          cycle={{
+            ...(item as any),
+            company_id: companyId,
+            owner_user_id: item.owner_id,
+            previous_status: null,
+            stage_entered_at: item.stage_entered_at,
+            current_group_id: item.group_id,
+            closed_at: null,
+            won_at: null,
+            lost_at: null,
+            won_owner_user_id: null,
+            lost_owner_user_id: null,
+            lost_reason: null,
+            won_total: null,
+            paused_at: null,
+            paused_reason: null,
+            canceled_at: null,
+            canceled_reason: null,
+            leads: {
+              id: item.lead_id,
+              name: item.name,
+              phone: item.phone,
+              email: item.email,
+            },
+          }}
+          onApplied={async () => {
+            await onApplied()
+          }}
+          onCancel={async () => {
+            onClose()
+          }}
+          onTerminalApply={(status) => {
+            onTerminalApply(status)
+          }}
+        />
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 function CopilotDrawerPortal({
   open,
   item,
@@ -1457,6 +1558,17 @@ export default function SalesCyclesKanban({
   const [returnCycleName, setReturnCycleName] = useState('')
   const [returnSaving, setReturnSaving] = useState(false)
 
+// ==========================================================================
+  // Movimentação via Análise de IA (substitui o StageCheckpointModal no arrasto)
+  // ==========================================================================
+  const [aiMoveOpen, setAiMoveOpen] = useState(false)
+  const [aiMovePending, setAiMovePending] = useState<{
+    cycleId: string
+    fromStatus: Status
+    toStatus: Status
+    cycle: PipelineItem | null
+  } | null>(null)
+
   const [checkpointOpen, setCheckpointOpen] = useState(false)
   const [pendingMove, setPendingMove] = useState<PendingMove>(null)
   const [checkpointLoading, setCheckpointLoading] = useState(false)
@@ -1933,7 +2045,7 @@ export default function SalesCyclesKanban({
     const fromStatus = Object.entries(items).find(([_, cycles]) => cycles.some((c) => c.id === cycleId))?.[0] as Status | undefined
     if (!fromStatus || fromStatus === toStatus) return
 
-    const cycle = Object.values(items).flat().find((c) => c.id === cycleId)
+    const cycle = Object.values(items).flat().find((c) => c.id === cycleId) ?? null
 
     if (toStatus === 'ganho') {
       setWinDealCycleId(cycleId)
@@ -1950,8 +2062,11 @@ export default function SalesCyclesKanban({
       return
     }
 
-    setPendingMove({ cycleId, fromStatus, toStatus })
-    setCheckpointOpen(true)
+    // Em vez do StageCheckpointModal antigo, abrimos o painel de Análise de IA
+    // já pré-selecionado com a etapa que o vendedor tentou arrastar. A IA valida
+    // a movimentação e o vendedor pode confirmar, ajustar ou descartar.
+    setAiMovePending({ cycleId, fromStatus, toStatus, cycle })
+    setAiMoveOpen(true)
   }, [items])
 
   const toggleSelect = useCallback((cycleId: string) => {
@@ -2421,7 +2536,7 @@ export default function SalesCyclesKanban({
         isLoading={returnSaving}
       />
 
-      <StageCheckpointModal
+<StageCheckpointModal
         open={checkpointOpen}
         fromStatus={pendingMove ? pendingMove.fromStatus : 'novo'}
         toStatus={pendingMove ? pendingMove.toStatus : 'novo'}
@@ -2431,6 +2546,44 @@ export default function SalesCyclesKanban({
         }}
         onConfirm={handleCheckpointConfirm}
         loading={checkpointLoading}
+      />
+
+      {/* Análise de IA quando o vendedor arrasta o card entre colunas. */}
+      <CopilotMovePortal
+        open={aiMoveOpen}
+        pending={aiMovePending}
+        companyId={companyId}
+        onClose={() => {
+          setAiMoveOpen(false)
+          setAiMovePending(null)
+          // força refetch pra garantir que o card volte pra coluna original
+          // caso a UI tenha otimisticamente movido.
+          void Promise.all([loadItems(searchTerm), loadTotals()])
+        }}
+        onApplied={async () => {
+          setAiMoveOpen(false)
+          setAiMovePending(null)
+          await handleCopilotSaved()
+        }}
+        onTerminalApply={(terminalStatus) => {
+          if (!aiMovePending) return
+          const cycle = aiMovePending.cycle
+          const cycleId = aiMovePending.cycleId
+
+          setAiMoveOpen(false)
+          setAiMovePending(null)
+
+          if (terminalStatus === 'ganho') {
+            setWinDealCycleId(cycleId)
+            setWinDealName(cycle?.name || '')
+            setWinDealOwnerId(cycle?.owner_id || undefined)
+            setWinDealOpen(true)
+          } else {
+            setLostDealCycleId(cycleId)
+            setLostDealName(cycle?.name || '')
+            setLostDealOpen(true)
+          }
+        }}
       />
 
       <WinDealModal

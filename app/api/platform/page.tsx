@@ -55,4 +55,4 @@ export default async function ConfiguracoesPage() {
       company={company}
     />
   )
-}
+}   
