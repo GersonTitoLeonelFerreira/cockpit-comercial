@@ -14,6 +14,39 @@ import {
   AuthTextInput,
 } from '../components/auth/AuthUI'
 
+const COMMERCIAL_STATS = [
+  {
+    value: 'Menos lead parado',
+    label: 'SLA, agenda e follow-up sob controle',
+  },
+  {
+    value: 'Mais clareza gerencial',
+    label: 'visão diária da execução do time',
+  },
+  {
+    value: 'Mais previsibilidade',
+    label: 'meta conectada à operação',
+  },
+]
+
+const COMMERCIAL_FEATURES = [
+  {
+    title: 'Copiloto comercial com IA',
+    description:
+      'Lê conversa, sugere estágio, próxima ação e ajuda o vendedor a sair do improviso.',
+  },
+  {
+    title: 'Kanban com prioridade real',
+    description:
+      'Agenda, atrasos, filtros e execução comercial em um fluxo operacional de verdade.',
+  },
+  {
+    title: 'Meta conectada ao dia a dia',
+    description:
+      'Simulador, taxa de conversão, ticket e leitura de esforço para o gerente corrigir rota antes do fim do mês.',
+  },
+]
+
 export default function LoginPage() {
   const router = useRouter()
   const supabase = useMemo(() => supabaseBrowser(), [])
@@ -31,7 +64,7 @@ export default function LoginPage() {
     setErrorMessage(null)
 
     if (!email || !senha) {
-      setErrorMessage('Preencha email e senha para acessar o Cockpit Comercial.')
+      setErrorMessage('Preencha email e senha para acessar o Yolen.')
       return
     }
 
@@ -60,19 +93,41 @@ export default function LoginPage() {
 
   return (
     <AuthScaffold
+      asideTitle="Yolen"
       pageBadge="Entrar"
       title="Acesse sua operação"
-      subtitle="Entre com sua credencial para continuar sua execução comercial no mesmo padrão visual do Cockpit."
-      sideBadge="Ambiente seguro"
-      heroTitle="Login com padrão executivo, leitura limpa e identidade alinhada ao restante do sistema."
-      asideSubtitle="A área de autenticação agora segue a mesma linguagem premium do produto: dark mode, profundidade sutil, contraste forte e foco total em clareza operacional."
+      subtitle="Entre para acompanhar a equipe, priorizar os leads certos e transformar rotina comercial em resultado."
+      sideBadge="Cockpit comercial"
+      heroTitle="Yolen é o cockpit comercial para equipes que precisam parar de perder lead na operação."
+      asideSubtitle="O Yolen organiza o pipeline, orienta a próxima ação, dá visão diária ao gerente e conecta a rotina comercial com a meta. Menos improviso. Mais execução. Mais previsibilidade."
+      stats={COMMERCIAL_STATS}
+      features={COMMERCIAL_FEATURES}
       footerLinks={[
-        { label: 'Quero uma demonstração', href: '/cadastro' },
+        { label: 'Solicitar demonstração', href: '/cadastro' },
         { label: 'Esqueci minha senha', href: '/esqueci-senha' },
       ]}
     >
       <form onSubmit={entrar} style={{ display: 'grid', gap: 16 }}>
         <AuthInlineMessage variant="error" message={errorMessage} />
+
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            minHeight: 34,
+            padding: '0 12px',
+            borderRadius: 999,
+            border: '1px solid rgba(59,130,246,0.18)',
+            background: 'rgba(59,130,246,0.08)',
+            color: '#93c5fd',
+            fontSize: 12,
+            fontWeight: 700,
+            width: 'fit-content',
+          }}
+        >
+          Ideal para gestores e equipes comerciais com operação ativa
+        </div>
 
         <AuthField label="Email" required>
           <AuthTextInput
@@ -159,7 +214,7 @@ export default function LoginPage() {
         </div>
 
         <AuthPrimaryButton type="submit" disabled={loading}>
-          {loading ? 'Entrando...' : 'Entrar no Cockpit'}
+          {loading ? 'Entrando...' : 'Entrar no Yolen'}
         </AuthPrimaryButton>
 
         <AuthDivider label="ou" />
@@ -170,7 +225,6 @@ export default function LoginPage() {
             justifyContent: 'center',
             position: 'relative',
             zIndex: 50,
-            pointerEvents: 'auto',
           }}
         >
           <button
@@ -191,19 +245,19 @@ export default function LoginPage() {
               cursor: 'pointer',
               position: 'relative',
               zIndex: 60,
-              pointerEvents: 'auto',
             }}
           >
-            Quero uma demonstração
+            Solicitar demonstração
           </button>
         </div>
 
         <AuthInfoCard
-          title="Acesso focado no que importa"
+          title="Por que o Yolen chama atenção"
           description={
             <>
-              Esta tela foi desenhada para seguir o mesmo padrão executivo do sistema. Menos ruído visual, mais
-              clareza de leitura e percepção de produto premium.
+              <div>• Direciona a próxima ação comercial com mais clareza.</div>
+              <div>• Dá visão diária da operação para o gerente agir antes.</div>
+              <div>• Conecta pipeline, rotina e meta no mesmo sistema.</div>
             </>
           }
         />
