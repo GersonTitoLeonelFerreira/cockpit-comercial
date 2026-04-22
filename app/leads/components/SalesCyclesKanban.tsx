@@ -224,13 +224,20 @@ function getAgendaBadgeLabel(state: AgendaState, dateStr: string | null): string
   }
 }
 
-function detectSearchType(term: string): 'email' | 'cpf' | 'phone' | 'name' {
+function detectSearchType(term: string): 'email' | 'numeric' | 'name' {
   const clean = term.trim()
   if (clean.includes('@')) return 'email'
+
   const digits = clean.replace(/\D/g, '')
-  if (digits.length >= 10 && digits.length <= 13 && /[() -]/.test(clean)) return 'phone'
-  if (digits.length === 11 || digits.length === 14) return 'cpf'
-  if (digits.length >= 10 && digits.length <= 13) return 'phone'
+
+  // 6+ dígitos já é suficiente para tratar como busca numérica.
+  // Isso cobre:
+  // - telefone com ou sem máscara
+  // - telefone parcial
+  // - CPF com ou sem máscara
+  // - CNPJ com ou sem máscara
+  if (digits.length >= 6) return 'numeric'
+
   return 'name'
 }
 
@@ -1447,14 +1454,11 @@ async function loadKanbanWithCursor(
         if (searchTerm.trim()) {
           const searchType = detectSearchType(searchTerm)
         
-          if (searchType === 'phone') {
+          if (searchType === 'numeric') {
             const digits = searchTerm.replace(/\D/g, '')
-            query = query.or(`phone.ilike.%${digits}%,phone.ilike.%${searchTerm}%`)
+            query = query.or(`phone.ilike.%${digits}%,document.ilike.%${digits}%`)
           } else if (searchType === 'email') {
             query = query.ilike('email', `%${searchTerm}%`)
-          } else if (searchType === 'cpf') {
-            const digits = searchTerm.replace(/\D/g, '')
-            query = query.ilike('document', `%${digits}%`)
           } else {
             query = query.ilike('name', `%${searchTerm}%`)
           }
@@ -1481,14 +1485,11 @@ async function loadKanbanWithCursor(
 
       if (selectedGroupId) countQuery = countQuery.eq('group_id', selectedGroupId)
 
-      if (searchType === 'phone') {
+      if (searchType === 'numeric') {
         const digits = searchTerm.replace(/\D/g, '')
-        countQuery = countQuery.or(`phone.ilike.%${digits}%,phone.ilike.%${searchTerm}%`)
+        countQuery = countQuery.or(`phone.ilike.%${digits}%,document.ilike.%${digits}%`)
       } else if (searchType === 'email') {
         countQuery = countQuery.ilike('email', `%${searchTerm}%`)
-      } else if (searchType === 'cpf') {
-        const digits = searchTerm.replace(/\D/g, '')
-        countQuery = countQuery.ilike('document', `%${digits}%`)
       } else {
         countQuery = countQuery.ilike('name', `%${searchTerm}%`)
       }
