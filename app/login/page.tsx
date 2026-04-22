@@ -588,7 +588,7 @@ export default function LoginPage() {
     }}
   >
     <Image
-      src="/branding/yolen-logo-white.png"
+      src="/branding/yolen-logo-v2.png"
       alt="Yolen"
       width={320}
       height={88}
