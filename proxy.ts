@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 
 const ADMIN_ROUTES = ['/pool', '/admin']
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const res = NextResponse.next()
 
   const supabase = createServerClient(

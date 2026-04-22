@@ -100,7 +100,9 @@ export function AuthScaffold({
   return (
     <div
       style={{
-        minHeight: '100vh',
+        height: '100vh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
         background:
           'radial-gradient(circle at top left, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0) 32%), radial-gradient(circle at bottom right, rgba(37,99,235,0.12) 0%, rgba(37,99,235,0) 28%), linear-gradient(180deg, #090b0f 0%, #07090d 100%)',
         color: AUTH.textPrimary,
@@ -111,12 +113,13 @@ export function AuthScaffold({
         style={{
           maxWidth: 1240,
           margin: '0 auto',
-          minHeight: '100vh',
+          minHeight: '100%',
           padding: isMobile ? 20 : 28,
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.08fr) minmax(420px, 488px)',
           gap: isMobile ? 20 : 28,
-          alignItems: 'stretch',
+          alignItems: 'start',
+          boxSizing: 'border-box',
         }}
       >
         <section
@@ -153,7 +156,7 @@ export function AuthScaffold({
               C
             </div>
 
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div
                 style={{
                   fontSize: 22,
@@ -178,8 +181,6 @@ export function AuthScaffold({
 
           <div
             style={{
-              flex: 1,
-              minHeight: 0,
               borderRadius: isMobile ? 24 : 28,
               border: `1px solid ${AUTH.border}`,
               background:
@@ -189,9 +190,10 @@ export function AuthScaffold({
               padding: isMobile ? 24 : 34,
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between',
+              gap: 24,
               position: 'relative',
               overflow: 'hidden',
+              boxSizing: 'border-box',
             }}
           >
             <div
@@ -226,12 +228,13 @@ export function AuthScaffold({
               <h1
                 style={{
                   marginTop: 18,
+                  marginBottom: 0,
                   fontSize: isMobile ? 32 : 42,
                   lineHeight: 1.02,
                   fontWeight: 800,
                   letterSpacing: '-0.04em',
                   maxWidth: 620,
-                  marginBottom: 0,
+                  overflowWrap: 'anywhere',
                 }}
               >
                 {heroTitle}
@@ -240,11 +243,12 @@ export function AuthScaffold({
               <p
                 style={{
                   marginTop: 14,
+                  marginBottom: 0,
                   maxWidth: 620,
                   fontSize: 16,
                   lineHeight: 1.65,
                   color: AUTH.textSecondary,
-                  marginBottom: 0,
+                  overflowWrap: 'anywhere',
                 }}
               >
                 {asideSubtitle}
@@ -266,6 +270,8 @@ export function AuthScaffold({
                       border: '1px solid rgba(59,130,246,0.12)',
                       background: 'rgba(9,11,15,0.72)',
                       padding: 16,
+                      minWidth: 0,
+                      boxSizing: 'border-box',
                     }}
                   >
                     <div
@@ -274,6 +280,7 @@ export function AuthScaffold({
                         fontWeight: 800,
                         color: AUTH.textPrimary,
                         letterSpacing: '-0.02em',
+                        overflowWrap: 'anywhere',
                       }}
                     >
                       {item.value}
@@ -283,6 +290,7 @@ export function AuthScaffold({
                         marginTop: 6,
                         fontSize: 12,
                         color: AUTH.textSecondary,
+                        overflowWrap: 'anywhere',
                       }}
                     >
                       {item.label}
@@ -296,7 +304,6 @@ export function AuthScaffold({
               style={{
                 position: 'relative',
                 zIndex: 1,
-                marginTop: 24,
                 display: 'grid',
                 gap: 12,
               }}
@@ -309,6 +316,8 @@ export function AuthScaffold({
                     border: `1px solid ${AUTH.border}`,
                     background: 'rgba(9,11,15,0.72)',
                     padding: 18,
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
                   <div
@@ -317,6 +326,7 @@ export function AuthScaffold({
                       fontWeight: 800,
                       color: AUTH.textPrimary,
                       letterSpacing: '-0.02em',
+                      overflowWrap: 'anywhere',
                     }}
                   >
                     {feature.title}
@@ -327,6 +337,7 @@ export function AuthScaffold({
                       fontSize: 13,
                       lineHeight: 1.65,
                       color: AUTH.textSecondary,
+                      overflowWrap: 'anywhere',
                     }}
                   >
                     {feature.description}
@@ -340,7 +351,7 @@ export function AuthScaffold({
         <section
           style={{
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             minHeight: 0,
             order: isMobile ? 1 : 2,
           }}
@@ -357,7 +368,8 @@ export function AuthScaffold({
               padding: isMobile ? 24 : 30,
               position: 'relative',
               zIndex: 2,
-              isolation: 'isolate',
+              boxSizing: 'border-box',
+              minWidth: 0,
             }}
           >
             {pageBadge ? (
@@ -388,6 +400,7 @@ export function AuthScaffold({
                 lineHeight: 1.08,
                 fontWeight: 800,
                 letterSpacing: '-0.04em',
+                overflowWrap: 'anywhere',
               }}
             >
               {title}
@@ -399,12 +412,15 @@ export function AuthScaffold({
                 fontSize: 14,
                 lineHeight: 1.7,
                 color: AUTH.textSecondary,
+                overflowWrap: 'anywhere',
               }}
             >
               {subtitle}
             </div>
 
-            <div style={{ marginTop: 24, position: 'relative', zIndex: 4 }}>{children}</div>
+            <div style={{ marginTop: 24, position: 'relative', zIndex: 4 }}>
+              {children}
+            </div>
 
             {footerLinks && footerLinks.length > 0 ? (
               <div
@@ -439,7 +455,6 @@ export function AuthScaffold({
                       cursor: 'pointer',
                       position: 'relative',
                       zIndex: 6,
-                      pointerEvents: 'auto',
                     }}
                   >
                     {item.label}
@@ -466,7 +481,7 @@ export function AuthField({
   children: React.ReactNode
 }) {
   return (
-    <label style={{ display: 'grid', gap: 8 }}>
+    <label style={{ display: 'grid', gap: 8, minWidth: 0 }}>
       <div
         style={{
           display: 'flex',
@@ -482,13 +497,20 @@ export function AuthField({
             fontWeight: 800,
             letterSpacing: '0.02em',
             color: AUTH.textPrimary,
+            overflowWrap: 'anywhere',
           }}
         >
           {label} {required ? <span style={{ color: '#f87171' }}>*</span> : null}
         </span>
 
         {hint ? (
-          <span style={{ fontSize: 11, color: AUTH.textMuted }}>
+          <span
+            style={{
+              fontSize: 11,
+              color: AUTH.textMuted,
+              overflowWrap: 'anywhere',
+            }}
+          >
             {hint}
           </span>
         ) : null}
@@ -516,6 +538,7 @@ export function AuthTextInput(props: React.InputHTMLAttributes<HTMLInputElement>
         fontSize: 14,
         boxSizing: 'border-box',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+        minWidth: 0,
         ...style,
       }}
     />
@@ -540,6 +563,7 @@ export function AuthTextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaEle
         boxSizing: 'border-box',
         resize: 'vertical',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+        minWidth: 0,
         ...style,
       }}
     />
@@ -563,6 +587,7 @@ export function AuthSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>)
         fontSize: 14,
         boxSizing: 'border-box',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+        minWidth: 0,
         ...style,
       }}
     >
@@ -636,7 +661,6 @@ export function AuthSecondaryLink({
         cursor: 'pointer',
         position: 'relative',
         zIndex: 30,
-        pointerEvents: 'auto',
       }}
     >
       {children}
@@ -690,7 +714,7 @@ export function AuthInlineMessage({
 
 export function AuthDivider({ label }: { label?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
       <div style={{ flex: 1, height: 1, background: AUTH.borderSubtle }} />
       {label ? (
         <span
@@ -699,6 +723,7 @@ export function AuthDivider({ label }: { label?: string }) {
             color: AUTH.textMuted,
             textTransform: 'uppercase',
             letterSpacing: '0.08em',
+            whiteSpace: 'nowrap',
           }}
         >
           {label}
@@ -723,15 +748,27 @@ export function AuthInfoCard({
         border: `1px solid ${AUTH.border}`,
         background: 'rgba(9,11,15,0.58)',
         padding: 16,
+        minWidth: 0,
+        boxSizing: 'border-box',
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 800, color: AUTH.textPrimary }}>{title}</div>
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 800,
+          color: AUTH.textPrimary,
+          overflowWrap: 'anywhere',
+        }}
+      >
+        {title}
+      </div>
       <div
         style={{
           marginTop: 8,
           fontSize: 13,
           lineHeight: 1.7,
           color: AUTH.textSecondary,
+          overflowWrap: 'anywhere',
         }}
       >
         {description}
