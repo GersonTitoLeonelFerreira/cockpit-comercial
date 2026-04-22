@@ -604,6 +604,16 @@ export default function LoginPage() {
 
   <div
     style={{
+      width: 56,
+      height: 2,
+      borderRadius: 999,
+      background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
+      marginLeft: 2,
+    }}
+  />
+
+  <div
+    style={{
       fontSize: 14,
       color: DS.textSecondary,
       lineHeight: 1.45,
