@@ -495,7 +495,7 @@ export default function LoginPage() {
         overflowY: 'auto',
         overflowX: 'hidden',
         background:
-          'radial-gradient(circle at top left, rgba(59,130,246,0.20) 0%, rgba(59,130,246,0) 28%), radial-gradient(circle at right center, rgba(37,99,235,0.10) 0%, rgba(37,99,235,0) 24%), linear-gradient(180deg, #090b0f 0%, #06080c 100%)',
+        'radial-gradient(ellipse 38% 28% at 6% 5%, rgba(59,130,246,0.20) 0%, rgba(59,130,246,0.12) 14%, rgba(59,130,246,0.05) 24%, rgba(59,130,246,0) 38%), radial-gradient(circle at 112% 16%, rgba(37,99,235,0.05) 0%, rgba(37,99,235,0) 18%), linear-gradient(180deg, #090b0f 0%, #06080c 100%)',
         color: DS.textPrimary,
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
