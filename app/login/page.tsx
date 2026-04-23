@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
+const [authMode, setAuthMode] = useState<'login' | 'demo'>('login')
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 
@@ -218,27 +219,30 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
               letterSpacing: '-0.03em',
             }}
           >
-            Pipeline com execução real
+            Execução comercial em andamento
           </div>
         </div>
       </div>
 
       <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr',
-          gap: 16,
-        }}
-      >
-        <div
-          style={{
-            borderRadius: 20,
-            border: `1px solid ${DS.border}`,
-            background: 'rgba(9,11,15,0.82)',
-            padding: 16,
-            minWidth: 0,
-          }}
-        >
+  style={{
+    display: 'grid',
+    gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr',
+    gap: 16,
+    alignItems: 'start',
+  }}
+>
+<div
+  style={{
+    borderRadius: 20,
+    border: `1px solid ${DS.border}`,
+    background: 'rgba(9,11,15,0.82)',
+    padding: 16,
+    minWidth: 0,
+    alignSelf: 'start',
+    height: 'fit-content',
+  }}
+>
           <div
             style={{
               display: 'grid',
@@ -555,26 +559,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              minHeight: 32,
-              padding: '0 12px',
-              borderRadius: 999,
-              border: '1px solid rgba(59,130,246,0.22)',
-              background: 'rgba(59,130,246,0.08)',
-              color: DS.blueSoft,
-              fontSize: 12,
-              fontWeight: 800,
-              width: 'fit-content',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
-          >
-            cockpit comercial
-          </div>
-
           <div>
             <h1
               style={{
@@ -658,23 +642,53 @@ export default function LoginPage() {
             }}
           >
             <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                minHeight: 28,
-                padding: '0 11px',
-                borderRadius: 999,
-                border: '1px solid rgba(59,130,246,0.24)',
-                background: 'rgba(59,130,246,0.10)',
-                color: DS.blueSoft,
-                fontSize: 11,
-                fontWeight: 800,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-              }}
-            >
-              Entrar
-            </div>
+  style={{
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 18,
+  }}
+>
+  <button
+    type="button"
+    onClick={() => setAuthMode('login')}
+    style={{
+      minHeight: 32,
+      padding: '0 12px',
+      borderRadius: 999,
+      border: '1px solid rgba(59,130,246,0.24)',
+      background: authMode === 'login' ? 'rgba(59,130,246,0.14)' : 'rgba(255,255,255,0.02)',
+      color: authMode === 'login' ? DS.blueSoft : DS.textSecondary,
+      fontSize: 11,
+      fontWeight: 800,
+      letterSpacing: '0.08em',
+      textTransform: 'uppercase',
+      cursor: 'pointer',
+    }}
+  >
+    Entrar
+  </button>
+
+  <button
+    type="button"
+    onClick={() => setAuthMode('demo')}
+    style={{
+      minHeight: 32,
+      padding: '0 12px',
+      borderRadius: 999,
+      border: '1px solid rgba(59,130,246,0.24)',
+      background: authMode === 'demo' ? 'rgba(59,130,246,0.14)' : 'rgba(255,255,255,0.02)',
+      color: authMode === 'demo' ? DS.blueSoft : DS.textSecondary,
+      fontSize: 11,
+      fontWeight: 800,
+      letterSpacing: '0.08em',
+      textTransform: 'uppercase',
+      cursor: 'pointer',
+    }}
+  >
+    Demonstração
+  </button>
+</div>
 
             <div
               style={{
@@ -685,7 +699,7 @@ export default function LoginPage() {
                 letterSpacing: '-0.04em',
               }}
             >
-              Acesse sua operação
+              {authMode === 'login' ? 'Acesse sua operação' : 'Conheça o Yolen'}
             </div>
 
             <div
@@ -696,10 +710,13 @@ export default function LoginPage() {
                 color: DS.textSecondary,
               }}
             >
-              Entre para acompanhar equipe, pipeline e prioridades comerciais.
+              {authMode === 'login'
+  ? 'Entre para acompanhar equipe, prioridades e execução comercial.'
+  : 'Veja como o Yolen ajuda sua equipe a executar melhor, com mais controle e previsibilidade.'}
             </div>
 
-            <form onSubmit={entrar} style={{ marginTop: 22, display: 'grid', gap: 16 }}>
+            {authMode === 'login' ? (
+  <form onSubmit={entrar} style={{ marginTop: 22, display: 'grid', gap: 16 }}>
               <MessageBox message={errorMessage} />
 
               <div style={{ display: 'grid', gap: 8 }}>
@@ -809,26 +826,23 @@ export default function LoginPage() {
                 {loading ? 'Entrando...' : 'Entrar no Yolen'}
               </button>
 
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                }}
-              >
-                <div style={{ flex: 1, height: 1, background: DS.borderSubtle }} />
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: DS.textMuted,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  ou
-                </span>
-                <div style={{ flex: 1, height: 1, background: DS.borderSubtle }} />
-              </div>
+              <button
+  type="button"
+  onClick={() => router.push('/cadastro')}
+  style={{
+    width: '100%',
+    minHeight: 48,
+    borderRadius: 14,
+    border: `1px solid ${DS.border}`,
+    background: 'rgba(17,19,24,0.92)',
+    color: DS.textSecondary,
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: 'pointer',
+  }}
+>
+  Solicitar demonstração
+</button>
 
               <button
                 type="button"
@@ -848,6 +862,81 @@ export default function LoginPage() {
                 Solicitar demonstração
               </button>
             </form>
+              </form>
+              ) : (
+                <div style={{ marginTop: 22, display: 'grid', gap: 16 }}>
+                  <div
+                    style={{
+                      borderRadius: 18,
+                      border: `1px solid ${DS.border}`,
+                      background: 'rgba(9,11,15,0.60)',
+                      padding: 16,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 800,
+                        color: DS.textPrimary,
+                      }}
+                    >
+                      O que o Yolen entrega
+                    </div>
+              
+                    <div
+                      style={{
+                        marginTop: 10,
+                        display: 'grid',
+                        gap: 8,
+                        fontSize: 13,
+                        color: DS.textSecondary,
+                        lineHeight: 1.65,
+                      }}
+                    >
+                      <div>• Direciona a próxima ação comercial com mais clareza.</div>
+                      <div>• Dá visão diária da operação para o gerente agir antes.</div>
+                      <div>• Conecta execução, follow-up e meta no mesmo cockpit.</div>
+                    </div>
+                  </div>
+              
+                  <button
+                    type="button"
+                    onClick={() => router.push('/cadastro')}
+                    style={{
+                      width: '100%',
+                      minHeight: 48,
+                      borderRadius: 14,
+                      border: '1px solid rgba(59,130,246,0.38)',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      color: '#f8fbff',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: '0 14px 28px rgba(37,99,235,0.28)',
+                    }}
+                  >
+                    Solicitar demonstração
+                  </button>
+              
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('login')}
+                    style={{
+                      width: '100%',
+                      minHeight: 46,
+                      borderRadius: 14,
+                      border: `1px solid ${DS.border}`,
+                      background: 'rgba(17,19,24,0.92)',
+                      color: DS.textSecondary,
+                      fontSize: 14,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Já tenho acesso
+                  </button>
+                </div>
+              )}
           </div>
         </aside>
       </div>

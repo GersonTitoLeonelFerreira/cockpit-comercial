@@ -36,6 +36,7 @@ type NormalizedRow = {
 
 type LeadRow = {
   id: string
+  name: string | null
   phone: string | null
   email: string | null
   cpf_cnpj: string | null
@@ -66,6 +67,70 @@ function cleanStr(v: any) {
 function normEmail(v: any) {
   const s = String(v ?? '').trim().toLowerCase()
   return s ? s : null
+}
+
+function hasRepeatedDigits(value: string) {
+  return /^(\d)\1+$/.test(value)
+}
+
+function isValidCPF(value: string) {
+  const cpf = onlyDigits(value)
+
+  if (cpf.length !== 11) return false
+  if (hasRepeatedDigits(cpf)) return false
+
+  let sum = 0
+  for (let i = 0; i < 9; i++) {
+    sum += Number(cpf[i]) * (10 - i)
+  }
+
+  let firstCheck = (sum * 10) % 11
+  if (firstCheck === 10) firstCheck = 0
+  if (firstCheck !== Number(cpf[9])) return false
+
+  sum = 0
+  for (let i = 0; i < 10; i++) {
+    sum += Number(cpf[i]) * (11 - i)
+  }
+
+  let secondCheck = (sum * 10) % 11
+  if (secondCheck === 10) secondCheck = 0
+
+  return secondCheck === Number(cpf[10])
+}
+
+function isValidCNPJ(value: string) {
+  const cnpj = onlyDigits(value)
+
+  if (cnpj.length !== 14) return false
+  if (hasRepeatedDigits(cnpj)) return false
+
+  const calcCheckDigit = (base: string, weights: number[]) => {
+    const sum = base
+      .split('')
+      .reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0)
+
+    const remainder = sum % 11
+    return remainder < 2 ? 0 : 11 - remainder
+  }
+
+  const base12 = cnpj.slice(0, 12)
+  const digit1 = calcCheckDigit(base12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+  const base13 = `${base12}${digit1}`
+  const digit2 = calcCheckDigit(base13, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+
+  return cnpj === `${base12}${digit1}${digit2}`
+}
+
+function isValidDocument(value: string | null) {
+  if (!value) return false
+
+  const digits = onlyDigits(value)
+
+  if (digits.length === 11) return isValidCPF(digits)
+  if (digits.length === 14) return isValidCNPJ(digits)
+
+  return false
 }
 
 function isDuplicateError(message: string) {
@@ -293,7 +358,7 @@ export async function POST(req: Request) {
     if (leadIdsFromProfiles.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj')
         .eq('company_id', companyId)
         .in('id', leadIdsFromProfiles)
 
@@ -305,7 +370,7 @@ export async function POST(req: Request) {
     if (phones.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj')
         .eq('company_id', companyId)
         .in('phone', phones)
 
@@ -317,7 +382,7 @@ export async function POST(req: Request) {
     if (emails.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj')
         .eq('company_id', companyId)
         .in('email', emails)
 
@@ -329,7 +394,7 @@ export async function POST(req: Request) {
     if (documents.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj')
         .eq('company_id', companyId)
         .in('cpf_cnpj', documents)
 
@@ -370,7 +435,7 @@ export async function POST(req: Request) {
         continue
       }
 
-      if (!row.cpf_cnpj || ![11, 14].includes(row.cpf_cnpj.length)) {
+      if (!row.cpf_cnpj || ![11, 14].includes(row.cpf_cnpj.length) || !isValidDocument(row.cpf_cnpj)) {
         errors.push({ row: row.rowNumber, error: 'CPF/CNPJ inválido.' })
         continue
       }
@@ -395,11 +460,33 @@ export async function POST(req: Request) {
       if (row.phone) seenPhones.add(row.phone)
 
       try {
-        let leadId =
-          leadIdByDoc.get(row.cpf_cnpj) ||
-          (row.email ? leadIdByEmail.get(row.email) : null) ||
-          (row.phone ? leadIdByPhone.get(row.phone) : null) ||
-          null
+        const leadIdFromDoc = leadIdByDoc.get(row.cpf_cnpj) || null
+const leadIdFromEmail = row.email ? leadIdByEmail.get(row.email) || null : null
+const leadIdFromPhone = row.phone ? leadIdByPhone.get(row.phone) || null : null
+
+const emailConflictLead =
+  !leadIdFromDoc && leadIdFromEmail ? existingLeadById.get(leadIdFromEmail) || null : null
+
+const phoneConflictLead =
+  !leadIdFromDoc && leadIdFromPhone ? existingLeadById.get(leadIdFromPhone) || null : null
+
+if (emailConflictLead) {
+  errors.push({
+    row: row.rowNumber,
+    error: `E-mail já pertence ao lead ${emailConflictLead.name || 'Sem nome'} (${emailConflictLead.id.slice(0, 8)}).`,
+  })
+  continue
+}
+
+if (phoneConflictLead) {
+  errors.push({
+    row: row.rowNumber,
+    error: `Telefone já pertence ao lead ${phoneConflictLead.name || 'Sem nome'} (${phoneConflictLead.id.slice(0, 8)}).`,
+  })
+  continue
+}
+
+let leadId = leadIdFromDoc
 
         if (!leadId) {
           const insertLeadPayload = {
@@ -422,7 +509,7 @@ export async function POST(req: Request) {
           const { data: newLead, error: leadErr } = await supabase
             .from('leads')
             .insert(insertLeadPayload)
-            .select('id, phone, email, cpf_cnpj')
+            .sel.select('id, name, phone, email, cpf_cnpj')ect('id, phone, email, cpf_cnpj')
             .single()
 
           if (leadErr || !newLead?.id) {
@@ -439,6 +526,7 @@ export async function POST(req: Request) {
           registerLeadMaps(
             {
               id: newLead.id,
+              name: newLead.name ?? row.name,
               phone: newLead.phone,
               email: newLead.email,
               cpf_cnpj: newLead.cpf_cnpj,
