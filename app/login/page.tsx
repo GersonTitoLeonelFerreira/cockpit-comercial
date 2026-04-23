@@ -221,34 +221,6 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
             Pipeline com execução real
           </div>
         </div>
-
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            flexWrap: 'wrap',
-          }}
-        >
-          {['Pipeline', 'IA', 'Meta'].map((item) => (
-            <div
-              key={item}
-              style={{
-                borderRadius: 999,
-                border: `1px solid ${DS.border}`,
-                background: 'rgba(255,255,255,0.02)',
-                minHeight: 30,
-                padding: '0 12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                color: DS.textSecondary,
-                fontSize: 12,
-                fontWeight: 700,
-              }}
-            >
-              {item}
-            </div>
-          ))}
-        </div>
       </div>
 
       <div
