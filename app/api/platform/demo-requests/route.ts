@@ -29,7 +29,22 @@ export async function GET() {
 
     const { data, error } = await admin
       .from('demo_requests')
-      .select('id, created_at, name, company, whatsapp, email, segment, message, status')
+      .select(`
+        id,
+        created_at,
+        name,
+        company,
+        whatsapp,
+        email,
+        segment,
+        team_size,
+        current_control,
+        main_bottleneck,
+        leads_volume,
+        timeline,
+        message,
+        status
+      `)
       .order('created_at', { ascending: false })
       .limit(300)
 

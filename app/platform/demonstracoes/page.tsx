@@ -23,7 +23,22 @@ export default async function PlatformDemonstracoesPage() {
 
   const { data, error } = await admin
     .from('demo_requests')
-    .select('id, created_at, name, company, whatsapp, email, segment, message, status')
+    .select(`
+      id,
+      created_at,
+      name,
+      company,
+      whatsapp,
+      email,
+      segment,
+      team_size,
+      current_control,
+      main_bottleneck,
+      leads_volume,
+      timeline,
+      message,
+      status
+    `)
     .order('created_at', { ascending: false })
     .limit(300)
 
@@ -48,7 +63,7 @@ export default async function PlatformDemonstracoesPage() {
             color: '#edf2f7',
           }}
         >
-          Gestão de solicitações de demonstração
+          Demonstrações
         </h1>
 
         <p
@@ -61,8 +76,7 @@ export default async function PlatformDemonstracoesPage() {
             maxWidth: 760,
           }}
         >
-          Aqui ficam as entradas da página de cadastro. Você pode pesquisar, filtrar e atualizar o status comercial
-          sem depender do Supabase Dashboard ou do e-mail.
+          Gestão interna das solicitações vindas da página pública de diagnóstico comercial.
         </p>
       </div>
 

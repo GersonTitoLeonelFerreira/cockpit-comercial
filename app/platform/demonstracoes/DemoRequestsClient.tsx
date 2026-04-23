@@ -10,6 +10,11 @@ export type DemoRequestRow = {
   whatsapp: string | null
   email: string | null
   segment: string | null
+  team_size: string | null
+  current_control: string | null
+  main_bottleneck: string | null
+  leads_volume: string | null
+  timeline: string | null
   message: string | null
   status: string | null
 }
@@ -117,6 +122,11 @@ export default function DemoRequestsClient({
         row.email,
         row.whatsapp,
         row.segment,
+        row.team_size,
+        row.current_control,
+        row.main_bottleneck,
+        row.leads_volume,
+        row.timeline,
         row.message,
       ]
         .map(normalizeText)
@@ -232,7 +242,7 @@ export default function DemoRequestsClient({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome, empresa, email, WhatsApp ou mensagem"
+            placeholder="Buscar por nome, empresa, email, WhatsApp ou contexto"
             style={{
               width: '100%',
               height: 46,
@@ -416,6 +426,20 @@ export default function DemoRequestsClient({
 
               <div
                 style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                <DataCard label="Time comercial" value={row.team_size || '-'} />
+                <DataCard label="Controle atual" value={row.current_control || '-'} />
+                <DataCard label="Principal gargalo" value={row.main_bottleneck || '-'} />
+                <DataCard label="Volume de leads" value={row.leads_volume || '-'} />
+                <DataCard label="Prazo" value={row.timeline || '-'} />
+              </div>
+
+              <div
+                style={{
                   borderRadius: 16,
                   border: `1px solid ${DS.border}`,
                   background: 'rgba(9,11,15,0.54)',
@@ -431,7 +455,7 @@ export default function DemoRequestsClient({
                     letterSpacing: '0.08em',
                   }}
                 >
-                  Contexto enviado
+                  Contexto informado
                 </div>
 
                 <div

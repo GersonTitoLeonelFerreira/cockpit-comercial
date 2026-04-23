@@ -6,30 +6,6 @@ function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
 }
 
-function buildQualifiedMessage(input: {
-  message: string | null
-  teamSize: string | null
-  currentControl: string | null
-  mainBottleneck: string | null
-  leadsVolume: string | null
-  timeline: string | null
-}) {
-  const sections: string[] = []
-
-  if (input.message) {
-    sections.push(`Contexto informado pelo lead:\n${input.message}`)
-  }
-
-  sections.push('Qualificação comercial:')
-  sections.push(`- Tamanho do time comercial: ${input.teamSize || '-'}`)
-  sections.push(`- Controle atual dos leads: ${input.currentControl || '-'}`)
-  sections.push(`- Principal gargalo: ${input.mainBottleneck || '-'}`)
-  sections.push(`- Volume de leads por mês: ${input.leadsVolume || '-'}`)
-  sections.push(`- Prazo para estruturar: ${input.timeline || '-'}`)
-
-  return sections.join('\n\n')
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json()
@@ -82,15 +58,6 @@ export async function POST(req: Request) {
     const supabase = createClient(url, serviceKey)
     const resend = new Resend(resendKey)
 
-    const qualifiedMessage = buildQualifiedMessage({
-      message,
-      teamSize,
-      currentControl,
-      mainBottleneck,
-      leadsVolume,
-      timeline,
-    })
-
     const { data: saved, error: saveErr } = await supabase
       .from('demo_requests')
       .insert({
@@ -99,7 +66,12 @@ export async function POST(req: Request) {
         whatsapp,
         email,
         segment,
-        message: qualifiedMessage,
+        team_size: teamSize,
+        current_control: currentControl,
+        main_bottleneck: mainBottleneck,
+        leads_volume: leadsVolume,
+        timeline,
+        message,
         status: 'new',
       })
       .select('id, created_at')
@@ -122,9 +94,8 @@ export async function POST(req: Request) {
       `Controle atual dos leads: ${currentControl || '-'}\n` +
       `Principal gargalo: ${mainBottleneck || '-'}\n` +
       `Volume de leads por mês: ${leadsVolume || '-'}\n` +
-      `Prazo para estruturar: ${timeline || '-'}\n\n` +
-      `Contexto livre:\n${message || '-'}\n\n` +
-      `Mensagem consolidada salva no banco:\n${qualifiedMessage}\n\n` +
+      `Prazo para estruturar: ${timeline || '-'}\n` +
+      `Contexto livre: ${message || '-'}\n\n` +
       `ID: ${saved?.id}\n` +
       `Data: ${saved?.created_at}\n`
 

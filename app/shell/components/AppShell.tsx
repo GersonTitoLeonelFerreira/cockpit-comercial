@@ -580,34 +580,42 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const topTitle =
-    pathname?.startsWith('/pool')
-      ? 'Pool'
-      : pathname?.startsWith('/admin')
-        ? 'Admin'
-        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
-          ? 'Cockpit Comercial'
-          : pathname?.startsWith('/relatorios')
-            ? 'Relatórios'
-            : pathname?.startsWith('/dashboard/simulador-meta')
-              ? 'Simulador de Meta'
-              : pathname?.startsWith('/platform')
-                ? 'Configurações'
-                : 'Dashboard'
+  pathname?.startsWith('/pool')
+    ? 'Pool'
+    : pathname?.startsWith('/admin')
+      ? 'Admin'
+      : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+        ? 'Cockpit Comercial'
+        : pathname?.startsWith('/relatorios')
+          ? 'Relatórios'
+          : pathname?.startsWith('/dashboard/simulador-meta')
+            ? 'Simulador de Meta'
+            : pathname?.startsWith('/platform/demonstracoes')
+              ? 'Demonstrações'
+              : pathname?.startsWith('/platform/empresas')
+                ? 'Plataforma'
+                : pathname?.startsWith('/platform')
+                  ? 'Plataforma'
+                  : 'Dashboard'
 
-  const topSubtitle =
-    pathname?.startsWith('/pool')
-      ? 'Administre, distribua e organize a entrada de leads'
-      : pathname?.startsWith('/admin')
-        ? 'Gestão e administração do sistema'
-        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
-          ? 'Execução comercial da operação'
-          : pathname?.startsWith('/relatorios')
-            ? 'Análise e inteligência comercial'
-            : pathname?.startsWith('/dashboard/simulador-meta')
-              ? 'Projeção e planejamento de metas'
-              : pathname?.startsWith('/platform')
-                ? 'Configurações da plataforma'
-                : 'Visão geral da operação comercial'
+                  const topSubtitle =
+                  pathname?.startsWith('/pool')
+                    ? 'Administre, distribua e organize a entrada de leads'
+                    : pathname?.startsWith('/admin')
+                      ? 'Gestão e administração do sistema'
+                      : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+                        ? 'Execução comercial da operação'
+                        : pathname?.startsWith('/relatorios')
+                          ? 'Análise e inteligência comercial'
+                          : pathname?.startsWith('/dashboard/simulador-meta')
+                            ? 'Projeção e planejamento de metas'
+                            : pathname?.startsWith('/platform/demonstracoes')
+                              ? 'Gestão interna das solicitações vindas da página pública'
+                              : pathname?.startsWith('/platform/empresas')
+                                ? 'Operações internas da plataforma'
+                                : pathname?.startsWith('/platform')
+                                  ? 'Operações internas da plataforma'
+                                  : 'Visão geral da operação comercial'
 
   return (
     <div
@@ -798,12 +806,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             />
           )}
           <NavBtn
-            href="/platform"
-            label="Configurações"
-            icon="settings"
-            collapsed={collapsed}
-            active={isActive('/platform')}
-          />
+  href="/platform/demonstracoes"
+  label="Demonstrações"
+  active={isActive('/platform/demonstracoes')}
+  collapsed={collapsed}
+  icon="reports"
+/>
         </nav>
       </aside>
 
