@@ -568,7 +568,17 @@ export async function POST(req: Request) {
           )
         }
 
-        const profilePayload = buildProfilePayload(companyId, leadId, row)
+        if (!leadId) {
+          errors.push({
+            row: row.rowNumber,
+            error: 'Falha interna: leadId não definido após processar a linha.',
+          })
+          continue
+        }
+        
+        const resolvedLeadId = leadId
+
+        const profilePayload = buildProfilePayload(companyId, resolvedLeadId, row)
 
         const { error: profileErr } = await supabase
           .from('lead_profiles')
@@ -582,14 +592,14 @@ export async function POST(req: Request) {
           continue
         }
 
-        let cycle = cycleByLeadId.get(leadId) || null
+        let cycle = cycleByLeadId.get(resolvedLeadId) || null
 
         if (!cycle) {
           const { data: createdCycle, error: cycleErr } = await supabase
             .from('sales_cycles')
             .insert({
               company_id: companyId,
-              lead_id: leadId,
+              lead_id: resolvedLeadId,
               owner_user_id: defaultOwnerUserId,
               status: 'novo',
               current_group_id: groupId || null,
@@ -667,7 +677,7 @@ export async function POST(req: Request) {
 
           if (!cycleUpdateErr) {
             cycle.current_group_id = groupId
-            cycleByLeadId.set(leadId, cycle)
+            cycleByLeadId.set(resolvedLeadId, cycle)
 
             const { error: linkErr } = await supabase
               .from('lead_group_cycles')
