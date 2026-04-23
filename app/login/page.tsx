@@ -568,61 +568,48 @@ export default function LoginPage() {
       >
         <section style={{ display: 'grid', gap: 18 }}>
         <div
+style={{
+  display: 'grid',
+  gap: 10,
+  justifyContent: 'start',
+  alignSelf: 'start',
+}}
+>
+<Image
+  src="/branding/yolen-logo-principal.png"
+  alt="Yolen"
+  width={340}
+  height={82}
+  priority
   style={{
-    display: 'grid',
-    gap: 10,
-    justifyContent: 'start',
-    alignSelf: 'start',
+    width: isMobile ? 200 : 340,
+    height: 'auto',
+    display: 'block',
+    objectFit: 'contain',
+  }}
+/>
+
+<div
+  style={{
+    width: 56,
+    height: 2,
+    borderRadius: 999,
+    background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
+    marginLeft: 2,
+  }}
+/>
+
+<div
+  style={{
+    fontSize: 14,
+    color: DS.textSecondary,
+    lineHeight: 1.45,
+    maxWidth: 360,
+    marginLeft: 2,
   }}
 >
-  <div
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      padding: isMobile ? '12px 14px' : '14px 18px',
-      borderRadius: 18,
-      border: '1px solid rgba(59,130,246,0.14)',
-      background: 'linear-gradient(135deg, rgba(59,130,246,0.08) 0%, rgba(17,19,24,0.46) 100%)',
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
-      width: 'fit-content',
-    }}
-  >
-    <Image
-      src="/branding/yolen-logo-principal.png"
-      alt="Yolen"
-      width={340}
-      height={82}
-      priority
-      style={{
-        width: isMobile ? 200 : 340,
-        height: 'auto',
-        display: 'block',
-        objectFit: 'contain',
-      }}
-    />
-  </div>
-
-  <div
-    style={{
-      width: 56,
-      height: 2,
-      borderRadius: 999,
-      background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
-      marginLeft: 2,
-    }}
-  />
-
-  <div
-    style={{
-      fontSize: 14,
-      color: DS.textSecondary,
-      lineHeight: 1.45,
-      maxWidth: 360,
-      marginLeft: 2,
-    }}
-  >
-    Cockpit comercial para equipes de vendas
-  </div>
+  Cockpit comercial para equipes de vendas
+</div>
 </div>
 
           <div
