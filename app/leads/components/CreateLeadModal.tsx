@@ -299,6 +299,17 @@ export default function CreateLeadModal({
     window.open(`/leads/${lead.id}`, '_blank', 'noopener,noreferrer')
   }
 
+  const buildConflictLeadMeta = (lead: ConflictLeadRef | null): string | null => {
+    if (!lead) return null
+  
+    const parts: string[] = []
+  
+    if (lead.phone) parts.push(`Telefone: ${lead.phone}`)
+    if (lead.email) parts.push(`Email: ${lead.email}`)
+  
+    return parts.length > 0 ? parts.join(' • ') : null
+  }
+
   const fetchAddressFromCEP = async (cep: string) => {
     if (!cep || cep.length < 8) return
 
@@ -810,12 +821,19 @@ export default function CreateLeadModal({
       marginBottom: 16,
       fontSize: 12,
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: 12,
     }}
   >
-    <div>{error}</div>
+    <div>
+      <div>{error}</div>
+      {errorConflictLead && buildConflictLeadMeta(errorConflictLead) && (
+        <div style={{ marginTop: 6, fontSize: 11, opacity: 0.9 }}>
+          {buildConflictLeadMeta(errorConflictLead)}
+        </div>
+      )}
+    </div>
 
     {errorConflictLead?.id && (
       <button
@@ -893,12 +911,19 @@ export default function CreateLeadModal({
       color: '#fcd34d',
       marginTop: 6,
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: 8,
     }}
   >
-    <span>{phoneWarning}</span>
+    <div>
+      <div>{phoneWarning}</div>
+      {phoneConflictLead && buildConflictLeadMeta(phoneConflictLead) && (
+        <div style={{ marginTop: 4, opacity: 0.9 }}>
+          {buildConflictLeadMeta(phoneConflictLead)}
+        </div>
+      )}
+    </div>
 
     {phoneConflictLead?.id && (
       <button
@@ -950,12 +975,19 @@ export default function CreateLeadModal({
       color: '#fcd34d',
       marginTop: 6,
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: 8,
     }}
   >
-    <span>{emailWarning}</span>
+    <div>
+      <div>{emailWarning}</div>
+      {emailConflictLead && buildConflictLeadMeta(emailConflictLead) && (
+        <div style={{ marginTop: 4, opacity: 0.9 }}>
+          {buildConflictLeadMeta(emailConflictLead)}
+        </div>
+      )}
+    </div>
 
     {emailConflictLead?.id && (
       <button
@@ -977,7 +1009,7 @@ export default function CreateLeadModal({
       </button>
     )}
   </div>
-)}  
+)} 
               </div>
             </div>
 
@@ -1007,12 +1039,19 @@ export default function CreateLeadModal({
       color: '#fecaca',
       marginTop: 6,
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: 8,
     }}
   >
-    <span>{cpfWarning}</span>
+    <div>
+      <div>{cpfWarning}</div>
+      {cpfConflictLead && buildConflictLeadMeta(cpfConflictLead) && (
+        <div style={{ marginTop: 4, opacity: 0.9 }}>
+          {buildConflictLeadMeta(cpfConflictLead)}
+        </div>
+      )}
+    </div>
 
     {cpfConflictLead?.id && (
       <button
