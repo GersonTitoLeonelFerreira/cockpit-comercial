@@ -843,37 +843,23 @@ function KanbanCard({
 
   return (
     <div
-      style={{
-        background: isHovered
-          ? `linear-gradient(135deg, ${STATUS_COLORS[item.status]}06, ${STATUS_COLORS[item.status]}12)`
-          : isSelected
-            ? 'rgba(59,130,246,0.07)'
-            : DS.cardBg,
-        borderTop: isHovered
-          ? `1px solid ${STATUS_COLORS[item.status]}55`
-          : isSelected
-            ? '1px solid rgba(59,130,246,0.35)'
-            : `1px solid ${DS.border}`,
-        borderRight: isHovered
-          ? `1px solid ${STATUS_COLORS[item.status]}55`
-          : isSelected
-            ? '1px solid rgba(59,130,246,0.35)'
-            : `1px solid ${DS.border}`,
-        borderBottom: isHovered
-          ? `1px solid ${STATUS_COLORS[item.status]}55`
-          : isSelected
-            ? '1px solid rgba(59,130,246,0.35)'
-            : `1px solid ${DS.border}`,
-        borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
-        borderRadius: DS.radius + 3,
-        padding: '10px 8px',
-        cursor: isSaving ? 'not-allowed' : 'grab',
-        transition: 'transform 200ms ease, box-shadow 200ms ease, background 200ms ease, border-color 200ms ease',
-        position: 'relative',
-        overflow: 'hidden',
-        transform: isHovered ? 'translateY(-1px)' : 'none',
-        boxShadow: isHovered ? `0 4px 16px rgba(0,0,0,0.4)` : DS.shadowCard,
-      }}
+    style={{
+      background: 'rgba(10,14,22,0.78)',
+      borderTop: '1px solid rgba(255,255,255,0.04)',
+      borderRight: '1px solid rgba(255,255,255,0.04)',
+      borderBottom: '1px solid rgba(255,255,255,0.04)',
+      borderLeft: `2px solid ${STATUS_COLORS[item.status]}`,
+      borderRadius: 14,
+      padding: '10px 10px',
+      cursor: isSaving ? 'not-allowed' : 'grab',
+      transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
+      position: 'relative',
+      overflow: 'hidden',
+      transform: isHovered ? 'translateY(-1px)' : 'none',
+      boxShadow: isHovered
+        ? `0 8px 20px rgba(0,0,0,0.34), 0 0 0 1px ${STATUS_COLORS[item.status]}22`
+        : '0 4px 12px rgba(0,0,0,0.24)',
+    }}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
@@ -1297,112 +1283,230 @@ function VirtualizedStatusColumn({
  const shown = filteredCycles.length
 const total = totalCount ?? shown
 const statusLabel = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status.toUpperCase()
-const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `${statusLabel} (${total})`
+const statusStep = ({ novo: '01', contato: '02', respondeu: '03', negociacao: '04', ganho: '05', perdido: '06' } as const)[status]
+const accent = STATUS_COLORS[status]
 
   return (
     <>
+<div
+  style={{
+    minWidth: 300,
+    maxWidth: 340,
+    flex: '0 0 320px',
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    background: isDraggingOver
+      ? `linear-gradient(180deg, rgba(7,10,16,0.98) 0%, rgba(7,10,16,0.96) 62%, ${accent}22 100%)`
+      : `linear-gradient(180deg, rgba(7,10,16,0.98) 0%, rgba(7,10,16,0.96) 64%, ${accent}14 100%)`,
+    borderRadius: 18,
+    border: `1px solid ${accent}38`,
+    maxHeight: 'calc(100vh - 200px)',
+    overflow: 'hidden',
+    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 10px 28px rgba(0,0,0,0.34)`,
+  }}
+  onDragEnter={(e) => {
+    e.preventDefault()
+    setIsDraggingOver(true)
+  }}
+  onDragOver={(e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!isDraggingOver) setIsDraggingOver(true)
+  }}
+  onDragLeave={() => {
+    setIsDraggingOver(false)
+  }}
+  onDrop={(e) => {
+    e.preventDefault()
+    const cycleId = e.dataTransfer.getData('cycleId')
+    setIsDraggingOver(false)
+    if (cycleId) onDrop(cycleId, status)
+  }}
+>
+  <div
+    style={{
+      height: 2,
+      width: '100%',
+      background: accent,
+      boxShadow: `0 0 16px ${accent}, 0 0 32px ${accent}66`,
+      opacity: 0.95,
+      flexShrink: 0,
+    }}
+  />
+
+  <div
+    style={{
+      padding: '14px 14px 10px',
+      background: `linear-gradient(180deg, ${accent}10 0%, rgba(255,255,255,0.00) 100%)`,
+      borderBottom: '1px solid rgba(255,255,255,0.04)',
+      position: 'sticky',
+      top: 0,
+      zIndex: 10,
+      backdropFilter: 'blur(6px)',
+    }}
+  >
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+      }}
+    >
       <div
         style={{
-          minWidth: 300,
-          maxWidth: 340,
-          flex: '0 0 320px',
           display: 'flex',
-          flexDirection: 'column',
-          background: isDraggingOver
-  ? `linear-gradient(to top, rgba(96,165,250,0.22) 0%, rgba(59,130,246,0.12) 28%, ${DS.panelBg} 100%)`
-  : `linear-gradient(to top, rgba(96,165,250,0.16) 0%, rgba(59,130,246,0.08) 26%, rgba(30,41,59,0.04) 48%, ${DS.panelBg} 100%)`,
-          borderRadius: DS.radiusContainer + 3,
-          border: `1px solid ${DS.border}`,
-          borderTop: `3px solid ${STATUS_COLORS[status]}`,
-          maxHeight: 'calc(100vh - 200px)',
-          overflow: 'hidden',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-        }}
-        onDragEnter={(e) => {
-          e.preventDefault()
-          setIsDraggingOver(true)
-        }}
-        onDragOver={(e) => {
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
-          if (!isDraggingOver) setIsDraggingOver(true)
-        }}
-        onDragLeave={() => {
-          setIsDraggingOver(false)
-        }}
-        onDrop={(e) => {
-          e.preventDefault()
-          const cycleId = e.dataTransfer.getData('cycleId')
-          setIsDraggingOver(false)
-          if (cycleId) onDrop(cycleId, status)
+          alignItems: 'center',
+          gap: 10,
+          minWidth: 0,
         }}
       >
         <div
           style={{
-            padding: '10px 12px 8px',
-            background: `linear-gradient(to bottom, ${STATUS_COLORS[status]}12, transparent)`,
-            borderBottom: `1px solid ${DS.border}`,
-            position: 'sticky',
-            top: 0,
-            zIndex: 10,
+            width: 30,
+            height: 30,
+            borderRadius: 999,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 12,
+            fontWeight: 800,
+            color: accent,
+            background: `${accent}18`,
+            border: `1px solid ${accent}30`,
+            boxShadow: `0 0 12px ${accent}20`,
+            flexShrink: 0,
           }}
         >
+          {statusStep}
+        </div>
+
+        <div
+          style={{
+            fontWeight: 800,
+            fontSize: 12,
+            letterSpacing: '0.02em',
+            color: '#f8fafc',
+            textTransform: 'none',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {statusLabel}
+        </div>
+      </div>
+
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: 12,
+          color: '#cbd5e1',
+          opacity: 0.95,
+          flexShrink: 0,
+        }}
+      >
+        {total}
+      </div>
+    </div>
+
+    <div
+      style={{
+        marginTop: 10,
+        height: 1,
+        background: 'rgba(255,255,255,0.05)',
+        borderRadius: 999,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          height: '100%',
+          width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
+          background: accent,
+          boxShadow: `0 0 10px ${accent}88`,
+        }}
+      />
+    </div>
+  </div>
+
+  <div
+    className="kanban-column-scroll"
+    style={{
+      flex: 1,
+      overflowY: 'auto',
+      padding: '12px 10px 20px',
+      background: 'transparent',
+    }}
+  >
+    {filteredCycles.length === 0 ? (
+      <div style={{ display: 'grid', gap: 10 }}>
+        {[1, 2, 3, 4].map((n) => (
           <div
+            key={n}
             style={{
-              fontWeight: 800,
-              fontSize: 11,
-              letterSpacing: '0.1em',
-              color: STATUS_COLORS[status],
-              textTransform: 'uppercase',
-            }}
-          >
-            {headerLabel}
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              height: 2,
-              background: DS.borderSubtle,
-              borderRadius: 2,
-              overflow: 'hidden',
+              borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.03)',
+              background: 'rgba(255,255,255,0.015)',
+              minHeight: 84,
+              padding: 10,
+              opacity: 0.58,
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
             }}
           >
             <div
               style={{
-                height: '100%',
-                width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
-                background: STATUS_COLORS[status],
+                width: n % 2 === 0 ? '72%' : '58%',
+                height: 8,
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.08)',
+                marginBottom: 10,
+              }}
+            />
+            <div
+              style={{
+                width: n % 2 === 0 ? '48%' : '64%',
+                height: 6,
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.05)',
+                marginBottom: 8,
+              }}
+            />
+            <div
+              style={{
+                width: '34%',
+                height: 6,
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.04)',
               }}
             />
           </div>
-        </div>
-
-        <div className="kanban-column-scroll" style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 20px' }}>
-          {filteredCycles.length === 0 ? (
-            <div style={{ color: DS.textMuted, fontSize: 11, textAlign: 'center', paddingTop: 32 }}>Vazio</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {filteredCycles.map((item) => (
-                <KanbanCard
-                  key={item.id}
-                  item={item}
-                  isSaving={savingId === item.id}
-                  isSelected={selectedIds.has(item.id)}
-                  onToggleSelect={onToggleSelect}
-                  onOpenMenu={(menuItem, rect) => setMenuState({ item: menuItem, anchorRect: rect })}
-                  onMoveItem={onMoveItem}
-                  onCopilotSaved={onCopilotSaved}
-                  supabase={supabase}
-                  companyId={companyId}
-                  currentUserId={currentUserId}
-                  slaRules={slaRules}
-                  nowTick={nowTick}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        ))}
       </div>
+    ) : (
+      <div style={{ display: 'grid', gap: 8 }}>
+        {filteredCycles.map((item) => (
+          <KanbanCard
+            key={item.id}
+            item={item}
+            isSaving={savingId === item.id}
+            isSelected={selectedIds.has(item.id)}
+            onToggleSelect={onToggleSelect}
+            onOpenMenu={(menuItem, rect) => setMenuState({ item: menuItem, anchorRect: rect })}
+            onMoveItem={onMoveItem}
+            onCopilotSaved={onCopilotSaved}
+            supabase={supabase}
+            companyId={companyId}
+            currentUserId={currentUserId}
+            slaRules={slaRules}
+            nowTick={nowTick}
+          />
+        ))}
+      </div>
+    )}
+  </div>
+</div>
 
       {menuState && (
         <CardActionsMenuPortal
