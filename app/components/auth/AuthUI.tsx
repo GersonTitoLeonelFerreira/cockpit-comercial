@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import * as React from 'react'
 
@@ -27,6 +28,14 @@ type AuthScaffoldProps = {
   sideBadge?: string
   stats?: AuthStat[]
   features?: AuthFeature[]
+  brandVariant?: 'icon' | 'logo'
+  brandLogoSrc?: string
+  brandLogoAlt?: string
+  brandLogoWidth?: number
+  brandLogoHeight?: number
+  brandTagline?: string
+  topAction?: React.ReactNode
+  desktopSplitScroll?: boolean
 }
 
 const AUTH = {
@@ -94,14 +103,23 @@ export function AuthScaffold({
   sideBadge = 'Acesso seguro',
   stats = DEFAULT_STATS,
   features = DEFAULT_FEATURES,
+  brandVariant = 'icon',
+  brandLogoSrc = '/branding/yolen-logo-principal.png',
+  brandLogoAlt = 'Yolen',
+  brandLogoWidth = 340,
+  brandLogoHeight = 82,
+  brandTagline = 'Cockpit comercial para equipes de vendas',
+  topAction,
+  desktopSplitScroll = false,
 }: AuthScaffoldProps) {
   const isMobile = useIsMobile()
+  const enableSplitScroll = desktopSplitScroll && !isMobile
 
   return (
     <div
       style={{
         height: '100vh',
-        overflowY: 'auto',
+        overflowY: enableSplitScroll ? 'hidden' : 'auto',
         overflowX: 'hidden',
         background:
           'radial-gradient(circle at top left, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0) 32%), radial-gradient(circle at bottom right, rgba(37,99,235,0.12) 0%, rgba(37,99,235,0) 28%), linear-gradient(180deg, #090b0f 0%, #07090d 100%)',
@@ -113,12 +131,13 @@ export function AuthScaffold({
         style={{
           maxWidth: 1240,
           margin: '0 auto',
-          minHeight: '100%',
+          height: '100%',
+          minHeight: enableSplitScroll ? 0 : '100%',
           padding: isMobile ? 20 : 28,
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.08fr) minmax(420px, 488px)',
           gap: isMobile ? 20 : 28,
-          alignItems: 'start',
+          alignItems: 'stretch',
           boxSizing: 'border-box',
         }}
       >
@@ -127,57 +146,106 @@ export function AuthScaffold({
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
+            height: enableSplitScroll ? '100%' : 'auto',
             order: isMobile ? 2 : 1,
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 14,
-              padding: '14px 0 18px',
-            }}
-          >
+          {brandVariant === 'logo' ? (
             <div
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
                 display: 'grid',
-                placeItems: 'center',
-                background: 'linear-gradient(145deg, #2563eb 0%, #1d4ed8 100%)',
-                color: 'white',
-                fontSize: 18,
-                fontWeight: 800,
-                boxShadow: '0 10px 24px rgba(37,99,235,0.28)',
-                flexShrink: 0,
+                gap: 10,
+                justifyContent: 'start',
+                alignSelf: 'start',
+                padding: '8px 0 18px',
               }}
             >
-              C
-            </div>
+              <Image
+                src={brandLogoSrc}
+                alt={brandLogoAlt}
+                width={brandLogoWidth}
+                height={brandLogoHeight}
+                priority
+                style={{
+                  width: isMobile ? 200 : brandLogoWidth,
+                  height: 'auto',
+                  display: 'block',
+                  objectFit: 'contain',
+                }}
+              />
 
-            <div style={{ minWidth: 0 }}>
               <div
                 style={{
-                  fontSize: 22,
-                  fontWeight: 800,
-                  letterSpacing: '-0.02em',
-                  color: AUTH.textPrimary,
+                  width: 56,
+                  height: 2,
+                  borderRadius: 999,
+                  background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
+                  marginLeft: 2,
                 }}
-              >
-                {asideTitle}
-              </div>
+              />
+
               <div
                 style={{
-                  marginTop: 3,
-                  fontSize: 13,
+                  fontSize: 14,
                   color: AUTH.textSecondary,
+                  lineHeight: 1.45,
+                  maxWidth: 360,
+                  marginLeft: 2,
                 }}
               >
-                Plataforma comercial com padrão executivo
+                {brandTagline}
               </div>
             </div>
-          </div>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                padding: '14px 0 18px',
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: 'linear-gradient(145deg, #2563eb 0%, #1d4ed8 100%)',
+                  color: 'white',
+                  fontSize: 18,
+                  fontWeight: 800,
+                  boxShadow: '0 10px 24px rgba(37,99,235,0.28)',
+                  flexShrink: 0,
+                }}
+              >
+                C
+              </div>
+
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 800,
+                    letterSpacing: '-0.02em',
+                    color: AUTH.textPrimary,
+                  }}
+                >
+                  {asideTitle}
+                </div>
+                <div
+                  style={{
+                    marginTop: 3,
+                    fontSize: 13,
+                    color: AUTH.textSecondary,
+                  }}
+                >
+                  Plataforma comercial com padrão executivo
+                </div>
+              </div>
+            </div>
+          )}
 
           <div
             style={{
@@ -185,8 +253,7 @@ export function AuthScaffold({
               border: `1px solid ${AUTH.border}`,
               background:
                 'linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(59,130,246,0.02) 20%, rgba(17,19,24,0.98) 100%)',
-              boxShadow:
-                'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
               padding: isMobile ? 24 : 34,
               display: 'flex',
               flexDirection: 'column',
@@ -194,6 +261,8 @@ export function AuthScaffold({
               position: 'relative',
               overflow: 'hidden',
               boxSizing: 'border-box',
+              flex: enableSplitScroll ? 1 : 'unset',
+              minHeight: 0,
             }}
           >
             <div
@@ -351,8 +420,9 @@ export function AuthScaffold({
         <section
           style={{
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: 'stretch',
             minHeight: 0,
+            height: enableSplitScroll ? '100%' : 'auto',
             order: isMobile ? 1 : 2,
           }}
         >
@@ -361,107 +431,130 @@ export function AuthScaffold({
               width: '100%',
               borderRadius: isMobile ? 24 : 28,
               border: `1px solid ${AUTH.border}`,
-              background:
-                'linear-gradient(180deg, rgba(17,19,24,0.98) 0%, rgba(13,15,20,0.98) 100%)',
-              boxShadow:
-                'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
+              background: 'linear-gradient(180deg, rgba(17,19,24,0.98) 0%, rgba(13,15,20,0.98) 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
               padding: isMobile ? 24 : 30,
               position: 'relative',
               zIndex: 2,
               boxSizing: 'border-box',
               minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              height: enableSplitScroll ? '100%' : 'auto',
+              minHeight: 0,
             }}
           >
-            {pageBadge ? (
+            <div
+              style={{
+                flex: enableSplitScroll ? 1 : 'unset',
+                minHeight: 0,
+                overflowY: enableSplitScroll ? 'auto' : 'visible',
+                paddingRight: enableSplitScroll ? 6 : 0,
+              }}
+            >
+              {topAction ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-start',
+                    marginBottom: 16,
+                  }}
+                >
+                  {topAction}
+                </div>
+              ) : null}
+
+              {pageBadge ? (
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    minHeight: 28,
+                    padding: '0 11px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(59,130,246,0.24)',
+                    background: 'rgba(59,130,246,0.10)',
+                    color: AUTH.blueSoft,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {pageBadge}
+                </div>
+              ) : null}
+
               <div
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  minHeight: 28,
-                  padding: '0 11px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(59,130,246,0.24)',
-                  background: 'rgba(59,130,246,0.10)',
-                  color: AUTH.blueSoft,
-                  fontSize: 11,
+                  marginTop: 18,
+                  fontSize: 32,
+                  lineHeight: 1.08,
                   fontWeight: 800,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
+                  letterSpacing: '-0.04em',
+                  overflowWrap: 'anywhere',
                 }}
               >
-                {pageBadge}
+                {title}
               </div>
-            ) : null}
 
-            <div
-              style={{
-                marginTop: 18,
-                fontSize: 32,
-                lineHeight: 1.08,
-                fontWeight: 800,
-                letterSpacing: '-0.04em',
-                overflowWrap: 'anywhere',
-              }}
-            >
-              {title}
-            </div>
-
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 14,
-                lineHeight: 1.7,
-                color: AUTH.textSecondary,
-                overflowWrap: 'anywhere',
-              }}
-            >
-              {subtitle}
-            </div>
-
-            <div style={{ marginTop: 24, position: 'relative', zIndex: 4 }}>
-              {children}
-            </div>
-
-            {footerLinks && footerLinks.length > 0 ? (
               <div
                 style={{
-                  marginTop: 22,
-                  paddingTop: 18,
-                  borderTop: `1px solid ${AUTH.borderSubtle}`,
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 10,
-                  position: 'relative',
-                  zIndex: 5,
+                  marginTop: 10,
+                  fontSize: 14,
+                  lineHeight: 1.7,
+                  color: AUTH.textSecondary,
+                  overflowWrap: 'anywhere',
                 }}
               >
-                {footerLinks.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minHeight: 38,
-                      padding: '0 14px',
-                      borderRadius: 10,
-                      border: `1px solid ${AUTH.border}`,
-                      background: 'rgba(17,19,24,0.84)',
-                      color: AUTH.textSecondary,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      textDecoration: 'none',
-                      cursor: 'pointer',
-                      position: 'relative',
-                      zIndex: 6,
-                    }}
-                  >
-                    {item.label}
-                  </Link>
-                ))}
+                {subtitle}
               </div>
-            ) : null}
+
+              <div style={{ marginTop: 24, position: 'relative', zIndex: 4 }}>
+                {children}
+              </div>
+
+              {footerLinks && footerLinks.length > 0 ? (
+                <div
+                  style={{
+                    marginTop: 22,
+                    paddingTop: 18,
+                    borderTop: `1px solid ${AUTH.borderSubtle}`,
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    position: 'relative',
+                    zIndex: 5,
+                  }}
+                >
+                  {footerLinks.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 38,
+                        padding: '0 14px',
+                        borderRadius: 10,
+                        border: `1px solid ${AUTH.border}`,
+                        background: 'rgba(17,19,24,0.84)',
+                        color: AUTH.textSecondary,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        textDecoration: 'none',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        zIndex: 6,
+                      }}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         </section>
       </div>

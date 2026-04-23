@@ -8,6 +8,7 @@ import {
   AuthInlineMessage,
   AuthPrimaryButton,
   AuthScaffold,
+  AuthSecondaryLink,
   AuthSelect,
   AuthTextArea,
   AuthTextInput,
@@ -115,6 +116,14 @@ export default function CadastroLeadPage() {
       sideBadge="Diagnóstico comercial"
       heroTitle="Organize o funil, elimine gargalos e ganhe previsibilidade no comercial."
       asideSubtitle="O Cockpit Comercial ajuda sua operação a enxergar travas, padronizar execução e transformar volume em resultado com leitura clara do pipeline."
+      brandVariant="logo"
+      brandLogoSrc="/branding/yolen-logo-principal.png"
+      brandLogoAlt="Yolen"
+      brandLogoWidth={340}
+      brandLogoHeight={82}
+      brandTagline="Cockpit comercial para equipes de vendas"
+      desktopSplitScroll
+      topAction={<AuthSecondaryLink href="/login">Voltar para login</AuthSecondaryLink>}
       stats={[
         { value: 'Pipeline executivo', label: 'visão clara por etapa' },
         { value: 'Follow-up controlado', label: 'menos lead parado' },
@@ -137,7 +146,6 @@ export default function CadastroLeadPage() {
             'Sua solicitação já entra com contexto comercial, o que torna a conversa mais consultiva e menos genérica.',
         },
       ]}
-      footerLinks={[{ label: 'Voltar para login', href: '/login' }]}
     >
       <form onSubmit={enviar} style={{ display: 'grid', gap: 16 }}>
         <AuthInlineMessage variant="error" message={errorMessage} />
@@ -163,7 +171,13 @@ export default function CadastroLeadPage() {
           />
         </AuthField>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+          }}
+        >
           <AuthField label="WhatsApp">
             <AuthTextInput
               value={whatsapp}
@@ -282,12 +296,12 @@ export default function CadastroLeadPage() {
         />
 
         <AuthInfoCard
-          title="Como essa página deve ser percebida"
+          title="Nossa equipe comercial estará pronta para:"
           description={
             <ul style={{ margin: 0, paddingLeft: 18 }}>
-              <li>Entrada comercial séria, não formulário genérico</li>
-              <li>Captação com qualificação real</li>
-              <li>Percepção de produto premium e operacional</li>
+              <li>Analisar o contexto de sua operação.</li>
+              <li>Apontar as melhorias no seu processo de vendas.</li>
+              <li>Entregar a solução para alcançar suas metas com previsibilidade.</li>
             </ul>
           }
         />
@@ -295,3 +309,5 @@ export default function CadastroLeadPage() {
     </AuthScaffold>
   )
 }
+
+
