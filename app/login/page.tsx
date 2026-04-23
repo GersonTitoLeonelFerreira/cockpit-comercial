@@ -583,7 +583,7 @@ export default function LoginPage() {
                 color: DS.textSecondary,
               }}
             >
-              O Yolen organiza o pipeline, orienta a próxima ação e conecta a rotina da equipe com a meta.
+              O Yolen organiza sua operação, orienta a próxima ação e conecta a rotina da equipe com a meta.
             </p>
           </div>
 
@@ -599,7 +599,28 @@ export default function LoginPage() {
             <Chip>Meta conectada à execução</Chip>
           </div>
 
-          <PreviewBoard isMobile={isMobile} />
+          <div
+            style={{
+              borderRadius: 24,
+              overflow: 'hidden',
+              border: '1px solid rgba(59,130,246,0.16)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
+            }}
+          >
+            <Image
+              src="/branding/login-kanban.png"
+              alt="Visão do cockpit comercial"
+              width={1600}
+              height={900}
+              priority
+              style={{
+                width: '100%',
+                height: 'auto',
+                display: 'block',
+                objectFit: 'cover',
+              }}
+            />
+          </div>
 
           <div
             style={{
