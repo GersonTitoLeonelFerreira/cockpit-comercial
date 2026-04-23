@@ -2,10 +2,10 @@
 
 import type { FormEvent } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
-import Image from 'next/image'
 
 function useIsMobile(breakpoint = 980) {
   const [isMobile, setIsMobile] = useState(false)
@@ -178,7 +178,7 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
     <div
       style={{
         borderRadius: 24,
-        border: `1px solid rgba(59,130,246,0.16)`,
+        border: '1px solid rgba(59,130,246,0.16)',
         background:
           'linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(17,19,24,0.98) 24%, rgba(9,11,15,0.98) 100%)',
         boxShadow:
@@ -218,7 +218,7 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
               letterSpacing: '-0.03em',
             }}
           >
-            Operação que anda
+            Pipeline com execução real
           </div>
         </div>
 
@@ -229,54 +229,25 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
             flexWrap: 'wrap',
           }}
         >
-          <div
-            style={{
-              borderRadius: 999,
-              border: `1px solid ${DS.border}`,
-              background: 'rgba(255,255,255,0.02)',
-              minHeight: 30,
-              padding: '0 12px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              color: DS.textSecondary,
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            Pipeline
-          </div>
-          <div
-            style={{
-              borderRadius: 999,
-              border: `1px solid ${DS.border}`,
-              background: 'rgba(255,255,255,0.02)',
-              minHeight: 30,
-              padding: '0 12px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              color: DS.textSecondary,
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            IA
-          </div>
-          <div
-            style={{
-              borderRadius: 999,
-              border: `1px solid ${DS.border}`,
-              background: 'rgba(255,255,255,0.02)',
-              minHeight: 30,
-              padding: '0 12px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              color: DS.textSecondary,
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            Meta
-          </div>
+          {['Pipeline', 'IA', 'Meta'].map((item) => (
+            <div
+              key={item}
+              style={{
+                borderRadius: 999,
+                border: `1px solid ${DS.border}`,
+                background: 'rgba(255,255,255,0.02)',
+                minHeight: 30,
+                padding: '0 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: DS.textSecondary,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {item}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -384,19 +355,19 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
         <div style={{ display: 'grid', gap: 16 }}>
           <MiniPreviewCard
             label="IA comercial"
-            title="Sugere o próximo passo"
+            title="IA que orienta o vendedor"
             lines={[
               'Analisa conversa e sinaliza o estágio mais coerente.',
-              'Recomenda próxima ação e ajuda o vendedor a não travar.',
+              'Recomenda próxima ação para evitar improviso e travamento.',
             ]}
           />
 
           <MiniPreviewCard
-            label="execução + meta"
-            title="Mostra ritmo, prioridade e direção"
+            label="meta + execução"
+            title="Meta acompanhada como operação"
             lines={[
-              'Gerente enxerga a operação diária sem depender de achismo.',
-              'Equipe conecta follow-up, pipeline e meta no mesmo cockpit.',
+              'O gerente enxerga ritmo, prioridade e atraso antes do problema estourar.',
+              'A equipe conecta follow-up, pipeline e meta no mesmo cockpit.',
             ]}
           />
         </div>
@@ -567,50 +538,50 @@ export default function LoginPage() {
         }}
       >
         <section style={{ display: 'grid', gap: 18 }}>
-        <div
-style={{
-  display: 'grid',
-  gap: 10,
-  justifyContent: 'start',
-  alignSelf: 'start',
-}}
->
-<Image
-  src="/branding/yolen-logo-principal.png"
-  alt="Yolen"
-  width={340}
-  height={82}
-  priority
-  style={{
-    width: isMobile ? 200 : 340,
-    height: 'auto',
-    display: 'block',
-    objectFit: 'contain',
-  }}
-/>
+          <div
+            style={{
+              display: 'grid',
+              gap: 10,
+              justifyContent: 'start',
+              alignSelf: 'start',
+            }}
+          >
+            <Image
+              src="/branding/yolen-logo-principal.png"
+              alt="Yolen"
+              width={340}
+              height={82}
+              priority
+              style={{
+                width: isMobile ? 200 : 340,
+                height: 'auto',
+                display: 'block',
+                objectFit: 'contain',
+              }}
+            />
 
-<div
-  style={{
-    width: 56,
-    height: 2,
-    borderRadius: 999,
-    background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
-    marginLeft: 2,
-  }}
-/>
+            <div
+              style={{
+                width: 56,
+                height: 2,
+                borderRadius: 999,
+                background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
+                marginLeft: 2,
+              }}
+            />
 
-<div
-  style={{
-    fontSize: 14,
-    color: DS.textSecondary,
-    lineHeight: 1.45,
-    maxWidth: 360,
-    marginLeft: 2,
-  }}
->
-  Cockpit comercial para equipes de vendas
-</div>
-</div>
+            <div
+              style={{
+                fontSize: 14,
+                color: DS.textSecondary,
+                lineHeight: 1.45,
+                maxWidth: 360,
+                marginLeft: 2,
+              }}
+            >
+              Cockpit comercial para equipes de vendas
+            </div>
+          </div>
 
           <div
             style={{
@@ -667,9 +638,9 @@ style={{
               gap: 10,
             }}
           >
-            <Chip>IA comercial aplicada</Chip>
+            <Chip>IA que orienta a próxima ação</Chip>
             <Chip>SLA e follow-up sob controle</Chip>
-            <Chip>Meta com previsibilidade</Chip>
+            <Chip>Meta conectada à execução</Chip>
           </div>
 
           <PreviewBoard isMobile={isMobile} />
@@ -683,15 +654,15 @@ style={{
           >
             <VisualPill
               title="Menos lead parado"
-              subtitle="A equipe trabalha com prioridade, cadência e clareza do próximo passo."
+              subtitle="A equipe trabalha com prioridade, cadência e próximo passo claro."
             />
             <VisualPill
               title="Mais controle gerencial"
-              subtitle="O gestor enxerga execução, atraso e ritmo antes do problema estourar."
+              subtitle="O gestor enxerga atraso, ritmo e execução antes do problema estourar."
             />
             <VisualPill
               title="Mais previsibilidade"
-              subtitle="A meta deixa de ser só cobrança e passa a ser acompanhada como operação."
+              subtitle="A meta deixa de ser cobrança solta e passa a ser operação diária."
             />
           </div>
         </section>
@@ -753,50 +724,7 @@ style={{
                 color: DS.textSecondary,
               }}
             >
-              Entre para acompanhar a equipe, priorizar os leads certos e transformar rotina comercial em resultado.
-            </div>
-
-            <div
-              style={{
-                marginTop: 18,
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
-              }}
-            >
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  minHeight: 30,
-                  padding: '0 10px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(59,130,246,0.18)',
-                  background: 'rgba(59,130,246,0.08)',
-                  color: DS.blueSoft,
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                Gerente com visão diária
-              </div>
-
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  minHeight: 30,
-                  padding: '0 10px',
-                  borderRadius: 999,
-                  border: '1px solid rgba(59,130,246,0.18)',
-                  background: 'rgba(59,130,246,0.08)',
-                  color: DS.blueSoft,
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                Vendedor com próximo passo
-              </div>
+              Entre para acompanhar equipe, pipeline e prioridades comerciais.
             </div>
 
             <form onSubmit={entrar} style={{ marginTop: 22, display: 'grid', gap: 16 }}>
@@ -947,40 +875,6 @@ style={{
               >
                 Solicitar demonstração
               </button>
-
-              <div
-                style={{
-                  borderRadius: 18,
-                  border: `1px solid ${DS.border}`,
-                  background: 'rgba(9,11,15,0.60)',
-                  padding: 16,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 800,
-                    color: DS.textPrimary,
-                  }}
-                >
-                  O que o Yolen vende logo de cara
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 10,
-                    display: 'grid',
-                    gap: 8,
-                    fontSize: 13,
-                    color: DS.textSecondary,
-                    lineHeight: 1.65,
-                  }}
-                >
-                  <div>• Direciona a próxima ação comercial com mais clareza.</div>
-                  <div>• Dá visão diária da operação para o gerente agir antes.</div>
-                  <div>• Conecta pipeline, rotina e meta no mesmo sistema.</div>
-                </div>
-              </div>
             </form>
           </div>
         </aside>
