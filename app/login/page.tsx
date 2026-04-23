@@ -178,7 +178,7 @@ function PreviewBoard({ isMobile }: { isMobile: boolean }) {
     <div
       style={{
         borderRadius: 24,
-        border: '1px solid rgba(59,130,246,0.16)',
+        border: 'none',
         background:
           'linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(17,19,24,0.98) 24%, rgba(9,11,15,0.98) 100%)',
         boxShadow:
@@ -600,27 +600,29 @@ export default function LoginPage() {
           </div>
 
           <div
-            style={{
-              borderRadius: 24,
-              overflow: 'hidden',
-              border: '1px solid rgba(59,130,246,0.16)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
-            }}
-          >
-            <Image
-              src="/branding/login-kanban.png"
-              alt="Visão do cockpit comercial"
-              width={1600}
-              height={900}
-              priority
-              style={{
-                width: '100%',
-                height: 'auto',
-                display: 'block',
-                objectFit: 'cover',
-              }}
-            />
-          </div>
+  style={{
+    borderRadius: 24,
+    overflow: 'hidden',
+    border: 'none',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.22)',
+  }}
+>
+  <Image
+    src="/branding/login-kanban.png"
+    alt="Visão do cockpit comercial"
+    width={1600}
+    height={900}
+    priority
+    style={{
+      width: '100%',
+      height: 'auto',
+      display: 'block',
+      objectFit: 'cover',
+      border: 'none',
+      boxShadow: 'none',
+    }}
+  />
+</div>
 
           <div
             style={{
