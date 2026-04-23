@@ -1,6 +1,14 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 
+type ProfileRow = {
+  id: string
+  company_id: string | null
+  role: string | null
+  is_active: boolean | null
+  is_platform_admin: boolean | null
+}
+
 /**
  * Client Supabase server-side usando cookies de sessão do usuário.
  * Respeita RLS. Use para operações feitas "no nome" do usuário logado.
@@ -26,7 +34,7 @@ export async function createSupabaseServerClient() {
           }
         },
       },
-    },
+    }
   )
 }
 
@@ -43,4 +51,48 @@ export async function getAuthedSupabase() {
   }
 
   return { supabase, user: data.user }
+}
+
+/**
+ * Helper: carrega o profile do usuário autenticado.
+ */
+export async function getAuthedProfile() {
+  const { supabase, user } = await getAuthedSupabase()
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, company_id, role, is_active, is_platform_admin')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  if (!profile) {
+    throw new Error('Perfil do usuário logado não encontrado.')
+  }
+
+  return {
+    supabase,
+    user,
+    profile: profile as ProfileRow,
+  }
+}
+
+/**
+ * Helper: garante que o usuário logado é platform admin.
+ */
+export async function ensurePlatformAdmin() {
+  const ctx = await getAuthedProfile()
+
+  if (ctx.profile.is_active === false) {
+    throw new Error('Usuário inativo.')
+  }
+
+  if (ctx.profile.is_platform_admin !== true) {
+    throw new Error('Acesso negado (platform admin only).')
+  }
+
+  return ctx
 }

@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 const ADMIN_ROUTES = ['/pool', '/admin']
+const PLATFORM_ROUTES = ['/platform']
 
 export async function proxy(req: NextRequest) {
   const res = NextResponse.next()
@@ -31,7 +32,7 @@ export async function proxy(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, is_active')
+    .select('role, is_active, is_platform_admin')
     .eq('id', user.id)
     .single()
 
@@ -43,8 +44,16 @@ export async function proxy(req: NextRequest) {
     req.nextUrl.pathname.startsWith(route)
   )
 
+  const isPlatformRoute = PLATFORM_ROUTES.some((route) =>
+    req.nextUrl.pathname.startsWith(route)
+  )
+
   if (isAdminRoute && profile.role !== 'admin') {
     return NextResponse.redirect(new URL('/leads', req.url))
+  }
+
+  if (isPlatformRoute && profile.is_platform_admin !== true) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
   }
 
   return res

@@ -1,7 +1,6 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
+import { ensurePlatformAdmin } from '@/app/lib/supabase/server'
 
 function onlyDigits(v: string) {
   return (v || '').replace(/\D/g, '')
@@ -16,36 +15,11 @@ export default async function NovaEmpresaPage({
 }: {
   searchParams: { ok?: string; error?: string; company_id?: string; admin_user_id?: string }
 }) {
-  // ✅ Proteção simples: exige login + role admin (você pode endurecer depois)
-  const cookieStore = await cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-          } catch {}
-        },
-      },
-    }
-  )
-
-  const { data: authData } = await supabase.auth.getUser()
-  if (!authData?.user) redirect('/login')
-
-  const { data: myProfile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', authData.user.id)
-    .single()
-
-  // Se você quiser deixar isso “só você”, me diga e eu coloco uma trava por email/env.
-  if (!myProfile || myProfile.role !== 'admin') redirect('/leads')
+  try {
+    await ensurePlatformAdmin()
+  } catch {
+    redirect('/dashboard')
+  }
 
   // ✅ Server Action: roda no servidor (não expõe chaves)
   async function provisionar(formData: FormData) {
