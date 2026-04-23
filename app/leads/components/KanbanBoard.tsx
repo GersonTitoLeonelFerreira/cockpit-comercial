@@ -115,6 +115,66 @@ type MovingState = {
 
 type BoardView = 'MY' | 'POOL' | 'ALL'
 
+const STAGE_META: Record<
+  string,
+  {
+    label: string
+    accent: string
+    accentBorder: string
+    accentGlow: string
+    badgeBg: string
+  }
+> = {
+  novo: {
+    label: 'Novo',
+    accent: '#077dcc',
+    accentBorder: 'rgba(7, 125, 204, 0.48)',
+    accentGlow: 'rgba(7, 125, 204, 0.22)',
+    badgeBg: 'rgba(5, 38, 83, 0.72)',
+  },
+  contato: {
+    label: 'Contato',
+    accent: '#0bcbeb',
+    accentBorder: 'rgba(11, 203, 235, 0.48)',
+    accentGlow: 'rgba(11, 203, 235, 0.18)',
+    badgeBg: 'rgba(6, 61, 78, 0.72)',
+  },
+  respondeu: {
+    label: 'Respondeu',
+    accent: '#dfcf2f',
+    accentBorder: 'rgba(223, 207, 47, 0.44)',
+    accentGlow: 'rgba(223, 207, 47, 0.16)',
+    badgeBg: 'rgba(78, 67, 9, 0.72)',
+  },
+  negociacao: {
+    label: 'Negociação',
+    accent: '#7a4dff',
+    accentBorder: 'rgba(122, 77, 255, 0.48)',
+    accentGlow: 'rgba(122, 77, 255, 0.18)',
+    badgeBg: 'rgba(49, 27, 96, 0.72)',
+  },
+  fechado: {
+    label: 'Ganho',
+    accent: '#05d495',
+    accentBorder: 'rgba(5, 212, 149, 0.48)',
+    accentGlow: 'rgba(5, 212, 149, 0.18)',
+    badgeBg: 'rgba(7, 78, 54, 0.72)',
+  },
+  perdido: {
+    label: 'Perdido',
+    accent: '#ff5c70',
+    accentBorder: 'rgba(255, 92, 112, 0.48)',
+    accentGlow: 'rgba(255, 92, 112, 0.18)',
+    badgeBg: 'rgba(92, 16, 28, 0.72)',
+  },
+}
+
+const BOARD_BG = 'linear-gradient(180deg, rgba(10,14,24,0.96) 0%, rgba(7,10,18,0.98) 100%)'
+const CARD_BG = 'linear-gradient(180deg, rgba(16,22,36,0.96) 0%, rgba(10,14,24,0.98) 100%)'
+const SOFT_BORDER = 'rgba(255,255,255,0.06)'
+const SOFT_TEXT = 'rgba(231,239,255,0.72)'
+const MUTED_TEXT = 'rgba(231,239,255,0.48)'
+
 // ✅ Só bloqueia “vazar” pro DnD. NÃO usa preventDefault.
 function stopBubble(e: any) {
   e.stopPropagation?.()
@@ -451,298 +511,490 @@ export default function KanbanBoard({
     }
   }, [pendingLostMove, finalizeLostReason, savingLost, performMove, closeLostModal])
 
-  const pillBtnStyle: React.CSSProperties = {
-    border: '1px solid #2a2a2a',
-    background: 'transparent',
-    color: '#cbd5e1',
+  const pillBtnStyle = (active = false): React.CSSProperties => ({
+    border: active ? '1px solid rgba(65, 148, 255, 0.46)' : `1px solid ${SOFT_BORDER}`,
+    background: active
+      ? 'linear-gradient(180deg, rgba(18, 84, 198, 0.40) 0%, rgba(8, 24, 54, 0.96) 100%)'
+      : 'linear-gradient(180deg, rgba(15,20,34,0.95) 0%, rgba(9,12,20,0.95) 100%)',
+    color: active ? '#f8fbff' : SOFT_TEXT,
     fontSize: 12,
-    padding: '6px 10px',
+    fontWeight: 600,
+    letterSpacing: 0.2,
+    padding: '8px 14px',
     borderRadius: 999,
     cursor: 'pointer',
+    boxShadow: active ? '0 0 0 1px rgba(65,148,255,0.10), 0 10px 24px rgba(0,0,0,0.24)' : 'none',
+    transition: 'all 160ms ease',
+  })
+
+  const levelBtnStyle = (active: boolean, accent: string): React.CSSProperties => ({
+    border: active ? `1px solid ${accent}` : `1px solid ${SOFT_BORDER}`,
+    background: active
+      ? `linear-gradient(180deg, ${accent}30 0%, rgba(10,14,24,0.96) 100%)`
+      : 'linear-gradient(180deg, rgba(15,20,34,0.95) 0%, rgba(9,12,20,0.95) 100%)',
+    color: '#f8fbff',
+    fontSize: 12,
+    fontWeight: 700,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    cursor: 'pointer',
+    boxShadow: active ? `0 0 18px ${accent}22` : 'none',
+    transition: 'all 160ms ease',
+  })
+
+  const metaChipStyle = (accent: string): React.CSSProperties => ({
+    border: `1px solid ${accent}55`,
+    background: `${accent}14`,
+    color: '#f8fbff',
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '6px 10px',
+    borderRadius: 999,
+    lineHeight: 1,
+  })
+
+  const neutralChipStyle: React.CSSProperties = {
+    border: `1px solid ${SOFT_BORDER}`,
+    background: 'rgba(255,255,255,0.03)',
+    color: SOFT_TEXT,
+    fontSize: 11,
+    fontWeight: 500,
+    padding: '6px 10px',
+    borderRadius: 999,
+    lineHeight: 1,
   }
 
-  const levelBtnStyle = (active: boolean): React.CSSProperties => ({
-    border: '1px solid #2a2a2a',
-    background: active ? '#111827' : 'transparent',
-    color: '#e5e7eb',
+  const subtleActionStyle: React.CSSProperties = {
+    border: `1px solid ${SOFT_BORDER}`,
+    background: 'rgba(255,255,255,0.02)',
+    color: '#f8fbff',
     fontSize: 12,
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    cursor: 'pointer',
-  })
+    fontWeight: 600,
+    padding: '8px 12px',
+    borderRadius: 12,
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  }
 
   return (
     <>
       {/* Barra de visão */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <button onClick={() => setView('MY')} style={pillBtnStyle}>
+      {/* Barra de visão */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'center',
+          marginBottom: 16,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button onClick={() => setView('MY')} style={pillBtnStyle(view === 'MY')}>
           Minha carteira
         </button>
 
         {isAdmin ? (
-          <button onClick={() => setView('POOL')} style={pillBtnStyle}>
+          <button onClick={() => setView('POOL')} style={pillBtnStyle(view === 'POOL')}>
             POOL
           </button>
         ) : null}
 
         {isAdmin ? (
-          <button onClick={() => setView('ALL')} style={pillBtnStyle}>
+          <button onClick={() => setView('ALL')} style={pillBtnStyle(view === 'ALL')}>
             Todos
           </button>
         ) : null}
       </div>
 
       <DragDropContext onDragEnd={onDragEnd}>
-        <div style={{ display: 'flex', gap: 20, overflowX: 'auto', paddingTop: 10 }}>
-          {columns.map((col) => (
-            <Droppable droppableId={col} key={col}>
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  style={{
-                    minWidth: 260,
-                    background: '#0f0f0f',
-                    padding: 14,
-                    borderRadius: 12,
-                    border: '1px solid #222',
-                    minHeight: 320,
-                    opacity: moving ? 0.92 : 1,
-                  }}
-                >
-                  <h3
+        <div
+          style={{
+            display: 'flex',
+            gap: 18,
+            overflowX: 'auto',
+            paddingTop: 8,
+            paddingBottom: 8,
+            alignItems: 'flex-start',
+          }}
+        >
+          {columns.map((col, columnIndex) => {
+            const meta = STAGE_META[col] ?? {
+              label: col.charAt(0).toUpperCase() + col.slice(1),
+              accent: '#3b82f6',
+              accentBorder: 'rgba(59,130,246,0.40)',
+              accentGlow: 'rgba(59,130,246,0.18)',
+              badgeBg: 'rgba(30,41,59,0.80)',
+            }
+
+            return (
+              <Droppable droppableId={col} key={col}>
+                {(provided) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
                     style={{
-                      textTransform: 'capitalize',
-                      marginBottom: 10,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'baseline',
+                      minWidth: 282,
+                      minHeight: 420,
+                      padding: 14,
+                      borderRadius: 22,
+                      border: `1px solid ${meta.accentBorder}`,
+                      background: `radial-gradient(circle at top right, ${meta.accentGlow} 0%, rgba(7,10,18,0) 42%), ${BOARD_BG}`,
+                      boxShadow: `0 18px 40px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.03), 0 0 18px ${meta.accentGlow}`,
+                      position: 'relative',
+                      overflow: 'hidden',
+                      opacity: moving ? 0.92 : 1,
+                      backdropFilter: 'blur(6px)',
                     }}
                   >
-                    <span>{col}</span>
-                    <span style={{ opacity: 0.7, fontSize: 12 }}>{columnCounts[col] ?? 0}</span>
-                  </h3>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        pointerEvents: 'none',
+                        background: `linear-gradient(180deg, ${meta.accentGlow} 0%, rgba(255,255,255,0) 26%)`,
+                        opacity: 0.95,
+                      }}
+                    />
 
-                  {visibleLeads
-                    .filter((l) => l.status === col)
-                    .slice()
-                    .sort(sortWithinStage)
-                    .map((lead, index) => {
-                      const wa = whatsappLink(lead.phone)
+                    <div style={{ position: 'relative', zIndex: 1 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 16,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div
+                            style={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: 999,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              border: `1px solid ${meta.accentBorder}`,
+                              background: meta.badgeBg,
+                              color: meta.accent,
+                              fontWeight: 800,
+                              fontSize: 13,
+                              boxShadow: `0 0 14px ${meta.accentGlow}`,
+                            }}
+                          >
+                            {String(columnIndex + 1).padStart(2, '0')}
+                          </div>
 
-                      const secs = mounted ? secondsInCurrentStatus(lead) : 0
-                      const tempoLabel = mounted ? formatTempo(secs) : '—'
+                          <div
+                            style={{
+                              fontSize: 15,
+                              fontWeight: 700,
+                              color: '#f8fbff',
+                              letterSpacing: 0.1,
+                            }}
+                          >
+                            {meta.label}
+                          </div>
+                        </div>
 
-                      const pinned = !!lead.pinned
-                      const importance = lead.importance ?? 0
-                      const isPriority = pinned || importance >= 2
-                      const isHighlighted = highlightLeadId === lead.id
+                        <div
+                          style={{
+                            fontSize: 28,
+                            fontWeight: 800,
+                            color: 'rgba(248,251,255,0.88)',
+                            lineHeight: 1,
+                          }}
+                        >
+                          {columnCounts[col] ?? 0}
+                        </div>
+                      </div>
 
-                      const savingThis = isMovingLead(lead.id)
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {visibleLeads
+                          .filter((l) => l.status === col)
+                          .slice()
+                          .sort(sortWithinStage)
+                          .map((lead, index) => {
+                            const wa = whatsappLink(lead.phone)
 
-                      return (
-                        <Draggable draggableId={lead.id} index={index} key={lead.id} isDragDisabled={!!moving || isAdmin}>
-                          {(provided) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              data-lead-card={lead.id}
-                              style={{
-                                border: isHighlighted
-                                  ? '2px solid #22c55e'
-                                  : isPriority
-                                    ? '1px solid #334155'
-                                    : '1px solid #333',
-                                boxShadow: isHighlighted ? '0 0 0 4px rgba(34,197,94,0.12)' : 'none',
-                                borderRadius: 12,
-                                marginTop: 10,
-                                background: '#111',
-                                overflow: 'hidden',
-                                transition: 'box-shadow 160ms ease, border 160ms ease, opacity 160ms ease',
-                                opacity: savingThis ? 0.72 : 1,
-                                ...provided.draggableProps.style,
-                              }}
-                            >
-                              <div
-                                {...provided.dragHandleProps}
-                                style={{
-                                  padding: '8px 12px',
-                                  borderBottom: '1px solid #222',
-                                  cursor: moving ? 'not-allowed' : 'grab',
-                                  opacity: 0.85,
-                                  fontSize: 12,
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                }}
+                            const secs = mounted ? secondsInCurrentStatus(lead) : 0
+                            const tempoLabel = mounted ? formatTempo(secs) : '—'
+
+                            const pinned = !!lead.pinned
+                            const importance = lead.importance ?? 0
+                            const isPriority = pinned || importance >= 2
+                            const isHighlighted = highlightLeadId === lead.id
+                            const savingThis = isMovingLead(lead.id)
+
+                            return (
+                              <Draggable
+                                draggableId={lead.id}
+                                index={index}
+                                key={lead.id}
+                                isDragDisabled={!!moving || isAdmin}
                               >
-                                <span>{savingThis ? 'Salvando…' : 'Arrastar'}</span>
-
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                  {isHighlighted && (
-                                    <span
-                                      style={{
-                                        fontSize: 10,
-                                        padding: '2px 8px',
-                                        borderRadius: 999,
-                                        border: '1px solid #22c55e',
-                                        color: '#22c55e',
-                                        opacity: 0.95,
-                                      }}
-                                    >
-                                      ABERTO DO RELATÓRIO
-                                    </span>
-                                  )}
-
-                                  {isPriority && !isHighlighted && (
-                                    <span
-                                      style={{
-                                        fontSize: 10,
-                                        padding: '2px 8px',
-                                        borderRadius: 999,
-                                        border: '1px solid #334155',
-                                        color: '#e5e7eb',
-                                        opacity: 0.9,
-                                      }}
-                                    >
-                                      PRIORIDADE
-                                    </span>
-                                  )}
-
-                                  <span style={{ opacity: 0.6 }}>⋮⋮</span>
-                                </div>
-                              </div>
-
-                              <div style={{ padding: 12 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                                  <strong style={{ lineHeight: 1.2 }}>{lead.name}</strong>
-
-                                  <button
-                                    type="button"
-                                    onPointerDown={stopBubble}
-                                    onMouseDown={stopBubble}
-                                    onClick={(e) => {
-                                      stopBubble(e)
-                                      if (moving) return
-                                      savePriority(lead.id, { pinned: !pinned })
-                                    }}
+                                {(provided) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    data-lead-card={lead.id}
                                     style={{
-                                      ...pillBtnStyle,
-                                      borderColor: pinned ? '#334155' : '#2a2a2a',
-                                      background: pinned ? '#0b1220' : 'transparent',
-                                      opacity: moving ? 0.6 : 1,
-                                      cursor: moving ? 'not-allowed' : 'pointer',
+                                      border: isHighlighted
+                                        ? '1px solid rgba(34,197,94,0.92)'
+                                        : isPriority
+                                          ? `1px solid ${meta.accentBorder}`
+                                          : `1px solid ${SOFT_BORDER}`,
+                                      boxShadow: isHighlighted
+                                        ? '0 0 0 1px rgba(34,197,94,0.42), 0 18px 30px rgba(0,0,0,0.34), 0 0 22px rgba(34,197,94,0.12)'
+                                        : isPriority
+                                          ? `0 16px 28px rgba(0,0,0,0.34), 0 0 18px ${meta.accentGlow}`
+                                          : '0 16px 28px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.03)',
+                                      borderRadius: 18,
+                                      background: CARD_BG,
+                                      overflow: 'hidden',
+                                      opacity: savingThis ? 0.72 : 1,
+                                      transition: 'box-shadow 160ms ease, border 160ms ease, transform 160ms ease, opacity 160ms ease',
+                                      ...provided.draggableProps.style,
                                     }}
-                                    title="Destacar prioridade"
-                                    disabled={!!moving}
                                   >
-                                    {pinned ? '⭐' : '☆'}
-                                  </button>
-                                </div>
+                                    <div
+                                      {...provided.dragHandleProps}
+                                      style={{
+                                        padding: '10px 14px',
+                                        borderBottom: `1px solid ${SOFT_BORDER}`,
+                                        cursor: moving ? 'not-allowed' : 'grab',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        background: 'linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0))',
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span
+                                          style={{
+                                            width: 10,
+                                            height: 10,
+                                            borderRadius: 999,
+                                            background: meta.accent,
+                                            boxShadow: `0 0 14px ${meta.accentGlow}`,
+                                            display: 'inline-block',
+                                          }}
+                                        />
 
-                                <div style={{ opacity: 0.85, marginTop: 6 }}>{lead.phone ?? '—'}</div>
+                                        <span
+                                          style={{
+                                            fontSize: 11,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: 0.8,
+                                            color: MUTED_TEXT,
+                                            fontWeight: 700,
+                                          }}
+                                        >
+                                          {savingThis ? 'Atualizando' : meta.label}
+                                        </span>
+                                      </div>
 
-                                <div
-                                  style={{
-                                    marginTop: 10,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: 10,
-                                  }}
-                                >
-                                  <div style={{ opacity: 0.7, fontSize: 11 }}>Importância</div>
-                                  <div style={{ display: 'flex', gap: 6 }}>
-                                    {[1, 2, 3].map((lvl) => (
-                                      <button
-                                        key={lvl}
-                                        type="button"
-                                        onPointerDown={stopBubble}
-                                        onMouseDown={stopBubble}
-                                        onClick={(e) => {
-                                          stopBubble(e)
-                                          if (moving) return
-                                          const next = importance === lvl ? 0 : lvl
-                                          savePriority(lead.id, { importance: next })
-                                        }}
+                                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                        {isHighlighted && (
+                                          <span
+                                            style={{
+                                              ...metaChipStyle('#22c55e'),
+                                              border: '1px solid rgba(34,197,94,0.48)',
+                                            }}
+                                          >
+                                            Aberto do relatório
+                                          </span>
+                                        )}
+
+                                        {isPriority && !isHighlighted && (
+                                          <span style={metaChipStyle(meta.accent)}>Prioridade</span>
+                                        )}
+
+                                        <span style={{ color: MUTED_TEXT, fontSize: 12 }}>⋮⋮</span>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ padding: 14 }}>
+                                      <div
                                         style={{
-                                          ...levelBtnStyle(importance === lvl),
-                                          opacity: moving ? 0.6 : 1,
-                                          cursor: moving ? 'not-allowed' : 'pointer',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'flex-start',
+                                          gap: 12,
                                         }}
-                                        title={`Definir importância ${lvl}`}
-                                        disabled={!!moving}
                                       >
-                                        {lvl}
-                                      </button>
-                                    ))}
+                                        <strong
+                                          style={{
+                                            lineHeight: 1.2,
+                                            fontSize: 15,
+                                            color: '#f8fbff',
+                                            fontWeight: 700,
+                                          }}
+                                        >
+                                          {lead.name}
+                                        </strong>
+
+                                        <button
+                                          type="button"
+                                          onPointerDown={stopBubble}
+                                          onMouseDown={stopBubble}
+                                          onClick={(e) => {
+                                            stopBubble(e)
+                                            if (moving) return
+                                            savePriority(lead.id, { pinned: !pinned })
+                                          }}
+                                          style={{
+                                            ...pillBtnStyle(pinned),
+                                            padding: '6px 10px',
+                                            minWidth: 42,
+                                            opacity: moving ? 0.6 : 1,
+                                            cursor: moving ? 'not-allowed' : 'pointer',
+                                          }}
+                                          title="Destacar prioridade"
+                                          disabled={!!moving}
+                                        >
+                                          {pinned ? '⭐' : '☆'}
+                                        </button>
+                                      </div>
+
+                                      <div
+                                        style={{
+                                          marginTop: 8,
+                                          color: SOFT_TEXT,
+                                          fontSize: 13,
+                                          fontWeight: 500,
+                                        }}
+                                      >
+                                        {lead.phone ?? 'Sem telefone'}
+                                      </div>
+
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          flexWrap: 'wrap',
+                                          gap: 8,
+                                          marginTop: 12,
+                                        }}
+                                      >
+                                        <span style={metaChipStyle(meta.accent)}>Tempo no status: {tempoLabel}</span>
+
+                                        <span style={neutralChipStyle}>
+                                          Criado: {mounted ? new Date(lead.created_at).toLocaleString() : '—'}
+                                        </span>
+                                      </div>
+
+                                      <div
+                                        style={{
+                                          marginTop: 14,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          gap: 12,
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            color: MUTED_TEXT,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: 0.7,
+                                            fontWeight: 700,
+                                          }}
+                                        >
+                                          Importância
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          {[1, 2, 3].map((lvl) => (
+                                            <button
+                                              key={lvl}
+                                              type="button"
+                                              onPointerDown={stopBubble}
+                                              onMouseDown={stopBubble}
+                                              onClick={(e) => {
+                                                stopBubble(e)
+                                                if (moving) return
+                                                const next = importance === lvl ? 0 : lvl
+                                                savePriority(lead.id, { importance: next })
+                                              }}
+                                              style={{
+                                                ...levelBtnStyle(importance === lvl, meta.accent),
+                                                opacity: moving ? 0.6 : 1,
+                                                cursor: moving ? 'not-allowed' : 'pointer',
+                                              }}
+                                              title={`Definir importância ${lvl}`}
+                                              disabled={!!moving}
+                                            >
+                                              {lvl}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          gap: 8,
+                                          marginTop: 14,
+                                          flexWrap: 'wrap',
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          onPointerDown={stopBubble}
+                                          onMouseDown={stopBubble}
+                                          onTouchStart={stopBubble}
+                                          onClick={(e) => {
+                                            stopBubble(e)
+                                            if (moving) return
+                                            window.location.assign(`/leads/${lead.id}`)
+                                          }}
+                                          style={{
+                                            ...subtleActionStyle,
+                                            cursor: moving ? 'not-allowed' : 'pointer',
+                                            opacity: moving ? 0.6 : 1,
+                                          }}
+                                          disabled={!!moving}
+                                        >
+                                          Abrir →
+                                        </button>
+
+                                        {wa && (
+                                          <a
+                                            href={wa}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            onPointerDown={stopBubble}
+                                            onMouseDown={stopBubble}
+                                            onClick={stopBubble}
+                                            style={{
+                                              ...subtleActionStyle,
+                                              opacity: moving ? 0.6 : 1,
+                                              pointerEvents: moving ? 'none' : 'auto',
+                                            }}
+                                          >
+                                            WhatsApp →
+                                          </a>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
+                                )}
+                              </Draggable>
+                            )
+                          })}
 
-                                <div style={{ opacity: 0.5, fontSize: 11, marginTop: 10 }}>
-                                  Criado: {mounted ? new Date(lead.created_at).toLocaleString() : '—'}
-                                </div>
-
-                                <div style={{ opacity: 0.7, fontSize: 11, marginTop: 6 }}>Tempo no status: {tempoLabel}</div>
-
-                                <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center' }}>
-                                  <button
-                                    type="button"
-                                    onPointerDown={stopBubble}
-                                    onMouseDown={stopBubble}
-                                    onTouchStart={stopBubble}
-                                    onClick={(e) => {
-                                      stopBubble(e)
-                                      if (moving) return
-                                      window.location.assign(`/leads/${lead.id}`)
-                                    }}
-                                    style={{
-                                      background: 'transparent',
-                                      border: 'none',
-                                      padding: 0,
-                                      color: '#9aa',
-                                      fontSize: 12,
-                                      cursor: moving ? 'not-allowed' : 'pointer',
-                                      opacity: moving ? 0.6 : 1,
-                                    }}
-                                    disabled={!!moving}
-                                  >
-                                    Abrir →
-                                  </button>
-
-                                  {wa && (
-                                    <a
-                                      href={wa}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      onPointerDown={stopBubble}
-                                      onMouseDown={stopBubble}
-                                      onClick={stopBubble}
-                                      style={{
-                                        color: '#9aa',
-                                        textDecoration: 'none',
-                                        fontSize: 12,
-                                        opacity: moving ? 0.6 : 1,
-                                        pointerEvents: moving ? 'none' : 'auto',
-                                      }}
-                                    >
-                                      WhatsApp →
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </Draggable>
-                      )
-                    })}
-
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          ))}
+                        {provided.placeholder}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Droppable>
+            )
+          })}
         </div>
       </DragDropContext>
 
