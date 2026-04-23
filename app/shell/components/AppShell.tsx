@@ -31,7 +31,13 @@ const C = {
 } as const
 
 type MeResponse =
-  | { ok: true; full_name: string | null; email: string | null; role: string | null }
+  | {
+      ok: true
+      full_name: string | null
+      email: string | null
+      role: string | null
+      is_platform_admin: boolean
+    }
   | { error: string }
 
 // ─── Icon set ───────────────────────────────────────────────────────────────
@@ -536,33 +542,40 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
   const [userRole, setUserRole] = React.useState<string | null>(null)
+const [isPlatformAdmin, setIsPlatformAdmin] = React.useState(false)
 
-  React.useEffect(() => {
-    let active = true
+React.useEffect(() => {
+  let active = true
 
-    ;(async () => {
-      try {
-        const res = await fetch('/api/me', { method: 'GET', cache: 'no-store' })
-        const json = (await res.json()) as MeResponse
-        if (!active) return
+  ;(async () => {
+    try {
+      const res = await fetch('/api/me', { method: 'GET', cache: 'no-store' })
+      const json = (await res.json()) as MeResponse
+      if (!active) return
 
-        if (res.ok && 'ok' in json && json.ok) {
-          setUserRole(json.role ?? null)
-          return
-        }
-
-        setUserRole(null)
-      } catch {
-        if (active) setUserRole(null)
+      if (res.ok && 'ok' in json && json.ok) {
+        setUserRole(json.role ?? null)
+        setIsPlatformAdmin(json.is_platform_admin === true)
+        return
       }
-    })()
 
-    return () => {
-      active = false
+      setUserRole(null)
+      setIsPlatformAdmin(false)
+    } catch {
+      if (active) {
+        setUserRole(null)
+        setIsPlatformAdmin(false)
+      }
     }
-  }, [])
+  })()
 
-  const isAdminUser = userRole === 'admin'
+  return () => {
+    active = false
+  }
+}, [])
+
+const isAdminUser = userRole === 'admin'
+const canSeePlatformDemonstracoes = isPlatformAdmin === true
 
   const isActive = (href: string) => {
     if (!pathname) return false
@@ -805,13 +818,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               active={isActive('/admin/faturamento')}
             />
           )}
-          <NavBtn
-  href="/platform/demonstracoes"
-  label="Demonstrações"
-  active={isActive('/platform/demonstracoes')}
-  collapsed={collapsed}
-  icon="reports"
-/>
+          {canSeePlatformDemonstracoes && (
+  <NavBtn
+    href="/platform/demonstracoes"
+    label="Demonstrações"
+    active={isActive('/platform/demonstracoes')}
+    collapsed={collapsed}
+    icon="reports"
+  />
+)}
         </nav>
       </aside>
 

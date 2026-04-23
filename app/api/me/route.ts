@@ -6,6 +6,7 @@ export async function GET() {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
     if (!url || !anon) {
       return NextResponse.json(
         { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY' },
@@ -29,7 +30,7 @@ export async function GET() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name, email, role')
+      .select('full_name, email, role, is_platform_admin')
       .eq('id', auth.user.id)
       .single()
 
@@ -38,6 +39,7 @@ export async function GET() {
       full_name: profile?.full_name ?? null,
       email: profile?.email ?? auth.user.email ?? null,
       role: profile?.role ?? null,
+      is_platform_admin: profile?.is_platform_admin === true,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Erro inesperado' }, { status: 500 })
