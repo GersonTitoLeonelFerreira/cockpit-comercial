@@ -1324,28 +1324,34 @@ const accent = STATUS_COLORS[status]
     if (cycleId) onDrop(cycleId, status)
   }}
 >
-  <div
-    style={{
-      height: 2,
-      width: '100%',
-      background: accent,
-      boxShadow: `0 0 16px ${accent}, 0 0 32px ${accent}66`,
-      opacity: 0.95,
-      flexShrink: 0,
-    }}
-  />
+<div
+  style={{
+    position: 'absolute',
+    inset: 0,
+    borderRadius: 18,
+    pointerEvents: 'none',
+    border: `1px solid ${accent}30`,
+    boxShadow: `
+      inset 0 1px 0 ${accent}cc,
+      inset 0 14px 20px -14px ${accent}88,
+      inset 1px 0 0 ${accent}18,
+      inset -1px 0 0 ${accent}18
+    `,
+    zIndex: 0,
+  }}
+/>
 
-  <div
-    style={{
-      padding: '14px 14px 10px',
-      background: `linear-gradient(180deg, ${accent}10 0%, rgba(255,255,255,0.00) 100%)`,
-      borderBottom: '1px solid rgba(255,255,255,0.04)',
-      position: 'sticky',
-      top: 0,
-      zIndex: 10,
-      backdropFilter: 'blur(6px)',
-    }}
-  >
+<div
+  style={{
+    padding: '14px 14px 10px',
+    background: `linear-gradient(180deg, ${accent}12 0%, rgba(255,255,255,0.00) 100%)`,
+    borderBottom: '1px solid rgba(255,255,255,0.04)',
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
+    backdropFilter: 'blur(6px)',
+  }}
+>
     <div
       style={{
         display: 'flex',
