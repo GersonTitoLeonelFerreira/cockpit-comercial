@@ -93,13 +93,11 @@ export function MetaCard({
 
   return (
     <div style={{
-      borderTop: '1px solid #1a1d2e',
-      borderRight: '1px solid #1a1d2e',
-      borderBottom: '1px solid #1a1d2e',
-      borderLeft: `3px solid ${accentColor}`,
-      background: '#0d0f14',
-      borderRadius: 10,
-      padding: '10px 14px',
+      border: `1px solid ${accentColor}22`,
+      background: 'linear-gradient(180deg, rgba(10,14,22,0.98) 0%, rgba(8,12,18,0.98) 100%)',
+      borderRadius: 14,
+      padding: '14px 16px',
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(2,6,23,0.18)`,
     }}>
       <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
         {title}
@@ -152,20 +150,21 @@ export default function MetaSummaryHeader({
   return (
     <div style={{
       display: 'grid',
-      gap: 10,
-      padding: '16px 18px',
-      borderRadius: 14,
-      background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-      border: '1px solid rgba(59,130,246,0.18)',
-      boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
+      gap: 12,
+      padding: '18px 18px',
+      borderRadius: 16,
+      background: 'linear-gradient(180deg, rgba(12,16,24,0.98) 0%, rgba(9,11,15,0.98) 100%)',
+      border: '1px solid rgba(59,130,246,0.16)',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 32px rgba(2,6,23,0.24)',
     }}>
       <div style={{
-        fontWeight: 900,
-        color: '#edf2f7',
-        fontSize: 13,
-        paddingLeft: 10,
-        borderLeft: '2px solid rgba(59,130,246,0.4)',
-      }}>{title}</div>
+  fontWeight: 900,
+  color: '#edf2f7',
+  fontSize: 13,
+  paddingLeft: 12,
+  borderLeft: '2px solid rgba(59,130,246,0.55)',
+  letterSpacing: '0.01em',
+}}>{title}</div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         <MetaCard title="Real no período" value={toBRL(kpis.totalReal)} />
@@ -183,15 +182,15 @@ export default function MetaSummaryHeader({
       </div>
 
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '8px 14px',
-        borderRadius: 8,
-        background: 'rgba(13,15,20,0.6)',
-        border: `1px solid ${statusColor}22`,
-        borderLeft: `3px solid ${statusColor}`,
-      }}>
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '10px 14px',
+  borderRadius: 10,
+  background: 'linear-gradient(180deg, rgba(10,14,22,0.96) 0%, rgba(8,12,18,0.98) 100%)',
+  border: `1px solid ${statusColor}24`,
+  boxShadow: `0 0 0 1px ${statusColor}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
+}}>
         <StatusIcon status={kpis.status} />
         <span style={{ fontSize: 13, fontWeight: 700, color: statusColor }}>
           {statusLabel(kpis.status)}

@@ -145,19 +145,21 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
     >
             {/* ── Compact pill bar ── */}
             <div
-        style={{
-          padding: '5px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          cursor: 'pointer',
-          userSelect: 'none',
-          minHeight: 34,
-          background: 'linear-gradient(180deg, rgba(59,130,246,0.05) 0%, transparent 100%)',
-        }}
-        onClick={() => setExpanded((v) => !v)}
-        title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
-      >
+  style={{
+    padding: '0 16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    cursor: 'pointer',
+    userSelect: 'none',
+    minHeight: 40,
+    background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+  }}
+  onClick={() => setExpanded((v) => !v)}
+  title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
+>
         <span
           style={{
             fontSize: 9,
@@ -173,23 +175,24 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
 
         {!expanded && cards.map((card) => (
           <div
-            key={card.label}
-            title={card.title}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              background: `${card.accent}12`,
-              border: `1px solid ${card.accent}25`,
-              borderRadius: 5,
-              padding: '2px 8px',
-              fontSize: 11,
-              fontWeight: 800,
-              color: card.accent,
-              whiteSpace: 'nowrap',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
+          key={card.label}
+          title={card.title}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: `linear-gradient(180deg, ${card.accent}14 0%, rgba(10,14,22,0.96) 100%)`,
+            border: `1px solid ${card.accent}26`,
+            borderRadius: 8,
+            padding: '4px 9px',
+            fontSize: 11,
+            fontWeight: 800,
+            color: card.accent,
+            whiteSpace: 'nowrap',
+            fontVariantNumeric: 'tabular-nums',
+            boxShadow: `0 0 0 1px ${card.accent}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
+          }}
+        >
             <span style={{ fontSize: 9, opacity: 0.7 }}>{card.icon}</span>
             <span>{card.value}</span>
           </div>
@@ -209,21 +212,21 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
         >
           {cards.map((card) => (
             <div
-              key={card.label}
-              title={card.title}
-              style={{
-                flex: '1 1 120px',
-                background: `linear-gradient(135deg, ${card.accent}0a 0%, ${DS.cardBg} 100%)`,
-                border: `1px solid ${card.accent}20`,
-                borderTop: `2px solid ${card.accent}`,
-                borderRadius: 8,
-                padding: '10px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                minWidth: 110,
-              }}
-            >
+            key={card.label}
+            title={card.title}
+            style={{
+              flex: '1 1 120px',
+              background: 'linear-gradient(180deg, rgba(10,14,22,0.98) 0%, rgba(8,12,18,0.98) 100%)',
+              border: `1px solid ${card.accent}22`,
+              borderRadius: 12,
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              minWidth: 110,
+              boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(2,6,23,0.18)`,
+            }}
+          >
               <div
                 style={{
                   fontSize: 10,
