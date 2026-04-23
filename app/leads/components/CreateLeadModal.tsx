@@ -54,6 +54,70 @@ function normalizeCEP(value: any): string | null {
   return digits || null
 }
 
+function hasRepeatedDigits(value: string): boolean {
+  return /^(\d)\1+$/.test(value)
+}
+
+function isValidCPF(value: string): boolean {
+  const cpf = onlyDigits(value)
+
+  if (cpf.length !== 11) return false
+  if (hasRepeatedDigits(cpf)) return false
+
+  let sum = 0
+  for (let i = 0; i < 9; i++) {
+    sum += Number(cpf[i]) * (10 - i)
+  }
+
+  let firstCheck = (sum * 10) % 11
+  if (firstCheck === 10) firstCheck = 0
+  if (firstCheck !== Number(cpf[9])) return false
+
+  sum = 0
+  for (let i = 0; i < 10; i++) {
+    sum += Number(cpf[i]) * (11 - i)
+  }
+
+  let secondCheck = (sum * 10) % 11
+  if (secondCheck === 10) secondCheck = 0
+
+  return secondCheck === Number(cpf[10])
+}
+
+function isValidCNPJ(value: string): boolean {
+  const cnpj = onlyDigits(value)
+
+  if (cnpj.length !== 14) return false
+  if (hasRepeatedDigits(cnpj)) return false
+
+  const calcCheckDigit = (base: string, weights: number[]) => {
+    const sum = base
+      .split('')
+      .reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0)
+
+    const remainder = sum % 11
+    return remainder < 2 ? 0 : 11 - remainder
+  }
+
+  const base12 = cnpj.slice(0, 12)
+  const digit1 = calcCheckDigit(base12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+  const base13 = `${base12}${digit1}`
+  const digit2 = calcCheckDigit(base13, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+
+  return cnpj === `${base12}${digit1}${digit2}`
+}
+
+function isValidDocument(value: string | null): boolean {
+  if (!value) return false
+
+  const digits = onlyDigits(value)
+
+  if (digits.length === 11) return isValidCPF(digits)
+  if (digits.length === 14) return isValidCNPJ(digits)
+
+  return false
+}
+
 function getLeadTypeFromDocument(document: string | null): 'PF' | 'PJ' | null {
   if (!document) return null
   if (document.length === 11) return 'PF'
@@ -186,11 +250,15 @@ export default function CreateLeadModal({
     if (field === 'phone') {
       setPhoneWarning(null)
       setPhoneConflictLead(null)
+      setError(null)
+      setErrorConflictLead(null)
     }
   
     if (field === 'email') {
       setEmailWarning(null)
       setEmailConflictLead(null)
+      setError(null)
+      setErrorConflictLead(null)
     }
   
     setFormData((prev) => ({
@@ -289,7 +357,7 @@ export default function CreateLeadModal({
     }
 
     try {
-      if (document && [11, 14].includes(document.length)) {
+      if (document && isValidDocument(document)) {
         const { data: leadMatches, error: leadErr } = await supabase
           .from('leads')
           .select('id, name, phone, email')
@@ -403,25 +471,36 @@ export default function CreateLeadModal({
 
   const handleCPFChange = (value: string) => {
     handleFormChange('cpf_cnpj', value)
-
+    setError(null)
+    setErrorConflictLead(null)
+  
     const normalizedDocument = normalizeDocument(value)
-
+  
     if (!normalizedDocument) {
       setCpfWarning(null)
       setCpfConflictLead(null)
       return
     }
-    
+  
+    // Enquanto a pessoa ainda está digitando, não acusa erro
     if (![11, 14].includes(normalizedDocument.length)) {
       setCpfWarning(null)
       setCpfConflictLead(null)
       return
     }
-
+  
+    if (!isValidDocument(normalizedDocument)) {
+      const label = normalizedDocument.length === 14 ? 'CNPJ' : 'CPF'
+      setCpfWarning(`⚠️ ${label} inválido.`)
+      setCpfConflictLead(null)
+      return
+    }
+  
     if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
-
+  
     cpfTimerRef.current = window.setTimeout(async () => {
       const conflicts = await checkLeadConflicts({ rawDocument: normalizedDocument })
+  
       if (conflicts.document) {
         setCpfWarning(
           `⚠️ Este CPF/CNPJ já está cadastrado no lead ${formatConflictLeadLabel(conflicts.document)}.`
@@ -495,9 +574,18 @@ export default function CreateLeadModal({
       return
     }
 
-    if (normalizedDocument && ![11, 14].includes(normalizedDocument.length)) {
-      setError('CPF/CNPJ inválido')
-      return
+    if (normalizedDocument) {
+      if (![11, 14].includes(normalizedDocument.length)) {
+        setError('CPF/CNPJ inválido')
+        setErrorConflictLead(null)
+        return
+      }
+    
+      if (!isValidDocument(normalizedDocument)) {
+        setError(normalizedDocument.length === 14 ? 'CNPJ inválido' : 'CPF inválido')
+        setErrorConflictLead(null)
+        return
+      }
     }
 
     const conflicts = await checkLeadConflicts({
@@ -1209,21 +1297,25 @@ export default function CreateLeadModal({
             )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setStep('form')}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: 8,
-                  border: '1px solid #2a2a2a',
-                  background: 'transparent',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontWeight: 900,
-                  fontSize: 13,
-                }}
-              >
-                ← Voltar
-              </button>
+            <button
+  onClick={() => {
+    setError(null)
+    setErrorConflictLead(null)
+    setStep('form')
+  }}
+  style={{
+    padding: '10px 20px',
+    borderRadius: 8,
+    border: '1px solid #2a2a2a',
+    background: 'transparent',
+    color: 'white',
+    cursor: 'pointer',
+    fontWeight: 900,
+    fontSize: 13,
+  }}
+>
+  ← Voltar
+</button>
 
               <button
                 onClick={() => void handleCreateLead()}

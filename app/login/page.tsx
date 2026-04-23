@@ -588,13 +588,13 @@ export default function LoginPage() {
     }}
   >
     <Image
-      src="/branding/yolen-logo-v2.png"
+      src="/branding/yolen-logo-principal.png"
       alt="Yolen"
-      width={320}
-      height={88}
+      width={340}
+      height={82}
       priority
       style={{
-        width: isMobile ? 190 : 320,
+        width: isMobile ? 200 : 340,
         height: 'auto',
         display: 'block',
         objectFit: 'contain',
