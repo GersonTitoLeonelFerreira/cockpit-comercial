@@ -78,17 +78,26 @@ const DEFAULT_FEATURES: AuthFeature[] = [
   },
 ]
 
-function useIsMobile(breakpoint = 980) {
-  const [isMobile, setIsMobile] = React.useState(false)
+function useViewport() {
+  const [state, setState] = React.useState({
+    width: 0,
+    height: 0,
+  })
 
   React.useEffect(() => {
-    const update = () => setIsMobile(window.innerWidth < breakpoint)
+    const update = () => {
+      setState({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+    }
+
     update()
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
-  }, [breakpoint])
+  }, [])
 
-  return isMobile
+  return state
 }
 
 export function AuthScaffold({
@@ -112,8 +121,44 @@ export function AuthScaffold({
   topAction,
   desktopSplitScroll = false,
 }: AuthScaffoldProps) {
-  const isMobile = useIsMobile()
+  const viewport = useViewport()
+  const isMobile = viewport.width > 0 ? viewport.width < 980 : false
+
   const enableSplitScroll = desktopSplitScroll && !isMobile
+  const compactDesktop = enableSplitScroll && viewport.height > 0 && viewport.height <= 860
+  const ultraCompactDesktop = enableSplitScroll && viewport.height > 0 && viewport.height <= 780
+
+  const wrapperPadding = isMobile ? 20 : ultraCompactDesktop ? 16 : compactDesktop ? 20 : 28
+  const columnGap = isMobile ? 20 : ultraCompactDesktop ? 16 : compactDesktop ? 18 : 28
+
+  const brandLogoRenderWidth = isMobile
+    ? 200
+    : ultraCompactDesktop
+      ? Math.min(brandLogoWidth, 210)
+      : compactDesktop
+        ? Math.min(brandLogoWidth, 250)
+        : brandLogoWidth
+
+  const leftPanelPadding = isMobile ? 24 : ultraCompactDesktop ? 20 : compactDesktop ? 24 : 34
+  const leftPanelGap = isMobile ? 24 : ultraCompactDesktop ? 12 : compactDesktop ? 16 : 24
+
+  const heroFontSize = isMobile ? 32 : ultraCompactDesktop ? 28 : compactDesktop ? 34 : 42
+  const heroMaxWidth = ultraCompactDesktop ? 560 : 620
+  const asideSubtitleFontSize = isMobile ? 16 : compactDesktop ? 14 : 16
+  const asideSubtitleLineHeight = compactDesktop ? 1.55 : 1.65
+
+  const statsMarginTop = compactDesktop ? 20 : 28
+  const statsGap = compactDesktop ? 10 : 12
+  const statsCardPadding = ultraCompactDesktop ? 12 : compactDesktop ? 13 : 16
+  const statsValueFontSize = ultraCompactDesktop ? 14 : compactDesktop ? 15 : 16
+  const statsLabelFontSize = ultraCompactDesktop ? 11 : 12
+
+  const featureGap = ultraCompactDesktop ? 8 : 12
+  const featurePadding = ultraCompactDesktop ? 14 : compactDesktop ? 15 : 18
+  const featureTitleFontSize = ultraCompactDesktop ? 14 : 15
+  const featureDescFontSize = ultraCompactDesktop ? 12 : compactDesktop ? 12.5 : 13
+
+  const rightCardPadding = isMobile ? 24 : ultraCompactDesktop ? 22 : compactDesktop ? 24 : 30
 
   return (
     <div
@@ -133,10 +178,10 @@ export function AuthScaffold({
           margin: '0 auto',
           height: '100%',
           minHeight: enableSplitScroll ? 0 : '100%',
-          padding: isMobile ? 20 : 28,
+          padding: wrapperPadding,
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.08fr) minmax(420px, 488px)',
-          gap: isMobile ? 20 : 28,
+          gap: columnGap,
           alignItems: 'stretch',
           boxSizing: 'border-box',
         }}
@@ -154,10 +199,10 @@ export function AuthScaffold({
             <div
               style={{
                 display: 'grid',
-                gap: 10,
+                gap: ultraCompactDesktop ? 6 : 10,
                 justifyContent: 'start',
                 alignSelf: 'start',
-                padding: '8px 0 18px',
+                padding: ultraCompactDesktop ? '4px 0 12px' : compactDesktop ? '6px 0 14px' : '8px 0 18px',
               }}
             >
               <Image
@@ -167,7 +212,7 @@ export function AuthScaffold({
                 height={brandLogoHeight}
                 priority
                 style={{
-                  width: isMobile ? 200 : brandLogoWidth,
+                  width: brandLogoRenderWidth,
                   height: 'auto',
                   display: 'block',
                   objectFit: 'contain',
@@ -176,7 +221,7 @@ export function AuthScaffold({
 
               <div
                 style={{
-                  width: 56,
+                  width: ultraCompactDesktop ? 46 : 56,
                   height: 2,
                   borderRadius: 999,
                   background: 'linear-gradient(90deg, rgba(59,130,246,0.9) 0%, rgba(59,130,246,0.18) 100%)',
@@ -186,9 +231,9 @@ export function AuthScaffold({
 
               <div
                 style={{
-                  fontSize: 14,
+                  fontSize: compactDesktop ? 12.5 : 14,
                   color: AUTH.textSecondary,
-                  lineHeight: 1.45,
+                  lineHeight: 1.4,
                   maxWidth: 360,
                   marginLeft: 2,
                 }}
@@ -254,10 +299,10 @@ export function AuthScaffold({
               background:
                 'linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(59,130,246,0.02) 20%, rgba(17,19,24,0.98) 100%)',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
-              padding: isMobile ? 24 : 34,
+              padding: leftPanelPadding,
               display: 'flex',
               flexDirection: 'column',
-              gap: 24,
+              gap: leftPanelGap,
               position: 'relative',
               overflow: 'hidden',
               boxSizing: 'border-box',
@@ -280,13 +325,13 @@ export function AuthScaffold({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 8,
-                  minHeight: 30,
-                  padding: '0 12px',
+                  minHeight: compactDesktop ? 28 : 30,
+                  padding: compactDesktop ? '0 11px' : '0 12px',
                   borderRadius: 999,
                   border: '1px solid rgba(59,130,246,0.28)',
                   background: 'rgba(59,130,246,0.10)',
                   color: AUTH.blueSoft,
-                  fontSize: 12,
+                  fontSize: compactDesktop ? 11 : 12,
                   fontWeight: 700,
                   letterSpacing: '0.02em',
                 }}
@@ -296,13 +341,13 @@ export function AuthScaffold({
 
               <h1
                 style={{
-                  marginTop: 18,
+                  marginTop: compactDesktop ? 14 : 18,
                   marginBottom: 0,
-                  fontSize: isMobile ? 32 : 42,
-                  lineHeight: 1.02,
+                  fontSize: heroFontSize,
+                  lineHeight: ultraCompactDesktop ? 1 : 1.02,
                   fontWeight: 800,
                   letterSpacing: '-0.04em',
-                  maxWidth: 620,
+                  maxWidth: heroMaxWidth,
                   overflowWrap: 'anywhere',
                 }}
               >
@@ -311,11 +356,11 @@ export function AuthScaffold({
 
               <p
                 style={{
-                  marginTop: 14,
+                  marginTop: compactDesktop ? 10 : 14,
                   marginBottom: 0,
                   maxWidth: 620,
-                  fontSize: 16,
-                  lineHeight: 1.65,
+                  fontSize: asideSubtitleFontSize,
+                  lineHeight: asideSubtitleLineHeight,
                   color: AUTH.textSecondary,
                   overflowWrap: 'anywhere',
                 }}
@@ -325,31 +370,32 @@ export function AuthScaffold({
 
               <div
                 style={{
-                  marginTop: 28,
+                  marginTop: statsMarginTop,
                   display: 'grid',
                   gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
-                  gap: 12,
+                  gap: statsGap,
                 }}
               >
                 {stats.map((item) => (
                   <div
                     key={item.value + item.label}
                     style={{
-                      borderRadius: 18,
+                      borderRadius: compactDesktop ? 16 : 18,
                       border: '1px solid rgba(59,130,246,0.12)',
                       background: 'rgba(9,11,15,0.72)',
-                      padding: 16,
+                      padding: statsCardPadding,
                       minWidth: 0,
                       boxSizing: 'border-box',
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 16,
+                        fontSize: statsValueFontSize,
                         fontWeight: 800,
                         color: AUTH.textPrimary,
                         letterSpacing: '-0.02em',
                         overflowWrap: 'anywhere',
+                        lineHeight: 1.15,
                       }}
                     >
                       {item.value}
@@ -357,9 +403,10 @@ export function AuthScaffold({
                     <div
                       style={{
                         marginTop: 6,
-                        fontSize: 12,
+                        fontSize: statsLabelFontSize,
                         color: AUTH.textSecondary,
                         overflowWrap: 'anywhere',
+                        lineHeight: 1.45,
                       }}
                     >
                       {item.label}
@@ -374,37 +421,38 @@ export function AuthScaffold({
                 position: 'relative',
                 zIndex: 1,
                 display: 'grid',
-                gap: 12,
+                gap: featureGap,
               }}
             >
               {features.map((feature) => (
                 <div
                   key={feature.title}
                   style={{
-                    borderRadius: 18,
+                    borderRadius: compactDesktop ? 16 : 18,
                     border: `1px solid ${AUTH.border}`,
                     background: 'rgba(9,11,15,0.72)',
-                    padding: 18,
+                    padding: featurePadding,
                     minWidth: 0,
                     boxSizing: 'border-box',
                   }}
                 >
                   <div
                     style={{
-                      fontSize: 15,
+                      fontSize: featureTitleFontSize,
                       fontWeight: 800,
                       color: AUTH.textPrimary,
                       letterSpacing: '-0.02em',
                       overflowWrap: 'anywhere',
+                      lineHeight: 1.2,
                     }}
                   >
                     {feature.title}
                   </div>
                   <div
                     style={{
-                      marginTop: 8,
-                      fontSize: 13,
-                      lineHeight: 1.65,
+                      marginTop: 6,
+                      fontSize: featureDescFontSize,
+                      lineHeight: compactDesktop ? 1.55 : 1.65,
                       color: AUTH.textSecondary,
                       overflowWrap: 'anywhere',
                     }}
@@ -433,7 +481,7 @@ export function AuthScaffold({
               border: `1px solid ${AUTH.border}`,
               background: 'linear-gradient(180deg, rgba(17,19,24,0.98) 0%, rgba(13,15,20,0.98) 100%)',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
-              padding: isMobile ? 24 : 30,
+              padding: rightCardPadding,
               position: 'relative',
               zIndex: 2,
               boxSizing: 'border-box',

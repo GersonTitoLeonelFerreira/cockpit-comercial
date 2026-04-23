@@ -115,11 +115,11 @@ export default function CadastroLeadPage() {
       subtitle="Preencha os dados para que nossa equipe entenda seu cenário e apresente o Cockpit com base no seu processo real."
       sideBadge="Diagnóstico comercial"
       heroTitle="Organize o funil, elimine gargalos e ganhe previsibilidade no comercial."
-      asideSubtitle="O Cockpit Comercial ajuda sua operação a enxergar travas, padronizar execução e transformar volume em resultado com leitura clara do pipeline."
+      asideSubtitle="O Cockpit ajuda sua operação a enxergar travas, padronizar execução e transformar volume em resultado com leitura clara do pipeline."
       brandVariant="logo"
       brandLogoSrc="/branding/yolen-logo-principal.png"
       brandLogoAlt="Yolen"
-      brandLogoWidth={340}
+      brandLogoWidth={280}
       brandLogoHeight={82}
       brandTagline="Cockpit comercial para equipes de vendas"
       desktopSplitScroll
@@ -132,18 +132,15 @@ export default function CadastroLeadPage() {
       features={[
         {
           title: 'Leitura real da operação',
-          description:
-            'Não é só armazenar contatos. É enxergar gargalos, conversão, perdas e ritmo comercial com clareza.',
+          description: 'Enxerga gargalos, conversão, perdas e ritmo comercial sem caçar dado solto.',
         },
         {
           title: 'Execução com padrão',
-          description:
-            'A equipe trabalha com processo visível, prioridades organizadas e menos improviso no dia a dia.',
+          description: 'Processo visível, prioridade clara e menos improviso no dia a dia.',
         },
         {
           title: 'Demonstração mais assertiva',
-          description:
-            'Sua solicitação já entra com contexto comercial, o que torna a conversa mais consultiva e menos genérica.',
+          description: 'A solicitação já entra com contexto e deixa a conversa mais consultiva.',
         },
       ]}
     >
