@@ -2281,15 +2281,17 @@ export default function SalesCyclesKanban({
   const allKanbanSelected = selectedIds.size === allKanbanItems.length && allKanbanItems.length > 0
 
   const pillStyle: React.CSSProperties = {
-    borderRadius: DS.radius,
-    padding: '7px 12px',
-    background: DS.panelBg,
-    border: `1px solid ${DS.border}`,
-    color: DS.textSecondary,
+    height: 34,
+    borderRadius: 10,
+    padding: '0 12px',
+    background: 'linear-gradient(180deg, rgba(10,14,22,0.96) 0%, rgba(8,12,18,0.98) 100%)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    color: '#cbd5e1',
     fontSize: 12,
     cursor: 'pointer',
     fontWeight: 600,
     outline: 'none',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 4px 12px rgba(0,0,0,0.22)',
   }
 
   return (
@@ -2312,20 +2314,21 @@ export default function SalesCyclesKanban({
       }}
     >
       <div
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          background: 'rgba(17,19,24,0.94)',
-          backdropFilter: 'blur(12px)',
-          borderBottom: `1px solid ${DS.border}`,
-          padding: '8px 16px',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
+  style={{
+    position: 'sticky',
+    top: 0,
+    zIndex: 50,
+    background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
+    backdropFilter: 'blur(12px)',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+    boxShadow: '0 10px 28px rgba(0,0,0,0.18)',
+    padding: '10px 16px',
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  }}
+>
         {isAdmin && (
           <select value={selectedOwnerId || userId} onChange={(e) => setSelectedOwnerId(e.target.value || userId)} style={pillStyle}>
             <option value={userId}>Meu Cockpit</option>
@@ -2367,14 +2370,16 @@ export default function SalesCyclesKanban({
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar por nome, telefone, CPF ou email..."
             style={{
-              borderRadius: DS.radius,
-              padding: '7px 14px',
-              background: DS.selectBg,
-              border: `1px solid ${DS.border}`,
+              height: 34,
+              borderRadius: 10,
+              padding: '0 14px',
+              background: 'linear-gradient(180deg, rgba(10,14,22,0.96) 0%, rgba(8,12,18,0.98) 100%)',
+              border: '1px solid rgba(255,255,255,0.06)',
               color: DS.textPrimary,
               fontSize: 12,
-              minWidth: 220,
+              minWidth: 260,
               outline: 'none',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 4px 12px rgba(0,0,0,0.22)',
             }}
           />
           {searchTerm.trim() && !isSearching && searchCount !== null && (
@@ -2385,65 +2390,98 @@ export default function SalesCyclesKanban({
           {isSearching && <div style={{ fontSize: 10, color: DS.textMuted, paddingLeft: 4 }}>Buscando...</div>}
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button
-            onClick={() => setFocusMode((v) => !v)}
-            style={{
-              ...pillStyle,
-              background: focusMode ? 'rgba(59,130,246,0.14)' : DS.panelBg,
-              border: focusMode ? '1px solid rgba(59,130,246,0.4)' : `1px solid ${DS.border}`,
-              color: focusMode ? DS.blueSoft : DS.textSecondary,
-              fontSize: 14,
-              padding: '5px 10px',
-              lineHeight: 1,
-            }}
-            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-          >
-            {focusMode ? '⊡' : '⊞'}
-          </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+  <button
+    onClick={() => setFocusMode((v) => !v)}
+    style={{
+      ...pillStyle,
+      minWidth: 36,
+      padding: '0 10px',
+      justifyContent: 'center',
+      background: focusMode
+        ? 'linear-gradient(180deg, rgba(20,34,58,0.98) 0%, rgba(10,14,22,0.98) 100%)'
+        : pillStyle.background,
+      border: focusMode ? '1px solid rgba(59,130,246,0.35)' : pillStyle.border,
+      color: focusMode ? '#dbeafe' : '#94a3b8',
+      boxShadow: focusMode
+        ? '0 0 0 1px rgba(59,130,246,0.14), 0 8px 24px rgba(2,6,23,0.28)'
+        : pillStyle.boxShadow,
+      fontSize: 14,
+      lineHeight: 1,
+    }}
+    title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+  >
+    {focusMode ? '⊡' : '⊞'}
+  </button>
 
-          <button
-            onClick={() => {
-              void Promise.all([loadItems(searchTerm), loadTotals()])
-            }}
-            style={pillStyle}
-            title="Atualizar kanban"
-            aria-label="Atualizar kanban"
-          >
-            ↻
-          </button>
+  <button
+    onClick={() => {
+      void Promise.all([loadItems(searchTerm), loadTotals()])
+    }}
+    style={{
+      ...pillStyle,
+      minWidth: 36,
+      padding: '0 10px',
+      justifyContent: 'center',
+      border: '1px solid rgba(59,130,246,0.20)',
+      color: '#dbeafe',
+      boxShadow: '0 0 0 1px rgba(59,130,246,0.10), 0 8px 24px rgba(2,6,23,0.22)',
+    }}
+    title="Atualizar kanban"
+    aria-label="Atualizar kanban"
+  >
+    ↻
+  </button>
 
-          <button
-            onClick={toggleSelectAllKanban}
-            style={{
-              ...pillStyle,
-              background: allKanbanSelected ? 'rgba(139,92,246,0.15)' : DS.panelBg,
-              border: allKanbanSelected ? '1px solid rgba(139,92,246,0.4)' : `1px solid ${DS.border}`,
-              color: allKanbanSelected ? '#c4b5fd' : DS.textSecondary,
-            }}
-          >
-            {allKanbanSelected ? 'Desmarcar' : 'Selecionar'} ({allKanbanItems.length})
-          </button>
+  <button
+    onClick={toggleSelectAllKanban}
+    style={{
+      ...pillStyle,
+      background: allKanbanSelected
+        ? 'linear-gradient(180deg, rgba(37,18,59,0.98) 0%, rgba(10,14,22,0.98) 100%)'
+        : pillStyle.background,
+      border: allKanbanSelected ? '1px solid rgba(139,92,246,0.35)' : pillStyle.border,
+      color: allKanbanSelected ? '#ddd6fe' : '#cbd5e1',
+      boxShadow: allKanbanSelected
+        ? '0 0 0 1px rgba(139,92,246,0.10), 0 8px 24px rgba(2,6,23,0.22)'
+        : pillStyle.boxShadow,
+    }}
+  >
+    {allKanbanSelected ? 'Desmarcar' : 'Selecionar'} ({allKanbanItems.length})
+  </button>
 
-          {selectedIds.size > 0 && (
-            <button
-              onClick={() => setShowBulkModal(true)}
-              style={{ ...pillStyle, background: DS.amberBg, border: `1px solid ${DS.amberBorder}`, color: DS.amberText }}
-            >
-              Ações ({selectedIds.size})
-            </button>
-          )}
+  {selectedIds.size > 0 && (
+    <button
+      onClick={() => setShowBulkModal(true)}
+      style={{
+        ...pillStyle,
+        background: 'linear-gradient(180deg, rgba(42,24,7,0.98) 0%, rgba(10,14,22,0.98) 100%)',
+        border: '1px solid rgba(245,158,11,0.28)',
+        color: '#fde68a',
+        boxShadow: '0 0 0 1px rgba(245,158,11,0.10), 0 8px 24px rgba(2,6,23,0.22)',
+      }}
+    >
+      Ações ({selectedIds.size})
+    </button>
+  )}
 
-          <button
-            onClick={() => {
-              onShowCreateLeadModal?.()
-              setShowCreateLeadModal(true)
-            }}
-            style={{ ...pillStyle, background: DS.greenBg, border: `1px solid ${DS.greenBorder}`, color: DS.greenText }}
-          >
-            + Criar Lead
-          </button>
-        </div>
+  <button
+    onClick={() => {
+      onShowCreateLeadModal?.()
+      setShowCreateLeadModal(true)
+    }}
+    style={{
+      ...pillStyle,
+      background: 'linear-gradient(180deg, rgba(8,34,20,0.98) 0%, rgba(10,14,22,0.98) 100%)',
+      border: '1px solid rgba(34,197,94,0.28)',
+      color: '#dcfce7',
+      boxShadow: '0 0 0 1px rgba(34,197,94,0.10), 0 8px 24px rgba(2,6,23,0.22)',
+      fontWeight: 700,
+    }}
+  >
+    + Criar Lead
+  </button>
+</div>
       </div>
 
       <SellerMicroKPIs
@@ -2453,40 +2491,65 @@ export default function SalesCyclesKanban({
         refreshKey={kpiRefreshKey}
       />
 
-      <div
-        style={{
-          background: DS.panelBg,
-          borderBottom: `1px solid ${DS.border}`,
-          padding: '0 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          minHeight: 34,
-          cursor: 'pointer',
-          backgroundImage: 'linear-gradient(180deg, rgba(59,130,246,0.05) 0%, transparent 100%)',
-        }}
-        onClick={() => setInsightsExpanded((v) => !v)}
-      >
-        <span style={{ fontSize: 9, fontWeight: 700, color: DS.textLabel, letterSpacing: '0.12em', whiteSpace: 'nowrap', flexShrink: 0, textTransform: 'uppercase' }}>
-          {insightsExpanded ? '▾' : '▸'} INSIGHTS
-        </span>
+<div
+  style={{
+    background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+    padding: '0 16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 40,
+    cursor: 'pointer',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+  }}
+  onClick={() => setInsightsExpanded((v) => !v)}
+>
+  <span
+    style={{
+      fontSize: 9,
+      fontWeight: 800,
+      color: '#64748b',
+      letterSpacing: '0.14em',
+      whiteSpace: 'nowrap',
+      flexShrink: 0,
+      textTransform: 'uppercase',
+    }}
+  >
+    {insightsExpanded ? '▾' : '▸'} INSIGHTS
+  </span>
 
-        {!insightsExpanded && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            {[
-              { label: 'Atrasados', value: overdueCount, accent: '#ef4444' },
-              { label: 'SLA estourado', value: dangerCount, accent: '#f59e0b' },
-              { label: 'Agenda hoje', value: todayCount, accent: '#3b82f6' },
-              { label: 'Próximos 7d', value: next7Count, accent: '#8b5cf6' },
-            ].map((chip) => (
-              <div key={chip.label} style={{ display: 'flex', alignItems: 'center', gap: 4, background: `${chip.accent}12`, border: `1px solid ${chip.accent}25`, borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 800, color: chip.accent }}>
-                <span>{chip.value}</span>
-                <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.7 }}>{chip.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+  {!insightsExpanded && (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      {[
+        { label: 'Atrasados', value: overdueCount, accent: '#ef4444' },
+        { label: 'SLA estourado', value: dangerCount, accent: '#f59e0b' },
+        { label: 'Agenda hoje', value: todayCount, accent: '#3b82f6' },
+        { label: 'Próximos 7d', value: next7Count, accent: '#8b5cf6' },
+      ].map((chip) => (
+        <div
+          key={chip.label}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: `linear-gradient(180deg, ${chip.accent}14 0%, rgba(10,14,22,0.96) 100%)`,
+            border: `1px solid ${chip.accent}26`,
+            borderRadius: 8,
+            padding: '4px 9px',
+            fontSize: 11,
+            fontWeight: 800,
+            color: chip.accent,
+            boxShadow: `0 0 0 1px ${chip.accent}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
+          }}
+        >
+          <span>{chip.value}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, opacity: 0.78, letterSpacing: '0.02em' }}>{chip.label}</span>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
 
       {insightsExpanded && (
         <div style={{ background: DS.contentBg, borderBottom: `1px solid ${DS.border}`, padding: '10px 16px 14px', maxHeight: 320, overflowY: 'auto' }}>
