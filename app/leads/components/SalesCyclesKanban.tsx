@@ -51,6 +51,78 @@ const DS = {
   radiusContainer: 9,
 } as const
 
+const UI = {
+  controlHeight: 30,
+  controlRadius: 8,
+  glowBlue: '0 0 0 1px rgba(59,130,246,0.14), 0 8px 24px rgba(2,6,23,0.28)',
+  glowGreen: '0 0 0 1px rgba(34,197,94,0.16), 0 8px 24px rgba(2,6,23,0.28)',
+  glowRed: '0 0 0 1px rgba(239,68,68,0.16), 0 8px 24px rgba(2,6,23,0.28)',
+}
+
+function getControlBaseStyle() {
+  return {
+    height: UI.controlHeight,
+    borderRadius: UI.controlRadius,
+    border: `1px solid rgba(255,255,255,0.06)`,
+    background: 'linear-gradient(180deg, rgba(10,14,22,0.96) 0%, rgba(8,12,18,0.96) 100%)',
+    color: DS.textPrimary,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 4px 12px rgba(0,0,0,0.22)',
+    fontSize: 12,
+    fontWeight: 600,
+  } as const
+}
+
+function getPrimaryButtonStyle() {
+  return {
+    ...getControlBaseStyle(),
+    border: '1px solid rgba(59,130,246,0.22)',
+    color: '#dbeafe',
+    boxShadow: UI.glowBlue,
+    background: 'linear-gradient(180deg, rgba(15,23,42,0.96) 0%, rgba(10,14,22,0.98) 100%)',
+  } as const
+}
+
+function getSuccessButtonStyle() {
+  return {
+    ...getControlBaseStyle(),
+    border: '1px solid rgba(34,197,94,0.24)',
+    color: '#dcfce7',
+    boxShadow: UI.glowGreen,
+    background: 'linear-gradient(180deg, rgba(8,26,18,0.96) 0%, rgba(8,12,18,0.98) 100%)',
+  } as const
+}
+
+function getDangerButtonStyle() {
+  return {
+    ...getControlBaseStyle(),
+    border: '1px solid rgba(239,68,68,0.24)',
+    color: '#fee2e2',
+    boxShadow: UI.glowRed,
+    background: 'linear-gradient(180deg, rgba(38,12,14,0.96) 0%, rgba(12,8,10,0.98) 100%)',
+  } as const
+}
+
+function getSelectStyle() {
+  return {
+    ...getControlBaseStyle(),
+    padding: '0 10px',
+    color: '#cbd5e1',
+  } as const
+}
+
+function getChipStyle(accent: string) {
+  return {
+    borderRadius: 6,
+    border: `1px solid ${accent}22`,
+    background: `${accent}10`,
+    color: accent,
+    fontSize: 10,
+    fontWeight: 700,
+    padding: '3px 8px',
+    boxShadow: `0 0 0 1px ${accent}10 inset`,
+  } as const
+}
+
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
 type SLALevel = 'ok' | 'warn' | 'danger'
 type AgendaState = 'none' | 'today' | 'overdue' | 'future'
