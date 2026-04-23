@@ -72,23 +72,23 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
     return (
       <div
         style={{
-          padding: '6px 16px',
+          padding: '0 16px',
           display: 'flex',
           gap: 8,
           alignItems: 'center',
-          borderBottom: `1px solid ${DS.border}`,
-          background: DS.panelBg,
-          height: 38,
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
+          minHeight: 40,
         }}
       >
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
             style={{
-              height: 22,
-              width: 64,
+              height: 24,
+              width: 68,
               background: DS.borderSubtle,
-              borderRadius: 5,
+              borderRadius: 8,
             }}
           />
         ))}
@@ -143,95 +143,95 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
         borderBottom: `1px solid ${DS.border}`,
       }}
     >
-            {/* ── Compact pill bar ── */}
-            <div
-  style={{
-    padding: '0 16px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    cursor: 'pointer',
-    userSelect: 'none',
-    minHeight: 40,
-    background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
-    borderBottom: '1px solid rgba(255,255,255,0.05)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
-  }}
-  onClick={() => setExpanded((v) => !v)}
-  title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
->
+      <div
+        style={{
+          padding: '0 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          cursor: 'pointer',
+          userSelect: 'none',
+          minHeight: 40,
+          background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+        }}
+        onClick={() => setExpanded((v) => !v)}
+        title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
+      >
         <span
           style={{
             fontSize: 9,
-            color: DS.textLabel,
-            fontWeight: 700,
+            color: '#64748b',
+            fontWeight: 800,
             marginRight: 2,
-            letterSpacing: '0.12em',
+            letterSpacing: '0.14em',
             textTransform: 'uppercase',
           }}
         >
           {expanded ? '▾' : '▸'} KPIS
         </span>
 
-        {!expanded && cards.map((card) => (
-          <div
-          key={card.label}
-          title={card.title}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            background: `linear-gradient(180deg, ${card.accent}14 0%, rgba(10,14,22,0.96) 100%)`,
-            border: `1px solid ${card.accent}26`,
-            borderRadius: 8,
-            padding: '4px 9px',
-            fontSize: 11,
-            fontWeight: 800,
-            color: card.accent,
-            whiteSpace: 'nowrap',
-            fontVariantNumeric: 'tabular-nums',
-            boxShadow: `0 0 0 1px ${card.accent}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
-          }}
-        >
-            <span style={{ fontSize: 9, opacity: 0.7 }}>{card.icon}</span>
-            <span>{card.value}</span>
-          </div>
-        ))}
+        {!expanded &&
+          cards.map((card) => (
+            <div
+              key={card.label}
+              title={card.title}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: `linear-gradient(180deg, ${card.accent}14 0%, rgba(10,14,22,0.96) 100%)`,
+                border: `1px solid ${card.accent}26`,
+                borderRadius: 8,
+                padding: '4px 9px',
+                fontSize: 11,
+                fontWeight: 800,
+                color: card.accent,
+                whiteSpace: 'nowrap',
+                fontVariantNumeric: 'tabular-nums',
+                boxShadow: `0 0 0 1px ${card.accent}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
+              }}
+            >
+              <span style={{ fontSize: 9, opacity: 0.7 }}>{card.icon}</span>
+              <span>{card.value}</span>
+            </div>
+          ))}
       </div>
 
-      {/* ── Expanded cards ── */}
       {expanded && (
         <div
           style={{
-            padding: '6px 16px 10px',
+            padding: '10px 16px 12px',
             display: 'flex',
-            gap: 8,
+            gap: 10,
             alignItems: 'stretch',
             flexWrap: 'wrap',
+            background: 'linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.96) 100%)',
           }}
         >
           {cards.map((card) => (
             <div
-            key={card.label}
-            title={card.title}
-            style={{
-              flex: '1 1 120px',
-              background: 'linear-gradient(180deg, rgba(10,14,22,0.98) 0%, rgba(8,12,18,0.98) 100%)',
-              border: `1px solid ${card.accent}22`,
-              borderRadius: 12,
-              padding: '12px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              minWidth: 110,
-              boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(2,6,23,0.18)`,
-            }}
-          >
+              key={card.label}
+              title={card.title}
+              style={{
+                flex: '1 1 120px',
+                background: 'linear-gradient(180deg, rgba(10,14,22,0.98) 0%, rgba(8,12,18,0.98) 100%)',
+                border: `1px solid ${card.accent}22`,
+                borderRadius: 12,
+                padding: '12px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                minWidth: 110,
+                boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(2,6,23,0.18)`,
+              }}
+            >
               <div
                 style={{
                   fontSize: 10,
                   color: DS.textSecondary,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   letterSpacing: '0.02em',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',

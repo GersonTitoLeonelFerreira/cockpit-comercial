@@ -2,10 +2,6 @@
 
 import React from 'react'
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
 export type Tone = 'neutral' | 'good' | 'bad'
 export type RevenueStatus = 'no_ritmo' | 'atencao' | 'acelerar'
 
@@ -19,10 +15,6 @@ export type MetaSummaryKpis = {
   pacingRatio: number
   status: RevenueStatus
 }
-
-// ============================================================================
-// HELPERS (shared — single source of truth)
-// ============================================================================
 
 export function toBRL(v: number): string {
   return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -73,10 +65,6 @@ export function buildMetaSummaryKpis(
   }
 }
 
-// ============================================================================
-// MetaCard — individual card (unifies RevenueCard + Card)
-// ============================================================================
-
 export function MetaCard({
   title,
   value,
@@ -92,25 +80,46 @@ export function MetaCard({
     tone === 'good' ? '#10b981' : tone === 'bad' ? '#ef4444' : '#3b82f6'
 
   return (
-    <div style={{
-      border: `1px solid ${accentColor}22`,
-      background: 'linear-gradient(180deg, rgba(10,14,22,0.98) 0%, rgba(8,12,18,0.98) 100%)',
-      borderRadius: 14,
-      padding: '14px 16px',
-      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(2,6,23,0.18)`,
-    }}>
-      <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div
+      style={{
+        border: `1px solid ${accentColor}22`,
+        background: 'linear-gradient(180deg, rgba(10,14,22,0.98) 0%, rgba(8,12,18,0.98) 100%)',
+        borderRadius: 14,
+        padding: '14px 16px',
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 8px 24px rgba(2,6,23,0.18)`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          color: '#8fa3bc',
+          marginBottom: 6,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          letterSpacing: '0.02em',
+        }}
+      >
         {title}
       </div>
-      <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: -0.2, color: '#edf2f7' }}>{value}</div>
-      {subtitle ? <div style={{ marginTop: 4, fontSize: 11, color: '#546070', lineHeight: 1.4 }}>{subtitle}</div> : null}
+      <div
+        style={{
+          fontSize: 17,
+          fontWeight: 900,
+          letterSpacing: -0.2,
+          color: '#edf2f7',
+        }}
+      >
+        {value}
+      </div>
+      {subtitle ? (
+        <div style={{ marginTop: 5, fontSize: 11, color: '#546070', lineHeight: 1.4 }}>
+          {subtitle}
+        </div>
+      ) : null}
     </div>
   )
 }
-
-// ============================================================================
-// MetaSummaryHeader — row of 5 KPI cards (single source of truth)
-// ============================================================================
 
 function StatusIcon({ status }: { status: RevenueStatus }) {
   if (status === 'no_ritmo') {
@@ -148,25 +157,31 @@ export default function MetaSummaryHeader({
     kpis.status === 'no_ritmo' ? '#10b981' : kpis.status === 'atencao' ? '#f59e0b' : '#ef4444'
 
   return (
-    <div style={{
-      display: 'grid',
-      gap: 12,
-      padding: '18px 18px',
-      borderRadius: 16,
-      background: 'linear-gradient(180deg, rgba(12,16,24,0.98) 0%, rgba(9,11,15,0.98) 100%)',
-      border: '1px solid rgba(59,130,246,0.16)',
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 32px rgba(2,6,23,0.24)',
-    }}>
-      <div style={{
-  fontWeight: 900,
-  color: '#edf2f7',
-  fontSize: 13,
-  paddingLeft: 12,
-  borderLeft: '2px solid rgba(59,130,246,0.55)',
-  letterSpacing: '0.01em',
-}}>{title}</div>
+    <div
+      style={{
+        display: 'grid',
+        gap: 12,
+        padding: '18px 18px',
+        borderRadius: 16,
+        background: 'linear-gradient(180deg, rgba(12,16,24,0.98) 0%, rgba(9,11,15,0.98) 100%)',
+        border: '1px solid rgba(59,130,246,0.16)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 32px rgba(2,6,23,0.24)',
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 900,
+          color: '#edf2f7',
+          fontSize: 13,
+          paddingLeft: 12,
+          borderLeft: '2px solid rgba(59,130,246,0.55)',
+          letterSpacing: '0.01em',
+        }}
+      >
+        {title}
+      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <MetaCard title="Real no período" value={toBRL(kpis.totalReal)} />
         <MetaCard title="Meta do período" value={toBRL(kpis.goal)} />
         <MetaCard
@@ -181,16 +196,18 @@ export default function MetaSummaryHeader({
         />
       </div>
 
-      <div style={{
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  padding: '10px 14px',
-  borderRadius: 10,
-  background: 'linear-gradient(180deg, rgba(10,14,22,0.96) 0%, rgba(8,12,18,0.98) 100%)',
-  border: `1px solid ${statusColor}24`,
-  boxShadow: `0 0 0 1px ${statusColor}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
-}}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 14px',
+          borderRadius: 10,
+          background: 'linear-gradient(180deg, rgba(10,14,22,0.96) 0%, rgba(8,12,18,0.98) 100%)',
+          border: `1px solid ${statusColor}24`,
+          boxShadow: `0 0 0 1px ${statusColor}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
+        }}
+      >
         <StatusIcon status={kpis.status} />
         <span style={{ fontSize: 13, fontWeight: 700, color: statusColor }}>
           {statusLabel(kpis.status)}
