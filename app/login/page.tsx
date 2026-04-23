@@ -4,7 +4,6 @@ import type { FormEvent } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
-const [authMode, setAuthMode] = useState<'login' | 'demo'>('login')
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 
@@ -453,6 +452,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+  const [authMode, setAuthMode] = useState<'login' | 'demo'>('login')
 
   const entrar = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -717,226 +717,207 @@ export default function LoginPage() {
 
             {authMode === 'login' ? (
   <form onSubmit={entrar} style={{ marginTop: 22, display: 'grid', gap: 16 }}>
-              <MessageBox message={errorMessage} />
+    <MessageBox message={errorMessage} />
 
-              <div style={{ display: 'grid', gap: 8 }}>
-                <InputLabel label="Email" required />
-                <TextInput
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="voce@empresa.com"
-                  autoComplete="email"
-                  type="email"
-                />
-              </div>
+    <div style={{ display: 'grid', gap: 8 }}>
+      <InputLabel label="Email" required />
+      <TextInput
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="voce@empresa.com"
+        autoComplete="email"
+        type="email"
+      />
+    </div>
 
-              <div style={{ display: 'grid', gap: 8 }}>
-                <InputLabel label="Senha" required hint="acesso autenticado por email/senha" />
-                <div style={{ position: 'relative' }}>
-                  <TextInput
-                    value={senha}
-                    onChange={(e) => setSenha(e.target.value)}
-                    placeholder="Digite sua senha"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    style={{ paddingRight: 108 }}
-                  />
+    <div style={{ display: 'grid', gap: 8 }}>
+      <InputLabel label="Senha" required hint="acesso autenticado por email/senha" />
+      <div style={{ position: 'relative' }}>
+        <TextInput
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          placeholder="Digite sua senha"
+          type={showPassword ? 'text' : 'password'}
+          autoComplete="current-password"
+          style={{ paddingRight: 108 }}
+        />
 
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    style={{
-                      position: 'absolute',
-                      top: 7,
-                      right: 7,
-                      height: 34,
-                      padding: '0 12px',
-                      borderRadius: 10,
-                      border: '1px solid rgba(59,130,246,0.18)',
-                      background: 'rgba(59,130,246,0.08)',
-                      color: DS.blueSoft,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {showPassword ? 'Ocultar' : 'Mostrar'}
-                  </button>
-                </div>
-              </div>
+        <button
+          type="button"
+          onClick={() => setShowPassword((v) => !v)}
+          style={{
+            position: 'absolute',
+            top: 7,
+            right: 7,
+            height: 34,
+            padding: '0 12px',
+            borderRadius: 10,
+            border: '1px solid rgba(59,130,246,0.18)',
+            background: 'rgba(59,130,246,0.08)',
+            color: DS.blueSoft,
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          {showPassword ? 'Ocultar' : 'Mostrar'}
+        </button>
+      </div>
+    </div>
 
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    minHeight: 30,
-                    padding: '0 10px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(59,130,246,0.18)',
-                    background: 'rgba(59,130,246,0.08)',
-                    color: DS.blueSoft,
-                    fontSize: 12,
-                    fontWeight: 700,
-                  }}
-                >
-                  Conexão protegida
-                </div>
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        gap: 12,
+        alignItems: 'center',
+        flexWrap: 'wrap',
+      }}
+    >
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          minHeight: 30,
+          padding: '0 10px',
+          borderRadius: 999,
+          border: '1px solid rgba(59,130,246,0.18)',
+          background: 'rgba(59,130,246,0.08)',
+          color: DS.blueSoft,
+          fontSize: 12,
+          fontWeight: 700,
+        }}
+      >
+        Conexão protegida
+      </div>
 
-                <Link
-                  href="/esqueci-senha"
-                  style={{
-                    color: DS.textSecondary,
-                    textDecoration: 'none',
-                    fontSize: 13,
-                    fontWeight: 700,
-                  }}
-                >
-                  Esqueci minha senha
-                </Link>
-              </div>
+      <Link
+        href="/esqueci-senha"
+        style={{
+          color: DS.textSecondary,
+          textDecoration: 'none',
+          fontSize: 13,
+          fontWeight: 700,
+        }}
+      >
+        Esqueci minha senha
+      </Link>
+    </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  width: '100%',
-                  minHeight: 52,
-                  borderRadius: 14,
-                  border: '1px solid rgba(59,130,246,0.38)',
-                  background: loading
-                    ? 'linear-gradient(135deg, rgba(59,130,246,0.18) 0%, rgba(29,78,216,0.12) 100%)'
-                    : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                  color: '#f8fbff',
-                  fontSize: 15,
-                  fontWeight: 900,
-                  letterSpacing: '-0.01em',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  boxShadow: loading ? 'none' : '0 14px 28px rgba(37,99,235,0.28)',
-                }}
-              >
-                {loading ? 'Entrando...' : 'Entrar no Yolen'}
-              </button>
+    <button
+      type="submit"
+      disabled={loading}
+      style={{
+        width: '100%',
+        minHeight: 52,
+        borderRadius: 14,
+        border: '1px solid rgba(59,130,246,0.38)',
+        background: loading
+          ? 'linear-gradient(135deg, rgba(59,130,246,0.18) 0%, rgba(29,78,216,0.12) 100%)'
+          : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+        color: '#f8fbff',
+        fontSize: 15,
+        fontWeight: 900,
+        letterSpacing: '-0.01em',
+        cursor: loading ? 'not-allowed' : 'pointer',
+        boxShadow: loading ? 'none' : '0 14px 28px rgba(37,99,235,0.28)',
+      }}
+    >
+      {loading ? 'Entrando...' : 'Entrar no Yolen'}
+    </button>
 
-              <button
-  type="button"
-  onClick={() => router.push('/cadastro')}
-  style={{
-    width: '100%',
-    minHeight: 48,
-    borderRadius: 14,
-    border: `1px solid ${DS.border}`,
-    background: 'rgba(17,19,24,0.92)',
-    color: DS.textSecondary,
-    fontSize: 14,
-    fontWeight: 800,
-    cursor: 'pointer',
-  }}
->
-  Solicitar demonstração
-</button>
+    <button
+      type="button"
+      onClick={() => router.push('/cadastro')}
+      style={{
+        width: '100%',
+        minHeight: 48,
+        borderRadius: 14,
+        border: `1px solid ${DS.border}`,
+        background: 'rgba(17,19,24,0.92)',
+        color: DS.textSecondary,
+        fontSize: 14,
+        fontWeight: 800,
+        cursor: 'pointer',
+      }}
+    >
+      Solicitar demonstração
+    </button>
+  </form>
+) : (
+  <div style={{ marginTop: 22, display: 'grid', gap: 16 }}>
+    <div
+      style={{
+        borderRadius: 18,
+        border: `1px solid ${DS.border}`,
+        background: 'rgba(9,11,15,0.60)',
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 800,
+          color: DS.textPrimary,
+        }}
+      >
+        O que o Yolen entrega
+      </div>
 
-              <button
-                type="button"
-                onClick={() => router.push('/cadastro')}
-                style={{
-                  width: '100%',
-                  minHeight: 48,
-                  borderRadius: 14,
-                  border: `1px solid ${DS.border}`,
-                  background: 'rgba(17,19,24,0.92)',
-                  color: DS.textSecondary,
-                  fontSize: 14,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                Solicitar demonstração
-              </button>
-            </form>
-              </form>
-              ) : (
-                <div style={{ marginTop: 22, display: 'grid', gap: 16 }}>
-                  <div
-                    style={{
-                      borderRadius: 18,
-                      border: `1px solid ${DS.border}`,
-                      background: 'rgba(9,11,15,0.60)',
-                      padding: 16,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 800,
-                        color: DS.textPrimary,
-                      }}
-                    >
-                      O que o Yolen entrega
-                    </div>
-              
-                    <div
-                      style={{
-                        marginTop: 10,
-                        display: 'grid',
-                        gap: 8,
-                        fontSize: 13,
-                        color: DS.textSecondary,
-                        lineHeight: 1.65,
-                      }}
-                    >
-                      <div>• Direciona a próxima ação comercial com mais clareza.</div>
-                      <div>• Dá visão diária da operação para o gerente agir antes.</div>
-                      <div>• Conecta execução, follow-up e meta no mesmo cockpit.</div>
-                    </div>
-                  </div>
-              
-                  <button
-                    type="button"
-                    onClick={() => router.push('/cadastro')}
-                    style={{
-                      width: '100%',
-                      minHeight: 48,
-                      borderRadius: 14,
-                      border: '1px solid rgba(59,130,246,0.38)',
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                      color: '#f8fbff',
-                      fontSize: 14,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      boxShadow: '0 14px 28px rgba(37,99,235,0.28)',
-                    }}
-                  >
-                    Solicitar demonstração
-                  </button>
-              
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('login')}
-                    style={{
-                      width: '100%',
-                      minHeight: 46,
-                      borderRadius: 14,
-                      border: `1px solid ${DS.border}`,
-                      background: 'rgba(17,19,24,0.92)',
-                      color: DS.textSecondary,
-                      fontSize: 14,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Já tenho acesso
-                  </button>
-                </div>
-              )}
+      <div
+        style={{
+          marginTop: 10,
+          display: 'grid',
+          gap: 8,
+          fontSize: 13,
+          color: DS.textSecondary,
+          lineHeight: 1.65,
+        }}
+      >
+        <div>• Direciona a próxima ação comercial com mais clareza.</div>
+        <div>• Dá visão diária da operação para o gerente agir antes.</div>
+        <div>• Conecta execução, follow-up e meta no mesmo cockpit.</div>
+      </div>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => router.push('/cadastro')}
+      style={{
+        width: '100%',
+        minHeight: 48,
+        borderRadius: 14,
+        border: '1px solid rgba(59,130,246,0.38)',
+        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+        color: '#f8fbff',
+        fontSize: 14,
+        fontWeight: 800,
+        cursor: 'pointer',
+        boxShadow: '0 14px 28px rgba(37,99,235,0.28)',
+      }}
+    >
+      Solicitar demonstração
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setAuthMode('login')}
+      style={{
+        width: '100%',
+        minHeight: 46,
+        borderRadius: 14,
+        border: `1px solid ${DS.border}`,
+        background: 'rgba(17,19,24,0.92)',
+        color: DS.textSecondary,
+        fontSize: 14,
+        fontWeight: 800,
+        cursor: 'pointer',
+      }}
+    >
+      Já tenho acesso
+    </button>
+  </div>
+)}
           </div>
         </aside>
       </div>
