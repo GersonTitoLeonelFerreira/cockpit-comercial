@@ -289,15 +289,9 @@ export async function POST(req: Request) {
 
     const rows = rowsInput.map(normalizeRow)
 
-    const documents = Array.from(
-      new Set(rows.map((r) => r.cpf_cnpj).filter((v): v is string => !!v)),
-    )
-    const emails = Array.from(
-      new Set(rows.map((r) => r.email).filter((v): v is string => !!v)),
-    )
-    const phones = Array.from(
-      new Set(rows.map((r) => r.phone).filter((v): v is string => !!v)),
-    )
+    const documents = Array.from(new Set(rows.map((r) => r.cpf_cnpj).filter((v): v is string => !!v)))
+    const emails = Array.from(new Set(rows.map((r) => r.email).filter((v): v is string => !!v)))
+    const phones = Array.from(new Set(rows.map((r) => r.phone).filter((v): v is string => !!v)))
 
     const cpfs = documents.filter((d) => d.length === 11)
     const cnpjs = documents.filter((d) => d.length === 14)
@@ -349,10 +343,7 @@ export async function POST(req: Request) {
     }
 
     const leadIdsFromProfiles = Array.from(
-      new Set([
-        ...Array.from(leadIdByDoc.values()),
-        ...Array.from(leadIdByEmail.values()),
-      ]),
+      new Set([...Array.from(leadIdByDoc.values()), ...Array.from(leadIdByEmail.values())]),
     )
 
     if (leadIdsFromProfiles.length > 0) {
@@ -461,32 +452,39 @@ export async function POST(req: Request) {
 
       try {
         const leadIdFromDoc = leadIdByDoc.get(row.cpf_cnpj) || null
-const leadIdFromEmail = row.email ? leadIdByEmail.get(row.email) || null : null
-const leadIdFromPhone = row.phone ? leadIdByPhone.get(row.phone) || null : null
+        const leadIdFromEmail = row.email ? leadIdByEmail.get(row.email) || null : null
+        const leadIdFromPhone = row.phone ? leadIdByPhone.get(row.phone) || null : null
 
-const emailConflictLead =
-  !leadIdFromDoc && leadIdFromEmail ? existingLeadById.get(leadIdFromEmail) || null : null
+        const emailConflictLeadId =
+          leadIdFromEmail && leadIdFromEmail !== leadIdFromDoc ? leadIdFromEmail : null
+        const phoneConflictLeadId =
+          leadIdFromPhone && leadIdFromPhone !== leadIdFromDoc ? leadIdFromPhone : null
 
-const phoneConflictLead =
-  !leadIdFromDoc && leadIdFromPhone ? existingLeadById.get(leadIdFromPhone) || null : null
+        const emailConflictLead = emailConflictLeadId
+          ? existingLeadById.get(emailConflictLeadId) || null
+          : null
 
-if (emailConflictLead) {
-  errors.push({
-    row: row.rowNumber,
-    error: `E-mail já pertence ao lead ${emailConflictLead.name || 'Sem nome'} (${emailConflictLead.id.slice(0, 8)}).`,
-  })
-  continue
-}
+        const phoneConflictLead = phoneConflictLeadId
+          ? existingLeadById.get(phoneConflictLeadId) || null
+          : null
 
-if (phoneConflictLead) {
-  errors.push({
-    row: row.rowNumber,
-    error: `Telefone já pertence ao lead ${phoneConflictLead.name || 'Sem nome'} (${phoneConflictLead.id.slice(0, 8)}).`,
-  })
-  continue
-}
+        if (emailConflictLead) {
+          errors.push({
+            row: row.rowNumber,
+            error: `E-mail já pertence ao lead ${emailConflictLead.name || 'Sem nome'} (${emailConflictLead.id.slice(0, 8)}).`,
+          })
+          continue
+        }
 
-let leadId = leadIdFromDoc
+        if (phoneConflictLead) {
+          errors.push({
+            row: row.rowNumber,
+            error: `Telefone já pertence ao lead ${phoneConflictLead.name || 'Sem nome'} (${phoneConflictLead.id.slice(0, 8)}).`,
+          })
+          continue
+        }
+
+        let leadId = leadIdFromDoc
 
         if (!leadId) {
           const insertLeadPayload = {
@@ -509,7 +507,7 @@ let leadId = leadIdFromDoc
           const { data: newLead, error: leadErr } = await supabase
             .from('leads')
             .insert(insertLeadPayload)
-            .sel.select('id, name, phone, email, cpf_cnpj')ect('id, phone, email, cpf_cnpj')
+            .select('id, name, phone, email, cpf_cnpj')
             .single()
 
           if (leadErr || !newLead?.id) {
@@ -558,6 +556,7 @@ let leadId = leadIdFromDoc
           registerLeadMaps(
             {
               id: leadId,
+              name: row.name || currentLead?.name || null,
               phone: row.phone || currentLead?.phone || null,
               email: row.email || currentLead?.email || null,
               cpf_cnpj: row.cpf_cnpj || currentLead?.cpf_cnpj || null,
@@ -716,9 +715,6 @@ let leadId = leadIdFromDoc
       errors,
     })
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || 'Erro inesperado' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: e?.message || 'Erro inesperado' }, { status: 500 })
   }
 }
