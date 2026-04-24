@@ -1380,9 +1380,9 @@ function ExecutionPlanPanel({
       <div
         style={{
           border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: `linear-gradient(135deg, ${SIMULATOR_UI.surfaceSoft} 0%, ${SIMULATOR_UI.surface} 100%)`,
-          borderRadius: 18,
-          padding: 22,
+          background: 'rgba(9, 11, 15, 0.52)',
+          borderRadius: 16,
+          padding: 18,
           color: SIMULATOR_UI.textMuted,
           fontSize: 14,
           lineHeight: 1.5,
@@ -1404,120 +1404,94 @@ function ExecutionPlanPanel({
       : 'taxa planejada'
 
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div style={{ display: 'grid', gap: 14 }}>
       <div
         style={{
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background:
-            'linear-gradient(135deg, rgba(18, 22, 33, 0.94) 0%, rgba(13, 15, 20, 0.98) 100%)',
-          borderRadius: 22,
-          padding: 22,
-          boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.035)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          alignItems: 'center',
         }}
       >
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 14,
-            flexWrap: 'wrap',
-            marginBottom: 18,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13,
+            lineHeight: 1.45,
+            maxWidth: 780,
           }}
         >
-          <div>
-            <div
-              style={{
-                color: SIMULATOR_UI.textPrimary,
-                fontSize: 18,
-                fontWeight: 900,
-                letterSpacing: -0.3,
-                lineHeight: 1.2,
-              }}
-            >
-              Plano de execução restante
-            </div>
-
-            <div
-              style={{
-                marginTop: 6,
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 13,
-                lineHeight: 1.45,
-                maxWidth: 780,
-              }}
-            >
-              Agora o foco é operacional: quantos leads e fechamentos precisam acontecer até o fim do período.
-            </div>
-          </div>
-
-          <div
-            style={{
-              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-              background: 'rgba(9, 11, 15, 0.56)',
-              borderRadius: 999,
-              padding: '8px 12px',
-              color: SIMULATOR_UI.textSecondary,
-              fontSize: 12,
-              fontWeight: 800,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {remainingBusinessDays} dias úteis restantes
-          </div>
+          Foco operacional: volume restante de leads, ganhos necessários e cadência diária até o fim do período.
         </div>
 
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-            gap: 12,
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.46)',
+            borderRadius: 999,
+            padding: '6px 10px',
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12,
+            fontWeight: 800,
+            whiteSpace: 'nowrap',
           }}
         >
-          <Card
-            title="Leads restantes"
-            value={t.leads_restantes}
-            subtitle="Volume total que ainda precisa ser trabalhado"
-          />
-
-          <Card
-            title="Ganhos restantes"
-            value={t.ganhos_restantes}
-            subtitle="Fechamentos necessários para cobrir o gap"
-            tone={t.ganhos_restantes <= 0 ? 'good' : 'neutral'}
-          />
-
-          <Card
-            title="Leads por dia útil"
-            value={t.leads_restantes_por_dia}
-            subtitle={leadsPerDayIsHeavy ? 'Ritmo alto. Exige cadência forte.' : 'Ritmo operacional administrável.'}
-            tone={leadsPerDayIsHeavy ? 'bad' : 'neutral'}
-          />
-
-          <Card
-            title="Ganhos por dia útil"
-            value={t.ganhos_restantes_por_dia}
-            subtitle={winsPerDayIsHeavy ? 'Pressão alta de fechamento.' : 'Ritmo de fechamento viável.'}
-            tone={winsPerDayIsHeavy ? 'bad' : 'good'}
-          />
+          {remainingBusinessDays} dias úteis restantes
         </div>
       </div>
 
       <div
         style={{
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: 'rgba(9, 11, 15, 0.62)',
-          borderRadius: 18,
-          padding: 20,
           display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
           gap: 12,
+        }}
+      >
+        <Card
+          title="Leads restantes"
+          value={t.leads_restantes}
+          subtitle="Volume total que ainda precisa ser trabalhado"
+        />
+
+        <Card
+          title="Ganhos restantes"
+          value={t.ganhos_restantes}
+          subtitle="Fechamentos necessários para cobrir o gap"
+          tone={t.ganhos_restantes <= 0 ? 'good' : 'neutral'}
+        />
+
+        <Card
+          title="Leads por dia útil"
+          value={t.leads_restantes_por_dia}
+          subtitle={leadsPerDayIsHeavy ? 'Ritmo alto. Exige cadência forte.' : 'Ritmo operacional administrável.'}
+          tone={leadsPerDayIsHeavy ? 'bad' : 'neutral'}
+        />
+
+        <Card
+          title="Ganhos por dia útil"
+          value={t.ganhos_restantes_por_dia}
+          subtitle={winsPerDayIsHeavy ? 'Pressão alta de fechamento.' : 'Ritmo de fechamento viável.'}
+          tone={winsPerDayIsHeavy ? 'bad' : 'good'}
+        />
+      </div>
+
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(9, 11, 15, 0.46)',
+          borderRadius: 16,
+          padding: 18,
+          display: 'grid',
+          gap: 10,
         }}
       >
         <div
           style={{
             color: SIMULATOR_UI.textPrimary,
-            fontSize: 15,
+            fontSize: 14,
             fontWeight: 900,
-            letterSpacing: -0.15,
+            letterSpacing: -0.1,
           }}
         >
           Diagnóstico objetivo
@@ -1526,12 +1500,12 @@ function ExecutionPlanPanel({
         <div
           style={{
             color: SIMULATOR_UI.textSecondary,
-            fontSize: 14,
-            lineHeight: 1.7,
+            fontSize: 13.5,
+            lineHeight: 1.65,
           }}
         >
-          Faltam <strong style={{ color: '#fca5a5' }}>{toBRL(t.gap)}</strong> para bater a meta.
-          Com ticket médio de <strong style={{ color: '#c4b5fd' }}>{toBRL(t.ticket_medio)}</strong> e conversão de{' '}
+          Faltam <strong style={{ color: '#fca5a5' }}>{toBRL(t.gap)}</strong> para bater a meta. Com ticket médio de{' '}
+          <strong style={{ color: '#c4b5fd' }}>{toBRL(t.ticket_medio)}</strong> e conversão de{' '}
           <strong style={{ color: '#93c5fd' }}>{(t.close_rate * 100).toFixed(1)}%</strong> usando {rateLabel}, o time precisa trabalhar{' '}
           <strong style={{ color: '#67e8f9' }}>{t.leads_restantes} leads restantes</strong> para gerar aproximadamente{' '}
           <strong style={{ color: '#86efac' }}>{t.ganhos_restantes} ganhos</strong>.
@@ -1540,9 +1514,9 @@ function ExecutionPlanPanel({
         <div
           style={{
             borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            paddingTop: 12,
+            paddingTop: 10,
             color: SIMULATOR_UI.textMuted,
-            fontSize: 13,
+            fontSize: 12.5,
             lineHeight: 1.55,
           }}
         >
