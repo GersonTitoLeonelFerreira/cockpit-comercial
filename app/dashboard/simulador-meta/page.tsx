@@ -357,6 +357,147 @@ function FunnelStageCard({
   )
 }
 
+function GroupConversionList({ rows }: { rows: GroupConversionRow[] }) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(90px, 0.7fr))',
+          gap: 10,
+          padding: '0 12px 6px',
+          color: SIMULATOR_UI.textSubtle,
+          fontSize: 11.5,
+          fontWeight: 850,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}
+      >
+        <div>Grupo</div>
+        <div style={{ textAlign: 'right' }}>Trabalhados</div>
+        <div style={{ textAlign: 'right' }}>Ganhos</div>
+        <div style={{ textAlign: 'right' }}>Taxa</div>
+        <div style={{ textAlign: 'right' }}>Participação</div>
+      </div>
+
+      {rows.map((row, index) => {
+        const conversionRate =
+          typeof row.pct_grupo === 'number'
+            ? row.pct_grupo
+            : row.trabalhados > 0
+              ? row.ganho / row.trabalhados
+              : 0
+
+        const participationRate = typeof row.pct_participacao === 'number' ? row.pct_participacao : 0
+
+        const conversionTone =
+          conversionRate >= 0.25
+            ? '#86efac'
+            : conversionRate >= 0.12
+              ? '#fbbf24'
+              : '#fca5a5'
+
+        return (
+          <div
+            key={row.group_id ?? `${row.group_name ?? 'grupo'}-${index}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(90px, 0.7fr))',
+              gap: 10,
+              alignItems: 'center',
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: 'rgba(9, 11, 15, 0.46)',
+              borderRadius: 14,
+              padding: '12px',
+            }}
+          >
+            <div
+              style={{
+                minWidth: 0,
+              }}
+            >
+              <div
+                style={{
+                  color: SIMULATOR_UI.textPrimary,
+                  fontSize: 13.5,
+                  fontWeight: 850,
+                  lineHeight: 1.25,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={row.group_name || 'Sem grupo'}
+              >
+                {row.group_name || 'Sem grupo'}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 4,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  lineHeight: 1.25,
+                }}
+              >
+                Grupo de leads do período
+              </div>
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 13,
+                fontWeight: 850,
+              }}
+            >
+              {row.trabalhados}
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: '#86efac',
+                fontSize: 13,
+                fontWeight: 900,
+              }}
+            >
+              {row.ganho}
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: conversionTone,
+                fontSize: 13,
+                fontWeight: 900,
+              }}
+            >
+              {pct(conversionRate)}
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 13,
+                fontWeight: 850,
+              }}
+            >
+              {pct(participationRate)}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function Section({
   title,
   description,
@@ -2916,38 +3057,50 @@ function handleUndoGoalFromTop() {
 
             {/* Conversão por grupo */}
             {groupConversionLoading ? (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando funil por grupo...</div>
-            ) : groupConversion.length > 0 ? (
-              <Section title="Conversão por Grupo" description="Taxa de conversão por grupo de leads no período.">
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #1a1d2e' }}>
-                        <th style={{ textAlign: 'left', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Grupo</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Trabalhados</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Ganhos</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Taxa</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Participação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupConversion.map((row, i) => (
-                        <tr
-                          key={row.group_id ?? i}
-                          style={{ borderBottom: '1px solid #1a1d2e' }}
-                        >
-                          <td style={{ padding: '8px 12px' }}>{row.group_name || '—'}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.8 }}>{row.trabalhados}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', color: '#10b981' }}>{row.ganho}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', color: '#06b6d4' }}>{pct(row.pct_grupo)}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.7 }}>{pct(row.pct_participacao)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <Section
+                title="Conversão por Grupo"
+                description="Carregando a conversão dos grupos de leads no período selecionado."
+              >
+                <div
+                  style={{
+                    border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                    background: 'rgba(9, 11, 15, 0.46)',
+                    borderRadius: 14,
+                    padding: 16,
+                    color: SIMULATOR_UI.textMuted,
+                    fontSize: 13,
+                  }}
+                >
+                  Carregando funil por grupo...
                 </div>
               </Section>
-            ) : null}
+            ) : groupConversion.length > 0 ? (
+              <Section
+                title="Conversão por Grupo"
+                description="Leitura compacta da eficiência dos grupos de leads no período selecionado."
+              >
+                <GroupConversionList rows={groupConversion} />
+              </Section>
+            ) : (
+              <Section
+                title="Conversão por Grupo"
+                description="Leitura compacta da eficiência dos grupos de leads no período selecionado."
+              >
+                <div
+                  style={{
+                    border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                    background: 'rgba(9, 11, 15, 0.46)',
+                    borderRadius: 14,
+                    padding: 16,
+                    color: SIMULATOR_UI.textMuted,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Nenhum grupo com conversão encontrado para o período atual.
+                </div>
+              </Section>
+            )}
 
           </div>
         )}
