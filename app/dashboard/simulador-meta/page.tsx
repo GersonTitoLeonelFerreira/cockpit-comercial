@@ -1174,7 +1174,7 @@ function DecisionHero({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(280px, 1.35fr) minmax(220px, 0.85fr)',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
           gap: 22,
           alignItems: 'stretch',
         }}
@@ -1363,6 +1363,203 @@ function DecisionHero({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function ExecutionPlanPanel({
+  theory10020Result,
+  remainingBusinessDays,
+  rateSource,
+  rateRealData,
+}: {
+  theory10020Result: Theory10020Result | null
+  remainingBusinessDays: number
+  rateSource: 'real' | 'planejada'
+  rateRealData: CloseRateRealResponse | null
+}) {
+  if (!theory10020Result) {
+    return (
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: `linear-gradient(135deg, ${SIMULATOR_UI.surfaceSoft} 0%, ${SIMULATOR_UI.surface} 100%)`,
+          borderRadius: 18,
+          padding: 22,
+          color: SIMULATOR_UI.textMuted,
+          fontSize: 14,
+          lineHeight: 1.5,
+        }}
+      >
+        Informe um ticket médio maior que zero para gerar o plano operacional.
+      </div>
+    )
+  }
+
+  const t = theory10020Result
+
+  const leadsPerDayIsHeavy = t.leads_restantes_por_dia > 15
+  const winsPerDayIsHeavy = t.ganhos_restantes_por_dia > 4
+
+  const rateLabel =
+    rateSource === 'real' && (rateRealData?.vendor?.close_rate ?? null) !== null
+      ? 'taxa real'
+      : 'taxa planejada'
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background:
+            'linear-gradient(135deg, rgba(18, 22, 33, 0.94) 0%, rgba(13, 15, 20, 0.98) 100%)',
+          borderRadius: 22,
+          padding: 22,
+          boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.035)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 14,
+            flexWrap: 'wrap',
+            marginBottom: 18,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 18,
+                fontWeight: 900,
+                letterSpacing: -0.3,
+                lineHeight: 1.2,
+              }}
+            >
+              Plano de execução restante
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 13,
+                lineHeight: 1.45,
+                maxWidth: 780,
+              }}
+            >
+              Agora o foco é operacional: quantos leads e fechamentos precisam acontecer até o fim do período.
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: 'rgba(9, 11, 15, 0.56)',
+              borderRadius: 999,
+              padding: '8px 12px',
+              color: SIMULATOR_UI.textSecondary,
+              fontSize: 12,
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {remainingBusinessDays} dias úteis restantes
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <Card
+            title="Leads restantes"
+            value={t.leads_restantes}
+            subtitle="Volume total que ainda precisa ser trabalhado"
+          />
+
+          <Card
+            title="Ganhos restantes"
+            value={t.ganhos_restantes}
+            subtitle="Fechamentos necessários para cobrir o gap"
+            tone={t.ganhos_restantes <= 0 ? 'good' : 'neutral'}
+          />
+
+          <Card
+            title="Leads por dia útil"
+            value={t.leads_restantes_por_dia}
+            subtitle={leadsPerDayIsHeavy ? 'Ritmo alto. Exige cadência forte.' : 'Ritmo operacional administrável.'}
+            tone={leadsPerDayIsHeavy ? 'bad' : 'neutral'}
+          />
+
+          <Card
+            title="Ganhos por dia útil"
+            value={t.ganhos_restantes_por_dia}
+            subtitle={winsPerDayIsHeavy ? 'Pressão alta de fechamento.' : 'Ritmo de fechamento viável.'}
+            tone={winsPerDayIsHeavy ? 'bad' : 'good'}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(9, 11, 15, 0.62)',
+          borderRadius: 18,
+          padding: 20,
+          display: 'grid',
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            color: SIMULATOR_UI.textPrimary,
+            fontSize: 15,
+            fontWeight: 900,
+            letterSpacing: -0.15,
+          }}
+        >
+          Diagnóstico objetivo
+        </div>
+
+        <div
+          style={{
+            color: SIMULATOR_UI.textSecondary,
+            fontSize: 14,
+            lineHeight: 1.7,
+          }}
+        >
+          Faltam <strong style={{ color: '#fca5a5' }}>{toBRL(t.gap)}</strong> para bater a meta.
+          Com ticket médio de <strong style={{ color: '#c4b5fd' }}>{toBRL(t.ticket_medio)}</strong> e conversão de{' '}
+          <strong style={{ color: '#93c5fd' }}>{(t.close_rate * 100).toFixed(1)}%</strong> usando {rateLabel}, o time precisa trabalhar{' '}
+          <strong style={{ color: '#67e8f9' }}>{t.leads_restantes} leads restantes</strong> para gerar aproximadamente{' '}
+          <strong style={{ color: '#86efac' }}>{t.ganhos_restantes} ganhos</strong>.
+        </div>
+
+        <div
+          style={{
+            borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            paddingTop: 12,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13,
+            lineHeight: 1.55,
+          }}
+        >
+          Ritmo recomendado: manter pelo menos{' '}
+          <strong style={{ color: leadsPerDayIsHeavy ? '#fca5a5' : '#67e8f9' }}>
+            {t.leads_restantes_por_dia} leads por dia útil
+          </strong>{' '}
+          e buscar{' '}
+          <strong style={{ color: winsPerDayIsHeavy ? '#fca5a5' : '#86efac' }}>
+            {t.ganhos_restantes_por_dia} ganhos por dia útil
+          </strong>
+          . Se esse volume estiver acima da capacidade real do time, a decisão gerencial é revisar meta, ampliar base de prospecção ou reforçar cadência.
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -2224,317 +2421,29 @@ function handleUndoGoalFromTop() {
           mode === 'faturamento' ? (
             <Section
               title={
-                <TitleWithTip label="Esforço Máximo — Planejamento Operacional" tipTitle="O que é o Esforço Máximo?" width={480}>
+                <TitleWithTip label="Plano de Execução — Esforço Máximo" tipTitle="O que é o Esforço Máximo?" width={480}>
                   <div style={{ display: 'grid', gap: 8 }}>
-                  <div>O cálculo usa <strong>1 ÷ taxa de conversão</strong> como multiplicador. Com 20% → ×5, com 15% → ×6.67, com 25% → ×4.</div>
-                    <div>Meta × Multiplicador = Esforço → Esforço ÷ Ticket = Leads → Leads × Taxa = Ganhos</div>
-                    <div>Os resultados finais mostram quantos leads e ganhos você precisa por dia.</div>
+                    <div>
+                      O cálculo usa <strong>1 ÷ taxa de conversão</strong> como multiplicador. Com 20% → ×5, com 15% → ×6.67, com 25% → ×4.
+                    </div>
+                    <div>
+                      A lógica transforma meta financeira em volume de leads, ganhos necessários e ritmo diário de execução.
+                    </div>
                   </div>
                 </TitleWithTip>
               }
-              description="Converte sua meta de faturamento em volume de leads e ganhos diários usando o multiplicador dinâmico (1 ÷ taxa)"
+              description="Transforma a meta financeira em volume de leads, ganhos e ritmo diário de execução."
             >
-              <div style={{ display: 'grid', gap: 28 }}>
-
-              
-
-                {/* ── BLOCO 2: RESULTADO DO ESFORÇO MÁXIMO ──────────────── */}
-                {theory10020Result ? (() => {
-                  const t = theory10020Result
-                  return (
-                    <>
-                      <div style={{
-                        padding: '20px 18px',
-                        borderRadius: 14,
-                        background: 'linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-                        border: '1px solid rgba(59,130,246,0.20)',
-                        boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
-                      }}>
-                        <div style={{
-                          fontSize: 10,
-                          fontWeight: 900,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.12em',
-                          color: 'rgba(147,197,253,0.5)',
-                          marginBottom: 14,
-                          paddingLeft: 10,
-                          borderLeft: '2px solid rgba(59,130,246,0.4)',
-                        }}>
-                          Resultado do Esforço Máximo
-                        </div>
-
-                        {/* Row 2: Steps 5 → 9 */}
-                        <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
-                          {/* Step 5 — Ticket médio */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #8b5cf6' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <IconTag size={16} color="#a78bfa" />
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ticket médio</div>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#a78bfa', lineHeight: 1 }}>{toBRL(t.ticket_medio)}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ticket médio</div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>÷</div>
-
-                          {/* Step 6 — Leads para contatar */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #06b6d4' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <IconCrosshair size={16} color="#22d3ee" />
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads para contatar</div>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#22d3ee', lineHeight: 1 }}>{t.leads_para_contatar}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>esforço ÷ ticket</div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 6, color: 'rgba(16,185,129,0.5)', fontSize: 12, fontWeight: 300, flexShrink: 0, flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontSize: 9, opacity: 0.6 }}>×taxa</span>
-                            <span style={{ fontSize: 14 }}>→</span>
-                          </div>
-
-                          {/* Step 7 — Ganhos esperados */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #10b981' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <IconTrophy size={16} color="#10b981" />
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos esperados</div>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#10b981', lineHeight: 1 }}>{t.ganhos_esperados}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>leads × conversão</div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 6, color: 'rgba(255,255,255,0.18)', fontSize: 12, fontWeight: 300, flexShrink: 0, flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontSize: 9, opacity: 0.6 }}>÷dias</span>
-                            <span style={{ fontSize: 14 }}>→</span>
-                          </div>
-
-                          {/* Step 8 — Leads por dia útil */}
-                          {(() => {
-                            const lpdColor = t.leads_por_dia > 15 ? '#ef4444' : '#22d3ee'
-                            return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: `3px solid ${lpdColor}` }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                <IconZap size={16} color={lpdColor} />
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads por dia útil</div>
-                                </div>
-                                <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: lpdColor, lineHeight: 1 }}>{t.leads_por_dia}</div>
-                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>leads ÷ dias úteis</div>
-                              </div>
-                            )
-                          })()}
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.10)', fontSize: 20, fontWeight: 100, flexShrink: 0 }}>|</div>
-
-                          {/* Step 9 — Ganhos por dia útil */}
-                          {(() => {
-                            const gpdColor = t.ganhos_por_dia > 5 ? '#ef4444' : '#10b981'
-                            return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: `3px solid ${gpdColor}` }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                <IconCheckCircle size={16} color={gpdColor} />
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos por dia útil</div>
-                                </div>
-                                <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: gpdColor, lineHeight: 1 }}>{t.ganhos_por_dia}</div>
-                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ganhos ÷ dias úteis</div>
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      </div>
-
-                      {/* ── BLOCO 3: SITUAÇÃO ATUAL ─────────────────────────── */}
-                      {!t.meta_atingida && t.gap > 0 ? (
-                        <div style={{
-                          padding: '20px 18px',
-                          borderRadius: 14,
-                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 50%, rgba(13,15,20,0.95) 100%)',
-                          border: '1px solid rgba(59,130,246,0.18)',
-                          boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.05)',
-                        }}>
-                          <div style={{
-                            fontSize: 10,
-                            fontWeight: 900,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.12em',
-                            color: 'rgba(147,197,253,0.5)',
-                            marginBottom: 14,
-                            paddingLeft: 10,
-                            borderLeft: '2px solid rgba(239,68,68,0.4)',
-                          }}>
-                            Situação atual
-                          </div>
-                          {(() => {
-                            const progressPct = t.progress_pct
-                            const pctRounded = Math.round(progressPct * 100)
-                            const barColor = progressPct >= 0.8 ? '#10b981' : progressPct >= 0.5 ? '#f59e0b' : '#ef4444'
-                            return (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                                <div style={{ padding: '18px 20px', borderRadius: 14, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 8 }}>Realizado</div>
-                                  <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.5px', color: barColor, lineHeight: 1 }}>{toBRL(t.total_real)}</div>
-                                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6, marginBottom: 16 }}>de {toBRL(t.meta_total)} ({pctRounded}%)</div>
-                                  <div style={{ height: 8, borderRadius: 4, background: '#1a1d2e', overflow: 'hidden' }}>
-                                    <div
-                                      role="progressbar"
-                                      aria-valuenow={Math.min(pctRounded, 100)}
-                                      aria-valuemin={0}
-                                      aria-valuemax={100}
-                                      aria-label={`Progresso: ${pctRounded}%`}
-                                      style={{
-                                        height: '100%',
-                                        borderRadius: 4,
-                                        width: `${Math.min(pctRounded, 100)}%`,
-                                        background: `linear-gradient(90deg, #ef4444, ${barColor})`,
-                                        transition: 'width 0.6s ease',
-                                      }}
-                                    />
-                                  </div>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
-                                    <span>0%</span>
-                                    <span style={{ color: barColor, fontWeight: 700 }}>{pctRounded}%</span>
-                                    <span>100%</span>
-                                  </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                  <div style={{ gridColumn: '1 / -1', padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', borderTop: '1px solid rgba(59,130,246,0.12)', borderRight: '1px solid rgba(59,130,246,0.12)', borderBottom: '1px solid rgba(59,130,246,0.12)', borderLeft: '3px solid #ef4444' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Falta para a meta</div>
-                                    <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#ef4444', lineHeight: 1 }}>{toBRL(t.gap)}</div>
-                                    <div style={{ fontSize: 11, color: 'rgba(239,68,68,0.6)', marginTop: 4 }}>Meta − Realizado</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>gap × {t.multiplicador.toFixed(2)} ÷ ticket</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. × conversão</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes/dia</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes_por_dia}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. ÷ dias úteis</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes/dia</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes_por_dia}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>ganhos rest. ÷ dias úteis</div>
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      ) : null}
-
-                      {/* ── BANNER META ATINGIDA ────────────────────────────── */}
-                      {t.meta_atingida && (
-                        <div style={{
-                          padding: '24px 28px',
-                          borderRadius: 16,
-                          background: 'linear-gradient(135deg, #064e3b, #065f46, #047857)',
-                          border: '1px solid rgba(110,231,183,0.3)',
-                          boxShadow: '0 0 40px rgba(16,185,129,0.15)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 16,
-                        }}>
-                          <div style={{ fontSize: 40 }} aria-label="Celebração">🎉</div>
-                          <div>
-                            <div style={{ fontSize: 20, fontWeight: 900, color: '#6ee7b7', letterSpacing: '-0.3px' }}>Meta atingida!</div>
-                            <div style={{ fontSize: 13, color: 'rgba(110,231,183,0.7)', marginTop: 4 }}>
-                              Realizado <strong style={{ color: '#6ee7b7' }}>{toBRL(t.total_real)}</strong> de <strong style={{ color: '#6ee7b7' }}>{toBRL(t.meta_total)}</strong> — parabéns pelo resultado!
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── BLOCO 4: DIAGNÓSTICO OPERACIONAL ───────────────── */}
-                      {!t.meta_atingida && t.gap > 0 ? (
-                        <div style={{
-                          padding: '20px 18px',
-                          borderRadius: 14,
-                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 50%, rgba(13,15,20,0.95) 100%)',
-                          border: '1px solid rgba(59,130,246,0.18)',
-                          boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.05)',
-                        }}>
-                          <div style={{
-                            fontSize: 10,
-                            fontWeight: 900,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.12em',
-                            color: 'rgba(147,197,253,0.5)',
-                            marginBottom: 14,
-                            paddingLeft: 10,
-                            borderLeft: '2px solid rgba(245,158,11,0.4)',
-                          }}>
-                            Diagnóstico operacional
-                          </div>
-                          <div style={{
-                            padding: '20px 20px 20px 24px',
-                            borderRadius: 14,
-                            background: 'rgba(13,15,20,0.6)',
-                            borderTop: '1px solid rgba(59,130,246,0.10)',
-                            borderRight: '1px solid rgba(59,130,246,0.10)',
-                            borderBottom: '1px solid rgba(59,130,246,0.10)',
-                            borderLeft: '4px solid #f59e0b',
-                            position: 'relative',
-                            overflow: 'hidden',
-                            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.15)',
-                          }}>
-                            <div style={{ fontSize: 13, lineHeight: 1.9, color: 'rgba(255,255,255,0.8)' }}>
-                              <div>
-                                Para atingir a meta de{' '}
-                                <strong style={{ color: '#3b82f6' }}>{toBRL(t.meta_total)}</strong>,
-                                com conversão de{' '}
-                                <strong style={{ color: '#22d3ee' }}>{(t.close_rate * 100).toFixed(1)}%</strong>{' '}
-                                (fonte: {rateSource === 'real' && (rateRealData?.vendor?.close_rate ?? null) !== null ? 'histórica' : 'planejada'}),
-                                 o multiplicador é{' '}
-                                <strong style={{ color: '#f59e0b' }}>{t.multiplicador > 0 ? `×${t.multiplicador.toFixed(2)}` : '—'}</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                O esforço bruto necessário é{' '}
-                                <strong style={{ color: '#fbbf24' }}>{toBRL(t.esforco_bruto)}</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                Com ticket médio de{' '}
-                                <strong style={{ color: '#a78bfa' }}>{toBRL(t.ticket_medio)}</strong>,
-                                são necessários{' '}
-                                <strong style={{ color: '#22d3ee' }}>{t.leads_para_contatar} leads para contatar</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                Com conversão de{' '}
-                                <strong style={{ color: '#22d3ee' }}>{(t.close_rate * 100).toFixed(1)}%</strong>,
-                                os ganhos esperados são{' '}
-                                <strong style={{ color: '#10b981' }}>{t.ganhos_esperados} fechamentos</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                Faltando{' '}
-                                <strong style={{ color: '#f59e0b' }}>{remainingBusinessDays} dias úteis</strong>,
-                                o ritmo necessário é{' '}
-                                <strong style={{ color: '#22d3ee' }}>{t.leads_restantes_por_dia} leads/dia</strong>{' '}
-                                e{' '}
-                                <strong style={{ color: '#10b981' }}>{t.ganhos_restantes_por_dia} ganhos/dia</strong>{' '}
-                                para fechar o gap de{' '}
-                                <strong style={{ color: '#ef4444' }}>{toBRL(t.gap)}</strong>.
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-                    </>
-                  )
-                })() : (
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    Informe um ticket médio maior que zero para gerar o plano operacional.
-                  </div>
-                )}
-              </div>
+              <ExecutionPlanPanel
+                theory10020Result={theory10020Result}
+                remainingBusinessDays={remainingBusinessDays}
+                rateSource={rateSource}
+                rateRealData={rateRealData}
+              />
             </Section>
           ) : (
             <div style={{ padding: 24, textAlign: 'center', fontSize: 14, opacity: 0.5 }}>
-                            Esforço Máximo disponível apenas no modo Faturamento.
+              Esforço Máximo disponível apenas no modo Faturamento.
             </div>
           )
         )}
