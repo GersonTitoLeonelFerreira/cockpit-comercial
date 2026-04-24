@@ -367,6 +367,655 @@ function tabStyle(isActive: boolean): React.CSSProperties {
   }
 }
 
+const WEEKDAY_LABELS: Record<number, string> = {
+  0: 'Dom',
+  1: 'Seg',
+  2: 'Ter',
+  3: 'Qua',
+  4: 'Qui',
+  5: 'Sex',
+  6: 'Sáb',
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        marginBottom: 7,
+        fontSize: 12,
+        fontWeight: 750,
+        color: SIMULATOR_UI.textMuted,
+        lineHeight: 1.2,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function controlBaseStyle(): React.CSSProperties {
+  return {
+    width: '100%',
+    height: 38,
+    borderRadius: 12,
+    border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+    background: 'rgba(9, 11, 15, 0.72)',
+    color: SIMULATOR_UI.textPrimary,
+    padding: '0 12px',
+    fontSize: 13,
+    fontWeight: 650,
+    outline: 'none',
+  }
+}
+
+function SmallActionButton({
+  children,
+  onClick,
+  disabled,
+  tone = 'neutral',
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  tone?: 'neutral' | 'primary'
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        height: 38,
+        borderRadius: 12,
+        border:
+          tone === 'primary'
+            ? '1px solid rgba(59, 130, 246, 0.45)'
+            : `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background:
+          tone === 'primary'
+            ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.26) 0%, rgba(59, 130, 246, 0.12) 100%)'
+            : 'rgba(15, 18, 26, 0.78)',
+        color: tone === 'primary' ? '#bfdbfe' : SIMULATOR_UI.textSecondary,
+        padding: '0 14px',
+        fontSize: 13,
+        fontWeight: 800,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ModePill({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean
+  children: React.ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 38,
+        border: active
+          ? '1px solid rgba(59, 130, 246, 0.48)'
+          : `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: active
+          ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.26) 0%, rgba(59, 130, 246, 0.10) 100%)'
+          : 'rgba(9, 11, 15, 0.52)',
+        color: active ? '#dbeafe' : SIMULATOR_UI.textMuted,
+        borderRadius: 999,
+        padding: '0 14px',
+        fontSize: 13,
+        fontWeight: active ? 850 : 700,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function WorkdayChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 34,
+        minWidth: 48,
+        borderRadius: 999,
+        border: active
+          ? '1px solid rgba(34, 197, 94, 0.38)'
+          : `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: active
+          ? 'rgba(34, 197, 94, 0.12)'
+          : 'rgba(9, 11, 15, 0.56)',
+        color: active ? '#bbf7d0' : SIMULATOR_UI.textMuted,
+        fontSize: 12,
+        fontWeight: 800,
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+function SimulatorTopControls({
+  isAdmin,
+  sellers,
+  selectedSellerId,
+  setSelectedSellerId,
+  periodStart,
+  setPeriodStart,
+  periodEnd,
+  setPeriodEnd,
+  mode,
+  setMode,
+  revenueGoalContextLabel,
+  revenueGoalInputText,
+  setRevenueGoalInputText,
+  goalLoading,
+  goalSaving,
+  onSaveGoal,
+  onUndoGoal,
+  goalError,
+  goalSuccess,
+  ticketMedioText,
+  setTicketMedioText,
+  ticketSource,
+  setTicketSource,
+  historicalTicket,
+  historicalTicketLoading,
+  rateSource,
+  setRateSource,
+  closeRatePercent,
+  setCloseRatePercent,
+  rateRealData,
+  rateRealLoading,
+  daysWindow,
+  setDaysWindow,
+  workDays,
+  setWorkDays,
+  autoRemainingDays,
+  setAutoRemainingDays,
+  remainingBusinessDays,
+}: {
+  isAdmin: boolean
+  sellers: Array<{ id: string; label: string }>
+  selectedSellerId: string | null
+  setSelectedSellerId: (value: string | null) => void
+  periodStart: string
+  setPeriodStart: (value: string) => void
+  periodEnd: string
+  setPeriodEnd: (value: string) => void
+  mode: SimulatorMode
+  setMode: (value: SimulatorMode) => void
+  revenueGoalContextLabel: string
+  revenueGoalInputText: string
+  setRevenueGoalInputText: (value: string) => void
+  goalLoading: boolean
+  goalSaving: boolean
+  onSaveGoal: () => void
+  onUndoGoal: () => void
+  goalError: string | null
+  goalSuccess: string | null
+  ticketMedioText: string
+  setTicketMedioText: (value: string) => void
+  ticketSource: 'manual' | 'historico'
+  setTicketSource: (value: 'manual' | 'historico') => void
+  historicalTicket: HistoricalTicketResponse | null
+  historicalTicketLoading: boolean
+  rateSource: 'real' | 'planejada'
+  setRateSource: (value: 'real' | 'planejada') => void
+  closeRatePercent: number
+  setCloseRatePercent: (value: number) => void
+  rateRealData: CloseRateRealResponse | null
+  rateRealLoading: boolean
+  daysWindow: number
+  setDaysWindow: (value: number) => void
+  workDays: WorkDays
+  setWorkDays: React.Dispatch<React.SetStateAction<WorkDays>>
+  autoRemainingDays: boolean
+  setAutoRemainingDays: (value: boolean) => void
+  remainingBusinessDays: number
+}) {
+  const realRatePercent = rateRealData?.vendor?.close_rate
+    ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
+    : null
+
+  return (
+    <div
+      style={{
+        marginBottom: 18,
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background:
+          'linear-gradient(135deg, rgba(18, 22, 33, 0.90) 0%, rgba(9, 11, 15, 0.98) 100%)',
+        borderRadius: 22,
+        padding: 20,
+        boxShadow:
+          '0 16px 40px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255,255,255,0.035)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 16,
+          flexWrap: 'wrap',
+          marginBottom: 18,
+        }}
+      >
+        <div>
+          <h1
+            style={{
+              margin: 0,
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 22,
+              fontWeight: 900,
+              letterSpacing: -0.45,
+              lineHeight: 1.15,
+            }}
+          >
+            Simulador de Meta
+          </h1>
+
+          <p
+            style={{
+              margin: '7px 0 0',
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 13,
+              lineHeight: 1.45,
+              maxWidth: 720,
+            }}
+          >
+            Configure o cenário principal e acompanhe o esforço necessário para bater a meta.
+          </p>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.62)',
+            borderRadius: 999,
+            padding: '8px 12px',
+            color: SIMULATOR_UI.textSecondary,
+            fontSize: 12,
+            fontWeight: 750,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias úteis restantes
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 14,
+          alignItems: 'end',
+        }}
+      >
+        <div>
+          <FieldLabel>Escopo da análise</FieldLabel>
+
+          {isAdmin ? (
+            <select
+              value={selectedSellerId ?? 'empresa'}
+              onChange={(event) => {
+                const value = event.target.value
+                setSelectedSellerId(value === 'empresa' ? null : value)
+              }}
+              style={controlBaseStyle()}
+            >
+              <option value="empresa">Empresa inteira</option>
+              {sellers.map((seller) => (
+                <option key={seller.id} value={seller.id}>
+                  {seller.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div
+              style={{
+                ...controlBaseStyle(),
+                display: 'flex',
+                alignItems: 'center',
+                color: SIMULATOR_UI.textSecondary,
+              }}
+            >
+              Minha meta
+            </div>
+          )}
+        </div>
+
+        <div>
+          <FieldLabel>Período</FieldLabel>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 8,
+            }}
+          >
+            <input
+              type="date"
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+              style={controlBaseStyle()}
+            />
+
+            <input
+              type="date"
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+              style={controlBaseStyle()}
+            />
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>Tipo de meta</FieldLabel>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <ModePill active={mode === 'faturamento'} onClick={() => setMode('faturamento')}>
+              Faturamento
+            </ModePill>
+
+            <ModePill active={mode === 'recebimento'} onClick={() => setMode('recebimento')}>
+              Recebimento
+            </ModePill>
+
+            <ModePill active={mode === 'ganhos'} onClick={() => setMode('ganhos')}>
+              Ganhos
+            </ModePill>
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>{revenueGoalContextLabel}</FieldLabel>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto auto',
+              gap: 8,
+            }}
+          >
+            <input
+              type="text"
+              value={revenueGoalInputText}
+              onChange={(event) => setRevenueGoalInputText(event.target.value)}
+              disabled={!isAdmin || goalLoading || goalSaving}
+              placeholder="Ex.: 200000"
+              style={{
+                ...controlBaseStyle(),
+                opacity: goalLoading || goalSaving ? 0.7 : 1,
+              }}
+            />
+
+{isAdmin ? (
+              <>
+                <SmallActionButton
+                  tone="primary"
+                  onClick={onSaveGoal}
+                  disabled={goalLoading || goalSaving}
+                >
+                  {goalSaving ? 'Salvando...' : 'Salvar'}
+                </SmallActionButton>
+
+                <SmallActionButton onClick={onUndoGoal} disabled={goalSaving || goalLoading}>
+                  Desfazer
+                </SmallActionButton>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {goalError ? (
+        <div
+          style={{
+            marginTop: 12,
+            color: '#fecaca',
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {goalError}
+        </div>
+      ) : null}
+
+      {goalSuccess ? (
+        <div
+          style={{
+            marginTop: 12,
+            color: '#bbf7d0',
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {goalSuccess}
+        </div>
+      ) : null}
+
+      <details
+        style={{
+          marginTop: 16,
+          borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          paddingTop: 14,
+        }}
+      >
+        <summary
+          style={{
+            cursor: 'pointer',
+            color: SIMULATOR_UI.textSecondary,
+            fontSize: 13,
+            fontWeight: 850,
+            userSelect: 'none',
+          }}
+        >
+          Ajustes avançados
+        </summary>
+
+        <div
+          style={{
+            marginTop: 14,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 14,
+          }}
+        >
+          <div>
+            <FieldLabel>Ticket médio</FieldLabel>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 8,
+              }}
+            >
+              <input
+                type="text"
+                value={ticketMedioText}
+                onChange={(event) => {
+                  setTicketMedioText(event.target.value)
+                  setTicketSource('manual')
+                }}
+                style={controlBaseStyle()}
+              />
+
+              <SmallActionButton
+                onClick={() => {
+                  if (historicalTicket?.is_sufficient) {
+                    setTicketMedioText(String(Math.round(historicalTicket.ticket_medio || 0)))
+                    setTicketSource('historico')
+                  }
+                }}
+                disabled={historicalTicketLoading || !historicalTicket?.is_sufficient}
+              >
+                Histórico
+              </SmallActionButton>
+            </div>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              Origem atual: {ticketSource === 'historico' ? 'histórico' : 'manual'}.
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>Taxa de conversão usada</FieldLabel>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                flexWrap: 'wrap',
+                marginBottom: 8,
+              }}
+            >
+              <ModePill active={rateSource === 'planejada'} onClick={() => setRateSource('planejada')}>
+                Planejada
+              </ModePill>
+
+              <ModePill active={rateSource === 'real'} onClick={() => setRateSource('real')}>
+                Real
+              </ModePill>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+              }}
+            >
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={closeRatePercent}
+                onChange={(event) => setCloseRatePercent(Number(event.target.value || 0))}
+                style={controlBaseStyle()}
+              />
+
+              <select
+                value={daysWindow}
+                onChange={(event) => setDaysWindow(Number(event.target.value))}
+                style={controlBaseStyle()}
+              >
+                <option value={30}>30 dias</option>
+                <option value={60}>60 dias</option>
+                <option value={90}>90 dias</option>
+                <option value={180}>180 dias</option>
+              </select>
+            </div>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              {rateRealLoading
+                ? 'Carregando taxa real...'
+                : realRatePercent !== null
+                  ? `Taxa real encontrada: ${realRatePercent}%.`
+                  : 'Sem taxa real suficiente para este recorte.'}
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>Dias trabalhados</FieldLabel>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 7,
+                flexWrap: 'wrap',
+              }}
+            >
+              {Object.entries(WEEKDAY_LABELS).map(([key, label]) => {
+                const day = Number(key)
+
+                return (
+                  <WorkdayChip
+                    key={day}
+                    label={label}
+                    active={Boolean(workDays[day])}
+                    onClick={() => {
+                      setWorkDays((current) => ({
+                        ...current,
+                        [day]: !current[day],
+                      }))
+                    }}
+                  />
+                )
+              })}
+            </div>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 12,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={autoRemainingDays}
+                onChange={(event) => setAutoRemainingDays(event.target.checked)}
+              />
+              Recalcular dias restantes automaticamente
+            </label>
+          </div>
+        </div>
+      </details>
+    </div>
+  )
+}
+
 function IconUsers({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -704,6 +1353,51 @@ export default function SimuladorMetaPage() {
 
   const activeGoalForKpis = isAdmin ? revenueGoalInputNumber : revenueGoalDb
 
+async function handleSaveGoalFromTop() {
+  if (!companyId) {
+    setGoalError('Empresa não encontrada para salvar a meta.')
+    setGoalSuccess(null)
+    return
+  }
+
+  if (!revenueDates.start || !revenueDates.end) {
+    setGoalError('Período inválido para salvar a meta.')
+    setGoalSuccess(null)
+    return
+  }
+
+  setGoalSaving(true)
+  setGoalError(null)
+  setGoalSuccess(null)
+
+  try {
+    const ticketValue = Math.max(0, safeNumber(ticketMedioText))
+
+    await upsertRevenueGoal({
+      companyId,
+      ownerId: revenueGoalOwnerId ?? null,
+      startDate: revenueDates.start,
+      endDate: revenueDates.end,
+      goalValue: revenueGoalInputNumber,
+      ticketMedio: ticketValue,
+    })
+
+    setRevenueGoalDb(revenueGoalInputNumber)
+    setGoalSuccess('Meta salva com sucesso.')
+  } catch (error: any) {
+    setGoalError(error?.message ?? 'Erro ao salvar meta.')
+    setGoalSuccess(null)
+  } finally {
+    setGoalSaving(false)
+  }
+}
+
+function handleUndoGoalFromTop() {
+  setRevenueGoalInputText(String(revenueGoalDb))
+  setGoalError(null)
+  setGoalSuccess(null)
+}
+
   // Computed: taxa usada no cálculo da teoria
   const taxaUsadaNoCalculo = useMemo(() => {
     const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
@@ -921,37 +1615,6 @@ export default function SimuladorMetaPage() {
     void loadDistribution()
   }, [activeTab, companyId, periodStart, periodEnd, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
 
-  async function handleSaveGoal() {
-    if (!isAdmin) return
-    if (!companyId || !competency) return
-
-    const goalValue = Math.max(0, safeNumber(revenueGoalInputText))
-    const ticketValue = ticketSource === 'manual' ? Math.max(0, safeNumber(ticketMedioText)) : 0
-
-    setGoalSaving(true)
-    setGoalError(null)
-    setGoalSuccess(null)
-
-    try {
-      await upsertRevenueGoal({
-        companyId,
-        ownerId: revenueGoalOwnerId ?? null,
-        startDate: revenueDates.start,
-        endDate: revenueDates.end,
-        goalValue,
-        ticketMedio: ticketValue,
-      })
-
-      setRevenueGoalDb(goalValue)
-      setRevenueGoalInputText(String(goalValue))
-      setGoalSuccess('✓ Meta salva!')
-    } catch (e: any) {
-      setGoalError(e?.message ?? 'Erro ao salvar meta.')
-    } finally {
-      setGoalSaving(false)
-    }
-  }
-
   // revenue (dados)
   useEffect(() => {
     if (!competency || !companyId) return
@@ -968,7 +1631,8 @@ export default function SimuladorMetaPage() {
       setRevenueError(null)
 
       const cid = companyId
-      const metric = 'faturamento' as const
+      const metric: 'faturamento' | 'recebimento' =
+        mode === 'recebimento' ? 'recebimento' : 'faturamento'
       const startDate = revenueDates.start
       const endDate = revenueDates.end
 
@@ -1100,570 +1764,55 @@ export default function SimuladorMetaPage() {
   const showCompanyChart = showRevenueMode && isAdmin
   const showSellerChart = showRevenueMode && selectedSellerId !== null
 
-
-  const daysLabels: Array<{ dow: number; label: string }> = [
-    { dow: 1, label: 'Seg' },
-    { dow: 2, label: 'Ter' },
-    { dow: 3, label: 'Qua' },
-    { dow: 4, label: 'Qui' },
-    { dow: 5, label: 'Sex' },
-    { dow: 6, label: 'Sáb' },
-    { dow: 0, label: 'Dom' },
-  ]
-
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
 
-      {/* ================================================================ */}
-      {/* COMPACT HEADER — sempre visível acima das abas                   */}
-      {/* ================================================================ */}
-      <div style={{
-        borderBottom: '1px solid rgba(59,130,246,0.18)',
-        paddingBottom: 16,
-        marginBottom: 12,
-        padding: '16px 18px',
-        borderRadius: 14,
-        background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-        border: '1px solid rgba(59,130,246,0.18)',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Simulador de Meta</h1>
-          {periodStart && periodEnd ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#546070' }}>Período:</span>
-              <input
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                  border: '1px solid #1a1d2e',
-                  background: '#111318',
-                  color: '#edf2f7',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              />
-              <span style={{ fontSize: 11, color: '#546070' }}>a</span>
-              <input
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                  border: '1px solid #1a1d2e',
-                  background: '#111318',
-                  color: '#edf2f7',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              />
-              {competency ? (
-                <button
-                  onClick={() => {
-                    const rawEnd = new Date(toYMD(competency.month_end) + 'T00:00:00')
-                    rawEnd.setDate(rawEnd.getDate() - 1)
-                    setPeriodStart(toYMD(competency.month_start))
-                    setPeriodEnd(rawEnd.toISOString().slice(0, 10))
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: '1px solid #1a1d2e',
-                    background: '#0d0f14',
-                    color: '#8fa3bc',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                  }}
-                  title="Voltar ao período da competência ativa"
-                >
-                  Reset
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+<SimulatorTopControls
+        isAdmin={isAdmin}
+        sellers={sellers}
+        selectedSellerId={selectedSellerId}
+        setSelectedSellerId={setSelectedSellerId}
+        periodStart={periodStart}
+        setPeriodStart={setPeriodStart}
+        periodEnd={periodEnd}
+        setPeriodEnd={setPeriodEnd}
+        mode={mode}
+        setMode={(newMode) => {
+          setMode(newMode)
 
-                {/* ── ROW 1: Seller + Mode + Ticket + Meta ────────────── */}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-
-{/* Seller selector (admin only) */}
-{isAdmin ? (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-    <IconUsers size={15} color="#60a5fa" />
-    <select
-      value={selectedSellerId ?? 'all'}
-      onChange={(e) => {
-        const val = e.target.value
-        setSelectedSellerId(val === 'all' ? null : val)
-      }}
-      style={{
-        padding: '8px 12px 8px 8px',
-        borderRadius: 8,
-        border: '1px solid #1a1d2e',
-        background: '#0d0f14',
-        color: '#edf2f7',
-        fontSize: 13,
-        fontWeight: 600,
-        appearance: 'none',
-        WebkitAppearance: 'none',
-        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'right 8px center',
-        paddingRight: 28,
-        cursor: 'pointer',
-        outline: 'none',
-        transition: 'border-color 150ms ease',
-      }}
-      onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-      onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-    >
-      <option value="all">Empresa (todos)</option>
-      {sellers.map((s) => (
-        <option key={s.id} value={s.id}>{s.label}</option>
-      ))}
-    </select>
-  </div>
-) : null}
-
-{/* Mode selector */}
-<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-  <IconBarChart size={15} color="#60a5fa" />
-  <select
-    value={mode}
-    onChange={(e) => {
-      const newMode = e.target.value as SimulatorMode
-      setMode(newMode)
-      if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
-        setActiveTab('taxa-resultado')
-      }
-    }}
-    style={{
-      padding: '8px 12px 8px 8px',
-      borderRadius: 8,
-      border: '1px solid #1a1d2e',
-      background: '#0d0f14',
-      color: '#edf2f7',
-      fontSize: 13,
-      fontWeight: 600,
-      appearance: 'none',
-      WebkitAppearance: 'none',
-      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-      backgroundRepeat: 'no-repeat',
-      backgroundPosition: 'right 8px center',
-      paddingRight: 28,
-      cursor: 'pointer',
-      outline: 'none',
-      transition: 'border-color 150ms ease',
-    }}
-    onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-    onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-  >
-    <option value="ganhos">Ganhos (ciclos)</option>
-    <option value="faturamento">Faturamento (R$)</option>
-  </select>
-</div>
-
-{/* Ticket Médio (quando mode === faturamento) */}
-{mode === 'faturamento' && (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 130 }}>
-    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Ticket Médio:</span>
-    <div style={{ display: 'flex', gap: 4 }}>
-      <button
-        onClick={() => setTicketSource('manual')}
-        style={{
-          padding: '4px 8px',
-          borderRadius: 6,
-          border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #1a1d2e',
-          background: ticketSource === 'manual' ? 'rgba(59,130,246,0.15)' : '#111318',
-          color: ticketSource === 'manual' ? '#93c5fd' : '#8fa3bc',
-          cursor: 'pointer',
-          fontSize: 11,
-          fontWeight: ticketSource === 'manual' ? 700 : 400,
+          if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
+            setActiveTab('taxa-resultado')
+          }
         }}
-      >
-        Manual
-      </button>
-      <button
-        onClick={() => setTicketSource('historico')}
-        style={{
-          padding: '4px 8px',
-          borderRadius: 6,
-          border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #1a1d2e',
-          background: ticketSource === 'historico' ? 'rgba(16,185,129,0.15)' : '#111318',
-          color: ticketSource === 'historico' ? '#6ee7b7' : '#8fa3bc',
-          cursor: 'pointer',
-          fontSize: 11,
-          fontWeight: ticketSource === 'historico' ? 700 : 400,
-        }}
-      >
-        Histórico
-      </button>
-    </div>
-    {ticketSource === 'manual' ? (
-      <input
-        type="text"
-        inputMode="decimal"
-        value={ticketMedioText}
-        onChange={(e) => setTicketMedioText(e.target.value)}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(ticketMedioText))
-          setTicketMedioText(String(n))
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(ticketMedioText))
-          setTicketMedioText(toBRL(n))
-        }}
-        style={{
-          width: 120,
-          padding: '6px 8px',
-          borderRadius: 8,
-          border: '1px solid #1a1d2e',
-          background: '#111318',
-          color: 'white',
-          fontWeight: 700,
-          fontSize: 13,
-        }}
+        revenueGoalContextLabel={revenueGoalContextLabel}
+        revenueGoalInputText={revenueGoalInputText}
+        setRevenueGoalInputText={setRevenueGoalInputText}
+        goalLoading={goalLoading}
+        goalSaving={goalSaving}
+        onSaveGoal={handleSaveGoalFromTop}
+        onUndoGoal={handleUndoGoalFromTop}
+        goalError={goalError}
+        goalSuccess={goalSuccess}
+        ticketMedioText={ticketMedioText}
+        setTicketMedioText={setTicketMedioText}
+        ticketSource={ticketSource}
+        setTicketSource={setTicketSource}
+        historicalTicket={historicalTicket}
+        historicalTicketLoading={historicalTicketLoading}
+        rateSource={rateSource}
+        setRateSource={setRateSource}
+        closeRatePercent={closeRatePercent}
+        setCloseRatePercent={setCloseRatePercent}
+        rateRealData={rateRealData}
+        rateRealLoading={rateRealLoading}
+        daysWindow={daysWindow}
+        setDaysWindow={setDaysWindow}
+        workDays={workDays}
+        setWorkDays={setWorkDays}
+        autoRemainingDays={autoRemainingDays}
+        setAutoRemainingDays={setAutoRemainingDays}
+        remainingBusinessDays={remainingBusinessDays}
       />
-    ) : (
-      <span style={{ fontSize: 13, fontWeight: 700, color: historicalTicket?.is_sufficient ? '#6ee7b7' : '#fca5a5' }}>
-        {historicalTicketLoading
-          ? '...'
-          : historicalTicket?.is_sufficient
-            ? toBRL(historicalTicket.ticket_medio)
-            : 'Insuficiente'}
-      </span>
-    )}
-    {ticketSource === 'historico' && historicalTicket?.is_sufficient && (
-      <span style={{ fontSize: 10, color: '#546070' }}>
-        ({historicalTicket.sample_size} vendas)
-      </span>
-    )}
-    {ticketSource === 'historico' && !historicalTicketLoading && !historicalTicket?.is_sufficient && (
-      <button
-        onClick={() => setTicketSource('manual')}
-        style={{
-          padding: '3px 8px',
-          borderRadius: 6,
-          border: '1px solid #1a1d2e',
-          background: '#111318',
-          color: '#8fa3bc',
-          cursor: 'pointer',
-          fontSize: 10,
-        }}
-      >
-        Usar manual
-      </button>
-    )}
-  </div>
-)}
-</div>
-
-{/* ── BLOCO: TAXA DE CONVERSÃO ────────────── */}
-{(() => {
-const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
-const taxaPlanejadaDecimal = closeRatePercent / 100
-const diferencaPp = taxaRealDecimal !== null
-  ? (taxaPlanejadaDecimal - taxaRealDecimal) * 100
-  : null
-
-let diagnostico = ''
-let diagnosticoColor = '#a78bfa'
-if (taxaRealDecimal !== null) {
-  if (taxaPlanejadaDecimal > taxaRealDecimal * 1.1) {
-    diagnostico = 'Plano otimista'
-    diagnosticoColor = '#f59e0b'
-  } else if (taxaPlanejadaDecimal >= taxaRealDecimal * 0.9) {
-    diagnostico = 'Plano realista'
-    diagnosticoColor = '#10b981'
-  } else {
-    diagnostico = 'Plano conservador'
-    diagnosticoColor = '#60a5fa'
-  }
-}
-
-return (
-  <div style={{
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-    gap: 16,
-    flexWrap: 'wrap',
-    padding: '10px 20px',
-    marginTop: 10,
-    borderRadius: 10,
-    border: '1px solid rgba(59,130,246,0.25)',
-    background: 'linear-gradient(90deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 100%)',
-    fontSize: 12,
-    width: '100%',
-    boxSizing: 'border-box',
-  }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <span style={{ color: '#8fa3bc' }}>Real:</span>
-      <span style={{ fontWeight: 900, color: taxaRealDecimal !== null ? '#22d3ee' : 'rgba(255,255,255,0.25)' }}>
-        {taxaRealDecimal !== null ? `${(taxaRealDecimal * 100).toFixed(1)}%` : '—'}
-      </span>
-      {rateRealData?.vendor?.worked ? (
-        <span style={{ fontSize: 10, opacity: 0.4 }}>({rateRealData.vendor.worked} ciclos)</span>
-      ) : null}
-    </div>
-
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <span style={{ color: '#8fa3bc' }}>Planejada:</span>
-      <input
-        type="number"
-        step="1"
-        min="1"
-        max="90"
-        value={closeRatePercent}
-        onChange={(e) => {
-          const val = parseFloat(e.target.value) || 1
-          setCloseRatePercent(Math.max(1, Math.min(90, val)))
-        }}
-        style={{
-          width: 48,
-          padding: '3px 6px',
-          borderRadius: 6,
-          border: '1px solid rgba(59,130,246,0.3)',
-          background: 'rgba(17,19,24,0.8)',
-          color: '#f59e0b',
-          fontSize: 13,
-          fontWeight: 900,
-        }}
-      />
-      <span style={{ fontWeight: 900, color: '#f59e0b' }}>%</span>
-    </div>
-
-    {diferencaPp !== null ? (
-      <span style={{ opacity: 0.7 }}>
-        <strong style={{ color: diferencaPp > 0 ? '#f59e0b' : diferencaPp < 0 ? '#60a5fa' : '#10b981' }}>
-          {diferencaPp > 0 ? '+' : ''}{diferencaPp.toFixed(1)}pp
-        </strong>
-      </span>
-    ) : null}
-
-    {diagnostico ? (
-      <span style={{ fontWeight: 700, color: diagnosticoColor }}>{diagnostico}</span>
-    ) : null}
-
-    <div style={{ height: 18, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
-
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ color: '#8fa3bc' }}>Usar:</span>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
-        <input
-          type="radio"
-          name="rateSourceHeader"
-          value="planejada"
-          checked={rateSource === 'planejada'}
-          onChange={() => setRateSource('planejada')}
-          style={{ accentColor: '#f59e0b' }}
-        />
-        <span style={{ fontWeight: rateSource === 'planejada' ? 700 : 400 }}>Planejada</span>
-      </label>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: taxaRealDecimal !== null ? 'pointer' : 'not-allowed', opacity: taxaRealDecimal !== null ? 1 : 0.4 }}>
-        <input
-          type="radio"
-          name="rateSourceHeader"
-          value="real"
-          checked={rateSource === 'real'}
-          onChange={() => setRateSource('real')}
-          disabled={taxaRealDecimal === null}
-          style={{ accentColor: '#22d3ee' }}
-        />
-        <span style={{ fontWeight: rateSource === 'real' ? 700 : 400 }}>Real</span>
-      </label>
-    </div>
-
-    <span style={{ fontSize: 11, opacity: 0.5 }}>
-      Mult: <strong style={{ color: '#f59e0b' }}>×{taxaUsadaNoCalculo > 0 ? (1 / taxaUsadaNoCalculo).toFixed(2) : '—'}</strong>
-    </span>
-  </div>
-)
-})()}
-
-{/* ��─ BLOCO: DIAS DA SEMANA + AUTO DIAS + DIAS REST. ────────────── */}
-<div style={{
-display: 'flex',
-alignItems: 'center',
-justifyContent: 'space-evenly',
-gap: 16,
-flexWrap: 'wrap',
-padding: '10px 20px',
-marginTop: 6,
-borderRadius: 10,
-border: '1px solid rgba(59,130,246,0.25)',
-background: 'linear-gradient(90deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 100%)',
-fontSize: 12,
-width: '100%',
-boxSizing: 'border-box',
-}}>
-<div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-  {daysLabels.map(({ dow, label }) => {
-    const isActive = !!workDays[dow]
-    return (
-      <button
-        key={dow}
-        type="button"
-        onClick={() => setWorkDays((prev) => ({ ...prev, [dow]: !prev[dow] }))}
-        style={{
-          padding: '5px 10px',
-          borderRadius: 6,
-          border: isActive ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-          background: isActive
-            ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
-            : 'transparent',
-          color: isActive ? '#93c5fd' : '#546070',
-          fontSize: 12,
-          fontWeight: isActive ? 700 : 400,
-          cursor: 'pointer',
-          transition: 'all 150ms ease',
-          lineHeight: 1,
-        }}
-      >
-        {label}
-      </button>
-    )
-  })}
-</div>
-
-<button
-  type="button"
-  onClick={() => setAutoRemainingDays((prev) => !prev)}
-  style={{
-    padding: '5px 10px',
-    borderRadius: 6,
-    border: autoRemainingDays ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-    background: autoRemainingDays
-      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
-      : 'transparent',
-    color: autoRemainingDays ? '#93c5fd' : '#546070',
-    fontSize: 11,
-    fontWeight: autoRemainingDays ? 700 : 400,
-    cursor: 'pointer',
-    transition: 'all 150ms ease',
-    lineHeight: 1,
-  }}
->
-  Auto dias
-</button>
-
-<div style={{ height: 18, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
-
-<div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-  <span style={{ color: '#8fa3bc' }}>Dias rest.:</span>
-  <input
-    type="number"
-    value={remainingBusinessDays}
-    onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
-    disabled={autoRemainingDays}
-    style={{
-      width: 48,
-      padding: '3px 6px',
-      borderRadius: 6,
-      border: '1px solid rgba(59,130,246,0.3)',
-      background: autoRemainingDays ? 'rgba(13,15,20,0.8)' : 'rgba(17,19,24,0.8)',
-      color: 'white',
-      fontSize: 13,
-      fontWeight: 900,
-      opacity: autoRemainingDays ? 0.65 : 1,
-      cursor: autoRemainingDays ? 'not-allowed' : 'text',
-    }}
-  />
-</div>
-</div>
-
-{/* ── Meta R$ (esquerda) + Salvar/Desfazer (direita) ── */}
-{showRevenueMode ? (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-      <span style={{
-        fontSize: 13,
-        fontWeight: 900,
-        color: '#93c5fd',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-      }}>Meta R$:</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={revenueGoalInputText}
-        onChange={(e) => setRevenueGoalInputText(e.target.value)}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(n > 0 ? String(n) : '')
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(toBRL(n))
-        }}
-        disabled={!isAdmin || goalLoading || goalSaving}
-        style={{
-          width: 160,
-          padding: '8px 12px',
-          borderRadius: 8,
-          border: '1px solid rgba(59,130,246,0.4)',
-          background: !isAdmin ? '#0d0f14' : 'linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(13,15,20,0.9) 100%)',
-          color: '#6ee7b7',
-          fontWeight: 900,
-          fontSize: 16,
-          letterSpacing: '-0.3px',
-          boxShadow: '0 0 12px rgba(59,130,246,0.15), inset 0 1px 0 rgba(59,130,246,0.08)',
-        }}
-      />
-      {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
-      {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
-      {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
-    </div>
-    {isAdmin ? (
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button
-          onClick={() => void handleSaveGoal()}
-          disabled={goalSaving || goalLoading}
-          style={{
-            padding: '7px 16px',
-            borderRadius: 8,
-            border: '1px solid rgba(59,130,246,0.4)',
-            background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
-            color: '#93c5fd',
-            fontWeight: 700,
-            fontSize: 12,
-            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-            opacity: goalSaving || goalLoading ? 0.5 : 1,
-            transition: 'all 150ms ease',
-            letterSpacing: '0.02em',
-          }}
-        >
-          {goalSaving ? '...' : 'Salvar'}
-        </button>
-        <button
-          onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
-          disabled={goalSaving || goalLoading}
-          style={{
-            padding: '7px 14px',
-            borderRadius: 8,
-            border: '1px solid #1a1d2e',
-            background: '#0d0f14',
-            color: '#8fa3bc',
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-            opacity: goalSaving || goalLoading ? 0.5 : 1,
-            transition: 'all 150ms ease',
-          }}
-        >
-          Desfazer
-        </button>
-      </div>
-    ) : null}
-  </div>
-) : null}
-      </div>
 
       {/* ================================================================ */}
       {/* TAB NAVIGATION                                                    */}
@@ -2041,7 +2190,7 @@ boxSizing: 'border-box',
 
             {showCompanyChart && revenueCompany?.success ? (
               <RevenueChart
-                title={`Evolução — Empresa (Faturamento)`}
+              title={`Evolução — Empresa (${revenueMetricLabel})`}
                 series={(revenueCompany.days ?? []) as RevenueDayPoint[]}
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
@@ -2051,7 +2200,7 @@ boxSizing: 'border-box',
 
             {showSellerChart && revenueSeller?.success ? (
               <RevenueChart
-                title={`Evolução — Vendedor (Faturamento)`}
+              title={`Evolução — Vendedor (${revenueMetricLabel})`}
                 series={(revenueSeller.days ?? []) as RevenueDayPoint[]}
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
