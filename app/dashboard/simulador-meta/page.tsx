@@ -289,6 +289,74 @@ function Card({
   )
 }
 
+function FunnelStageCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string
+  value: React.ReactNode
+  accent: string
+}) {
+  return (
+    <div
+      style={{
+        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: 'rgba(9, 11, 15, 0.46)',
+        borderRadius: 14,
+        padding: '13px 14px',
+        display: 'grid',
+        gap: 10,
+        minHeight: 92,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12,
+            fontWeight: 850,
+            lineHeight: 1.2,
+          }}
+        >
+          {label}
+        </div>
+
+        <span
+          aria-hidden="true"
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 999,
+            background: accent,
+            boxShadow: `0 0 0 4px ${accent}22`,
+            flexShrink: 0,
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          color: SIMULATOR_UI.textPrimary,
+          fontSize: 24,
+          fontWeight: 950,
+          letterSpacing: -0.5,
+          lineHeight: 1,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  )
+}
+
 function Section({
   title,
   description,
@@ -2797,32 +2865,52 @@ function handleUndoGoalFromTop() {
         {activeTab === 'funil' && (
           <div style={{ display: 'grid', gap: 16 }}>
 
-            <Section title="Funil do Período" description="Distribuição dos ciclos por estágio.">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #3b82f6', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Novo</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#3b82f6' }}>{metrics?.counts_by_status.novo ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #06b6d4', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Contato</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#06b6d4' }}>{metrics?.counts_by_status.contato ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #eab308', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Respondeu</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#eab308' }}>{metrics?.counts_by_status.respondeu ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #8b5cf6', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Negociação</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#8b5cf6' }}>{metrics?.counts_by_status.negociacao ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #22c55e', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Ganho</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#22c55e' }}>{metrics?.counts_by_status.ganho ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #ef4444', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Perdido</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#ef4444' }}>{metrics?.counts_by_status.perdido ?? '—'}</div>
-                </div>
+<Section
+              title="Funil do Período"
+              description="Distribuição compacta dos ciclos por estágio no período selecionado."
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                <FunnelStageCard
+                  label="Novo"
+                  value={metrics?.counts_by_status.novo ?? '—'}
+                  accent="#3b82f6"
+                />
+
+                <FunnelStageCard
+                  label="Contato"
+                  value={metrics?.counts_by_status.contato ?? '—'}
+                  accent="#06b6d4"
+                />
+
+                <FunnelStageCard
+                  label="Respondeu"
+                  value={metrics?.counts_by_status.respondeu ?? '—'}
+                  accent="#eab308"
+                />
+
+                <FunnelStageCard
+                  label="Negociação"
+                  value={metrics?.counts_by_status.negociacao ?? '—'}
+                  accent="#8b5cf6"
+                />
+
+                <FunnelStageCard
+                  label="Ganho"
+                  value={metrics?.counts_by_status.ganho ?? '—'}
+                  accent="#22c55e"
+                />
+
+                <FunnelStageCard
+                  label="Perdido"
+                  value={metrics?.counts_by_status.perdido ?? '—'}
+                  accent="#ef4444"
+                />
               </div>
             </Section>
 
