@@ -396,13 +396,13 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 function controlBaseStyle(): React.CSSProperties {
   return {
     width: '100%',
-    height: 38,
-    borderRadius: 12,
+    height: 34,
+    borderRadius: 10,
     border: `1px solid ${SIMULATOR_UI.borderSoft}`,
     background: 'rgba(9, 11, 15, 0.72)',
     color: SIMULATOR_UI.textPrimary,
-    padding: '0 12px',
-    fontSize: 13,
+    padding: '0 11px',
+    fontSize: 12.5,
     fontWeight: 650,
     outline: 'none',
   }
@@ -425,8 +425,8 @@ function SmallActionButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        height: 38,
-        borderRadius: 12,
+        height: 34,
+        borderRadius: 10,
         border:
           tone === 'primary'
             ? '1px solid rgba(59, 130, 246, 0.45)'
@@ -436,8 +436,8 @@ function SmallActionButton({
             ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.26) 0%, rgba(59, 130, 246, 0.12) 100%)'
             : 'rgba(15, 18, 26, 0.78)',
         color: tone === 'primary' ? '#bfdbfe' : SIMULATOR_UI.textSecondary,
-        padding: '0 14px',
-        fontSize: 13,
+        padding: '0 12px',
+        fontSize: 12.5,
         fontWeight: 800,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
@@ -463,7 +463,7 @@ function ModePill({
       type="button"
       onClick={onClick}
       style={{
-        height: 38,
+        height: 34,
         border: active
           ? '1px solid rgba(59, 130, 246, 0.48)'
           : `1px solid ${SIMULATOR_UI.borderMuted}`,
@@ -472,8 +472,8 @@ function ModePill({
           : 'rgba(9, 11, 15, 0.52)',
         color: active ? '#dbeafe' : SIMULATOR_UI.textMuted,
         borderRadius: 999,
-        padding: '0 14px',
-        fontSize: 13,
+        padding: '0 12px',
+        fontSize: 12.5,
         fontWeight: active ? 850 : 700,
         cursor: 'pointer',
         whiteSpace: 'nowrap',
@@ -603,67 +603,65 @@ function SimulatorTopControls({
 
   return (
     <div
-      style={{
-        marginBottom: 18,
-        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-        background:
-          'linear-gradient(135deg, rgba(18, 22, 33, 0.90) 0%, rgba(9, 11, 15, 0.98) 100%)',
-        borderRadius: 22,
-        padding: 20,
-        boxShadow:
-          '0 16px 40px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255,255,255,0.035)',
-      }}
+    style={{
+      marginBottom: 14,
+      border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+      background: 'rgba(13, 15, 20, 0.88)',
+      borderRadius: 18,
+      padding: 16,
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+    }}
     >
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: 16,
+          alignItems: 'center',
+          gap: 12,
           flexWrap: 'wrap',
-          marginBottom: 18,
+          marginBottom: 14,
+          paddingBottom: 12,
+          borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
         }}
       >
         <div>
-          <h1
+          <div
             style={{
-              margin: 0,
-              color: SIMULATOR_UI.textPrimary,
-              fontSize: 22,
-              fontWeight: 900,
-              letterSpacing: -0.45,
-              lineHeight: 1.15,
-            }}
-          >
-            Simulador de Meta
-          </h1>
-
-          <p
-            style={{
-              margin: '7px 0 0',
-              color: SIMULATOR_UI.textMuted,
+              color: SIMULATOR_UI.textSecondary,
               fontSize: 13,
-              lineHeight: 1.45,
-              maxWidth: 720,
+              fontWeight: 850,
+              letterSpacing: -0.1,
+              lineHeight: 1.2,
             }}
           >
-            Configure o cenário principal e acompanhe o esforço necessário para bater a meta.
-          </p>
+            Cenário principal
+          </div>
+
+          <div
+            style={{
+              marginTop: 3,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              lineHeight: 1.35,
+            }}
+          >
+            Escopo, período, tipo de meta e valor-base da simulação.
+          </div>
         </div>
 
         <div
           style={{
             border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            background: 'rgba(9, 11, 15, 0.62)',
+            background: 'rgba(9, 11, 15, 0.52)',
             borderRadius: 999,
-            padding: '8px 12px',
-            color: SIMULATOR_UI.textSecondary,
+            padding: '6px 10px',
+            color: SIMULATOR_UI.textMuted,
             fontSize: 12,
             fontWeight: 750,
             whiteSpace: 'nowrap',
           }}
         >
-          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias úteis restantes
+          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias úteis
         </div>
       </div>
 
@@ -1986,6 +1984,8 @@ function handleUndoGoalFromTop() {
     if (!companyId || !competency) return
     if (mode === 'ganhos') return
 
+    const cid: string = companyId
+
     async function loadGoal() {
       setGoalLoading(true)
       setGoalError(null)
@@ -1993,7 +1993,7 @@ function handleUndoGoalFromTop() {
 
       try {
         const res = await getRevenueGoal({
-          companyId,
+          companyId: cid,
           ownerId: revenueGoalOwnerId ?? null,
           startDate: revenueDates.start,
           endDate: revenueDates.end,
@@ -2166,6 +2166,8 @@ function handleUndoGoalFromTop() {
   useEffect(() => {
     if (!competency || !companyId) return
 
+    const cid: string = companyId
+
     async function loadRevenue() {
       if (mode === 'ganhos') {
         setRevenueCompany(null)
@@ -2177,7 +2179,6 @@ function handleUndoGoalFromTop() {
       setRevenueLoading(true)
       setRevenueError(null)
 
-      const cid = companyId
       const metric: 'faturamento' | 'recebimento' =
         mode === 'recebimento' ? 'recebimento' : 'faturamento'
       const startDate = revenueDates.start
