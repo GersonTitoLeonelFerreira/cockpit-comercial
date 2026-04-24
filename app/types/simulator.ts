@@ -49,7 +49,7 @@ export interface ActiveCompetency {
   month_end: string
 }
 
-export type SimulatorMode = 'ganhos' | 'faturamento'
+export type SimulatorMode = 'ganhos' | 'faturamento' | 'recebimento'
 
 export interface RevenueDayPoint {
   date: string // YYYY-MM-DD

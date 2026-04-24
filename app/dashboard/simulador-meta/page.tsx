@@ -27,7 +27,7 @@ import type {
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
-import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel, statusTone } from '@/app/components/meta/MetaSummaryCard'
+import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel } from '@/app/components/meta/MetaSummaryCard'
 import { buildCalendarDistribution } from '@/app/lib/services/calendarDistribution'
 import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
