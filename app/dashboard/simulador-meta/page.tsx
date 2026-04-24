@@ -1083,14 +1083,14 @@ function DecisionHero({
 
   const statusBackground =
     status === 'meta-atingida'
-      ? 'rgba(34, 197, 94, 0.12)'
+      ? 'rgba(34, 197, 94, 0.10)'
       : status === 'sem-meta'
         ? 'rgba(148, 163, 184, 0.08)'
         : status === 'no_ritmo'
-          ? 'rgba(34, 197, 94, 0.12)'
+          ? 'rgba(34, 197, 94, 0.10)'
           : status === 'atencao'
-            ? 'rgba(245, 158, 11, 0.12)'
-            : 'rgba(239, 68, 68, 0.12)'
+            ? 'rgba(245, 158, 11, 0.10)'
+            : 'rgba(239, 68, 68, 0.10)'
 
   const progressBarColor =
     gap <= 0
@@ -1101,56 +1101,59 @@ function DecisionHero({
           ? '#f59e0b'
           : '#ef4444'
 
+  const projectionTone =
+    goal <= 0
+      ? SIMULATOR_UI.textMuted
+      : projection >= goal
+        ? '#86efac'
+        : '#fbbf24'
+
   if (!isRevenueMode) {
     return (
       <section
         style={{
-          marginBottom: 18,
+          marginBottom: 16,
           border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: `linear-gradient(135deg, ${SIMULATOR_UI.surfaceSoft} 0%, ${SIMULATOR_UI.surface} 100%)`,
-          borderRadius: 22,
-          padding: 22,
-          boxShadow: '0 14px 36px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255,255,255,0.035)',
+          background: 'rgba(13, 15, 20, 0.88)',
+          borderRadius: 20,
+          padding: 20,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
-          <div>
-            <div
-              style={{
-                marginBottom: 7,
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 12,
-                fontWeight: 800,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-              }}
-            >
-              Visão de ganhos
-            </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div
+            style={{
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 12,
+              fontWeight: 850,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+            }}
+          >
+            Visão de ganhos
+          </div>
 
-            <div
-              style={{
-                color: SIMULATOR_UI.textPrimary,
-                fontSize: 26,
-                fontWeight: 950,
-                letterSpacing: -0.6,
-                lineHeight: 1.1,
-              }}
-            >
-              Acompanhe ciclos, ganhos e ritmo operacional.
-            </div>
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 24,
+              fontWeight: 950,
+              letterSpacing: -0.6,
+              lineHeight: 1.1,
+            }}
+          >
+            Acompanhe ciclos, ganhos e ritmo operacional.
+          </div>
 
-            <div
-              style={{
-                marginTop: 9,
-                maxWidth: 760,
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 13,
-                lineHeight: 1.5,
-              }}
-            >
-              Neste modo, a análise principal fica concentrada nas abas de taxa, resultado e funil do período.
-            </div>
+          <div
+            style={{
+              maxWidth: 760,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}
+          >
+            Neste modo, a análise principal fica concentrada nas abas de taxa, resultado e funil do período.
           </div>
         </div>
       </section>
@@ -1160,104 +1163,186 @@ function DecisionHero({
   return (
     <section
       style={{
-        marginBottom: 18,
+        marginBottom: 16,
         border: `1px solid ${SIMULATOR_UI.borderSoft}`,
         background:
-          'linear-gradient(135deg, rgba(18, 22, 33, 0.96) 0%, rgba(13, 15, 20, 0.98) 58%, rgba(9, 11, 15, 1) 100%)',
-        borderRadius: 24,
-        padding: 24,
-        boxShadow: '0 18px 44px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.04)',
+          'linear-gradient(135deg, rgba(18, 22, 33, 0.94) 0%, rgba(13, 15, 20, 0.98) 58%, rgba(9, 11, 15, 1) 100%)',
+        borderRadius: 22,
+        padding: 22,
+        boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.035)',
       }}
     >
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 22,
+          gap: 20,
           alignItems: 'stretch',
         }}
       >
-        <div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              marginBottom: 12,
-            }}
-          >
-            <span
+        <div style={{ display: 'grid', alignContent: 'space-between', gap: 18 }}>
+          <div>
+            <div
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                marginBottom: 12,
+              }}
+            >
+              <span
+                style={{
+                  color: SIMULATOR_UI.textMuted,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                Status da meta
+              </span>
+
+              <span
+                style={{
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: statusBackground,
+                  color: statusColor,
+                  borderRadius: 999,
+                  padding: '5px 10px',
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+              >
+                {statusText}
+              </span>
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 30,
+                fontWeight: 950,
+                letterSpacing: -0.9,
+                lineHeight: 1.08,
+              }}
+            >
+              {goal > 0 ? (
+                <>Meta de {revenueMetricLabel.toLowerCase()} em andamento.</>
+              ) : (
+                'Defina uma meta para gerar leitura executiva.'
+              )}
+            </div>
+
+            <div
+              style={{
+                marginTop: 10,
+                maxWidth: 820,
                 color: SIMULATOR_UI.textMuted,
-                fontSize: 12,
-                fontWeight: 850,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
+                fontSize: 14,
+                lineHeight: 1.55,
               }}
             >
-              Decisão principal
-            </span>
+              {goal > 0 ? (
+                <>
+                  Realizado:{' '}
+                  <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(totalReal)}</strong>{' '}
+                  de{' '}
+                  <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(goal)}</strong>.
+                  Ainda faltam{' '}
+                  <strong style={{ color: gap > 0 ? '#fca5a5' : '#86efac' }}>{toBRL(gap)}</strong>.
+                </>
+              ) : (
+                <>
+                  Sem meta cadastrada, o simulador não consegue calcular gap, projeção e esforço necessário.
+                </>
+              )}
+            </div>
+          </div>
 
-            <span
+          <div>
+            <div
               style={{
-                border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-                background: statusBackground,
-                color: statusColor,
-                borderRadius: 999,
-                padding: '5px 10px',
-                fontSize: 12,
-                fontWeight: 900,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: 10,
+                marginBottom: 14,
               }}
             >
-              {statusText}
-            </span>
-          </div>
+              <div
+                style={{
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: 'rgba(9, 11, 15, 0.46)',
+                  borderRadius: 14,
+                  padding: 14,
+                }}
+              >
+                <div
+                  style={{
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    marginBottom: 6,
+                  }}
+                >
+                  Falta
+                </div>
 
-          <div
-            style={{
-              color: SIMULATOR_UI.textPrimary,
-              fontSize: 34,
-              fontWeight: 950,
-              letterSpacing: -1,
-              lineHeight: 1.05,
-            }}
-          >
-            {goal > 0 ? (
-              <>
-                Falta <span style={{ color: gap > 0 ? '#fca5a5' : '#86efac' }}>{toBRL(gap)}</span> para a meta.
-              </>
-            ) : (
-              'Defina uma meta para gerar leitura executiva.'
-            )}
-          </div>
+                <div
+                  style={{
+                    color: gap > 0 ? '#fca5a5' : '#86efac',
+                    fontSize: 21,
+                    fontWeight: 950,
+                    letterSpacing: -0.45,
+                  }}
+                >
+                  {toBRL(gap)}
+                </div>
+              </div>
 
-          <div
-            style={{
-              marginTop: 12,
-              maxWidth: 820,
-              color: SIMULATOR_UI.textMuted,
-              fontSize: 14,
-              lineHeight: 1.55,
-            }}
-          >
-            {goal > 0 ? (
-              <>
-                Você realizou <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(totalReal)}</strong> de{' '}
-                <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(goal)}</strong>. O ritmo necessário é de{' '}
-                <strong style={{ color: requiredPerDay > 0 ? '#fbbf24' : '#86efac' }}>
+              <div
+                style={{
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: 'rgba(9, 11, 15, 0.46)',
+                  borderRadius: 14,
+                  padding: 14,
+                }}
+              >
+                <div
+                  style={{
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    marginBottom: 6,
+                  }}
+                >
+                  Ritmo necessário
+                </div>
+
+                <div
+                  style={{
+                    color: requiredPerDay > 0 ? '#fbbf24' : '#86efac',
+                    fontSize: 21,
+                    fontWeight: 950,
+                    letterSpacing: -0.45,
+                  }}
+                >
                   {toBRL(requiredPerDay)}
-                </strong>{' '}
-                por dia útil restante.
-              </>
-            ) : (
-              <>
-                Sem meta cadastrada, o simulador não consegue calcular gap, projeção e esforço necessário.
-              </>
-            )}
-          </div>
+                </div>
 
-          <div style={{ marginTop: 20 }}>
+                <div
+                  style={{
+                    marginTop: 4,
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 11.5,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  por dia útil restante
+                </div>
+              </div>
+            </div>
+
             <div
               style={{
                 height: 10,
@@ -1297,7 +1382,7 @@ function DecisionHero({
         <div
           style={{
             border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            background: 'rgba(9, 11, 15, 0.52)',
+            background: 'rgba(9, 11, 15, 0.50)',
             borderRadius: 18,
             padding: 18,
             display: 'grid',
@@ -1305,28 +1390,72 @@ function DecisionHero({
           }}
         >
           <div>
-            <div style={{ color: SIMULATOR_UI.textMuted, fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 5,
+              }}
+            >
               Meta de {revenueMetricLabel}
             </div>
-            <div style={{ color: SIMULATOR_UI.textPrimary, fontSize: 24, fontWeight: 950, letterSpacing: -0.5 }}>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 23,
+                fontWeight: 950,
+                letterSpacing: -0.5,
+              }}
+            >
               {toBRL(goal)}
             </div>
           </div>
 
           <div>
-            <div style={{ color: SIMULATOR_UI.textMuted, fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 5,
+              }}
+            >
               Projeção no ritmo atual
             </div>
-            <div style={{ color: projection >= goal && goal > 0 ? '#86efac' : '#fbbf24', fontSize: 22, fontWeight: 950 }}>
+
+            <div
+              style={{
+                color: projectionTone,
+                fontSize: 22,
+                fontWeight: 950,
+                letterSpacing: -0.45,
+              }}
+            >
               {projection > 0 ? toBRL(projection) : '—'}
             </div>
           </div>
 
           <div>
-            <div style={{ color: SIMULATOR_UI.textMuted, fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 5,
+              }}
+            >
               Dias úteis restantes
             </div>
-            <div style={{ color: SIMULATOR_UI.textPrimary, fontSize: 22, fontWeight: 950 }}>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 22,
+                fontWeight: 950,
+              }}
+            >
               {remainingBusinessDays}
             </div>
           </div>
@@ -1350,13 +1479,26 @@ function DecisionHero({
       </div>
 
       {revenueLoading ? (
-        <div style={{ marginTop: 14, color: SIMULATOR_UI.textMuted, fontSize: 13 }}>
+        <div
+          style={{
+            marginTop: 14,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13,
+          }}
+        >
           Atualizando dados de {revenueMetricLabel.toLowerCase()}...
         </div>
       ) : null}
 
       {revenueError ? (
-        <div style={{ marginTop: 14, color: '#fecaca', fontSize: 13, fontWeight: 750 }}>
+        <div
+          style={{
+            marginTop: 14,
+            color: '#fecaca',
+            fontSize: 13,
+            fontWeight: 750,
+          }}
+        >
           {revenueError}
         </div>
       ) : null}
