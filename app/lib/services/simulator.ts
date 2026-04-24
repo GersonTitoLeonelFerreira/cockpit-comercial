@@ -117,13 +117,13 @@ export async function upsertRevenueGoal(params: {
 }
 
 export function calculateSimulatorResult(metrics: SimulatorMetrics, config: SimulatorConfig): SimulatorResult {
-  const { target_wins, close_rate, remaining_business_days } = config
+  const { target_wins, close_rate, remaining_business_days, total_business_days } = config
   const { current_wins, worked_count } = metrics
   const remaining_wins = Math.max(0, target_wins - current_wins)
   const needed_worked_cycles = Math.ceil(target_wins / (close_rate || 0.01))
   const remaining_worked_cycles = Math.ceil(remaining_wins / (close_rate || 0.01))
-  const BUSINESS_DAYS_IN_MONTH = 22
-  const daily_worked_needed = Math.ceil(needed_worked_cycles / BUSINESS_DAYS_IN_MONTH)
+  const totalDays = Math.max(1, total_business_days ?? 22)
+  const daily_worked_needed = Math.ceil(needed_worked_cycles / totalDays)
   const daily_worked_remaining = Math.ceil(remaining_worked_cycles / Math.max(1, remaining_business_days))
   const simulation_15pct = Math.ceil(target_wins / 0.15)
   const simulation_25pct = Math.ceil(target_wins / 0.25)

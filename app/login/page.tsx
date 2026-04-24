@@ -608,7 +608,7 @@ export default function LoginPage() {
   }}
 >
   <Image
-    src="/branding/login-kanban.png"
+    src="/branding/kanban-modelo-comercial.png"
     alt="Visão do cockpit comercial"
     width={1600}
     height={900}

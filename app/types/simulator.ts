@@ -7,6 +7,7 @@ export interface SimulatorConfig {
   close_rate: number
   ticket_medio: number
   remaining_business_days: number
+  total_business_days?: number
 }
 
 export interface SimulatorMetrics {
@@ -48,7 +49,7 @@ export interface ActiveCompetency {
   month_end: string
 }
 
-export type SimulatorMode = 'ganhos' | 'faturamento' | 'recebimento'
+export type SimulatorMode = 'ganhos' | 'faturamento'
 
 export interface RevenueDayPoint {
   date: string // YYYY-MM-DD

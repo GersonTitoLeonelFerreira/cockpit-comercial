@@ -157,35 +157,134 @@ function TitleWithTip({
   )
 }
 
+const SIMULATOR_UI = {
+  surface: '#0d0f14',
+  surfaceSoft: '#10131a',
+  surfaceElevated: '#121621',
+  borderSoft: 'rgba(148, 163, 184, 0.10)',
+  borderMuted: 'rgba(148, 163, 184, 0.07)',
+  textPrimary: '#f8fafc',
+  textSecondary: '#cbd5e1',
+  textMuted: '#94a3b8',
+  textSubtle: '#64748b',
+  blue: '#3b82f6',
+  blueSoft: 'rgba(59, 130, 246, 0.14)',
+  green: '#22c55e',
+  greenSoft: 'rgba(34, 197, 94, 0.13)',
+  red: '#ef4444',
+  redSoft: 'rgba(239, 68, 68, 0.13)',
+} as const
+
+function getCardTone(tone?: 'neutral' | 'good' | 'bad') {
+  if (tone === 'good') {
+    return {
+      valueColor: '#86efac',
+      accentColor: SIMULATOR_UI.green,
+      accentBackground: SIMULATOR_UI.greenSoft,
+      borderColor: 'rgba(34, 197, 94, 0.20)',
+    }
+  }
+
+  if (tone === 'bad') {
+    return {
+      valueColor: '#fca5a5',
+      accentColor: SIMULATOR_UI.red,
+      accentBackground: SIMULATOR_UI.redSoft,
+      borderColor: 'rgba(239, 68, 68, 0.22)',
+    }
+  }
+
+  return {
+    valueColor: SIMULATOR_UI.textPrimary,
+    accentColor: SIMULATOR_UI.textSubtle,
+    accentBackground: 'rgba(148, 163, 184, 0.08)',
+    borderColor: SIMULATOR_UI.borderSoft,
+  }
+}
+
 function Card({
   title,
   value,
   subtitle,
-  tone,
+  tone = 'neutral',
 }: {
   title: React.ReactNode
   value: React.ReactNode
   subtitle?: React.ReactNode
   tone?: 'neutral' | 'good' | 'bad'
 }) {
-  const valueColor =
-    tone === 'good' ? '#86efac' : tone === 'bad' ? '#fca5a5' : '#edf2f7'
-  const accentBorder =
-    tone === 'good' ? '#22c55e' : tone === 'bad' ? '#ef4444' : '#1a1d2e'
+  const toneStyle = getCardTone(tone)
+  const hasSemanticTone = tone === 'good' || tone === 'bad'
 
   return (
-    <div style={{
-      border: '1px solid #1a1d2e',
-      borderLeft: `3px solid ${accentBorder}`,
-      background: '#0d0f14',
-      borderRadius: 10,
-      padding: '14px 16px',
-    }}>
-      <div style={{ fontSize: 11, color: '#8fa3bc', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        border: `1px solid ${hasSemanticTone ? toneStyle.borderColor : SIMULATOR_UI.borderMuted}`,
+        background: hasSemanticTone
+          ? `linear-gradient(135deg, ${toneStyle.accentBackground} 0%, ${SIMULATOR_UI.surfaceSoft} 34%, ${SIMULATOR_UI.surface} 100%)`
+          : `linear-gradient(135deg, ${SIMULATOR_UI.surfaceSoft} 0%, ${SIMULATOR_UI.surface} 100%)`,
+        borderRadius: 16,
+        padding: '16px 18px',
+        minHeight: 112,
+        boxShadow: '0 10px 28px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
+      }}
+    >
+      {hasSemanticTone ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: toneStyle.accentColor,
+            opacity: 0.9,
+          }}
+        />
+      ) : null}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          marginBottom: 10,
+          fontSize: 12,
+          fontWeight: 750,
+          lineHeight: 1.25,
+          color: SIMULATOR_UI.textMuted,
+        }}
+      >
         {title}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2, color: valueColor }}>{value}</div>
-      {subtitle ? <div style={{ marginTop: 8, fontSize: 12, color: '#546070', lineHeight: 1.5 }}>{subtitle}</div> : null}
+
+      <div
+        style={{
+          fontSize: 26,
+          fontWeight: 900,
+          letterSpacing: -0.45,
+          lineHeight: 1.05,
+          color: toneStyle.valueColor,
+        }}
+      >
+        {value}
+      </div>
+
+      {subtitle ? (
+        <div
+          style={{
+            marginTop: 10,
+            fontSize: 12.5,
+            lineHeight: 1.45,
+            color: SIMULATOR_UI.textSubtle,
+          }}
+        >
+          {subtitle}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -200,44 +299,71 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section style={{
-      border: '1px solid rgba(59,130,246,0.18)',
-      background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-      borderRadius: 14,
-      padding: '18px 18px',
-      boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
-    }}>
-      <div>
-        <div style={{
-          fontSize: 13,
-          fontWeight: 900,
-          color: '#edf2f7',
+    <section
+      style={{
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background: `linear-gradient(135deg, rgba(18, 22, 33, 0.92) 0%, rgba(13, 15, 20, 0.98) 100%)`,
+        borderRadius: 20,
+        padding: '22px',
+        boxShadow: '0 14px 36px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
+      }}
+    >
+      <div
+        style={{
           display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          paddingLeft: 10,
-          borderLeft: '2px solid rgba(59,130,246,0.4)',
-        }}>{title}</div>
-        {description ? <div style={{ marginTop: 4, fontSize: 12, color: '#546070', paddingLeft: 12 }}>{description}</div> : null}
+          flexDirection: 'column',
+          gap: 5,
+          marginBottom: 18,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 850,
+            color: SIMULATOR_UI.textPrimary,
+            letterSpacing: -0.15,
+            lineHeight: 1.25,
+          }}
+        >
+          {title}
+        </div>
+
+        {description ? (
+          <div
+            style={{
+              maxWidth: 780,
+              fontSize: 13,
+              color: SIMULATOR_UI.textMuted,
+              lineHeight: 1.45,
+            }}
+          >
+            {description}
+          </div>
+        ) : null}
       </div>
-      <div style={{ marginTop: 14 }}>{children}</div>
+
+      <div>{children}</div>
     </section>
   )
 }
 
-function tabStyle(isActive: boolean) {
+function tabStyle(isActive: boolean): React.CSSProperties {
   return {
-    padding: '8px 18px',
+    padding: '9px 16px',
     background: isActive
-      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.06) 100%)'
-      : '#0d0f14',
-    color: isActive ? '#93c5fd' : '#8fa3bc',
-    border: isActive ? '1px solid #3b82f6' : '1px solid #1a1d2e',
-    borderRadius: 8,
-    cursor: 'pointer' as const,
+      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.20) 0%, rgba(59, 130, 246, 0.08) 100%)'
+      : 'rgba(13, 15, 20, 0.42)',
+    color: isActive ? '#bfdbfe' : SIMULATOR_UI.textMuted,
+    border: isActive
+      ? '1px solid rgba(59, 130, 246, 0.36)'
+      : `1px solid ${SIMULATOR_UI.borderMuted}`,
+    borderRadius: 999,
+    cursor: 'pointer',
     fontSize: 13,
-    fontWeight: isActive ? 700 : 400,
-    transition: 'all 200ms ease',
+    fontWeight: isActive ? 800 : 650,
+    lineHeight: 1,
+    transition: 'background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease',
+    boxShadow: isActive ? '0 8px 22px rgba(59, 130, 246, 0.12)' : 'none',
   }
 }
 
@@ -445,11 +571,17 @@ export default function SimuladorMetaPage() {
         const m = await getSalesCycleMetrics(null, comp.month_start)
         setMetrics(m)
 
+        const totalDays = countWorkDaysInRange(
+          toYMD(comp.month_start),
+          correctedEnd,
+          workDays,
+        )
         const res = calculateSimulatorResult(m, {
           target_wins: targetWins,
           close_rate: percentToRate(closeRatePercent),
           ticket_medio: 0,
           remaining_business_days: remainingDays,
+          total_business_days: totalDays,
         })
         setResult(res)
       } catch (e: any) {
@@ -493,14 +625,17 @@ export default function SimuladorMetaPage() {
   // recalcula ganhos
   useEffect(() => {
     if (!metrics) return
+    const totalDays =
+      periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays) : 22
     const newResult = calculateSimulatorResult(metrics, {
       target_wins: targetWins,
       close_rate: percentToRate(closeRatePercent),
       ticket_medio: 0,
       remaining_business_days: remainingBusinessDays,
+      total_business_days: totalDays,
     })
     setResult(newResult)
-  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics])
+  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays])
 
     // refetch metrics quando muda vendedor ou período
     useEffect(() => {
@@ -833,7 +968,7 @@ export default function SimuladorMetaPage() {
       setRevenueError(null)
 
       const cid = companyId
-      const metric = mode === 'faturamento' ? 'faturamento' : 'recebimento'
+      const metric = 'faturamento' as const
       const startDate = revenueDates.start
       const endDate = revenueDates.end
 
@@ -1467,14 +1602,6 @@ boxSizing: 'border-box',
           const n = Math.max(0, safeNumber(revenueGoalInputText))
           setRevenueGoalInputText(toBRL(n))
         }}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(String(n))
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(toBRL(n))
-        }}
         disabled={!isAdmin || goalLoading || goalSaving}
         style={{
           width: 160,
@@ -2058,7 +2185,7 @@ boxSizing: 'border-box',
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 <Card title="Ciclos Necessários" value={result?.needed_worked_cycles ?? '—'} subtitle={result ? `${result.needed_wins} ganhos ÷ ${closeRatePercent}% taxa` : undefined} />
                 <Card title="Ciclos Restantes" value={result?.remaining_worked_cycles ?? '—'} subtitle={result ? `${result.remaining_wins} ganhos restantes ÷ ${closeRatePercent}%` : undefined} />
-                <Card title="Ciclos/Dia (período)" value={result?.daily_worked_needed ?? '—'} subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ 22 dias` : undefined} />
+                <Card title="Ciclos/Dia (período)" value={result?.daily_worked_needed ?? '—'} subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ ${periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays) : 22} dias` : undefined} />
                 <Card title="Ciclos/Dia (restante)" value={result?.daily_worked_remaining ?? '—'} subtitle={result ? `${result.remaining_worked_cycles} ciclos ÷ ${remainingBusinessDays} dias` : undefined} />
               </div>
             </Section>
