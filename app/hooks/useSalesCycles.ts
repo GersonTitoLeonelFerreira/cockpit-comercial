@@ -183,7 +183,7 @@ export function useSalesCycles(options: UseSalesCyclesOptions = {}): UseSalesCyc
         setError(null)
         const req: CloseCycleLostRequest = {
           cycle_id: cycleId,
-          loss_reason: lossReason,
+          lost_reason: lossReason,
         }
         await closeCycleLost(req)
         await loadCycles() // Refetch

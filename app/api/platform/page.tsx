@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
-import ConfiguracoesClient from './ConfiguracoesClient'
+import ConfiguracoesClient from '../../platform/ConfiguracoesClient'
 
 export const metadata = {
   title: 'Configurações | Cockpit Comercial',

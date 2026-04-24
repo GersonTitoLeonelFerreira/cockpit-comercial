@@ -92,7 +92,6 @@ type MetaVsReal = {
   meta_start: string
   meta_end: string
   ticket_simulador: number
-  ticket_simulador: number
   total_ganhos: number
   faturamento: number
   ticket_medio: number
@@ -259,7 +258,6 @@ export default async function RelatoriosGeraisPage() {
       ticket_simulador: Number(metaRaw[0].ticket_simulador ?? 0),
       total_ganhos: Number(metaRaw[0].total_ganhos ?? 0),
       faturamento: Number(metaRaw[0].faturamento ?? 0),
-      ticket_simulador: Number(metaRaw[0].ticket_simulador ?? 0),
       ticket_medio: Number(metaRaw[0].ticket_medio ?? 0),
       ciclos_trabalhados: Number(metaRaw[0].ciclos_trabalhados ?? 0),
       total_movimentos: Number(metaRaw[0].total_movimentos ?? 0),
@@ -569,7 +567,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-              Dados calculados com base nos mesmos critérios do Simulador de Meta. Ticket médio real: {toBRL(ticketMedio)}.
+            Dados calculados com base nos mesmos critérios do Simulador de Meta. Ticket médio real: {toBRL(ticketReal)}.
               {meta.ciclos_trabalhados < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>
