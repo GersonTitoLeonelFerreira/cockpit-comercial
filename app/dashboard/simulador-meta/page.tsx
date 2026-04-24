@@ -349,21 +349,23 @@ function Section({
 
 function tabStyle(isActive: boolean): React.CSSProperties {
   return {
-    padding: '9px 16px',
+    height: 36,
+    padding: '0 14px',
     background: isActive
-      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.20) 0%, rgba(59, 130, 246, 0.08) 100%)'
-      : 'rgba(13, 15, 20, 0.42)',
-    color: isActive ? '#bfdbfe' : SIMULATOR_UI.textMuted,
+      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.24) 0%, rgba(59, 130, 246, 0.10) 100%)'
+      : 'transparent',
+    color: isActive ? '#dbeafe' : SIMULATOR_UI.textMuted,
     border: isActive
-      ? '1px solid rgba(59, 130, 246, 0.36)'
-      : `1px solid ${SIMULATOR_UI.borderMuted}`,
-    borderRadius: 999,
+      ? '1px solid rgba(59, 130, 246, 0.34)'
+      : '1px solid transparent',
+    borderRadius: 12,
     cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: isActive ? 800 : 650,
+    fontSize: 12.5,
+    fontWeight: isActive ? 850 : 700,
     lineHeight: 1,
-    transition: 'background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease',
-    boxShadow: isActive ? '0 8px 22px rgba(59, 130, 246, 0.12)' : 'none',
+    whiteSpace: 'nowrap',
+    transition: 'background 160ms ease, border-color 160ms ease, color 160ms ease',
+    boxShadow: isActive ? '0 8px 20px rgba(59, 130, 246, 0.10)' : 'none',
   }
 }
 
@@ -2506,22 +2508,59 @@ function handleUndoGoalFromTop() {
       {/* ================================================================ */}
       {/* TAB NAVIGATION                                                    */}
       {/* ================================================================ */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-      <button onClick={() => setActiveTab('teoria')} style={tabStyle(activeTab === 'teoria')}>
+      <div
+        style={{
+          marginBottom: 16,
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(13, 15, 20, 0.72)',
+          borderRadius: 16,
+          padding: 6,
+          display: 'flex',
+          gap: 6,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab('teoria')}
+          style={tabStyle(activeTab === 'teoria')}
+        >
           Esforço Máximo
         </button>
+
         {showRevenueMode ? (
-          <button onClick={() => setActiveTab('evolucao')} style={tabStyle(activeTab === 'evolucao')}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('evolucao')}
+            style={tabStyle(activeTab === 'evolucao')}
+          >
             Evolução
           </button>
         ) : null}
-        <button onClick={() => setActiveTab('taxa-resultado')} style={tabStyle(activeTab === 'taxa-resultado')}>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('taxa-resultado')}
+          style={tabStyle(activeTab === 'taxa-resultado')}
+        >
           Taxa e Resultado
         </button>
-        <button onClick={() => setActiveTab('funil')} style={tabStyle(activeTab === 'funil')}>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('funil')}
+          style={tabStyle(activeTab === 'funil')}
+        >
           Funil do Período
         </button>
-        <button onClick={() => setActiveTab('distribuicao')} style={tabStyle(activeTab === 'distribuicao')}>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('distribuicao')}
+          style={tabStyle(activeTab === 'distribuicao')}
+        >
           Distribuição
         </button>
       </div>
