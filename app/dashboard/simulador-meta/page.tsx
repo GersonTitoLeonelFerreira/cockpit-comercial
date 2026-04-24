@@ -1037,28 +1037,77 @@ function SimulatorTopControls({
         </div>
       ) : null}
 
-      <details
+<details
         style={{
-          marginTop: 16,
-          borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
-          paddingTop: 14,
+          marginTop: 14,
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background: 'rgba(9, 11, 15, 0.38)',
+          borderRadius: 14,
+          overflow: 'hidden',
         }}
       >
         <summary
           style={{
             cursor: 'pointer',
-            color: SIMULATOR_UI.textSecondary,
-            fontSize: 13,
-            fontWeight: 850,
             userSelect: 'none',
+            listStyle: 'none',
+            padding: '12px 14px',
           }}
         >
-          Ajustes avançados
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSecondary,
+                  fontSize: 13,
+                  fontWeight: 900,
+                  lineHeight: 1.2,
+                }}
+              >
+                Ajustes avançados
+              </div>
+
+              <div
+                style={{
+                  marginTop: 3,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  lineHeight: 1.35,
+                }}
+              >
+                Ticket médio, taxa de conversão e dias trabalhados.
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                background: 'rgba(13, 15, 20, 0.72)',
+                borderRadius: 999,
+                padding: '6px 10px',
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Configurar cenário
+            </div>
+          </div>
         </summary>
 
         <div
           style={{
-            marginTop: 14,
+            borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            padding: 14,
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
             gap: 14,
