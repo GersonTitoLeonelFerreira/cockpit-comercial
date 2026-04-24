@@ -1016,6 +1016,356 @@ function SimulatorTopControls({
   )
 }
 
+type DecisionRevenueKpis = {
+  goal: number
+  totalReal: number
+  gap: number
+  required_per_business_day: number
+  projection: number
+  pacingRatio: number
+  status: ReturnType<typeof getRevenueStatus>
+} | null
+
+function DecisionHero({
+  mode,
+  revenueMetricLabel,
+  revenueKpis,
+  theory10020Result,
+  revenueLoading,
+  revenueError,
+  remainingBusinessDays,
+  rateSource,
+  taxaUsadaNoCalculo,
+}: {
+  mode: SimulatorMode
+  revenueMetricLabel: string
+  revenueKpis: DecisionRevenueKpis
+  theory10020Result: Theory10020Result | null
+  revenueLoading: boolean
+  revenueError: string | null
+  remainingBusinessDays: number
+  rateSource: 'real' | 'planejada'
+  taxaUsadaNoCalculo: number
+}) {
+  const isRevenueMode = mode !== 'ganhos'
+
+  const goal = revenueKpis?.goal ?? theory10020Result?.meta_total ?? 0
+  const totalReal = revenueKpis?.totalReal ?? theory10020Result?.total_real ?? 0
+  const gap = revenueKpis?.gap ?? theory10020Result?.gap ?? Math.max(0, goal - totalReal)
+  const projection = revenueKpis?.projection ?? 0
+  const requiredPerDay = revenueKpis?.required_per_business_day ?? 0
+  const progressPct = goal > 0 ? Math.min(999, Math.round((totalReal / goal) * 100)) : 0
+
+  const revenueStatus = revenueKpis?.status ?? null
+
+  const status: 'sem-meta' | 'meta-atingida' | ReturnType<typeof getRevenueStatus> =
+    goal <= 0
+      ? 'sem-meta'
+      : gap <= 0
+        ? 'meta-atingida'
+        : revenueStatus ?? 'acelerar'
+
+  const statusText =
+    status === 'meta-atingida'
+      ? 'Meta atingida'
+      : status === 'sem-meta'
+        ? 'Meta não definida'
+        : statusLabel(status)
+
+  const statusColor =
+    status === 'meta-atingida'
+      ? '#86efac'
+      : status === 'sem-meta'
+        ? SIMULATOR_UI.textMuted
+        : status === 'no_ritmo'
+          ? '#86efac'
+          : status === 'atencao'
+            ? '#fbbf24'
+            : '#fca5a5'
+
+  const statusBackground =
+    status === 'meta-atingida'
+      ? 'rgba(34, 197, 94, 0.12)'
+      : status === 'sem-meta'
+        ? 'rgba(148, 163, 184, 0.08)'
+        : status === 'no_ritmo'
+          ? 'rgba(34, 197, 94, 0.12)'
+          : status === 'atencao'
+            ? 'rgba(245, 158, 11, 0.12)'
+            : 'rgba(239, 68, 68, 0.12)'
+
+  const progressBarColor =
+    gap <= 0
+      ? '#22c55e'
+      : progressPct >= 75
+        ? '#22c55e'
+        : progressPct >= 45
+          ? '#f59e0b'
+          : '#ef4444'
+
+  if (!isRevenueMode) {
+    return (
+      <section
+        style={{
+          marginBottom: 18,
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: `linear-gradient(135deg, ${SIMULATOR_UI.surfaceSoft} 0%, ${SIMULATOR_UI.surface} 100%)`,
+          borderRadius: 22,
+          padding: 22,
+          boxShadow: '0 14px 36px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255,255,255,0.035)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
+          <div>
+            <div
+              style={{
+                marginBottom: 7,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
+              Visão de ganhos
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 26,
+                fontWeight: 950,
+                letterSpacing: -0.6,
+                lineHeight: 1.1,
+              }}
+            >
+              Acompanhe ciclos, ganhos e ritmo operacional.
+            </div>
+
+            <div
+              style={{
+                marginTop: 9,
+                maxWidth: 760,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              Neste modo, a análise principal fica concentrada nas abas de taxa, resultado e funil do período.
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section
+      style={{
+        marginBottom: 18,
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background:
+          'linear-gradient(135deg, rgba(18, 22, 33, 0.96) 0%, rgba(13, 15, 20, 0.98) 58%, rgba(9, 11, 15, 1) 100%)',
+        borderRadius: 24,
+        padding: 24,
+        boxShadow: '0 18px 44px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.04)',
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(280px, 1.35fr) minmax(220px, 0.85fr)',
+          gap: 22,
+          alignItems: 'stretch',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              marginBottom: 12,
+            }}
+          >
+            <span
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 850,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
+              Decisão principal
+            </span>
+
+            <span
+              style={{
+                border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                background: statusBackground,
+                color: statusColor,
+                borderRadius: 999,
+                padding: '5px 10px',
+                fontSize: 12,
+                fontWeight: 900,
+              }}
+            >
+              {statusText}
+            </span>
+          </div>
+
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 34,
+              fontWeight: 950,
+              letterSpacing: -1,
+              lineHeight: 1.05,
+            }}
+          >
+            {goal > 0 ? (
+              <>
+                Falta <span style={{ color: gap > 0 ? '#fca5a5' : '#86efac' }}>{toBRL(gap)}</span> para a meta.
+              </>
+            ) : (
+              'Defina uma meta para gerar leitura executiva.'
+            )}
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              maxWidth: 820,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 14,
+              lineHeight: 1.55,
+            }}
+          >
+            {goal > 0 ? (
+              <>
+                Você realizou <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(totalReal)}</strong> de{' '}
+                <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(goal)}</strong>. O ritmo necessário é de{' '}
+                <strong style={{ color: requiredPerDay > 0 ? '#fbbf24' : '#86efac' }}>
+                  {toBRL(requiredPerDay)}
+                </strong>{' '}
+                por dia útil restante.
+              </>
+            ) : (
+              <>
+                Sem meta cadastrada, o simulador não consegue calcular gap, projeção e esforço necessário.
+              </>
+            )}
+          </div>
+
+          <div style={{ marginTop: 20 }}>
+            <div
+              style={{
+                height: 10,
+                borderRadius: 999,
+                background: 'rgba(148, 163, 184, 0.10)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.min(progressPct, 100)}%`,
+                  height: '100%',
+                  borderRadius: 999,
+                  background: progressBarColor,
+                  transition: 'width 240ms ease',
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginTop: 8,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              <span>0%</span>
+              <span style={{ color: progressBarColor }}>{progressPct}% realizado</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.52)',
+            borderRadius: 18,
+            padding: 18,
+            display: 'grid',
+            gap: 14,
+          }}
+        >
+          <div>
+            <div style={{ color: SIMULATOR_UI.textMuted, fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+              Meta de {revenueMetricLabel}
+            </div>
+            <div style={{ color: SIMULATOR_UI.textPrimary, fontSize: 24, fontWeight: 950, letterSpacing: -0.5 }}>
+              {toBRL(goal)}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ color: SIMULATOR_UI.textMuted, fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+              Projeção no ritmo atual
+            </div>
+            <div style={{ color: projection >= goal && goal > 0 ? '#86efac' : '#fbbf24', fontSize: 22, fontWeight: 950 }}>
+              {projection > 0 ? toBRL(projection) : '—'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ color: SIMULATOR_UI.textMuted, fontSize: 12, fontWeight: 800, marginBottom: 5 }}>
+              Dias úteis restantes
+            </div>
+            <div style={{ color: SIMULATOR_UI.textPrimary, fontSize: 22, fontWeight: 950 }}>
+              {remainingBusinessDays}
+            </div>
+          </div>
+
+          <div
+            style={{
+              borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              paddingTop: 12,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}
+          >
+            Conversão usada:{' '}
+            <strong style={{ color: SIMULATOR_UI.textSecondary }}>
+              {(taxaUsadaNoCalculo * 100).toFixed(1)}%
+            </strong>{' '}
+            · Fonte: {rateSource === 'real' ? 'real' : 'planejada'}.
+          </div>
+        </div>
+      </div>
+
+      {revenueLoading ? (
+        <div style={{ marginTop: 14, color: SIMULATOR_UI.textMuted, fontSize: 13 }}>
+          Atualizando dados de {revenueMetricLabel.toLowerCase()}...
+        </div>
+      ) : null}
+
+      {revenueError ? (
+        <div style={{ marginTop: 14, color: '#fecaca', fontSize: 13, fontWeight: 750 }}>
+          {revenueError}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function IconUsers({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -1730,6 +2080,21 @@ function handleUndoGoalFromTop() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
 
+  const showRevenueMode = mode !== 'ganhos'
+
+  const revenueMetricLabel =
+    mode === 'faturamento' ? 'Faturamento' : mode === 'recebimento' ? 'Recebimento' : 'Ganhos'
+
+  const decisionRevenueKpis = useMemo(() => {
+    if (!showRevenueMode) return null
+
+    if (selectedSellerId) {
+      return revenueSellerKpis
+    }
+
+    return revenueCompanyKpis
+  }, [showRevenueMode, selectedSellerId, revenueSellerKpis, revenueCompanyKpis])
+
   if (loading) {
     return (
       <div style={{ padding: 20 }}>
@@ -1759,15 +2124,13 @@ function handleUndoGoalFromTop() {
   const progressTone =
     (result?.progress_pct ?? 0) >= 1 ? 'good' : (result?.progress_pct ?? 0) >= 0.5 ? 'neutral' : 'bad'
 
-  const revenueMetricLabel = mode === 'faturamento' ? 'Faturamento' : 'Recebimento'
-  const showRevenueMode = mode !== 'ganhos'
-  const showCompanyChart = showRevenueMode && isAdmin
-  const showSellerChart = showRevenueMode && selectedSellerId !== null
+    const showCompanyChart = showRevenueMode && isAdmin
+    const showSellerChart = showRevenueMode && selectedSellerId !== null
 
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
 
-<SimulatorTopControls
+      <SimulatorTopControls
         isAdmin={isAdmin}
         sellers={sellers}
         selectedSellerId={selectedSellerId}
@@ -1812,6 +2175,18 @@ function handleUndoGoalFromTop() {
         autoRemainingDays={autoRemainingDays}
         setAutoRemainingDays={setAutoRemainingDays}
         remainingBusinessDays={remainingBusinessDays}
+      />
+
+      <DecisionHero
+        mode={mode}
+        revenueMetricLabel={revenueMetricLabel}
+        revenueKpis={decisionRevenueKpis}
+        theory10020Result={theory10020Result}
+        revenueLoading={revenueLoading}
+        revenueError={revenueError}
+        remainingBusinessDays={remainingBusinessDays}
+        rateSource={rateSource}
+        taxaUsadaNoCalculo={taxaUsadaNoCalculo}
       />
 
       {/* ================================================================ */}
