@@ -45,14 +45,17 @@ function pct(n: number) {
   return `${Math.round(v * 100)}%`
 }
 
-function safeNumber(v: any) {
+function safeNumber(v: unknown) {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+
   const s = String(v ?? '')
     .trim()
     .replace(/\./g, '')
     .replace(',', '.')
     .replace(/[^\d.-]/g, '')
+
   const n = parseFloat(s || '0')
+
   return Number.isFinite(n) ? n : 0
 }
 
@@ -812,17 +815,17 @@ function SimulatorTopControls({
     ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
     : null
 
-  return (
-    <div
-    style={{
-      marginBottom: 14,
-      border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-      background: 'rgba(13, 15, 20, 0.88)',
-      borderRadius: 18,
-      padding: 16,
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
-    }}
-    >
+    return (
+      <div
+        style={{
+          marginBottom: 14,
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(13, 15, 20, 0.88)',
+          borderRadius: 18,
+          padding: 16,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+        }}
+      >
       <div
         style={{
           display: 'flex',
