@@ -2074,9 +2074,9 @@ export default function SimuladorMetaPage() {
   const [distributionError, setDistributionError] = useState<string | null>(null)
   const [distributionOnlyWorking, setDistributionOnlyWorking] = useState(true)
 
-    // Período editável
-    const [periodStart, setPeriodStart] = useState<string>('')
-    const [periodEnd, setPeriodEnd] = useState<string>('')
+  // Período editável
+  const [periodStart, setPeriodStart] = useState<string>('')
+  const [periodEnd, setPeriodEnd] = useState<string>('')
 
   // Ticket source
   const [ticketSource, setTicketSource] = useState<'manual' | 'historico'>('manual')
@@ -2106,7 +2106,7 @@ export default function SimuladorMetaPage() {
         setIsAdmin(isAdminUser)
         setCompanyId(profile.company_id)
 
-                const comp = await getActiveCompetency()
+        const comp = await getActiveCompetency()
         setCompetency(comp)
 
         // Corrigir month_end: a RPC retorna o 1º dia do próximo mês (exclusivo)
@@ -2210,19 +2210,21 @@ export default function SimuladorMetaPage() {
     setResult(newResult)
   }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays])
 
-    // refetch metrics quando muda vendedor ou período
-    useEffect(() => {
-      if (!periodStart || selectedSellerId === undefined) return
-      async function refetch() {
-        try {
-          const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
-          setMetrics(newMetrics)
-        } catch (e: any) {
-          setError(e?.message ?? 'Erro ao atualizar métricas.')
-        }
+  // refetch metrics quando muda vendedor ou período
+  useEffect(() => {
+    if (!periodStart || selectedSellerId === undefined) return
+
+    async function refetch() {
+      try {
+        const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
+        setMetrics(newMetrics)
+      } catch (e: any) {
+        setError(e?.message ?? 'Erro ao atualizar métricas.')
       }
-      void refetch()
-    }, [periodStart, selectedSellerId])
+    }
+
+    void refetch()
+  }, [periodStart, selectedSellerId])
 
   // conversão por grupo
   useEffect(() => {
