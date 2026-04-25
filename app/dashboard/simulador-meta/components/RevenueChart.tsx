@@ -823,7 +823,7 @@ export function RevenueChart({
                 />
               ) : null}
 
-              {hoverData ? (
+              {hoverData && hover ? (
                 <>
                   <line
                     x1={x(hover.i)}
