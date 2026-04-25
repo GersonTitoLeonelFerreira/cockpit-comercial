@@ -4,7 +4,6 @@ import React, { useMemo, useState } from 'react'
 import type {
   CalendarDistributionRow,
   DailyGoalDistribution,
-  DistributionConfidence,
   OperationalFocusType,
 } from '@/app/types/distribution'
 
@@ -31,20 +30,6 @@ const FOCUS_COLORS: Record<OperationalFocusType, string> = {
   negociacao: TABLE_UI.purple,
   fechamento: TABLE_UI.green,
   neutro: TABLE_UI.textSubtle,
-}
-
-const CONFIDENCE_COLORS: Record<DistributionConfidence, string> = {
-  alta: TABLE_UI.green,
-  moderada: TABLE_UI.amber,
-  baixa: TABLE_UI.red,
-  insuficiente: TABLE_UI.textSubtle,
-}
-
-const CONFIDENCE_LABELS: Record<DistributionConfidence, string> = {
-  alta: 'Alta',
-  moderada: 'Moderada',
-  baixa: 'Baixa',
-  insuficiente: '—',
 }
 
 function formatDate(d: string): string {
@@ -94,7 +79,7 @@ function RowDetail({ row }: { row: CalendarDistributionRow }) {
   return (
     <tr>
       <td
-        colSpan={7}
+        colSpan={6}
         style={{
           padding: '0 12px 12px',
           background: 'rgba(9, 11, 15, 0.52)',
@@ -203,7 +188,7 @@ export default function SimulatorDailyDistributionTable({
               maxWidth: 760,
             }}
           >
-            Cada linha mostra a carga recomendada para o dia, o foco operacional e a confiança da distribuição.
+            Cada linha mostra a carga recomendada para o dia e o foco operacional sugerido para execução.
           </div>
         </div>
 
@@ -239,7 +224,7 @@ export default function SimulatorDailyDistributionTable({
             borderCollapse: 'separate',
             borderSpacing: 0,
             fontSize: 13,
-            minWidth: 820,
+            minWidth: 720,
           }}
         >
           <thead>
@@ -250,14 +235,12 @@ export default function SimulatorDailyDistributionTable({
               <th style={{ ...thStyle, textAlign: 'right' }}>Leads</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Ganhos</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Peso</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>Confiança</th>
             </tr>
           </thead>
 
           <tbody>
             {rows.map((row) => {
               const isExpanded = expandedDate === row.date
-              const confidenceColor = CONFIDENCE_COLORS[row.confidence]
 
               return (
                 <React.Fragment key={row.date}>
@@ -330,37 +313,6 @@ export default function SimulatorDailyDistributionTable({
                       {formatWeight(row.weight)}
                     </td>
 
-                    <td
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'right',
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'flex-end',
-                          gap: 7,
-                          color: confidenceColor,
-                          fontSize: 11.5,
-                          fontWeight: 850,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            width: 7,
-                            height: 7,
-                            borderRadius: 999,
-                            background: confidenceColor,
-                            boxShadow: `0 0 0 4px ${confidenceColor}18`,
-                          }}
-                        />
-                        {CONFIDENCE_LABELS[row.confidence]}
-                      </span>
-                    </td>
                   </tr>
 
                   {isExpanded ? <RowDetail row={row} /> : null}
@@ -411,7 +363,6 @@ export default function SimulatorDailyDistributionTable({
               </td>
 
               <td
-                colSpan={2}
                 style={{
                   ...tdStyle,
                   borderTop: `1px solid ${TABLE_UI.borderSoft}`,
