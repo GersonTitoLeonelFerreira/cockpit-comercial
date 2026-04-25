@@ -61,7 +61,7 @@ async function getActorCompanyAndRole() {
   })
 
   const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr) return { error: userErr.message as const }
+  if (userErr) return { error: userErr.message }
   const actor = userData?.user
   if (!actor) return { error: 'Não autenticado' as const }
 
@@ -71,7 +71,7 @@ async function getActorCompanyAndRole() {
     .eq('id', actor.id)
     .single()
 
-  if (actorProfileErr) return { error: actorProfileErr.message as const }
+    if (actorProfileErr) return { error: actorProfileErr.message }
   if (!actorProfile || actorProfile.role !== 'admin') return { error: 'Acesso negado (admin only)' as const }
   if (!actorProfile.company_id) return { error: 'company_id do admin não encontrado' as const }
 

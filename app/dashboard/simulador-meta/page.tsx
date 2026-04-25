@@ -27,7 +27,7 @@ import type {
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
-import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel, statusTone } from '@/app/components/meta/MetaSummaryCard'
+import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel } from '@/app/components/meta/MetaSummaryCard'
 import { buildCalendarDistribution } from '@/app/lib/services/calendarDistribution'
 import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
@@ -45,14 +45,17 @@ function pct(n: number) {
   return `${Math.round(v * 100)}%`
 }
 
-function safeNumber(v: any) {
+function safeNumber(v: unknown) {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+
   const s = String(v ?? '')
     .trim()
     .replace(/\./g, '')
     .replace(',', '.')
     .replace(/[^\d.-]/g, '')
+
   const n = parseFloat(s || '0')
+
   return Number.isFinite(n) ? n : 0
 }
 
@@ -157,35 +160,343 @@ function TitleWithTip({
   )
 }
 
+const SIMULATOR_UI = {
+  surface: '#0d0f14',
+  surfaceSoft: '#10131a',
+  surfaceElevated: '#121621',
+  borderSoft: 'rgba(148, 163, 184, 0.10)',
+  borderMuted: 'rgba(148, 163, 184, 0.07)',
+  textPrimary: '#f8fafc',
+  textSecondary: '#cbd5e1',
+  textMuted: '#94a3b8',
+  textSubtle: '#64748b',
+  blue: '#3b82f6',
+  blueSoft: 'rgba(59, 130, 246, 0.14)',
+  green: '#22c55e',
+  greenSoft: 'rgba(34, 197, 94, 0.13)',
+  red: '#ef4444',
+  redSoft: 'rgba(239, 68, 68, 0.13)',
+} as const
+
+function getCardTone(tone?: 'neutral' | 'good' | 'bad') {
+  if (tone === 'good') {
+    return {
+      valueColor: '#86efac',
+      accentColor: SIMULATOR_UI.green,
+      accentBackground: SIMULATOR_UI.greenSoft,
+      borderColor: 'rgba(34, 197, 94, 0.20)',
+    }
+  }
+
+  if (tone === 'bad') {
+    return {
+      valueColor: '#fca5a5',
+      accentColor: SIMULATOR_UI.red,
+      accentBackground: SIMULATOR_UI.redSoft,
+      borderColor: 'rgba(239, 68, 68, 0.22)',
+    }
+  }
+
+  return {
+    valueColor: SIMULATOR_UI.textPrimary,
+    accentColor: SIMULATOR_UI.textSubtle,
+    accentBackground: 'rgba(148, 163, 184, 0.08)',
+    borderColor: SIMULATOR_UI.borderSoft,
+  }
+}
+
 function Card({
   title,
   value,
   subtitle,
-  tone,
+  tone = 'neutral',
 }: {
   title: React.ReactNode
   value: React.ReactNode
   subtitle?: React.ReactNode
   tone?: 'neutral' | 'good' | 'bad'
 }) {
-  const valueColor =
-    tone === 'good' ? '#86efac' : tone === 'bad' ? '#fca5a5' : '#edf2f7'
-  const accentBorder =
-    tone === 'good' ? '#22c55e' : tone === 'bad' ? '#ef4444' : '#1a1d2e'
+  const toneStyle = getCardTone(tone)
+  const hasSemanticTone = tone === 'good' || tone === 'bad'
 
   return (
-    <div style={{
-      border: '1px solid #1a1d2e',
-      borderLeft: `3px solid ${accentBorder}`,
-      background: '#0d0f14',
-      borderRadius: 10,
-      padding: '14px 16px',
-    }}>
-      <div style={{ fontSize: 11, color: '#8fa3bc', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        border: `1px solid ${hasSemanticTone ? toneStyle.borderColor : SIMULATOR_UI.borderMuted}`,
+        background: hasSemanticTone
+          ? `linear-gradient(135deg, ${toneStyle.accentBackground} 0%, ${SIMULATOR_UI.surfaceSoft} 34%, ${SIMULATOR_UI.surface} 100%)`
+          : `linear-gradient(135deg, ${SIMULATOR_UI.surfaceSoft} 0%, ${SIMULATOR_UI.surface} 100%)`,
+        borderRadius: 16,
+        padding: '16px 18px',
+        minHeight: 112,
+        boxShadow: '0 10px 28px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
+      }}
+    >
+      {hasSemanticTone ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: toneStyle.accentColor,
+            opacity: 0.9,
+          }}
+        />
+      ) : null}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          marginBottom: 10,
+          fontSize: 12,
+          fontWeight: 750,
+          lineHeight: 1.25,
+          color: SIMULATOR_UI.textMuted,
+        }}
+      >
         {title}
       </div>
-      <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -0.2, color: valueColor }}>{value}</div>
-      {subtitle ? <div style={{ marginTop: 8, fontSize: 12, color: '#546070', lineHeight: 1.5 }}>{subtitle}</div> : null}
+
+      <div
+        style={{
+          fontSize: 26,
+          fontWeight: 900,
+          letterSpacing: -0.45,
+          lineHeight: 1.05,
+          color: toneStyle.valueColor,
+        }}
+      >
+        {value}
+      </div>
+
+      {subtitle ? (
+        <div
+          style={{
+            marginTop: 10,
+            fontSize: 12.5,
+            lineHeight: 1.45,
+            color: SIMULATOR_UI.textSubtle,
+          }}
+        >
+          {subtitle}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function FunnelStageCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string
+  value: React.ReactNode
+  accent: string
+}) {
+  return (
+    <div
+      style={{
+        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: 'rgba(9, 11, 15, 0.46)',
+        borderRadius: 14,
+        padding: '13px 14px',
+        display: 'grid',
+        gap: 10,
+        minHeight: 92,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12,
+            fontWeight: 850,
+            lineHeight: 1.2,
+          }}
+        >
+          {label}
+        </div>
+
+        <span
+          aria-hidden="true"
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 999,
+            background: accent,
+            boxShadow: `0 0 0 4px ${accent}22`,
+            flexShrink: 0,
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          color: SIMULATOR_UI.textPrimary,
+          fontSize: 24,
+          fontWeight: 950,
+          letterSpacing: -0.5,
+          lineHeight: 1,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function GroupConversionList({ rows }: { rows: GroupConversionRow[] }) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(90px, 0.7fr))',
+          gap: 10,
+          padding: '0 12px 6px',
+          color: SIMULATOR_UI.textSubtle,
+          fontSize: 11.5,
+          fontWeight: 850,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}
+      >
+        <div>Grupo</div>
+        <div style={{ textAlign: 'right' }}>Trabalhados</div>
+        <div style={{ textAlign: 'right' }}>Ganhos</div>
+        <div style={{ textAlign: 'right' }}>Taxa</div>
+        <div style={{ textAlign: 'right' }}>Participação</div>
+      </div>
+
+      {rows.map((row, index) => {
+        const conversionRate =
+          typeof row.pct_grupo === 'number'
+            ? row.pct_grupo
+            : row.trabalhados > 0
+              ? row.ganho / row.trabalhados
+              : 0
+
+        const participationRate = typeof row.pct_participacao === 'number' ? row.pct_participacao : 0
+
+        const conversionTone =
+          conversionRate >= 0.25
+            ? '#86efac'
+            : conversionRate >= 0.12
+              ? '#fbbf24'
+              : '#fca5a5'
+
+        return (
+          <div
+            key={row.group_id ?? `${row.group_name ?? 'grupo'}-${index}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(180px, 1.4fr) repeat(4, minmax(90px, 0.7fr))',
+              gap: 10,
+              alignItems: 'center',
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: 'rgba(9, 11, 15, 0.46)',
+              borderRadius: 14,
+              padding: '12px',
+            }}
+          >
+            <div
+              style={{
+                minWidth: 0,
+              }}
+            >
+              <div
+                style={{
+                  color: SIMULATOR_UI.textPrimary,
+                  fontSize: 13.5,
+                  fontWeight: 850,
+                  lineHeight: 1.25,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={row.group_name || 'Sem grupo'}
+              >
+                {row.group_name || 'Sem grupo'}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 4,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  lineHeight: 1.25,
+                }}
+              >
+                Grupo de leads do período
+              </div>
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 13,
+                fontWeight: 850,
+              }}
+            >
+              {row.trabalhados}
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: '#86efac',
+                fontSize: 13,
+                fontWeight: 900,
+              }}
+            >
+              {row.ganho}
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: conversionTone,
+                fontSize: 13,
+                fontWeight: 900,
+              }}
+            >
+              {pct(conversionRate)}
+            </div>
+
+            <div
+              style={{
+                textAlign: 'right',
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 13,
+                fontWeight: 850,
+              }}
+            >
+              {pct(participationRate)}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -200,45 +511,1433 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <section style={{
-      border: '1px solid rgba(59,130,246,0.18)',
-      background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-      borderRadius: 14,
-      padding: '18px 18px',
-      boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
-    }}>
-      <div>
-        <div style={{
-          fontSize: 13,
-          fontWeight: 900,
-          color: '#edf2f7',
+    <section
+      style={{
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background: `linear-gradient(135deg, rgba(18, 22, 33, 0.92) 0%, rgba(13, 15, 20, 0.98) 100%)`,
+        borderRadius: 20,
+        padding: '22px',
+        boxShadow: '0 14px 36px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
+      }}
+    >
+      <div
+        style={{
           display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          paddingLeft: 10,
-          borderLeft: '2px solid rgba(59,130,246,0.4)',
-        }}>{title}</div>
-        {description ? <div style={{ marginTop: 4, fontSize: 12, color: '#546070', paddingLeft: 12 }}>{description}</div> : null}
+          flexDirection: 'column',
+          gap: 5,
+          marginBottom: 18,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 850,
+            color: SIMULATOR_UI.textPrimary,
+            letterSpacing: -0.15,
+            lineHeight: 1.25,
+          }}
+        >
+          {title}
+        </div>
+
+        {description ? (
+          <div
+            style={{
+              maxWidth: 780,
+              fontSize: 13,
+              color: SIMULATOR_UI.textMuted,
+              lineHeight: 1.45,
+            }}
+          >
+            {description}
+          </div>
+        ) : null}
       </div>
-      <div style={{ marginTop: 14 }}>{children}</div>
+
+      <div>{children}</div>
     </section>
   )
 }
 
-function tabStyle(isActive: boolean) {
+function tabStyle(isActive: boolean): React.CSSProperties {
   return {
-    padding: '8px 18px',
+    height: 36,
+    padding: '0 14px',
     background: isActive
-      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.06) 100%)'
-      : '#0d0f14',
-    color: isActive ? '#93c5fd' : '#8fa3bc',
-    border: isActive ? '1px solid #3b82f6' : '1px solid #1a1d2e',
-    borderRadius: 8,
-    cursor: 'pointer' as const,
-    fontSize: 13,
-    fontWeight: isActive ? 700 : 400,
-    transition: 'all 200ms ease',
+      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.24) 0%, rgba(59, 130, 246, 0.10) 100%)'
+      : 'transparent',
+    color: isActive ? '#dbeafe' : SIMULATOR_UI.textMuted,
+    border: isActive
+      ? '1px solid rgba(59, 130, 246, 0.34)'
+      : '1px solid transparent',
+    borderRadius: 12,
+    cursor: 'pointer',
+    fontSize: 12.5,
+    fontWeight: isActive ? 850 : 700,
+    lineHeight: 1,
+    whiteSpace: 'nowrap',
+    transition: 'background 160ms ease, border-color 160ms ease, color 160ms ease',
+    boxShadow: isActive ? '0 8px 20px rgba(59, 130, 246, 0.10)' : 'none',
   }
+}
+
+const WEEKDAY_LABELS: Record<number, string> = {
+  0: 'Dom',
+  1: 'Seg',
+  2: 'Ter',
+  3: 'Qua',
+  4: 'Qui',
+  5: 'Sex',
+  6: 'Sáb',
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        marginBottom: 7,
+        fontSize: 12,
+        fontWeight: 750,
+        color: SIMULATOR_UI.textMuted,
+        lineHeight: 1.2,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function controlBaseStyle(): React.CSSProperties {
+  return {
+    width: '100%',
+    height: 34,
+    borderRadius: 10,
+    border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+    background: 'rgba(9, 11, 15, 0.72)',
+    color: SIMULATOR_UI.textPrimary,
+    padding: '0 11px',
+    fontSize: 12.5,
+    fontWeight: 650,
+    outline: 'none',
+  }
+}
+
+function SmallActionButton({
+  children,
+  onClick,
+  disabled,
+  tone = 'neutral',
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  tone?: 'neutral' | 'primary'
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        height: 34,
+        borderRadius: 10,
+        border:
+          tone === 'primary'
+            ? '1px solid rgba(59, 130, 246, 0.45)'
+            : `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background:
+          tone === 'primary'
+            ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.26) 0%, rgba(59, 130, 246, 0.12) 100%)'
+            : 'rgba(15, 18, 26, 0.78)',
+        color: tone === 'primary' ? '#bfdbfe' : SIMULATOR_UI.textSecondary,
+        padding: '0 12px',
+        fontSize: 12.5,
+        fontWeight: 800,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ModePill({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean
+  children: React.ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 34,
+        border: active
+          ? '1px solid rgba(59, 130, 246, 0.48)'
+          : `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: active
+          ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.26) 0%, rgba(59, 130, 246, 0.10) 100%)'
+          : 'rgba(9, 11, 15, 0.52)',
+        color: active ? '#dbeafe' : SIMULATOR_UI.textMuted,
+        borderRadius: 999,
+        padding: '0 12px',
+        fontSize: 12.5,
+        fontWeight: active ? 850 : 700,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function WorkdayChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        height: 34,
+        minWidth: 48,
+        borderRadius: 999,
+        border: active
+          ? '1px solid rgba(34, 197, 94, 0.38)'
+          : `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: active
+          ? 'rgba(34, 197, 94, 0.12)'
+          : 'rgba(9, 11, 15, 0.56)',
+        color: active ? '#bbf7d0' : SIMULATOR_UI.textMuted,
+        fontSize: 12,
+        fontWeight: 800,
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+function SimulatorTopControls({
+  isAdmin,
+  sellers,
+  selectedSellerId,
+  setSelectedSellerId,
+  periodStart,
+  setPeriodStart,
+  periodEnd,
+  setPeriodEnd,
+  mode,
+  setMode,
+  revenueGoalContextLabel,
+  revenueGoalInputText,
+  setRevenueGoalInputText,
+  goalLoading,
+  goalSaving,
+  onSaveGoal,
+  onUndoGoal,
+  goalError,
+  goalSuccess,
+  ticketMedioText,
+  setTicketMedioText,
+  ticketSource,
+  setTicketSource,
+  historicalTicket,
+  historicalTicketLoading,
+  rateSource,
+  setRateSource,
+  closeRatePercent,
+  setCloseRatePercent,
+  rateRealData,
+  rateRealLoading,
+  daysWindow,
+  setDaysWindow,
+  workDays,
+  setWorkDays,
+  autoRemainingDays,
+  setAutoRemainingDays,
+  remainingBusinessDays,
+}: {
+  isAdmin: boolean
+  sellers: Array<{ id: string; label: string }>
+  selectedSellerId: string | null
+  setSelectedSellerId: (value: string | null) => void
+  periodStart: string
+  setPeriodStart: (value: string) => void
+  periodEnd: string
+  setPeriodEnd: (value: string) => void
+  mode: SimulatorMode
+  setMode: (value: SimulatorMode) => void
+  revenueGoalContextLabel: string
+  revenueGoalInputText: string
+  setRevenueGoalInputText: (value: string) => void
+  goalLoading: boolean
+  goalSaving: boolean
+  onSaveGoal: () => void
+  onUndoGoal: () => void
+  goalError: string | null
+  goalSuccess: string | null
+  ticketMedioText: string
+  setTicketMedioText: (value: string) => void
+  ticketSource: 'manual' | 'historico'
+  setTicketSource: (value: 'manual' | 'historico') => void
+  historicalTicket: HistoricalTicketResponse | null
+  historicalTicketLoading: boolean
+  rateSource: 'real' | 'planejada'
+  setRateSource: (value: 'real' | 'planejada') => void
+  closeRatePercent: number
+  setCloseRatePercent: (value: number) => void
+  rateRealData: CloseRateRealResponse | null
+  rateRealLoading: boolean
+  daysWindow: number
+  setDaysWindow: (value: number) => void
+  workDays: WorkDays
+  setWorkDays: React.Dispatch<React.SetStateAction<WorkDays>>
+  autoRemainingDays: boolean
+  setAutoRemainingDays: (value: boolean) => void
+  remainingBusinessDays: number
+}) {
+  const realRatePercent = rateRealData?.vendor?.close_rate
+    ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
+    : null
+
+    return (
+      <div
+        style={{
+          marginBottom: 14,
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(13, 15, 20, 0.88)',
+          borderRadius: 18,
+          padding: 16,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+        }}
+      >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+          marginBottom: 14,
+          paddingBottom: 12,
+          borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              color: SIMULATOR_UI.textSecondary,
+              fontSize: 13,
+              fontWeight: 850,
+              letterSpacing: -0.1,
+              lineHeight: 1.2,
+            }}
+          >
+            Cenário principal
+          </div>
+
+          <div
+            style={{
+              marginTop: 3,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              lineHeight: 1.35,
+            }}
+          >
+            Escopo, período, tipo de meta e valor-base da simulação.
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.52)',
+            borderRadius: 999,
+            padding: '6px 10px',
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12,
+            fontWeight: 750,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias úteis
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 14,
+          alignItems: 'end',
+        }}
+      >
+        <div>
+          <FieldLabel>Escopo da análise</FieldLabel>
+
+          {isAdmin ? (
+            <select
+              value={selectedSellerId ?? 'empresa'}
+              onChange={(event) => {
+                const value = event.target.value
+                setSelectedSellerId(value === 'empresa' ? null : value)
+              }}
+              style={controlBaseStyle()}
+            >
+              <option value="empresa">Empresa inteira</option>
+              {sellers.map((seller) => (
+                <option key={seller.id} value={seller.id}>
+                  {seller.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div
+              style={{
+                ...controlBaseStyle(),
+                display: 'flex',
+                alignItems: 'center',
+                color: SIMULATOR_UI.textSecondary,
+              }}
+            >
+              Minha meta
+            </div>
+          )}
+        </div>
+
+        <div>
+          <FieldLabel>Período</FieldLabel>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 8,
+            }}
+          >
+            <input
+              type="date"
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+              style={controlBaseStyle()}
+            />
+
+            <input
+              type="date"
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+              style={controlBaseStyle()}
+            />
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>Tipo de meta</FieldLabel>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <ModePill active={mode === 'faturamento'} onClick={() => setMode('faturamento')}>
+              Faturamento
+            </ModePill>
+
+            <ModePill active={mode === 'recebimento'} onClick={() => setMode('recebimento')}>
+              Recebimento
+            </ModePill>
+
+            <ModePill active={mode === 'ganhos'} onClick={() => setMode('ganhos')}>
+              Ganhos
+            </ModePill>
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>{revenueGoalContextLabel}</FieldLabel>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto auto',
+              gap: 8,
+            }}
+          >
+            <input
+              type="text"
+              value={revenueGoalInputText}
+              onChange={(event) => setRevenueGoalInputText(event.target.value)}
+              disabled={!isAdmin || goalLoading || goalSaving}
+              placeholder="Ex.: 200000"
+              style={{
+                ...controlBaseStyle(),
+                opacity: goalLoading || goalSaving ? 0.7 : 1,
+              }}
+            />
+
+{isAdmin ? (
+              <>
+                <SmallActionButton
+                  tone="primary"
+                  onClick={onSaveGoal}
+                  disabled={goalLoading || goalSaving}
+                >
+                  {goalSaving ? 'Salvando...' : 'Salvar'}
+                </SmallActionButton>
+
+                <SmallActionButton onClick={onUndoGoal} disabled={goalSaving || goalLoading}>
+                  Desfazer
+                </SmallActionButton>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {goalError ? (
+        <div
+          style={{
+            marginTop: 12,
+            color: '#fecaca',
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {goalError}
+        </div>
+      ) : null}
+
+      {goalSuccess ? (
+        <div
+          style={{
+            marginTop: 12,
+            color: '#bbf7d0',
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          {goalSuccess}
+        </div>
+      ) : null}
+
+<details
+        style={{
+          marginTop: 14,
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background: 'rgba(9, 11, 15, 0.38)',
+          borderRadius: 14,
+          overflow: 'hidden',
+        }}
+      >
+        <summary
+          style={{
+            cursor: 'pointer',
+            userSelect: 'none',
+            listStyle: 'none',
+            padding: '12px 14px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSecondary,
+                  fontSize: 13,
+                  fontWeight: 900,
+                  lineHeight: 1.2,
+                }}
+              >
+                Ajustes avançados
+              </div>
+
+              <div
+                style={{
+                  marginTop: 3,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  lineHeight: 1.35,
+                }}
+              >
+                Ticket médio, taxa de conversão e dias trabalhados.
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                background: 'rgba(13, 15, 20, 0.72)',
+                borderRadius: 999,
+                padding: '6px 10px',
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Configurar cenário
+            </div>
+          </div>
+        </summary>
+
+        <div
+          style={{
+            borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            padding: 14,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 14,
+          }}
+        >
+          <div>
+            <FieldLabel>Ticket médio</FieldLabel>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 8,
+              }}
+            >
+              <input
+                type="text"
+                value={ticketMedioText}
+                onChange={(event) => {
+                  setTicketMedioText(event.target.value)
+                  setTicketSource('manual')
+                }}
+                style={controlBaseStyle()}
+              />
+
+              <SmallActionButton
+                onClick={() => {
+                  if (historicalTicket?.is_sufficient) {
+                    setTicketMedioText(String(Math.round(historicalTicket.ticket_medio || 0)))
+                    setTicketSource('historico')
+                  }
+                }}
+                disabled={historicalTicketLoading || !historicalTicket?.is_sufficient}
+              >
+                Histórico
+              </SmallActionButton>
+            </div>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              Origem atual: {ticketSource === 'historico' ? 'histórico' : 'manual'}.
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>Taxa de conversão usada</FieldLabel>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                flexWrap: 'wrap',
+                marginBottom: 8,
+              }}
+            >
+              <ModePill active={rateSource === 'planejada'} onClick={() => setRateSource('planejada')}>
+                Planejada
+              </ModePill>
+
+              <ModePill active={rateSource === 'real'} onClick={() => setRateSource('real')}>
+                Real
+              </ModePill>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+              }}
+            >
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={closeRatePercent}
+                onChange={(event) => setCloseRatePercent(Number(event.target.value || 0))}
+                style={controlBaseStyle()}
+              />
+
+              <select
+                value={daysWindow}
+                onChange={(event) => setDaysWindow(Number(event.target.value))}
+                style={controlBaseStyle()}
+              >
+                <option value={30}>30 dias</option>
+                <option value={60}>60 dias</option>
+                <option value={90}>90 dias</option>
+                <option value={180}>180 dias</option>
+              </select>
+            </div>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              {rateRealLoading
+                ? 'Carregando taxa real...'
+                : realRatePercent !== null
+                  ? `Taxa real encontrada: ${realRatePercent}%.`
+                  : 'Sem taxa real suficiente para este recorte.'}
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>Dias trabalhados</FieldLabel>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 7,
+                flexWrap: 'wrap',
+              }}
+            >
+              {Object.entries(WEEKDAY_LABELS).map(([key, label]) => {
+                const day = Number(key)
+
+                return (
+                  <WorkdayChip
+                    key={day}
+                    label={label}
+                    active={Boolean(workDays[day])}
+                    onClick={() => {
+                      setWorkDays((current) => ({
+                        ...current,
+                        [day]: !current[day],
+                      }))
+                    }}
+                  />
+                )
+              })}
+            </div>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 12,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={autoRemainingDays}
+                onChange={(event) => setAutoRemainingDays(event.target.checked)}
+              />
+              Recalcular dias restantes automaticamente
+            </label>
+          </div>
+        </div>
+      </details>
+    </div>
+  )
+}
+
+type DecisionRevenueKpis = {
+  goal: number
+  totalReal: number
+  gap: number
+  required_per_business_day: number
+  projection: number
+  pacingRatio: number
+  status: ReturnType<typeof getRevenueStatus>
+} | null
+
+function DecisionHero({
+  mode,
+  revenueMetricLabel,
+  revenueKpis,
+  theory10020Result,
+  revenueLoading,
+  revenueError,
+  remainingBusinessDays,
+  rateSource,
+  taxaUsadaNoCalculo,
+}: {
+  mode: SimulatorMode
+  revenueMetricLabel: string
+  revenueKpis: DecisionRevenueKpis
+  theory10020Result: Theory10020Result | null
+  revenueLoading: boolean
+  revenueError: string | null
+  remainingBusinessDays: number
+  rateSource: 'real' | 'planejada'
+  taxaUsadaNoCalculo: number
+}) {
+  const isRevenueMode = mode !== 'ganhos'
+
+  const goal = revenueKpis?.goal ?? theory10020Result?.meta_total ?? 0
+  const totalReal = revenueKpis?.totalReal ?? theory10020Result?.total_real ?? 0
+  const gap = revenueKpis?.gap ?? theory10020Result?.gap ?? Math.max(0, goal - totalReal)
+  const projection = revenueKpis?.projection ?? 0
+  const requiredPerDay = revenueKpis?.required_per_business_day ?? 0
+  const progressPct = goal > 0 ? Math.min(999, Math.round((totalReal / goal) * 100)) : 0
+
+  const revenueStatus = revenueKpis?.status ?? null
+
+  const status: 'sem-meta' | 'meta-atingida' | ReturnType<typeof getRevenueStatus> =
+    goal <= 0
+      ? 'sem-meta'
+      : gap <= 0
+        ? 'meta-atingida'
+        : revenueStatus ?? 'acelerar'
+
+  const statusText =
+    status === 'meta-atingida'
+      ? 'Meta atingida'
+      : status === 'sem-meta'
+        ? 'Meta não definida'
+        : statusLabel(status)
+
+  const statusColor =
+    status === 'meta-atingida'
+      ? '#86efac'
+      : status === 'sem-meta'
+        ? SIMULATOR_UI.textMuted
+        : status === 'no_ritmo'
+          ? '#86efac'
+          : status === 'atencao'
+            ? '#fbbf24'
+            : '#fca5a5'
+
+  const statusBackground =
+    status === 'meta-atingida'
+      ? 'rgba(34, 197, 94, 0.10)'
+      : status === 'sem-meta'
+        ? 'rgba(148, 163, 184, 0.08)'
+        : status === 'no_ritmo'
+          ? 'rgba(34, 197, 94, 0.10)'
+          : status === 'atencao'
+            ? 'rgba(245, 158, 11, 0.10)'
+            : 'rgba(239, 68, 68, 0.10)'
+
+  const progressBarColor =
+    gap <= 0
+      ? '#22c55e'
+      : progressPct >= 75
+        ? '#22c55e'
+        : progressPct >= 45
+          ? '#f59e0b'
+          : '#ef4444'
+
+  const projectionTone =
+    goal <= 0
+      ? SIMULATOR_UI.textMuted
+      : projection >= goal
+        ? '#86efac'
+        : '#fbbf24'
+
+  if (!isRevenueMode) {
+    return (
+      <section
+        style={{
+          marginBottom: 16,
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(13, 15, 20, 0.88)',
+          borderRadius: 20,
+          padding: 20,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+        }}
+      >
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div
+            style={{
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 12,
+              fontWeight: 850,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+            }}
+          >
+            Visão de ganhos
+          </div>
+
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 24,
+              fontWeight: 950,
+              letterSpacing: -0.6,
+              lineHeight: 1.1,
+            }}
+          >
+            Acompanhe ciclos, ganhos e ritmo operacional.
+          </div>
+
+          <div
+            style={{
+              maxWidth: 760,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}
+          >
+            Neste modo, a análise principal fica concentrada nas abas de taxa, resultado e funil do período.
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section
+      style={{
+        marginBottom: 16,
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background:
+          'linear-gradient(135deg, rgba(18, 22, 33, 0.94) 0%, rgba(13, 15, 20, 0.98) 58%, rgba(9, 11, 15, 1) 100%)',
+        borderRadius: 22,
+        padding: 22,
+        boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.035)',
+      }}
+    >
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 20,
+          alignItems: 'stretch',
+        }}
+      >
+        <div style={{ display: 'grid', alignContent: 'space-between', gap: 18 }}>
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                flexWrap: 'wrap',
+                marginBottom: 12,
+              }}
+            >
+              <span
+                style={{
+                  color: SIMULATOR_UI.textMuted,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                Status da meta
+              </span>
+
+              <span
+                style={{
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: statusBackground,
+                  color: statusColor,
+                  borderRadius: 999,
+                  padding: '5px 10px',
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+              >
+                {statusText}
+              </span>
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 30,
+                fontWeight: 950,
+                letterSpacing: -0.9,
+                lineHeight: 1.08,
+              }}
+            >
+              {goal > 0 ? (
+                <>Meta de {revenueMetricLabel.toLowerCase()} em andamento.</>
+              ) : (
+                'Defina uma meta para gerar leitura executiva.'
+              )}
+            </div>
+
+            <div
+              style={{
+                marginTop: 10,
+                maxWidth: 820,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 14,
+                lineHeight: 1.55,
+              }}
+            >
+              {goal > 0 ? (
+                <>
+                  Realizado:{' '}
+                  <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(totalReal)}</strong>{' '}
+                  de{' '}
+                  <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(goal)}</strong>.
+                  Ainda faltam{' '}
+                  <strong style={{ color: gap > 0 ? '#fca5a5' : '#86efac' }}>{toBRL(gap)}</strong>.
+                </>
+              ) : (
+                <>
+                  Sem meta cadastrada, o simulador não consegue calcular gap, projeção e esforço necessário.
+                </>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              <div
+                style={{
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: 'rgba(9, 11, 15, 0.46)',
+                  borderRadius: 14,
+                  padding: 14,
+                }}
+              >
+                <div
+                  style={{
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    marginBottom: 6,
+                  }}
+                >
+                  Falta
+                </div>
+
+                <div
+                  style={{
+                    color: gap > 0 ? '#fca5a5' : '#86efac',
+                    fontSize: 21,
+                    fontWeight: 950,
+                    letterSpacing: -0.45,
+                  }}
+                >
+                  {toBRL(gap)}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: 'rgba(9, 11, 15, 0.46)',
+                  borderRadius: 14,
+                  padding: 14,
+                }}
+              >
+                <div
+                  style={{
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    marginBottom: 6,
+                  }}
+                >
+                  Ritmo necessário
+                </div>
+
+                <div
+                  style={{
+                    color: requiredPerDay > 0 ? '#fbbf24' : '#86efac',
+                    fontSize: 21,
+                    fontWeight: 950,
+                    letterSpacing: -0.45,
+                  }}
+                >
+                  {toBRL(requiredPerDay)}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 4,
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 11.5,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  por dia útil restante
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                height: 10,
+                borderRadius: 999,
+                background: 'rgba(148, 163, 184, 0.10)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.min(progressPct, 100)}%`,
+                  height: '100%',
+                  borderRadius: 999,
+                  background: progressBarColor,
+                  transition: 'width 240ms ease',
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginTop: 8,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              <span>0%</span>
+              <span style={{ color: progressBarColor }}>{progressPct}% realizado</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.50)',
+            borderRadius: 18,
+            padding: 18,
+            display: 'grid',
+            gap: 14,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 5,
+              }}
+            >
+              Meta de {revenueMetricLabel}
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 23,
+                fontWeight: 950,
+                letterSpacing: -0.5,
+              }}
+            >
+              {toBRL(goal)}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 5,
+              }}
+            >
+              Projeção no ritmo atual
+            </div>
+
+            <div
+              style={{
+                color: projectionTone,
+                fontSize: 22,
+                fontWeight: 950,
+                letterSpacing: -0.45,
+              }}
+            >
+              {projection > 0 ? toBRL(projection) : '—'}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 5,
+              }}
+            >
+              Dias úteis restantes
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 22,
+                fontWeight: 950,
+              }}
+            >
+              {remainingBusinessDays}
+            </div>
+          </div>
+
+          <div
+            style={{
+              borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              paddingTop: 12,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}
+          >
+            Conversão usada:{' '}
+            <strong style={{ color: SIMULATOR_UI.textSecondary }}>
+              {(taxaUsadaNoCalculo * 100).toFixed(1)}%
+            </strong>{' '}
+            · Fonte: {rateSource === 'real' ? 'real' : 'planejada'}.
+          </div>
+        </div>
+      </div>
+
+      {revenueLoading ? (
+        <div
+          style={{
+            marginTop: 14,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13,
+          }}
+        >
+          Atualizando dados de {revenueMetricLabel.toLowerCase()}...
+        </div>
+      ) : null}
+
+      {revenueError ? (
+        <div
+          style={{
+            marginTop: 14,
+            color: '#fecaca',
+            fontSize: 13,
+            fontWeight: 750,
+          }}
+        >
+          {revenueError}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ExecutionPlanPanel({
+  theory10020Result,
+  remainingBusinessDays,
+  rateSource,
+  rateRealData,
+}: {
+  theory10020Result: Theory10020Result | null
+  remainingBusinessDays: number
+  rateSource: 'real' | 'planejada'
+  rateRealData: CloseRateRealResponse | null
+}) {
+  if (!theory10020Result) {
+    return (
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(9, 11, 15, 0.52)',
+          borderRadius: 16,
+          padding: 18,
+          color: SIMULATOR_UI.textMuted,
+          fontSize: 14,
+          lineHeight: 1.5,
+        }}
+      >
+        Informe um ticket médio maior que zero para gerar o plano operacional.
+      </div>
+    )
+  }
+
+  const t = theory10020Result
+
+  const leadsPerDayIsHeavy = t.leads_restantes_por_dia > 15
+  const winsPerDayIsHeavy = t.ganhos_restantes_por_dia > 4
+
+  const rateLabel =
+    rateSource === 'real' && (rateRealData?.vendor?.close_rate ?? null) !== null
+      ? 'taxa real'
+      : 'taxa planejada'
+
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
+        <div
+          style={{
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13,
+            lineHeight: 1.45,
+            maxWidth: 780,
+          }}
+        >
+          Foco operacional: volume restante de leads, ganhos necessários e cadência diária até o fim do período.
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.46)',
+            borderRadius: 999,
+            padding: '6px 10px',
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12,
+            fontWeight: 800,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {remainingBusinessDays} dias úteis restantes
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+          gap: 12,
+        }}
+      >
+        <Card
+          title="Leads restantes"
+          value={t.leads_restantes}
+          subtitle="Volume total que ainda precisa ser trabalhado"
+        />
+
+        <Card
+          title="Ganhos restantes"
+          value={t.ganhos_restantes}
+          subtitle="Fechamentos necessários para cobrir o gap"
+          tone={t.ganhos_restantes <= 0 ? 'good' : 'neutral'}
+        />
+
+        <Card
+          title="Leads por dia útil"
+          value={t.leads_restantes_por_dia}
+          subtitle={leadsPerDayIsHeavy ? 'Ritmo alto. Exige cadência forte.' : 'Ritmo operacional administrável.'}
+          tone={leadsPerDayIsHeavy ? 'bad' : 'neutral'}
+        />
+
+        <Card
+          title="Ganhos por dia útil"
+          value={t.ganhos_restantes_por_dia}
+          subtitle={winsPerDayIsHeavy ? 'Pressão alta de fechamento.' : 'Ritmo de fechamento viável.'}
+          tone={winsPerDayIsHeavy ? 'bad' : 'good'}
+        />
+      </div>
+
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(9, 11, 15, 0.46)',
+          borderRadius: 16,
+          padding: 18,
+          display: 'grid',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            color: SIMULATOR_UI.textPrimary,
+            fontSize: 14,
+            fontWeight: 900,
+            letterSpacing: -0.1,
+          }}
+        >
+          Diagnóstico objetivo
+        </div>
+
+        <div
+          style={{
+            color: SIMULATOR_UI.textSecondary,
+            fontSize: 13.5,
+            lineHeight: 1.65,
+          }}
+        >
+          Faltam <strong style={{ color: '#fca5a5' }}>{toBRL(t.gap)}</strong> para bater a meta. Com ticket médio de{' '}
+          <strong style={{ color: '#c4b5fd' }}>{toBRL(t.ticket_medio)}</strong> e conversão de{' '}
+          <strong style={{ color: '#93c5fd' }}>{(t.close_rate * 100).toFixed(1)}%</strong> usando {rateLabel}, o time precisa trabalhar{' '}
+          <strong style={{ color: '#67e8f9' }}>{t.leads_restantes} leads restantes</strong> para gerar aproximadamente{' '}
+          <strong style={{ color: '#86efac' }}>{t.ganhos_restantes} ganhos</strong>.
+        </div>
+
+        <div
+          style={{
+            borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            paddingTop: 10,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12.5,
+            lineHeight: 1.55,
+          }}
+        >
+          Ritmo recomendado: manter pelo menos{' '}
+          <strong style={{ color: leadsPerDayIsHeavy ? '#fca5a5' : '#67e8f9' }}>
+            {t.leads_restantes_por_dia} leads por dia útil
+          </strong>{' '}
+          e buscar{' '}
+          <strong style={{ color: winsPerDayIsHeavy ? '#fca5a5' : '#86efac' }}>
+            {t.ganhos_restantes_por_dia} ganhos por dia útil
+          </strong>
+          . Se esse volume estiver acima da capacidade real do time, a decisão gerencial é revisar meta, ampliar base de prospecção ou reforçar cadência.
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function IconUsers({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
@@ -375,9 +2074,9 @@ export default function SimuladorMetaPage() {
   const [distributionError, setDistributionError] = useState<string | null>(null)
   const [distributionOnlyWorking, setDistributionOnlyWorking] = useState(true)
 
-    // Período editável
-    const [periodStart, setPeriodStart] = useState<string>('')
-    const [periodEnd, setPeriodEnd] = useState<string>('')
+  // Período editável
+  const [periodStart, setPeriodStart] = useState<string>('')
+  const [periodEnd, setPeriodEnd] = useState<string>('')
 
   // Ticket source
   const [ticketSource, setTicketSource] = useState<'manual' | 'historico'>('manual')
@@ -407,7 +2106,7 @@ export default function SimuladorMetaPage() {
         setIsAdmin(isAdminUser)
         setCompanyId(profile.company_id)
 
-                const comp = await getActiveCompetency()
+        const comp = await getActiveCompetency()
         setCompetency(comp)
 
         // Corrigir month_end: a RPC retorna o 1º dia do próximo mês (exclusivo)
@@ -445,11 +2144,17 @@ export default function SimuladorMetaPage() {
         const m = await getSalesCycleMetrics(null, comp.month_start)
         setMetrics(m)
 
+        const totalDays = countWorkDaysInRange(
+          toYMD(comp.month_start),
+          correctedEnd,
+          workDays,
+        )
         const res = calculateSimulatorResult(m, {
           target_wins: targetWins,
           close_rate: percentToRate(closeRatePercent),
           ticket_medio: 0,
           remaining_business_days: remainingDays,
+          total_business_days: totalDays,
         })
         setResult(res)
       } catch (e: any) {
@@ -493,28 +2198,33 @@ export default function SimuladorMetaPage() {
   // recalcula ganhos
   useEffect(() => {
     if (!metrics) return
+    const totalDays =
+      periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays) : 22
     const newResult = calculateSimulatorResult(metrics, {
       target_wins: targetWins,
       close_rate: percentToRate(closeRatePercent),
       ticket_medio: 0,
       remaining_business_days: remainingBusinessDays,
+      total_business_days: totalDays,
     })
     setResult(newResult)
-  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics])
+  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays])
 
-    // refetch metrics quando muda vendedor ou período
-    useEffect(() => {
-      if (!periodStart || selectedSellerId === undefined) return
-      async function refetch() {
-        try {
-          const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
-          setMetrics(newMetrics)
-        } catch (e: any) {
-          setError(e?.message ?? 'Erro ao atualizar métricas.')
-        }
+  // refetch metrics quando muda vendedor ou período
+  useEffect(() => {
+    if (!periodStart || selectedSellerId === undefined) return
+
+    async function refetch() {
+      try {
+        const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
+        setMetrics(newMetrics)
+      } catch (e: any) {
+        setError(e?.message ?? 'Erro ao atualizar métricas.')
       }
-      void refetch()
-    }, [periodStart, selectedSellerId])
+    }
+
+    void refetch()
+  }, [periodStart, selectedSellerId])
 
   // conversão por grupo
   useEffect(() => {
@@ -569,6 +2279,51 @@ export default function SimuladorMetaPage() {
 
   const activeGoalForKpis = isAdmin ? revenueGoalInputNumber : revenueGoalDb
 
+async function handleSaveGoalFromTop() {
+  if (!companyId) {
+    setGoalError('Empresa não encontrada para salvar a meta.')
+    setGoalSuccess(null)
+    return
+  }
+
+  if (!revenueDates.start || !revenueDates.end) {
+    setGoalError('Período inválido para salvar a meta.')
+    setGoalSuccess(null)
+    return
+  }
+
+  setGoalSaving(true)
+  setGoalError(null)
+  setGoalSuccess(null)
+
+  try {
+    const ticketValue = Math.max(0, safeNumber(ticketMedioText))
+
+    await upsertRevenueGoal({
+      companyId,
+      ownerId: revenueGoalOwnerId ?? null,
+      startDate: revenueDates.start,
+      endDate: revenueDates.end,
+      goalValue: revenueGoalInputNumber,
+      ticketMedio: ticketValue,
+    })
+
+    setRevenueGoalDb(revenueGoalInputNumber)
+    setGoalSuccess('Meta salva com sucesso.')
+  } catch (error: any) {
+    setGoalError(error?.message ?? 'Erro ao salvar meta.')
+    setGoalSuccess(null)
+  } finally {
+    setGoalSaving(false)
+  }
+}
+
+function handleUndoGoalFromTop() {
+  setRevenueGoalInputText(String(revenueGoalDb))
+  setGoalError(null)
+  setGoalSuccess(null)
+}
+
   // Computed: taxa usada no cálculo da teoria
   const taxaUsadaNoCalculo = useMemo(() => {
     const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
@@ -610,6 +2365,8 @@ export default function SimuladorMetaPage() {
     if (!companyId || !competency) return
     if (mode === 'ganhos') return
 
+    const cid: string = companyId
+
     async function loadGoal() {
       setGoalLoading(true)
       setGoalError(null)
@@ -617,7 +2374,7 @@ export default function SimuladorMetaPage() {
 
       try {
         const res = await getRevenueGoal({
-          companyId,
+          companyId: cid,
           ownerId: revenueGoalOwnerId ?? null,
           startDate: revenueDates.start,
           endDate: revenueDates.end,
@@ -786,40 +2543,11 @@ export default function SimuladorMetaPage() {
     void loadDistribution()
   }, [activeTab, companyId, periodStart, periodEnd, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
 
-  async function handleSaveGoal() {
-    if (!isAdmin) return
-    if (!companyId || !competency) return
-
-    const goalValue = Math.max(0, safeNumber(revenueGoalInputText))
-    const ticketValue = ticketSource === 'manual' ? Math.max(0, safeNumber(ticketMedioText)) : 0
-
-    setGoalSaving(true)
-    setGoalError(null)
-    setGoalSuccess(null)
-
-    try {
-      await upsertRevenueGoal({
-        companyId,
-        ownerId: revenueGoalOwnerId ?? null,
-        startDate: revenueDates.start,
-        endDate: revenueDates.end,
-        goalValue,
-        ticketMedio: ticketValue,
-      })
-
-      setRevenueGoalDb(goalValue)
-      setRevenueGoalInputText(String(goalValue))
-      setGoalSuccess('✓ Meta salva!')
-    } catch (e: any) {
-      setGoalError(e?.message ?? 'Erro ao salvar meta.')
-    } finally {
-      setGoalSaving(false)
-    }
-  }
-
   // revenue (dados)
   useEffect(() => {
     if (!competency || !companyId) return
+
+    const cid: string = companyId
 
     async function loadRevenue() {
       if (mode === 'ganhos') {
@@ -832,8 +2560,8 @@ export default function SimuladorMetaPage() {
       setRevenueLoading(true)
       setRevenueError(null)
 
-      const cid = companyId
-      const metric = mode === 'faturamento' ? 'faturamento' : 'recebimento'
+      const metric: 'faturamento' | 'recebimento' =
+        mode === 'recebimento' ? 'recebimento' : 'faturamento'
       const startDate = revenueDates.start
       const endDate = revenueDates.end
 
@@ -931,6 +2659,21 @@ export default function SimuladorMetaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
 
+  const showRevenueMode = mode !== 'ganhos'
+
+  const revenueMetricLabel =
+    mode === 'faturamento' ? 'Faturamento' : mode === 'recebimento' ? 'Recebimento' : 'Ganhos'
+
+  const decisionRevenueKpis = useMemo(() => {
+    if (!showRevenueMode) return null
+
+    if (selectedSellerId) {
+      return revenueSellerKpis
+    }
+
+    return revenueCompanyKpis
+  }, [showRevenueMode, selectedSellerId, revenueSellerKpis, revenueCompanyKpis])
+
   if (loading) {
     return (
       <div style={{ padding: 20 }}>
@@ -960,603 +2703,127 @@ export default function SimuladorMetaPage() {
   const progressTone =
     (result?.progress_pct ?? 0) >= 1 ? 'good' : (result?.progress_pct ?? 0) >= 0.5 ? 'neutral' : 'bad'
 
-  const revenueMetricLabel = mode === 'faturamento' ? 'Faturamento' : 'Recebimento'
-  const showRevenueMode = mode !== 'ganhos'
-  const showCompanyChart = showRevenueMode && isAdmin
-  const showSellerChart = showRevenueMode && selectedSellerId !== null
-
-
-  const daysLabels: Array<{ dow: number; label: string }> = [
-    { dow: 1, label: 'Seg' },
-    { dow: 2, label: 'Ter' },
-    { dow: 3, label: 'Qua' },
-    { dow: 4, label: 'Qui' },
-    { dow: 5, label: 'Sex' },
-    { dow: 6, label: 'Sáb' },
-    { dow: 0, label: 'Dom' },
-  ]
+    const showCompanyChart = showRevenueMode && isAdmin
+    const showSellerChart = showRevenueMode && selectedSellerId !== null
 
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
 
-      {/* ================================================================ */}
-      {/* COMPACT HEADER — sempre visível acima das abas                   */}
-      {/* ================================================================ */}
-      <div style={{
-        borderBottom: '1px solid rgba(59,130,246,0.18)',
-        paddingBottom: 16,
-        marginBottom: 12,
-        padding: '16px 18px',
-        borderRadius: 14,
-        background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-        border: '1px solid rgba(59,130,246,0.18)',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Simulador de Meta</h1>
-          {periodStart && periodEnd ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#546070' }}>Período:</span>
-              <input
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                  border: '1px solid #1a1d2e',
-                  background: '#111318',
-                  color: '#edf2f7',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              />
-              <span style={{ fontSize: 11, color: '#546070' }}>a</span>
-              <input
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                  border: '1px solid #1a1d2e',
-                  background: '#111318',
-                  color: '#edf2f7',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              />
-              {competency ? (
-                <button
-                  onClick={() => {
-                    const rawEnd = new Date(toYMD(competency.month_end) + 'T00:00:00')
-                    rawEnd.setDate(rawEnd.getDate() - 1)
-                    setPeriodStart(toYMD(competency.month_start))
-                    setPeriodEnd(rawEnd.toISOString().slice(0, 10))
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: '1px solid #1a1d2e',
-                    background: '#0d0f14',
-                    color: '#8fa3bc',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                  }}
-                  title="Voltar ao período da competência ativa"
-                >
-                  Reset
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+      <SimulatorTopControls
+        isAdmin={isAdmin}
+        sellers={sellers}
+        selectedSellerId={selectedSellerId}
+        setSelectedSellerId={setSelectedSellerId}
+        periodStart={periodStart}
+        setPeriodStart={setPeriodStart}
+        periodEnd={periodEnd}
+        setPeriodEnd={setPeriodEnd}
+        mode={mode}
+        setMode={(newMode) => {
+          setMode(newMode)
 
-                {/* ── ROW 1: Seller + Mode + Ticket + Meta ────────────── */}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-
-{/* Seller selector (admin only) */}
-{isAdmin ? (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-    <IconUsers size={15} color="#60a5fa" />
-    <select
-      value={selectedSellerId ?? 'all'}
-      onChange={(e) => {
-        const val = e.target.value
-        setSelectedSellerId(val === 'all' ? null : val)
-      }}
-      style={{
-        padding: '8px 12px 8px 8px',
-        borderRadius: 8,
-        border: '1px solid #1a1d2e',
-        background: '#0d0f14',
-        color: '#edf2f7',
-        fontSize: 13,
-        fontWeight: 600,
-        appearance: 'none',
-        WebkitAppearance: 'none',
-        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'right 8px center',
-        paddingRight: 28,
-        cursor: 'pointer',
-        outline: 'none',
-        transition: 'border-color 150ms ease',
-      }}
-      onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-      onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-    >
-      <option value="all">Empresa (todos)</option>
-      {sellers.map((s) => (
-        <option key={s.id} value={s.id}>{s.label}</option>
-      ))}
-    </select>
-  </div>
-) : null}
-
-{/* Mode selector */}
-<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-  <IconBarChart size={15} color="#60a5fa" />
-  <select
-    value={mode}
-    onChange={(e) => {
-      const newMode = e.target.value as SimulatorMode
-      setMode(newMode)
-      if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
-        setActiveTab('taxa-resultado')
-      }
-    }}
-    style={{
-      padding: '8px 12px 8px 8px',
-      borderRadius: 8,
-      border: '1px solid #1a1d2e',
-      background: '#0d0f14',
-      color: '#edf2f7',
-      fontSize: 13,
-      fontWeight: 600,
-      appearance: 'none',
-      WebkitAppearance: 'none',
-      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-      backgroundRepeat: 'no-repeat',
-      backgroundPosition: 'right 8px center',
-      paddingRight: 28,
-      cursor: 'pointer',
-      outline: 'none',
-      transition: 'border-color 150ms ease',
-    }}
-    onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-    onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-  >
-    <option value="ganhos">Ganhos (ciclos)</option>
-    <option value="faturamento">Faturamento (R$)</option>
-  </select>
-</div>
-
-{/* Ticket Médio (quando mode === faturamento) */}
-{mode === 'faturamento' && (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 130 }}>
-    <span style={{ fontSize: 12, color: '#8fa3bc' }}>Ticket Médio:</span>
-    <div style={{ display: 'flex', gap: 4 }}>
-      <button
-        onClick={() => setTicketSource('manual')}
-        style={{
-          padding: '4px 8px',
-          borderRadius: 6,
-          border: ticketSource === 'manual' ? '1px solid #3b82f6' : '1px solid #1a1d2e',
-          background: ticketSource === 'manual' ? 'rgba(59,130,246,0.15)' : '#111318',
-          color: ticketSource === 'manual' ? '#93c5fd' : '#8fa3bc',
-          cursor: 'pointer',
-          fontSize: 11,
-          fontWeight: ticketSource === 'manual' ? 700 : 400,
+          if (newMode === 'ganhos' && (activeTab === 'evolucao' || activeTab === 'teoria')) {
+            setActiveTab('taxa-resultado')
+          }
         }}
-      >
-        Manual
-      </button>
-      <button
-        onClick={() => setTicketSource('historico')}
-        style={{
-          padding: '4px 8px',
-          borderRadius: 6,
-          border: ticketSource === 'historico' ? '1px solid #10b981' : '1px solid #1a1d2e',
-          background: ticketSource === 'historico' ? 'rgba(16,185,129,0.15)' : '#111318',
-          color: ticketSource === 'historico' ? '#6ee7b7' : '#8fa3bc',
-          cursor: 'pointer',
-          fontSize: 11,
-          fontWeight: ticketSource === 'historico' ? 700 : 400,
-        }}
-      >
-        Histórico
-      </button>
-    </div>
-    {ticketSource === 'manual' ? (
-      <input
-        type="text"
-        inputMode="decimal"
-        value={ticketMedioText}
-        onChange={(e) => setTicketMedioText(e.target.value)}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(ticketMedioText))
-          setTicketMedioText(String(n))
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(ticketMedioText))
-          setTicketMedioText(toBRL(n))
-        }}
-        style={{
-          width: 120,
-          padding: '6px 8px',
-          borderRadius: 8,
-          border: '1px solid #1a1d2e',
-          background: '#111318',
-          color: 'white',
-          fontWeight: 700,
-          fontSize: 13,
-        }}
+        revenueGoalContextLabel={revenueGoalContextLabel}
+        revenueGoalInputText={revenueGoalInputText}
+        setRevenueGoalInputText={setRevenueGoalInputText}
+        goalLoading={goalLoading}
+        goalSaving={goalSaving}
+        onSaveGoal={handleSaveGoalFromTop}
+        onUndoGoal={handleUndoGoalFromTop}
+        goalError={goalError}
+        goalSuccess={goalSuccess}
+        ticketMedioText={ticketMedioText}
+        setTicketMedioText={setTicketMedioText}
+        ticketSource={ticketSource}
+        setTicketSource={setTicketSource}
+        historicalTicket={historicalTicket}
+        historicalTicketLoading={historicalTicketLoading}
+        rateSource={rateSource}
+        setRateSource={setRateSource}
+        closeRatePercent={closeRatePercent}
+        setCloseRatePercent={setCloseRatePercent}
+        rateRealData={rateRealData}
+        rateRealLoading={rateRealLoading}
+        daysWindow={daysWindow}
+        setDaysWindow={setDaysWindow}
+        workDays={workDays}
+        setWorkDays={setWorkDays}
+        autoRemainingDays={autoRemainingDays}
+        setAutoRemainingDays={setAutoRemainingDays}
+        remainingBusinessDays={remainingBusinessDays}
       />
-    ) : (
-      <span style={{ fontSize: 13, fontWeight: 700, color: historicalTicket?.is_sufficient ? '#6ee7b7' : '#fca5a5' }}>
-        {historicalTicketLoading
-          ? '...'
-          : historicalTicket?.is_sufficient
-            ? toBRL(historicalTicket.ticket_medio)
-            : 'Insuficiente'}
-      </span>
-    )}
-    {ticketSource === 'historico' && historicalTicket?.is_sufficient && (
-      <span style={{ fontSize: 10, color: '#546070' }}>
-        ({historicalTicket.sample_size} vendas)
-      </span>
-    )}
-    {ticketSource === 'historico' && !historicalTicketLoading && !historicalTicket?.is_sufficient && (
-      <button
-        onClick={() => setTicketSource('manual')}
-        style={{
-          padding: '3px 8px',
-          borderRadius: 6,
-          border: '1px solid #1a1d2e',
-          background: '#111318',
-          color: '#8fa3bc',
-          cursor: 'pointer',
-          fontSize: 10,
-        }}
-      >
-        Usar manual
-      </button>
-    )}
-  </div>
-)}
-</div>
 
-{/* ── BLOCO: TAXA DE CONVERSÃO ────────────── */}
-{(() => {
-const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
-const taxaPlanejadaDecimal = closeRatePercent / 100
-const diferencaPp = taxaRealDecimal !== null
-  ? (taxaPlanejadaDecimal - taxaRealDecimal) * 100
-  : null
-
-let diagnostico = ''
-let diagnosticoColor = '#a78bfa'
-if (taxaRealDecimal !== null) {
-  if (taxaPlanejadaDecimal > taxaRealDecimal * 1.1) {
-    diagnostico = 'Plano otimista'
-    diagnosticoColor = '#f59e0b'
-  } else if (taxaPlanejadaDecimal >= taxaRealDecimal * 0.9) {
-    diagnostico = 'Plano realista'
-    diagnosticoColor = '#10b981'
-  } else {
-    diagnostico = 'Plano conservador'
-    diagnosticoColor = '#60a5fa'
-  }
-}
-
-return (
-  <div style={{
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-evenly',
-    gap: 16,
-    flexWrap: 'wrap',
-    padding: '10px 20px',
-    marginTop: 10,
-    borderRadius: 10,
-    border: '1px solid rgba(59,130,246,0.25)',
-    background: 'linear-gradient(90deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 100%)',
-    fontSize: 12,
-    width: '100%',
-    boxSizing: 'border-box',
-  }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <span style={{ color: '#8fa3bc' }}>Real:</span>
-      <span style={{ fontWeight: 900, color: taxaRealDecimal !== null ? '#22d3ee' : 'rgba(255,255,255,0.25)' }}>
-        {taxaRealDecimal !== null ? `${(taxaRealDecimal * 100).toFixed(1)}%` : '—'}
-      </span>
-      {rateRealData?.vendor?.worked ? (
-        <span style={{ fontSize: 10, opacity: 0.4 }}>({rateRealData.vendor.worked} ciclos)</span>
-      ) : null}
-    </div>
-
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-      <span style={{ color: '#8fa3bc' }}>Planejada:</span>
-      <input
-        type="number"
-        step="1"
-        min="1"
-        max="90"
-        value={closeRatePercent}
-        onChange={(e) => {
-          const val = parseFloat(e.target.value) || 1
-          setCloseRatePercent(Math.max(1, Math.min(90, val)))
-        }}
-        style={{
-          width: 48,
-          padding: '3px 6px',
-          borderRadius: 6,
-          border: '1px solid rgba(59,130,246,0.3)',
-          background: 'rgba(17,19,24,0.8)',
-          color: '#f59e0b',
-          fontSize: 13,
-          fontWeight: 900,
-        }}
+      <DecisionHero
+        mode={mode}
+        revenueMetricLabel={revenueMetricLabel}
+        revenueKpis={decisionRevenueKpis}
+        theory10020Result={theory10020Result}
+        revenueLoading={revenueLoading}
+        revenueError={revenueError}
+        remainingBusinessDays={remainingBusinessDays}
+        rateSource={rateSource}
+        taxaUsadaNoCalculo={taxaUsadaNoCalculo}
       />
-      <span style={{ fontWeight: 900, color: '#f59e0b' }}>%</span>
-    </div>
-
-    {diferencaPp !== null ? (
-      <span style={{ opacity: 0.7 }}>
-        <strong style={{ color: diferencaPp > 0 ? '#f59e0b' : diferencaPp < 0 ? '#60a5fa' : '#10b981' }}>
-          {diferencaPp > 0 ? '+' : ''}{diferencaPp.toFixed(1)}pp
-        </strong>
-      </span>
-    ) : null}
-
-    {diagnostico ? (
-      <span style={{ fontWeight: 700, color: diagnosticoColor }}>{diagnostico}</span>
-    ) : null}
-
-    <div style={{ height: 18, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
-
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ color: '#8fa3bc' }}>Usar:</span>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
-        <input
-          type="radio"
-          name="rateSourceHeader"
-          value="planejada"
-          checked={rateSource === 'planejada'}
-          onChange={() => setRateSource('planejada')}
-          style={{ accentColor: '#f59e0b' }}
-        />
-        <span style={{ fontWeight: rateSource === 'planejada' ? 700 : 400 }}>Planejada</span>
-      </label>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: taxaRealDecimal !== null ? 'pointer' : 'not-allowed', opacity: taxaRealDecimal !== null ? 1 : 0.4 }}>
-        <input
-          type="radio"
-          name="rateSourceHeader"
-          value="real"
-          checked={rateSource === 'real'}
-          onChange={() => setRateSource('real')}
-          disabled={taxaRealDecimal === null}
-          style={{ accentColor: '#22d3ee' }}
-        />
-        <span style={{ fontWeight: rateSource === 'real' ? 700 : 400 }}>Real</span>
-      </label>
-    </div>
-
-    <span style={{ fontSize: 11, opacity: 0.5 }}>
-      Mult: <strong style={{ color: '#f59e0b' }}>×{taxaUsadaNoCalculo > 0 ? (1 / taxaUsadaNoCalculo).toFixed(2) : '—'}</strong>
-    </span>
-  </div>
-)
-})()}
-
-{/* ��─ BLOCO: DIAS DA SEMANA + AUTO DIAS + DIAS REST. ────────────── */}
-<div style={{
-display: 'flex',
-alignItems: 'center',
-justifyContent: 'space-evenly',
-gap: 16,
-flexWrap: 'wrap',
-padding: '10px 20px',
-marginTop: 6,
-borderRadius: 10,
-border: '1px solid rgba(59,130,246,0.25)',
-background: 'linear-gradient(90deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 100%)',
-fontSize: 12,
-width: '100%',
-boxSizing: 'border-box',
-}}>
-<div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-  {daysLabels.map(({ dow, label }) => {
-    const isActive = !!workDays[dow]
-    return (
-      <button
-        key={dow}
-        type="button"
-        onClick={() => setWorkDays((prev) => ({ ...prev, [dow]: !prev[dow] }))}
-        style={{
-          padding: '5px 10px',
-          borderRadius: 6,
-          border: isActive ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-          background: isActive
-            ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
-            : 'transparent',
-          color: isActive ? '#93c5fd' : '#546070',
-          fontSize: 12,
-          fontWeight: isActive ? 700 : 400,
-          cursor: 'pointer',
-          transition: 'all 150ms ease',
-          lineHeight: 1,
-        }}
-      >
-        {label}
-      </button>
-    )
-  })}
-</div>
-
-<button
-  type="button"
-  onClick={() => setAutoRemainingDays((prev) => !prev)}
-  style={{
-    padding: '5px 10px',
-    borderRadius: 6,
-    border: autoRemainingDays ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-    background: autoRemainingDays
-      ? 'linear-gradient(90deg, rgba(59,130,246,0.22) 0%, rgba(59,130,246,0.08) 100%)'
-      : 'transparent',
-    color: autoRemainingDays ? '#93c5fd' : '#546070',
-    fontSize: 11,
-    fontWeight: autoRemainingDays ? 700 : 400,
-    cursor: 'pointer',
-    transition: 'all 150ms ease',
-    lineHeight: 1,
-  }}
->
-  Auto dias
-</button>
-
-<div style={{ height: 18, width: 1, background: 'rgba(59,130,246,0.2)', flexShrink: 0 }} />
-
-<div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-  <span style={{ color: '#8fa3bc' }}>Dias rest.:</span>
-  <input
-    type="number"
-    value={remainingBusinessDays}
-    onChange={(e) => setRemainingBusinessDays(Math.max(0, parseInt(e.target.value) || 0))}
-    disabled={autoRemainingDays}
-    style={{
-      width: 48,
-      padding: '3px 6px',
-      borderRadius: 6,
-      border: '1px solid rgba(59,130,246,0.3)',
-      background: autoRemainingDays ? 'rgba(13,15,20,0.8)' : 'rgba(17,19,24,0.8)',
-      color: 'white',
-      fontSize: 13,
-      fontWeight: 900,
-      opacity: autoRemainingDays ? 0.65 : 1,
-      cursor: autoRemainingDays ? 'not-allowed' : 'text',
-    }}
-  />
-</div>
-</div>
-
-{/* ── Meta R$ (esquerda) + Salvar/Desfazer (direita) ── */}
-{showRevenueMode ? (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-      <span style={{
-        fontSize: 13,
-        fontWeight: 900,
-        color: '#93c5fd',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-      }}>Meta R$:</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={revenueGoalInputText}
-        onChange={(e) => setRevenueGoalInputText(e.target.value)}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(n > 0 ? String(n) : '')
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(toBRL(n))
-        }}
-        onFocus={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(String(n))
-        }}
-        onBlur={() => {
-          const n = Math.max(0, safeNumber(revenueGoalInputText))
-          setRevenueGoalInputText(toBRL(n))
-        }}
-        disabled={!isAdmin || goalLoading || goalSaving}
-        style={{
-          width: 160,
-          padding: '8px 12px',
-          borderRadius: 8,
-          border: '1px solid rgba(59,130,246,0.4)',
-          background: !isAdmin ? '#0d0f14' : 'linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(13,15,20,0.9) 100%)',
-          color: '#6ee7b7',
-          fontWeight: 900,
-          fontSize: 16,
-          letterSpacing: '-0.3px',
-          boxShadow: '0 0 12px rgba(59,130,246,0.15), inset 0 1px 0 rgba(59,130,246,0.08)',
-        }}
-      />
-      {goalLoading ? <span style={{ fontSize: 11, color: '#8fa3bc' }}>Carregando...</span> : null}
-      {goalError ? <span style={{ fontSize: 11, color: '#ffb3b3' }}>{goalError}</span> : null}
-      {goalSuccess ? <span style={{ fontSize: 11, color: '#6ee7b7' }}>{goalSuccess}</span> : null}
-    </div>
-    {isAdmin ? (
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button
-          onClick={() => void handleSaveGoal()}
-          disabled={goalSaving || goalLoading}
-          style={{
-            padding: '7px 16px',
-            borderRadius: 8,
-            border: '1px solid rgba(59,130,246,0.4)',
-            background: 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)',
-            color: '#93c5fd',
-            fontWeight: 700,
-            fontSize: 12,
-            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-            opacity: goalSaving || goalLoading ? 0.5 : 1,
-            transition: 'all 150ms ease',
-            letterSpacing: '0.02em',
-          }}
-        >
-          {goalSaving ? '...' : 'Salvar'}
-        </button>
-        <button
-          onClick={() => setRevenueGoalInputText(String(revenueGoalDb))}
-          disabled={goalSaving || goalLoading}
-          style={{
-            padding: '7px 14px',
-            borderRadius: 8,
-            border: '1px solid #1a1d2e',
-            background: '#0d0f14',
-            color: '#8fa3bc',
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: goalSaving || goalLoading ? 'not-allowed' : 'pointer',
-            opacity: goalSaving || goalLoading ? 0.5 : 1,
-            transition: 'all 150ms ease',
-          }}
-        >
-          Desfazer
-        </button>
-      </div>
-    ) : null}
-  </div>
-) : null}
-      </div>
 
       {/* ================================================================ */}
       {/* TAB NAVIGATION                                                    */}
       {/* ================================================================ */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-      <button onClick={() => setActiveTab('teoria')} style={tabStyle(activeTab === 'teoria')}>
+      <div
+        style={{
+          marginBottom: 16,
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'rgba(13, 15, 20, 0.72)',
+          borderRadius: 16,
+          padding: 6,
+          display: 'flex',
+          gap: 6,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab('teoria')}
+          style={tabStyle(activeTab === 'teoria')}
+        >
           Esforço Máximo
         </button>
+
         {showRevenueMode ? (
-          <button onClick={() => setActiveTab('evolucao')} style={tabStyle(activeTab === 'evolucao')}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('evolucao')}
+            style={tabStyle(activeTab === 'evolucao')}
+          >
             Evolução
           </button>
         ) : null}
-        <button onClick={() => setActiveTab('taxa-resultado')} style={tabStyle(activeTab === 'taxa-resultado')}>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('taxa-resultado')}
+          style={tabStyle(activeTab === 'taxa-resultado')}
+        >
           Taxa e Resultado
         </button>
-        <button onClick={() => setActiveTab('funil')} style={tabStyle(activeTab === 'funil')}>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('funil')}
+          style={tabStyle(activeTab === 'funil')}
+        >
           Funil do Período
         </button>
-        <button onClick={() => setActiveTab('distribuicao')} style={tabStyle(activeTab === 'distribuicao')}>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('distribuicao')}
+          style={tabStyle(activeTab === 'distribuicao')}
+        >
           Distribuição
         </button>
       </div>
@@ -1573,317 +2840,29 @@ boxSizing: 'border-box',
           mode === 'faturamento' ? (
             <Section
               title={
-                <TitleWithTip label="Esforço Máximo — Planejamento Operacional" tipTitle="O que é o Esforço Máximo?" width={480}>
+                <TitleWithTip label="Plano de Execução — Esforço Máximo" tipTitle="O que é o Esforço Máximo?" width={480}>
                   <div style={{ display: 'grid', gap: 8 }}>
-                  <div>O cálculo usa <strong>1 ÷ taxa de conversão</strong> como multiplicador. Com 20% → ×5, com 15% → ×6.67, com 25% → ×4.</div>
-                    <div>Meta × Multiplicador = Esforço → Esforço ÷ Ticket = Leads → Leads × Taxa = Ganhos</div>
-                    <div>Os resultados finais mostram quantos leads e ganhos você precisa por dia.</div>
+                    <div>
+                      O cálculo usa <strong>1 ÷ taxa de conversão</strong> como multiplicador. Com 20% → ×5, com 15% → ×6.67, com 25% → ×4.
+                    </div>
+                    <div>
+                      A lógica transforma meta financeira em volume de leads, ganhos necessários e ritmo diário de execução.
+                    </div>
                   </div>
                 </TitleWithTip>
               }
-              description="Converte sua meta de faturamento em volume de leads e ganhos diários usando o multiplicador dinâmico (1 ÷ taxa)"
+              description="Transforma a meta financeira em volume de leads, ganhos e ritmo diário de execução."
             >
-              <div style={{ display: 'grid', gap: 28 }}>
-
-              
-
-                {/* ── BLOCO 2: RESULTADO DO ESFORÇO MÁXIMO ──────────────── */}
-                {theory10020Result ? (() => {
-                  const t = theory10020Result
-                  return (
-                    <>
-                      <div style={{
-                        padding: '20px 18px',
-                        borderRadius: 14,
-                        background: 'linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(59,130,246,0.03) 60%, rgba(13,15,20,0.95) 100%)',
-                        border: '1px solid rgba(59,130,246,0.20)',
-                        boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.06)',
-                      }}>
-                        <div style={{
-                          fontSize: 10,
-                          fontWeight: 900,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.12em',
-                          color: 'rgba(147,197,253,0.5)',
-                          marginBottom: 14,
-                          paddingLeft: 10,
-                          borderLeft: '2px solid rgba(59,130,246,0.4)',
-                        }}>
-                          Resultado do Esforço Máximo
-                        </div>
-
-                        {/* Row 2: Steps 5 → 9 */}
-                        <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
-                          {/* Step 5 — Ticket médio */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #8b5cf6' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <IconTag size={16} color="#a78bfa" />
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ticket médio</div>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#a78bfa', lineHeight: 1 }}>{toBRL(t.ticket_medio)}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ticket médio</div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.18)', fontSize: 20, fontWeight: 300, flexShrink: 0 }}>÷</div>
-
-                          {/* Step 6 — Leads para contatar */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #06b6d4' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <IconCrosshair size={16} color="#22d3ee" />
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads para contatar</div>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#22d3ee', lineHeight: 1 }}>{t.leads_para_contatar}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>esforço ÷ ticket</div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 6, color: 'rgba(16,185,129,0.5)', fontSize: 12, fontWeight: 300, flexShrink: 0, flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontSize: 9, opacity: 0.6 }}>×taxa</span>
-                            <span style={{ fontSize: 14 }}>→</span>
-                          </div>
-
-                          {/* Step 7 — Ganhos esperados */}
-                          <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #10b981' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                              <IconTrophy size={16} color="#10b981" />
-                              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos esperados</div>
-                            </div>
-                            <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#10b981', lineHeight: 1 }}>{t.ganhos_esperados}</div>
-                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>leads × conversão</div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 6, color: 'rgba(255,255,255,0.18)', fontSize: 12, fontWeight: 300, flexShrink: 0, flexDirection: 'column', gap: 2 }}>
-                            <span style={{ fontSize: 9, opacity: 0.6 }}>÷dias</span>
-                            <span style={{ fontSize: 14 }}>→</span>
-                          </div>
-
-                          {/* Step 8 — Leads por dia útil */}
-                          {(() => {
-                            const lpdColor = t.leads_por_dia > 15 ? '#ef4444' : '#22d3ee'
-                            return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: `3px solid ${lpdColor}` }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                <IconZap size={16} color={lpdColor} />
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Leads por dia útil</div>
-                                </div>
-                                <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: lpdColor, lineHeight: 1 }}>{t.leads_por_dia}</div>
-                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>leads ÷ dias úteis</div>
-                              </div>
-                            )
-                          })()}
-
-                          <div style={{ display: 'flex', alignItems: 'center', paddingInline: 8, color: 'rgba(255,255,255,0.10)', fontSize: 20, fontWeight: 100, flexShrink: 0 }}>|</div>
-
-                          {/* Step 9 — Ganhos por dia útil */}
-                          {(() => {
-                            const gpdColor = t.ganhos_por_dia > 5 ? '#ef4444' : '#10b981'
-                            return (
-                              <div style={{ flex: 1, padding: '16px 14px', borderRadius: 12, background: '#0d0f14', borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: `3px solid ${gpdColor}` }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                <IconCheckCircle size={16} color={gpdColor} />
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.5)', fontWeight: 700 }}>Ganhos por dia útil</div>
-                                </div>
-                                <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: gpdColor, lineHeight: 1 }}>{t.ganhos_por_dia}</div>
-                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>ganhos ÷ dias úteis</div>
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      </div>
-
-                      {/* ── BLOCO 3: SITUAÇÃO ATUAL ─────────────────────────── */}
-                      {!t.meta_atingida && t.gap > 0 ? (
-                        <div style={{
-                          padding: '20px 18px',
-                          borderRadius: 14,
-                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 50%, rgba(13,15,20,0.95) 100%)',
-                          border: '1px solid rgba(59,130,246,0.18)',
-                          boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.05)',
-                        }}>
-                          <div style={{
-                            fontSize: 10,
-                            fontWeight: 900,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.12em',
-                            color: 'rgba(147,197,253,0.5)',
-                            marginBottom: 14,
-                            paddingLeft: 10,
-                            borderLeft: '2px solid rgba(239,68,68,0.4)',
-                          }}>
-                            Situação atual
-                          </div>
-                          {(() => {
-                            const progressPct = t.progress_pct
-                            const pctRounded = Math.round(progressPct * 100)
-                            const barColor = progressPct >= 0.8 ? '#10b981' : progressPct >= 0.5 ? '#f59e0b' : '#ef4444'
-                            return (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                                <div style={{ padding: '18px 20px', borderRadius: 14, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 8 }}>Realizado</div>
-                                  <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '-0.5px', color: barColor, lineHeight: 1 }}>{toBRL(t.total_real)}</div>
-                                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6, marginBottom: 16 }}>de {toBRL(t.meta_total)} ({pctRounded}%)</div>
-                                  <div style={{ height: 8, borderRadius: 4, background: '#1a1d2e', overflow: 'hidden' }}>
-                                    <div
-                                      role="progressbar"
-                                      aria-valuenow={Math.min(pctRounded, 100)}
-                                      aria-valuemin={0}
-                                      aria-valuemax={100}
-                                      aria-label={`Progresso: ${pctRounded}%`}
-                                      style={{
-                                        height: '100%',
-                                        borderRadius: 4,
-                                        width: `${Math.min(pctRounded, 100)}%`,
-                                        background: `linear-gradient(90deg, #ef4444, ${barColor})`,
-                                        transition: 'width 0.6s ease',
-                                      }}
-                                    />
-                                  </div>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
-                                    <span>0%</span>
-                                    <span style={{ color: barColor, fontWeight: 700 }}>{pctRounded}%</span>
-                                    <span>100%</span>
-                                  </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                  <div style={{ gridColumn: '1 / -1', padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', borderTop: '1px solid rgba(59,130,246,0.12)', borderRight: '1px solid rgba(59,130,246,0.12)', borderBottom: '1px solid rgba(59,130,246,0.12)', borderLeft: '3px solid #ef4444' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Falta para a meta</div>
-                                    <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: '-0.5px', color: '#ef4444', lineHeight: 1 }}>{toBRL(t.gap)}</div>
-                                    <div style={{ fontSize: 11, color: 'rgba(239,68,68,0.6)', marginTop: 4 }}>Meta − Realizado</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>gap × {t.multiplicador.toFixed(2)} ÷ ticket</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. × conversão</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Leads restantes/dia</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#22d3ee', lineHeight: 1 }}>{t.leads_restantes_por_dia}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>leads rest. ÷ dias úteis</div>
-                                  </div>
-                                  <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(13,15,20,0.7)', border: '1px solid rgba(59,130,246,0.12)' }}>
-                                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 6 }}>Ganhos restantes/dia</div>
-                                    <div style={{ fontSize: 22, fontWeight: 900, color: '#10b981', lineHeight: 1 }}>{t.ganhos_restantes_por_dia}</div>
-                                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>ganhos rest. ÷ dias úteis</div>
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      ) : null}
-
-                      {/* ── BANNER META ATINGIDA ────────────────────────────── */}
-                      {t.meta_atingida && (
-                        <div style={{
-                          padding: '24px 28px',
-                          borderRadius: 16,
-                          background: 'linear-gradient(135deg, #064e3b, #065f46, #047857)',
-                          border: '1px solid rgba(110,231,183,0.3)',
-                          boxShadow: '0 0 40px rgba(16,185,129,0.15)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 16,
-                        }}>
-                          <div style={{ fontSize: 40 }} aria-label="Celebração">🎉</div>
-                          <div>
-                            <div style={{ fontSize: 20, fontWeight: 900, color: '#6ee7b7', letterSpacing: '-0.3px' }}>Meta atingida!</div>
-                            <div style={{ fontSize: 13, color: 'rgba(110,231,183,0.7)', marginTop: 4 }}>
-                              Realizado <strong style={{ color: '#6ee7b7' }}>{toBRL(t.total_real)}</strong> de <strong style={{ color: '#6ee7b7' }}>{toBRL(t.meta_total)}</strong> — parabéns pelo resultado!
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ── BLOCO 4: DIAGNÓSTICO OPERACIONAL ───────────────── */}
-                      {!t.meta_atingida && t.gap > 0 ? (
-                        <div style={{
-                          padding: '20px 18px',
-                          borderRadius: 14,
-                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.03) 50%, rgba(13,15,20,0.95) 100%)',
-                          border: '1px solid rgba(59,130,246,0.18)',
-                          boxShadow: '0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.05)',
-                        }}>
-                          <div style={{
-                            fontSize: 10,
-                            fontWeight: 900,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.12em',
-                            color: 'rgba(147,197,253,0.5)',
-                            marginBottom: 14,
-                            paddingLeft: 10,
-                            borderLeft: '2px solid rgba(245,158,11,0.4)',
-                          }}>
-                            Diagnóstico operacional
-                          </div>
-                          <div style={{
-                            padding: '20px 20px 20px 24px',
-                            borderRadius: 14,
-                            background: 'rgba(13,15,20,0.6)',
-                            borderTop: '1px solid rgba(59,130,246,0.10)',
-                            borderRight: '1px solid rgba(59,130,246,0.10)',
-                            borderBottom: '1px solid rgba(59,130,246,0.10)',
-                            borderLeft: '4px solid #f59e0b',
-                            position: 'relative',
-                            overflow: 'hidden',
-                            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.15)',
-                          }}>
-                            <div style={{ fontSize: 13, lineHeight: 1.9, color: 'rgba(255,255,255,0.8)' }}>
-                              <div>
-                                Para atingir a meta de{' '}
-                                <strong style={{ color: '#3b82f6' }}>{toBRL(t.meta_total)}</strong>,
-                                com conversão de{' '}
-                                <strong style={{ color: '#22d3ee' }}>{(t.close_rate * 100).toFixed(1)}%</strong>{' '}
-                                (fonte: {rateSource === 'real' && (rateRealData?.vendor?.close_rate ?? null) !== null ? 'histórica' : 'planejada'}),
-                                 o multiplicador é{' '}
-                                <strong style={{ color: '#f59e0b' }}>{t.multiplicador > 0 ? `×${t.multiplicador.toFixed(2)}` : '—'}</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                O esforço bruto necessário é{' '}
-                                <strong style={{ color: '#fbbf24' }}>{toBRL(t.esforco_bruto)}</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                Com ticket médio de{' '}
-                                <strong style={{ color: '#a78bfa' }}>{toBRL(t.ticket_medio)}</strong>,
-                                são necessários{' '}
-                                <strong style={{ color: '#22d3ee' }}>{t.leads_para_contatar} leads para contatar</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                Com conversão de{' '}
-                                <strong style={{ color: '#22d3ee' }}>{(t.close_rate * 100).toFixed(1)}%</strong>,
-                                os ganhos esperados são{' '}
-                                <strong style={{ color: '#10b981' }}>{t.ganhos_esperados} fechamentos</strong>.
-                              </div>
-                              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
-                                Faltando{' '}
-                                <strong style={{ color: '#f59e0b' }}>{remainingBusinessDays} dias úteis</strong>,
-                                o ritmo necessário é{' '}
-                                <strong style={{ color: '#22d3ee' }}>{t.leads_restantes_por_dia} leads/dia</strong>{' '}
-                                e{' '}
-                                <strong style={{ color: '#10b981' }}>{t.ganhos_restantes_por_dia} ganhos/dia</strong>{' '}
-                                para fechar o gap de{' '}
-                                <strong style={{ color: '#ef4444' }}>{toBRL(t.gap)}</strong>.
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-                    </>
-                  )
-                })() : (
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    Informe um ticket médio maior que zero para gerar o plano operacional.
-                  </div>
-                )}
-              </div>
+              <ExecutionPlanPanel
+                theory10020Result={theory10020Result}
+                remainingBusinessDays={remainingBusinessDays}
+                rateSource={rateSource}
+                rateRealData={rateRealData}
+              />
             </Section>
           ) : (
             <div style={{ padding: 24, textAlign: 'center', fontSize: 14, opacity: 0.5 }}>
-                            Esforço Máximo disponível apenas no modo Faturamento.
+              Esforço Máximo disponível apenas no modo Faturamento.
             </div>
           )
         )}
@@ -1914,7 +2893,7 @@ boxSizing: 'border-box',
 
             {showCompanyChart && revenueCompany?.success ? (
               <RevenueChart
-                title={`Evolução — Empresa (Faturamento)`}
+              title={`Evolução — Empresa (${revenueMetricLabel})`}
                 series={(revenueCompany.days ?? []) as RevenueDayPoint[]}
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
@@ -1924,7 +2903,7 @@ boxSizing: 'border-box',
 
             {showSellerChart && revenueSeller?.success ? (
               <RevenueChart
-                title={`Evolução — Vendedor (Faturamento)`}
+              title={`Evolução — Vendedor (${revenueMetricLabel})`}
                 series={(revenueSeller.days ?? []) as RevenueDayPoint[]}
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
@@ -2058,7 +3037,7 @@ boxSizing: 'border-box',
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 <Card title="Ciclos Necessários" value={result?.needed_worked_cycles ?? '—'} subtitle={result ? `${result.needed_wins} ganhos ÷ ${closeRatePercent}% taxa` : undefined} />
                 <Card title="Ciclos Restantes" value={result?.remaining_worked_cycles ?? '—'} subtitle={result ? `${result.remaining_wins} ganhos restantes ÷ ${closeRatePercent}%` : undefined} />
-                <Card title="Ciclos/Dia (período)" value={result?.daily_worked_needed ?? '—'} subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ 22 dias` : undefined} />
+                <Card title="Ciclos/Dia (período)" value={result?.daily_worked_needed ?? '—'} subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ ${periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays) : 22} dias` : undefined} />
                 <Card title="Ciclos/Dia (restante)" value={result?.daily_worked_remaining ?? '—'} subtitle={result ? `${result.remaining_worked_cycles} ciclos ÷ ${remainingBusinessDays} dias` : undefined} />
               </div>
             </Section>
@@ -2081,69 +3060,101 @@ boxSizing: 'border-box',
         {activeTab === 'funil' && (
           <div style={{ display: 'grid', gap: 16 }}>
 
-            <Section title="Funil do Período" description="Distribuição dos ciclos por estágio.">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #3b82f6', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Novo</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#3b82f6' }}>{metrics?.counts_by_status.novo ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #06b6d4', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Contato</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#06b6d4' }}>{metrics?.counts_by_status.contato ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #eab308', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Respondeu</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#eab308' }}>{metrics?.counts_by_status.respondeu ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #8b5cf6', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Negociação</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#8b5cf6' }}>{metrics?.counts_by_status.negociacao ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #22c55e', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Ganho</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#22c55e' }}>{metrics?.counts_by_status.ganho ?? '—'}</div>
-                </div>
-                <div style={{ borderTop: '1px solid #1a1d2e', borderRight: '1px solid #1a1d2e', borderBottom: '1px solid #1a1d2e', borderLeft: '3px solid #ef4444', background: '#0d0f14', borderRadius: 10, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 10, color: '#8fa3bc', marginBottom: 4 }}>Perdido</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#ef4444' }}>{metrics?.counts_by_status.perdido ?? '—'}</div>
-                </div>
+<Section
+              title="Funil do Período"
+              description="Distribuição compacta dos ciclos por estágio no período selecionado."
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                <FunnelStageCard
+                  label="Novo"
+                  value={metrics?.counts_by_status.novo ?? '—'}
+                  accent="#3b82f6"
+                />
+
+                <FunnelStageCard
+                  label="Contato"
+                  value={metrics?.counts_by_status.contato ?? '—'}
+                  accent="#06b6d4"
+                />
+
+                <FunnelStageCard
+                  label="Respondeu"
+                  value={metrics?.counts_by_status.respondeu ?? '—'}
+                  accent="#eab308"
+                />
+
+                <FunnelStageCard
+                  label="Negociação"
+                  value={metrics?.counts_by_status.negociacao ?? '—'}
+                  accent="#8b5cf6"
+                />
+
+                <FunnelStageCard
+                  label="Ganho"
+                  value={metrics?.counts_by_status.ganho ?? '—'}
+                  accent="#22c55e"
+                />
+
+                <FunnelStageCard
+                  label="Perdido"
+                  value={metrics?.counts_by_status.perdido ?? '—'}
+                  accent="#ef4444"
+                />
               </div>
             </Section>
 
             {/* Conversão por grupo */}
             {groupConversionLoading ? (
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Carregando funil por grupo...</div>
-            ) : groupConversion.length > 0 ? (
-              <Section title="Conversão por Grupo" description="Taxa de conversão por grupo de leads no período.">
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #1a1d2e' }}>
-                        <th style={{ textAlign: 'left', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Grupo</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Trabalhados</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Ganhos</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Taxa</th>
-                        <th style={{ textAlign: 'right', padding: '8px 12px', color: '#4a5569', fontWeight: 700 }}>Participação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupConversion.map((row, i) => (
-                        <tr
-                          key={row.group_id ?? i}
-                          style={{ borderBottom: '1px solid #1a1d2e' }}
-                        >
-                          <td style={{ padding: '8px 12px' }}>{row.group_name || '—'}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.8 }}>{row.trabalhados}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', color: '#10b981' }}>{row.ganho}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', color: '#06b6d4' }}>{pct(row.pct_grupo)}</td>
-                          <td style={{ textAlign: 'right', padding: '8px 12px', opacity: 0.7 }}>{pct(row.pct_participacao)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <Section
+                title="Conversão por Grupo"
+                description="Carregando a conversão dos grupos de leads no período selecionado."
+              >
+                <div
+                  style={{
+                    border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                    background: 'rgba(9, 11, 15, 0.46)',
+                    borderRadius: 14,
+                    padding: 16,
+                    color: SIMULATOR_UI.textMuted,
+                    fontSize: 13,
+                  }}
+                >
+                  Carregando funil por grupo...
                 </div>
               </Section>
-            ) : null}
+            ) : groupConversion.length > 0 ? (
+              <Section
+                title="Conversão por Grupo"
+                description="Leitura compacta da eficiência dos grupos de leads no período selecionado."
+              >
+                <GroupConversionList rows={groupConversion} />
+              </Section>
+            ) : (
+              <Section
+                title="Conversão por Grupo"
+                description="Leitura compacta da eficiência dos grupos de leads no período selecionado."
+              >
+                <div
+                  style={{
+                    border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                    background: 'rgba(9, 11, 15, 0.46)',
+                    borderRadius: 14,
+                    padding: 16,
+                    color: SIMULATOR_UI.textMuted,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Nenhum grupo com conversão encontrado para o período atual.
+                </div>
+              </Section>
+            )}
 
           </div>
         )}

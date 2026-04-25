@@ -7,6 +7,7 @@ export interface SimulatorConfig {
   close_rate: number
   ticket_medio: number
   remaining_business_days: number
+  total_business_days?: number
 }
 
 export interface SimulatorMetrics {
