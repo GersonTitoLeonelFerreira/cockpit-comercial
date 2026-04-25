@@ -7,16 +7,29 @@ import type {
   OperationalFocusType,
 } from '@/app/types/distribution'
 
-// ==============================================================================
-// Helpers
-// ==============================================================================
+const DISTRIBUTION_UI = {
+  surface: '#0d0f14',
+  surfaceSoft: '#10131a',
+  surfaceElevated: '#121621',
+  borderSoft: 'rgba(148, 163, 184, 0.10)',
+  borderMuted: 'rgba(148, 163, 184, 0.07)',
+  textPrimary: '#f8fafc',
+  textSecondary: '#cbd5e1',
+  textMuted: '#94a3b8',
+  textSubtle: '#64748b',
+  blue: '#60a5fa',
+  green: '#86efac',
+  amber: '#fbbf24',
+  red: '#fca5a5',
+  purple: '#c4b5fd',
+} as const
 
 const FOCUS_COLORS: Record<OperationalFocusType, string> = {
-  prospeccao: '#3b82f6',
-  followup: '#f59e0b',
-  negociacao: '#8b5cf6',
-  fechamento: '#10b981',
-  neutro: '#6b7280',
+  prospeccao: DISTRIBUTION_UI.blue,
+  followup: DISTRIBUTION_UI.amber,
+  negociacao: DISTRIBUTION_UI.purple,
+  fechamento: DISTRIBUTION_UI.green,
+  neutro: DISTRIBUTION_UI.textSubtle,
 }
 
 const FOCUS_LABELS: Record<OperationalFocusType, string> = {
@@ -28,55 +41,208 @@ const FOCUS_LABELS: Record<OperationalFocusType, string> = {
 }
 
 const CONFIDENCE_COLORS: Record<DistributionConfidence, string> = {
-  alta: '#10b981',
-  moderada: '#f59e0b',
-  baixa: '#ef4444',
-  insuficiente: '#6b7280',
+  alta: DISTRIBUTION_UI.green,
+  moderada: DISTRIBUTION_UI.amber,
+  baixa: DISTRIBUTION_UI.red,
+  insuficiente: DISTRIBUTION_UI.textSubtle,
+}
+
+function formatNumber(value: number) {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    maximumFractionDigits: 1,
+  })
+}
+
+function formatDay(date: string) {
+  const parts = date.split('-')
+  if (parts.length !== 3) return date
+  return `${parts[2]}/${parts[1]}`
 }
 
 function KpiCard({
   label,
   value,
   sub,
-  tone,
+  tone = 'neutral',
 }: {
   label: string
-  value: string | number
-  sub?: string
+  value: React.ReactNode
+  sub?: React.ReactNode
   tone?: 'good' | 'bad' | 'neutral' | 'warn'
 }) {
-  const color =
+  const valueColor =
     tone === 'good'
-      ? '#10b981'
+      ? DISTRIBUTION_UI.green
       : tone === 'bad'
-      ? '#ef4444'
-      : tone === 'warn'
-      ? '#f59e0b'
-      : '#e8e8e8'
+        ? DISTRIBUTION_UI.red
+        : tone === 'warn'
+          ? DISTRIBUTION_UI.amber
+          : DISTRIBUTION_UI.textPrimary
+
   return (
     <div
-    style={{
-      background: '#0d0f14',
-      border: '1px solid #1a1d2e',
-      borderRadius: 10,
-      padding: '14px 16px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 4,
-    }}
-  >
-    <div style={{ fontSize: 11, color: '#4a5569', textTransform: 'uppercase', letterSpacing: 1 }}>
-      {label}
+      style={{
+        border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+        background: 'rgba(9, 11, 15, 0.46)',
+        borderRadius: 14,
+        padding: '14px',
+        minHeight: 96,
+        display: 'grid',
+        alignContent: 'space-between',
+        gap: 8,
+      }}
+    >
+      <div
+        style={{
+          color: DISTRIBUTION_UI.textSubtle,
+          fontSize: 11.5,
+          fontWeight: 850,
+          textTransform: 'uppercase',
+          letterSpacing: '0.045em',
+          lineHeight: 1.2,
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        style={{
+          color: valueColor,
+          fontSize: 23,
+          fontWeight: 950,
+          letterSpacing: -0.45,
+          lineHeight: 1.05,
+        }}
+      >
+        {value}
+      </div>
+
+      {sub ? (
+        <div
+          style={{
+            color: DISTRIBUTION_UI.textSubtle,
+            fontSize: 12,
+            lineHeight: 1.35,
+          }}
+        >
+          {sub}
+        </div>
+      ) : null}
     </div>
-    <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
-    {sub ? <div style={{ fontSize: 11, color: '#546070' }}>{sub}</div> : null}
-  </div>
   )
 }
 
-// ==============================================================================
-// Main component
-// ==============================================================================
+function Panel({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      style={{
+        border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+        background: 'rgba(9, 11, 15, 0.38)',
+        borderRadius: 16,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          marginBottom: 14,
+        }}
+      >
+        <div
+          style={{
+            color: DISTRIBUTION_UI.textPrimary,
+            fontSize: 13.5,
+            fontWeight: 900,
+            letterSpacing: -0.15,
+          }}
+        >
+          {title}
+        </div>
+
+        {description ? (
+          <div
+            style={{
+              color: DISTRIBUTION_UI.textSubtle,
+              fontSize: 12.5,
+              lineHeight: 1.45,
+              maxWidth: 760,
+            }}
+          >
+            {description}
+          </div>
+        ) : null}
+      </div>
+
+      {children}
+    </div>
+  )
+}
+
+function FocusChip({
+  type,
+  count,
+}: {
+  type: OperationalFocusType
+  count: number
+}) {
+  const color = FOCUS_COLORS[type]
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        border: `1px solid ${color}26`,
+        background: 'rgba(15, 18, 26, 0.74)',
+        borderRadius: 999,
+        padding: '7px 10px',
+        fontSize: 12,
+        lineHeight: 1,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 999,
+          background: color,
+          boxShadow: `0 0 0 4px ${color}18`,
+          flexShrink: 0,
+        }}
+      />
+
+      <span
+        style={{
+          color,
+          fontWeight: 850,
+        }}
+      >
+        {FOCUS_LABELS[type]}
+      </span>
+
+      <span
+        style={{
+          color: DISTRIBUTION_UI.textSubtle,
+          fontWeight: 750,
+        }}
+      >
+        {count} dia{count !== 1 ? 's' : ''}
+      </span>
+    </div>
+  )
+}
 
 interface SimulatorDistributionSummaryProps {
   distribution: DailyGoalDistribution
@@ -88,198 +254,273 @@ export default function SimulatorDistributionSummary({
   const { summary, signals_used, observations, is_fallback, fallback_reason } = distribution
 
   const confidenceColor = CONFIDENCE_COLORS[summary.confidence]
+  const peakDay = summary.peak_day
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-
-      {/* Header: confiança e fallback */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '12px 16px',
-          borderRadius: 10,
-          background: '#111318',
-          border: `1px solid #1a1d2e`,
-          borderLeft: `3px solid ${confidenceColor}`,
+          position: 'relative',
+          overflow: 'hidden',
+          border: `1px solid ${DISTRIBUTION_UI.borderSoft}`,
+          background: `linear-gradient(135deg, ${DISTRIBUTION_UI.surfaceElevated} 0%, ${DISTRIBUTION_UI.surfaceSoft} 45%, ${DISTRIBUTION_UI.surface} 100%)`,
+          borderRadius: 20,
+          padding: 18,
+          boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
         }}
       >
         <div
+          aria-hidden="true"
           style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            background: confidenceColor,
-            flexShrink: 0,
+            position: 'absolute',
+            inset: '0 0 auto 0',
+            height: 1,
+            background: `linear-gradient(90deg, transparent, ${confidenceColor}66, transparent)`,
           }}
         />
-        <div>
-          <span style={{ fontWeight: 700, fontSize: 13, color: confidenceColor }}>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 16,
+            flexWrap: 'wrap',
+            marginBottom: 16,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: DISTRIBUTION_UI.textPrimary,
+                fontSize: 16,
+                fontWeight: 950,
+                letterSpacing: -0.25,
+                lineHeight: 1.2,
+              }}
+            >
+              Distribuição operacional da meta
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                color: DISTRIBUTION_UI.textMuted,
+                fontSize: 13,
+                lineHeight: 1.45,
+                maxWidth: 780,
+              }}
+            >
+              Traduz o esforço necessário em dias úteis, foco operacional e carga diária para execução do período.
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: `1px solid ${confidenceColor}2e`,
+              background: `${confidenceColor}14`,
+              color: confidenceColor,
+              borderRadius: 999,
+              padding: '7px 11px',
+              fontSize: 12,
+              fontWeight: 900,
+              whiteSpace: 'nowrap',
+            }}
+          >
             Confiança: {summary.confidence_label}
-          </span>
-          {is_fallback && fallback_reason ? (
-            <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 10 }}>{fallback_reason}</span>
-          ) : null}
+          </div>
         </div>
-      </div>
 
-      {/* KPIs da distribuição */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 10,
-        }}
-      >
-        <KpiCard
-          label="Dias úteis"
-          value={summary.total_working_days}
-          sub="no período configurado"
-        />
-        <KpiCard
-          label="Total de leads"
-          value={summary.total_leads}
-          sub={`${summary.avg_leads_per_day} leads/dia`}
-          tone="neutral"
-        />
-        <KpiCard
-          label="Total de ganhos"
-          value={summary.total_wins}
-          sub={`${summary.avg_wins_per_day} ganhos/dia`}
-          tone="good"
-        />
-        {summary.peak_day ? (
-          <KpiCard
-            label="Dia pico"
-            value={`${summary.peak_day.weekday_short} ${summary.peak_day.date.slice(8)}`}
-            sub={`${summary.peak_day.leads_goal} leads · ${summary.peak_day.focus_label}`}
-            tone="warn"
-          />
+        {is_fallback && fallback_reason ? (
+          <div
+            style={{
+              border: `1px solid rgba(245, 158, 11, 0.18)`,
+              background: 'rgba(245, 158, 11, 0.08)',
+              color: DISTRIBUTION_UI.amber,
+              borderRadius: 14,
+              padding: '10px 12px',
+              fontSize: 12.5,
+              lineHeight: 1.45,
+              marginBottom: 16,
+            }}
+          >
+            {fallback_reason}
+          </div>
         ) : null}
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 10,
+          }}
+        >
+          <KpiCard
+            label="Dias úteis"
+            value={summary.total_working_days}
+            sub="período configurado"
+          />
+
+          <KpiCard
+            label="Leads distribuídos"
+            value={summary.total_leads}
+            sub={`${formatNumber(summary.avg_leads_per_day)} leads/dia`}
+          />
+
+          <KpiCard
+            label="Ganhos previstos"
+            value={summary.total_wins}
+            sub={`${formatNumber(summary.avg_wins_per_day)} ganhos/dia`}
+            tone="good"
+          />
+
+          {peakDay ? (
+            <KpiCard
+              label="Dia de maior carga"
+              value={`${peakDay.weekday_short} ${formatDay(peakDay.date)}`}
+              sub={`${peakDay.leads_goal} leads · ${peakDay.focus_label}`}
+              tone="warn"
+            />
+          ) : (
+            <KpiCard
+              label="Dia de maior carga"
+              value="—"
+              sub="sem pico identificado"
+            />
+          )}
+        </div>
       </div>
 
-      {/* Distribuição por foco */}
-      <div
-        style={{
-          background: '#0d0f14',
-          border: '1px solid #1a1d2e',
-          borderRadius: 10,
-          padding: '14px 16px',
-        }}
+      <Panel
+        title="Dias por foco operacional"
+        description="Mostra como o calendário está distribuído entre prospecção, follow-up, negociação e fechamento."
       >
-        <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-          Dias por foco operacional
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 10,
+          }}
+        >
           {(Object.entries(summary.focus_distribution) as [OperationalFocusType, number][])
             .filter(([, count]) => count > 0)
             .sort(([, a], [, b]) => b - a)
             .map(([type, count]) => (
+              <FocusChip key={type} type={type} count={count} />
+            ))}
+        </div>
+      </Panel>
+
+      <Panel
+        title="Sinais utilizados"
+        description="Fontes consideradas para distribuir a meta. Sinais indisponíveis reduzem a confiança da leitura."
+      >
+        <div style={{ display: 'grid', gap: 10 }}>
+          {signals_used.map((signal) => {
+            const signalColor = signal.available
+              ? CONFIDENCE_COLORS[signal.confidence]
+              : DISTRIBUTION_UI.textSubtle
+
+            return (
               <div
-                key={type}
+                key={signal.id}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  background: '#111318',
-                  border: `1px solid ${FOCUS_COLORS[type]}30`,
-                  borderRadius: 8,
-                  padding: '6px 12px',
-                  fontSize: 12,
+                  display: 'grid',
+                  gridTemplateColumns: 'auto 1fr',
+                  gap: 10,
+                  alignItems: 'flex-start',
+                  border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+                  background: signal.available ? 'rgba(15, 18, 26, 0.62)' : 'rgba(15, 18, 26, 0.34)',
+                  borderRadius: 14,
+                  padding: '11px 12px',
+                  opacity: signal.available ? 1 : 0.62,
                 }}
               >
-                <div
+                <span
+                  aria-hidden="true"
                   style={{
                     width: 8,
                     height: 8,
-                    borderRadius: '50%',
-                    background: FOCUS_COLORS[type],
-                    flexShrink: 0,
+                    borderRadius: 999,
+                    background: signalColor,
+                    boxShadow: signal.available ? `0 0 0 4px ${signalColor}18` : 'none',
+                    marginTop: 5,
                   }}
                 />
-                <span style={{ color: FOCUS_COLORS[type], fontWeight: 600 }}>
-                  {FOCUS_LABELS[type]}
-                </span>
-                <span style={{ opacity: 0.7 }}>{count} dia{count !== 1 ? 's' : ''}</span>
-              </div>
-            ))}
-        </div>
-      </div>
 
-      {/* Sinais utilizados */}
-      <div
-        style={{
-          background: '#0d0f14',
-          border: '1px solid #1a1d2e',
-          borderRadius: 10,
-          padding: '14px 16px',
-        }}
-      >
-        <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-          Sinais utilizados
-        </div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {signals_used.map((signal) => (
-            <div
-              key={signal.id}
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10,
-                fontSize: 12,
-                opacity: signal.available ? 1 : 0.5,
-              }}
-            >
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: signal.available ? CONFIDENCE_COLORS[signal.confidence] : '#444',
-                  flexShrink: 0,
-                  marginTop: 3,
-                }}
-              />
-              <div>
-                <div style={{ fontWeight: 600 }}>
-                  {signal.label}
-                  <span style={{ opacity: 0.5, fontSize: 11, marginLeft: 6 }}>
-                    ({signal.source})
-                  </span>
-                </div>
-                <div style={{ opacity: 0.7, marginTop: 2 }}>
-                  {signal.available ? signal.description : signal.fallback_reason}
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: DISTRIBUTION_UI.textSecondary,
+                        fontSize: 12.5,
+                        fontWeight: 850,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {signal.label}
+                    </span>
+
+                    <span
+                      style={{
+                        color: DISTRIBUTION_UI.textSubtle,
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {signal.source}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 4,
+                      color: DISTRIBUTION_UI.textSubtle,
+                      fontSize: 12.2,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {signal.available ? signal.description : signal.fallback_reason}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
-      </div>
+      </Panel>
 
-      {/* Observações gerenciais */}
       {observations.length > 0 ? (
-        <div
-          style={{
-            background: '#0d0f14',
-            border: '1px solid #1a1d2e',
-            borderRadius: 10,
-            padding: '14px 16px',
-          }}
+        <Panel
+          title="Observações gerenciais"
+          description="Pontos de atenção para interpretar a distribuição sem transformar o calendário em regra cega."
         >
-          <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
-            Observações gerenciais
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
-            {observations.map((obs, i) => (
-              <li key={i} style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.5 }}>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {observations.map((obs, index) => (
+              <div
+                key={`${obs}-${index}`}
+                style={{
+                  border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+                  background: 'rgba(15, 18, 26, 0.58)',
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  color: DISTRIBUTION_UI.textMuted,
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                }}
+              >
                 {obs}
-              </li>
+              </div>
             ))}
-          </ul>
-        </div>
+          </div>
+        </Panel>
       ) : null}
-
     </div>
   )
 }
