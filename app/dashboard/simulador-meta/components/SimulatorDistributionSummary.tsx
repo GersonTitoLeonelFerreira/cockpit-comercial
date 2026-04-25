@@ -59,6 +59,149 @@ function formatDay(date: string) {
   return `${parts[2]}/${parts[1]}`
 }
 
+function getSignalBusinessLabel(source: string) {
+  const normalized = source.toLowerCase()
+
+  if (normalized.includes('vocação') || normalized.includes('weekday')) {
+    return 'Histórico por dia da semana'
+  }
+
+  if (normalized.includes('sazonalidade') || normalized.includes('seasonality')) {
+    return 'Sazonalidade mensal'
+  }
+
+  if (normalized.includes('radar')) {
+    return 'Radar do período'
+  }
+
+  if (normalized.includes('semana')) {
+    return 'Comportamento da semana'
+  }
+
+  return 'Critério operacional'
+}
+
+function cleanText(value?: string | null) {
+  return String(value ?? '')
+    .replace(/^[\s✅⚠️❌🔥📌📊📈📉💡⭐•-]+/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function StatusIcon({
+  tone = 'neutral',
+}: {
+  tone?: 'good' | 'warn' | 'bad' | 'neutral'
+}) {
+  const color =
+    tone === 'good'
+      ? DISTRIBUTION_UI.green
+      : tone === 'warn'
+        ? DISTRIBUTION_UI.amber
+        : tone === 'bad'
+          ? DISTRIBUTION_UI.red
+          : DISTRIBUTION_UI.blue
+
+  if (tone === 'warn') {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        style={{ flexShrink: 0, marginTop: 2 }}
+      >
+        <path
+          d="M12 3.5 21 20H3L12 3.5Z"
+          fill="none"
+          stroke={color}
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <path d="M12 9v5" stroke={color} strokeWidth="2" strokeLinecap="round" />
+        <path d="M12 17.5h.01" stroke={color} strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  if (tone === 'good') {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        style={{ flexShrink: 0, marginTop: 2 }}
+      >
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke={color} strokeWidth="2" />
+        <path d="m8.5 12.2 2.2 2.2 4.8-5" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  if (tone === 'bad') {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        style={{ flexShrink: 0, marginTop: 2 }}
+      >
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke={color} strokeWidth="2" />
+        <path d="M9 9l6 6M15 9l-6 6" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ flexShrink: 0, marginTop: 2 }}
+    >
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke={color} strokeWidth="2" />
+      <path d="M12 10.5v5" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 7.5h.01" stroke={color} strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function getObservationTone(text: string): 'good' | 'warn' | 'bad' | 'neutral' {
+  const normalized = text.toLowerCase()
+
+  if (
+    normalized.includes('atenção') ||
+    normalized.includes('risco') ||
+    normalized.includes('baixa') ||
+    normalized.includes('insuficiente') ||
+    normalized.includes('fallback')
+  ) {
+    return 'warn'
+  }
+
+  if (
+    normalized.includes('acima') ||
+    normalized.includes('favorável') ||
+    normalized.includes('adequado') ||
+    normalized.includes('alta confiança')
+  ) {
+    return 'good'
+  }
+
+  if (
+    normalized.includes('erro') ||
+    normalized.includes('crítico') ||
+    normalized.includes('inválido')
+  ) {
+    return 'bad'
+  }
+
+  return 'neutral'
+}
+
 function KpiCard({
   label,
   value,
@@ -412,8 +555,8 @@ export default function SimulatorDistributionSummary({
       </Panel>
 
       <Panel
-        title="Sinais utilizados"
-        description="Fontes consideradas para distribuir a meta. Sinais indisponíveis reduzem a confiança da leitura."
+        title="Critérios usados na distribuição"
+        description="Mostra quais leituras operacionais foram consideradas no calendário. Nomes técnicos internos foram removidos da visualização."
       >
         <div style={{ display: 'grid', gap: 10 }}>
           {signals_used.map((signal) => {
@@ -421,32 +564,31 @@ export default function SimulatorDistributionSummary({
               ? CONFIDENCE_COLORS[signal.confidence]
               : DISTRIBUTION_UI.textSubtle
 
+            const signalTone =
+              !signal.available
+                ? 'warn'
+                : signal.confidence === 'alta'
+                  ? 'good'
+                  : signal.confidence === 'baixa' || signal.confidence === 'insuficiente'
+                    ? 'warn'
+                    : 'neutral'
+
             return (
               <div
                 key={signal.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'auto 1fr',
+                  gridTemplateColumns: 'auto 1fr auto',
                   gap: 10,
                   alignItems: 'flex-start',
                   border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
                   background: signal.available ? 'rgba(15, 18, 26, 0.62)' : 'rgba(15, 18, 26, 0.34)',
                   borderRadius: 14,
                   padding: '11px 12px',
-                  opacity: signal.available ? 1 : 0.62,
+                  opacity: signal.available ? 1 : 0.72,
                 }}
               >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    background: signalColor,
-                    boxShadow: signal.available ? `0 0 0 4px ${signalColor}18` : 'none',
-                    marginTop: 5,
-                  }}
-                />
+                <StatusIcon tone={signalTone} />
 
                 <div style={{ minWidth: 0 }}>
                   <div
@@ -472,10 +614,10 @@ export default function SimulatorDistributionSummary({
                       style={{
                         color: DISTRIBUTION_UI.textSubtle,
                         fontSize: 11.5,
-                        fontWeight: 700,
+                        fontWeight: 750,
                       }}
                     >
-                      {signal.source}
+                      {getSignalBusinessLabel(signal.source)}
                     </span>
                   </div>
 
@@ -487,9 +629,24 @@ export default function SimulatorDistributionSummary({
                       lineHeight: 1.45,
                     }}
                   >
-                    {signal.available ? signal.description : signal.fallback_reason}
+                    {cleanText(signal.available ? signal.description : signal.fallback_reason)}
                   </div>
                 </div>
+
+                <span
+                  style={{
+                    border: `1px solid ${signalColor}24`,
+                    background: `${signalColor}10`,
+                    color: signalColor,
+                    borderRadius: 999,
+                    padding: '4px 8px',
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {signal.available ? signal.confidence : 'indisponível'}
+                </span>
               </div>
             )
           })}
@@ -502,22 +659,32 @@ export default function SimulatorDistributionSummary({
           description="Pontos de atenção para interpretar a distribuição sem transformar o calendário em regra cega."
         >
           <div style={{ display: 'grid', gap: 8 }}>
-            {observations.map((obs, index) => (
-              <div
-                key={`${obs}-${index}`}
-                style={{
-                  border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
-                  background: 'rgba(15, 18, 26, 0.58)',
-                  borderRadius: 12,
-                  padding: '10px 12px',
-                  color: DISTRIBUTION_UI.textMuted,
-                  fontSize: 12.5,
-                  lineHeight: 1.5,
-                }}
-              >
-                {obs}
-              </div>
-            ))}
+            {observations.map((obs, index) => {
+              const cleanedObservation = cleanText(obs)
+              const tone = getObservationTone(cleanedObservation)
+
+              return (
+                <div
+                  key={`${obs}-${index}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'auto 1fr',
+                    gap: 10,
+                    alignItems: 'flex-start',
+                    border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+                    background: 'rgba(15, 18, 26, 0.58)',
+                    borderRadius: 12,
+                    padding: '10px 12px',
+                    color: DISTRIBUTION_UI.textMuted,
+                    fontSize: 12.5,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <StatusIcon tone={tone} />
+                  <span>{cleanedObservation}</span>
+                </div>
+              )
+            })}
           </div>
         </Panel>
       ) : null}
