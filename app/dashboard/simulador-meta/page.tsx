@@ -15,6 +15,7 @@ import {
 } from '@/app/lib/services/simulator'
 import { getCloseRateReal, percentToRate } from '@/app/lib/services/simulatorRateReal'
 import type {
+  ActiveCompetency,
   GroupConversionRow,
   HistoricalTicketResponse,
   RevenueDayPoint,
@@ -57,6 +58,23 @@ function safeNumber(v: unknown) {
   const n = parseFloat(s || '0')
 
   return Number.isFinite(n) ? n : 0
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+
+  return fallback
 }
 
 // ============================
@@ -2251,84 +2269,12 @@ function ExecutionPlanPanel({
   )
 }
 
-function IconUsers({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  )
-}
-
-function IconBarChart({ size = 14, color = '#8fa3bc' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <line x1="12" y1="20" x2="12" y2="10" />
-      <line x1="18" y1="20" x2="18" y2="4" />
-      <line x1="6" y1="20" x2="6" y2="16" />
-    </svg>
-  )
-}
-
-function IconTag({ size = 14, color = '#a78bfa' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-      <line x1="7" y1="7" x2="7.01" y2="7" />
-    </svg>
-  )
-}
-
-function IconCrosshair({ size = 14, color = '#22d3ee' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <circle cx="12" cy="12" r="10" />
-      <line x1="22" y1="12" x2="18" y2="12" />
-      <line x1="6" y1="12" x2="2" y2="12" />
-      <line x1="12" y1="6" x2="12" y2="2" />
-      <line x1="12" y1="22" x2="12" y2="18" />
-    </svg>
-  )
-}
-
-function IconTrophy({ size = 14, color = '#10b981' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
-      <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-      <path d="M4 22h16" />
-      <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22" />
-      <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22" />
-      <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
-    </svg>
-  )
-}
-
-function IconZap({ size = 14, color = '#22d3ee' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  )
-}
-
-function IconCheckCircle({ size = 14, color = '#10b981' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  )
-}
-
 export default function SimuladorMetaPage() {
   const supabase = supabaseBrowser()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [competency, setCompetency] = useState<any>(null)
+  const [competency, setCompetency] = useState<ActiveCompetency | null>(null)
   const [metrics, setMetrics] = useState<SimulatorMetrics | null>(null)
   const [result, setResult] = useState<SimulatorResult | null>(null)
 
@@ -2339,7 +2285,7 @@ export default function SimuladorMetaPage() {
   const [autoRemainingDays, setAutoRemainingDays] = useState(true)
 
   // Ganhos
-  const [targetWins, setTargetWins] = useState(20)
+  const [targetWins] = useState(20)
   const [closeRatePercent, setCloseRatePercent] = useState(20)
   const [remainingBusinessDays, setRemainingBusinessDays] = useState(15)
 
@@ -2441,10 +2387,10 @@ export default function SimuladorMetaPage() {
             .eq('role', 'member')
             .order('full_name')
 
-          const sellersList = (sellersData ?? []).map((s: any) => ({
-            id: s.id,
-            label: s.full_name || s.id,
-          }))
+            const sellersList = (sellersData ?? []).map((s: { id: string; full_name: string | null }) => ({
+              id: s.id,
+              label: s.full_name || s.id,
+            }))
 
           setSellers(sellersList)
           setSelectedSellerId(null)
@@ -2468,8 +2414,8 @@ export default function SimuladorMetaPage() {
           total_business_days: totalDays,
         })
         setResult(res)
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao carregar simulador.')
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, 'Erro ao carregar simulador.'))
       } finally {
         setLoading(false)
       }
@@ -2496,8 +2442,8 @@ export default function SimuladorMetaPage() {
       try {
         const data = await getCloseRateReal(selectedSellerId, daysWindow)
         setRateRealData(data)
-      } catch (e: any) {
-        console.warn('Erro ao carregar taxa real:', e.message)
+      } catch (e: unknown) {
+        console.warn('Erro ao carregar taxa real:', getErrorMessage(e, 'Erro desconhecido.'))
         setRateRealData(null)
       } finally {
         setRateRealLoading(false)
@@ -2529,8 +2475,8 @@ export default function SimuladorMetaPage() {
       try {
         const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
         setMetrics(newMetrics)
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao atualizar métricas.')
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, 'Erro ao atualizar métricas.'))
       }
     }
 
@@ -2553,8 +2499,8 @@ export default function SimuladorMetaPage() {
           dateEnd: periodEnd,
         })
         setGroupConversion(rows)
-      } catch (e: any) {
-        console.warn('Erro ao carregar conversão por grupo:', e.message)
+      } catch (e: unknown) {
+        console.warn('Erro ao carregar conversão por grupo:', getErrorMessage(e, 'Erro desconhecido.'))
         setGroupConversion([])
       } finally {
         setGroupConversionLoading(false)
@@ -2621,8 +2567,8 @@ async function handleSaveGoalFromTop() {
 
     setRevenueGoalDb(revenueGoalInputNumber)
     setGoalSuccess('Meta salva com sucesso.')
-  } catch (error: any) {
-    setGoalError(error?.message ?? 'Erro ao salvar meta.')
+  } catch (error: unknown) {
+    setGoalError(getErrorMessage(error, 'Erro ao salvar meta.'))
     setGoalSuccess(null)
   } finally {
     setGoalSaving(false)
@@ -2700,8 +2646,8 @@ function handleUndoGoalFromTop() {
           setTicketMedioText(String(dbTicket))
           setTicketSource('manual')
         }
-      } catch (e: any) {
-        setGoalError(e?.message ?? 'Erro ao carregar meta.')
+      } catch (e: unknown) {
+        setGoalError(getErrorMessage(e, 'Erro ao carregar meta.'))
         setRevenueGoalDb(0)
         setRevenueGoalInputText('0')
       } finally {
@@ -2727,8 +2673,8 @@ function handleUndoGoalFromTop() {
           dateEnd: toYMD(competency!.month_end),
         })
         setHistoricalTicket(data)
-      } catch (e: any) {
-        console.warn('Erro ao carregar ticket histórico:', e.message)
+      } catch (e: unknown) {
+        console.warn('Erro ao carregar ticket histórico:', getErrorMessage(e, 'Erro desconhecido.'))
         setHistoricalTicket(null)
       } finally {
         setHistoricalTicketLoading(false)
@@ -2843,8 +2789,8 @@ function handleUndoGoalFromTop() {
         )
 
         setDistribution(dist)
-      } catch (e: any) {
-        setDistributionError(e?.message ?? 'Erro ao gerar distribuição.')
+      } catch (e: unknown) {
+        setDistributionError(getErrorMessage(e, 'Erro ao gerar distribuição.'))
         setDistribution(null)
       } finally {
         setDistributionLoading(false)
@@ -2852,7 +2798,7 @@ function handleUndoGoalFromTop() {
     }
 
     void loadDistribution()
-  }, [activeTab, companyId, periodStart, periodEnd, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
+  }, [activeTab, companyId, competency, periodStart, periodEnd, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
 
   // revenue (dados)
   useEffect(() => {
@@ -2915,9 +2861,10 @@ function handleUndoGoalFromTop() {
         }
 
         await Promise.all(fetches)
-      } catch (e: any) {
-        console.warn('Erro ao carregar revenue:', e?.message ?? String(e))
-        setRevenueError(e?.message ?? 'Erro ao carregar faturamento/recebimento.')
+      } catch (e: unknown) {
+        const message = getErrorMessage(e, 'Erro ao carregar faturamento/recebimento.')
+        console.warn('Erro ao carregar revenue:', message)
+        setRevenueError(message)
         setRevenueCompany(null)
         setRevenueSeller(null)
       } finally {
@@ -3011,11 +2958,8 @@ function handleUndoGoalFromTop() {
     )
   }
 
-  const progressTone =
-    (result?.progress_pct ?? 0) >= 1 ? 'good' : (result?.progress_pct ?? 0) >= 0.5 ? 'neutral' : 'bad'
-
-    const showCompanyChart = showRevenueMode && isAdmin
-    const showSellerChart = showRevenueMode && selectedSellerId !== null
+  const showCompanyChart = showRevenueMode && isAdmin
+  const showSellerChart = showRevenueMode && selectedSellerId !== null
 
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
