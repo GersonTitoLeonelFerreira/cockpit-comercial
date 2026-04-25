@@ -2880,7 +2880,9 @@ function handleUndoGoalFromTop() {
 
     const businessDaysTotal = countWorkDaysInRange(revenueDates.start, revenueDates.end, workDays)
     const businessDaysElapsed = countWorkDaysUntilToday(revenueDates.start, revenueDates.end, workDays)
-    const businessDaysRemaining = Math.max(0, businessDaysTotal - businessDaysElapsed)
+
+    const endDate = new Date(toYMD(revenueDates.end) + 'T00:00:00')
+    const businessDaysRemaining = countRemainingWorkDays(endDate, workDays)
 
     const gap = Math.max(0, safeGoal - totalReal)
     const requiredPerBD = businessDaysRemaining > 0 ? gap / businessDaysRemaining : gap
