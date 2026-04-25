@@ -292,6 +292,8 @@ function Card({
   )
 }
 
+
+
 function FunnelStageCard({
   label,
   value,
@@ -500,6 +502,315 @@ function GroupConversionList({ rows }: { rows: GroupConversionRow[] }) {
     </div>
   )
 }
+
+
+function RateResultPanel({
+  metrics,
+  result,
+  targetWins,
+  taxaUsadaNoCalculo,
+  remainingBusinessDays,
+}: {
+  metrics: SimulatorMetrics | null
+  result: SimulatorResult | null
+  targetWins: number
+  taxaUsadaNoCalculo: number
+  remainingBusinessDays: number
+}) {
+  const workedCount = metrics?.worked_count ?? 0
+  const currentWins = metrics?.current_wins ?? 0
+  const remainingWins = result?.remaining_wins ?? 0
+  const neededWorkedCycles = result?.needed_worked_cycles ?? 0
+  const remainingWorkedCycles = result?.remaining_worked_cycles ?? 0
+  const dailyWorkedRemaining = result?.daily_worked_remaining ?? 0
+  const progressRatio = result?.progress_pct ?? 0
+  const safeProgressRatio = Math.max(0, Math.min(1, Number.isFinite(progressRatio) ? progressRatio : 0))
+  const progressPercent = Math.round(safeProgressRatio * 100)
+  const onTrack = Boolean(result?.on_track)
+
+  const statusLabelText = onTrack ? 'Ritmo adequado' : 'Ritmo exige atenção'
+  const statusColor = onTrack ? '#86efac' : '#fbbf24'
+  const statusBackground = onTrack ? 'rgba(34, 197, 94, 0.10)' : 'rgba(245, 158, 11, 0.10)'
+
+  const formatNumber = (value: number) => {
+    if (!Number.isFinite(value)) return '—'
+
+    return value.toLocaleString('pt-BR', {
+      maximumFractionDigits: 1,
+    })
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 16,
+              fontWeight: 900,
+              letterSpacing: -0.2,
+              lineHeight: 1.2,
+            }}
+          >
+            Leitura operacional da conversão
+          </div>
+
+          <div
+            style={{
+              marginTop: 5,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 13,
+              lineHeight: 1.45,
+              maxWidth: 780,
+            }}
+          >
+            Mostra se o volume atual de ciclos trabalhados sustenta a meta de ganhos no período.
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: statusBackground,
+            borderRadius: 999,
+            padding: '7px 11px',
+            color: statusColor,
+            fontSize: 12,
+            fontWeight: 900,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {statusLabelText}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))',
+          gap: 12,
+        }}
+      >
+        <Card
+          title="Ciclos trabalhados"
+          value={workedCount}
+          subtitle="Base já movimentada no período"
+        />
+
+        <Card
+          title="Ganhos atuais"
+          value={currentWins}
+          subtitle={`Meta operacional: ${targetWins} ganhos`}
+          tone={currentWins >= targetWins ? 'good' : 'neutral'}
+        />
+
+        <Card
+          title="Ganhos restantes"
+          value={remainingWins}
+          subtitle="Quantidade ainda necessária para atingir a meta"
+          tone={remainingWins <= 0 ? 'good' : 'bad'}
+        />
+
+        <Card
+          title="Ciclos restantes"
+          value={remainingWorkedCycles}
+          subtitle="Volume estimado ainda necessário"
+          tone={remainingWorkedCycles <= 0 ? 'good' : 'neutral'}
+        />
+      </div>
+
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background: 'rgba(9, 11, 15, 0.46)',
+          borderRadius: 16,
+          padding: 18,
+          display: 'grid',
+          gap: 14,
+        }}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 6,
+              }}
+            >
+              Taxa usada no cálculo
+            </div>
+
+            <div
+              style={{
+                color: '#93c5fd',
+                fontSize: 24,
+                fontWeight: 950,
+                letterSpacing: -0.5,
+              }}
+            >
+              {pct(taxaUsadaNoCalculo)}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 6,
+              }}
+            >
+              Ciclos necessários totais
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 24,
+                fontWeight: 950,
+                letterSpacing: -0.5,
+              }}
+            >
+              {neededWorkedCycles}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 6,
+              }}
+            >
+              Ritmo diário restante
+            </div>
+
+            <div
+              style={{
+                color: dailyWorkedRemaining > 0 ? '#fbbf24' : '#86efac',
+                fontSize: 24,
+                fontWeight: 950,
+                letterSpacing: -0.5,
+              }}
+            >
+              {formatNumber(dailyWorkedRemaining)}
+            </div>
+
+            <div
+              style={{
+                marginTop: 4,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+              }}
+            >
+              ciclos por dia útil
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                fontWeight: 800,
+                marginBottom: 6,
+              }}
+            >
+              Dias úteis restantes
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 24,
+                fontWeight: 950,
+                letterSpacing: -0.5,
+              }}
+            >
+              {remainingBusinessDays}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div
+            style={{
+              height: 10,
+              borderRadius: 999,
+              background: 'rgba(148, 163, 184, 0.10)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${progressPercent}%`,
+                height: '100%',
+                borderRadius: 999,
+                background: onTrack ? '#22c55e' : '#f59e0b',
+                transition: 'width 240ms ease',
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              marginTop: 8,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              fontWeight: 750,
+            }}
+          >
+            <span>Progresso operacional</span>
+            <span style={{ color: onTrack ? '#86efac' : '#fbbf24' }}>{progressPercent}%</span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            paddingTop: 12,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13,
+            lineHeight: 1.55,
+          }}
+        >
+          Com taxa de conversão de{' '}
+          <strong style={{ color: '#93c5fd' }}>{pct(taxaUsadaNoCalculo)}</strong>, o simulador estima que sejam necessários{' '}
+          <strong style={{ color: SIMULATOR_UI.textPrimary }}>{neededWorkedCycles} ciclos trabalhados</strong> para buscar{' '}
+          <strong style={{ color: '#86efac' }}>{targetWins} ganhos</strong>. Ainda restam{' '}
+          <strong style={{ color: remainingWorkedCycles > 0 ? '#fbbf24' : '#86efac' }}>
+            {remainingWorkedCycles} ciclos
+          </strong>{' '}
+          para completar o esforço previsto.
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 function Section({
   title,
@@ -2923,135 +3234,18 @@ function handleUndoGoalFromTop() {
         {/* ABA 3: TAXA E RESULTADO                                       */}
         {/* ============================================================ */}
         {activeTab === 'taxa-resultado' && (
-          <div style={{ display: 'grid', gap: 16 }}>
-
-            {/* Taxa Real */}
-            {rateRealData ? (
-              <Section
-                title={
-                  <TitleWithTip label="Taxa Histórica" tipTitle="Como ler a Taxa Histórica" width={420}>
-                  <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
-                    <li>Taxa calculada com base no histórico de ciclos (janela selecionada).</li>
-                    <li>Se a amostra for pequena (&lt;30 ciclos), a taxa pode oscilar bastante.</li>
-                  </ul>
-                </TitleWithTip>
-                }
-                description="Calculada a partir dos ciclos ganhos vs trabalhados no período selecionado."
-              >
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <Card
-                    title={
-                      <TitleWithTip label="Taxa histórica (vendedor)" tipTitle="Taxa histórica do vendedor" width={380}>
-                      <div>Ganhos ÷ Trabalhados do vendedor selecionado no período.</div>
-                    </TitleWithTip>
-                    }
-                    value={rateRealData.vendor.close_rate ? `${(rateRealData.vendor.close_rate * 100).toFixed(1)}%` : '—'}
-                    subtitle={
-                      rateRealData.vendor.worked >= 30
-                        ? `${rateRealData.vendor.wins} ganhos / ${rateRealData.vendor.worked} trabalhados`
-                        : `Amostra pequena (${rateRealData.vendor.worked} ciclos)`
-                    }
-                    tone={rateRealData.vendor.worked >= 30 ? 'neutral' : 'bad'}
-                  />
-
-                  <Card
-                    title={
-                      <TitleWithTip label="Taxa histórica (empresa)" tipTitle="Taxa histórica da empresa" width={380}>
-                      <div>Ganhos ÷ Trabalhados de toda a empresa no período.</div>
-                    </TitleWithTip>
-                    }
-                    value={rateRealData.company.close_rate ? `${(rateRealData.company.close_rate * 100).toFixed(1)}%` : '—'}
-                    subtitle={`${rateRealData.company.wins} ganhos / ${rateRealData.company.worked} trabalhados`}
-                  />
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <select
-                      value={daysWindow}
-                      onChange={(e) => setDaysWindow(parseInt(e.target.value))}
-                      style={{
-                        padding: '8px 12px 8px 8px',
-                        borderRadius: 8,
-                        border: '1px solid #1a1d2e',
-                        background: '#0d0f14',
-                        color: '#edf2f7',
-                        fontSize: 13,
-                        fontWeight: 600,
-                        appearance: 'none',
-                        WebkitAppearance: 'none',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238fa3bc' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
-                        backgroundRepeat: 'no-repeat',
-                        backgroundPosition: 'right 8px center',
-                        paddingRight: 28,
-                        cursor: 'pointer',
-                        outline: 'none',
-                        transition: 'border-color 150ms ease',
-                      }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = '#3b82f6' }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = '#1a1d2e' }}
-                    >
-                      <option value={30}>Últimos 30 dias</option>
-                      <option value={60}>Últimos 60 dias</option>
-                      <option value={90}>Últimos 90 dias</option>
-                    </select>
-
-                    <button
-                      onClick={() => {
-                        if (rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30) {
-                          const newPercent = Math.round(rateRealData.vendor.close_rate * 1000) / 10
-                          setCloseRatePercent(newPercent)
-                          setMode('ganhos')
-                        }
-                      }}
-                      disabled={!rateRealData.vendor.close_rate || rateRealData.vendor.worked < 30}
-                      style={{
-                        padding: '8px 14px',
-                        borderRadius: 8,
-                        border: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
-                          ? '1px solid rgba(59,130,246,0.4)'
-                          : '1px solid #1a1d2e',
-                        background: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
-                          ? 'linear-gradient(90deg, rgba(59,130,246,0.28) 0%, rgba(59,130,246,0.12) 100%)'
-                          : '#0d0f14',
-                        color: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30
-                          ? '#93c5fd'
-                          : '#546070',
-                        cursor: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 'pointer' : 'not-allowed',
-                        fontWeight: 700,
-                        fontSize: 12,
-                        opacity: rateRealData.vendor.close_rate && rateRealData.vendor.worked >= 30 ? 1 : 0.5,
-                        transition: 'all 150ms ease',
-                        letterSpacing: '0.02em',
-                      }}
-                    >
-                      Usar taxa real
-                    </button>
-                  </div>
-                </div>
-
-                {rateRealLoading ? <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>Carregando taxa real...</div> : null}
-              </Section>
-            ) : null}
-
-            {/* Resultado */}
-            <Section title="Resultado" description="Números para bater sua meta.">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                <Card title="Ciclos Necessários" value={result?.needed_worked_cycles ?? '—'} subtitle={result ? `${result.needed_wins} ganhos ÷ ${closeRatePercent}% taxa` : undefined} />
-                <Card title="Ciclos Restantes" value={result?.remaining_worked_cycles ?? '—'} subtitle={result ? `${result.remaining_wins} ganhos restantes ÷ ${closeRatePercent}%` : undefined} />
-                <Card title="Ciclos/Dia (período)" value={result?.daily_worked_needed ?? '—'} subtitle={result ? `${result.needed_worked_cycles} ciclos ÷ ${periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays) : 22} dias` : undefined} />
-                <Card title="Ciclos/Dia (restante)" value={result?.daily_worked_remaining ?? '—'} subtitle={result ? `${result.remaining_worked_cycles} ciclos ÷ ${remainingBusinessDays} dias` : undefined} />
-              </div>
-            </Section>
-
-            {/* Progresso */}
-            <Section title="Progresso" description="Seu desempenho atual no mês.">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                <Card title="Ganhos Atuais" value={metrics?.current_wins ?? '—'} subtitle={result ? `${pct(result.progress_pct)} da meta (${result.needed_wins} alvo)` : undefined} tone={progressTone} />
-                <Card title="Ciclos Trabalhados" value={metrics?.worked_count ?? '—'} subtitle={metrics && result ? `Taxa real: ${pct(metrics.current_wins / Math.max(1, metrics.worked_count))}` : undefined} tone="neutral" />
-                <Card title="Status" value={result?.on_track ? 'No ritmo' : 'Acelerar'} tone={result?.on_track ? 'good' : 'bad'} />
-              </div>
-            </Section>
-
-          </div>
+          <Section
+            title="Taxa e Resultado"
+            description="Resumo operacional da taxa de conversão, ganhos necessários e ritmo diário restante."
+          >
+            <RateResultPanel
+              metrics={metrics}
+              result={result}
+              targetWins={targetWins}
+              taxaUsadaNoCalculo={taxaUsadaNoCalculo}
+              remainingBusinessDays={remainingBusinessDays}
+            />
+          </Section>
         )}
 
         {/* ============================================================ */}
