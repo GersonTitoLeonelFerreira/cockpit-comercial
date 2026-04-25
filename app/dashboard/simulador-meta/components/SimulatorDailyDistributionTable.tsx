@@ -226,9 +226,11 @@ export default function SimulatorDailyDistributionTable({
       <div
         style={{
           overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
           border: `1px solid ${TABLE_UI.borderMuted}`,
           borderRadius: 16,
           background: 'rgba(9, 11, 15, 0.38)',
+          boxShadow: 'inset -18px 0 24px rgba(0, 0, 0, 0.16)',
         }}
       >
         <table
@@ -237,7 +239,7 @@ export default function SimulatorDailyDistributionTable({
             borderCollapse: 'separate',
             borderSpacing: 0,
             fontSize: 13,
-            minWidth: 760,
+            minWidth: 820,
           }}
         >
           <thead>
@@ -429,13 +431,28 @@ export default function SimulatorDailyDistributionTable({
       <div
         style={{
           marginTop: 10,
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap',
           color: TABLE_UI.textSubtle,
           fontSize: 12,
           lineHeight: 1.45,
-          textAlign: 'right',
         }}
       >
-        Clique em uma linha para ver o motivo da distribuição.
+        <span>
+          Clique em uma linha para ver o motivo da distribuição.
+        </span>
+
+        <span
+          style={{
+            color: TABLE_UI.textMuted,
+            fontWeight: 750,
+          }}
+        >
+          Em telas menores, arraste a tabela para o lado.
+        </span>
       </div>
     </div>
   )
@@ -443,19 +460,22 @@ export default function SimulatorDailyDistributionTable({
 
 const thStyle: React.CSSProperties = {
   textAlign: 'left',
-  padding: '11px 12px',
+  padding: '12px 14px',
   color: TABLE_UI.textSubtle,
   fontWeight: 900,
   fontSize: 11,
   textTransform: 'uppercase',
   letterSpacing: '0.055em',
   borderBottom: `1px solid ${TABLE_UI.borderSoft}`,
-  background: 'rgba(15, 18, 26, 0.68)',
+  background: 'rgba(15, 18, 26, 0.82)',
   whiteSpace: 'nowrap',
+  position: 'sticky',
+  top: 0,
+  zIndex: 1,
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: '11px 12px',
+  padding: '12px 14px',
   fontSize: 13,
   borderBottom: `1px solid ${TABLE_UI.borderMuted}`,
   verticalAlign: 'middle',
