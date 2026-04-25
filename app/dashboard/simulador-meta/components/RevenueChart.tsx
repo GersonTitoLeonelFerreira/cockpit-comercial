@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { RevenueDayPoint } from '@/app/types/simulator'
 
 const CHART_UI = {
@@ -224,7 +224,6 @@ export function RevenueChart({
   startDate: string
   endDate: string
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
 
   const W = 860
   const H = 280
@@ -237,10 +236,12 @@ export function RevenueChart({
     i: number
     xPx: number
     yPx: number
+    tooltipLeft: number
+    tooltipTop: number
   } | null>(null)
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
-  const safeSeries = Array.isArray(series) ? series : []
+  const safeSeries = useMemo(() => (Array.isArray(series) ? series : []), [series])
   const goalSafe = Math.max(0, Number(goal) || 0)
 
   const {
@@ -440,7 +441,7 @@ export function RevenueChart({
   }
 
   function onMove(e: React.MouseEvent<SVGSVGElement>) {
-    if (!containerRef.current || !points.length) return
+    if (!points.length) return
 
     const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
     const relX = ((e.clientX - rect.left) / rect.width) * W
@@ -448,10 +449,15 @@ export function RevenueChart({
     const t = (relX - padL) / Math.max(1, innerW)
     const i = clamp(Math.round(t * (points.length - 1)), 0, Math.max(0, points.length - 1))
 
+    const tooltipLeft = clamp(e.clientX - rect.left + 12, 8, rect.width - 280)
+    const tooltipTop = clamp(e.clientY - rect.top + 12, 8, rect.height - 150)
+
     setHover({
       i,
       xPx: relX,
       yPx: relY,
+      tooltipLeft,
+      tooltipTop,
     })
   }
 
@@ -463,21 +469,15 @@ export function RevenueChart({
   const hoverMetaAcc = hover ? metaByIndex[hover.i] : 0
   const hoverRealAcc = hover ? realAccByIndex[hover.i] : 0
 
-  const tooltip = useMemo(() => {
-    if (!hover || !containerRef.current) return null
-
-    const box = containerRef.current.getBoundingClientRect()
-    const xPx = (hover.xPx / W) * box.width
-    const yPx = (hover.yPx / H) * box.height
-    const left = clamp(xPx + 12, 8, box.width - 280)
-    const top = clamp(yPx + 12, 8, box.height - 150)
-
-    return { left, top }
-  }, [hover])
+  const tooltip = hover
+    ? {
+        left: hover.tooltipLeft,
+        top: hover.tooltipTop,
+      }
+    : null
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: 'relative',
         overflow: 'hidden',
