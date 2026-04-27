@@ -668,7 +668,7 @@ function RateResultPanel({
   }
 
   const actionUnitLabel = isFinancialMode ? 'vendas restantes' : 'ganhos restantes'
-  const dailyActionLabel = dailyWorkedRemaining === 1 ? 'ciclo por dia' : 'ciclos por dia'
+  const dailyActionLabel = dailyWorkedRemaining === 1 ? 'oportunidade por dia' : 'oportunidades por dia'
   const remainingDaysLabel = remainingBusinessDays === 1 ? 'dia de execução restante' : 'dias de execução restantes'
 
   const actionMainText =
@@ -1052,7 +1052,7 @@ function RateResultPanel({
           <strong style={{ color: SIMULATOR_UI.textPrimary }}>{neededWorkedCycles} oportunidades trabalhadas</strong> para buscar{' '}
           <strong style={{ color: '#86efac' }}>{targetWins} {unitLabel}</strong>. Ainda restam{' '}
           <strong style={{ color: remainingWorkedCycles > 0 ? '#fbbf24' : '#86efac' }}>
-            {remainingWorkedCycles} ciclos
+          {remainingWorkedCycles} oportunidades
           </strong>{' '}
           para completar o esforço previsto.
         </div>
@@ -2590,7 +2590,7 @@ function DecisionHero({
               lineHeight: 1.1,
             }}
           >
-            Acompanhe ciclos, ganhos e ritmo operacional.
+            Acompanhe oportunidades, ganhos e ritmo operacional.
           </div>
 
           <div
@@ -4280,7 +4280,7 @@ function handleUndoGoalFromTop() {
 
 <Section
               title="Funil do Período"
-              description="Distribuição compacta dos ciclos por estágio no período selecionado."
+              description="Distribuição compacta das oportunidades por estágio no período selecionado."
             >
               <div
                 style={{
