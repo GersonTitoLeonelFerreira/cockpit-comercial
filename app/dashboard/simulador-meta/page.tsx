@@ -871,7 +871,7 @@ function RateResultPanel({
                 fontSize: 12,
               }}
             >
-              ciclos/leads por dia útil
+              ciclos/leads por dia de execução
             </div>
           </div>
 
@@ -884,7 +884,7 @@ function RateResultPanel({
                 marginBottom: 6,
               }}
             >
-              Dias úteis restantes
+              Dias de execução restantes
             </div>
 
             <div
@@ -956,6 +956,166 @@ function RateResultPanel({
         </div>
       </div>
     </div>
+  )
+}
+
+
+
+function ExecutionCalendarSummaryStrip({
+  summary,
+  totalDays,
+}: {
+  summary: ReturnType<typeof getExecutionCalendarSummary>
+  totalDays: number
+}) {
+  const items = [
+    {
+      label: 'Dias no período',
+      value: totalDays,
+      description: 'Total de datas entre início e fim',
+    },
+    {
+      label: 'Dias padrão',
+      value: summary.totalDefaultExecutionDays,
+      description: 'Base pelos dias da semana marcados',
+    },
+    {
+      label: 'Dias adicionados',
+      value: summary.addedExecutionDays,
+      description: 'Exceções incluídas manualmente',
+    },
+    {
+      label: 'Dias removidos',
+      value: summary.removedExecutionDays,
+      description: 'Feriados, pausas ou dias bloqueados',
+    },
+    {
+      label: 'Dias de execução',
+      value: summary.totalExecutionDays,
+      description: 'Base final usada nos cálculos',
+      highlight: true,
+    },
+  ]
+
+  return (
+    <section
+      style={{
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background: 'linear-gradient(135deg, rgba(18, 22, 33, 0.76) 0%, rgba(13, 15, 20, 0.96) 100%)',
+        borderRadius: 18,
+        padding: 16,
+        display: 'grid',
+        gap: 14,
+        boxShadow: '0 12px 30px rgba(0, 0, 0, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.025)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 14,
+              fontWeight: 900,
+              lineHeight: 1.2,
+            }}
+          >
+            Calendário operacional
+          </div>
+
+          <div
+            style={{
+              marginTop: 4,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 12.5,
+              lineHeight: 1.45,
+            }}
+          >
+            Define quais datas realmente contam como dias de execução para metas, ritmo diário e projeções.
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(59, 130, 246, 0.10)',
+            color: '#bfdbfe',
+            borderRadius: 999,
+            padding: '7px 10px',
+            fontSize: 11.5,
+            fontWeight: 850,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Base atual: padrão semanal
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {items.map((item) => (
+          <div
+            key={item.label}
+            style={{
+              border: `1px solid ${item.highlight ? 'rgba(59, 130, 246, 0.28)' : SIMULATOR_UI.borderMuted}`,
+              background: item.highlight
+                ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.16) 0%, rgba(9, 11, 15, 0.62) 100%)'
+                : 'rgba(9, 11, 15, 0.46)',
+              borderRadius: 14,
+              padding: '12px 13px',
+              minHeight: 86,
+            }}
+          >
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 11.5,
+                fontWeight: 850,
+                lineHeight: 1.25,
+              }}
+            >
+              {item.label}
+            </div>
+
+            <div
+              style={{
+                marginTop: 8,
+                color: item.highlight ? '#93c5fd' : SIMULATOR_UI.textPrimary,
+                fontSize: 22,
+                fontWeight: 950,
+                letterSpacing: -0.35,
+                lineHeight: 1,
+              }}
+            >
+              {item.value}
+            </div>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 11.5,
+                lineHeight: 1.35,
+              }}
+            >
+              {item.description}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -2060,7 +2220,7 @@ function DecisionHero({
                     lineHeight: 1.35,
                   }}
                 >
-                  por dia útil restante
+                  por dia de execução
                 </div>
               </div>
             </div>
@@ -2168,7 +2328,7 @@ function DecisionHero({
                 marginBottom: 5,
               }}
             >
-              Dias úteis restantes
+              Dias de execução restantes
             </div>
 
             <div
@@ -2301,7 +2461,7 @@ function ExecutionPlanPanel({
             whiteSpace: 'nowrap',
           }}
         >
-          {remainingBusinessDays} dias úteis restantes
+          {remainingBusinessDays} dias de execução restantes
         </div>
       </div>
 
@@ -2326,14 +2486,14 @@ function ExecutionPlanPanel({
         />
 
         <Card
-          title="Leads por dia útil"
+          title="Leads por dia de execução"
           value={t.leads_restantes_por_dia}
           subtitle={leadsPerDayIsHeavy ? 'Ritmo alto. Exige cadência forte.' : 'Ritmo operacional administrável.'}
           tone={leadsPerDayIsHeavy ? 'bad' : 'neutral'}
         />
 
         <Card
-          title="Ganhos por dia útil"
+          title="Ganhos por dia de execução"
           value={t.ganhos_restantes_por_dia}
           subtitle={winsPerDayIsHeavy ? 'Pressão alta de fechamento.' : 'Ritmo de fechamento viável.'}
           tone={winsPerDayIsHeavy ? 'bad' : 'good'}
@@ -2386,11 +2546,11 @@ function ExecutionPlanPanel({
         >
           Ritmo recomendado: manter pelo menos{' '}
           <strong style={{ color: leadsPerDayIsHeavy ? '#fca5a5' : '#67e8f9' }}>
-            {t.leads_restantes_por_dia} leads por dia útil
+            {t.leads_restantes_por_dia} leads por dia de execução
           </strong>{' '}
           e buscar{' '}
           <strong style={{ color: winsPerDayIsHeavy ? '#fca5a5' : '#86efac' }}>
-            {t.ganhos_restantes_por_dia} ganhos por dia útil
+            {t.ganhos_restantes_por_dia} ganhos por dia de execução
           </strong>
           . Se esse volume estiver acima da capacidade real do time, a decisão gerencial é revisar meta, ampliar base de prospecção ou reforçar cadência.
         </div>
@@ -3006,6 +3166,22 @@ function handleUndoGoalFromTop() {
     void loadRevenue()
   }, [mode, competency, companyId, isAdmin, selectedSellerId, revenueDates.start, revenueDates.end])
 
+  const executionCalendarDays = useMemo(() => {
+    if (!periodStart || !periodEnd) return []
+
+    return buildExecutionCalendarDays(
+      periodStart,
+      periodEnd,
+      workDays,
+      executionDayOverrides,
+    )
+  }, [periodStart, periodEnd, workDays, executionDayOverrides])
+
+  const executionCalendarSummary = useMemo(
+    () => getExecutionCalendarSummary(executionCalendarDays),
+    [executionCalendarDays],
+  )
+
   function buildRevenueKpis(totalReal: number, goal: number) {
     const safeGoal = Math.max(0, Number(goal) || 0)
 
@@ -3211,6 +3387,12 @@ function handleUndoGoalFromTop() {
         setAutoRemainingDays={setAutoRemainingDays}
         remainingBusinessDays={remainingBusinessDays}
       />
+
+      <ExecutionCalendarSummaryStrip
+        summary={executionCalendarSummary}
+        totalDays={executionCalendarDays.length}
+      />
+
 
       <DecisionHero
         mode={mode}
@@ -3555,7 +3737,7 @@ function handleUndoGoalFromTop() {
             {distribution && !distributionLoading ? (
               <Section
                 title="Calendário Diário"
-                description="Meta de leads e ganhos por dia útil. Clique em uma linha para ver o motivo da distribuição."
+                description="Meta de leads e ganhos por dia de execução. Clique em uma linha para ver o motivo da distribuição."
               >
                 <SimulatorDailyDistributionTable
                   distribution={distribution}

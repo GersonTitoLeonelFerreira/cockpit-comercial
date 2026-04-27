@@ -176,9 +176,9 @@ export default function MetaSummaryHeader({
           tone={kpis.gap <= 0 ? 'good' : 'neutral'}
         />
         <MetaCard
-          title="R$/dia útil (restante)"
+          title="R$/dia de execução"
           value={toBRL(kpis.requiredPerBD)}
-          subtitle={`${kpis.businessDaysRemaining} dias úteis restantes`}
+          subtitle={`${kpis.businessDaysRemaining} dias de execução restantes`}
         />
       </div>
 
@@ -202,7 +202,7 @@ export default function MetaSummaryHeader({
         </span>
         <div style={{ width: 1, height: 14, background: '#1a1d2e', flexShrink: 0 }} />
         <span style={{ fontSize: 11, color: '#546070' }}>
-          {kpis.businessDaysRemaining} dias úteis restantes
+          {kpis.businessDaysRemaining} dias de execução restantes
         </span>
       </div>
     </div>
