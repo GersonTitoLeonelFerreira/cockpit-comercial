@@ -87,14 +87,14 @@ export interface GroupConversionRow {
 }
 
 // ==============================================================================
-// Types: Teoria 100/20 — Faturamento
+// Types: Plano de Execução — Faturamento
 // ==============================================================================
 
 export interface Theory10020Config {
   meta_total: number           // Meta total desejada em R$
   ticket_medio: number         // Ticket médio manual em R$
   close_rate: number           // Taxa de conversão (0..1)
-  remaining_business_days: number // Dias úteis restantes
+  remaining_business_days: number // Dias de execução restantes
   total_real: number           // Faturamento real acumulado no período
 }
 
@@ -107,18 +107,18 @@ export interface Theory10020Result {
   close_rate: number                 // 0..1
   leads_para_contatar: number        // esforco_bruto / ticket_medio
   ganhos_esperados: number           // leads_para_contatar × close_rate
-  leads_por_dia: number              // leads_para_contatar / dias_uteis
-  ganhos_por_dia: number             // ganhos_esperados / dias_uteis
+  leads_por_dia: number              // leads_para_contatar / dias de execução
+  ganhos_por_dia: number             // ganhos_esperados / dias de execução
   remaining_business_days: number
   total_real: number
   gap: number                        // meta_total - total_real
   leads_restantes: number            // (gap × 5) / ticket_medio
   ganhos_restantes: number           // leads_restantes × close_rate
-  leads_restantes_por_dia: number    // leads_restantes / dias_uteis_restantes
-  ganhos_restantes_por_dia: number   // ganhos_restantes / dias_uteis
+  leads_restantes_por_dia: number    // leads_restantes / dias de execução restantes
+  ganhos_restantes_por_dia: number   // ganhos_restantes / dias de execução restantes
   meta_atingida: boolean
   progress_pct: number               // 0..1
-  // ---- Campos nomenclatura Teoria 100/20 (spec-compliant) ----
+  // ---- Campos de execução operacional do plano ----
   vendas_necessarias: number              // Math.ceil(meta_total / ticket_medio)
   ciclos_trabalhados_necessarios: number  // Math.ceil(vendas_necessarias / close_rate)
   ciclos_por_dia: number                  // Math.ceil(ciclos_trabalhados_necessarios / remaining_business_days)
