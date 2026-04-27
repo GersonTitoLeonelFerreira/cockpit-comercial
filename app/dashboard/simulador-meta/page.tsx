@@ -78,11 +78,16 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 // ============================
-// Dias trabalhados
+// Calendário operacional
 // ============================
 
 // 0=Dom,1=Seg,...6=Sáb
 type WorkDays = Record<number, boolean>
+
+// Chave: YYYY-MM-DD
+// Valor true = trabalha nessa data
+// Valor false = não trabalha nessa data
+type ExecutionDayOverrides = Record<string, boolean>
 
 function defaultWorkDays(): WorkDays {
   return {
@@ -96,7 +101,29 @@ function defaultWorkDays(): WorkDays {
   }
 }
 
-function countRemainingWorkDays(endDate: Date, workDays: WorkDays): number {
+function dateKey(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+function isExecutionDay(
+  date: Date,
+  workDays: WorkDays,
+  overrides: ExecutionDayOverrides = {},
+): boolean {
+  const key = dateKey(date)
+
+  if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+    return Boolean(overrides[key])
+  }
+
+  return Boolean(workDays[date.getDay()])
+}
+
+function countRemainingWorkDays(
+  endDate: Date,
+  workDays: WorkDays,
+  overrides: ExecutionDayOverrides = {},
+): number {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   endDate.setHours(0, 0, 0, 0)
@@ -105,15 +132,21 @@ function countRemainingWorkDays(endDate: Date, workDays: WorkDays): number {
 
   let count = 0
   const cur = new Date(today)
+
   while (cur <= endDate) {
-    const dow = cur.getDay()
-    if (workDays[dow]) count++
+    if (isExecutionDay(cur, workDays, overrides)) count++
     cur.setDate(cur.getDate() + 1)
   }
+
   return count
 }
 
-function countWorkDaysInRange(start: string, end: string, workDays: WorkDays): number {
+function countWorkDaysInRange(
+  start: string,
+  end: string,
+  workDays: WorkDays,
+  overrides: ExecutionDayOverrides = {},
+): number {
   const s = new Date(toYMD(start) + 'T00:00:00')
   const e = new Date(toYMD(end) + 'T00:00:00')
   s.setHours(0, 0, 0, 0)
@@ -123,15 +156,21 @@ function countWorkDaysInRange(start: string, end: string, workDays: WorkDays): n
 
   let count = 0
   const cur = new Date(s)
+
   while (cur <= e) {
-    const dow = cur.getDay()
-    if (workDays[dow]) count++
+    if (isExecutionDay(cur, workDays, overrides)) count++
     cur.setDate(cur.getDate() + 1)
   }
+
   return count
 }
 
-function countWorkDaysUntilToday(start: string, end: string, workDays: WorkDays): number {
+function countWorkDaysUntilToday(
+  start: string,
+  end: string,
+  workDays: WorkDays,
+  overrides: ExecutionDayOverrides = {},
+): number {
   const s = new Date(toYMD(start) + 'T00:00:00')
   const e = new Date(toYMD(end) + 'T00:00:00')
   const today = new Date()
@@ -145,11 +184,12 @@ function countWorkDaysUntilToday(start: string, end: string, workDays: WorkDays)
 
   let count = 0
   const cur = new Date(s)
+
   while (cur <= last) {
-    const dow = cur.getDay()
-    if (workDays[dow]) count++
+    if (isExecutionDay(cur, workDays, overrides)) count++
     cur.setDate(cur.getDate() + 1)
   }
+
   return count
 }
 
@@ -528,13 +568,17 @@ function RateResultPanel({
   targetWins,
   taxaUsadaNoCalculo,
   remainingBusinessDays,
+  context = 'wins',
 }: {
   metrics: SimulatorMetrics | null
   result: SimulatorResult | null
   targetWins: number
   taxaUsadaNoCalculo: number
   remainingBusinessDays: number
+  context?: 'financial' | 'wins'
 }) {
+  const isFinancialMode = context === 'financial'
+
   const workedCount = metrics?.worked_count ?? 0
   const currentWins = metrics?.current_wins ?? 0
   const remainingWins = result?.remaining_wins ?? 0
@@ -546,7 +590,17 @@ function RateResultPanel({
   const progressPercent = Math.round(safeProgressRatio * 100)
   const onTrack = Boolean(result?.on_track)
 
-  const statusLabelText = onTrack ? 'Ritmo adequado' : 'Ritmo exige atenção'
+  const unitLabel = isFinancialMode ? 'vendas' : 'ganhos'
+  const unitLabelCapitalized = isFinancialMode ? 'Vendas' : 'Ganhos'
+
+  const statusLabelText = isFinancialMode
+    ? onTrack
+      ? 'Conversão adequada'
+      : 'Conversão abaixo'
+    : onTrack
+      ? 'Ritmo adequado'
+      : 'Ritmo exige atenção'
+
   const statusColor = onTrack ? '#86efac' : '#fbbf24'
   const statusBackground = onTrack ? 'rgba(34, 197, 94, 0.10)' : 'rgba(245, 158, 11, 0.10)'
 
@@ -579,7 +633,7 @@ function RateResultPanel({
               lineHeight: 1.2,
             }}
           >
-            Leitura operacional da conversão
+            {isFinancialMode ? 'Conversão conectada ao faturamento' : 'Leitura operacional da conversão'}
           </div>
 
           <div
@@ -591,7 +645,9 @@ function RateResultPanel({
               maxWidth: 780,
             }}
           >
-            Mostra se o volume atual de ciclos trabalhados sustenta a meta de ganhos no período.
+            {isFinancialMode
+              ? 'Traduz a meta financeira em vendas necessárias, ciclos de trabalho e ritmo diário restante.'
+              : 'Mostra se o volume atual de ciclos trabalhados sustenta a meta de ganhos no período.'}
           </div>
         </div>
 
@@ -625,16 +681,24 @@ function RateResultPanel({
         />
 
         <Card
-          title="Ganhos atuais"
+          title={`${unitLabelCapitalized} atuais`}
           value={currentWins}
-          subtitle={`Meta operacional: ${targetWins} ganhos`}
+          subtitle={
+            isFinancialMode
+              ? `Meta derivada: ${targetWins} vendas`
+              : `Meta operacional: ${targetWins} ganhos`
+          }
           tone={currentWins >= targetWins ? 'good' : 'neutral'}
         />
 
         <Card
-          title="Ganhos restantes"
+          title={`${unitLabelCapitalized} restantes`}
           value={remainingWins}
-          subtitle="Quantidade ainda necessária para atingir a meta"
+          subtitle={
+            isFinancialMode
+              ? 'Quantidade estimada para cobrir o gap financeiro'
+              : 'Quantidade ainda necessária para atingir a meta'
+          }
           tone={remainingWins <= 0 ? 'good' : 'bad'}
         />
 
@@ -741,7 +805,7 @@ function RateResultPanel({
                 fontSize: 12,
               }}
             >
-              ciclos por dia útil
+              ciclos/leads por dia útil
             </div>
           </div>
 
@@ -801,7 +865,7 @@ function RateResultPanel({
               fontWeight: 750,
             }}
           >
-            <span>Progresso operacional</span>
+            <span>{isFinancialMode ? 'Progresso contra vendas necessárias' : 'Progresso operacional'}</span>
             <span style={{ color: onTrack ? '#86efac' : '#fbbf24' }}>{progressPercent}%</span>
           </div>
         </div>
@@ -818,7 +882,7 @@ function RateResultPanel({
           Com taxa de conversão de{' '}
           <strong style={{ color: '#93c5fd' }}>{pct(taxaUsadaNoCalculo)}</strong>, o simulador estima que sejam necessários{' '}
           <strong style={{ color: SIMULATOR_UI.textPrimary }}>{neededWorkedCycles} ciclos trabalhados</strong> para buscar{' '}
-          <strong style={{ color: '#86efac' }}>{targetWins} ganhos</strong>. Ainda restam{' '}
+          <strong style={{ color: '#86efac' }}>{targetWins} {unitLabel}</strong>. Ainda restam{' '}
           <strong style={{ color: remainingWorkedCycles > 0 ? '#fbbf24' : '#86efac' }}>
             {remainingWorkedCycles} ciclos
           </strong>{' '}
@@ -2924,15 +2988,65 @@ function handleUndoGoalFromTop() {
   const revenueMetricLabel =
     mode === 'faturamento' ? 'Faturamento' : mode === 'recebimento' ? 'Recebimento' : 'Ganhos'
 
-  const decisionRevenueKpis = useMemo(() => {
-    if (!showRevenueMode) return null
-
-    if (selectedSellerId) {
-      return revenueSellerKpis
-    }
-
-    return revenueCompanyKpis
-  }, [showRevenueMode, selectedSellerId, revenueSellerKpis, revenueCompanyKpis])
+    const decisionRevenueKpis = useMemo(() => {
+      if (!showRevenueMode) return null
+  
+      if (selectedSellerId) {
+        return revenueSellerKpis
+      }
+  
+      return revenueCompanyKpis
+    }, [showRevenueMode, selectedSellerId, revenueSellerKpis, revenueCompanyKpis])
+  
+    const ratePanelTargetWins = useMemo(() => {
+      if (showRevenueMode && theory10020Result) {
+        return theory10020Result.vendas_necessarias
+      }
+  
+      return targetWins
+    }, [showRevenueMode, theory10020Result, targetWins])
+  
+    const ratePanelResult = useMemo<SimulatorResult | null>(() => {
+      if (!showRevenueMode || !theory10020Result || !metrics) {
+        return result
+      }
+  
+      const safeRate = Math.max(0.01, taxaUsadaNoCalculo)
+      const currentWins = metrics.current_wins ?? 0
+      const workedCount = metrics.worked_count ?? 0
+  
+      const neededWins = Math.max(0, theory10020Result.vendas_necessarias)
+      const remainingWins = Math.max(0, neededWins - currentWins)
+  
+      const neededWorkedCycles = Math.ceil(neededWins / safeRate)
+      const remainingWorkedCycles = Math.ceil(remainingWins / safeRate)
+      const dailyWorkedRemaining =
+        remainingBusinessDays > 0
+          ? Math.ceil(remainingWorkedCycles / remainingBusinessDays)
+          : remainingWorkedCycles
+  
+      const currentRate = workedCount > 0 ? currentWins / workedCount : 0
+  
+      return {
+        needed_wins: neededWins,
+        remaining_wins: remainingWins,
+        needed_worked_cycles: neededWorkedCycles,
+        remaining_worked_cycles: remainingWorkedCycles,
+        daily_worked_needed: neededWorkedCycles,
+        daily_worked_remaining: dailyWorkedRemaining,
+        simulation_15pct: Math.ceil(neededWins / 0.15),
+        simulation_25pct: Math.ceil(neededWins / 0.25),
+        progress_pct: neededWins > 0 ? currentWins / neededWins : 0,
+        on_track: currentRate >= safeRate,
+      }
+    }, [
+      showRevenueMode,
+      theory10020Result,
+      metrics,
+      result,
+      taxaUsadaNoCalculo,
+      remainingBusinessDays,
+    ])
 
   if (loading) {
     return (
@@ -3186,10 +3300,11 @@ function handleUndoGoalFromTop() {
           >
             <RateResultPanel
               metrics={metrics}
-              result={result}
-              targetWins={targetWins}
+              result={ratePanelResult}
+              targetWins={ratePanelTargetWins}
               taxaUsadaNoCalculo={taxaUsadaNoCalculo}
               remainingBusinessDays={remainingBusinessDays}
+              context={showRevenueMode ? 'financial' : 'wins'}
             />
           </Section>
         )}
