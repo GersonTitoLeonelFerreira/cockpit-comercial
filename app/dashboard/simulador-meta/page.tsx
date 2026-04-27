@@ -732,8 +732,8 @@ function RateResultPanel({
             }}
           >
             {isFinancialMode
-              ? 'Traduz a meta financeira em vendas necessárias, ciclos de trabalho e ritmo diário restante.'
-              : 'Mostra se o volume atual de ciclos trabalhados sustenta a meta de ganhos no período.'}
+              ? 'Traduz a meta financeira em vendas necessárias, oportunidades trabalhadas e ritmo diário restante.'
+              : 'Mostra se o volume atual de oportunidades trabalhadas sustenta a meta de ganhos no período.'}
           </div>
         </div>
 
@@ -761,9 +761,9 @@ function RateResultPanel({
         }}
       >
         <Card
-          title="Ciclos trabalhados"
+          title="Oportunidades trabalhadas"
           value={workedCount}
-          subtitle="Base já movimentada no período"
+          subtitle="Base comercial já movimentada no período"
         />
 
         <Card
@@ -788,10 +788,10 @@ function RateResultPanel({
           tone={remainingWins <= 0 ? 'good' : 'bad'}
         />
 
-        <Card
-          title="Ciclos restantes"
+<Card
+          title="Oportunidades restantes"
           value={remainingWorkedCycles}
-          subtitle="Volume estimado ainda necessário"
+          subtitle="Volume comercial ainda necessário"
           tone={remainingWorkedCycles <= 0 ? 'good' : 'neutral'}
         />
       </div>
@@ -928,7 +928,7 @@ function RateResultPanel({
                 marginBottom: 6,
               }}
             >
-              Ciclos necessários totais
+              Oportunidades necessárias
             </div>
 
             <div
@@ -973,7 +973,7 @@ function RateResultPanel({
                 fontSize: 12,
               }}
             >
-              ciclos/leads por dia de execução
+              oportunidades por dia de execução
             </div>
           </div>
 
@@ -1049,7 +1049,7 @@ function RateResultPanel({
         >
           Com taxa de conversão de{' '}
           <strong style={{ color: '#93c5fd' }}>{pct(taxaUsadaNoCalculo)}</strong>, o simulador estima que sejam necessários{' '}
-          <strong style={{ color: SIMULATOR_UI.textPrimary }}>{neededWorkedCycles} ciclos trabalhados</strong> para buscar{' '}
+          <strong style={{ color: SIMULATOR_UI.textPrimary }}>{neededWorkedCycles} oportunidades trabalhadas</strong> para buscar{' '}
           <strong style={{ color: '#86efac' }}>{targetWins} {unitLabel}</strong>. Ainda restam{' '}
           <strong style={{ color: remainingWorkedCycles > 0 ? '#fbbf24' : '#86efac' }}>
             {remainingWorkedCycles} ciclos
