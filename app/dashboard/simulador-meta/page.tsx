@@ -1490,11 +1490,17 @@ function ExecutionCalendarSummaryStrip({
   summary,
   totalDays,
   hasOverrides,
+  calendarSaving,
+  calendarSaveError,
+  calendarSaveSuccess,
   onOpenCalendar,
 }: {
   summary: ReturnType<typeof getExecutionCalendarSummary>
   totalDays: number
   hasOverrides: boolean
+  calendarSaving: boolean
+  calendarSaveError: string | null
+  calendarSaveSuccess: string | null
   onOpenCalendar: () => void
 }) {
   const items = [
@@ -1593,6 +1599,42 @@ function ExecutionCalendarSummaryStrip({
           >
             {hasOverrides ? 'Base atual: calendário ajustado' : 'Base atual: padrão semanal'}
           </div>
+
+          {calendarSaving || calendarSaveError || calendarSaveSuccess ? (
+            <div
+              style={{
+                border: `1px solid ${
+                  calendarSaveError
+                    ? 'rgba(239, 68, 68, 0.28)'
+                    : calendarSaving
+                      ? 'rgba(245, 158, 11, 0.28)'
+                      : 'rgba(34, 197, 94, 0.24)'
+                }`,
+                background: calendarSaveError
+                  ? 'rgba(239, 68, 68, 0.10)'
+                  : calendarSaving
+                    ? 'rgba(245, 158, 11, 0.10)'
+                    : 'rgba(34, 197, 94, 0.10)',
+                color: calendarSaveError
+                  ? '#fca5a5'
+                  : calendarSaving
+                    ? '#fbbf24'
+                    : '#bbf7d0',
+                borderRadius: 999,
+                padding: '7px 10px',
+                fontSize: 11.5,
+                fontWeight: 850,
+                whiteSpace: 'nowrap',
+              }}
+              title={calendarSaveError ?? calendarSaveSuccess ?? undefined}
+            >
+              {calendarSaveError
+                ? 'Erro ao salvar calendário'
+                : calendarSaving
+                  ? 'Salvando calendário...'
+                  : calendarSaveSuccess}
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -3187,6 +3229,9 @@ export default function SimuladorMetaPage() {
   const [workDays, setWorkDays] = useState<WorkDays>(defaultWorkDays())
   const [executionDayOverrides, setExecutionDayOverrides] = useState<ExecutionDayOverrides>({})
   const [executionCalendarOpen, setExecutionCalendarOpen] = useState(false)
+  const [calendarSaving, setCalendarSaving] = useState(false)
+  const [calendarSaveError, setCalendarSaveError] = useState<string | null>(null)
+  const [calendarSaveSuccess, setCalendarSaveSuccess] = useState<string | null>(null)
   const [autoRemainingDays, setAutoRemainingDays] = useState(true)
 
   // Ganhos
@@ -3989,6 +4034,8 @@ function handleUndoGoalFromTop() {
       if (!companyId || !periodStart || !periodEnd) {
         setWorkDays(defaultWorkDays())
         setExecutionDayOverrides({})
+        setCalendarSaveError(null)
+        setCalendarSaveSuccess(null)
         return
       }
   
@@ -4026,9 +4073,15 @@ function handleUndoGoalFromTop() {
       nextWorkDays: WorkDays = workDays,
     ) {
       if (!companyId || !periodStart || !periodEnd) {
+        setCalendarSaveError('Calendário operacional não salvo: empresa ou período ausente.')
+        setCalendarSaveSuccess(null)
         console.warn('Calendário operacional não salvo: empresa ou período ausente.')
         return
       }
+  
+      setCalendarSaving(true)
+      setCalendarSaveError(null)
+      setCalendarSaveSuccess(null)
   
       try {
         await saveExecutionDayCalendar({
@@ -4038,8 +4091,19 @@ function handleUndoGoalFromTop() {
           workDays: nextWorkDays,
           executionDayOverrides: nextOverrides,
         })
+  
+        setCalendarSaveSuccess('Calendário salvo')
+  
+        window.setTimeout(() => {
+          setCalendarSaveSuccess(null)
+        }, 2500)
       } catch (error) {
-        console.warn('Erro ao salvar calendário operacional no Supabase:', getErrorMessage(error, 'Erro desconhecido.'))
+        const message = getErrorMessage(error, 'Erro desconhecido.')
+        setCalendarSaveError(message)
+        setCalendarSaveSuccess(null)
+        console.warn('Erro ao salvar calendário operacional no Supabase:', message)
+      } finally {
+        setCalendarSaving(false)
       }
     }
 
@@ -4168,10 +4232,13 @@ function handleUndoGoalFromTop() {
         remainingBusinessDays={remainingBusinessDays}
       />
 
-      <ExecutionCalendarSummaryStrip
+<ExecutionCalendarSummaryStrip
         summary={executionCalendarSummary}
         totalDays={executionCalendarDays.length}
         hasOverrides={hasExecutionDayOverrides}
+        calendarSaving={calendarSaving}
+        calendarSaveError={calendarSaveError}
+        calendarSaveSuccess={calendarSaveSuccess}
         onOpenCalendar={() => setExecutionCalendarOpen(true)}
       />
 
