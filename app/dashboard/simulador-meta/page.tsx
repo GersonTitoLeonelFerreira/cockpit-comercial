@@ -3488,10 +3488,13 @@ function handleUndoGoalFromTop() {
           }
         }
 
-        const totalLeadsForDist = theory10020Result?.leads_para_contatar
-          ?? Math.ceil(targetWins / Math.max(0.01, percentToRate(closeRatePercent)))
+        const safeDistributionRate = Math.max(0.01, taxaUsadaNoCalculo)
 
-        const totalWinsForDist = targetWins
+        const totalLeadsForDist = theory10020Result?.leads_para_contatar
+          ?? Math.ceil(targetWins / safeDistributionRate)
+
+        const totalWinsForDist = theory10020Result?.vendas_necessarias
+          ?? targetWins
 
         const dist = buildCalendarDistribution(
           {
@@ -3499,9 +3502,9 @@ function handleUndoGoalFromTop() {
             dateEnd,
             workDays,
             executionDayOverrides,
-totalLeads: Math.max(0, totalLeadsForDist),
+            totalLeads: Math.max(0, totalLeadsForDist),
             totalWins: Math.max(0, totalWinsForDist),
-            closeRate: percentToRate(closeRatePercent),
+            closeRate: safeDistributionRate,
           },
           inputSignals,
         )
@@ -3524,10 +3527,11 @@ totalLeads: Math.max(0, totalLeadsForDist),
     periodEnd,
     selectedSellerId,
     targetWins,
-    closeRatePercent,
+    taxaUsadaNoCalculo,
     workDays,
     executionDayOverrides,
     theory10020Result?.leads_para_contatar,
+    theory10020Result?.vendas_necessarias,
   ])
 
   // revenue (dados)
