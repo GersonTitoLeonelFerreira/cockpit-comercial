@@ -1494,7 +1494,7 @@ function SimulatorTopControls({
             whiteSpace: 'nowrap',
           }}
         >
-          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias úteis
+          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias de execução
         </div>
       </div>
 
@@ -3699,11 +3699,11 @@ function handleUndoGoalFromTop() {
                     checked={distributionOnlyWorking}
                     onChange={(e) => setDistributionOnlyWorking(e.target.checked)}
                   />
-                  Mostrar apenas dias úteis
+                  Mostrar apenas dias de execução
                 </label>
                 {distribution ? (
                   <span style={{ fontSize: 12, opacity: 0.5 }}>
-                    {distribution.summary.total_working_days} dias úteis · {periodStart} a {periodEnd}
+                    {distribution.summary.total_working_days} dias de execução · {periodStart} a {periodEnd}
                   </span>
                 ) : null}
               </div>
