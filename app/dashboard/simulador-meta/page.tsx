@@ -33,7 +33,10 @@ import { buildCalendarDistribution } from '@/app/lib/services/calendarDistributi
 import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
 import { getPeriodRadar } from '@/app/lib/services/periodRadar'
-import { getExecutionDayCalendar } from '@/app/lib/services/executionDayCalendar'
+import {
+  getExecutionDayCalendar,
+  saveExecutionDayCalendar,
+} from '@/app/lib/services/executionDayCalendar'
 import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
 import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
 import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
@@ -3902,60 +3905,57 @@ function handleUndoGoalFromTop() {
       remainingBusinessDays,
     ])
 
-  const executionCalendarStorageKey = useMemo(() => {
-    const companyKey = companyId || 'sem-empresa'
-    const startKey = periodStart || 'sem-inicio'
-    const endKey = periodEnd || 'sem-fim'
-
-    return `cockpit:simulador-meta:calendario-operacional:${companyKey}:${startKey}:${endKey}`
-  }, [companyId, periodStart, periodEnd])
-
-  useEffect(() => {
-    if (!companyId || !periodStart || !periodEnd) {
-      setExecutionDayOverrides({})
-      return
-    }
-
-    let cancelled = false
-
-    async function loadExecutionDayCalendar() {
-      try {
-        const record = await getExecutionDayCalendar({
-          companyId: companyId!,
-          periodStart,
-          periodEnd,
-        })
-
-        if (cancelled) return
-
-        setExecutionDayOverrides(record?.execution_day_overrides ?? {})
-      } catch (error) {
-        if (cancelled) return
-
-        console.warn('Erro ao carregar calendário operacional do Supabase:', getErrorMessage(error, 'Erro desconhecido.'))
+    useEffect(() => {
+      if (!companyId || !periodStart || !periodEnd) {
         setExecutionDayOverrides({})
-      }
-    }
-
-    void loadExecutionDayCalendar()
-
-    return () => {
-      cancelled = true
-    }
-  }, [companyId, periodStart, periodEnd])
-
-  function persistExecutionDayOverrides(next: ExecutionDayOverrides) {
-    try {
-      if (Object.keys(next).length === 0) {
-        window.localStorage.removeItem(executionCalendarStorageKey)
         return
       }
-
-      window.localStorage.setItem(executionCalendarStorageKey, JSON.stringify(next))
-    } catch (error) {
-      console.warn('Erro ao salvar calendário operacional:', getErrorMessage(error, 'Erro desconhecido.'))
+  
+      let cancelled = false
+  
+      async function loadExecutionDayCalendar() {
+        try {
+          const record = await getExecutionDayCalendar({
+            companyId: companyId!,
+            periodStart,
+            periodEnd,
+          })
+  
+          if (cancelled) return
+  
+          setExecutionDayOverrides(record?.execution_day_overrides ?? {})
+        } catch (error) {
+          if (cancelled) return
+  
+          console.warn('Erro ao carregar calendário operacional do Supabase:', getErrorMessage(error, 'Erro desconhecido.'))
+          setExecutionDayOverrides({})
+        }
+      }
+  
+      void loadExecutionDayCalendar()
+  
+      return () => {
+        cancelled = true
+      }
+    }, [companyId, periodStart, periodEnd])
+  
+    async function persistExecutionDayOverrides(next: ExecutionDayOverrides) {
+      if (!companyId || !periodStart || !periodEnd) {
+        console.warn('Calendário operacional não salvo: empresa ou período ausente.')
+        return
+      }
+  
+      try {
+        await saveExecutionDayCalendar({
+          companyId,
+          periodStart,
+          periodEnd,
+          executionDayOverrides: next,
+        })
+      } catch (error) {
+        console.warn('Erro ao salvar calendário operacional no Supabase:', getErrorMessage(error, 'Erro desconhecido.'))
+      }
     }
-  }
 
   const hasExecutionDayOverrides = Object.keys(executionDayOverrides).length > 0
 
@@ -3966,7 +3966,7 @@ function handleUndoGoalFromTop() {
         [date]: value,
       }
 
-      persistExecutionDayOverrides(next)
+      void persistExecutionDayOverrides(next)
 
       return next
     })
@@ -3985,7 +3985,7 @@ function handleUndoGoalFromTop() {
 
   function handleResetExecutionDayOverrides() {
     setExecutionDayOverrides({})
-    persistExecutionDayOverrides({})
+    void persistExecutionDayOverrides({})
   }
 
   if (loading) {
