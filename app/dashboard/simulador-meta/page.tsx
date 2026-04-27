@@ -1974,13 +1974,26 @@ function SimulatorTopControls({
         ? 'Recebimento'
         : 'Ganhos'
 
-  const formattedGoalValue = safeNumber(revenueGoalInputText).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    maximumFractionDigits: 0,
-  })
-
-  const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${periodStart || '----'} até ${periodEnd || '----'} · Meta ${formattedGoalValue}`
+        const formattedGoalValue = safeNumber(revenueGoalInputText).toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+          maximumFractionDigits: 0,
+        })
+      
+        const formatDateBR = (value: string) => {
+          if (!value) return '----'
+      
+          const [year, month, day] = value.split('-')
+      
+          if (!year || !month || !day) return value
+      
+          return `${day}/${month}/${year}`
+        }
+      
+        const formattedPeriodStart = formatDateBR(periodStart)
+        const formattedPeriodEnd = formatDateBR(periodEnd)
+      
+        const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${formattedPeriodStart} até ${formattedPeriodEnd} · Meta ${formattedGoalValue}`
 
     return (
       <div
