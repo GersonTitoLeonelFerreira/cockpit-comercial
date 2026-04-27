@@ -3490,7 +3490,7 @@ function handleUndoGoalFromTop() {
 
         const safeDistributionRate = Math.max(0.01, taxaUsadaNoCalculo)
 
-        const totalLeadsForDist = theory10020Result?.leads_para_contatar
+        const totalLeadsForDist = theory10020Result?.ciclos_trabalhados_necessarios
           ?? Math.ceil(targetWins / safeDistributionRate)
 
         const totalWinsForDist = theory10020Result?.vendas_necessarias
@@ -3530,7 +3530,7 @@ function handleUndoGoalFromTop() {
     taxaUsadaNoCalculo,
     workDays,
     executionDayOverrides,
-    theory10020Result?.leads_para_contatar,
+    theory10020Result?.ciclos_trabalhados_necessarios,
     theory10020Result?.vendas_necessarias,
   ])
 
