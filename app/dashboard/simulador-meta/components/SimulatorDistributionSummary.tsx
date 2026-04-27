@@ -577,11 +577,82 @@ export default function SimulatorDistributionSummary({
         </div>
       </Panel>
 
-      <Panel
-        title="Leituras usadas na distribuição"
-        description="Mostra quais bases foram consideradas para montar a carga diária do período."
+      <details
+        style={{
+          border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+          background: 'rgba(9, 11, 15, 0.30)',
+          borderRadius: 16,
+          overflow: 'hidden',
+        }}
       >
-        <div style={{ display: 'grid', gap: 10 }}>
+        <summary
+          style={{
+            cursor: 'pointer',
+            userSelect: 'none',
+            listStyle: 'none',
+            padding: '14px 16px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  color: DISTRIBUTION_UI.textPrimary,
+                  fontSize: 13.5,
+                  fontWeight: 900,
+                  letterSpacing: -0.15,
+                  lineHeight: 1.2,
+                }}
+              >
+                Ver critérios usados no cálculo
+              </div>
+
+              <div
+                style={{
+                  marginTop: 4,
+                  color: DISTRIBUTION_UI.textSubtle,
+                  fontSize: 12.5,
+                  lineHeight: 1.45,
+                  maxWidth: 760,
+                }}
+              >
+                Bases consideradas para montar a carga diária. Use esta área apenas para auditoria do cálculo.
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+                background: 'rgba(13, 15, 20, 0.72)',
+                borderRadius: 999,
+                padding: '6px 10px',
+                color: DISTRIBUTION_UI.textMuted,
+                fontSize: 11.5,
+                fontWeight: 850,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {signals_used.length} critério{signals_used.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+        </summary>
+
+        <div
+          style={{
+            borderTop: `1px solid ${DISTRIBUTION_UI.borderMuted}`,
+            padding: 16,
+            display: 'grid',
+            gap: 10,
+          }}
+        >
           {signals_used.map((signal) => {
             const signalColor = signal.available
               ? CONFIDENCE_COLORS[signal.confidence]
@@ -676,7 +747,7 @@ export default function SimulatorDistributionSummary({
             )
           })}
         </div>
-      </Panel>
+      </details>
 
       {observations.length > 0 ? (
         <Panel
