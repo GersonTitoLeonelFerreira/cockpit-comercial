@@ -1961,6 +1961,27 @@ function SimulatorTopControls({
     ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
     : null
 
+  const selectedScopeLabel = isAdmin
+    ? selectedSellerId
+      ? sellers.find((seller) => seller.id === selectedSellerId)?.label ?? 'Vendedor selecionado'
+      : 'Empresa inteira'
+    : 'Minha meta'
+
+  const modeLabel =
+    mode === 'faturamento'
+      ? 'Faturamento'
+      : mode === 'recebimento'
+        ? 'Recebimento'
+        : 'Ganhos'
+
+  const formattedGoalValue = safeNumber(revenueGoalInputText).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    maximumFractionDigits: 0,
+  })
+
+  const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${periodStart || '----'} até ${periodEnd || '----'} · Meta ${formattedGoalValue}`
+
     return (
       <div
         style={{
@@ -1984,7 +2005,7 @@ function SimulatorTopControls({
           borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
         }}
       >
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               color: SIMULATOR_UI.textSecondary,
@@ -1994,34 +2015,39 @@ function SimulatorTopControls({
               lineHeight: 1.2,
             }}
           >
-            Cenário principal
+            Cenário da simulação
           </div>
 
           <div
             style={{
-              marginTop: 3,
-              color: SIMULATOR_UI.textSubtle,
-              fontSize: 12,
-              lineHeight: 1.35,
+              marginTop: 5,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 12.5,
+              lineHeight: 1.4,
+              maxWidth: 760,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
+            title={scenarioSummary}
           >
-            Escopo, período, tipo de meta e valor-base da simulação.
+            {scenarioSummary}
           </div>
         </div>
 
         <div
           style={{
             border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            background: 'rgba(9, 11, 15, 0.52)',
+            background: 'rgba(59, 130, 246, 0.10)',
             borderRadius: 999,
             padding: '6px 10px',
-            color: SIMULATOR_UI.textMuted,
+            color: '#bfdbfe',
             fontSize: 12,
-            fontWeight: 750,
+            fontWeight: 850,
             whiteSpace: 'nowrap',
           }}
         >
-          {periodStart || '----'} até {periodEnd || '----'} · {remainingBusinessDays} dias de execução
+          {remainingBusinessDays} dias de execução restantes
         </div>
       </div>
 
@@ -2229,7 +2255,7 @@ function SimulatorTopControls({
                   lineHeight: 1.35,
                 }}
               >
-                Ticket médio, taxa de conversão e dias trabalhados.
+                Ticket médio, taxa de conversão e calendário de execução.
               </div>
             </div>
 
@@ -2245,7 +2271,7 @@ function SimulatorTopControls({
                 whiteSpace: 'nowrap',
               }}
             >
-              Configurar cenário
+              Ajustar parâmetros
             </div>
           </div>
         </summary>
