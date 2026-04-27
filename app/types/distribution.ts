@@ -58,13 +58,13 @@ export interface CalendarDistributionRow {
   weekday_label: string
   /** Label curto ('Seg', 'Ter', etc.) */
   weekday_short: string
-  /** Se é dia útil conforme configuração do usuário */
+  /** Se é dia de execução conforme configuração do usuário */
   is_working_day: boolean
   /** Foco operacional recomendado para o dia */
   focus_type: OperationalFocusType
   /** Label do foco ('Prospecção', 'Fechamento', etc.) */
   focus_label: string
-  /** Peso relativo do dia para distribuição (0..1, soma dos dias úteis = 1) */
+  /** Peso relativo do dia para distribuição (0..1, soma dos dias de execução = 1) */
   weight: number
   /** Meta de leads para este dia */
   leads_goal: number
@@ -80,15 +80,15 @@ export interface CalendarDistributionRow {
  * Resumo da distribuição de metas no calendário.
  */
 export interface DistributionSummary {
-  /** Total de dias úteis no período */
+  /** Total de dias de execução no período */
   total_working_days: number
   /** Total de leads distribuídos (deve igualar total configurado) */
   total_leads: number
   /** Total de ganhos distribuídos */
   total_wins: number
-  /** Média de leads por dia útil */
+  /** Média de leads por dia de execução */
   avg_leads_per_day: number
-  /** Média de ganhos por dia útil */
+  /** Média de ganhos por dia de execução */
   avg_wins_per_day: number
   /** Dia com maior carga de leads (pico) */
   peak_day: CalendarDistributionRow | null
@@ -104,7 +104,7 @@ export interface DistributionSummary {
  * Resultado completo da distribuição inteligente de metas.
  */
 export interface DailyGoalDistribution {
-  /** Todas as linhas do calendário (dias úteis e não úteis) */
+  /** Todas as linhas do calendário (dias de execução e não úteis) */
   rows: CalendarDistributionRow[]
   /** Resumo agregado */
   summary: DistributionSummary
@@ -132,6 +132,8 @@ export interface DistributionConfig {
   dateEnd: string
   /** Dias da semana trabalhados (0=Dom..6=Sáb) */
   workDays: Record<number, boolean>
+  /** Exceções por data: true = trabalha, false = não trabalha */
+  executionDayOverrides?: Record<string, boolean>
   /** Meta total de leads a contatar */
   totalLeads: number
   /** Meta total de ganhos */

@@ -961,12 +961,409 @@ function RateResultPanel({
 
 
 
+
+function ExecutionCalendarModal({
+  open,
+  periodStart,
+  periodEnd,
+  days,
+  summary,
+  onClose,
+  onSetOverride,
+  onClearOverride,
+  onResetAll,
+}: {
+  open: boolean
+  periodStart: string
+  periodEnd: string
+  days: ExecutionCalendarDay[]
+  summary: ReturnType<typeof getExecutionCalendarSummary>
+  onClose: () => void
+  onSetOverride: (date: string, value: boolean) => void
+  onClearOverride: (date: string) => void
+  onResetAll: () => void
+}) {
+  if (!open) return null
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Calendário operacional"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(2, 6, 23, 0.72)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 18,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: 'min(980px, 100%)',
+          maxHeight: '88vh',
+          overflow: 'hidden',
+          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+          background: 'linear-gradient(135deg, rgba(18, 22, 33, 0.98) 0%, rgba(9, 11, 15, 0.98) 100%)',
+          borderRadius: 22,
+          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div
+          style={{
+            padding: '18px 20px',
+            borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 14,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 18,
+                fontWeight: 950,
+                letterSpacing: -0.3,
+                lineHeight: 1.2,
+              }}
+            >
+              Calendário operacional
+            </div>
+
+            <div
+              style={{
+                marginTop: 5,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 13,
+                lineHeight: 1.45,
+              }}
+            >
+              Ajuste quais datas contam como dias de execução entre {periodStart} e {periodEnd}.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: 'rgba(9, 11, 15, 0.66)',
+              color: SIMULATOR_UI.textSecondary,
+              borderRadius: 12,
+              height: 34,
+              padding: '0 12px',
+              fontSize: 12.5,
+              fontWeight: 850,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Fechar
+          </button>
+        </div>
+
+        <div
+          style={{
+            padding: 20,
+            overflow: 'auto',
+            maxHeight: 'calc(88vh - 76px)',
+            display: 'grid',
+            gap: 16,
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+              gap: 10,
+            }}
+          >
+            <Card
+              title="Dias padrão"
+              value={summary.totalDefaultExecutionDays}
+              subtitle="Pelos dias da semana marcados"
+            />
+            <Card
+              title="Dias adicionados"
+              value={summary.addedExecutionDays}
+              subtitle="Exceções incluídas manualmente"
+              tone={summary.addedExecutionDays > 0 ? 'good' : 'neutral'}
+            />
+            <Card
+              title="Dias removidos"
+              value={summary.removedExecutionDays}
+              subtitle="Feriados, pausas ou bloqueios"
+              tone={summary.removedExecutionDays > 0 ? 'bad' : 'neutral'}
+            />
+            <Card
+              title="Dias de execução"
+              value={summary.totalExecutionDays}
+              subtitle="Base final usada nos cálculos"
+            />
+          </div>
+
+          <div
+            style={{
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: 'rgba(9, 11, 15, 0.42)',
+              borderRadius: 16,
+              padding: 14,
+              display: 'grid',
+              gap: 12,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: SIMULATOR_UI.textPrimary,
+                    fontSize: 14,
+                    fontWeight: 900,
+                  }}
+                >
+                  Datas do período
+                </div>
+                <div
+                  style={{
+                    marginTop: 4,
+                    color: SIMULATOR_UI.textMuted,
+                    fontSize: 12.5,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Use “Trabalha” para adicionar uma data fora do padrão. Use “Não trabalha” para remover feriado, pausa ou bloqueio.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onResetAll}
+                disabled={summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0}
+                style={{
+                  height: 34,
+                  borderRadius: 10,
+                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                  background: 'rgba(15, 18, 26, 0.78)',
+                  color: SIMULATOR_UI.textSecondary,
+                  padding: '0 12px',
+                  fontSize: 12.5,
+                  fontWeight: 850,
+                  cursor:
+                    summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity: summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0 ? 0.5 : 1,
+                }}
+              >
+                Limpar ajustes
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(124px, 1fr))',
+                gap: 10,
+              }}
+            >
+              {days.map((day) => {
+                const isAdded = day.override === true && !day.isDefaultExecutionDay
+                const isRemoved = day.override === false && day.isDefaultExecutionDay
+                const hasOverride = day.override !== null
+
+                const borderColor = isAdded
+                  ? 'rgba(34, 197, 94, 0.35)'
+                  : isRemoved
+                    ? 'rgba(239, 68, 68, 0.35)'
+                    : day.isExecutionDay
+                      ? 'rgba(59, 130, 246, 0.20)'
+                      : SIMULATOR_UI.borderMuted
+
+                const background = isAdded
+                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.14) 0%, rgba(9, 11, 15, 0.52) 100%)'
+                  : isRemoved
+                    ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(9, 11, 15, 0.52) 100%)'
+                    : day.isExecutionDay
+                      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, rgba(9, 11, 15, 0.52) 100%)'
+                      : 'rgba(9, 11, 15, 0.40)'
+
+                return (
+                  <div
+                    key={day.date}
+                    style={{
+                      border: `1px solid ${borderColor}`,
+                      background,
+                      borderRadius: 14,
+                      padding: 11,
+                      display: 'grid',
+                      gap: 9,
+                      minHeight: 142,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            color: SIMULATOR_UI.textPrimary,
+                            fontSize: 18,
+                            fontWeight: 950,
+                            lineHeight: 1,
+                          }}
+                        >
+                          {String(day.day).padStart(2, '0')}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: 4,
+                            color: SIMULATOR_UI.textMuted,
+                            fontSize: 12,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {day.weekdayLabel}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                          background: day.isExecutionDay
+                            ? 'rgba(34, 197, 94, 0.10)'
+                            : 'rgba(148, 163, 184, 0.08)',
+                          color: day.isExecutionDay ? '#86efac' : SIMULATOR_UI.textSubtle,
+                          borderRadius: 999,
+                          padding: '4px 7px',
+                          fontSize: 10.5,
+                          fontWeight: 900,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {day.isExecutionDay ? 'Executa' : 'Pausa'}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        color: SIMULATOR_UI.textSubtle,
+                        fontSize: 11.5,
+                        lineHeight: 1.35,
+                        minHeight: 30,
+                      }}
+                    >
+                      {isAdded
+                        ? 'Adicionado manualmente.'
+                        : isRemoved
+                          ? 'Removido manualmente.'
+                          : day.isDefaultExecutionDay
+                            ? 'Ativo pelo padrão semanal.'
+                            : 'Inativo pelo padrão semanal.'}
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: 6,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSetOverride(day.date, true)}
+                        style={{
+                          height: 28,
+                          borderRadius: 9,
+                          border: '1px solid rgba(34, 197, 94, 0.24)',
+                          background: 'rgba(34, 197, 94, 0.10)',
+                          color: '#bbf7d0',
+                          fontSize: 11,
+                          fontWeight: 850,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Trabalha
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onSetOverride(day.date, false)}
+                        style={{
+                          height: 28,
+                          borderRadius: 9,
+                          border: '1px solid rgba(239, 68, 68, 0.24)',
+                          background: 'rgba(239, 68, 68, 0.10)',
+                          color: '#fecaca',
+                          fontSize: 11,
+                          fontWeight: 850,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Não trabalha
+                      </button>
+                    </div>
+
+                    {hasOverride ? (
+                      <button
+                        type="button"
+                        onClick={() => onClearOverride(day.date)}
+                        style={{
+                          height: 28,
+                          borderRadius: 9,
+                          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                          background: 'rgba(15, 18, 26, 0.78)',
+                          color: SIMULATOR_UI.textMuted,
+                          fontSize: 11,
+                          fontWeight: 850,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Voltar ao padrão
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 function ExecutionCalendarSummaryStrip({
   summary,
   totalDays,
+  hasOverrides,
+  onOpenCalendar,
 }: {
   summary: ReturnType<typeof getExecutionCalendarSummary>
   totalDays: number
+  hasOverrides: boolean
+  onOpenCalendar: () => void
 }) {
   const items = [
     {
@@ -1044,17 +1441,45 @@ function ExecutionCalendarSummaryStrip({
 
         <div
           style={{
-            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            background: 'rgba(59, 130, 246, 0.10)',
-            color: '#bfdbfe',
-            borderRadius: 999,
-            padding: '7px 10px',
-            fontSize: 11.5,
-            fontWeight: 850,
-            whiteSpace: 'nowrap',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
           }}
         >
-          Base atual: padrão semanal
+          <div
+            style={{
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: hasOverrides ? 'rgba(34, 197, 94, 0.10)' : 'rgba(59, 130, 246, 0.10)',
+              color: hasOverrides ? '#bbf7d0' : '#bfdbfe',
+              borderRadius: 999,
+              padding: '7px 10px',
+              fontSize: 11.5,
+              fontWeight: 850,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {hasOverrides ? 'Base atual: calendário ajustado' : 'Base atual: padrão semanal'}
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenCalendar}
+            style={{
+              height: 32,
+              borderRadius: 999,
+              border: '1px solid rgba(59, 130, 246, 0.34)',
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.22) 0%, rgba(59, 130, 246, 0.08) 100%)',
+              color: '#dbeafe',
+              padding: '0 12px',
+              fontSize: 11.5,
+              fontWeight: 900,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Abrir calendário
+          </button>
         </div>
       </div>
 
@@ -2572,7 +2997,8 @@ export default function SimuladorMetaPage() {
 
   // Dias trabalhados (checkbox)
   const [workDays, setWorkDays] = useState<WorkDays>(defaultWorkDays())
-  const [executionDayOverrides] = useState<ExecutionDayOverrides>({})
+  const [executionDayOverrides, setExecutionDayOverrides] = useState<ExecutionDayOverrides>({})
+  const [executionCalendarOpen, setExecutionCalendarOpen] = useState(false)
   const [autoRemainingDays, setAutoRemainingDays] = useState(true)
 
   // Ganhos
@@ -2667,7 +3093,7 @@ export default function SimuladorMetaPage() {
         setPeriodEnd(correctedEnd)
 
         const endDate = new Date(toYMD(comp.month_end) + 'T00:00:00')
-        const remainingDays = countRemainingWorkDays(endDate, workDays)
+        const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
         setRemainingBusinessDays(remainingDays)
 
         if (isAdminUser) {
@@ -2722,9 +3148,9 @@ export default function SimuladorMetaPage() {
     if (!autoRemainingDays) return
 
     const endDate = new Date(periodEnd + 'T00:00:00')
-    const remainingDays = countRemainingWorkDays(endDate, workDays)
+    const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
     setRemainingBusinessDays(remainingDays)
-  }, [periodEnd, workDays, autoRemainingDays])
+  }, [periodEnd, workDays, executionDayOverrides, autoRemainingDays])
 
   // taxa real
   useEffect(() => {
@@ -2747,7 +3173,7 @@ export default function SimuladorMetaPage() {
   useEffect(() => {
     if (!metrics) return
     const totalDays =
-      periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays) : 22
+      periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays, executionDayOverrides) : 22
     const newResult = calculateSimulatorResult(metrics, {
       target_wins: targetWins,
       close_rate: percentToRate(closeRatePercent),
@@ -2756,7 +3182,7 @@ export default function SimuladorMetaPage() {
       total_business_days: totalDays,
     })
     setResult(newResult)
-  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays])
+  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays, executionDayOverrides])
 
   // refetch metrics quando muda vendedor ou período
   useEffect(() => {
@@ -3072,7 +3498,8 @@ function handleUndoGoalFromTop() {
             dateStart,
             dateEnd,
             workDays,
-            totalLeads: Math.max(0, totalLeadsForDist),
+            executionDayOverrides,
+totalLeads: Math.max(0, totalLeadsForDist),
             totalWins: Math.max(0, totalWinsForDist),
             closeRate: percentToRate(closeRatePercent),
           },
@@ -3089,7 +3516,19 @@ function handleUndoGoalFromTop() {
     }
 
     void loadDistribution()
-  }, [activeTab, companyId, competency, periodStart, periodEnd, selectedSellerId, targetWins, closeRatePercent, workDays, theory10020Result?.leads_para_contatar])
+  }, [
+    activeTab,
+    companyId,
+    competency,
+    periodStart,
+    periodEnd,
+    selectedSellerId,
+    targetWins,
+    closeRatePercent,
+    workDays,
+    executionDayOverrides,
+    theory10020Result?.leads_para_contatar,
+  ])
 
   // revenue (dados)
   useEffect(() => {
@@ -3309,6 +3748,94 @@ function handleUndoGoalFromTop() {
       remainingBusinessDays,
     ])
 
+  const executionCalendarStorageKey = useMemo(() => {
+    const companyKey = companyId || 'sem-empresa'
+    const startKey = periodStart || 'sem-inicio'
+    const endKey = periodEnd || 'sem-fim'
+
+    return `cockpit:simulador-meta:calendario-operacional:${companyKey}:${startKey}:${endKey}`
+  }, [companyId, periodStart, periodEnd])
+
+  useEffect(() => {
+    if (!periodStart || !periodEnd) return
+
+    try {
+      const raw = window.localStorage.getItem(executionCalendarStorageKey)
+
+      if (!raw) {
+        setExecutionDayOverrides({})
+        return
+      }
+
+      const parsed = JSON.parse(raw)
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setExecutionDayOverrides({})
+        return
+      }
+
+      const safeOverrides = Object.entries(parsed).reduce<ExecutionDayOverrides>(
+        (acc, [date, value]) => {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(date) && typeof value === 'boolean') {
+            acc[date] = value
+          }
+
+          return acc
+        },
+        {},
+      )
+
+      setExecutionDayOverrides(safeOverrides)
+    } catch (error) {
+      console.warn('Erro ao carregar calendário operacional:', getErrorMessage(error, 'Erro desconhecido.'))
+      setExecutionDayOverrides({})
+    }
+  }, [executionCalendarStorageKey, periodStart, periodEnd])
+
+  function persistExecutionDayOverrides(next: ExecutionDayOverrides) {
+    try {
+      if (Object.keys(next).length === 0) {
+        window.localStorage.removeItem(executionCalendarStorageKey)
+        return
+      }
+
+      window.localStorage.setItem(executionCalendarStorageKey, JSON.stringify(next))
+    } catch (error) {
+      console.warn('Erro ao salvar calendário operacional:', getErrorMessage(error, 'Erro desconhecido.'))
+    }
+  }
+
+  const hasExecutionDayOverrides = Object.keys(executionDayOverrides).length > 0
+
+  function handleSetExecutionDayOverride(date: string, value: boolean) {
+    setExecutionDayOverrides((current) => {
+      const next = {
+        ...current,
+        [date]: value,
+      }
+
+      persistExecutionDayOverrides(next)
+
+      return next
+    })
+  }
+
+  function handleClearExecutionDayOverride(date: string) {
+    setExecutionDayOverrides((current) => {
+      const next = { ...current }
+      delete next[date]
+
+      persistExecutionDayOverrides(next)
+
+      return next
+    })
+  }
+
+  function handleResetExecutionDayOverrides() {
+    setExecutionDayOverrides({})
+    persistExecutionDayOverrides({})
+  }
+
   if (loading) {
     return (
       <div style={{ padding: 20 }}>
@@ -3391,6 +3918,20 @@ function handleUndoGoalFromTop() {
       <ExecutionCalendarSummaryStrip
         summary={executionCalendarSummary}
         totalDays={executionCalendarDays.length}
+        hasOverrides={hasExecutionDayOverrides}
+        onOpenCalendar={() => setExecutionCalendarOpen(true)}
+      />
+
+      <ExecutionCalendarModal
+        open={executionCalendarOpen}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        days={executionCalendarDays}
+        summary={executionCalendarSummary}
+        onClose={() => setExecutionCalendarOpen(false)}
+        onSetOverride={handleSetExecutionDayOverride}
+        onClearOverride={handleClearExecutionDayOverride}
+        onResetAll={handleResetExecutionDayOverrides}
       />
 
 

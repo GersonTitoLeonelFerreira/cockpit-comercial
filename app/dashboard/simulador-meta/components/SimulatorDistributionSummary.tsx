@@ -454,7 +454,7 @@ export default function SimulatorDistributionSummary({
                 maxWidth: 780,
               }}
             >
-              Traduz o esforço necessário em dias úteis, foco operacional e carga diária para execução do período.
+              Traduz o esforço necessário em dias de execução, foco operacional e carga diária para execução do período.
             </div>
           </div>
 
@@ -499,7 +499,7 @@ export default function SimulatorDistributionSummary({
           }}
         >
           <KpiCard
-            label="Dias úteis"
+            label="Dias de execução"
             value={summary.total_working_days}
             sub="período configurado"
           />

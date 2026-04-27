@@ -6,7 +6,7 @@
 // do ciclo comercial.
 //
 // Lógica de pesos:
-//   1. Peso-base: uniforme (1.0 por dia útil) — fallback conservador
+//   1. Peso-base: uniforme (1.0 por dia de execução) — fallback conservador
 //   2. Vocação do dia da semana (Fase 6.2): ajusta foco e leve variação de carga
 //   3. Sazonalidade mensal (Fase 6.4): multiplica se mês forte / desconta se fraco
 //   4. Radar do período (Fase 6.5): aplica fator global moderado
@@ -99,6 +99,20 @@ function generateDateRange(start: string, end: string): string[] {
   return dates
 }
 
+/** Retorna se a data conta como dia de execução considerando padrão semanal + exceções */
+function isWorkingDateByConfig(
+  date: string,
+  workDays: Record<number, boolean>,
+  executionDayOverrides: Record<string, boolean> = {},
+): boolean {
+  if (Object.prototype.hasOwnProperty.call(executionDayOverrides, date)) {
+    return Boolean(executionDayOverrides[date])
+  }
+
+  const wd = new Date(date + 'T00:00:00').getDay()
+  return workDays[wd] === true
+}
+
 /** Mapeia vocação dominante para OperationalFocusType */
 function mapVocationToFocus(vocation: string | null | undefined): OperationalFocusType {
   if (vocation === 'prospeccao') return 'prospeccao'
@@ -141,14 +155,14 @@ function distributeProportional(weights: number[], total: number): number[] {
 /**
  * Gera a distribuição inteligente da meta no calendário.
  *
- * @param config  - Configuração de período, dias úteis e metas
+ * @param config  - Configuração de período, dias de execução e metas
  * @param signals - Sinais opcionais das Fases 6.1–6.5
  */
 export function buildCalendarDistribution(
   config: DistributionConfig,
   signals: DistributionInputSignals = {},
 ): DailyGoalDistribution {
-  const { dateStart, dateEnd, workDays, totalLeads, totalWins, closeRate } = config
+  const { dateStart, dateEnd, workDays, executionDayOverrides = {}, totalLeads, totalWins, closeRate } = config
 
   const allDates = generateDateRange(dateStart, dateEnd)
 
@@ -245,10 +259,9 @@ export function buildCalendarDistribution(
   const isFallback = availableSignals === 0
 
   // ---- Build rows ----
-  const workingDates = allDates.filter((d) => {
-    const wd = new Date(d + 'T00:00:00').getDay()
-    return workDays[wd] === true
-  })
+  const workingDates = allDates.filter((d) =>
+    isWorkingDateByConfig(d, workDays, executionDayOverrides),
+  )
 
   const nWorking = workingDates.length
   if (nWorking === 0) {
@@ -370,7 +383,7 @@ export function buildCalendarDistribution(
         weight: 0,
         leads_goal: 0,
         wins_goal: 0,
-        reason: 'Dia não útil — sem meta atribuída.',
+        reason: 'Dia sem execução — sem meta atribuída.',
         confidence: 'insuficiente' as DistributionConfidence,
       }
     })
@@ -473,9 +486,9 @@ function buildEmptyDistribution(
       confidence_label: 'Insuficiente',
     },
     signals_used: signalsUsed,
-    observations: ['Nenhum dia útil encontrado no período configurado.'],
+    observations: ['Nenhum dia de execução encontrado no período configurado.'],
     is_fallback: true,
-    fallback_reason: 'Sem dias úteis no período.',
+    fallback_reason: 'Sem dias de execução no período.',
     period_start: dateStart,
     period_end: dateEnd,
   }
