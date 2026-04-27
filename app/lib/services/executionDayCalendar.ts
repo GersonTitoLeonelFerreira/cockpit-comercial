@@ -1,17 +1,52 @@
 import { supabaseBrowser } from '../supabaseBrowser'
 
 export type ExecutionDayOverrides = Record<string, boolean>
+export type WorkDays = Record<number, boolean>
 
 export type ExecutionDayCalendarRecord = {
   id: string
   company_id: string
   period_start: string
   period_end: string
+  work_days: WorkDays
   execution_day_overrides: ExecutionDayOverrides
   created_by: string | null
   updated_by: string | null
   created_at: string
   updated_at: string
+}
+
+function defaultWorkDays(): WorkDays {
+  return {
+    0: false,
+    1: true,
+    2: true,
+    3: true,
+    4: true,
+    5: true,
+    6: false,
+  }
+}
+
+function normalizeWorkDays(value: unknown): WorkDays {
+  const fallback = defaultWorkDays()
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return fallback
+  }
+
+  const source = value as Record<string, unknown>
+  const normalized: WorkDays = { ...fallback }
+
+  for (const key of Object.keys(fallback)) {
+    const valueForDay = source[key]
+
+    if (typeof valueForDay === 'boolean') {
+      normalized[Number(key)] = valueForDay
+    }
+  }
+
+  return normalized
 }
 
 function normalizeExecutionDayOverrides(value: unknown): ExecutionDayOverrides {
@@ -47,6 +82,7 @@ export async function getExecutionDayCalendar(params: {
         company_id,
         period_start,
         period_end,
+        work_days,
         execution_day_overrides,
         created_by,
         updated_by,
@@ -67,6 +103,7 @@ export async function getExecutionDayCalendar(params: {
     company_id: data.company_id,
     period_start: data.period_start,
     period_end: data.period_end,
+    work_days: normalizeWorkDays(data.work_days),
     execution_day_overrides: normalizeExecutionDayOverrides(data.execution_day_overrides),
     created_by: data.created_by,
     updated_by: data.updated_by,
@@ -79,6 +116,7 @@ export async function saveExecutionDayCalendar(params: {
   companyId: string
   periodStart: string
   periodEnd: string
+  workDays: WorkDays
   executionDayOverrides: ExecutionDayOverrides
 }): Promise<ExecutionDayCalendarRecord> {
   const supabase = supabaseBrowser()
@@ -91,6 +129,7 @@ export async function saveExecutionDayCalendar(params: {
   if (userError) throw userError
 
   const userId = user?.id ?? null
+  const normalizedWorkDays = normalizeWorkDays(params.workDays)
   const normalizedOverrides = normalizeExecutionDayOverrides(params.executionDayOverrides)
 
   const existing = await getExecutionDayCalendar({
@@ -103,6 +142,7 @@ export async function saveExecutionDayCalendar(params: {
     const { data, error } = await supabase
       .from('execution_day_calendars')
       .update({
+        work_days: normalizedWorkDays,
         execution_day_overrides: normalizedOverrides,
         updated_by: userId,
       })
@@ -113,6 +153,7 @@ export async function saveExecutionDayCalendar(params: {
           company_id,
           period_start,
           period_end,
+          work_days,
           execution_day_overrides,
           created_by,
           updated_by,
@@ -129,6 +170,7 @@ export async function saveExecutionDayCalendar(params: {
       company_id: data.company_id,
       period_start: data.period_start,
       period_end: data.period_end,
+      work_days: normalizeWorkDays(data.work_days),
       execution_day_overrides: normalizeExecutionDayOverrides(data.execution_day_overrides),
       created_by: data.created_by,
       updated_by: data.updated_by,
@@ -143,6 +185,7 @@ export async function saveExecutionDayCalendar(params: {
       company_id: params.companyId,
       period_start: params.periodStart,
       period_end: params.periodEnd,
+      work_days: normalizedWorkDays,
       execution_day_overrides: normalizedOverrides,
       created_by: userId,
       updated_by: userId,
@@ -153,6 +196,7 @@ export async function saveExecutionDayCalendar(params: {
         company_id,
         period_start,
         period_end,
+        work_days,
         execution_day_overrides,
         created_by,
         updated_by,
@@ -169,6 +213,7 @@ export async function saveExecutionDayCalendar(params: {
     company_id: data.company_id,
     period_start: data.period_start,
     period_end: data.period_end,
+    work_days: normalizeWorkDays(data.work_days),
     execution_day_overrides: normalizeExecutionDayOverrides(data.execution_day_overrides),
     created_by: data.created_by,
     updated_by: data.updated_by,
