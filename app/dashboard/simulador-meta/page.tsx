@@ -659,6 +659,34 @@ function RateResultPanel({
   const unitLabel = isFinancialMode ? 'vendas' : 'ganhos'
   const unitLabelCapitalized = isFinancialMode ? 'Vendas' : 'Ganhos'
 
+  const formatNumber = (value: number) => {
+    if (!Number.isFinite(value)) return '—'
+
+    return value.toLocaleString('pt-BR', {
+      maximumFractionDigits: 1,
+    })
+  }
+
+  const actionUnitLabel = isFinancialMode ? 'vendas restantes' : 'ganhos restantes'
+  const dailyActionLabel = dailyWorkedRemaining === 1 ? 'ciclo por dia' : 'ciclos por dia'
+  const remainingDaysLabel = remainingBusinessDays === 1 ? 'dia de execução restante' : 'dias de execução restantes'
+
+  const actionMainText =
+    remainingWins <= 0 || remainingWorkedCycles <= 0
+      ? `Meta operacional concluída. Mantenha o acompanhamento para preservar o resultado até o fechamento do período.`
+      : remainingBusinessDays > 0
+        ? `Trabalhar ${formatNumber(dailyWorkedRemaining)} ${dailyActionLabel} nos próximos ${remainingBusinessDays} ${remainingDaysLabel} para buscar ${formatNumber(remainingWins)} ${actionUnitLabel}.`
+        : `Não há dias de execução restantes no calendário. Revise o calendário operacional ou reprograme a meta.`
+
+  const actionSupportText =
+    remainingWins <= 0 || remainingWorkedCycles <= 0
+      ? `O foco agora é sustentar a cadência comercial, evitar perda de oportunidades abertas e proteger o resultado realizado.`
+      : dailyWorkedRemaining >= 100
+        ? `Ritmo crítico: este volume tende a exigir reforço de base, redistribuição de carteira ou revisão da meta.`
+        : dailyWorkedRemaining >= 40
+          ? `Ritmo alto: valide capacidade real do time, qualidade da base e cadência de abordagem.`
+          : `Ritmo operacionalmente viável se houver disciplina diária de execução e acompanhamento próximo.`
+
   const statusLabelText = isFinancialMode
     ? onTrack
       ? 'Conversão adequada'
@@ -669,14 +697,6 @@ function RateResultPanel({
 
   const statusColor = onTrack ? '#86efac' : '#fbbf24'
   const statusBackground = onTrack ? 'rgba(34, 197, 94, 0.10)' : 'rgba(245, 158, 11, 0.10)'
-
-  const formatNumber = (value: number) => {
-    if (!Number.isFinite(value)) return '—'
-
-    return value.toLocaleString('pt-BR', {
-      maximumFractionDigits: 1,
-    })
-  }
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -774,6 +794,88 @@ function RateResultPanel({
           subtitle="Volume estimado ainda necessário"
           tone={remainingWorkedCycles <= 0 ? 'good' : 'neutral'}
         />
+      </div>
+
+      <div
+        style={{
+          border: `1px solid ${dailyWorkedRemaining >= 100 ? 'rgba(239, 68, 68, 0.28)' : dailyWorkedRemaining >= 40 ? 'rgba(245, 158, 11, 0.28)' : 'rgba(34, 197, 94, 0.22)'}`,
+          background:
+            dailyWorkedRemaining >= 100
+              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(9, 11, 15, 0.58) 100%)'
+              : dailyWorkedRemaining >= 40
+                ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.11) 0%, rgba(9, 11, 15, 0.58) 100%)'
+                : 'linear-gradient(135deg, rgba(34, 197, 94, 0.10) 0%, rgba(9, 11, 15, 0.58) 100%)',
+          borderRadius: 16,
+          padding: 18,
+          display: 'grid',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 15,
+                fontWeight: 950,
+                letterSpacing: -0.15,
+                lineHeight: 1.25,
+              }}
+            >
+              Ação recomendada
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 13.5,
+                lineHeight: 1.55,
+                maxWidth: 920,
+              }}
+            >
+              {actionMainText}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: 'rgba(9, 11, 15, 0.48)',
+              borderRadius: 999,
+              padding: '7px 10px',
+              color:
+                dailyWorkedRemaining >= 100
+                  ? '#fca5a5'
+                  : dailyWorkedRemaining >= 40
+                    ? '#fbbf24'
+                    : '#86efac',
+              fontSize: 12,
+              fontWeight: 900,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {dailyWorkedRemaining >= 100 ? 'Ritmo crítico' : dailyWorkedRemaining >= 40 ? 'Ritmo alto' : 'Ritmo controlável'}
+          </div>
+        </div>
+
+        <div
+          style={{
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12.5,
+            lineHeight: 1.5,
+          }}
+        >
+          {actionSupportText}
+        </div>
       </div>
 
       <div
