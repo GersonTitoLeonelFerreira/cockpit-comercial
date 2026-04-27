@@ -64,6 +64,16 @@ function safeNumber(v: unknown) {
   return Number.isFinite(n) ? n : 0
 }
 
+function formatDateBR(value: string) {
+  if (!value) return '----'
+
+  const [year, month, day] = value.split('-')
+
+  if (!year || !month || !day) return value
+
+  return `${day}/${month}/${year}`
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) {
     return error.message
@@ -1074,6 +1084,7 @@ function ExecutionCalendarModal({
   periodEnd,
   days,
   summary,
+  canEdit,
   onClose,
   onSetOverride,
   onClearOverride,
@@ -1084,6 +1095,7 @@ function ExecutionCalendarModal({
   periodEnd: string
   days: ExecutionCalendarDay[]
   summary: ReturnType<typeof getExecutionCalendarSummary>
+  canEdit: boolean
   onClose: () => void
   onSetOverride: (date: string, value: boolean) => void
   onClearOverride: (date: string) => void
@@ -1152,7 +1164,9 @@ function ExecutionCalendarModal({
                 lineHeight: 1.45,
               }}
             >
-              Ajuste quais datas contam como dias de execução entre {periodStart} e {periodEnd}.
+              {canEdit
+                ? `Ajuste quais datas contam como dias de execução entre ${formatDateBR(periodStart)} e ${formatDateBR(periodEnd)}.`
+                : `Visualize quais datas contam como dias de execução entre ${formatDateBR(periodStart)} e ${formatDateBR(periodEnd)}. Apenas administradores podem alterar este calendário.`}
             </div>
           </div>
 
@@ -1253,14 +1267,17 @@ function ExecutionCalendarModal({
                     lineHeight: 1.45,
                   }}
                 >
-                  Use “Trabalha” para adicionar uma data fora do padrão. Use “Não trabalha” para remover feriado, pausa ou bloqueio.
+                  {canEdit
+                    ? 'Use “Trabalha” para adicionar uma data fora do padrão. Use “Não trabalha” para remover feriado, pausa ou bloqueio.'
+                    : 'Calendário em modo de visualização. Solicite a um administrador qualquer ajuste de feriado, pausa ou bloqueio.'}
                 </div>
               </div>
 
               <button
                 type="button"
                 onClick={onResetAll}
-                disabled={summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0}
+                disabled={!canEdit || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0)}
+                title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
                 style={{
                   height: 34,
                   borderRadius: 10,
@@ -1271,10 +1288,10 @@ function ExecutionCalendarModal({
                   fontSize: 12.5,
                   fontWeight: 850,
                   cursor:
-                    summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0
+                    !canEdit || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0)
                       ? 'not-allowed'
                       : 'pointer',
-                  opacity: summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0 ? 0.5 : 1,
+                  opacity: !canEdit || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0) ? 0.5 : 1,
                 }}
               >
                 Limpar ajustes
@@ -1398,6 +1415,8 @@ function ExecutionCalendarModal({
                       <button
                         type="button"
                         onClick={() => onSetOverride(day.date, true)}
+                        disabled={!canEdit}
+                        title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
                         style={{
                           height: 28,
                           borderRadius: 9,
@@ -1406,7 +1425,8 @@ function ExecutionCalendarModal({
                           color: '#bbf7d0',
                           fontSize: 11,
                           fontWeight: 850,
-                          cursor: 'pointer',
+                          cursor: canEdit ? 'pointer' : 'not-allowed',
+                          opacity: canEdit ? 1 : 0.45,
                         }}
                       >
                         Trabalha
@@ -1415,6 +1435,8 @@ function ExecutionCalendarModal({
                       <button
                         type="button"
                         onClick={() => onSetOverride(day.date, false)}
+                        disabled={!canEdit}
+                        title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
                         style={{
                           height: 28,
                           borderRadius: 9,
@@ -1423,7 +1445,8 @@ function ExecutionCalendarModal({
                           color: '#fecaca',
                           fontSize: 11,
                           fontWeight: 850,
-                          cursor: 'pointer',
+                          cursor: canEdit ? 'pointer' : 'not-allowed',
+                          opacity: canEdit ? 1 : 0.45,
                         }}
                       >
                         Não trabalha
@@ -1432,21 +1455,24 @@ function ExecutionCalendarModal({
 
                     {hasOverride ? (
                       <button
-                        type="button"
-                        onClick={() => onClearOverride(day.date)}
-                        style={{
-                          height: 28,
-                          borderRadius: 9,
-                          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-                          background: 'rgba(15, 18, 26, 0.78)',
-                          color: SIMULATOR_UI.textMuted,
-                          fontSize: 11,
-                          fontWeight: 850,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Voltar ao padrão
-                      </button>
+                      type="button"
+                      onClick={() => onClearOverride(day.date)}
+                      disabled={!canEdit}
+                      title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
+                      style={{
+                        height: 28,
+                        borderRadius: 9,
+                        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                        background: 'rgba(15, 18, 26, 0.78)',
+                        color: SIMULATOR_UI.textMuted,
+                        fontSize: 11,
+                        fontWeight: 850,
+                        cursor: canEdit ? 'pointer' : 'not-allowed',
+                        opacity: canEdit ? 1 : 0.45,
+                      }}
+                    >
+                      Voltar ao padrão
+                    </button>
                     ) : null}
                   </div>
                 )
@@ -1852,15 +1878,19 @@ function WorkdayChip({
   active,
   label,
   onClick,
+  disabled = false,
 }: {
   active: boolean
   label: string
   onClick: () => void
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={disabled ? 'Apenas administradores podem alterar os dias padrão de execução.' : undefined}
       style={{
         height: 34,
         minWidth: 48,
@@ -1874,7 +1904,8 @@ function WorkdayChip({
         color: active ? '#bbf7d0' : SIMULATOR_UI.textMuted,
         fontSize: 12,
         fontWeight: 800,
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
       }}
     >
       {label}
@@ -1887,6 +1918,8 @@ function SimulatorTopControls({
   sellers,
   selectedSellerId,
   setSelectedSellerId,
+  sellerGoalScope,
+  setSellerGoalScope,
   periodStart,
   setPeriodStart,
   periodEnd,
@@ -1926,6 +1959,8 @@ function SimulatorTopControls({
   sellers: Array<{ id: string; label: string }>
   selectedSellerId: string | null
   setSelectedSellerId: (value: string | null) => void
+  sellerGoalScope: 'company' | 'mine'
+  setSellerGoalScope: (value: 'company' | 'mine') => void
   periodStart: string
   setPeriodStart: (value: string) => void
   periodEnd: string
@@ -1968,8 +2003,10 @@ function SimulatorTopControls({
   const selectedScopeLabel = isAdmin
     ? selectedSellerId
       ? sellers.find((seller) => seller.id === selectedSellerId)?.label ?? 'Vendedor selecionado'
-      : 'Empresa inteira'
-    : 'Minha meta'
+      : 'Meta da empresa'
+    : sellerGoalScope === 'mine'
+      ? 'Minha meta'
+      : 'Meta da empresa'
 
   const modeLabel =
     mode === 'faturamento'
@@ -1978,26 +2015,16 @@ function SimulatorTopControls({
         ? 'Recebimento'
         : 'Ganhos'
 
-        const formattedGoalValue = safeNumber(revenueGoalInputText).toLocaleString('pt-BR', {
-          style: 'currency',
-          currency: 'BRL',
-          maximumFractionDigits: 0,
-        })
-      
-        const formatDateBR = (value: string) => {
-          if (!value) return '----'
-      
-          const [year, month, day] = value.split('-')
-      
-          if (!year || !month || !day) return value
-      
-          return `${day}/${month}/${year}`
-        }
-      
-        const formattedPeriodStart = formatDateBR(periodStart)
-        const formattedPeriodEnd = formatDateBR(periodEnd)
-      
-        const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${formattedPeriodStart} até ${formattedPeriodEnd} · Meta ${formattedGoalValue}`
+  const formattedGoalValue = safeNumber(revenueGoalInputText).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    maximumFractionDigits: 0,
+  })
+
+  const formattedPeriodStart = formatDateBR(periodStart)
+  const formattedPeriodEnd = formatDateBR(periodEnd)
+
+  const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${formattedPeriodStart} até ${formattedPeriodEnd} · Meta ${formattedGoalValue}`
 
     return (
       <div
@@ -2088,7 +2115,7 @@ function SimulatorTopControls({
               }}
               style={controlBaseStyle()}
             >
-              <option value="empresa">Empresa inteira</option>
+              <option value="empresa">Meta da empresa</option>
               {sellers.map((seller) => (
                 <option key={seller.id} value={seller.id}>
                   {seller.label}
@@ -2096,16 +2123,14 @@ function SimulatorTopControls({
               ))}
             </select>
           ) : (
-            <div
-              style={{
-                ...controlBaseStyle(),
-                display: 'flex',
-                alignItems: 'center',
-                color: SIMULATOR_UI.textSecondary,
-              }}
+            <select
+              value={sellerGoalScope}
+              onChange={(event) => setSellerGoalScope(event.target.value as 'company' | 'mine')}
+              style={controlBaseStyle()}
             >
-              Minha meta
-            </div>
+              <option value="company">Meta da empresa</option>
+              <option value="mine">Minha meta</option>
+            </select>
           )}
         </div>
 
@@ -2181,7 +2206,7 @@ function SimulatorTopControls({
               }}
             />
 
-{isAdmin ? (
+            {isAdmin ? (
               <>
                 <SmallActionButton
                   tone="primary"
@@ -2197,6 +2222,7 @@ function SimulatorTopControls({
               </>
             ) : null}
           </div>
+
         </div>
       </div>
 
@@ -2429,7 +2455,10 @@ function SimulatorTopControls({
                     key={day}
                     label={label}
                     active={Boolean(workDays[day])}
+                    disabled={!isAdmin}
                     onClick={() => {
+                      if (!isAdmin) return
+
                       setWorkDays((current) => ({
                         ...current,
                         [day]: !current[day],
@@ -2486,6 +2515,8 @@ function DecisionHero({
   remainingBusinessDays,
   rateSource,
   taxaUsadaNoCalculo,
+  goalContextLabel,
+  canEditGoal,
 }: {
   mode: SimulatorMode
   revenueMetricLabel: string
@@ -2496,6 +2527,8 @@ function DecisionHero({
   remainingBusinessDays: number
   rateSource: 'real' | 'planejada'
   taxaUsadaNoCalculo: number
+  goalContextLabel: string
+  canEditGoal: boolean
 }) {
   const isRevenueMode = mode !== 'ganhos'
 
@@ -2681,8 +2714,10 @@ function DecisionHero({
             >
               {goal > 0 ? (
                 <>Meta de {revenueMetricLabel.toLowerCase()} em andamento.</>
-              ) : (
+              ) : canEditGoal ? (
                 'Defina uma meta para gerar leitura executiva.'
+              ) : (
+                `${goalContextLabel} não definida.`
               )}
             </div>
 
@@ -2704,9 +2739,13 @@ function DecisionHero({
                   Ainda faltam{' '}
                   <strong style={{ color: gap > 0 ? '#fca5a5' : '#86efac' }}>{toBRL(gap)}</strong>.
                 </>
-              ) : (
+              ) : canEditGoal ? (
                 <>
                   Sem meta cadastrada, o simulador não consegue calcular gap, projeção e esforço necessário.
+                </>
+              ) : (
+                <>
+                  Solicite ao gestor a definição desta meta para liberar a leitura de gap, projeção e esforço necessário.
                 </>
               )}
             </div>
@@ -3160,6 +3199,7 @@ export default function SimuladorMetaPage() {
   // Revenue (meta do banco + input digitável)
   const [revenueGoalDb, setRevenueGoalDb] = useState<number>(0)
   const [revenueGoalInputText, setRevenueGoalInputText] = useState<string>('0')
+  const [sellerGoalScope, setSellerGoalScope] = useState<'company' | 'mine'>('company')
   const [goalLoading, setGoalLoading] = useState(false)
   const [goalSaving, setGoalSaving] = useState(false)
   const [goalError, setGoalError] = useState<string | null>(null)
@@ -3297,12 +3337,18 @@ export default function SimuladorMetaPage() {
     setRemainingBusinessDays(remainingDays)
   }, [periodEnd, workDays, executionDayOverrides, autoRemainingDays])
 
+  const analysisOwnerId = useMemo(() => {
+    if (isAdmin) return selectedSellerId
+
+    return sellerGoalScope === 'mine' ? selectedSellerId : null
+  }, [isAdmin, selectedSellerId, sellerGoalScope])
+
   // taxa real
   useEffect(() => {
     async function loadRateReal() {
       setRateRealLoading(true)
       try {
-        const data = await getCloseRateReal(selectedSellerId, daysWindow)
+        const data = await getCloseRateReal(analysisOwnerId, daysWindow)
         setRateRealData(data)
       } catch (e: unknown) {
         console.warn('Erro ao carregar taxa real:', getErrorMessage(e, 'Erro desconhecido.'))
@@ -3312,7 +3358,7 @@ export default function SimuladorMetaPage() {
       }
     }
     if (competency) void loadRateReal()
-  }, [selectedSellerId, daysWindow, competency])
+  }, [analysisOwnerId, daysWindow, competency])
 
   // recalcula ganhos
   useEffect(() => {
@@ -3329,13 +3375,13 @@ export default function SimuladorMetaPage() {
     setResult(newResult)
   }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays, executionDayOverrides])
 
-  // refetch metrics quando muda vendedor ou período
+  // refetch metrics quando muda escopo ou período
   useEffect(() => {
-    if (!periodStart || selectedSellerId === undefined) return
+    if (!periodStart) return
 
     async function refetch() {
       try {
-        const newMetrics = await getSalesCycleMetrics(selectedSellerId, periodStart)
+        const newMetrics = await getSalesCycleMetrics(analysisOwnerId, periodStart)
         setMetrics(newMetrics)
       } catch (e: unknown) {
         setError(getErrorMessage(e, 'Erro ao atualizar métricas.'))
@@ -3343,11 +3389,11 @@ export default function SimuladorMetaPage() {
     }
 
     void refetch()
-  }, [periodStart, selectedSellerId])
+  }, [periodStart, analysisOwnerId])
 
   // conversão por grupo
   useEffect(() => {
-    if (!periodStart || !periodEnd || !companyId || selectedSellerId === undefined) return
+    if (!periodStart || !periodEnd || !companyId) return
 
     const cid = companyId
 
@@ -3356,7 +3402,7 @@ export default function SimuladorMetaPage() {
       try {
         const rows = await getGroupConversion({
           companyId: cid,
-          ownerId: selectedSellerId,
+          ownerId: analysisOwnerId,
           dateStart: periodStart,
           dateEnd: periodEnd,
         })
@@ -3370,7 +3416,7 @@ export default function SimuladorMetaPage() {
     }
 
     void loadGroupConversion()
-  }, [periodStart, periodEnd, selectedSellerId, companyId])
+  }, [periodStart, periodEnd, analysisOwnerId, companyId])
 
   const revenueDates = useMemo(() => {
     if (!periodStart || !periodEnd) return { start: '', end: '' }
@@ -3382,14 +3428,17 @@ export default function SimuladorMetaPage() {
 
   const revenueGoalOwnerId = useMemo(() => {
     if (!competency) return null
-    if (isAdmin) return selectedSellerId
-    return selectedSellerId
-  }, [isAdmin, selectedSellerId, competency])
+
+    return analysisOwnerId
+  }, [analysisOwnerId, competency])
 
   const revenueGoalContextLabel = useMemo(() => {
-    if (!isAdmin) return 'Meta do vendedor (definida pelo admin)'
+    if (!isAdmin) {
+      return sellerGoalScope === 'mine' ? 'Minha meta' : 'Meta da empresa'
+    }
+
     return revenueGoalOwnerId ? 'Meta do vendedor' : 'Meta da empresa'
-  }, [isAdmin, revenueGoalOwnerId])
+  }, [isAdmin, revenueGoalOwnerId, sellerGoalScope])
 
   const revenueGoalInputNumber = useMemo(
     () => Math.max(0, safeNumber(revenueGoalInputText)),
@@ -3467,17 +3516,19 @@ function handleUndoGoalFromTop() {
       return
     }
 
-    const totalReal = Number(revenueSeller?.total_real || revenueCompany?.total_real || 0)
+    const scopedTotalReal = analysisOwnerId
+      ? Number(revenueSeller?.total_real || 0)
+      : Number(revenueCompany?.total_real || 0)
 
     const result = calculateTheory10020({
       meta_total: activeGoalForKpis,
       ticket_medio: ticketValue,
       close_rate: taxaUsadaNoCalculo,
       remaining_business_days: remainingBusinessDays,
-      total_real: totalReal,
+      total_real: scopedTotalReal,
     })
     setTheory10020Result(result)
-  }, [mode, ticketMedioText, ticketSource, historicalTicket, activeGoalForKpis, taxaUsadaNoCalculo, remainingBusinessDays, revenueSeller, revenueCompany])
+  }, [mode, ticketMedioText, ticketSource, historicalTicket, activeGoalForKpis, taxaUsadaNoCalculo, remainingBusinessDays, revenueSeller, revenueCompany, analysisOwnerId])
 
   // Carregar meta do banco
   useEffect(() => {
@@ -3530,7 +3581,7 @@ function handleUndoGoalFromTop() {
       try {
         const data = await getHistoricalTicket({
           companyId: companyId!,
-          ownerId: selectedSellerId ?? null,
+          ownerId: analysisOwnerId,
           dateStart: toYMD(competency!.month_start),
           dateEnd: toYMD(competency!.month_end),
         })
@@ -3544,7 +3595,7 @@ function handleUndoGoalFromTop() {
     }
 
     void loadHistoricalTicket()
-  }, [companyId, competency, mode, selectedSellerId])
+  }, [companyId, competency, mode, analysisOwnerId])
 
   // Distribuição inteligente — carrega quando a aba é ativada
   useEffect(() => {
@@ -3568,19 +3619,19 @@ function handleUndoGoalFromTop() {
         const [wdVocationSummary, monthlyPerfSummary, radarSummary] = await Promise.allSettled([
           getWeekdayVocation({
             companyId: cid,
-            ownerId: selectedSellerId ?? null,
+            ownerId: analysisOwnerId,
             dateStart: histStart,
             dateEnd: histEnd,
           }),
           getMonthlySeasonalityPerformance({
             companyId: cid,
-            ownerId: selectedSellerId ?? null,
+            ownerId: analysisOwnerId,
             dateStart: histStart,
             dateEnd: histEnd,
           }),
           getPeriodRadar({
             companyId: cid,
-            ownerId: selectedSellerId ?? null,
+            ownerId: analysisOwnerId,
             dateStart: histStart,
             dateEnd: histEnd,
           }),
@@ -3676,7 +3727,7 @@ function handleUndoGoalFromTop() {
     competency,
     periodStart,
     periodEnd,
-    selectedSellerId,
+    analysisOwnerId,
     targetWins,
     taxaUsadaNoCalculo,
     workDays,
@@ -3712,7 +3763,9 @@ function handleUndoGoalFromTop() {
       try {
         const fetches: Array<Promise<void>> = []
 
-        if (isAdmin) {
+        const shouldLoadCompanyRevenue = isAdmin || analysisOwnerId === null
+
+        if (shouldLoadCompanyRevenue) {
           fetches.push(
             (async () => {
               const companyRes = await getRevenueSummary({
@@ -3729,7 +3782,7 @@ function handleUndoGoalFromTop() {
           setRevenueCompany(null)
         }
 
-        const ownerIdForSeller = selectedSellerId ?? null
+        const ownerIdForSeller = analysisOwnerId
         if (ownerIdForSeller) {
           fetches.push(
             (async () => {
@@ -3760,7 +3813,7 @@ function handleUndoGoalFromTop() {
     }
 
     void loadRevenue()
-  }, [mode, competency, companyId, isAdmin, selectedSellerId, revenueDates.start, revenueDates.end])
+  }, [mode, competency, companyId, isAdmin, analysisOwnerId, revenueDates.start, revenueDates.end])
 
   const executionCalendarDays = useMemo(() => {
     if (!periodStart || !periodEnd) return []
@@ -3848,12 +3901,12 @@ function handleUndoGoalFromTop() {
     const decisionRevenueKpis = useMemo(() => {
       if (!showRevenueMode) return null
   
-      if (selectedSellerId) {
+      if (analysisOwnerId) {
         return revenueSellerKpis
       }
   
       return revenueCompanyKpis
-    }, [showRevenueMode, selectedSellerId, revenueSellerKpis, revenueCompanyKpis])
+    }, [showRevenueMode, analysisOwnerId, revenueSellerKpis, revenueCompanyKpis])
   
     const ratePanelTargetWins = useMemo(() => {
       if (showRevenueMode && theory10020Result) {
@@ -3977,7 +4030,7 @@ function handleUndoGoalFromTop() {
       const next = { ...current }
       delete next[date]
 
-      persistExecutionDayOverrides(next)
+      void persistExecutionDayOverrides(next)
 
       return next
     })
@@ -4014,8 +4067,8 @@ function handleUndoGoalFromTop() {
     )
   }
 
-  const showCompanyChart = showRevenueMode && isAdmin
-  const showSellerChart = showRevenueMode && selectedSellerId !== null
+  const showCompanyChart = showRevenueMode && analysisOwnerId === null
+  const showSellerChart = showRevenueMode && analysisOwnerId !== null
 
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
@@ -4025,6 +4078,8 @@ function handleUndoGoalFromTop() {
         sellers={sellers}
         selectedSellerId={selectedSellerId}
         setSelectedSellerId={setSelectedSellerId}
+        sellerGoalScope={sellerGoalScope}
+        setSellerGoalScope={setSellerGoalScope}
         periodStart={periodStart}
         setPeriodStart={setPeriodStart}
         periodEnd={periodEnd}
@@ -4080,6 +4135,7 @@ function handleUndoGoalFromTop() {
         periodEnd={periodEnd}
         days={executionCalendarDays}
         summary={executionCalendarSummary}
+        canEdit={isAdmin}
         onClose={() => setExecutionCalendarOpen(false)}
         onSetOverride={handleSetExecutionDayOverride}
         onClearOverride={handleClearExecutionDayOverride}
@@ -4097,6 +4153,8 @@ function handleUndoGoalFromTop() {
         remainingBusinessDays={remainingBusinessDays}
         rateSource={rateSource}
         taxaUsadaNoCalculo={taxaUsadaNoCalculo}
+        goalContextLabel={revenueGoalContextLabel}
+        canEditGoal={isAdmin}
       />
 
       {/* ================================================================ */}
@@ -4398,7 +4456,7 @@ function handleUndoGoalFromTop() {
                 </label>
                 {distribution ? (
                   <span style={{ fontSize: 12, opacity: 0.5 }}>
-                    {distribution.summary.total_working_days} dias de execução · {distribution.period_start} a {distribution.period_end}
+                    {distribution.summary.total_working_days} dias de execução · {formatDateBR(distribution.period_start)} até {formatDateBR(distribution.period_end)}
                   </span>
                 ) : null}
               </div>
