@@ -1916,6 +1916,7 @@ function WorkdayChip({
 function SimulatorTopControls({
   isAdmin,
   sellers,
+  companyName,
   selectedSellerId,
   setSelectedSellerId,
   sellerGoalScope,
@@ -1957,6 +1958,7 @@ function SimulatorTopControls({
 }: {
   isAdmin: boolean
   sellers: Array<{ id: string; label: string }>
+  companyName: string
   selectedSellerId: string | null
   setSelectedSellerId: (value: string | null) => void
   sellerGoalScope: 'company' | 'mine'
@@ -2000,13 +2002,15 @@ function SimulatorTopControls({
     ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
     : null
 
-  const selectedScopeLabel = isAdmin
-    ? selectedSellerId
-      ? sellers.find((seller) => seller.id === selectedSellerId)?.label ?? 'Vendedor selecionado'
-      : 'Meta da empresa'
-    : sellerGoalScope === 'mine'
-      ? 'Minha meta'
-      : 'Meta da empresa'
+    const companyScopeLabel = companyName || 'Meta da empresa'
+
+    const selectedScopeLabel = isAdmin
+      ? selectedSellerId
+        ? sellers.find((seller) => seller.id === selectedSellerId)?.label ?? 'Vendedor selecionado'
+        : companyScopeLabel
+      : sellerGoalScope === 'mine'
+        ? 'Minha meta'
+        : companyScopeLabel
 
   const modeLabel =
     mode === 'faturamento'
@@ -2115,7 +2119,7 @@ function SimulatorTopControls({
               }}
               style={controlBaseStyle()}
             >
-              <option value="empresa">Meta da empresa</option>
+              <option value="empresa">{companyScopeLabel}</option>
               {sellers.map((seller) => (
                 <option key={seller.id} value={seller.id}>
                   {seller.label}
@@ -2128,7 +2132,7 @@ function SimulatorTopControls({
               onChange={(event) => setSellerGoalScope(event.target.value as 'company' | 'mine')}
               style={controlBaseStyle()}
             >
-              <option value="company">Meta da empresa</option>
+              <option value="company">{companyScopeLabel}</option>
               <option value="mine">Minha meta</option>
             </select>
           )}
@@ -3216,6 +3220,7 @@ export default function SimuladorMetaPage() {
   const [groupConversion, setGroupConversion] = useState<GroupConversionRow[]>([])
   const [groupConversionLoading, setGroupConversionLoading] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [companyName, setCompanyName] = useState('Meta da empresa')
 
   // Plano de execução da meta
   const [ticketMedioText, setTicketMedioText] = useState<string>('5000')
@@ -3264,6 +3269,28 @@ export default function SimuladorMetaPage() {
         const isAdminUser = profile.role === 'admin'
         setIsAdmin(isAdminUser)
         setCompanyId(profile.company_id)
+
+        if (profile.company_id) {
+          const { data: companyData, error: companyError } = await supabase
+            .from('companies')
+            .select('trade_name, name, legal_name')
+            .eq('id', profile.company_id)
+            .maybeSingle()
+
+          if (companyError) {
+            console.warn('Erro ao carregar nome da empresa:', companyError.message)
+            setCompanyName('Meta da empresa')
+          } else {
+            setCompanyName(
+              companyData?.trade_name ||
+                companyData?.name ||
+                companyData?.legal_name ||
+                'Meta da empresa',
+            )
+          }
+        } else {
+          setCompanyName('Meta da empresa')
+        }
 
         const comp = await getActiveCompetency()
         setCompetency(comp)
@@ -4073,9 +4100,10 @@ function handleUndoGoalFromTop() {
   return (
     <div style={{ maxWidth: 1200, marginLeft: 'auto', marginRight: 'auto', padding: '0 0 40px' }}>
 
-      <SimulatorTopControls
+<SimulatorTopControls
         isAdmin={isAdmin}
         sellers={sellers}
+        companyName={companyName}
         selectedSellerId={selectedSellerId}
         setSelectedSellerId={setSelectedSellerId}
         sellerGoalScope={sellerGoalScope}
