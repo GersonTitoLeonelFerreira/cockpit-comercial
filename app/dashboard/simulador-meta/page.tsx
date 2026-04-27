@@ -3488,17 +3488,23 @@ function handleUndoGoalFromTop() {
           }
         }
 
+        const todayKey = dateKey(new Date())
+        const distributionDateStart = todayKey > dateStart ? todayKey : dateStart
+        const safeDistributionDateStart = distributionDateStart > dateEnd ? dateEnd : distributionDateStart
+
         const safeDistributionRate = Math.max(0.01, taxaUsadaNoCalculo)
 
-        const totalLeadsForDist = theory10020Result?.ciclos_trabalhados_necessarios
+        const totalLeadsForDist = theory10020Result?.ciclos_restantes
+          ?? result?.remaining_worked_cycles
           ?? Math.ceil(targetWins / safeDistributionRate)
 
-        const totalWinsForDist = theory10020Result?.vendas_necessarias
+        const totalWinsForDist = theory10020Result?.vendas_restantes
+          ?? result?.remaining_wins
           ?? targetWins
 
         const dist = buildCalendarDistribution(
           {
-            dateStart,
+            dateStart: safeDistributionDateStart,
             dateEnd,
             workDays,
             executionDayOverrides,
@@ -3530,8 +3536,10 @@ function handleUndoGoalFromTop() {
     taxaUsadaNoCalculo,
     workDays,
     executionDayOverrides,
-    theory10020Result?.ciclos_trabalhados_necessarios,
-    theory10020Result?.vendas_necessarias,
+    result?.remaining_worked_cycles,
+    result?.remaining_wins,
+    theory10020Result?.ciclos_restantes,
+    theory10020Result?.vendas_restantes,
   ])
 
   // revenue (dados)
@@ -4232,9 +4240,9 @@ function handleUndoGoalFromTop() {
         {activeTab === 'distribuicao' && (
           <div style={{ display: 'grid', gap: 16 }}>
 
-            <Section
-            title="Distribuição operacional da meta"
-            description="Plano diário calculado a partir do calendário operacional, histórico disponível e carga necessária do período."
+<Section
+            title="Distribuição do saldo restante"
+            description="Plano diário calculado a partir do calendário operacional, histórico disponível e carga necessária até o fim do período."
             >
               {/* Controles */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -4248,7 +4256,7 @@ function handleUndoGoalFromTop() {
                 </label>
                 {distribution ? (
                   <span style={{ fontSize: 12, opacity: 0.5 }}>
-                    {distribution.summary.total_working_days} dias de execução · {periodStart} a {periodEnd}
+                    {distribution.summary.total_working_days} dias de execução · {distribution.period_start} a {distribution.period_end}
                   </span>
                 ) : null}
               </div>

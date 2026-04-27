@@ -465,7 +465,7 @@ export default function SimulatorDistributionSummary({
                 lineHeight: 1.2,
               }}
             >
-              Distribuição operacional da meta
+              Distribuição do saldo restante
             </div>
 
             <div
@@ -477,7 +477,7 @@ export default function SimulatorDistributionSummary({
                 maxWidth: 780,
               }}
             >
-              Traduz o esforço necessário em dias de execução, foco operacional e carga diária para execução do período.
+              Traduz o esforço restante em dias de execução, foco operacional e carga diária até o fim do período.
             </div>
           </div>
 
