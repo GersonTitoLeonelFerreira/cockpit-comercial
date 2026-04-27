@@ -84,8 +84,29 @@ function getSignalBusinessLabel(source: string) {
 function cleanText(value?: string | null) {
   return String(value ?? '')
     .replace(/^[\s✅⚠️❌🔥📌📊📈📉💡⭐•-]+/gu, '')
+    .replace(/Fases?\s*6(?:\.\d+)?(?:[–-]\d(?:\.\d+)?)?/gi, 'histórico operacional')
+    .replace(/das Fases 6\.1[–-]6\.5/gi, 'do histórico operacional')
+    .replace(/Fase 6\.\d+/gi, 'histórico operacional')
+    .replace(/sinal\(is\) estatístico\(s\)/gi, 'critério(s) operacional(is)')
+    .replace(/sinais estatísticos/gi, 'critérios operacionais')
+    .replace(/sinal estatístico/gi, 'critério operacional')
+    .replace(/fallback/gi, 'plano conservador')
+    .replace(/distribuição uniforme/gi, 'distribuição conservadora')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function getConfidenceBusinessLabel(confidence: DistributionConfidence, available: boolean) {
+  if (!available) return 'ausente'
+
+  const map: Record<DistributionConfidence, string> = {
+    alta: 'forte',
+    moderada: 'moderada',
+    baixa: 'limitada',
+    insuficiente: 'insuficiente',
+  }
+
+  return map[confidence]
 }
 
 function StatusIcon({
@@ -177,7 +198,9 @@ function getObservationTone(text: string): 'good' | 'warn' | 'bad' | 'neutral' {
     normalized.includes('risco') ||
     normalized.includes('baixa') ||
     normalized.includes('insuficiente') ||
-    normalized.includes('fallback')
+    normalized.includes('conservador') ||
+    normalized.includes('base ausente') ||
+    normalized.includes('base limitada')
   ) {
     return 'warn'
   }
@@ -186,7 +209,7 @@ function getObservationTone(text: string): 'good' | 'warn' | 'bad' | 'neutral' {
     normalized.includes('acima') ||
     normalized.includes('favorável') ||
     normalized.includes('adequado') ||
-    normalized.includes('alta confiança')
+    normalized.includes('base forte')
   ) {
     return 'good'
   }
@@ -470,7 +493,7 @@ export default function SimulatorDistributionSummary({
               whiteSpace: 'nowrap',
             }}
           >
-            Confiança: {summary.confidence_label}
+            Base: {getConfidenceBusinessLabel(summary.confidence, true)}
           </div>
         </div>
 
@@ -487,7 +510,7 @@ export default function SimulatorDistributionSummary({
               marginBottom: 16,
             }}
           >
-            {fallback_reason}
+            {cleanText(fallback_reason)}
           </div>
         ) : null}
 
@@ -507,13 +530,13 @@ export default function SimulatorDistributionSummary({
           <KpiCard
             label="Leads distribuídos"
             value={summary.total_leads}
-            sub={`${formatNumber(summary.avg_leads_per_day)} leads/dia`}
+            sub={`${formatNumber(summary.avg_leads_per_day)} leads/dia de execução`}
           />
 
           <KpiCard
             label="Ganhos previstos"
             value={summary.total_wins}
-            sub={`${formatNumber(summary.avg_wins_per_day)} ganhos/dia`}
+            sub={`${formatNumber(summary.avg_wins_per_day)} ganhos/dia de execução`}
             tone="good"
           />
 
@@ -555,8 +578,8 @@ export default function SimulatorDistributionSummary({
       </Panel>
 
       <Panel
-        title="Critérios usados na distribuição"
-        description="Mostra quais leituras operacionais foram consideradas no calendário. Nomes técnicos internos foram removidos da visualização."
+        title="Leituras usadas na distribuição"
+        description="Mostra quais bases foram consideradas para montar a carga diária do período."
       >
         <div style={{ display: 'grid', gap: 10 }}>
           {signals_used.map((signal) => {
@@ -645,7 +668,9 @@ export default function SimulatorDistributionSummary({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {signal.available ? signal.confidence : 'indisponível'}
+                  {signal.available
+                    ? `Base ${getConfidenceBusinessLabel(signal.confidence, true)}`
+                    : 'Base ausente'}
                 </span>
               </div>
             )

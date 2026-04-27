@@ -3042,7 +3042,7 @@ export default function SimuladorMetaPage() {
   // Tab navigation
   const [activeTab, setActiveTab] = useState<'teoria' | 'evolucao' | 'taxa-resultado' | 'funil' | 'distribuicao'>('teoria')
 
-  // Distribuição inteligente (Fase 6.6)
+  // Distribuição operacional da meta
   const [distribution, setDistribution] = useState<DailyGoalDistribution | null>(null)
   const [distributionLoading, setDistributionLoading] = useState(false)
   const [distributionError, setDistributionError] = useState<string | null>(null)
@@ -4223,14 +4223,14 @@ totalLeads: Math.max(0, totalLeadsForDist),
         )}
 
         {/* ============================================================ */}
-        {/* ABA 5: DISTRIBUIÇÃO INTELIGENTE (Fase 6.6)                    */}
+        {/* ABA 5: DISTRIBUIÇÃO OPERACIONAL                              */}
         {/* ============================================================ */}
         {activeTab === 'distribuicao' && (
           <div style={{ display: 'grid', gap: 16 }}>
 
             <Section
-              title="Distribuição Inteligente da Meta"
-              description="Meta diária distribuída com base na vocação operacional, sazonalidade e radar do período (Fases 6.1–6.5)."
+            title="Distribuição operacional da meta"
+            description="Plano diário calculado a partir do calendário operacional, histórico disponível e carga necessária do período."
             >
               {/* Controles */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
