@@ -2070,15 +2070,20 @@ function SimulatorTopControls({
     ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
     : null
 
-    const companyScopeLabel = companyName || 'Meta da empresa'
+  const normalizedCompanyName = String(companyName ?? '').trim()
 
-    const selectedScopeLabel = isAdmin
-      ? selectedSellerId
-        ? sellers.find((seller) => seller.id === selectedSellerId)?.label ?? 'Vendedor selecionado'
-        : companyScopeLabel
-      : sellerGoalScope === 'mine'
-        ? 'Minha meta'
-        : companyScopeLabel
+  const companyScopeLabel =
+    normalizedCompanyName && normalizedCompanyName.toLowerCase() !== 'empresa sem nome'
+      ? normalizedCompanyName
+      : 'Meta da empresa'
+
+  const selectedScopeLabel = isAdmin
+    ? selectedSellerId
+      ? sellers.find((seller) => seller.id === selectedSellerId)?.label ?? 'Vendedor selecionado'
+      : companyScopeLabel
+    : sellerGoalScope === 'mine'
+      ? 'Minha meta'
+      : companyScopeLabel
 
   const modeLabel =
     mode === 'faturamento'
