@@ -42,6 +42,23 @@ function formatWeight(weight: number) {
   return `${((Number(weight) || 0) * 100).toFixed(1)}%`
 }
 
+function cleanText(value?: string | null) {
+  return String(value ?? '')
+    .replace(/^[\s✅⚠️❌🔥📌📊📈📉💡⭐•-]+/gu, '')
+    .replace(/Fases?\s*6(?:\.\d+)?(?:[–-]\d(?:\.\d+)?)?/gi, 'histórico operacional')
+    .replace(/das Fases 6\.1[–-]6\.5/gi, 'do histórico operacional')
+    .replace(/Fase 6\.\d+/gi, 'histórico operacional')
+    .replace(/sinal\(is\) estatístico\(s\)/gi, 'critério(s) operacional(is)')
+    .replace(/sinais estatísticos/gi, 'critérios operacionais')
+    .replace(/sinal estatístico/gi, 'critério operacional')
+    .replace(/fallback/gi, 'plano conservador')
+    .replace(/distribuição uniforme/gi, 'distribuição conservadora')
+    .replace(/dia útil/gi, 'dia de execução')
+    .replace(/dias úteis/gi, 'dias de execução')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function FocusBadge({ row }: { row: CalendarDistributionRow }) {
   const color = FOCUS_COLORS[row.focus_type]
 
@@ -97,7 +114,7 @@ function RowDetail({ row }: { row: CalendarDistributionRow }) {
             lineHeight: 1.5,
           }}
         >
-          <strong style={{ color: TABLE_UI.textPrimary }}>Motivo:</strong> {row.reason}
+          <strong style={{ color: TABLE_UI.textPrimary }}>Motivo:</strong> {cleanText(row.reason)}
           {' · '}
           <strong style={{ color: TABLE_UI.textPrimary }}>Peso relativo:</strong> {formatWeight(row.weight)}
         </div>
@@ -141,7 +158,7 @@ export default function SimulatorDailyDistributionTable({
           lineHeight: 1.5,
         }}
       >
-        Nenhum dia útil encontrado no período configurado.
+        Nenhum dia de execução encontrado no período configurado.
       </div>
     )
   }
@@ -372,7 +389,7 @@ export default function SimulatorDailyDistributionTable({
                   fontWeight: 750,
                 }}
               >
-                {distribution.summary.total_working_days} dias úteis
+                {distribution.summary.total_working_days} dias de execução
               </td>
             </tr>
           </tfoot>
