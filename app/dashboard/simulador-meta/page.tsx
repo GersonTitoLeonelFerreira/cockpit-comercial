@@ -3040,7 +3040,7 @@ export default function SimuladorMetaPage() {
   const [rateSource, setRateSource] = useState<'real' | 'planejada'>('planejada')
 
   // Tab navigation
-  const [activeTab, setActiveTab] = useState<'teoria' | 'evolucao' | 'taxa-resultado' | 'funil' | 'distribuicao'>('teoria')
+  const [activeTab, setActiveTab] = useState<'teoria' | 'evolucao' | 'taxa-resultado' | 'funil' | 'distribuicao'>('taxa-resultado')
 
   // Distribuição operacional da meta
   const [distribution, setDistribution] = useState<DailyGoalDistribution | null>(null)
@@ -3978,10 +3978,18 @@ function handleUndoGoalFromTop() {
       >
         <button
           type="button"
-          onClick={() => setActiveTab('teoria')}
-          style={tabStyle(activeTab === 'teoria')}
+          onClick={() => setActiveTab('taxa-resultado')}
+          style={tabStyle(activeTab === 'taxa-resultado')}
         >
-          Esforço Máximo
+          Ritmo necessário
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('distribuicao')}
+          style={tabStyle(activeTab === 'distribuicao')}
+        >
+          Plano diário
         </button>
 
         {showRevenueMode ? (
@@ -3996,27 +4004,21 @@ function handleUndoGoalFromTop() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('taxa-resultado')}
-          style={tabStyle(activeTab === 'taxa-resultado')}
-        >
-          Taxa e Resultado
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveTab('funil')}
           style={tabStyle(activeTab === 'funil')}
         >
           Funil do Período
         </button>
 
-        <button
+        {showRevenueMode ? (
+          <button
           type="button"
-          onClick={() => setActiveTab('distribuicao')}
-          style={tabStyle(activeTab === 'distribuicao')}
+          onClick={() => setActiveTab('teoria')}
+          style={tabStyle(activeTab === 'teoria')}
         >
-          Distribuição
+          Plano de Execução
         </button>
+        ) : null}
       </div>
 
       {/* ================================================================ */}
@@ -4025,24 +4027,24 @@ function handleUndoGoalFromTop() {
       <div style={{ display: 'grid', gap: 16 }}>
 
         {/* ============================================================ */}
-        {/* ABA 1: ESFORÇO MÁXIMO                                         */}
+        {/* ABA 5: PLANO DE EXECUÇÃO                                      */}
         {/* ============================================================ */}
         {activeTab === 'teoria' && (
           mode === 'faturamento' ? (
             <Section
               title={
-                <TitleWithTip label="Plano de Execução — Esforço Máximo" tipTitle="O que é o Esforço Máximo?" width={480}>
+                <TitleWithTip label="Plano de Execução" tipTitle="Como o plano é calculado?" width={480}>
                   <div style={{ display: 'grid', gap: 8 }}>
                     <div>
-                      O cálculo usa <strong>1 ÷ taxa de conversão</strong> como multiplicador. Com 20% → ×5, com 15% → ×6.67, com 25% → ×4.
+                      O plano cruza a meta financeira, o ticket médio e a taxa de conversão para estimar o volume de oportunidades que precisa ser trabalhado.
                     </div>
                     <div>
-                      A lógica transforma meta financeira em volume de leads, ganhos necessários e ritmo diário de execução.
+                      A lógica transforma a meta em leads necessários, fechamentos esperados e cadência diária de execução.
                     </div>
                   </div>
                 </TitleWithTip>
               }
-              description="Transforma a meta financeira em volume de leads, ganhos e ritmo diário de execução."
+              description="Transforma a meta financeira em volume de oportunidades, fechamentos esperados e cadência diária de execução."
             >
               <ExecutionPlanPanel
                 theory10020Result={theory10020Result}
@@ -4053,7 +4055,7 @@ function handleUndoGoalFromTop() {
             </Section>
           ) : (
             <div style={{ padding: 24, textAlign: 'center', fontSize: 14, opacity: 0.5 }}>
-              Esforço Máximo disponível apenas no modo Faturamento.
+              Plano de Execução disponível apenas no modo Faturamento.
             </div>
           )
         )}
@@ -4111,13 +4113,13 @@ function handleUndoGoalFromTop() {
         )}
 
         {/* ============================================================ */}
-        {/* ABA 3: TAXA E RESULTADO                                       */}
+        {/* ABA 1: RITMO NECESSÁRIO                                      */}
         {/* ============================================================ */}
         {activeTab === 'taxa-resultado' && (
           <Section
-            title="Taxa e Resultado"
-            description="Resumo operacional da taxa de conversão, ganhos necessários e ritmo diário restante."
-          >
+          title="Ritmo necessário"
+          description="Resumo executivo do esforço restante, taxa de conversão, vendas necessárias e ritmo diário até o fim do período."
+        >
             <RateResultPanel
               metrics={metrics}
               result={ratePanelResult}
@@ -4235,7 +4237,7 @@ function handleUndoGoalFromTop() {
         )}
 
         {/* ============================================================ */}
-        {/* ABA 5: DISTRIBUIÇÃO OPERACIONAL                              */}
+        {/* ABA 2: PLANO DIÁRIO                                           */}
         {/* ============================================================ */}
         {activeTab === 'distribuicao' && (
           <div style={{ display: 'grid', gap: 16 }}>
