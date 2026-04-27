@@ -1085,6 +1085,7 @@ function ExecutionCalendarModal({
   days,
   summary,
   canEdit,
+  calendarSaving,
   onClose,
   onSetOverride,
   onClearOverride,
@@ -1096,6 +1097,7 @@ function ExecutionCalendarModal({
   days: ExecutionCalendarDay[]
   summary: ReturnType<typeof getExecutionCalendarSummary>
   canEdit: boolean
+  calendarSaving: boolean
   onClose: () => void
   onSetOverride: (date: string, value: boolean) => void
   onClearOverride: (date: string) => void
@@ -1276,8 +1278,14 @@ function ExecutionCalendarModal({
               <button
                 type="button"
                 onClick={onResetAll}
-                disabled={!canEdit || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0)}
-                title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
+                disabled={!canEdit || calendarSaving || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0)}
+                title={
+                  !canEdit
+                    ? 'Apenas administradores podem alterar o calendário operacional.'
+                    : calendarSaving
+                      ? 'Aguarde o salvamento do calendário.'
+                      : undefined
+                }
                 style={{
                   height: 34,
                   borderRadius: 10,
@@ -1288,13 +1296,13 @@ function ExecutionCalendarModal({
                   fontSize: 12.5,
                   fontWeight: 850,
                   cursor:
-                    !canEdit || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0)
+                    !canEdit || calendarSaving || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0)
                       ? 'not-allowed'
                       : 'pointer',
-                  opacity: !canEdit || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0) ? 0.5 : 1,
+                  opacity: !canEdit || calendarSaving || (summary.addedExecutionDays === 0 && summary.removedExecutionDays === 0) ? 0.5 : 1,
                 }}
               >
-                Limpar ajustes
+                {calendarSaving ? 'Salvando...' : 'Limpar ajustes'}
               </button>
             </div>
 
@@ -1415,8 +1423,14 @@ function ExecutionCalendarModal({
                       <button
                         type="button"
                         onClick={() => onSetOverride(day.date, true)}
-                        disabled={!canEdit}
-                        title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
+                        disabled={!canEdit || calendarSaving}
+                        title={
+                          !canEdit
+                            ? 'Apenas administradores podem alterar o calendário operacional.'
+                            : calendarSaving
+                              ? 'Aguarde o salvamento do calendário.'
+                              : undefined
+                        }
                         style={{
                           height: 28,
                           borderRadius: 9,
@@ -1425,8 +1439,8 @@ function ExecutionCalendarModal({
                           color: '#bbf7d0',
                           fontSize: 11,
                           fontWeight: 850,
-                          cursor: canEdit ? 'pointer' : 'not-allowed',
-                          opacity: canEdit ? 1 : 0.45,
+                          cursor: canEdit && !calendarSaving ? 'pointer' : 'not-allowed',
+                          opacity: canEdit && !calendarSaving ? 1 : 0.45,
                         }}
                       >
                         Trabalha
@@ -1435,8 +1449,14 @@ function ExecutionCalendarModal({
                       <button
                         type="button"
                         onClick={() => onSetOverride(day.date, false)}
-                        disabled={!canEdit}
-                        title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
+                        disabled={!canEdit || calendarSaving}
+                        title={
+                          !canEdit
+                            ? 'Apenas administradores podem alterar o calendário operacional.'
+                            : calendarSaving
+                              ? 'Aguarde o salvamento do calendário.'
+                              : undefined
+                        }
                         style={{
                           height: 28,
                           borderRadius: 9,
@@ -1445,8 +1465,8 @@ function ExecutionCalendarModal({
                           color: '#fecaca',
                           fontSize: 11,
                           fontWeight: 850,
-                          cursor: canEdit ? 'pointer' : 'not-allowed',
-                          opacity: canEdit ? 1 : 0.45,
+                          cursor: canEdit && !calendarSaving ? 'pointer' : 'not-allowed',
+                          opacity: canEdit && !calendarSaving ? 1 : 0.45,
                         }}
                       >
                         Não trabalha
@@ -1455,24 +1475,30 @@ function ExecutionCalendarModal({
 
                     {hasOverride ? (
                       <button
-                      type="button"
-                      onClick={() => onClearOverride(day.date)}
-                      disabled={!canEdit}
-                      title={canEdit ? undefined : 'Apenas administradores podem alterar o calendário operacional.'}
-                      style={{
-                        height: 28,
-                        borderRadius: 9,
-                        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-                        background: 'rgba(15, 18, 26, 0.78)',
-                        color: SIMULATOR_UI.textMuted,
-                        fontSize: 11,
-                        fontWeight: 850,
-                        cursor: canEdit ? 'pointer' : 'not-allowed',
-                        opacity: canEdit ? 1 : 0.45,
-                      }}
-                    >
-                      Voltar ao padrão
-                    </button>
+                        type="button"
+                        onClick={() => onClearOverride(day.date)}
+                        disabled={!canEdit || calendarSaving}
+                        title={
+                          !canEdit
+                            ? 'Apenas administradores podem alterar o calendário operacional.'
+                            : calendarSaving
+                              ? 'Aguarde o salvamento do calendário.'
+                              : undefined
+                        }
+                        style={{
+                          height: 28,
+                          borderRadius: 9,
+                          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+                          background: 'rgba(15, 18, 26, 0.78)',
+                          color: SIMULATOR_UI.textMuted,
+                          fontSize: 11,
+                          fontWeight: 850,
+                          cursor: canEdit && !calendarSaving ? 'pointer' : 'not-allowed',
+                          opacity: canEdit && !calendarSaving ? 1 : 0.45,
+                        }}
+                      >
+                        Voltar ao padrão
+                      </button>
                     ) : null}
                   </div>
                 )
@@ -4108,6 +4134,8 @@ function handleUndoGoalFromTop() {
     }
 
     function handleSetWorkDays(nextValue: React.SetStateAction<WorkDays>) {
+      if (calendarSaving) return
+
       setWorkDays((current) => {
         const next =
           typeof nextValue === 'function'
@@ -4122,33 +4150,40 @@ function handleUndoGoalFromTop() {
   
     const hasExecutionDayOverrides = Object.keys(executionDayOverrides).length > 0
 
-  function handleSetExecutionDayOverride(date: string, value: boolean) {
-    setExecutionDayOverrides((current) => {
-      const next = {
-        ...current,
-        [date]: value,
-      }
-
-      void persistExecutionCalendar(next, workDays)
-      return next
-    })
-  }
-
-  function handleClearExecutionDayOverride(date: string) {
-    setExecutionDayOverrides((current) => {
-      const next = { ...current }
-      delete next[date]
-
-      void persistExecutionCalendar(next, workDays)
-
-      return next
-    })
-  }
-
-  function handleResetExecutionDayOverrides() {
-    setExecutionDayOverrides({})
-    void persistExecutionCalendar({}, workDays)
-  }
+    function handleSetExecutionDayOverride(date: string, value: boolean) {
+      if (calendarSaving) return
+  
+      setExecutionDayOverrides((current) => {
+        const next = {
+          ...current,
+          [date]: value,
+        }
+  
+        void persistExecutionCalendar(next, workDays)
+  
+        return next
+      })
+    }
+  
+    function handleClearExecutionDayOverride(date: string) {
+      if (calendarSaving) return
+  
+      setExecutionDayOverrides((current) => {
+        const next = { ...current }
+        delete next[date]
+  
+        void persistExecutionCalendar(next, workDays)
+  
+        return next
+      })
+    }
+  
+    function handleResetExecutionDayOverrides() {
+      if (calendarSaving) return
+  
+      setExecutionDayOverrides({})
+      void persistExecutionCalendar({}, workDays)
+    }
 
   if (loading) {
     return (
@@ -4249,6 +4284,7 @@ function handleUndoGoalFromTop() {
         days={executionCalendarDays}
         summary={executionCalendarSummary}
         canEdit={isAdmin}
+        calendarSaving={calendarSaving}
         onClose={() => setExecutionCalendarOpen(false)}
         onSetOverride={handleSetExecutionDayOverride}
         onClearOverride={handleClearExecutionDayOverride}
