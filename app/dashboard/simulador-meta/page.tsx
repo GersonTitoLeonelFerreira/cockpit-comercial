@@ -3173,7 +3173,7 @@ export default function SimuladorMetaPage() {
   const [groupConversionLoading, setGroupConversionLoading] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
 
-  // Teoria 100/20
+  // Plano de execução da meta
   const [ticketMedioText, setTicketMedioText] = useState<string>('5000')
   const [theory10020Result, setTheory10020Result] = useState<Theory10020Result | null>(null)
 
@@ -3448,7 +3448,7 @@ function handleUndoGoalFromTop() {
     return closeRatePercent / 100
   }, [rateSource, rateRealData, closeRatePercent])
 
-  // Teoria 100/20 — recalcular quando inputs mudam
+  // Plano de execução — recalcular quando inputs mudam
   useEffect(() => {
     if (mode !== 'faturamento') {
       setTheory10020Result(null)
