@@ -3987,6 +3987,7 @@ function handleUndoGoalFromTop() {
 
     useEffect(() => {
       if (!companyId || !periodStart || !periodEnd) {
+        setWorkDays(defaultWorkDays())
         setExecutionDayOverrides({})
         return
       }
@@ -4003,6 +4004,7 @@ function handleUndoGoalFromTop() {
   
           if (cancelled) return
   
+          setWorkDays(record?.work_days ?? defaultWorkDays())
           setExecutionDayOverrides(record?.execution_day_overrides ?? {})
         } catch (error) {
           if (cancelled) return
@@ -4019,7 +4021,10 @@ function handleUndoGoalFromTop() {
       }
     }, [companyId, periodStart, periodEnd])
   
-    async function persistExecutionDayOverrides(next: ExecutionDayOverrides) {
+    async function persistExecutionCalendar(
+      nextOverrides: ExecutionDayOverrides,
+      nextWorkDays: WorkDays = workDays,
+    ) {
       if (!companyId || !periodStart || !periodEnd) {
         console.warn('Calendário operacional não salvo: empresa ou período ausente.')
         return
@@ -4030,14 +4035,28 @@ function handleUndoGoalFromTop() {
           companyId,
           periodStart,
           periodEnd,
-          executionDayOverrides: next,
+          workDays: nextWorkDays,
+          executionDayOverrides: nextOverrides,
         })
       } catch (error) {
         console.warn('Erro ao salvar calendário operacional no Supabase:', getErrorMessage(error, 'Erro desconhecido.'))
       }
     }
 
-  const hasExecutionDayOverrides = Object.keys(executionDayOverrides).length > 0
+    function handleSetWorkDays(nextValue: React.SetStateAction<WorkDays>) {
+      setWorkDays((current) => {
+        const next =
+          typeof nextValue === 'function'
+            ? (nextValue as (value: WorkDays) => WorkDays)(current)
+            : nextValue
+  
+        void persistExecutionCalendar(executionDayOverrides, next)
+  
+        return next
+      })
+    }
+  
+    const hasExecutionDayOverrides = Object.keys(executionDayOverrides).length > 0
 
   function handleSetExecutionDayOverride(date: string, value: boolean) {
     setExecutionDayOverrides((current) => {
@@ -4046,8 +4065,7 @@ function handleUndoGoalFromTop() {
         [date]: value,
       }
 
-      void persistExecutionDayOverrides(next)
-
+      void persistExecutionCalendar(next, workDays)
       return next
     })
   }
@@ -4057,7 +4075,7 @@ function handleUndoGoalFromTop() {
       const next = { ...current }
       delete next[date]
 
-      void persistExecutionDayOverrides(next)
+      void persistExecutionCalendar(next, workDays)
 
       return next
     })
@@ -4065,7 +4083,7 @@ function handleUndoGoalFromTop() {
 
   function handleResetExecutionDayOverrides() {
     setExecutionDayOverrides({})
-    void persistExecutionDayOverrides({})
+    void persistExecutionCalendar({}, workDays)
   }
 
   if (loading) {
@@ -4144,7 +4162,7 @@ function handleUndoGoalFromTop() {
         daysWindow={daysWindow}
         setDaysWindow={setDaysWindow}
         workDays={workDays}
-        setWorkDays={setWorkDays}
+        setWorkDays={handleSetWorkDays}
         autoRemainingDays={autoRemainingDays}
         setAutoRemainingDays={setAutoRemainingDays}
         remainingBusinessDays={remainingBusinessDays}
