@@ -193,6 +193,72 @@ function countWorkDaysUntilToday(
   return count
 }
 
+type ExecutionCalendarDay = {
+  date: string
+  day: number
+  weekday: number
+  weekdayLabel: string
+  isDefaultExecutionDay: boolean
+  isExecutionDay: boolean
+  override: boolean | null
+}
+
+function buildExecutionCalendarDays(
+  start: string,
+  end: string,
+  workDays: WorkDays,
+  overrides: ExecutionDayOverrides = {},
+): ExecutionCalendarDay[] {
+  const s = new Date(toYMD(start) + 'T00:00:00')
+  const e = new Date(toYMD(end) + 'T00:00:00')
+  s.setHours(0, 0, 0, 0)
+  e.setHours(0, 0, 0, 0)
+
+  if (e < s) return []
+
+  const days: ExecutionCalendarDay[] = []
+  const cur = new Date(s)
+
+  while (cur <= e) {
+    const key = dateKey(cur)
+    const weekday = cur.getDay()
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, key)
+    const defaultExecutionDay = Boolean(workDays[weekday])
+
+    days.push({
+      date: key,
+      day: cur.getDate(),
+      weekday,
+      weekdayLabel: WEEKDAY_LABELS[weekday],
+      isDefaultExecutionDay: defaultExecutionDay,
+      isExecutionDay: hasOverride ? Boolean(overrides[key]) : defaultExecutionDay,
+      override: hasOverride ? Boolean(overrides[key]) : null,
+    })
+
+    cur.setDate(cur.getDate() + 1)
+  }
+
+  return days
+}
+
+function getExecutionCalendarSummary(days: ExecutionCalendarDay[]) {
+  const totalDefaultExecutionDays = days.filter((day) => day.isDefaultExecutionDay).length
+  const totalExecutionDays = days.filter((day) => day.isExecutionDay).length
+  const addedExecutionDays = days.filter(
+    (day) => day.override === true && !day.isDefaultExecutionDay,
+  ).length
+  const removedExecutionDays = days.filter(
+    (day) => day.override === false && day.isDefaultExecutionDay,
+  ).length
+
+  return {
+    totalDefaultExecutionDays,
+    totalExecutionDays,
+    addedExecutionDays,
+    removedExecutionDays,
+  }
+}
+
 // ============================
 
 function TitleWithTip({
@@ -2346,6 +2412,7 @@ export default function SimuladorMetaPage() {
 
   // Dias trabalhados (checkbox)
   const [workDays, setWorkDays] = useState<WorkDays>(defaultWorkDays())
+  const [executionDayOverrides] = useState<ExecutionDayOverrides>({})
   const [autoRemainingDays, setAutoRemainingDays] = useState(true)
 
   // Ganhos
@@ -2942,11 +3009,29 @@ function handleUndoGoalFromTop() {
   function buildRevenueKpis(totalReal: number, goal: number) {
     const safeGoal = Math.max(0, Number(goal) || 0)
 
-    const businessDaysTotal = countWorkDaysInRange(revenueDates.start, revenueDates.end, workDays)
-    const businessDaysElapsed = countWorkDaysUntilToday(revenueDates.start, revenueDates.end, workDays)
+    const calendarDays = buildExecutionCalendarDays(
+      revenueDates.start,
+      revenueDates.end,
+      workDays,
+      executionDayOverrides,
+    )
+
+    const calendarSummary = getExecutionCalendarSummary(calendarDays)
+
+    const businessDaysTotal = calendarSummary.totalExecutionDays
+    const businessDaysElapsed = countWorkDaysUntilToday(
+      revenueDates.start,
+      revenueDates.end,
+      workDays,
+      executionDayOverrides,
+    )
 
     const endDate = new Date(toYMD(revenueDates.end) + 'T00:00:00')
-    const businessDaysRemaining = countRemainingWorkDays(endDate, workDays)
+    const businessDaysRemaining = countRemainingWorkDays(
+      endDate,
+      workDays,
+      executionDayOverrides,
+    )
 
     const gap = Math.max(0, safeGoal - totalReal)
     const requiredPerBD = businessDaysRemaining > 0 ? gap / businessDaysRemaining : gap
@@ -2975,13 +3060,13 @@ function handleUndoGoalFromTop() {
     if (!revenueCompany?.success) return null
     return buildRevenueKpis(Number(revenueCompany.total_real || 0), activeGoalForKpis)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenueCompany, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
+  }, [revenueCompany, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays, executionDayOverrides])
 
   const revenueSellerKpis = useMemo(() => {
     if (!revenueSeller?.success) return null
     return buildRevenueKpis(Number(revenueSeller.total_real || 0), activeGoalForKpis)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays])
+  }, [revenueSeller, activeGoalForKpis, revenueDates.start, revenueDates.end, workDays, executionDayOverrides])
 
   const showRevenueMode = mode !== 'ganhos'
 
