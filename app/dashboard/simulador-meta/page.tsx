@@ -33,6 +33,7 @@ import { buildCalendarDistribution } from '@/app/lib/services/calendarDistributi
 import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
 import { getPeriodRadar } from '@/app/lib/services/periodRadar'
+import { getExecutionDayCalendar } from '@/app/lib/services/executionDayCalendar'
 import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
 import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
 import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
@@ -3910,40 +3911,38 @@ function handleUndoGoalFromTop() {
   }, [companyId, periodStart, periodEnd])
 
   useEffect(() => {
-    if (!periodStart || !periodEnd) return
-
-    try {
-      const raw = window.localStorage.getItem(executionCalendarStorageKey)
-
-      if (!raw) {
-        setExecutionDayOverrides({})
-        return
-      }
-
-      const parsed = JSON.parse(raw)
-
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        setExecutionDayOverrides({})
-        return
-      }
-
-      const safeOverrides = Object.entries(parsed).reduce<ExecutionDayOverrides>(
-        (acc, [date, value]) => {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(date) && typeof value === 'boolean') {
-            acc[date] = value
-          }
-
-          return acc
-        },
-        {},
-      )
-
-      setExecutionDayOverrides(safeOverrides)
-    } catch (error) {
-      console.warn('Erro ao carregar calendário operacional:', getErrorMessage(error, 'Erro desconhecido.'))
+    if (!companyId || !periodStart || !periodEnd) {
       setExecutionDayOverrides({})
+      return
     }
-  }, [executionCalendarStorageKey, periodStart, periodEnd])
+
+    let cancelled = false
+
+    async function loadExecutionDayCalendar() {
+      try {
+        const record = await getExecutionDayCalendar({
+          companyId: companyId!,
+          periodStart,
+          periodEnd,
+        })
+
+        if (cancelled) return
+
+        setExecutionDayOverrides(record?.execution_day_overrides ?? {})
+      } catch (error) {
+        if (cancelled) return
+
+        console.warn('Erro ao carregar calendário operacional do Supabase:', getErrorMessage(error, 'Erro desconhecido.'))
+        setExecutionDayOverrides({})
+      }
+    }
+
+    void loadExecutionDayCalendar()
+
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, periodStart, periodEnd])
 
   function persistExecutionDayOverrides(next: ExecutionDayOverrides) {
     try {
