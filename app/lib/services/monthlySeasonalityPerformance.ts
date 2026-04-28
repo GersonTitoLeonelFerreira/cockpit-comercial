@@ -7,7 +7,7 @@
 // Fontes:
 //   - leads_trabalhados: sales_cycles.first_worked_at
 //   - ganhos/faturamento: sales_cycles.won_at + won_total + status='ganho'
-//   - perdidos: sales_cycles.lost_at (proxy: updated_at quando indisponível)
+//   - perdidos: sales_cycles.lost_at (proxy: stage_entered_at quando indisponível)
 //
 // HONESTIDADE:
 //   - taxa_ganho não é calculada quando leads_trabalhados < 10
@@ -261,11 +261,12 @@ export async function getMonthlySeasonalityPerformance(
   }
 
   // ============================================================================
-  // 3. Perdidos — tenta lost_at, cai em updated_at como proxy
+  // 3. Perdidos — usa lost_at quando existe, caindo em stage_entered_at.
+  //    updated_at não serve como proxy porque muda em qualquer edição posterior.
   // ============================================================================
   let lostQuery = supabase
     .from('sales_cycles')
-    .select('lost_at, updated_at')
+    .select('lost_at, stage_entered_at')
     .eq('company_id', filters.companyId)
     .eq('status', 'perdido')
 
@@ -280,13 +281,12 @@ export async function getMonthlySeasonalityPerformance(
   }
 
   const lostDataAll = (lostDataRaw ?? []) as Array<Record<string, unknown>>
-  const hasLostAtColumn = lostDataAll.some((r) => r.lost_at != null)
 
   const dateStartMs = new Date(dateStartIso).getTime()
   const dateEndMs = new Date(dateEndIso).getTime()
 
   const lostData = lostDataAll.filter((r) => {
-    const raw = hasLostAtColumn ? (r.lost_at as string | null) : (r.updated_at as string | null)
+    const raw = (r.lost_at as string | null) ?? (r.stage_entered_at as string | null)
     if (!raw) return false
     const ts = new Date(raw).getTime()
     return ts >= dateStartMs && ts <= dateEndMs
@@ -338,9 +338,7 @@ export async function getMonthlySeasonalityPerformance(
   }
 
   for (const row of lostData) {
-    const ts = hasLostAtColumn
-      ? (row.lost_at as string | null)
-      : (row.updated_at as string | null)
+    const ts = (row.lost_at as string | null) ?? (row.stage_entered_at as string | null)
     if (!ts) continue
     const mo = getMonth(ts)
     agg[mo].perdidos += 1
