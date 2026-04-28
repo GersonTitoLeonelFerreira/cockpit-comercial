@@ -106,6 +106,22 @@ function dateKeyInBusinessTZ(ts: string | Date): string {
   return getBusinessDateParts(ts).dateKey
 }
 
+function shiftBusinessDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const baseTime = Date.UTC(year, month - 1, day, 12, 0, 0, 0)
+  const shiftedTime = baseTime + days * 24 * 60 * 60 * 1000
+
+  return new Date(shiftedTime).toISOString().slice(0, 10)
+}
+
+function startOfBusinessDayIso(dateKey: string): string {
+  return new Date(`${dateKey}T00:00:00.000-03:00`).toISOString()
+}
+
+function endOfBusinessDayIso(dateKey: string): string {
+  return new Date(`${dateKey}T23:59:59.999-03:00`).toISOString()
+}
+
 function formatBRL(value: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 }
@@ -498,10 +514,9 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.first_worked_at
   // ============================================================================
   {
-    const sevenDaysAgo = new Date(today)
-    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7)
-    const sevenDaysAgoIso = sevenDaysAgo.toISOString().slice(0, 10) + 'T00:00:00.000Z'
-    const todayIso = today.toISOString().slice(0, 10) + 'T23:59:59.999Z'
+    const sevenDaysAgoDateKey = shiftBusinessDateKey(referenceDate, -7)
+    const sevenDaysAgoIso = startOfBusinessDayIso(sevenDaysAgoDateKey)
+    const todayIso = endOfBusinessDayIso(referenceDate)
 
     let recentWorkedQuery = supabase
       .from('sales_cycles')
@@ -588,10 +603,9 @@ export async function getPeriodRadar(
   // Fonte: sales_cycles.won_at
   // ============================================================================
   {
-    const fourteenDaysAgo = new Date(today)
-    fourteenDaysAgo.setUTCDate(fourteenDaysAgo.getUTCDate() - 14)
-    const fourteenDaysAgoIso = fourteenDaysAgo.toISOString().slice(0, 10) + 'T00:00:00.000Z'
-    const todayIso = today.toISOString().slice(0, 10) + 'T23:59:59.999Z'
+    const fourteenDaysAgoDateKey = shiftBusinessDateKey(referenceDate, -14)
+    const fourteenDaysAgoIso = startOfBusinessDayIso(fourteenDaysAgoDateKey)
+    const todayIso = endOfBusinessDayIso(referenceDate)
 
     let recentWonQuery = supabase
       .from('sales_cycles')
