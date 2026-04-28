@@ -28,7 +28,7 @@ import type {
 import type { CloseRateRealResponse } from '@/app/types/simulatorRateReal'
 import { InfoTip } from '@/app/components/InfoTip'
 import { RevenueChart } from './components/RevenueChart'
-import MetaSummaryHeader, { toBRL, getRevenueStatus, statusLabel } from '@/app/components/meta/MetaSummaryCard'
+import MetaSummaryHeader, { toBRL, getRevenueStatus } from '@/app/components/meta/MetaSummaryCard'
 import { buildCalendarDistribution } from '@/app/lib/services/calendarDistribution'
 import { getWeekdayVocation } from '@/app/lib/services/weekdayVocation'
 import { getMonthlySeasonalityPerformance } from '@/app/lib/services/monthlySeasonalityPerformance'
@@ -2946,497 +2946,6 @@ type DecisionRevenueKpis = {
   status: ReturnType<typeof getRevenueStatus>
 } | null
 
-function DecisionHero({
-  mode,
-  revenueMetricLabel,
-  revenueKpis,
-  theory10020Result,
-  revenueLoading,
-  revenueError,
-  remainingBusinessDays,
-  rateSource,
-  taxaUsadaNoCalculo,
-  goalContextLabel,
-  canEditGoal,
-}: {
-  mode: SimulatorMode
-  revenueMetricLabel: string
-  revenueKpis: DecisionRevenueKpis
-  theory10020Result: Theory10020Result | null
-  revenueLoading: boolean
-  revenueError: string | null
-  remainingBusinessDays: number
-  rateSource: 'real' | 'planejada'
-  taxaUsadaNoCalculo: number
-  goalContextLabel: string
-  canEditGoal: boolean
-}) {
-  const isRevenueMode = mode !== 'ganhos'
-
-  const goal = revenueKpis?.goal ?? theory10020Result?.meta_total ?? 0
-  const totalReal = revenueKpis?.totalReal ?? theory10020Result?.total_real ?? 0
-  const gap = revenueKpis?.gap ?? theory10020Result?.gap ?? Math.max(0, goal - totalReal)
-  const projection = revenueKpis?.projection ?? 0
-  const requiredPerDay = revenueKpis?.required_per_business_day ?? 0
-  const progressPct = goal > 0 ? Math.min(999, Math.round((totalReal / goal) * 100)) : 0
-
-  const revenueStatus = revenueKpis?.status ?? null
-
-  const status: 'sem-meta' | 'meta-atingida' | ReturnType<typeof getRevenueStatus> =
-    goal <= 0
-      ? 'sem-meta'
-      : gap <= 0
-        ? 'meta-atingida'
-        : revenueStatus ?? 'acelerar'
-
-  const statusText =
-    status === 'meta-atingida'
-      ? 'Meta atingida'
-      : status === 'sem-meta'
-        ? 'Meta não definida'
-        : statusLabel(status)
-
-  const statusColor =
-    status === 'meta-atingida'
-      ? '#86efac'
-      : status === 'sem-meta'
-        ? SIMULATOR_UI.textMuted
-        : status === 'no_ritmo'
-          ? '#86efac'
-          : status === 'atencao'
-            ? '#fbbf24'
-            : '#fca5a5'
-
-  const statusBackground =
-    status === 'meta-atingida'
-      ? 'rgba(34, 197, 94, 0.10)'
-      : status === 'sem-meta'
-        ? 'rgba(148, 163, 184, 0.08)'
-        : status === 'no_ritmo'
-          ? 'rgba(34, 197, 94, 0.10)'
-          : status === 'atencao'
-            ? 'rgba(245, 158, 11, 0.10)'
-            : 'rgba(239, 68, 68, 0.10)'
-
-  const progressBarColor =
-    gap <= 0
-      ? '#22c55e'
-      : progressPct >= 75
-        ? '#22c55e'
-        : progressPct >= 45
-          ? '#f59e0b'
-          : '#ef4444'
-
-  const projectionTone =
-    goal <= 0
-      ? SIMULATOR_UI.textMuted
-      : projection >= goal
-        ? '#86efac'
-        : '#fbbf24'
-
-  if (!isRevenueMode) {
-    return (
-      <section
-        style={{
-          marginBottom: 16,
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: 'rgba(13, 15, 20, 0.88)',
-          borderRadius: 20,
-          padding: 20,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
-        }}
-      >
-        <div style={{ display: 'grid', gap: 8 }}>
-          <div
-            style={{
-              color: SIMULATOR_UI.textMuted,
-              fontSize: 12,
-              fontWeight: 850,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-            }}
-          >
-            Visão de ganhos
-          </div>
-
-          <div
-            style={{
-              color: SIMULATOR_UI.textPrimary,
-              fontSize: 24,
-              fontWeight: 950,
-              letterSpacing: -0.6,
-              lineHeight: 1.1,
-            }}
-          >
-            Acompanhe oportunidades, ganhos e ritmo operacional.
-          </div>
-
-          <div
-            style={{
-              maxWidth: 760,
-              color: SIMULATOR_UI.textMuted,
-              fontSize: 13,
-              lineHeight: 1.5,
-            }}
-          >
-            Neste modo, a análise principal fica concentrada nas abas de taxa, resultado e funil do período.
-          </div>
-        </div>
-      </section>
-    )
-  }
-
-  return (
-    <section
-      style={{
-        marginBottom: 16,
-        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-        background:
-          'linear-gradient(135deg, rgba(18, 22, 33, 0.94) 0%, rgba(13, 15, 20, 0.98) 58%, rgba(9, 11, 15, 1) 100%)',
-        borderRadius: 22,
-        padding: 22,
-        boxShadow: '0 14px 34px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.035)',
-      }}
-    >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 20,
-          alignItems: 'stretch',
-        }}
-      >
-        <div style={{ display: 'grid', alignContent: 'space-between', gap: 18 }}>
-          <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                flexWrap: 'wrap',
-                marginBottom: 12,
-              }}
-            >
-              <span
-                style={{
-                  color: SIMULATOR_UI.textMuted,
-                  fontSize: 12,
-                  fontWeight: 850,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                }}
-              >
-                Status da meta
-              </span>
-
-              <span
-                style={{
-                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-                  background: statusBackground,
-                  color: statusColor,
-                  borderRadius: 999,
-                  padding: '5px 10px',
-                  fontSize: 12,
-                  fontWeight: 900,
-                }}
-              >
-                {statusText}
-              </span>
-            </div>
-
-            <div
-              style={{
-                color: SIMULATOR_UI.textPrimary,
-                fontSize: 30,
-                fontWeight: 950,
-                letterSpacing: -0.9,
-                lineHeight: 1.08,
-              }}
-            >
-              {goal > 0 ? (
-                <>Meta de {revenueMetricLabel.toLowerCase()} em andamento.</>
-              ) : canEditGoal ? (
-                'Defina uma meta para gerar leitura executiva.'
-              ) : (
-                `${goalContextLabel} não definida.`
-              )}
-            </div>
-
-            <div
-              style={{
-                marginTop: 10,
-                maxWidth: 820,
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 14,
-                lineHeight: 1.55,
-              }}
-            >
-              {goal > 0 ? (
-                <>
-                  Realizado:{' '}
-                  <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(totalReal)}</strong>{' '}
-                  de{' '}
-                  <strong style={{ color: SIMULATOR_UI.textPrimary }}>{toBRL(goal)}</strong>.
-                  Ainda faltam{' '}
-                  <strong style={{ color: gap > 0 ? '#fca5a5' : '#86efac' }}>{toBRL(gap)}</strong>.
-                </>
-              ) : canEditGoal ? (
-                <>
-                  Sem meta cadastrada, o simulador não consegue calcular gap, projeção e esforço necessário.
-                </>
-              ) : (
-                <>
-                  Solicite ao gestor a definição desta meta para liberar a leitura de gap, projeção e esforço necessário.
-                </>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                gap: 10,
-                marginBottom: 14,
-              }}
-            >
-              <div
-                style={{
-                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-                  background: 'rgba(9, 11, 15, 0.46)',
-                  borderRadius: 14,
-                  padding: 14,
-                }}
-              >
-                <div
-                  style={{
-                    color: SIMULATOR_UI.textSubtle,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    marginBottom: 6,
-                  }}
-                >
-                  Falta
-                </div>
-
-                <div
-                  style={{
-                    color: gap > 0 ? '#fca5a5' : '#86efac',
-                    fontSize: 21,
-                    fontWeight: 950,
-                    letterSpacing: -0.45,
-                  }}
-                >
-                  {toBRL(gap)}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-                  background: 'rgba(9, 11, 15, 0.46)',
-                  borderRadius: 14,
-                  padding: 14,
-                }}
-              >
-                <div
-                  style={{
-                    color: SIMULATOR_UI.textSubtle,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    marginBottom: 6,
-                  }}
-                >
-                  Ritmo necessário
-                </div>
-
-                <div
-                  style={{
-                    color: requiredPerDay > 0 ? '#fbbf24' : '#86efac',
-                    fontSize: 21,
-                    fontWeight: 950,
-                    letterSpacing: -0.45,
-                  }}
-                >
-                  {toBRL(requiredPerDay)}
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 4,
-                    color: SIMULATOR_UI.textSubtle,
-                    fontSize: 11.5,
-                    lineHeight: 1.35,
-                  }}
-                >
-                  por dia de execução
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                height: 10,
-                borderRadius: 999,
-                background: 'rgba(148, 163, 184, 0.10)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${Math.min(progressPct, 100)}%`,
-                  height: '100%',
-                  borderRadius: 999,
-                  background: progressBarColor,
-                  transition: 'width 240ms ease',
-                }}
-              />
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginTop: 8,
-                color: SIMULATOR_UI.textSubtle,
-                fontSize: 12,
-                fontWeight: 700,
-              }}
-            >
-              <span>0%</span>
-              <span style={{ color: progressBarColor }}>{progressPct}% realizado</span>
-              <span>100%</span>
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            background: 'rgba(9, 11, 15, 0.50)',
-            borderRadius: 18,
-            padding: 18,
-            display: 'grid',
-            gap: 14,
-          }}
-        >
-          <div>
-            <div
-              style={{
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 12,
-                fontWeight: 800,
-                marginBottom: 5,
-              }}
-            >
-              Meta de {revenueMetricLabel}
-            </div>
-
-            <div
-              style={{
-                color: SIMULATOR_UI.textPrimary,
-                fontSize: 23,
-                fontWeight: 950,
-                letterSpacing: -0.5,
-              }}
-            >
-              {toBRL(goal)}
-            </div>
-          </div>
-
-          <div>
-            <div
-              style={{
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 12,
-                fontWeight: 800,
-                marginBottom: 5,
-              }}
-            >
-              Projeção no ritmo atual
-            </div>
-
-            <div
-              style={{
-                color: projectionTone,
-                fontSize: 22,
-                fontWeight: 950,
-                letterSpacing: -0.45,
-              }}
-            >
-              {projection > 0 ? toBRL(projection) : '—'}
-            </div>
-          </div>
-
-          <div>
-            <div
-              style={{
-                color: SIMULATOR_UI.textMuted,
-                fontSize: 12,
-                fontWeight: 800,
-                marginBottom: 5,
-              }}
-            >
-              Dias de execução restantes
-            </div>
-
-            <div
-              style={{
-                color: SIMULATOR_UI.textPrimary,
-                fontSize: 22,
-                fontWeight: 950,
-              }}
-            >
-              {remainingBusinessDays}
-            </div>
-          </div>
-
-          <div
-            style={{
-              borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
-              paddingTop: 12,
-              color: SIMULATOR_UI.textSubtle,
-              fontSize: 12,
-              lineHeight: 1.45,
-            }}
-          >
-            Conversão usada:{' '}
-            <strong style={{ color: SIMULATOR_UI.textSecondary }}>
-              {(taxaUsadaNoCalculo * 100).toFixed(1)}%
-            </strong>{' '}
-            · Fonte: {rateSource === 'real' ? 'real' : 'planejada'}.
-          </div>
-        </div>
-      </div>
-
-      {revenueLoading ? (
-        <div
-          style={{
-            marginTop: 14,
-            color: SIMULATOR_UI.textMuted,
-            fontSize: 13,
-          }}
-        >
-          Atualizando dados de {revenueMetricLabel.toLowerCase()}...
-        </div>
-      ) : null}
-
-      {revenueError ? (
-        <div
-          style={{
-            marginTop: 14,
-            color: '#fecaca',
-            fontSize: 13,
-            fontWeight: 750,
-          }}
-        >
-          {revenueError}
-        </div>
-      ) : null}
-    </section>
-  )
-}
 
 function ExecutionPlanPanel({
   theory10020Result,
@@ -3448,161 +2957,114 @@ function ExecutionPlanPanel({
   remainingBusinessDays: number
   rateSource: 'real' | 'planejada'
   rateRealData: CloseRateRealResponse | null
+  [key: string]: unknown
 }) {
-  if (!theory10020Result) {
-    return (
-      <div
-        style={{
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: 'rgba(9, 11, 15, 0.52)',
-          borderRadius: 16,
-          padding: 18,
-          color: SIMULATOR_UI.textMuted,
-          fontSize: 14,
-          lineHeight: 1.5,
-        }}
-      >
-        Informe um ticket médio maior que zero para gerar o plano operacional.
-      </div>
-    )
-  }
+  const hasPlan = theory10020Result !== null
+  const rateSourceLabel = rateSource === 'real' ? 'Taxa real' : 'Taxa planejada'
+  const rateSourceDescription =
+    rateSource === 'real'
+      ? 'Usa o histórico comercial carregado para calcular o esforço necessário.'
+      : 'Usa a taxa informada manualmente para projetar o esforço necessário.'
 
-  const t = theory10020Result
-
-  const leadsPerDayIsHeavy = t.leads_restantes_por_dia > 15
-  const winsPerDayIsHeavy = t.ganhos_restantes_por_dia > 4
-
-  const rateLabel =
-    rateSource === 'real' && (rateRealData?.vendor?.close_rate ?? null) !== null
-      ? 'taxa real'
-      : 'taxa planejada'
+  const calendarStatus =
+    remainingBusinessDays > 0
+      ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia útil restante' : 'dias úteis restantes'}`
+      : 'Sem dias úteis restantes'
 
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
+    <div style={{ display: 'grid', gap: 16 }}>
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          alignItems: 'center',
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background:
+            'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, rgba(13, 15, 20, 0.96) 42%, rgba(9, 11, 15, 0.98) 100%)',
+          borderRadius: 18,
+          padding: 18,
+          display: 'grid',
+          gap: 14,
+          boxShadow: '0 16px 42px rgba(0, 0, 0, 0.24)',
         }}
       >
+        <div>
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 17,
+              fontWeight: 950,
+              letterSpacing: -0.25,
+              lineHeight: 1.2,
+            }}
+          >
+            Plano de execução da meta
+          </div>
+
+          <div
+            style={{
+              marginTop: 6,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 13.5,
+              lineHeight: 1.5,
+              maxWidth: 880,
+            }}
+          >
+            Este painel transforma a meta em leitura operacional: fonte da taxa, disponibilidade
+            do calendário e condição atual do cálculo.
+          </div>
+        </div>
+
         <div
           style={{
-            color: SIMULATOR_UI.textMuted,
-            fontSize: 13,
-            lineHeight: 1.45,
-            maxWidth: 780,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: 12,
           }}
         >
-          Foco operacional: volume restante de leads, ganhos necessários e cadência diária até o fim do período.
+          <Card
+            title="Cálculo do plano"
+            value={hasPlan ? 'Ativo' : 'Pendente'}
+            subtitle={
+              hasPlan
+                ? 'A simulação 100/20 está disponível para orientar a execução.'
+                : 'Informe os dados da meta para gerar o plano operacional.'
+            }
+            tone={hasPlan ? 'good' : 'bad'}
+          />
+
+          <Card title="Fonte da taxa" value={rateSourceLabel} subtitle={rateSourceDescription} />
+
+          <Card
+            title="Calendário operacional"
+            value={calendarStatus}
+            subtitle="Base usada para calcular a pressão diária de execução."
+            tone={remainingBusinessDays > 0 ? 'neutral' : 'bad'}
+          />
+
+          <Card
+            title="Histórico comercial"
+            value={rateRealData ? 'Carregado' : 'Indisponível'}
+            subtitle={
+              rateRealData
+                ? 'A taxa real pode ser usada como referência de performance.'
+                : 'Sem histórico carregado para esta leitura.'
+            }
+            tone={rateRealData ? 'good' : 'neutral'}
+          />
         </div>
 
         <div
           style={{
             border: `1px solid ${SIMULATOR_UI.borderMuted}`,
             background: 'rgba(9, 11, 15, 0.46)',
-            borderRadius: 999,
-            padding: '6px 10px',
-            color: SIMULATOR_UI.textMuted,
-            fontSize: 12,
-            fontWeight: 800,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {remainingBusinessDays} dias de execução restantes
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-          gap: 12,
-        }}
-      >
-        <Card
-          title="Leads restantes"
-          value={t.leads_restantes}
-          subtitle="Volume total que ainda precisa ser trabalhado"
-        />
-
-        <Card
-          title="Ganhos restantes"
-          value={t.ganhos_restantes}
-          subtitle="Fechamentos necessários para cobrir o gap"
-          tone={t.ganhos_restantes <= 0 ? 'good' : 'neutral'}
-        />
-
-        <Card
-          title="Leads por dia de execução"
-          value={t.leads_restantes_por_dia}
-          subtitle={leadsPerDayIsHeavy ? 'Ritmo alto. Exige cadência forte.' : 'Ritmo operacional administrável.'}
-          tone={leadsPerDayIsHeavy ? 'bad' : 'neutral'}
-        />
-
-        <Card
-          title="Ganhos por dia de execução"
-          value={t.ganhos_restantes_por_dia}
-          subtitle={winsPerDayIsHeavy ? 'Pressão alta de fechamento.' : 'Ritmo de fechamento viável.'}
-          tone={winsPerDayIsHeavy ? 'bad' : 'good'}
-        />
-      </div>
-
-      <div
-        style={{
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: 'rgba(9, 11, 15, 0.46)',
-          borderRadius: 16,
-          padding: 18,
-          display: 'grid',
-          gap: 10,
-        }}
-      >
-        <div
-          style={{
-            color: SIMULATOR_UI.textPrimary,
-            fontSize: 14,
-            fontWeight: 900,
-            letterSpacing: -0.1,
-          }}
-        >
-          Diagnóstico objetivo
-        </div>
-
-        <div
-          style={{
+            borderRadius: 16,
+            padding: 16,
             color: SIMULATOR_UI.textSecondary,
-            fontSize: 13.5,
-            lineHeight: 1.65,
-          }}
-        >
-          Faltam <strong style={{ color: '#fca5a5' }}>{toBRL(t.gap)}</strong> para bater a meta. Com ticket médio de{' '}
-          <strong style={{ color: '#c4b5fd' }}>{toBRL(t.ticket_medio)}</strong> e conversão de{' '}
-          <strong style={{ color: '#93c5fd' }}>{(t.close_rate * 100).toFixed(1)}%</strong> usando {rateLabel}, o time precisa trabalhar{' '}
-          <strong style={{ color: '#67e8f9' }}>{t.leads_restantes} leads restantes</strong> para gerar aproximadamente{' '}
-          <strong style={{ color: '#86efac' }}>{t.ganhos_restantes} ganhos</strong>.
-        </div>
-
-        <div
-          style={{
-            borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
-            paddingTop: 10,
-            color: SIMULATOR_UI.textMuted,
-            fontSize: 12.5,
+            fontSize: 13,
             lineHeight: 1.55,
           }}
         >
-          Ritmo recomendado: manter pelo menos{' '}
-          <strong style={{ color: leadsPerDayIsHeavy ? '#fca5a5' : '#67e8f9' }}>
-            {t.leads_restantes_por_dia} leads por dia de execução
-          </strong>{' '}
-          e buscar{' '}
-          <strong style={{ color: winsPerDayIsHeavy ? '#fca5a5' : '#86efac' }}>
-            {t.ganhos_restantes_por_dia} ganhos por dia de execução
-          </strong>
-          . Se esse volume estiver acima da capacidade real do time, a decisão gerencial é revisar meta, ampliar base de prospecção ou reforçar cadência.
+          {hasPlan
+            ? 'Use este plano como referência de cadência. Se o ritmo diário ficar pesado, a decisão executiva correta é revisar capacidade, base disponível, taxa usada ou prazo de execução.'
+            : 'O plano ainda não tem dados suficientes para leitura executiva. O próximo passo é preencher meta, ticket médio, taxa e calendário operacional.'}
         </div>
       </div>
     </div>
