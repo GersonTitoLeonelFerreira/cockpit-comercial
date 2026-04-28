@@ -2959,25 +2959,37 @@ function ExecutionPlanPanel({
   rateRealData: CloseRateRealResponse | null
   [key: string]: unknown
 }) {
-  const hasPlan = theory10020Result !== null
+  const plan = theory10020Result
+
+  const formatInteger = (value: number) => {
+    if (!Number.isFinite(value)) return '—'
+
+    return Math.ceil(value).toLocaleString('pt-BR')
+  }
+
+  const formatDecimal = (value: number) => {
+    if (!Number.isFinite(value)) return '—'
+
+    return value.toLocaleString('pt-BR', {
+      maximumFractionDigits: 1,
+    })
+  }
+
+  const formatCurrency = (value: number) => toBRL(Number.isFinite(value) ? value : 0)
+
   const rateSourceLabel = rateSource === 'real' ? 'Taxa real' : 'Taxa planejada'
   const rateSourceDescription =
     rateSource === 'real'
-      ? 'Usa o histórico comercial carregado para calcular o esforço necessário.'
-      : 'Usa a taxa informada manualmente para projetar o esforço necessário.'
+      ? 'O plano usa a conversão histórica carregada como referência de capacidade.'
+      : 'O plano usa a taxa informada manualmente como premissa de execução.'
 
-  const calendarStatus =
-    remainingBusinessDays > 0
-      ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia útil restante' : 'dias úteis restantes'}`
-      : 'Sem dias úteis restantes'
-
-  return (
-    <div style={{ display: 'grid', gap: 16 }}>
+  if (!plan) {
+    return (
       <div
         style={{
           border: `1px solid ${SIMULATOR_UI.borderMuted}`,
           background:
-            'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, rgba(13, 15, 20, 0.96) 42%, rgba(9, 11, 15, 0.98) 100%)',
+            'linear-gradient(135deg, rgba(239, 68, 68, 0.10) 0%, rgba(13, 15, 20, 0.96) 45%, rgba(9, 11, 15, 0.98) 100%)',
           borderRadius: 18,
           padding: 18,
           display: 'grid',
@@ -2985,30 +2997,160 @@ function ExecutionPlanPanel({
           boxShadow: '0 16px 42px rgba(0, 0, 0, 0.24)',
         }}
       >
-        <div>
-          <div
-            style={{
-              color: SIMULATOR_UI.textPrimary,
-              fontSize: 17,
-              fontWeight: 950,
-              letterSpacing: -0.25,
-              lineHeight: 1.2,
-            }}
-          >
-            Plano de execução da meta
+        <div
+          style={{
+            color: SIMULATOR_UI.textPrimary,
+            fontSize: 17,
+            fontWeight: 950,
+            letterSpacing: -0.25,
+            lineHeight: 1.2,
+          }}
+        >
+          Plano de execução indisponível
+        </div>
+
+        <div
+          style={{
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 13.5,
+            lineHeight: 1.55,
+            maxWidth: 860,
+          }}
+        >
+          Ainda não há dados suficientes para transformar a meta financeira em plano operacional.
+          Verifique meta, ticket médio, taxa de conversão e calendário de execução.
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <Card title="Cálculo do plano" value="Pendente" subtitle="Preencha os dados necessários." tone="bad" />
+          <Card title="Fonte da taxa" value={rateSourceLabel} subtitle={rateSourceDescription} />
+          <Card
+            title="Calendário operacional"
+            value={
+              remainingBusinessDays > 0
+                ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia útil' : 'dias úteis'}`
+                : 'Sem dias úteis'
+            }
+            subtitle="Base usada para calcular a pressão diária."
+            tone={remainingBusinessDays > 0 ? 'neutral' : 'bad'}
+          />
+          <Card
+            title="Histórico comercial"
+            value={rateRealData ? 'Carregado' : 'Indisponível'}
+            subtitle={rateRealData ? 'Histórico disponível para análise.' : 'Sem histórico carregado.'}
+            tone={rateRealData ? 'good' : 'neutral'}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  const progressPercent = Math.max(0, Math.min(100, Math.round(plan.progress_pct * 100)))
+  const conversionPercent = pct(plan.close_rate)
+  const dailyCycles = plan.ciclos_restantes_por_dia
+  const metaTone: 'good' | 'bad' = plan.meta_atingida ? 'good' : 'bad'
+  const dailyTone: 'good' | 'neutral' | 'bad' =
+    plan.meta_atingida || dailyCycles <= 0 ? 'good' : dailyCycles >= 40 ? 'bad' : 'neutral'
+
+  const pressureLabel =
+    plan.meta_atingida || dailyCycles <= 0
+      ? 'Meta protegida'
+      : dailyCycles >= 40
+        ? 'Pressão crítica'
+        : dailyCycles >= 20
+          ? 'Pressão alta'
+          : 'Pressão controlável'
+
+  const decisionText =
+    plan.meta_atingida
+      ? 'A meta financeira já foi atingida. A decisão agora é proteger o resultado, evitar perda de oportunidades abertas e sustentar a cadência até o fechamento do período.'
+      : remainingBusinessDays <= 0
+        ? 'Não há dias úteis restantes no calendário operacional. A decisão executiva é revisar o calendário, reprogramar prazo ou tratar a meta como exceção gerencial.'
+        : dailyCycles >= 40
+          ? 'O plano está sob pressão crítica. A decisão recomendada é aumentar base disponível, redistribuir carteira, reforçar capacidade de abordagem ou revisar a premissa de taxa/ticket.'
+          : dailyCycles >= 20
+            ? 'O plano exige ritmo alto. A decisão recomendada é acompanhar execução diariamente, remover gargalos de carteira e priorizar oportunidades com maior probabilidade de fechamento.'
+            : 'O plano está operacionalmente controlável. A decisão recomendada é manter disciplina diária, revisar follow-ups e proteger a taxa de conversão usada no cálculo.'
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background:
+            'linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(13, 15, 20, 0.96) 42%, rgba(9, 11, 15, 0.98) 100%)',
+          borderRadius: 18,
+          padding: 18,
+          display: 'grid',
+          gap: 16,
+          boxShadow: '0 16px 42px rgba(0, 0, 0, 0.24)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 14,
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 18,
+                fontWeight: 950,
+                letterSpacing: -0.3,
+                lineHeight: 1.2,
+              }}
+            >
+              Plano executivo de execução
+            </div>
+
+            <div
+              style={{
+                marginTop: 6,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 13.5,
+                lineHeight: 1.55,
+                maxWidth: 860,
+              }}
+            >
+              Converte meta financeira em vendas necessárias, oportunidades trabalhadas, pressão
+              diária e decisão operacional recomendada.
+            </div>
           </div>
 
           <div
             style={{
-              marginTop: 6,
-              color: SIMULATOR_UI.textMuted,
-              fontSize: 13.5,
-              lineHeight: 1.5,
-              maxWidth: 880,
+              border: `1px solid ${
+                plan.meta_atingida
+                  ? 'rgba(34, 197, 94, 0.24)'
+                  : dailyCycles >= 40
+                    ? 'rgba(239, 68, 68, 0.28)'
+                    : 'rgba(245, 158, 11, 0.24)'
+              }`,
+              background: plan.meta_atingida
+                ? 'rgba(34, 197, 94, 0.10)'
+                : dailyCycles >= 40
+                  ? 'rgba(239, 68, 68, 0.10)'
+                  : 'rgba(245, 158, 11, 0.10)',
+              borderRadius: 999,
+              padding: '8px 12px',
+              color: plan.meta_atingida ? '#86efac' : dailyCycles >= 40 ? '#fca5a5' : '#fbbf24',
+              fontSize: 12,
+              fontWeight: 950,
+              whiteSpace: 'nowrap',
             }}
           >
-            Este painel transforma a meta em leitura operacional: fonte da taxa, disponibilidade
-            do calendário e condição atual do cálculo.
+            {pressureLabel}
           </div>
         </div>
 
@@ -3020,34 +3162,29 @@ function ExecutionPlanPanel({
           }}
         >
           <Card
-            title="Cálculo do plano"
-            value={hasPlan ? 'Ativo' : 'Pendente'}
-            subtitle={
-              hasPlan
-                ? 'A simulação 100/20 está disponível para orientar a execução.'
-                : 'Informe os dados da meta para gerar o plano operacional.'
-            }
-            tone={hasPlan ? 'good' : 'bad'}
-          />
-
-          <Card title="Fonte da taxa" value={rateSourceLabel} subtitle={rateSourceDescription} />
-
-          <Card
-            title="Calendário operacional"
-            value={calendarStatus}
-            subtitle="Base usada para calcular a pressão diária de execução."
-            tone={remainingBusinessDays > 0 ? 'neutral' : 'bad'}
+            title="Meta financeira"
+            value={formatCurrency(plan.meta_total)}
+            subtitle={`Realizado: ${formatCurrency(plan.total_real)}`}
+            tone={metaTone}
           />
 
           <Card
-            title="Histórico comercial"
-            value={rateRealData ? 'Carregado' : 'Indisponível'}
-            subtitle={
-              rateRealData
-                ? 'A taxa real pode ser usada como referência de performance.'
-                : 'Sem histórico carregado para esta leitura.'
-            }
-            tone={rateRealData ? 'good' : 'neutral'}
+            title="Gap financeiro"
+            value={formatCurrency(plan.gap)}
+            subtitle={plan.meta_atingida ? 'Meta atingida no período' : 'Valor ainda necessário'}
+            tone={plan.gap <= 0 ? 'good' : 'bad'}
+          />
+
+          <Card
+            title="Ticket médio usado"
+            value={formatCurrency(plan.ticket_medio)}
+            subtitle="Base para converter faturamento em vendas"
+          />
+
+          <Card
+            title="Taxa usada"
+            value={conversionPercent}
+            subtitle={`${rateSourceLabel}. ${rateSourceDescription}`}
           />
         </div>
 
@@ -3057,19 +3194,252 @@ function ExecutionPlanPanel({
             background: 'rgba(9, 11, 15, 0.46)',
             borderRadius: 16,
             padding: 16,
-            color: SIMULATOR_UI.textSecondary,
-            fontSize: 13,
-            lineHeight: 1.55,
+            display: 'grid',
+            gap: 12,
           }}
         >
-          {hasPlan
-            ? 'Use este plano como referência de cadência. Se o ritmo diário ficar pesado, a decisão executiva correta é revisar capacidade, base disponível, taxa usada ou prazo de execução.'
-            : 'O plano ainda não tem dados suficientes para leitura executiva. O próximo passo é preencher meta, ticket médio, taxa e calendário operacional.'}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <div
+              style={{
+                color: SIMULATOR_UI.textPrimary,
+                fontSize: 15,
+                fontWeight: 950,
+                letterSpacing: -0.15,
+              }}
+            >
+              Progresso financeiro
+            </div>
+
+            <div
+              style={{
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 12.5,
+                fontWeight: 850,
+              }}
+            >
+              {progressPercent}% da meta
+            </div>
+          </div>
+
+          <div
+            style={{
+              height: 10,
+              borderRadius: 999,
+              background: 'rgba(148, 163, 184, 0.12)',
+              overflow: 'hidden',
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            }}
+          >
+            <div
+              style={{
+                height: '100%',
+                width: `${progressPercent}%`,
+                borderRadius: 999,
+                background: plan.meta_atingida
+                  ? 'linear-gradient(90deg, rgba(34, 197, 94, 0.95), rgba(134, 239, 172, 0.95))'
+                  : 'linear-gradient(90deg, rgba(59, 130, 246, 0.95), rgba(147, 197, 253, 0.95))',
+              }}
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <Card
+            title="Vendas necessárias"
+            value={formatInteger(plan.vendas_necessarias)}
+            subtitle="Total estimado para bater a meta cheia"
+          />
+
+          <Card
+            title="Oportunidades necessárias"
+            value={formatInteger(plan.ciclos_trabalhados_necessarios)}
+            subtitle={`Multiplicador operacional: ×${formatDecimal(plan.multiplicador)}`}
+          />
+
+          <Card
+            title="Vendas restantes"
+            value={formatInteger(plan.vendas_restantes)}
+            subtitle="Fechamentos ainda necessários pelo gap"
+            tone={plan.vendas_restantes <= 0 ? 'good' : 'bad'}
+          />
+
+          <Card
+            title="Oportunidades restantes"
+            value={formatInteger(plan.ciclos_restantes)}
+            subtitle="Volume comercial ainda necessário"
+            tone={plan.ciclos_restantes <= 0 ? 'good' : 'neutral'}
+          />
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${
+              dailyTone === 'bad'
+                ? 'rgba(239, 68, 68, 0.28)'
+                : dailyTone === 'good'
+                  ? 'rgba(34, 197, 94, 0.22)'
+                  : 'rgba(245, 158, 11, 0.24)'
+            }`,
+            background:
+              dailyTone === 'bad'
+                ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(9, 11, 15, 0.58) 100%)'
+                : dailyTone === 'good'
+                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.10) 0%, rgba(9, 11, 15, 0.58) 100%)'
+                  : 'linear-gradient(135deg, rgba(245, 158, 11, 0.11) 0%, rgba(9, 11, 15, 0.58) 100%)',
+            borderRadius: 16,
+            padding: 18,
+            display: 'grid',
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: 12,
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  marginBottom: 6,
+                }}
+              >
+                Ritmo diário necessário
+              </div>
+
+              <div
+                style={{
+                  color: dailyTone === 'bad' ? '#fca5a5' : dailyTone === 'good' ? '#86efac' : '#fbbf24',
+                  fontSize: 30,
+                  fontWeight: 950,
+                  letterSpacing: -0.6,
+                  lineHeight: 1,
+                }}
+              >
+                {formatInteger(plan.ciclos_restantes_por_dia)}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 5,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12.5,
+                  lineHeight: 1.4,
+                }}
+              >
+                oportunidades por dia útil restante
+              </div>
+            </div>
+
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  marginBottom: 6,
+                }}
+              >
+                Vendas por dia
+              </div>
+
+              <div
+                style={{
+                  color: SIMULATOR_UI.textPrimary,
+                  fontSize: 30,
+                  fontWeight: 950,
+                  letterSpacing: -0.6,
+                  lineHeight: 1,
+                }}
+              >
+                {formatDecimal(plan.ganhos_restantes_por_dia)}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 5,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12.5,
+                  lineHeight: 1.4,
+                }}
+              >
+                fechamentos estimados por dia
+              </div>
+            </div>
+
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  marginBottom: 6,
+                }}
+              >
+                Calendário restante
+              </div>
+
+              <div
+                style={{
+                  color: SIMULATOR_UI.textPrimary,
+                  fontSize: 30,
+                  fontWeight: 950,
+                  letterSpacing: -0.6,
+                  lineHeight: 1,
+                }}
+              >
+                {remainingBusinessDays}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 5,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12.5,
+                  lineHeight: 1.4,
+                }}
+              >
+                {remainingBusinessDays === 1 ? 'dia útil restante' : 'dias úteis restantes'}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              borderTop: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              paddingTop: 14,
+              color: SIMULATOR_UI.textSecondary,
+              fontSize: 13.5,
+              lineHeight: 1.55,
+            }}
+          >
+            <strong style={{ color: SIMULATOR_UI.textPrimary }}>Decisão recomendada: </strong>
+            {decisionText}
+          </div>
         </div>
       </div>
     </div>
   )
 }
+
 
 export default function SimuladorMetaPage() {
   const supabase = supabaseBrowser()
@@ -4119,20 +4489,6 @@ function handleUndoGoalFromTop() {
         showRevenueMode={showRevenueMode}
         goalContextLabel={revenueGoalContextLabel}
         canEditGoal={isAdmin}
-      />
-
-      <ExecutionCalendarModal
-        open={executionCalendarOpen}
-        periodStart={periodStart}
-        periodEnd={periodEnd}
-        days={executionCalendarDays}
-        summary={executionCalendarSummary}
-        canEdit={isAdmin}
-        calendarSaving={calendarSaving}
-        onClose={() => setExecutionCalendarOpen(false)}
-        onSetOverride={handleSetExecutionDayOverride}
-        onClearOverride={handleClearExecutionDayOverride}
-        onResetAll={handleResetExecutionDayOverrides}
       />
 
 
