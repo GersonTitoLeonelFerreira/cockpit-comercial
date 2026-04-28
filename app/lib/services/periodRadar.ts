@@ -47,12 +47,67 @@ const WEEK_LABELS = ['', '1ª semana', '2ª semana', '3ª semana', '4ª semana',
 // Helpers
 // ==============================================================================
 
-function formatBRL(value: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+const BUSINESS_TZ = 'America/Sao_Paulo'
+
+function getBusinessDateParts(ts: string | Date): {
+  weekday: number
+  month: number
+  day: number
+  dateKey: string
+} {
+  const d = ts instanceof Date ? ts : new Date(ts)
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(d)
+
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+
+  const weekdayMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  }
+
+  const year = get('year')
+  const month = get('month')
+  const day = get('day')
+  const weekday = weekdayMap[get('weekday')] ?? 0
+
+  return {
+    weekday,
+    month: Number(month) || 1,
+    day: Number(day) || 1,
+    dateKey: `${year}-${month}-${day}`,
+  }
 }
 
-function toPercent(value: number): string {
-  return (value * 100).toFixed(1) + '%'
+function weekdayInBusinessTZ(ts: string | Date): number {
+  return getBusinessDateParts(ts).weekday
+}
+
+function monthInBusinessTZ(ts: string | Date): number {
+  return getBusinessDateParts(ts).month
+}
+
+function dayOfMonthInBusinessTZ(ts: string | Date): number {
+  return getBusinessDateParts(ts).day
+}
+
+function dateKeyInBusinessTZ(ts: string | Date): string {
+  return getBusinessDateParts(ts).dateKey
+}
+
+function formatBRL(value: number): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 }
 
 function getMonthWeek(dayOfMonth: number): number {
@@ -92,12 +147,12 @@ export async function getPeriodRadar(
   const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
   const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
 
-  // Reference date: today
+  // Reference date: today in business timezone
   const today = new Date()
-  const referenceDate = today.toISOString().slice(0, 10)
-  const currentWeekday = today.getUTCDay()           // 0=Sunday, 6=Saturday
-  const currentMonthNum = today.getUTCMonth() + 1    // 1–12
-  const currentDayOfMonth = today.getUTCDate()
+  const referenceDate = dateKeyInBusinessTZ(today)
+  const currentWeekday = weekdayInBusinessTZ(today) // 0=Sunday, 6=Saturday
+  const currentMonthNum = monthInBusinessTZ(today) // 1–12
+  const currentDayOfMonth = dayOfMonthInBusinessTZ(today)
   const currentMonthWeek = getMonthWeek(currentDayOfMonth)
 
   const signals: PeriodRadarSignal[] = []
@@ -142,13 +197,13 @@ export async function getPeriodRadar(
       const r = row as Record<string, unknown>
       const ts = r.first_worked_at as string | null
       if (!ts) continue
-      countPerDay[new Date(ts).getUTCDay()] += 1
+      countPerDay[weekdayInBusinessTZ(ts)] += 1
     }
     for (const row of wonWdData ?? []) {
       const r = row as Record<string, unknown>
       const ts = r.won_at as string | null
       if (!ts) continue
-      wonPerDay[new Date(ts).getUTCDay()] += 1
+      wonPerDay[weekdayInBusinessTZ(ts)] += 1
     }
 
     const totalWorked = countPerDay.reduce((s, c) => s + c, 0)
@@ -249,7 +304,7 @@ export async function getPeriodRadar(
       const r = row as Record<string, unknown>
       const ts = r.first_worked_at as string | null
       if (!ts) continue
-      const wk = getMonthWeek(new Date(ts).getUTCDate())
+      const wk = getMonthWeek(dayOfMonthInBusinessTZ(ts))
       workedPerWk[wk] += 1
     }
     for (const row of wonWkData ?? []) {
@@ -257,7 +312,7 @@ export async function getPeriodRadar(
       const ts = r.won_at as string | null
       const total = r.won_total != null ? Number(r.won_total) : 0
       if (!ts) continue
-      const wk = getMonthWeek(new Date(ts).getUTCDate())
+      const wk = getMonthWeek(dayOfMonthInBusinessTZ(ts))
       wonPerWk[wk] += 1
       fatPerWk[wk] += total
     }
@@ -366,7 +421,7 @@ export async function getPeriodRadar(
       const r = row as Record<string, unknown>
       const ts = r.first_worked_at as string | null
       if (!ts) continue
-      const mo = new Date(ts).getUTCMonth() + 1
+      const mo = monthInBusinessTZ(ts)
       workedPerMonth[mo] += 1
     }
     for (const row of wonMonthData ?? []) {
@@ -374,7 +429,7 @@ export async function getPeriodRadar(
       const ts = r.won_at as string | null
       const total = r.won_total != null ? Number(r.won_total) : 0
       if (!ts) continue
-      const mo = new Date(ts).getUTCMonth() + 1
+      const mo = monthInBusinessTZ(ts)
       wonPerMonth[mo] += 1
       fatPerMonth[mo] += total
     }
