@@ -1981,6 +1981,370 @@ function WorkdayChip({
   )
 }
 
+function DecisionCommandPanel({
+  revenueKpis,
+  result,
+  targetWins,
+  remainingBusinessDays,
+  taxaUsadaNoCalculo,
+  activeTab,
+  setActiveTab,
+  showRevenueMode,
+  goalContextLabel,
+  canEditGoal,
+}: {
+  revenueKpis: DecisionRevenueKpis | null
+  result: SimulatorResult | null
+  targetWins: number
+  remainingBusinessDays: number
+  taxaUsadaNoCalculo: number
+  activeTab: 'teoria' | 'evolucao' | 'taxa-resultado' | 'funil' | 'distribuicao'
+  setActiveTab: (value: 'teoria' | 'evolucao' | 'taxa-resultado' | 'funil' | 'distribuicao') => void
+  showRevenueMode: boolean
+  goalContextLabel: string
+  canEditGoal: boolean
+}) {
+  const goal = revenueKpis?.goal ?? 0
+  const totalReal = revenueKpis?.totalReal ?? 0
+  const gap = revenueKpis?.gap ?? 0
+  const requiredPerDay = revenueKpis?.required_per_business_day ?? 0
+
+  const remainingWins = result?.remaining_wins ?? 0
+  const remainingOpportunities = result?.remaining_worked_cycles ?? 0
+  const dailyOpportunities = result?.daily_worked_remaining ?? 0
+
+  const hasGoal = goal > 0
+  const goalReached = hasGoal && gap <= 0
+  const progressPct = hasGoal
+    ? Math.max(0, Math.min(100, Math.round((totalReal / goal) * 100)))
+    : 0
+
+  const isCritical = hasGoal && !goalReached && (dailyOpportunities >= 100 || remainingBusinessDays <= 2)
+  const isHigh = hasGoal && !goalReached && !isCritical && dailyOpportunities >= 40
+
+  const decisionTone = !hasGoal
+    ? 'neutral'
+    : goalReached
+      ? 'good'
+      : isCritical
+        ? 'critical'
+        : isHigh
+          ? 'warning'
+          : 'good'
+
+  const decisionLabel =
+    decisionTone === 'critical'
+      ? 'Ritmo crítico'
+      : decisionTone === 'warning'
+        ? 'Acelerar'
+        : decisionTone === 'good'
+          ? goalReached
+            ? 'Meta atingida'
+            : 'Ritmo controlável'
+          : 'Meta pendente'
+
+  const decisionColor =
+    decisionTone === 'critical'
+      ? '#fca5a5'
+      : decisionTone === 'warning'
+        ? '#fbbf24'
+        : decisionTone === 'good'
+          ? '#86efac'
+          : SIMULATOR_UI.textMuted
+
+  const decisionBorder =
+    decisionTone === 'critical'
+      ? 'rgba(239, 68, 68, 0.30)'
+      : decisionTone === 'warning'
+        ? 'rgba(245, 158, 11, 0.28)'
+        : decisionTone === 'good'
+          ? 'rgba(34, 197, 94, 0.24)'
+          : SIMULATOR_UI.borderMuted
+
+  const decisionBackground =
+    decisionTone === 'critical'
+      ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(9, 11, 15, 0.70) 100%)'
+      : decisionTone === 'warning'
+        ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(9, 11, 15, 0.70) 100%)'
+        : decisionTone === 'good'
+          ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.10) 0%, rgba(9, 11, 15, 0.70) 100%)'
+          : 'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, rgba(9, 11, 15, 0.70) 100%)'
+
+  const mainCommand =
+    !hasGoal
+      ? canEditGoal
+        ? 'Defina uma meta para liberar a recomendação operacional do período.'
+        : `${goalContextLabel} ainda não definida. Solicite ao gestor a definição da meta para liberar a recomendação operacional.`
+      : goalReached
+        ? 'Meta atingida. Mantenha o acompanhamento para preservar o resultado até o fechamento do período.'
+        : remainingBusinessDays <= 0
+          ? 'Não há dias de execução restantes. Revise o calendário operacional ou reprograme a meta.'
+          : `Trabalhar ${dailyOpportunities.toLocaleString('pt-BR')} oportunidades por dia nos próximos ${remainingBusinessDays} dias de execução para buscar ${remainingWins.toLocaleString('pt-BR')} vendas restantes.`
+
+  const supportCommand =
+    !hasGoal
+      ? 'Sem meta cadastrada, o simulador não consegue calcular gap, ritmo diário e esforço necessário.'
+      : goalReached
+        ? 'O foco agora é proteger as oportunidades abertas, evitar perdas e manter cadência de acompanhamento.'
+        : isCritical
+          ? 'Ritmo crítico: a decisão gerencial é reforçar base, redistribuir carteira, aumentar cadência ou revisar a meta.'
+          : isHigh
+            ? 'Ritmo alto: valide capacidade real do time, qualidade da base e consistência da abordagem diária.'
+            : 'Ritmo operacionalmente viável se houver disciplina diária de execução e acompanhamento próximo.'
+
+  const decisionButtonStyle = (active: boolean): React.CSSProperties => ({
+    height: 34,
+    borderRadius: 999,
+    border: active
+      ? '1px solid rgba(96, 165, 250, 0.46)'
+      : `1px solid ${SIMULATOR_UI.borderMuted}`,
+    background: active
+      ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.32), rgba(30, 64, 175, 0.20))'
+      : 'rgba(9, 11, 15, 0.44)',
+    color: active ? '#dbeafe' : SIMULATOR_UI.textSecondary,
+    padding: '0 12px',
+    fontSize: 12,
+    fontWeight: 850,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  })
+
+  return (
+    <section
+      style={{
+        border: `1px solid ${decisionBorder}`,
+        background: decisionBackground,
+        borderRadius: 20,
+        padding: 18,
+        display: 'grid',
+        gap: 16,
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255,255,255,0.035)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 14,
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 11,
+              fontWeight: 900,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 7,
+            }}
+          >
+            Painel de decisão
+          </div>
+
+          <div
+            style={{
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 21,
+              fontWeight: 950,
+              letterSpacing: -0.45,
+              lineHeight: 1.18,
+            }}
+          >
+            {mainCommand}
+          </div>
+
+          <div
+            style={{
+              marginTop: 8,
+              color: SIMULATOR_UI.textMuted,
+              fontSize: 13.5,
+              lineHeight: 1.55,
+              maxWidth: 980,
+            }}
+          >
+            {supportCommand}
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${decisionColor}33`,
+            background: `${decisionColor}14`,
+            color: decisionColor,
+            borderRadius: 999,
+            padding: '8px 12px',
+            fontSize: 12,
+            fontWeight: 950,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {decisionLabel}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.44)',
+            borderRadius: 14,
+            padding: '12px 13px',
+          }}
+        >
+          <div style={{ color: SIMULATOR_UI.textSubtle, fontSize: 11.5, fontWeight: 850 }}>
+            Falta para meta
+          </div>
+          <div style={{ marginTop: 6, color: '#fca5a5', fontSize: 20, fontWeight: 950 }}>
+            {hasGoal ? toBRL(gap) : '—'}
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.44)',
+            borderRadius: 14,
+            padding: '12px 13px',
+          }}
+        >
+          <div style={{ color: SIMULATOR_UI.textSubtle, fontSize: 11.5, fontWeight: 850 }}>
+            Ritmo financeiro
+          </div>
+          <div style={{ marginTop: 6, color: '#fbbf24', fontSize: 20, fontWeight: 950 }}>
+            {hasGoal ? toBRL(requiredPerDay) : '—'}
+          </div>
+          <div style={{ marginTop: 3, color: SIMULATOR_UI.textSubtle, fontSize: 11.5 }}>
+            por dia de execução
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.44)',
+            borderRadius: 14,
+            padding: '12px 13px',
+          }}
+        >
+          <div style={{ color: SIMULATOR_UI.textSubtle, fontSize: 11.5, fontWeight: 850 }}>
+            Vendas restantes
+          </div>
+          <div style={{ marginTop: 6, color: '#fca5a5', fontSize: 20, fontWeight: 950 }}>
+            {remainingWins.toLocaleString('pt-BR')}
+          </div>
+          <div style={{ marginTop: 3, color: SIMULATOR_UI.textSubtle, fontSize: 11.5 }}>
+            meta estimada: {targetWins.toLocaleString('pt-BR')}
+          </div>
+        </div>
+
+        <div
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(9, 11, 15, 0.44)',
+            borderRadius: 14,
+            padding: '12px 13px',
+          }}
+        >
+          <div style={{ color: SIMULATOR_UI.textSubtle, fontSize: 11.5, fontWeight: 850 }}>
+            Oportunidades restantes
+          </div>
+          <div style={{ marginTop: 6, color: SIMULATOR_UI.textPrimary, fontSize: 20, fontWeight: 950 }}>
+            {remainingOpportunities.toLocaleString('pt-BR')}
+          </div>
+          <div style={{ marginTop: 3, color: SIMULATOR_UI.textSubtle, fontSize: 11.5 }}>
+            conversão usada: {pct(taxaUsadaNoCalculo)}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            height: 7,
+            borderRadius: 999,
+            overflow: 'hidden',
+            background: 'rgba(148, 163, 184, 0.12)',
+          }}
+        >
+          <div
+            style={{
+              width: `${progressPct}%`,
+              height: '100%',
+              background: decisionColor,
+              borderRadius: 999,
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+            color: SIMULATOR_UI.textSubtle,
+            fontSize: 12,
+            fontWeight: 750,
+          }}
+        >
+          <span>Progresso financeiro: {progressPct}%</span>
+          <span>
+            Realizado {hasGoal ? toBRL(totalReal) : '—'} de {hasGoal ? toBRL(goal) : '—'}
+          </span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab('distribuicao')}
+          style={decisionButtonStyle(activeTab === 'distribuicao')}
+        >
+          Abrir agenda de execução
+        </button>
+
+        {showRevenueMode ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab('evolucao')}
+            style={decisionButtonStyle(activeTab === 'evolucao')}
+          >
+            Ver evolução
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('teoria')}
+          style={decisionButtonStyle(activeTab === 'teoria')}
+        >
+          Ver cálculo do plano
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function SimulatorTopControls({
   isAdmin,
   sellers,
@@ -4282,6 +4646,19 @@ function handleUndoGoalFromTop() {
         onOpenCalendar={() => setExecutionCalendarOpen(true)}
       />
 
+      <DecisionCommandPanel
+        revenueKpis={decisionRevenueKpis}
+        result={ratePanelResult}
+        targetWins={ratePanelTargetWins}
+        remainingBusinessDays={remainingBusinessDays}
+        taxaUsadaNoCalculo={taxaUsadaNoCalculo}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        showRevenueMode={showRevenueMode}
+        goalContextLabel={revenueGoalContextLabel}
+        canEditGoal={isAdmin}
+      />
+
       <ExecutionCalendarModal
         open={executionCalendarOpen}
         periodStart={periodStart}
@@ -4297,19 +4674,24 @@ function handleUndoGoalFromTop() {
       />
 
 
-      <DecisionHero
-        mode={mode}
-        revenueMetricLabel={revenueMetricLabel}
-        revenueKpis={decisionRevenueKpis}
-        theory10020Result={theory10020Result}
-        revenueLoading={revenueLoading}
-        revenueError={revenueError}
-        remainingBusinessDays={remainingBusinessDays}
-        rateSource={rateSource}
-        taxaUsadaNoCalculo={taxaUsadaNoCalculo}
-        goalContextLabel={revenueGoalContextLabel}
-        canEditGoal={isAdmin}
+<ExecutionCalendarModal
+        open={executionCalendarOpen}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        days={executionCalendarDays}
+        summary={executionCalendarSummary}
+        canEdit={isAdmin}
+        calendarSaving={calendarSaving}
+        onClose={() => setExecutionCalendarOpen(false)}
+        onSetOverride={handleSetExecutionDayOverride}
+        onClearOverride={handleClearExecutionDayOverride}
+        onResetAll={handleResetExecutionDayOverrides}
       />
+
+
+      {/* ================================================================ */}
+      {/* TAB NAVIGATION                                                    */}
+      {/* ================================================================ */}
 
       {/* ================================================================ */}
       {/* TAB NAVIGATION                                                    */}
