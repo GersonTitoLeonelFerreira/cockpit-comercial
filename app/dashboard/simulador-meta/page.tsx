@@ -681,25 +681,26 @@ function RateResultPanel({
     })
   }
 
-  const actionUnitLabel = isFinancialMode ? 'vendas restantes' : 'ganhos restantes'
-  const dailyActionLabel = dailyWorkedRemaining === 1 ? 'oportunidade por dia' : 'oportunidades por dia'
-  const remainingDaysLabel = remainingBusinessDays === 1 ? 'dia de execução restante' : 'dias de execução restantes'
+  const remainingUnitLabel = isFinancialMode ? 'vendas' : 'ganhos'
+  const dailyActionLabel = dailyWorkedRemaining === 1 ? 'oportunidade/dia' : 'oportunidades/dia'
+  const remainingDaysLabel = remainingBusinessDays === 1 ? 'dia de execução' : 'dias de execução'
+  const dailyWorkloadText = `${formatNumber(dailyWorkedRemaining)} ${dailyActionLabel}`
 
   const actionMainText =
     remainingWins <= 0 || remainingWorkedCycles <= 0
-      ? `Meta operacional concluída. Mantenha o acompanhamento para preservar o resultado até o fechamento do período.`
+      ? `Diagnóstico: a meta operacional já está coberta. O foco deixa de ser volume e passa a ser sustentação do resultado.`
       : remainingBusinessDays > 0
-        ? `Trabalhar ${formatNumber(dailyWorkedRemaining)} ${dailyActionLabel} nos próximos ${remainingBusinessDays} ${remainingDaysLabel} para buscar ${formatNumber(remainingWins)} ${actionUnitLabel}.`
-        : `Não há dias de execução restantes no calendário. Revise o calendário operacional ou reprograme a meta.`
+        ? `Diagnóstico: faltam ${formatNumber(remainingWins)} ${remainingUnitLabel}. Para cobrir essa diferença, o ritmo estimado é de ${dailyWorkloadText} durante ${remainingBusinessDays} ${remainingDaysLabel}.`
+        : `Diagnóstico: o calendário não possui dias de execução restantes. A leitura operacional deixa de ser ritmo e passa a ser reprogramação.`
 
   const actionSupportText =
     remainingWins <= 0 || remainingWorkedCycles <= 0
-      ? `O foco agora é sustentar a cadência comercial, evitar perda de oportunidades abertas e proteger o resultado realizado.`
+      ? `Próxima decisão: proteger oportunidades abertas, evitar perdas no fechamento e manter a cadência até o fim do período.`
       : dailyWorkedRemaining >= 100
-        ? `Ritmo crítico: este volume tende a exigir reforço de base, redistribuição de carteira ou revisão da meta.`
+        ? `Leitura: carga operacional crítica. Antes de cobrar execução, valide base disponível, capacidade real do time e premissas da meta.`
         : dailyWorkedRemaining >= 40
-          ? `Ritmo alto: valide capacidade real do time, qualidade da base e cadência de abordagem.`
-          : `Ritmo operacionalmente viável se houver disciplina diária de execução e acompanhamento próximo.`
+          ? `Leitura: carga operacional alta. O acompanhamento deve ser diário, com priorização de carteira e remoção rápida de gargalos.`
+          : `Leitura: carga operacional controlável. O resultado depende mais de disciplina de follow-up e qualidade de abordagem do que de força bruta.`
 
   const statusLabelText = isFinancialMode
     ? onTrack
@@ -812,13 +813,9 @@ function RateResultPanel({
 
       <div
         style={{
-          border: `1px solid ${dailyWorkedRemaining >= 100 ? 'rgba(239, 68, 68, 0.28)' : dailyWorkedRemaining >= 40 ? 'rgba(245, 158, 11, 0.28)' : 'rgba(34, 197, 94, 0.22)'}`,
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
           background:
-            dailyWorkedRemaining >= 100
-              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(9, 11, 15, 0.58) 100%)'
-              : dailyWorkedRemaining >= 40
-                ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.11) 0%, rgba(9, 11, 15, 0.58) 100%)'
-                : 'linear-gradient(135deg, rgba(34, 197, 94, 0.10) 0%, rgba(9, 11, 15, 0.58) 100%)',
+            'linear-gradient(135deg, rgba(59, 130, 246, 0.07) 0%, rgba(9, 11, 15, 0.54) 100%)',
           borderRadius: 16,
           padding: 18,
           display: 'grid',
@@ -844,7 +841,7 @@ function RateResultPanel({
                 lineHeight: 1.25,
               }}
             >
-              Ação recomendada
+              Diagnóstico operacional
             </div>
 
             <div
@@ -877,7 +874,7 @@ function RateResultPanel({
               whiteSpace: 'nowrap',
             }}
           >
-            {dailyWorkedRemaining >= 100 ? 'Ritmo crítico' : dailyWorkedRemaining >= 40 ? 'Ritmo alto' : 'Ritmo controlável'}
+            {dailyWorkedRemaining >= 100 ? 'Carga crítica' : dailyWorkedRemaining >= 40 ? 'Carga alta' : 'Carga controlável'}
           </div>
         </div>
 
@@ -4510,10 +4507,6 @@ function handleUndoGoalFromTop() {
       {/* ================================================================ */}
       {/* TAB NAVIGATION                                                    */}
       {/* ================================================================ */}
-
-      {/* ================================================================ */}
-      {/* TAB NAVIGATION                                                    */}
-      {/* ================================================================ */}
       <div
         style={{
           marginBottom: 16,
@@ -4669,7 +4662,7 @@ function handleUndoGoalFromTop() {
         {/* ============================================================ */}
         {activeTab === 'taxa-resultado' && (
           <Section
-          title="Ritmo necessário"
+          title="Diagnóstico operacional"
           description="Resumo executivo do esforço restante, taxa de conversão, vendas necessárias e ritmo diário até o fim do período."
         >
             <RateResultPanel
