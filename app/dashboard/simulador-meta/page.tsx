@@ -2943,6 +2943,75 @@ type DecisionRevenueKpis = {
   status: ReturnType<typeof getRevenueStatus>
 } | null
 
+function ExecutionCalendarContextNote({
+  periodStart,
+  periodEnd,
+}: {
+  periodStart: string
+  periodEnd: string
+}) {
+  return (
+    <div
+      style={{
+        marginTop: -4,
+        marginBottom: 16,
+        border: `1px solid rgba(59, 130, 246, 0.16)`,
+        background:
+          'linear-gradient(135deg, rgba(59, 130, 246, 0.07) 0%, rgba(9, 11, 15, 0.46) 100%)',
+        borderRadius: 14,
+        padding: '12px 14px',
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            color: SIMULATOR_UI.textPrimary,
+            fontSize: 13,
+            fontWeight: 900,
+            letterSpacing: -0.1,
+            lineHeight: 1.3,
+          }}
+        >
+          Leitura do calendário
+        </div>
+
+        <div
+          style={{
+            marginTop: 4,
+            color: SIMULATOR_UI.textMuted,
+            fontSize: 12.5,
+            lineHeight: 1.45,
+            maxWidth: 920,
+          }}
+        >
+          O calendário acima mostra a capacidade operacional do período completo, de{' '}
+          {formatDateBR(periodStart)} a {formatDateBR(periodEnd)}. O painel de decisão abaixo usa
+          apenas a janela útil restante para calcular o ritmo diário necessário.
+        </div>
+      </div>
+
+      <div
+        style={{
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background: 'rgba(9, 11, 15, 0.44)',
+          borderRadius: 999,
+          padding: '6px 9px',
+          color: '#93c5fd',
+          fontSize: 11.5,
+          fontWeight: 900,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Mês completo ≠ janela restante
+      </div>
+    </div>
+  )
+}
 
 function ExecutionPlanPanel({
   theory10020Result,
@@ -4474,6 +4543,8 @@ function handleUndoGoalFromTop() {
         calendarSaveSuccess={calendarSaveSuccess}
         onOpenCalendar={() => setExecutionCalendarOpen(true)}
       />
+
+      <ExecutionCalendarContextNote periodStart={periodStart} periodEnd={periodEnd} />
 
       <DecisionCommandPanel
         revenueKpis={decisionRevenueKpis}
