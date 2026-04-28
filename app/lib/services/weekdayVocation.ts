@@ -26,6 +26,25 @@ import type {
 } from '@/app/types/weekdayVocation'
 import type { WeekdayIndex } from '@/app/types/weekdayPerformance'
 
+const BUSINESS_TZ = 'America/Sao_Paulo'
+
+function weekdayInBusinessTZ(ts: string | Date): WeekdayIndex {
+  const d = ts instanceof Date ? ts : new Date(ts)
+  const wdShort = d.toLocaleString('en-US', { timeZone: BUSINESS_TZ, weekday: 'short' })
+
+  const map: Record<string, WeekdayIndex> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  }
+
+  return (map[wdShort] ?? 0) as WeekdayIndex
+}
+
 const WEEKDAY_LABELS: string[] = [
   'Domingo',
   'Segunda',
@@ -218,7 +237,7 @@ export async function getWeekdayVocation(
       const r = row as Record<string, unknown>
       const ts = r.first_worked_at as string | null
       if (!ts) continue
-      const wd = new Date(ts).getUTCDay() as WeekdayIndex
+      const wd = weekdayInBusinessTZ(ts)
       countsByType.prospeccao[wd] += 1
     }
   }
@@ -247,7 +266,7 @@ export async function getWeekdayVocation(
       const r = row as Record<string, unknown>
       const ts = r.won_at as string | null
       if (!ts) continue
-      const wd = new Date(ts).getUTCDay() as WeekdayIndex
+      const wd = weekdayInBusinessTZ(ts)
       countsByType.fechamento[wd] += 1
     }
   }
@@ -280,7 +299,7 @@ export async function getWeekdayVocation(
 
         if (!toStatus) continue
 
-        const wd = new Date(ts).getUTCDay() as WeekdayIndex
+        const wd = weekdayInBusinessTZ(ts)
 
         if (toStatus === 'contato' || toStatus === 'respondeu') {
           countsByType.followup[wd] += 1
