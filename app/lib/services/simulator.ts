@@ -118,7 +118,7 @@ export async function upsertRevenueGoal(params: {
 
 export function calculateSimulatorResult(metrics: SimulatorMetrics, config: SimulatorConfig): SimulatorResult {
   const { target_wins, close_rate, remaining_business_days, total_business_days } = config
-  const { current_wins, worked_count } = metrics
+  const { current_wins } = metrics
   const remaining_wins = Math.max(0, target_wins - current_wins)
   const needed_worked_cycles = Math.ceil(target_wins / (close_rate || 0.01))
   const remaining_worked_cycles = Math.ceil(remaining_wins / (close_rate || 0.01))
@@ -128,8 +128,11 @@ export function calculateSimulatorResult(metrics: SimulatorMetrics, config: Simu
   const simulation_15pct = Math.ceil(target_wins / 0.15)
   const simulation_25pct = Math.ceil(target_wins / 0.25)
   const progress_pct = target_wins > 0 ? current_wins / target_wins : 0
-  const current_rate = worked_count > 0 ? current_wins / worked_count : 0
-  const on_track = current_rate >= close_rate
+
+  const elapsed_days = Math.max(0, totalDays - Math.max(0, remaining_business_days))
+  const required_so_far = elapsed_days > 0 ? (target_wins / totalDays) * elapsed_days : 0
+  const on_track = current_wins >= required_so_far
+
   return {
     needed_wins: target_wins,
     remaining_wins,

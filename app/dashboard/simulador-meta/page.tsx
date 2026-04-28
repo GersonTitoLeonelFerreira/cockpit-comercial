@@ -3642,7 +3642,7 @@ export default function SimuladorMetaPage() {
         setPeriodStart(toYMD(comp.month_start))
         setPeriodEnd(correctedEnd)
 
-        const endDate = new Date(toYMD(comp.month_end) + 'T00:00:00')
+        const endDate = new Date(correctedEnd + 'T00:00:00')
         const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
         setRemainingBusinessDays(remainingDays)
 
