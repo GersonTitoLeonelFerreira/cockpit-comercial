@@ -697,10 +697,10 @@ function RateResultPanel({
     remainingWins <= 0 || remainingWorkedCycles <= 0
       ? `Próxima decisão: proteger oportunidades abertas, evitar perdas nas negociações e manter a cadência até o fim do período.`
       : dailyWorkedRemaining >= 100
-        ? `Leitura: carga operacional crítica. Antes de cobrar execução, valide base disponível, capacidade real do time e premissas da meta.`
+        ? `Leitura: risco operacional crítico. Antes de cobrar execução, valide base disponível, capacidade real do time e premissas da meta.`
         : dailyWorkedRemaining >= 40
-          ? `Leitura: carga operacional alta. O acompanhamento deve ser diário, com priorização de carteira e remoção rápida de gargalos.`
-          : `Leitura: carga operacional controlável. O resultado depende mais de disciplina de follow-up e qualidade de abordagem do que de força bruta.`
+          ? `Leitura: risco operacional alto. O acompanhamento deve ser diário, com priorização de carteira e remoção rápida de gargalos.`
+          : `Leitura: risco operacional controlado. O resultado depende mais de disciplina de follow-up e qualidade de abordagem do que de força bruta.`
 
   const statusLabelText = isFinancialMode
     ? onTrack
@@ -874,7 +874,7 @@ function RateResultPanel({
               whiteSpace: 'nowrap',
             }}
           >
-            {dailyWorkedRemaining >= 100 ? 'Carga crítica' : dailyWorkedRemaining >= 40 ? 'Carga alta' : 'Carga controlável'}
+            {dailyWorkedRemaining >= 100 ? 'Risco crítico' : dailyWorkedRemaining >= 40 ? 'Risco alto' : 'Risco controlado'}
           </div>
         </div>
 
@@ -2641,7 +2641,7 @@ function SimulatorTopControls({
               lineHeight: 1.35,
             }}
           >
-            Recebimento e meta de vendas serão liberados em uma próxima etapa.
+            Meta ativa no momento. Novos modelos de meta serão adicionados em breve.
           </div>
         </div>
 
@@ -3156,10 +3156,10 @@ function ExecutionPlanPanel({
     plan.meta_atingida || dailyCycles <= 0
       ? 'Meta protegida'
       : dailyCycles >= 40
-        ? 'Pressão crítica'
+        ? 'Risco crítico'
         : dailyCycles >= 20
-          ? 'Pressão alta'
-          : 'Pressão controlável'
+          ? 'Risco alto'
+          : 'Risco controlado'
 
   const decisionText =
     plan.meta_atingida
@@ -3217,8 +3217,8 @@ function ExecutionPlanPanel({
                 maxWidth: 860,
               }}
             >
-              Converte meta financeira em vendas necessárias, oportunidades trabalhadas, pressão
-              diária e decisão operacional recomendada.
+              Organiza a meta em uma leitura executiva: gap financeiro, esforço comercial,
+              ação diária necessária e risco operacional.
             </div>
           </div>
 
@@ -4705,15 +4705,15 @@ function handleUndoGoalFromTop() {
                 <TitleWithTip label="Plano de Execução" tipTitle="Como o plano é calculado?" width={480}>
                   <div style={{ display: 'grid', gap: 8 }}>
                     <div>
-                      O plano cruza a meta financeira, o ticket médio e a taxa de conversão para estimar o volume de oportunidades que precisa ser trabalhado.
+                      O plano transforma a meta financeira em uma sequência operacional: quanto falta, quantas vendas faltam, quantas oportunidades precisam ser trabalhadas e qual ritmo diário deve ser executado.
                     </div>
                     <div>
-                      A lógica transforma a meta em oportunidades necessárias, vendas esperadas e cadência diária de execução.
+                      A leitura executiva segue a ordem: Meta → Gap → Esforço → Ação diária → Risco.
                     </div>
                   </div>
                 </TitleWithTip>
               }
-              description="Transforma a meta financeira em volume de oportunidades, vendas esperadas e cadência diária de execução."
+              description="Resume a execução em meta, gap, esforço comercial, ação diária e risco operacional."
             >
               <ExecutionPlanPanel
                 theory10020Result={theory10020Result}
