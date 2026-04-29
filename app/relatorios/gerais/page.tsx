@@ -512,6 +512,51 @@ export default async function RelatoriosGeraisPage() {
     .slice()
     .sort((a, b) => (b.loss_rate ?? 0) - (a.loss_rate ?? 0))[0]
 
+  const mostDelayedLead = slaRows[0] ?? null
+  const slowestStage = timeRows
+    .slice()
+    .sort((a, b) => Number(b.avg_seconds ?? 0) - Number(a.avg_seconds ?? 0))[0]
+
+  const hasCriticalSla = slaCount >= 20
+  const hasSlaRisk = slaCount > 0
+  const hasLossRisk = Boolean(worstLoss && worstLoss.loss_rate >= 30)
+  const hasConversionRisk = finalConv > 0 && finalConv < 20
+
+  const operationStatus = hasCriticalSla
+    ? 'Operação crítica'
+    : hasSlaRisk || hasLossRisk || hasConversionRisk
+      ? 'Operação em atenção'
+      : 'Operação saudável'
+
+  const operationStatusColor =
+    operationStatus === 'Operação crítica'
+      ? DS.red
+      : operationStatus === 'Operação em atenção'
+        ? DS.yellow
+        : DS.green
+
+  const mainBottleneck = hasSlaRisk && worstStageByCount
+    ? `SLA acima do limite na etapa ${worstStageByCount}.`
+    : hasLossRisk && worstLoss
+      ? `Perdas concentradas na etapa ${worstLoss.stage}.`
+      : slowestStage
+        ? `Maior tempo médio na etapa ${slowestStage.from_stage}.`
+        : 'Nenhum gargalo crítico identificado pelos dados atuais.'
+
+  const recommendedAction = hasCriticalSla
+    ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
+    : hasSlaRisk
+      ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
+      : hasLossRisk
+        ? 'Revisar os motivos de perda e ajustar abordagem comercial na etapa mais sensível.'
+        : hasConversionRisk
+          ? 'Revisar a passagem entre etapas e identificar onde o funil está perdendo eficiência.'
+          : 'Manter a cadência operacional e acompanhar preventivamente os indicadores de SLA e avanço.'
+
+  const funnelHealthText = slaCount > 0
+    ? `${slaCount} oportunidades estão acima do SLA. A prioridade é destravar o funil antes de ampliar volume.`
+    : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
+
   // ============================================================================
   // Render
   // ============================================================================
@@ -549,19 +594,19 @@ export default async function RelatoriosGeraisPage() {
             letterSpacing: '-0.02em',
           }}
         >
-          Relatórios Gerais
+          Auditoria do Funil
         </h1>
         <p
           style={{
             margin: 0,
             fontSize: 13,
             color: DS.textSecondary,
-            maxWidth: 600,
+            maxWidth: 680,
             textAlign: 'center',
             lineHeight: 1.5,
           }}
         >
-          Conversão entre etapas, perdas por estágio, gargalos de tempo e oportunidades em risco de SLA.
+          Diagnóstico da saúde operacional do funil: SLA, acúmulo por etapa, vazamentos, perdas e gargalos de execução.
         </p>
 
         {/* Navegação de relatórios — dropdown agrupado */}
@@ -574,6 +619,187 @@ export default async function RelatoriosGeraisPage() {
       {/* Conteúdo principal                                                 */}
       {/* ================================================================== */}
       <div style={{ maxWidth: 980, margin: '28px auto 0', padding: '0 24px', display: 'grid', gap: 20 }}>
+
+        {/* ============================================================== */}
+        {/* DIAGNÓSTICO DA OPERAÇÃO — Auditoria do Funil                    */}
+        {/* ============================================================== */}
+        <div
+          style={{
+            border: `1px solid ${operationStatusColor}35`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: `linear-gradient(135deg, ${operationStatusColor}10 0%, ${DS.cardBg} 38%, ${DS.cardBg} 100%)`,
+            boxShadow: DS.shadowCard,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              alignItems: 'flex-start',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 18,
+                  fontWeight: 900,
+                  color: DS.textPrimary,
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                Diagnóstico da operação
+              </h2>
+              <p
+                style={{
+                  margin: '6px 0 0',
+                  fontSize: 12,
+                  color: DS.textSecondary,
+                  lineHeight: 1.5,
+                  maxWidth: 640,
+                }}
+              >
+                Esta leitura mostra onde o funil está travando, qual risco exige ação e qual decisão gerencial deve ser tomada primeiro.
+              </p>
+            </div>
+
+            <div
+              style={{
+                padding: '7px 13px',
+                borderRadius: 999,
+                background: `${operationStatusColor}18`,
+                border: `1px solid ${operationStatusColor}45`,
+                color: operationStatusColor,
+                fontSize: 12,
+                fontWeight: 900,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {operationStatus}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+              gap: 12,
+              marginTop: 18,
+            }}
+          >
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                Principal gargalo
+              </div>
+              <div style={{ fontSize: 14, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.35 }}>
+                {mainBottleneck}
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                SLA e risco
+              </div>
+              <div style={{ fontSize: 22, color: slaCount > 0 ? DS.yellow : DS.green, fontWeight: 900 }}>
+                {slaCount}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, color: DS.textSecondary }}>
+                oportunidades acima do SLA
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                Etapa crítica
+              </div>
+              <div style={{ fontSize: 18, color: DS.textPrimary, fontWeight: 900, textTransform: 'capitalize' }}>
+                {worstStageByCount ?? '—'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, color: DS.textSecondary }}>
+                maior concentração de risco operacional
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                Maior atraso
+              </div>
+              <div style={{ fontSize: 18, color: mostDelayedLead ? DS.yellow : DS.textPrimary, fontWeight: 900 }}>
+                {mostDelayedLead ? formatSeconds(mostDelayedLead.over_seconds) : '—'}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, color: DS.textSecondary }}>
+                {mostDelayedLead ? mostDelayedLead.name : 'sem atraso crítico'}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              padding: 14,
+              borderRadius: DS.radius,
+              border: `1px solid ${operationStatusColor}25`,
+              background: `${operationStatusColor}08`,
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
+              <b style={{ color: operationStatusColor }}>Leitura:</b>{' '}
+              {funnelHealthText}
+            </div>
+
+            <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
+              <b style={{ color: DS.textPrimary }}>Ação recomendada:</b>{' '}
+              {recommendedAction}
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <Link
+              href="/leads?risk=1"
+              style={{
+                color: DS.textPrimary,
+                textDecoration: 'none',
+                fontSize: 12,
+                fontWeight: 700,
+                padding: '8px 12px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.border}`,
+                background: DS.panelBg,
+              }}
+            >
+              Ver oportunidades em risco →
+            </Link>
+
+            <Link
+              href="/dashboard/simulador-meta"
+              style={{
+                color: DS.blueSoft,
+                textDecoration: 'none',
+                fontSize: 12,
+                fontWeight: 700,
+                padding: '8px 12px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.border}`,
+                background: DS.panelBg,
+              }}
+            >
+              Planejamento de meta no Simulador →
+            </Link>
+          </div>
+        </div>
 
         {/* ============================================================== */}
         {/* META vs REALIDADE — Simulador vs Trabalho Real                  */}
