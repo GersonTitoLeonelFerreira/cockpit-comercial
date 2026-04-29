@@ -2008,7 +2008,10 @@ function DecisionCommandPanel({
 
   const remainingWins = result?.remaining_wins ?? 0
   const remainingOpportunities = result?.remaining_worked_cycles ?? 0
-  const dailyOpportunities = result?.daily_worked_remaining ?? 0
+  const dailyOpportunities =
+    remainingBusinessDays > 0
+      ? Math.ceil(remainingOpportunities / remainingBusinessDays)
+      : remainingOpportunities
 
   const hasGoal = goal > 0
   const goalReached = hasGoal && gap <= 0
@@ -2076,7 +2079,7 @@ function DecisionCommandPanel({
         ? 'Meta atingida. Mantenha o acompanhamento para preservar o resultado até o fechamento do período.'
         : remainingBusinessDays <= 0
           ? 'Não há dias de execução restantes. Revise o calendário operacional ou reprograme a meta.'
-          : `Trabalhar ${dailyOpportunities.toLocaleString('pt-BR')} oportunidades por dia nos próximos ${remainingBusinessDays} dias de execução para buscar ${remainingWins.toLocaleString('pt-BR')} vendas restantes.`
+          : `Trabalhar ${dailyOpportunities.toLocaleString('pt-BR')} oportunidades por dia pelos próximos ${remainingBusinessDays} dias de execução para buscar ${remainingWins.toLocaleString('pt-BR')} vendas restantes. Total estimado: ${remainingOpportunities.toLocaleString('pt-BR')} oportunidades restantes.`
 
   const supportCommand =
     !hasGoal
@@ -2427,9 +2430,18 @@ function SimulatorTopControls({
   setAutoRemainingDays: (value: boolean) => void
   remainingBusinessDays: number
 }) {
-  const realRatePercent = rateRealData?.vendor?.close_rate
-    ? Math.round(rateRealData.vendor.close_rate * 1000) / 10
-    : null
+  const realCloseRateForScope = isAdmin
+    ? selectedSellerId
+      ? rateRealData?.vendor?.close_rate ?? null
+      : rateRealData?.company?.close_rate ?? null
+    : sellerGoalScope === 'mine'
+      ? rateRealData?.vendor?.close_rate ?? null
+      : rateRealData?.company?.close_rate ?? null
+
+  const realRatePercent =
+    realCloseRateForScope !== null
+      ? Math.round(realCloseRateForScope * 1000) / 10
+      : null
 
   const normalizedCompanyName = String(companyName ?? '').trim()
 
@@ -2608,16 +2620,8 @@ function SimulatorTopControls({
               flexWrap: 'wrap',
             }}
           >
-            <ModePill active={mode === 'faturamento'} onClick={() => setMode('faturamento')}>
+            <ModePill active onClick={() => setMode('faturamento')}>
               Faturamento
-            </ModePill>
-
-            <ModePill active={mode === 'recebimento'} onClick={() => setMode('recebimento')}>
-              Recebimento
-            </ModePill>
-
-            <ModePill active={mode === 'ganhos'} onClick={() => setMode('ganhos')}>
-              Ganhos
             </ModePill>
           </div>
         </div>
@@ -3728,17 +3732,41 @@ export default function SimuladorMetaPage() {
   // recalcula ganhos
   useEffect(() => {
     if (!metrics) return
+
+    const taxaRealDecimal = analysisOwnerId
+      ? rateRealData?.vendor?.close_rate ?? null
+      : rateRealData?.company?.close_rate ?? null
+
+    const effectiveCloseRate =
+      rateSource === 'real' && taxaRealDecimal !== null
+        ? taxaRealDecimal
+        : closeRatePercent / 100
+
     const totalDays =
       periodStart && periodEnd ? countWorkDaysInRange(periodStart, periodEnd, workDays, executionDayOverrides) : 22
+
     const newResult = calculateSimulatorResult(metrics, {
       target_wins: targetWins,
-      close_rate: percentToRate(closeRatePercent),
+      close_rate: effectiveCloseRate,
       ticket_medio: 0,
       remaining_business_days: remainingBusinessDays,
       total_business_days: totalDays,
     })
+
     setResult(newResult)
-  }, [targetWins, closeRatePercent, remainingBusinessDays, metrics, periodStart, periodEnd, workDays, executionDayOverrides])
+  }, [
+    targetWins,
+    closeRatePercent,
+    rateSource,
+    rateRealData,
+    analysisOwnerId,
+    remainingBusinessDays,
+    metrics,
+    periodStart,
+    periodEnd,
+    workDays,
+    executionDayOverrides,
+  ])
 
   // refetch metrics quando muda escopo ou período
   useEffect(() => {
@@ -3859,12 +3887,16 @@ function handleUndoGoalFromTop() {
 
   // Computed: taxa usada no cálculo da teoria
   const taxaUsadaNoCalculo = useMemo(() => {
-    const taxaRealDecimal = rateRealData?.vendor?.close_rate ?? null
+    const taxaRealDecimal = analysisOwnerId
+      ? rateRealData?.vendor?.close_rate ?? null
+      : rateRealData?.company?.close_rate ?? null
+
     if (rateSource === 'real' && taxaRealDecimal !== null) {
       return taxaRealDecimal
     }
+
     return closeRatePercent / 100
-  }, [rateSource, rateRealData, closeRatePercent])
+  }, [rateSource, rateRealData, analysisOwnerId, closeRatePercent])
 
   // Plano de execução — recalcular quando inputs mudam
   useEffect(() => {
