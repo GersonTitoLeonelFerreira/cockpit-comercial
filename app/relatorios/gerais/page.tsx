@@ -34,7 +34,6 @@ const DS = {
 // ==============================================================================
 // Helpers
 // ==============================================================================
-
 function formatSeconds(secs: number) {
   const s = Math.max(0, Math.floor(secs || 0))
   const m = Math.floor(s / 60)
@@ -47,6 +46,83 @@ function formatSeconds(secs: number) {
   if (d > 0) return `${d}d ${hh}h`
   if (h > 0) return mm > 0 ? `${h}h ${mm}min` : `${h}h`
   return `${m}min`
+}
+
+function toDateKey(value: string) {
+  return String(value ?? '').split('T')[0].split(' ')[0]
+}
+
+function parseDateKey(value: string) {
+  const key = toDateKey(value)
+  if (!key) return null
+
+  const date = new Date(`${key}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function isDefaultBusinessDay(date: Date) {
+  const weekday = date.getDay()
+  return weekday >= 1 && weekday <= 5
+}
+
+function countBusinessDaysInRange(start: string, end: string) {
+  const startDate = parseDateKey(start)
+  const endDate = parseDateKey(end)
+
+  if (!startDate || !endDate || endDate < startDate) return 0
+
+  let count = 0
+  const current = new Date(startDate)
+
+  while (current <= endDate) {
+    if (isDefaultBusinessDay(current)) count += 1
+    current.setDate(current.getDate() + 1)
+  }
+
+  return count
+}
+
+function countBusinessDaysUntilToday(start: string, end: string) {
+  const startDate = parseDateKey(start)
+  const endDate = parseDateKey(end)
+
+  if (!startDate || !endDate || endDate < startDate) return 0
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const lastDate = today < endDate ? today : endDate
+  if (lastDate < startDate) return 0
+
+  let count = 0
+  const current = new Date(startDate)
+
+  while (current <= lastDate) {
+    if (isDefaultBusinessDay(current)) count += 1
+    current.setDate(current.getDate() + 1)
+  }
+
+  return count
+}
+
+function countRemainingBusinessDays(end: string) {
+  const endDate = parseDateKey(end)
+  if (!endDate) return 0
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  if (endDate < today) return 0
+
+  let count = 0
+  const current = new Date(today)
+
+  while (current <= endDate) {
+    if (isDefaultBusinessDay(current)) count += 1
+    current.setDate(current.getDate() + 1)
+  }
+
+  return count
 }
 
 // ==============================================================================
@@ -88,27 +164,6 @@ type SlaRiskRow = {
   over_seconds: number
   owner_user_id: string | null
   owner_name: string | null
-}
-
-type MetaVsReal = {
-  meta_empresa: number
-  meta_start: string
-  meta_end: string
-  ticket_simulador: number
-  total_ganhos: number
-  faturamento: number
-  ticket_medio: number
-  ciclos_trabalhados: number
-  total_movimentos: number
-  dias_uteis_total: number
-  dias_uteis_passados: number
-  dias_uteis_restantes: number
-  taxa_conversao_real: number
-  total_ciclos_abertos: number
-  total_pool: number
-  top_seller_name: string | null
-  top_seller_wins: number
-  top_seller_faturamento: number
 }
 
 // ==============================================================================
@@ -248,47 +303,68 @@ export default async function RelatoriosGeraisPage() {
     owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
   }))
 
-    // --- Meta vs Realidade ---
-    const { data: metaRaw } = await supabase.rpc(
-      'report_meta_vs_real',
-      { p_company_id: companyId }
-    )
-  
-    const meta: MetaVsReal | null = metaRaw?.[0] ? {
-      meta_empresa: Number(metaRaw[0].meta_empresa ?? 0),
-      meta_start: String(metaRaw[0].meta_start ?? ''),
-      meta_end: String(metaRaw[0].meta_end ?? ''),
-      ticket_simulador: Number(metaRaw[0].ticket_simulador ?? 0),
-      total_ganhos: Number(metaRaw[0].total_ganhos ?? 0),
-      faturamento: Number(metaRaw[0].faturamento ?? 0),
-      ticket_medio: Number(metaRaw[0].ticket_medio ?? 0),
-      ciclos_trabalhados: Number(metaRaw[0].ciclos_trabalhados ?? 0),
-      total_movimentos: Number(metaRaw[0].total_movimentos ?? 0),
-      dias_uteis_total: Number(metaRaw[0].dias_uteis_total ?? 0),
-      dias_uteis_passados: Number(metaRaw[0].dias_uteis_passados ?? 0),
-      dias_uteis_restantes: Number(metaRaw[0].dias_uteis_restantes ?? 0),
-      taxa_conversao_real: Number(metaRaw[0].taxa_conversao_real ?? 0),
-      total_ciclos_abertos: Number(metaRaw[0].total_ciclos_abertos ?? 0),
-      total_pool: Number(metaRaw[0].total_pool ?? 0),
-      top_seller_name: metaRaw[0].top_seller_name ?? null,
-      top_seller_wins: Number(metaRaw[0].top_seller_wins ?? 0),
-      top_seller_faturamento: Number(metaRaw[0].top_seller_faturamento ?? 0),
-    } : null
-  
-      // --- Cálculos Simulador vs Realidade ---
-  const metaVal = meta?.meta_empresa ?? 0
-  const faturReal = meta?.faturamento ?? 0
-  const ticketSimulador = meta?.ticket_simulador ?? 0
-  const ticketReal = meta?.ticket_medio ?? 0
-  const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
-  const taxaReal = meta?.ciclos_trabalhados && meta.ciclos_trabalhados > 0
-    ? meta.total_ganhos / meta.ciclos_trabalhados
-    : 0
-  const diasUteisTot = meta?.dias_uteis_total ?? 22
-  const diasUteisPass = meta?.dias_uteis_passados ?? 0
-  const diasUteisRest = meta?.dias_uteis_restantes ?? 0
+  // --- Meta vs Realidade — mesma base do Simulador ---
+  const { data: activeCompetencyRaw, error: activeCompetencyErr } = await supabase.rpc(
+    'rpc_get_active_competency'
+  )
 
-  // Projeção
+  const activeCompetency = (activeCompetencyRaw ?? {}) as Record<string, unknown>
+  const competencyMonth = String(activeCompetency.month ?? '')
+  const periodStart = toDateKey(String(activeCompetency.month_start ?? ''))
+  const periodEnd = toDateKey(String(activeCompetency.month_end ?? ''))
+  const hasActivePeriod = Boolean(periodStart && periodEnd)
+
+  const { data: revenueGoalRaw, error: revenueGoalErr } = hasActivePeriod
+    ? await supabase.rpc('rpc_get_revenue_goal', {
+        p_company_id: companyId,
+        p_owner_id: null,
+        p_date_start: periodStart,
+        p_date_end: periodEnd,
+      })
+    : { data: null, error: null }
+
+  const { data: revenueSummaryRaw, error: revenueSummaryErr } = hasActivePeriod
+    ? await supabase.rpc('rpc_revenue_summary', {
+        p_company_id: companyId,
+        p_owner_id: null,
+        p_start_date: periodStart,
+        p_end_date: periodEnd,
+        p_metric: 'faturamento',
+      })
+    : { data: null, error: null }
+
+  const { data: cycleMetricsRaw, error: cycleMetricsErr } = await supabase.rpc(
+    'rpc_get_sales_cycle_metrics_v1',
+    {
+      p_owner_user_id: null,
+      p_month: competencyMonth || null,
+    }
+  )
+
+  const revenueGoal = (revenueGoalRaw ?? {}) as Record<string, unknown>
+  const revenueSummary = (revenueSummaryRaw ?? {}) as Record<string, unknown>
+  const cycleMetrics = (cycleMetricsRaw ?? {}) as Record<string, unknown>
+
+  const metaVal = Number(revenueGoal.goal_value ?? 0)
+  const faturReal = Number(revenueSummary.total_real ?? 0)
+  const ticketSimulador = Number(revenueGoal.ticket_medio ?? 0)
+
+  const currentWins = Number(cycleMetrics.current_wins ?? 0)
+  const workedCount = Number(cycleMetrics.worked_count ?? 0)
+
+  const ticketReal = currentWins > 0 ? Math.round(faturReal / currentWins) : 0
+  const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
+
+  const taxaReal = workedCount > 0 ? currentWins / workedCount : 0
+
+  // O relatório precisa bater com a leitura padrão Planejada do Simulador.
+  // Enquanto a escolha Planejada/Real não for persistida no banco, o relatório usa 20%.
+  const taxaConversao = 0.20
+
+  const diasUteisTot = hasActivePeriod ? countBusinessDaysInRange(periodStart, periodEnd) : 22
+  const diasUteisPass = hasActivePeriod ? countBusinessDaysUntilToday(periodStart, periodEnd) : 0
+  const diasUteisRest = hasActivePeriod ? countRemainingBusinessDays(periodEnd) : 0
+
   const faturDiario = diasUteisPass > 0 ? faturReal / diasUteisPass : 0
   const projecao = faturDiario * diasUteisTot
   const gap = Math.max(0, metaVal - faturReal)
@@ -296,8 +372,6 @@ export default async function RelatoriosGeraisPage() {
   const projecaoPct = metaVal > 0 ? (projecao / metaVal) * 100 : 0
   const faturNecessarioDia = diasUteisRest > 0 ? gap / diasUteisRest : gap
 
-  // Teoria 100/20 — usando ticket do simulador
-  const taxaConversao = taxaReal > 0 ? taxaReal : 0.20
   const vendasNecessarias = ticketParaCalc > 0 ? Math.ceil(metaVal / ticketParaCalc) : 0
   const ciclosNecessarios = taxaConversao > 0 ? Math.ceil(vendasNecessarias / taxaConversao) : 0
   const ciclosPorDia = diasUteisTot > 0 ? Math.ceil(ciclosNecessarios / diasUteisTot) : 0
@@ -306,13 +380,19 @@ export default async function RelatoriosGeraisPage() {
   const ciclosRestantes = taxaConversao > 0 ? Math.ceil(vendasRestantes / taxaConversao) : 0
   const ciclosRestantesPorDia = diasUteisRest > 0 ? Math.ceil(ciclosRestantes / diasUteisRest) : 0
 
-  const ciclosTrabDia = diasUteisPass > 0 ? (meta?.ciclos_trabalhados ?? 0) / diasUteisPass : 0
+  const ciclosTrabDia = diasUteisPass > 0 ? workedCount / diasUteisPass : 0
 
-  // Status
   const pacingRatio = metaVal > 0 ? projecao / metaVal : 0
   const statusMeta = pacingRatio >= 0.95 ? 'no_ritmo' : pacingRatio >= 0.70 ? 'atencao' : 'acelerar'
   const statusColor = statusMeta === 'no_ritmo' ? DS.green : statusMeta === 'atencao' ? DS.yellow : DS.red
   const statusLabelText = statusMeta === 'no_ritmo' ? 'No ritmo' : statusMeta === 'atencao' ? 'Atenção' : 'Acelerar'
+
+  const metaVsRealityError =
+    activeCompetencyErr?.message ||
+    revenueGoalErr?.message ||
+    revenueSummaryErr?.message ||
+    cycleMetricsErr?.message ||
+    null
 
   function toBRL(v: number) {
     return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })
@@ -404,7 +484,7 @@ export default async function RelatoriosGeraisPage() {
         {/* ============================================================== */}
         {/* META vs REALIDADE — Simulador vs Trabalho Real                  */}
         {/* ============================================================== */}
-        {meta && metaVal > 0 ? (
+        {metaVal > 0 ? (
           <div
             style={{
               border: `1px solid ${DS.border}`,
@@ -533,7 +613,7 @@ export default async function RelatoriosGeraisPage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Realizadas</span>
-                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{meta.total_ganhos}</b>
+                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{currentWins}</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Faltam</span>
@@ -560,18 +640,17 @@ export default async function RelatoriosGeraisPage() {
                     e trabalhar <b style={{ color: DS.textPrimary }}>{ciclosRestantesPorDia} oportunidades/dia</b>.{' '}
                   </>
                 ) : null}
-                {meta.top_seller_name ? (
+                {metaVsRealityError ? (
                   <>
-                    Destaque: <b style={{ color: DS.green }}>{meta.top_seller_name}</b>{' '}
-                    ({meta.top_seller_wins} vendas, {toBRL(meta.top_seller_faturamento)}).
+                    Atenção: <b style={{ color: DS.yellow }}>{metaVsRealityError}</b>
                   </>
                 ) : null}
               </div>
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-            Dados calculados com base na meta cadastrada e na execução real registrada. Ticket médio real: {toBRL(ticketReal)}.
-              {meta.ciclos_trabalhados < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
+            Dados calculados com a mesma base de meta e faturamento do Simulador. Ticket usado no plano: {toBRL(ticketParaCalc)}.
+              {workedCount < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>
         ) : (
