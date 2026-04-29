@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import ReportNavDropdown from '@/app/relatorios/components/ReportNavDropdown'
 
 export const dynamic = 'force-dynamic'
@@ -192,10 +193,10 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const convRows: ConvRow[] = (convData ?? []).map((r: any) => ({
+  const convRows: ConvRow[] = (convData ?? []).map((r: Record<string, unknown>) => ({
     step_order: Number(r.step_order ?? 0),
-    from_stage: r.from_stage,
-    to_stage: r.to_stage,
+    from_stage: String(r.from_stage ?? ''),
+    to_stage: String(r.to_stage ?? ''),
     entered: Number(r.entered ?? 0),
     progressed: Number(r.progressed ?? 0),
     conversion: Number(r.conversion ?? 0),
@@ -207,10 +208,10 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const lossRows: LossRow[] = (lossData ?? []).map((r: any) => ({
+  const lossRows: LossRow[] = (lossData ?? []).map((r: Record<string, unknown>) => ({
     step_order: Number(r.step_order ?? 0),
-    stage: r.stage,
-    lost_to: r.lost_to,
+    stage: String(r.stage ?? ''),
+    lost_to: String(r.lost_to ?? ''),
     entered: Number(r.entered ?? 0),
     lost: Number(r.lost ?? 0),
     loss_rate: Number(r.loss_rate ?? 0),
@@ -222,8 +223,8 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const timeRows: StageTimeRow[] = (timeData ?? []).map((r: any) => ({
-    from_stage: r.from_stage,
+  const timeRows: StageTimeRow[] = (timeData ?? []).map((r: Record<string, unknown>) => ({
+    from_stage: String(r.from_stage ?? ''),
     moves: Number(r.moves ?? 0),
     avg_seconds: Number(r.avg_seconds ?? 0),
     median_seconds: Number(r.median_seconds ?? 0),
@@ -235,16 +236,16 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const slaRows: SlaRiskRow[] = (slaData ?? []).map((r: any) => ({
-    lead_id: String(r.lead_id),
+  const slaRows: SlaRiskRow[] = (slaData ?? []).map((r: Record<string, unknown>) => ({
+    lead_id: String(r.lead_id ?? ''),
     name: String(r.name ?? ''),
-    phone: r.phone ?? null,
+    phone: typeof r.phone === 'string' ? r.phone : null,
     stage: String(r.stage ?? ''),
     seconds_in_stage: Number(r.seconds_in_stage ?? 0),
     sla_seconds: Number(r.sla_seconds ?? 0),
     over_seconds: Number(r.over_seconds ?? 0),
-    owner_user_id: r.owner_user_id ?? null,
-    owner_name: r.owner_name ?? null,
+    owner_user_id: typeof r.owner_user_id === 'string' ? r.owner_user_id : null,
+    owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
   }))
 
     // --- Meta vs Realidade ---
@@ -386,7 +387,7 @@ export default async function RelatoriosGeraisPage() {
             lineHeight: 1.5,
           }}
         >
-          Conversão entre etapas, perdas por estágio, gargalos de tempo e leads em risco de SLA.
+          Conversão entre etapas, perdas por estágio, gargalos de tempo e oportunidades em risco de SLA.
         </p>
 
         {/* Navegação de relatórios — dropdown agrupado */}
@@ -416,10 +417,10 @@ export default async function RelatoriosGeraisPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px 0', fontSize: 13, fontWeight: 800, color: DS.blueSoft, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Meta vs Realidade — Abril 2026
+                  Meta vs Realidade
                 </h3>
                 <div style={{ fontSize: 12, color: DS.textSecondary }}>
-                  O simulador define o plano. Este relatório mostra a execução real.
+                  O Simulador define o plano operacional. Este relatório mostra a execução real registrada.
                 </div>
               </div>
               <div style={{
@@ -494,10 +495,10 @@ export default async function RelatoriosGeraisPage() {
               {/* Card: Ciclos/dia */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Ciclos trabalhados / dia
+                  Oportunidades trabalhadas / dia
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Simulador pede</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Necessário no plano</span>
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{ciclosPorDia}</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -516,7 +517,7 @@ export default async function RelatoriosGeraisPage() {
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(0)}%</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Real (ganho/trabalhado)</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Real (vendas/oportunidades)</span>
                   <b style={{ fontSize: 13, color: taxaReal >= taxaConversao ? DS.green : DS.yellow }}>{(taxaReal * 100).toFixed(1)}%</b>
                 </div>
               </div>
@@ -524,7 +525,7 @@ export default async function RelatoriosGeraisPage() {
               {/* Card: Vendas */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Vendas (fechamentos)
+                  Vendas
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 11, color: DS.textSecondary }}>Necessárias no mês</span>
@@ -556,7 +557,7 @@ export default async function RelatoriosGeraisPage() {
                 {diasUteisRest > 0 ? (
                   <>
                     Precisa faturar <b style={{ color: DS.textPrimary }}>{toBRL(faturNecessarioDia)}/dia</b>{' '}
-                    e trabalhar <b style={{ color: DS.textPrimary }}>{ciclosRestantesPorDia} ciclos/dia</b>.{' '}
+                    e trabalhar <b style={{ color: DS.textPrimary }}>{ciclosRestantesPorDia} oportunidades/dia</b>.{' '}
                   </>
                 ) : null}
                 {meta.top_seller_name ? (
@@ -569,7 +570,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-            Dados calculados com base nos mesmos critérios do Simulador de Meta. Ticket médio real: {toBRL(ticketReal)}.
+            Dados calculados com base na meta cadastrada e na execução real registrada. Ticket médio real: {toBRL(ticketReal)}.
               {meta.ciclos_trabalhados < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>
@@ -588,7 +589,7 @@ export default async function RelatoriosGeraisPage() {
             </h3>
             <p style={{ margin: 0, fontSize: 12, color: DS.textMuted }}>
               Nenhuma meta cadastrada para este mês. Configure no{' '}
-              <a href="/dashboard/simulador-meta" style={{ color: DS.blue, textDecoration: 'none' }}>Simulador de Meta</a>.
+              <Link href="/dashboard/simulador-meta" style={{ color: DS.blue, textDecoration: 'none' }}>Simulador de Meta</Link>.
             </p>
           </div>
         )}
@@ -625,7 +626,7 @@ export default async function RelatoriosGeraisPage() {
                   letterSpacing: '0.06em',
                 }}
               >
-                Leads em risco (acima do SLA)
+                Oportunidades em risco (acima do SLA)
               </h3>
 
               <div style={{ fontSize: 12, color: DS.textSecondary }}>
@@ -640,7 +641,7 @@ export default async function RelatoriosGeraisPage() {
               </div>
             </div>
 
-            <a
+            <Link
               href="/leads?risk=1"
               style={{
                 color: DS.textPrimary,
@@ -657,12 +658,12 @@ export default async function RelatoriosGeraisPage() {
               }}
               title={
                 slaCount === 0
-                  ? 'Abrir o Pipeline filtrado (no momento não há leads acima do SLA)'
-                  : 'Abrir o Pipeline mostrando somente os leads acima do SLA'
+                  ? 'Abrir o Pipeline filtrado (no momento não há oportunidades acima do SLA)'
+                  : 'Abrir o Pipeline mostrando somente as oportunidades acima do SLA'
               }
             >
               Abrir no Pipeline →
-            </a>
+            </Link>
           </div>
 
           {slaErr ? (
@@ -683,13 +684,13 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
-                Aqui aparecem leads em etapas ativas (exceto <b>fechado</b> e <b>perdido</b>)
+                Aqui aparecem oportunidades em etapas ativas (exceto <b>fechado</b> e <b>perdido</b>)
                 cujo tempo na etapa ultrapassou o SLA padrão.
               </p>
 
               {slaRows.length === 0 ? (
                 <div style={{ marginTop: 12, color: DS.textMuted, fontSize: 13 }}>
-                  Nenhum lead acima do SLA no momento.
+                  Nenhuma oportunidade acima do SLA no momento.
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto', marginTop: 14 }}>
