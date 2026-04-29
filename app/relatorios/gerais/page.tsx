@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
 import ReportNavDropdown from '@/app/relatorios/components/ReportNavDropdown'
 
+export const dynamic = 'force-dynamic'
+
 // ==============================================================================
 // DESIGN TOKENS — mesmos do shell/kanban
 // ==============================================================================
