@@ -513,7 +513,7 @@ export default async function RelatoriosGeraisPage() {
                   Taxa de conversão
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Usada no simulador</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Usada no relatório</span>
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(0)}%</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
