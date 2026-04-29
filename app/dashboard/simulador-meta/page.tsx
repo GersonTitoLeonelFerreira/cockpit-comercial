@@ -2443,6 +2443,14 @@ function SimulatorTopControls({
       ? Math.round(realCloseRateForScope * 1000) / 10
       : null
 
+  const realRateScopeLabel = isAdmin
+    ? selectedSellerId
+      ? 'do vendedor'
+      : 'da empresa'
+    : sellerGoalScope === 'mine'
+      ? 'da sua meta'
+      : 'da empresa'
+
   const normalizedCompanyName = String(companyName ?? '').trim()
 
   const companyScopeLabel =
@@ -2611,7 +2619,7 @@ function SimulatorTopControls({
         </div>
 
         <div>
-          <FieldLabel>Tipo de meta</FieldLabel>
+          <FieldLabel>Meta ativa</FieldLabel>
 
           <div
             style={{
@@ -2623,6 +2631,17 @@ function SimulatorTopControls({
             <ModePill active onClick={() => setMode('faturamento')}>
               Faturamento
             </ModePill>
+          </div>
+
+          <div
+            style={{
+              marginTop: 7,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              lineHeight: 1.35,
+            }}
+          >
+            Recebimento e Ganhos serão liberados em uma próxima etapa.
           </div>
         </div>
 
@@ -2848,7 +2867,12 @@ function SimulatorTopControls({
                 max={100}
                 value={closeRatePercent}
                 onChange={(event) => setCloseRatePercent(Number(event.target.value || 0))}
-                style={controlBaseStyle()}
+                disabled={rateSource === 'real'}
+                style={{
+                  ...controlBaseStyle(),
+                  opacity: rateSource === 'real' ? 0.55 : 1,
+                  cursor: rateSource === 'real' ? 'not-allowed' : 'text',
+                }}
               />
 
               <select
@@ -2874,8 +2898,8 @@ function SimulatorTopControls({
               {rateRealLoading
                 ? 'Carregando taxa real...'
                 : realRatePercent !== null
-                  ? `Taxa real encontrada: ${realRatePercent}%.`
-                  : 'Sem taxa real suficiente para este recorte.'}
+                  ? `Taxa real ${realRateScopeLabel} encontrada: ${realRatePercent}%.`
+                  : 'Sem taxa real suficiente para este escopo e período. A taxa planejada será usada como fallback.'}
             </div>
           </div>
 
