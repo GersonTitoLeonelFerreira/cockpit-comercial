@@ -48,8 +48,82 @@ function formatSeconds(secs: number) {
   return `${m}min`
 }
 
-function toDateKey(value: string) {
-  return String(value ?? '').split('T')[0].split(' ')[0]
+function toDateKey(value: unknown) {
+  const raw = String(value ?? '').trim()
+  const candidate = raw.split('T')[0].split(' ')[0]
+
+  return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : ''
+}
+
+function monthTextToDateKey(value: unknown) {
+  const text = String(value ?? '').trim().toLowerCase()
+
+  if (!text) return ''
+
+  const months: Record<string, number> = {
+    january: 1,
+    jan: 1,
+    janeiro: 1,
+    february: 2,
+    feb: 2,
+    fevereiro: 2,
+    march: 3,
+    mar: 3,
+    março: 3,
+    marco: 3,
+    april: 4,
+    apr: 4,
+    abril: 4,
+    may: 5,
+    maio: 5,
+    june: 6,
+    jun: 6,
+    junho: 6,
+    july: 7,
+    jul: 7,
+    julho: 7,
+    august: 8,
+    aug: 8,
+    agosto: 8,
+    september: 9,
+    sep: 9,
+    setembro: 9,
+    october: 10,
+    oct: 10,
+    outubro: 10,
+    november: 11,
+    nov: 11,
+    novembro: 11,
+    december: 12,
+    dec: 12,
+    dezembro: 12,
+  }
+
+  const match = text.match(/^([a-zçãé]+)\s+(\d{4})$/i)
+  if (!match) return ''
+
+  const month = months[match[1]]
+  const year = Number(match[2])
+
+  if (!month || !Number.isFinite(year)) return ''
+
+  return `${year}-${String(month).padStart(2, '0')}-01`
+}
+
+function getPeriodStartFromCompetency(activeCompetency: Record<string, unknown>) {
+  return (
+    toDateKey(activeCompetency.month_start) ||
+    toDateKey(activeCompetency.month) ||
+    monthTextToDateKey(activeCompetency.month)
+  )
+}
+
+function formatDateKey(date: Date) {
+  const year = String(date.getFullYear())
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
 }
 
 function parseDateKey(value: string) {
@@ -58,6 +132,25 @@ function parseDateKey(value: string) {
 
   const date = new Date(`${key}T00:00:00`)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+function getMonthEndInclusiveFromStart(start: string) {
+  const startDate = parseDateKey(start)
+  if (!startDate) return ''
+
+  const lastDay = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0)
+
+  return formatDateKey(lastDay)
+}
+
+function formatDateBR(value: string) {
+  const key = toDateKey(value)
+
+  if (!key) return '----'
+
+  const [year, month, day] = key.split('-')
+
+  return `${day}/${month}/${year}`
 }
 
 function isDefaultBusinessDay(date: Date) {
@@ -309,15 +402,15 @@ export default async function RelatoriosGeraisPage() {
   )
 
   const activeCompetency = (activeCompetencyRaw ?? {}) as Record<string, unknown>
-  const competencyMonth = String(activeCompetency.month ?? '')
-  const periodStart = toDateKey(String(activeCompetency.month_start ?? ''))
-  const periodEnd = toDateKey(String(activeCompetency.month_end ?? ''))
+  const periodStart = getPeriodStartFromCompetency(activeCompetency)
+  const periodEnd = getMonthEndInclusiveFromStart(periodStart)
   const hasActivePeriod = Boolean(periodStart && periodEnd)
+  const ownerScopeId: string | null = null
 
   const { data: revenueGoalRaw, error: revenueGoalErr } = hasActivePeriod
     ? await supabase.rpc('rpc_get_revenue_goal', {
         p_company_id: companyId,
-        p_owner_id: null,
+        p_owner_id: ownerScopeId,
         p_date_start: periodStart,
         p_date_end: periodEnd,
       })
@@ -326,7 +419,7 @@ export default async function RelatoriosGeraisPage() {
   const { data: revenueSummaryRaw, error: revenueSummaryErr } = hasActivePeriod
     ? await supabase.rpc('rpc_revenue_summary', {
         p_company_id: companyId,
-        p_owner_id: null,
+        p_owner_id: ownerScopeId,
         p_start_date: periodStart,
         p_end_date: periodEnd,
         p_metric: 'faturamento',
@@ -336,8 +429,8 @@ export default async function RelatoriosGeraisPage() {
   const { data: cycleMetricsRaw, error: cycleMetricsErr } = await supabase.rpc(
     'rpc_get_sales_cycle_metrics_v1',
     {
-      p_owner_user_id: null,
-      p_month: competencyMonth || null,
+      p_owner_user_id: ownerScopeId,
+      p_month: periodStart || null,
     }
   )
 
@@ -380,10 +473,8 @@ export default async function RelatoriosGeraisPage() {
   const ciclosRestantes = taxaConversao > 0 ? Math.ceil(vendasRestantes / taxaConversao) : 0
   const ciclosRestantesPorDia = diasUteisRest > 0 ? Math.ceil(ciclosRestantes / diasUteisRest) : 0
 
-  const ciclosTrabDia = diasUteisPass > 0 ? workedCount / diasUteisPass : 0
-
   const pacingRatio = metaVal > 0 ? projecao / metaVal : 0
-  const statusMeta = pacingRatio >= 0.95 ? 'no_ritmo' : pacingRatio >= 0.70 ? 'atencao' : 'acelerar'
+  const statusMeta = pacingRatio >= 1 ? 'no_ritmo' : pacingRatio >= 0.90 ? 'atencao' : 'acelerar'
   const statusColor = statusMeta === 'no_ritmo' ? DS.green : statusMeta === 'atencao' ? DS.yellow : DS.red
   const statusLabelText = statusMeta === 'no_ritmo' ? 'No ritmo' : statusMeta === 'atencao' ? 'Atenção' : 'Acelerar'
 
@@ -394,9 +485,14 @@ export default async function RelatoriosGeraisPage() {
     cycleMetricsErr?.message ||
     null
 
-  function toBRL(v: number) {
-    return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 })
-  }
+    function toBRL(v: number) {
+      return (Number(v) || 0).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    }
 
   const slaCount = slaRows.length
   const stageRiskCounts = slaRows.reduce<Record<string, number>>((acc, r) => {
@@ -572,18 +668,18 @@ export default async function RelatoriosGeraisPage() {
                 </div>
               </div>
 
-              {/* Card: Ciclos/dia */}
+              {/* Card: Ritmo de oportunidades */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Oportunidades trabalhadas / dia
+                  Ritmo de oportunidades
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Necessário no plano</span>
-                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{ciclosPorDia}</b>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Restantes no plano</span>
+                  <b style={{ fontSize: 13, color: DS.textPrimary }}>{ciclosRestantes}</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Realizado (média)</span>
-                  <b style={{ fontSize: 13, color: ciclosTrabDia >= ciclosPorDia ? DS.green : DS.red }}>{ciclosTrabDia.toFixed(1)}</b>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Ritmo restante/dia</span>
+                  <b style={{ fontSize: 13, color: ciclosRestantesPorDia > 0 ? DS.yellow : DS.green }}>{ciclosRestantesPorDia}</b>
                 </div>
               </div>
 
@@ -649,7 +745,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-            Dados calculados com a mesma base de meta e faturamento do Simulador. Ticket usado no plano: {toBRL(ticketParaCalc)}.
+            Dados calculados com o mesmo período e a mesma meta financeira do Simulador. Período usado: {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}. Ticket usado no plano: {toBRL(ticketParaCalc)}.
               {workedCount < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>
