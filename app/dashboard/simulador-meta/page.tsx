@@ -523,7 +523,7 @@ function GroupConversionList({ rows }: { rows: GroupConversionRow[] }) {
       >
         <div>Grupo</div>
         <div style={{ textAlign: 'right' }}>Trabalhados</div>
-        <div style={{ textAlign: 'right' }}>Ganhos</div>
+        <div style={{ textAlign: 'right' }}>Vendas</div>
         <div style={{ textAlign: 'right' }}>Taxa</div>
         <div style={{ textAlign: 'right' }}>Participação</div>
       </div>
@@ -587,7 +587,7 @@ function GroupConversionList({ rows }: { rows: GroupConversionRow[] }) {
                   lineHeight: 1.25,
                 }}
               >
-                Grupo de leads do período
+                Grupo de oportunidades do período
               </div>
             </div>
 
@@ -670,8 +670,8 @@ function RateResultPanel({
   const progressPercent = Math.round(safeProgressRatio * 100)
   const onTrack = Boolean(result?.on_track)
 
-  const unitLabel = isFinancialMode ? 'vendas' : 'ganhos'
-  const unitLabelCapitalized = isFinancialMode ? 'Vendas' : 'Ganhos'
+  const unitLabel = 'vendas'
+  const unitLabelCapitalized = 'Vendas'
 
   const formatNumber = (value: number) => {
     if (!Number.isFinite(value)) return '—'
@@ -681,7 +681,7 @@ function RateResultPanel({
     })
   }
 
-  const remainingUnitLabel = isFinancialMode ? 'vendas' : 'ganhos'
+  const remainingUnitLabel = 'vendas'
   const dailyActionLabel = dailyWorkedRemaining === 1 ? 'oportunidade/dia' : 'oportunidades/dia'
   const remainingDaysLabel = remainingBusinessDays === 1 ? 'dia de execução' : 'dias de execução'
   const dailyWorkloadText = `${formatNumber(dailyWorkedRemaining)} ${dailyActionLabel}`
@@ -695,7 +695,7 @@ function RateResultPanel({
 
   const actionSupportText =
     remainingWins <= 0 || remainingWorkedCycles <= 0
-      ? `Próxima decisão: proteger oportunidades abertas, evitar perdas no fechamento e manter a cadência até o fim do período.`
+      ? `Próxima decisão: proteger oportunidades abertas, evitar perdas nas negociações e manter a cadência até o fim do período.`
       : dailyWorkedRemaining >= 100
         ? `Leitura: carga operacional crítica. Antes de cobrar execução, valide base disponível, capacidade real do time e premissas da meta.`
         : dailyWorkedRemaining >= 40
@@ -748,7 +748,7 @@ function RateResultPanel({
           >
             {isFinancialMode
               ? 'Traduz a meta financeira em vendas necessárias, oportunidades trabalhadas e ritmo diário restante.'
-              : 'Mostra se o volume atual de oportunidades trabalhadas sustenta a meta de ganhos no período.'}
+              : 'Mostra se o volume atual de oportunidades trabalhadas sustenta a meta de vendas no período.'}
           </div>
         </div>
 
@@ -787,7 +787,7 @@ function RateResultPanel({
           subtitle={
             isFinancialMode
               ? `Meta derivada: ${targetWins} vendas`
-              : `Meta operacional: ${targetWins} ganhos`
+              : `Meta operacional: ${targetWins} vendas`
           }
           tone={currentWins >= targetWins ? 'good' : 'neutral'}
         />
@@ -2076,7 +2076,7 @@ function DecisionCommandPanel({
         ? 'Defina uma meta para liberar a recomendação operacional do período.'
         : `${goalContextLabel} ainda não definida. Solicite ao gestor a definição da meta para liberar a recomendação operacional.`
       : goalReached
-        ? 'Meta atingida. Mantenha o acompanhamento para preservar o resultado até o fechamento do período.'
+        ? 'Meta atingida. Mantenha o acompanhamento para preservar o resultado até o fim do período.'
         : remainingBusinessDays <= 0
           ? 'Não há dias de execução restantes. Revise o calendário operacional ou reprograme a meta.'
           : `Trabalhar ${dailyOpportunities.toLocaleString('pt-BR')} oportunidades por dia pelos próximos ${remainingBusinessDays} dias de execução para buscar ${remainingWins.toLocaleString('pt-BR')} vendas restantes. Total estimado: ${remainingOpportunities.toLocaleString('pt-BR')} oportunidades restantes.`
@@ -2471,7 +2471,7 @@ function SimulatorTopControls({
       ? 'Faturamento'
       : mode === 'recebimento'
         ? 'Recebimento'
-        : 'Ganhos'
+        : 'Vendas'
 
   const formattedGoalValue = safeNumber(revenueGoalInputText).toLocaleString('pt-BR', {
     style: 'currency',
@@ -2641,7 +2641,7 @@ function SimulatorTopControls({
               lineHeight: 1.35,
             }}
           >
-            Recebimento e Ganhos serão liberados em uma próxima etapa.
+            Recebimento e meta de vendas serão liberados em uma próxima etapa.
           </div>
         </div>
 
@@ -3163,13 +3163,13 @@ function ExecutionPlanPanel({
 
   const decisionText =
     plan.meta_atingida
-      ? 'A meta financeira já foi atingida. A decisão agora é proteger o resultado, evitar perda de oportunidades abertas e sustentar a cadência até o fechamento do período.'
+      ? 'A meta financeira já foi atingida. A decisão agora é proteger o resultado, evitar perda de oportunidades abertas e sustentar a cadência até o fim do período.'
       : remainingBusinessDays <= 0
         ? 'Não há dias úteis restantes no calendário operacional. A decisão executiva é revisar o calendário, reprogramar prazo ou tratar a meta como exceção gerencial.'
         : dailyCycles >= 40
           ? 'O plano está sob pressão crítica. A decisão recomendada é aumentar base disponível, redistribuir carteira, reforçar capacidade de abordagem ou revisar a premissa de taxa/ticket.'
           : dailyCycles >= 20
-            ? 'O plano exige ritmo alto. A decisão recomendada é acompanhar execução diariamente, remover gargalos de carteira e priorizar oportunidades com maior probabilidade de fechamento.'
+            ? 'O plano exige ritmo alto. A decisão recomendada é acompanhar execução diariamente, remover gargalos de carteira e priorizar oportunidades com maior probabilidade de venda.'
             : 'O plano está operacionalmente controlável. A decisão recomendada é manter disciplina diária, revisar follow-ups e proteger a taxa de conversão usada no cálculo.'
 
   return (
@@ -3367,7 +3367,7 @@ function ExecutionPlanPanel({
           <Card
             title="Vendas restantes"
             value={formatInteger(plan.vendas_restantes)}
-            subtitle="Fechamentos ainda necessários pelo gap"
+            subtitle="Vendas ainda necessárias pelo gap financeiro"
             tone={plan.vendas_restantes <= 0 ? 'good' : 'bad'}
           />
 
@@ -3475,7 +3475,7 @@ function ExecutionPlanPanel({
                   lineHeight: 1.4,
                 }}
               >
-                fechamentos estimados por dia
+                vendas estimadas por dia
               </div>
             </div>
 
@@ -4317,7 +4317,7 @@ function handleUndoGoalFromTop() {
   const showRevenueMode = mode !== 'ganhos'
 
   const revenueMetricLabel =
-    mode === 'faturamento' ? 'Faturamento' : mode === 'recebimento' ? 'Recebimento' : 'Ganhos'
+    mode === 'faturamento' ? 'Faturamento' : mode === 'recebimento' ? 'Recebimento' : 'Vendas'
 
     const decisionRevenueKpis = useMemo(() => {
       if (!showRevenueMode) return null
@@ -4708,12 +4708,12 @@ function handleUndoGoalFromTop() {
                       O plano cruza a meta financeira, o ticket médio e a taxa de conversão para estimar o volume de oportunidades que precisa ser trabalhado.
                     </div>
                     <div>
-                      A lógica transforma a meta em leads necessários, fechamentos esperados e cadência diária de execução.
+                      A lógica transforma a meta em oportunidades necessárias, vendas esperadas e cadência diária de execução.
                     </div>
                   </div>
                 </TitleWithTip>
               }
-              description="Transforma a meta financeira em volume de oportunidades, fechamentos esperados e cadência diária de execução."
+              description="Transforma a meta financeira em volume de oportunidades, vendas esperadas e cadência diária de execução."
             >
               <ExecutionPlanPanel
                 theory10020Result={theory10020Result}
@@ -4842,7 +4842,7 @@ function handleUndoGoalFromTop() {
                 />
 
                 <FunnelStageCard
-                  label="Ganho"
+                  label="Venda"
                   value={metrics?.counts_by_status.ganho ?? '—'}
                   accent="#22c55e"
                 />
@@ -4859,7 +4859,7 @@ function handleUndoGoalFromTop() {
             {groupConversionLoading ? (
               <Section
                 title="Conversão por Grupo"
-                description="Carregando a conversão dos grupos de leads no período selecionado."
+                description="Carregando a conversão dos grupos de oportunidades no período selecionado."
               >
                 <div
                   style={{
@@ -4877,14 +4877,14 @@ function handleUndoGoalFromTop() {
             ) : groupConversion.length > 0 ? (
               <Section
                 title="Conversão por Grupo"
-                description="Leitura compacta da eficiência dos grupos de leads no período selecionado."
+                description="Leitura compacta da eficiência dos grupos de oportunidades no período selecionado."
               >
                 <GroupConversionList rows={groupConversion} />
               </Section>
             ) : (
               <Section
                 title="Conversão por Grupo"
-                description="Leitura compacta da eficiência dos grupos de leads no período selecionado."
+                description="Leitura compacta da eficiência dos grupos de oportunidades no período selecionado."
               >
                 <div
                   style={{
@@ -4961,7 +4961,7 @@ function handleUndoGoalFromTop() {
             {distribution && !distributionLoading ? (
               <Section
                 title="Calendário Diário"
-                description="Meta de leads e ganhos por dia de execução. Clique em uma linha para ver o motivo da distribuição."
+                description="Meta de oportunidades e vendas por dia de execução. Clique em uma linha para ver o motivo da distribuição."
               >
                 <SimulatorDailyDistributionTable
                   distribution={distribution}
