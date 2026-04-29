@@ -4323,14 +4323,12 @@ function handleUndoGoalFromTop() {
       const workedCount = metrics.worked_count ?? 0
   
       const neededWins = Math.max(0, theory10020Result.vendas_necessarias)
-      const remainingWins = Math.max(0, neededWins - currentWins)
-  
-      const neededWorkedCycles = Math.ceil(neededWins / safeRate)
-      const remainingWorkedCycles = Math.ceil(remainingWins / safeRate)
-      const dailyWorkedRemaining =
-        remainingBusinessDays > 0
-          ? Math.ceil(remainingWorkedCycles / remainingBusinessDays)
-          : remainingWorkedCycles
+      const remainingWins = Math.max(0, theory10020Result.vendas_restantes)
+
+      const neededWorkedCycles = Math.max(0, theory10020Result.ciclos_trabalhados_necessarios)
+      const remainingWorkedCycles = Math.max(0, theory10020Result.ciclos_restantes)
+      const dailyWorkedRemaining = Math.max(0, theory10020Result.ciclos_restantes_por_dia)
+      const dailyWorkedNeeded = Math.max(0, theory10020Result.ciclos_por_dia)
   
       const currentRate = workedCount > 0 ? currentWins / workedCount : 0
   
@@ -4339,11 +4337,11 @@ function handleUndoGoalFromTop() {
         remaining_wins: remainingWins,
         needed_worked_cycles: neededWorkedCycles,
         remaining_worked_cycles: remainingWorkedCycles,
-        daily_worked_needed: neededWorkedCycles,
+        daily_worked_needed: dailyWorkedNeeded,
         daily_worked_remaining: dailyWorkedRemaining,
         simulation_15pct: Math.ceil(neededWins / 0.15),
         simulation_25pct: Math.ceil(neededWins / 0.25),
-        progress_pct: neededWins > 0 ? currentWins / neededWins : 0,
+        progress_pct: theory10020Result.progress_pct,
         on_track: currentRate >= safeRate,
       }
     }, [
@@ -4352,7 +4350,6 @@ function handleUndoGoalFromTop() {
       metrics,
       result,
       taxaUsadaNoCalculo,
-      remainingBusinessDays,
     ])
 
     useEffect(() => {
