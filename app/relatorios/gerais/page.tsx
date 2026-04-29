@@ -466,8 +466,6 @@ export default async function RelatoriosGeraisPage() {
   const faturNecessarioDia = diasUteisRest > 0 ? gap / diasUteisRest : gap
 
   const vendasNecessarias = ticketParaCalc > 0 ? Math.ceil(metaVal / ticketParaCalc) : 0
-  const ciclosNecessarios = taxaConversao > 0 ? Math.ceil(vendasNecessarias / taxaConversao) : 0
-  const ciclosPorDia = diasUteisTot > 0 ? Math.ceil(ciclosNecessarios / diasUteisTot) : 0
 
   const vendasRestantes = ticketParaCalc > 0 ? Math.ceil(gap / ticketParaCalc) : 0
   const ciclosRestantes = taxaConversao > 0 ? Math.ceil(vendasRestantes / taxaConversao) : 0
@@ -683,36 +681,40 @@ export default async function RelatoriosGeraisPage() {
                 </div>
               </div>
 
-              {/* Card: Taxa de conversão */}
+              {/* Card: Taxa usada no plano */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Taxa de conversão
+                  Taxa usada no plano
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Usada no relatório</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Planejada/manual</span>
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{(taxaConversao * 100).toFixed(0)}%</b>
                 </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Real observada</span>
+                  <b style={{ fontSize: 13, color: workedCount < 30 ? DS.yellow : DS.textPrimary }}>{(taxaReal * 100).toFixed(1)}%</b>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Real (vendas/oportunidades)</span>
-                  <b style={{ fontSize: 13, color: taxaReal >= taxaConversao ? DS.green : DS.yellow }}>{(taxaReal * 100).toFixed(1)}%</b>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Amostra</span>
+                  <b style={{ fontSize: 13, color: workedCount < 30 ? DS.yellow : DS.textPrimary }}>{workedCount} oportunidades</b>
                 </div>
               </div>
 
-              {/* Card: Vendas */}
+              {/* Card: Plano de vendas */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Vendas
+                  Plano de vendas
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Necessárias no mês</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Meta derivada</span>
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{vendasNecessarias}</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Realizadas</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Registradas no funil</span>
                   <b style={{ fontSize: 13, color: DS.textPrimary }}>{currentWins}</b>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Faltam</span>
+                  <span style={{ fontSize: 11, color: DS.textSecondary }}>Restantes pelo gap</span>
                   <b style={{ fontSize: 13, color: vendasRestantes > 0 ? DS.yellow : DS.green }}>{vendasRestantes}</b>
                 </div>
               </div>
