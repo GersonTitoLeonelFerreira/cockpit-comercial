@@ -14,29 +14,30 @@ type LeadStatus =
   | 'cancelado'
   | string
 
-type SalesCycle = {
-  id: string
-  company_id: string
-  lead_id: string | null
-  owner_user_id: string | null
-  status: LeadStatus | null
-  previous_status: LeadStatus | null
-  stage_entered_at: string | null
-  next_action: string | null
-  next_action_date: string | null
-  current_group_id: string | null
-  created_at: string | null
-  updated_at: string | null
-  closed_at: string | null
-  won_at: string | null
-  lost_at: string | null
-  won_owner_user_id: string | null
-  lost_owner_user_id: string | null
-  lost_reason: string | null
-  won_total: number | null
-  paused_at: string | null
-  canceled_at: string | null
-}
+  type SalesCycle = {
+    id: string
+    company_id: string
+    lead_id: string | null
+    owner_user_id: string | null
+    status: LeadStatus | null
+    previous_status: LeadStatus | null
+    stage_entered_at: string | null
+    next_action: string | null
+    next_action_date: string | null
+    current_group_id: string | null
+    created_at: string | null
+    updated_at: string | null
+    closed_at: string | null
+    won_at: string | null
+    lost_at: string | null
+    won_owner_user_id: string | null
+    lost_owner_user_id: string | null
+    lost_reason: string | null
+    won_total: number | null
+    paused_at: string | null
+    canceled_at: string | null
+    leads?: Lead | null
+  }
 
 type Lead = {
   id: string
@@ -434,7 +435,13 @@ export default function DashboardPage() {
           lost_reason,
           won_total,
           paused_at,
-          canceled_at
+          canceled_at,
+          leads:lead_id (
+            id,
+            name,
+            phone,
+            email
+          )
         `)
         .eq('company_id', profile.company_id)
         .order('created_at', { ascending: false })
@@ -452,9 +459,12 @@ export default function DashboardPage() {
 
       const cycles = (cyclesData || []) as SalesCycle[]
 
-      const leadIds = Array.from(
-        new Set(cycles.map((cycle) => cycle.lead_id).filter(Boolean))
-      ) as string[]
+      const leads = Object.fromEntries(
+        cycles
+          .map((cycle) => cycle.leads)
+          .filter(Boolean)
+          .map((lead) => [lead!.id, lead!])
+      )
 
       const ownerIds = Array.from(
         new Set(
@@ -472,24 +482,8 @@ export default function DashboardPage() {
         new Set(cycles.map((cycle) => cycle.current_group_id).filter(Boolean))
       ) as string[]
 
-      let leads: Record<string, Lead> = {}
       let owners: Record<string, Profile> = {}
       let groups: Record<string, LeadGroup> = {}
-
-      if (leadIds.length > 0) {
-        const { data: leadsData, error: leadsError } = await supabase
-          .from('leads')
-          .select('id, name, phone, email')
-          .in('id', leadIds)
-
-        if (leadsError) {
-          throw new Error(`Erro ao carregar leads reais: ${leadsError.message}`)
-        }
-
-        leads = Object.fromEntries(
-          ((leadsData || []) as Lead[]).map((lead) => [lead.id, lead])
-        )
-      }
 
       if (ownerIds.length > 0) {
         const { data: ownersData, error: ownersError } = await supabase
