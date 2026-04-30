@@ -17,6 +17,31 @@ import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 /** ID de ação — novo formato snake_case com prefixo de etapa, ou IDs legados */
 export type QuickActionType = string
 
+type QuickActionChannel = 'whatsapp' | 'copy'
+
+type QuickActionMetadata = {
+  source: string
+  action_id: string
+  detail: string
+  channel: QuickActionChannel
+  suggested_next_status: string | null
+}
+
+type CycleEventInsertPayload = {
+  company_id: string
+  cycle_id: string
+  event_type: string
+  created_by: string
+  metadata: QuickActionMetadata
+  occurred_at: string
+}
+
+type QuickActionSupabaseClient = {
+  from: (table: 'cycle_events') => {
+    insert: (payload: CycleEventInsertPayload) => PromiseLike<unknown>
+  }
+}
+
 // ============================================================================
 // getActionsForStatus
 // ============================================================================
@@ -38,13 +63,13 @@ export function getActionsForStatus(status: string): { id: string; label: string
 // ============================================================================
 
 export async function logQuickAction(
-  supabase: any,
+  supabase: QuickActionSupabaseClient,
   companyId: string,
   cycleId: string,
   userId: string,
   eventType: string,
   detail: string = '',
-  channel: 'whatsapp' | 'copy' = 'copy'
+  channel: QuickActionChannel = 'copy'
 ) {
   try {
     // Special win/loss actions are not in the catalog
@@ -69,7 +94,7 @@ export async function logQuickAction(
       occurred_at: new Date().toISOString(),
     })
     return suggestedNextStatus
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error(`Erro ao registrar ação rápida (cycleId=${cycleId}):`, e)
     return null
   }
@@ -112,34 +137,59 @@ export function QuickActionModal({
 
   const getActionStyle = (action: { id: string; label: string }, isSelected: boolean) => {
     const base = {
-      padding: '8px 10px',
-      borderRadius: 6,
+      minHeight: 42,
+      padding: '10px 12px',
+      borderRadius: 12,
       cursor: 'pointer',
-      fontSize: 10,
-      fontWeight: 700,
-      transition: 'all 200ms',
+      fontSize: 11,
+      fontWeight: 800,
+      letterSpacing: '-0.01em',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition:
+        'border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease, color 180ms ease',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
     }
+
     if (action.id === 'quick_closed_won') {
       return {
         ...base,
-        border: isSelected ? '1px solid #10b981' : '1px solid #064e3b',
-        background: isSelected ? '#10b981' : '#052e16',
-        color: isSelected ? '#000' : '#6ee7b7',
+        border: isSelected ? '1px solid rgba(16,185,129,0.85)' : '1px solid rgba(16,185,129,0.22)',
+        background: isSelected
+          ? 'linear-gradient(135deg, rgba(16,185,129,0.95), rgba(5,150,105,0.85))'
+          : 'rgba(6,78,59,0.22)',
+        color: isSelected ? '#02130d' : '#86efac',
+        boxShadow: isSelected
+          ? '0 14px 32px rgba(16,185,129,0.18), inset 0 1px 0 rgba(255,255,255,0.20)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.04)',
       }
     }
+
     if (action.id === 'quick_closed_lost') {
       return {
         ...base,
-        border: isSelected ? '1px solid #ef4444' : '1px solid #7f1d1d',
-        background: isSelected ? '#ef4444' : '#2d0a0a',
+        border: isSelected ? '1px solid rgba(239,68,68,0.90)' : '1px solid rgba(239,68,68,0.22)',
+        background: isSelected
+          ? 'linear-gradient(135deg, rgba(239,68,68,0.95), rgba(185,28,28,0.85))'
+          : 'rgba(127,29,29,0.22)',
         color: isSelected ? '#fff' : '#fca5a5',
+        boxShadow: isSelected
+          ? '0 14px 32px rgba(239,68,68,0.16), inset 0 1px 0 rgba(255,255,255,0.18)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.04)',
       }
     }
+
     return {
       ...base,
-      border: isSelected ? '1px solid #10b981' : '1px solid #2a2a2a',
-      background: isSelected ? '#10b981' : '#222',
-      color: isSelected ? '#000' : 'white',
+      border: isSelected ? '1px solid rgba(59,130,246,0.90)' : '1px solid rgba(148,163,184,0.14)',
+      background: isSelected
+        ? 'linear-gradient(135deg, rgba(37,99,235,0.95), rgba(29,78,216,0.82))'
+        : 'linear-gradient(180deg, rgba(21,23,42,0.95), rgba(15,23,42,0.88))',
+      color: isSelected ? '#ffffff' : '#e5e7eb',
+      boxShadow: isSelected
+        ? '0 14px 32px rgba(37,99,235,0.20), inset 0 1px 0 rgba(255,255,255,0.16)'
+        : 'inset 0 1px 0 rgba(255,255,255,0.04)',
     }
   }
 
@@ -153,104 +203,243 @@ export function QuickActionModal({
         left: 0,
         right: 0,
         bottom: 0,
-        background: 'rgba(0,0,0,0.7)',
+        background:
+          'radial-gradient(circle at 50% 35%, rgba(37,99,235,0.14), transparent 32%), rgba(3,7,18,0.78)',
+        backdropFilter: 'blur(10px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 99999,
+        padding: 18,
       }}
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         style={{
-          background: '#111',
-          border: '1px solid #333',
-          borderRadius: 12,
-          padding: 20,
-          width: '90%',
-          maxWidth: 400,
-          color: 'white',
+          width: '100%',
+          maxWidth: 440,
+          color: '#f8fafc',
+          borderRadius: 22,
+          border: '1px solid rgba(148,163,184,0.16)',
+          background:
+            'linear-gradient(180deg, rgba(17,19,24,0.98), rgba(9,11,15,0.98))',
+          boxShadow:
+            '0 28px 80px rgba(0,0,0,0.62), 0 0 0 1px rgba(255,255,255,0.03), inset 0 1px 0 rgba(255,255,255,0.05)',
+          overflow: 'hidden',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Registrar Contato</div>
-        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 16, color: '#bfdbfe' }}>
-          Lead: <strong>{leadName}</strong>
-          {stageLabel && (
-            <span style={{ marginLeft: 8, color: '#a78bfa' }}>· Etapa: {stageLabel}</span>
-          )}
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 8 }}>Ação *</label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {actions.map((action) => (
-              <button
-                key={action.id}
-                onClick={() => setSelectedAction(action.id)}
-                style={getActionStyle(action, selectedAction === action.id)}
+        <div
+          style={{
+            padding: '20px 20px 16px',
+            borderBottom: '1px solid rgba(148,163,184,0.10)',
+            background:
+              'linear-gradient(180deg, rgba(15,23,42,0.72), rgba(15,23,42,0.18))',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 900,
+              letterSpacing: '0.16em',
+              color: '#60a5fa',
+              marginBottom: 8,
+            }}
+          >
+            AÇÃO RÁPIDA
+          </div>
+
+          <div
+            style={{
+              fontSize: 18,
+              fontWeight: 950,
+              letterSpacing: '-0.03em',
+              color: '#f8fafc',
+              marginBottom: 12,
+            }}
+          >
+            Registrar Contato
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 11,
+              color: '#94a3b8',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                borderRadius: 999,
+                padding: '7px 10px',
+                border: '1px solid rgba(59,130,246,0.18)',
+                background: 'rgba(37,99,235,0.10)',
+                color: '#bfdbfe',
+                maxWidth: '100%',
+              }}
+            >
+              Lead:
+              <strong
+                style={{
+                  color: '#dbeafe',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
               >
-                {action.label}
-              </button>
-            ))}
+                {leadName}
+              </strong>
+            </span>
+
+            {stageLabel && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  borderRadius: 999,
+                  padding: '7px 10px',
+                  border: '1px solid rgba(168,85,247,0.18)',
+                  background: 'rgba(88,28,135,0.16)',
+                  color: '#c4b5fd',
+                }}
+              >
+                Etapa: {stageLabel}
+              </span>
+            )}
           </div>
         </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 900, display: 'block', marginBottom: 6 }}>Detalhes (opcional)</label>
-          <textarea
-            value={detail}
-            onChange={(e) => setDetail(e.target.value)}
-            placeholder="Adicione notas..."
+
+        <div style={{ padding: 20 }}>
+          <div style={{ marginBottom: 18 }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 900,
+                display: 'block',
+                marginBottom: 10,
+                color: '#e5e7eb',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Ação *
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {actions.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => setSelectedAction(action.id)}
+                  style={getActionStyle(action, selectedAction === action.id)}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 18 }}>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 900,
+                display: 'block',
+                marginBottom: 8,
+                color: '#e5e7eb',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Detalhes
+              <span style={{ color: '#64748b', fontWeight: 800 }}> (opcional)</span>
+            </label>
+
+            <textarea
+              value={detail}
+              onChange={(e) => setDetail(e.target.value)}
+              placeholder="Adicione notas sobre o contato..."
+              style={{
+                width: '100%',
+                minHeight: 82,
+                padding: '12px 13px',
+                borderRadius: 14,
+                border: '1px solid rgba(148,163,184,0.14)',
+                background: 'linear-gradient(180deg, rgba(15,23,42,0.82), rgba(15,23,42,0.64))',
+                color: '#f8fafc',
+                fontSize: 12,
+                lineHeight: 1.5,
+                fontFamily: 'system-ui',
+                resize: 'vertical',
+                outline: 'none',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+              }}
+            />
+          </div>
+
+          <div
             style={{
-              width: '100%',
-              minHeight: 60,
-              padding: '8px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: '#222',
-              color: 'white',
-              fontSize: 11,
-              fontFamily: 'system-ui',
-              resize: 'vertical',
-            }}
-          />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={onClose}
-            disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: '8px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: 'transparent',
-              color: 'white',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              fontWeight: 700,
-              fontSize: 11,
-              opacity: isLoading ? 0.5 : 1,
+              display: 'flex',
+              gap: 10,
+              paddingTop: 2,
             }}
           >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!selectedAction || isLoading}
-            style={{
-              flex: 1,
-              padding: '8px',
-              borderRadius: 6,
-              border: 'none',
-              background: selectedAction && !isLoading ? '#10b981' : '#1f2937',
-              color: 'white',
-              cursor: selectedAction && !isLoading ? 'pointer' : 'not-allowed',
-              fontWeight: 700,
-              fontSize: 11,
-              opacity: selectedAction && !isLoading ? 1 : 0.5,
-            }}
-          >
-            {isLoading ? 'Salvando…' : 'Salvar'}
-          </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isLoading}
+              style={{
+                flex: 1,
+                minHeight: 42,
+                padding: '10px 12px',
+                borderRadius: 13,
+                border: '1px solid rgba(148,163,184,0.16)',
+                background: 'rgba(15,23,42,0.48)',
+                color: '#e5e7eb',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                fontWeight: 850,
+                fontSize: 12,
+                opacity: isLoading ? 0.5 : 1,
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+              }}
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!selectedAction || isLoading}
+              style={{
+                flex: 1,
+                minHeight: 42,
+                padding: '10px 12px',
+                borderRadius: 13,
+                border: selectedAction && !isLoading
+                  ? '1px solid rgba(96,165,250,0.65)'
+                  : '1px solid rgba(148,163,184,0.10)',
+                background: selectedAction && !isLoading
+                  ? 'linear-gradient(135deg, rgba(37,99,235,0.98), rgba(29,78,216,0.86))'
+                  : 'rgba(30,41,59,0.55)',
+                color: selectedAction && !isLoading ? '#ffffff' : '#94a3b8',
+                cursor: selectedAction && !isLoading ? 'pointer' : 'not-allowed',
+                fontWeight: 900,
+                fontSize: 12,
+                opacity: selectedAction && !isLoading ? 1 : 0.72,
+                boxShadow: selectedAction && !isLoading
+                  ? '0 16px 34px rgba(37,99,235,0.24), inset 0 1px 0 rgba(255,255,255,0.16)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.03)',
+              }}
+            >
+              {isLoading ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
