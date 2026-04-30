@@ -2,9 +2,6 @@
 
 import * as React from 'react'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
-import CreateLeadModal from './components/CreateLeadModal'
-import ImportExcelDialog from './components/ImportExcelDialog'
-import DeleteLeadsDialog from './components/DeleteLeadsDialog'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
 import MetaSummaryHeader, { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
@@ -72,7 +69,6 @@ export default function LeadsClient({
   void userLabel
 
   const isAdmin = role === 'admin'
-  const [showCreateLeadModal, setShowCreateLeadModal] = React.useState(false)
 
   const [period, setPeriod] = React.useState<{ start: string; end: string } | null>(null)
 
@@ -90,11 +86,6 @@ export default function LeadsClient({
   const [revenueBDRemaining, setRevenueBDRemaining] = React.useState<number>(0)
   const [revenueLoading, setRevenueLoading] = React.useState(false)
   const [revenueError, setRevenueError] = React.useState<string | null>(null)
-  const [refreshVersion, setRefreshVersion] = React.useState(0)
-
-  const handleRefresh = React.useCallback(() => {
-    setRefreshVersion((v) => v + 1)
-  }, [])
 
   React.useEffect(() => {
     async function loadCompetency() {
@@ -147,7 +138,7 @@ export default function LeadsClient({
     }
 
     void loadGoals()
-  }, [companyId, userId, period, refreshVersion])
+  }, [companyId, userId, period])
 
   React.useEffect(() => {
     if (!period) return
@@ -189,7 +180,7 @@ export default function LeadsClient({
     }
 
     void loadRevenueKpi()
-  }, [companyId, period, refreshVersion])
+  }, [companyId, period])
 
   return (
     <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
@@ -249,126 +240,15 @@ export default function LeadsClient({
         )}
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          marginBottom: 18,
-          paddingBottom: 18,
-          borderBottom: '1px solid #1a1d2e',
-        }}
-      >
-        <button
-          onClick={() => setShowCreateLeadModal(true)}
-          style={{
-            padding: '9px 16px',
-            borderRadius: 7,
-            border: '1px solid rgba(34,197,94,0.3)',
-            background: 'rgba(22,163,74,0.12)',
-            color: '#86efac',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 700,
-            transition: 'all 200ms ease',
-          }}
-        >
-          + Criar Lead
-        </button>
-
-        {isAdmin && (
-          <ImportExcelDialog
-            userId={userId}
-            companyId={companyId}
-            onImported={handleRefresh}
-            trigger={
-              <button
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: 7,
-                  border: '1px solid #1a1d2e',
-                  background: '#111318',
-                  color: '#8fa3bc',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  transition: 'all 200ms ease',
-                }}
-              >
-                Importar Excel
-              </button>
-            }
-          />
-        )}
-
-        {isAdmin && (
-          <DeleteLeadsDialog
-            companyId={companyId}
-            isAdmin={isAdmin}
-            onDeleted={handleRefresh}
-            trigger={
-              <button
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: 7,
-                  border: '1px solid rgba(239,68,68,0.35)',
-                  background: 'rgba(239,68,68,0.08)',
-                  color: '#fca5a5',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  transition: 'all 200ms ease',
-                }}
-              >
-                Deletar Leads
-              </button>
-            }
-          />
-        )}
-
-        <button
-          onClick={handleRefresh}
-          style={{
-            padding: '9px 16px',
-            borderRadius: 7,
-            border: '1px solid #1a1d2e',
-            background: '#111318',
-            color: '#546070',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
-            marginLeft: 'auto',
-            transition: 'all 200ms ease',
-          }}
-        >
-          ↻ Atualizar
-        </button>
-      </div>
 
       <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
       <SalesCyclesKanban
-  key={`kanban-${refreshVersion}`}
-  userId={userId}
-  companyId={companyId}
-  isAdmin={isAdmin}
-  defaultOwnerId={defaultOwnerId ?? undefined}
-/>
+        userId={userId}
+        companyId={companyId}
+        isAdmin={isAdmin}
+        defaultOwnerId={defaultOwnerId ?? undefined}
+      />
       </div>
-
-      {showCreateLeadModal && (
-        <CreateLeadModal
-          companyId={companyId}
-          userId={userId}
-          isAdmin={isAdmin}
-          groups={[]}
-          onLeadCreated={() => {
-            setShowCreateLeadModal(false)
-            handleRefresh()
-          }}
-          onClose={() => setShowCreateLeadModal(false)}
-        />
-      )}
     </div>
   )
 }

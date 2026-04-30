@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -98,12 +100,30 @@ type PipelineItem = {
 const STATUSES: Status[] = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
 
 const STATUS_COLORS: Record<Status, string> = {
-  novo: '#3b82f6',
-  contato: '#06b6d4',
-  respondeu: '#eab308',
-  negociacao: '#8b5cf6',
-  ganho: '#22c55e',
-  perdido: '#ef4444',
+  novo: '#1685ff',
+  contato: '#06d6e8',
+  respondeu: '#f5c400',
+  negociacao: '#a855f7',
+  ganho: '#00e889',
+  perdido: '#ff4d5e',
+}
+
+const STATUS_RGB: Record<Status, string> = {
+  novo: '22, 133, 255',
+  contato: '6, 214, 232',
+  respondeu: '245, 196, 0',
+  negociacao: '168, 85, 247',
+  ganho: '0, 232, 137',
+  perdido: '255, 77, 94',
+}
+
+const STATUS_STAGE_META: Record<Status, { index: string; label: string }> = {
+  novo: { index: '01', label: 'Novo' },
+  contato: { index: '02', label: 'Contato' },
+  respondeu: { index: '03', label: 'Agenda' },
+  negociacao: { index: '04', label: 'Negociação' },
+  ganho: { index: '05', label: 'Ganho' },
+  perdido: { index: '06', label: 'Perdido' },
 }
 
 const RETURN_REASONS = [
@@ -226,6 +246,68 @@ function getAgendaBadgeLabel(state: AgendaState, dateStr: string | null): string
   }
 }
 
+function EmptyColumnSkeleton({ status }: { status: Status }) {
+  const rgb = STATUS_RGB[status]
+
+  return (
+    <div style={{ display: 'grid', gap: 14, paddingTop: 4 }}>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          style={{
+            minHeight: 82,
+            borderRadius: 14,
+            border: `1px solid rgba(${rgb},0.10)`,
+            background: `linear-gradient(135deg, rgba(15,23,42,0.78), rgba(15,23,42,0.34))`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 26px rgba(0,0,0,0.22)`,
+            padding: 14,
+            opacity: 0.78,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 13 }}>
+            <div
+              style={{
+                width: 13,
+                height: 13,
+                borderRadius: 4,
+                background: `rgba(${rgb},0.55)`,
+                boxShadow: `0 0 14px rgba(${rgb},0.28)`,
+              }}
+            />
+            <div
+              style={{
+                width: index % 2 === 0 ? 88 : 128,
+                height: 11,
+                borderRadius: 999,
+                background: 'rgba(148,163,184,0.14)',
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 13,
+                height: 13,
+                borderRadius: 4,
+                background: 'rgba(71,85,105,0.35)',
+              }}
+            />
+            <div
+              style={{
+                width: index % 2 === 0 ? 155 : 118,
+                height: 11,
+                borderRadius: 999,
+                background: 'rgba(148,163,184,0.08)',
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function detectSearchType(term: string): 'email' | 'numeric' | 'name' {
   const clean = term.trim()
   if (clean.includes('@')) return 'email'
@@ -260,13 +342,6 @@ function ReturnReasonModal({
 }) {
   const [reason, setReason] = useState('')
   const [details, setDetails] = useState('')
-
-  useEffect(() => {
-    if (isOpen) {
-      setReason('')
-      setDetails('')
-    }
-  }, [isOpen, cycleId])
 
   const isValid = reason && details.trim().length >= 15
 
@@ -1294,29 +1369,33 @@ function VirtualizedStatusColumn({
     return true
   })
 
- const shown = filteredCycles.length
-const total = totalCount ?? shown
-const statusLabel = STATUS_LABELS[status as keyof typeof STATUS_LABELS] ?? status.toUpperCase()
-const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `${statusLabel} (${total})`
+  const shown = filteredCycles.length
+  const total = totalCount ?? shown
+  const stageMeta = STATUS_STAGE_META[status]
+  const statusRgb = STATUS_RGB[status]
 
   return (
     <>
       <div
         style={{
+          position: 'relative',
           minWidth: 300,
           maxWidth: 340,
           flex: '0 0 320px',
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-  ? `linear-gradient(to top, rgba(96,165,250,0.22) 0%, rgba(59,130,246,0.12) 28%, ${DS.panelBg} 100%)`
-  : `linear-gradient(to top, rgba(96,165,250,0.16) 0%, rgba(59,130,246,0.08) 26%, rgba(30,41,59,0.04) 48%, ${DS.panelBg} 100%)`,
-          borderRadius: DS.radiusContainer + 3,
-          border: `1px solid ${DS.border}`,
+            ? `linear-gradient(180deg, rgba(${statusRgb},0.18) 0%, rgba(${statusRgb},0.08) 34%, rgba(9,11,15,0.92) 100%)`
+            : `linear-gradient(180deg, rgba(${statusRgb},0.13) 0%, rgba(${statusRgb},0.045) 30%, rgba(9,11,15,0.94) 100%)`,
+          borderRadius: 18,
+          border: `1px solid rgba(${statusRgb},0.58)`,
           borderTop: `3px solid ${STATUS_COLORS[status]}`,
+          transition: 'background 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease',
           maxHeight: 'calc(100vh - 200px)',
           overflow: 'hidden',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          boxShadow: isDraggingOver
+            ? `0 0 0 1px rgba(${statusRgb},0.16), 0 22px 60px rgba(0,0,0,0.44), 0 0 38px rgba(${statusRgb},0.28)`
+            : `0 0 0 1px rgba(${statusRgb},0.08), 0 18px 46px rgba(0,0,0,0.34), 0 0 28px rgba(${statusRgb},0.14)`,
         }}
         onDragEnter={(e) => {
           e.preventDefault()
@@ -1339,31 +1418,80 @@ const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `$
       >
         <div
           style={{
-            padding: '10px 12px 8px',
-            background: `linear-gradient(to bottom, ${STATUS_COLORS[status]}12, transparent)`,
-            borderBottom: `1px solid ${DS.border}`,
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background: `radial-gradient(circle at 50% 0%, rgba(${statusRgb},0.18), transparent 42%)`,
+            opacity: 0.9,
+          }}
+        />
+        <div
+          style={{
             position: 'sticky',
             top: 0,
             zIndex: 10,
+            padding: '18px 18px 14px',
+            background: `linear-gradient(180deg, rgba(${statusRgb},0.16), rgba(9,11,15,0.18))`,
+            borderBottom: `1px solid rgba(${statusRgb},0.18)`,
+            backdropFilter: 'blur(10px)',
           }}
         >
-          <div
-            style={{
-              fontWeight: 800,
-              fontSize: 11,
-              letterSpacing: '0.1em',
-              color: STATUS_COLORS[status],
-              textTransform: 'uppercase',
-            }}
-          >
-            {headerLabel}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 16,
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: STATUS_COLORS[status],
+                  fontSize: 18,
+                  fontWeight: 900,
+                  letterSpacing: '-0.04em',
+                  background: `rgba(${statusRgb},0.12)`,
+                  border: `1px solid rgba(${statusRgb},0.18)`,
+                  boxShadow: `0 0 24px rgba(${statusRgb},0.12)`,
+                  flexShrink: 0,
+                }}
+              >
+                {stageMeta.index}
+              </div>
+
+              <div
+                style={{
+                  color: DS.textPrimary,
+                  fontSize: 20,
+                  fontWeight: 850,
+                  letterSpacing: '-0.035em',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {stageMeta.label}
+              </div>
+            </div>
+
+            <div
+              style={{
+                color: DS.textSecondary,
+                fontSize: 20,
+                fontWeight: 800,
+                fontVariantNumeric: 'tabular-nums',
+                opacity: 0.88,
+              }}
+            >
+              {shown}
+            </div>
           </div>
+
           <div
             style={{
-              marginTop: 6,
-              height: 2,
-              background: DS.borderSubtle,
-              borderRadius: 2,
+              marginTop: 16,
+              height: 3,
+              background: 'rgba(148,163,184,0.10)',
+              borderRadius: 999,
               overflow: 'hidden',
             }}
           >
@@ -1371,17 +1499,22 @@ const headerLabel = total > shown ? `${statusLabel} (${shown} de ${total})` : `$
               style={{
                 height: '100%',
                 width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
-                background: STATUS_COLORS[status],
+                background: `linear-gradient(90deg, ${STATUS_COLORS[status]}, rgba(${statusRgb},0.35))`,
+                boxShadow: `0 0 18px rgba(${statusRgb},0.35)`,
+                transition: 'width 300ms ease',
               }}
             />
           </div>
         </div>
 
-        <div className="kanban-column-scroll" style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 20px' }}>
+        <div
+          className="kanban-column-scroll"
+          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '14px 14px 22px' }}
+        >
           {filteredCycles.length === 0 ? (
-            <div style={{ color: DS.textMuted, fontSize: 11, textAlign: 'center', paddingTop: 32 }}>Vazio</div>
+            <EmptyColumnSkeleton status={status} />
           ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'grid', gap: 10 }}>
               {filteredCycles.map((item) => (
                 <KanbanCard
                   key={item.id}
@@ -1632,19 +1765,58 @@ export default function SalesCyclesKanban({
 
   const loadGroups = useCallback(async () => {
     if (!companyId) return
+
     try {
+      if (!isAdmin) {
+        const { data, error } = await supabase
+          .from('v_pipeline_items')
+          .select('group_id, lead_groups(name)')
+          .eq('company_id', companyId)
+          .eq('owner_id', userId)
+          .not('group_id', 'is', null)
+
+        if (error) throw error
+
+        const groupMap = new Map<string, LeadGroup>()
+
+        for (const row of (data ?? []) as any[]) {
+          if (!row.group_id) continue
+
+          const rawGroup = Array.isArray(row.lead_groups)
+            ? row.lead_groups[0]
+            : row.lead_groups
+
+          const groupName = rawGroup?.name
+          if (!groupName) continue
+
+          groupMap.set(row.group_id, {
+            id: row.group_id,
+            name: groupName,
+          })
+        }
+
+        setGroups(
+          Array.from(groupMap.values()).sort((a, b) =>
+            a.name.localeCompare(b.name)
+          )
+        )
+        return
+      }
+
       const { data, error } = await supabase
         .from('lead_groups')
         .select('id, name')
         .eq('company_id', companyId)
         .is('archived_at', null)
         .order('name', { ascending: true })
+
       if (error) throw error
+
       setGroups((data ?? []) as LeadGroup[])
     } catch (e) {
       console.error('Erro ao carregar grupos:', e)
     }
-  }, [companyId, supabase])
+  }, [companyId, isAdmin, supabase, userId])
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
@@ -1758,6 +1930,16 @@ export default function SalesCyclesKanban({
   useEffect(() => {
     void Promise.all([loadGroups(), loadSellers(), loadSLARules()])
   }, [loadGroups, loadSellers, loadSLARules])
+
+  useEffect(() => {
+    if (isAdmin || !selectedGroupId) return
+
+    const selectedGroupStillExists = groups.some((group) => group.id === selectedGroupId)
+
+    if (!selectedGroupStillExists) {
+      setSelectedGroupId(null)
+    }
+  }, [groups, isAdmin, selectedGroupId])
 
   useEffect(() => {
     void loadTotals()
@@ -2046,10 +2228,13 @@ export default function SalesCyclesKanban({
   }, [pendingMove, supabase, loadItems, loadTotals, searchTerm, addToast])
 
   const handleDrop = useCallback((cycleId: string, toStatus: Status) => {
-    const fromStatus = Object.entries(items).find(([_, cycles]) => cycles.some((c) => c.id === cycleId))?.[0] as Status | undefined
+    const fromStatus = Object.entries(items).find(([, cycles]) =>
+      cycles.some((cycle) => cycle.id === cycleId)
+    )?.[0] as Status | undefined
+
     if (!fromStatus || fromStatus === toStatus) return
 
-    const cycle = Object.values(items).flat().find((c) => c.id === cycleId) ?? null
+    const cycle = Object.values(items).flat().find((item) => item.id === cycleId) ?? null
 
     if (toStatus === 'ganho') {
       setWinDealCycleId(cycleId)
@@ -2066,9 +2251,6 @@ export default function SalesCyclesKanban({
       return
     }
 
-    // Em vez do StageCheckpointModal antigo, abrimos o painel de Análise de IA
-    // já pré-selecionado com a etapa que o vendedor tentou arrastar. A IA valida
-    // a movimentação e o vendedor pode confirmar, ajustar ou descartar.
     setAiMovePending({ cycleId, fromStatus, toStatus, cycle })
     setAiMoveOpen(true)
   }, [items])
@@ -2164,14 +2346,14 @@ export default function SalesCyclesKanban({
           ))}
         </select>
 
-        <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as any)} style={pillStyle}>
+        <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle}>
           <option value="all">SLA: Todos</option>
           <option value="ok">SLA: OK</option>
           <option value="warn">SLA: Atenção</option>
           <option value="danger">SLA: Estourado</option>
         </select>
 
-        <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as any)} style={pillStyle}>
+        <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle}>
           <option value="all">Agenda: Todos</option>
           <option value="today">Hoje ({todayCount})</option>
           <option value="overdue">Atrasados ({overdueCount})</option>
@@ -2527,7 +2709,8 @@ export default function SalesCyclesKanban({
         </div>
       )}
 
-      <ReturnReasonModal
+<ReturnReasonModal
+        key={returnCycleId ?? 'return-reason-modal'}
         isOpen={returnReasonModalOpen}
         cycleId={returnCycleId}
         cycleName={returnCycleName}
