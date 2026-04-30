@@ -2,6 +2,9 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
+import CreateLeadModal from '../leads/components/CreateLeadModal'
+import ImportExcelDialog from '../leads/components/ImportExcelDialog'
+import DeleteLeadsDialog from '../leads/components/DeleteLeadsDialog'
 
 const DS = {
   contentBg: '#090b0f',
@@ -43,6 +46,8 @@ const RETURN_REASONS = [
   { value: 'outro', label: 'Outro' },
 ]
 
+type SupabaseBrowserClient = ReturnType<typeof supabaseBrowser>
+
 type Profile = {
   id: string
   full_name: string | null
@@ -55,6 +60,10 @@ type LeadGroup = {
   name: string
 }
 
+type LeadGroupRelation = {
+  name?: string | null
+}
+
 type PoolItem = {
   id: string
   lead_id: string
@@ -65,11 +74,25 @@ type PoolItem = {
   owner_id: string | null
   group_id: string | null
   created_at: string
-  lead_groups?: { name?: string | null } | null
+  lead_groups?: LeadGroupRelation | null
   last_return_reason?: string | null
   last_return_details?: string | null
   last_return_at?: string | null
   last_return_by?: string | null
+}
+
+type VPipelinePoolRow = Omit<PoolItem, 'lead_groups'> & {
+  lead_groups?: LeadGroupRelation | LeadGroupRelation[] | null
+}
+
+type CycleEventRow = {
+  cycle_id: string
+  metadata: {
+    reason?: string | null
+    details?: string | null
+  } | null
+  occurred_at: string | null
+  created_by: string | null
 }
 
 type PoolPage = {
@@ -78,8 +101,20 @@ type PoolPage = {
   hasMore: boolean
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
+function normalizeLeadGroupRelation(
+  relation: LeadGroupRelation | LeadGroupRelation[] | null | undefined
+): LeadGroupRelation | null {
+  if (Array.isArray(relation)) return relation[0] ?? null
+  return relation ?? null
+}
+
 async function loadPoolWithOffset(
-  supabase: any,
+  supabase: SupabaseBrowserClient,
   companyId: string,
   selectedGroupId: string | null,
   pageNum: number,
@@ -116,15 +151,13 @@ async function loadPoolWithOffset(
   const { data, error } = await query.range(offset, offset + pageSize - 1)
   if (error) throw error
 
-  const items = ((data ?? []) as PoolItem[]).map((item) => ({
+  const items: PoolItem[] = ((data ?? []) as VPipelinePoolRow[]).map((item) => ({
     ...item,
-    lead_groups: Array.isArray((item as any).lead_groups)
-      ? (item as any).lead_groups[0] ?? null
-      : item.lead_groups ?? null,
+    lead_groups: normalizeLeadGroupRelation(item.lead_groups),
   }))
 
   if (items.length > 0) {
-    const cycleIds = items.map((i) => i.id)
+    const cycleIds = items.map((item) => item.id)
 
     const { data: events, error: eventsErr } = await supabase
       .from('cycle_events')
@@ -136,22 +169,22 @@ async function loadPoolWithOffset(
 
     if (eventsErr) throw eventsErr
 
-    if (events && events.length > 0) {
-      const latestByCycle: Record<string, any> = {}
-      for (const ev of events) {
-        if (!latestByCycle[ev.cycle_id]) {
-          latestByCycle[ev.cycle_id] = ev
-        }
-      }
+    const latestByCycle: Record<string, CycleEventRow> = {}
 
-      for (const item of items) {
-        const ev = latestByCycle[item.id]
-        if (ev) {
-          item.last_return_reason = ev.metadata?.reason ?? null
-          item.last_return_details = ev.metadata?.details ?? null
-          item.last_return_at = ev.occurred_at ?? null
-          item.last_return_by = ev.created_by ?? null
-        }
+    for (const event of (events ?? []) as CycleEventRow[]) {
+      if (!latestByCycle[event.cycle_id]) {
+        latestByCycle[event.cycle_id] = event
+      }
+    }
+
+    for (const item of items) {
+      const event = latestByCycle[item.id]
+
+      if (event) {
+        item.last_return_reason = event.metadata?.reason ?? null
+        item.last_return_details = event.metadata?.details ?? null
+        item.last_return_at = event.occurred_at ?? null
+        item.last_return_by = event.created_by ?? null
       }
     }
   }
@@ -173,7 +206,6 @@ export default function PoolClient({
   userLabel: string
 }) {
   const supabase = React.useMemo(() => supabaseBrowser(), [])
-  void userId
   void userLabel
 
   const [groups, setGroups] = React.useState<LeadGroup[]>([])
@@ -203,7 +235,9 @@ export default function PoolClient({
   const [deletePassword, setDeletePassword] = React.useState('')
   const [deletingLeads, setDeletingLeads] = React.useState(false)
 
-  async function loadGroups() {
+  const [showCreateLeadModal, setShowCreateLeadModal] = React.useState(false)
+
+  const loadGroups = React.useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('lead_groups')
@@ -213,13 +247,14 @@ export default function PoolClient({
         .order('name', { ascending: true })
 
       if (error) throw error
-      setGroups((data ?? []) as LeadGroup[])
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar grupos.')
-    }
-  }
 
-  async function loadPoolAndSellers() {
+      setGroups((data ?? []) as LeadGroup[])
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao carregar grupos.'))
+    }
+  }, [companyId, supabase])
+
+  const loadPoolAndSellers = React.useCallback(async () => {
     setLoading(true)
     setError(null)
 
@@ -240,35 +275,39 @@ export default function PoolClient({
       setPoolCycles(poolPage.items)
       setPoolTotal(poolPage.total)
       setPoolPageNum(1)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar pool.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao carregar pool.'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [companyId, selectedGroupId, supabase])
 
-  async function loadPoolPage(pageNum: number) {
-    setPoolLoading(true)
-    setError(null)
+  const loadPoolPage = React.useCallback(
+    async (pageNum: number) => {
+      setPoolLoading(true)
+      setError(null)
 
-    try {
-      const poolPage = await loadPoolWithOffset(supabase, companyId, selectedGroupId, pageNum, PAGE_SIZE)
-      setPoolCycles(poolPage.items)
-      setPoolPageNum(pageNum)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar página.')
-    } finally {
-      setPoolLoading(false)
-    }
-  }
+      try {
+        const poolPage = await loadPoolWithOffset(supabase, companyId, selectedGroupId, pageNum, PAGE_SIZE)
+
+        setPoolCycles(poolPage.items)
+        setPoolPageNum(pageNum)
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Erro ao carregar página.'))
+      } finally {
+        setPoolLoading(false)
+      }
+    },
+    [companyId, selectedGroupId, supabase]
+  )
 
   React.useEffect(() => {
     void loadGroups()
-  }, [companyId])
+  }, [loadGroups])
 
   React.useEffect(() => {
     void loadPoolAndSellers()
-  }, [companyId, selectedGroupId])
+  }, [loadPoolAndSellers])
 
   React.useEffect(() => {
     setSelectedIds(new Set())
@@ -279,28 +318,31 @@ export default function PoolClient({
   }, [selectedGroupId, poolCycles])
 
   function toggleSelect(cycleId: string) {
-    const newSet = new Set(selectedIds)
-    if (newSet.has(cycleId)) {
-      newSet.delete(cycleId)
+    const next = new Set(selectedIds)
+
+    if (next.has(cycleId)) {
+      next.delete(cycleId)
     } else {
-      newSet.add(cycleId)
+      next.add(cycleId)
     }
-    setSelectedIds(newSet)
+
+    setSelectedIds(next)
   }
 
   function toggleSelectAllPool() {
     if (allPoolSelected) {
       setSelectedIds(new Set())
       setAllPoolSelected(false)
-    } else {
-      const allPoolIds = new Set(poolCycles.map((c) => c.id))
-      setSelectedIds(allPoolIds)
-      setAllPoolSelected(true)
+      return
     }
+
+    setSelectedIds(new Set(poolCycles.map((cycle) => cycle.id)))
+    setAllPoolSelected(true)
   }
 
   async function assignCycleToSeller(cycleId: string, sellerId: string) {
     if (!sellerId) return
+
     setAssigningId(cycleId)
     setError(null)
 
@@ -314,8 +356,8 @@ export default function PoolClient({
       if (!data?.success) throw new Error('Operação não confirmada')
 
       await loadPoolAndSellers()
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao atribuir lead.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao atribuir lead.'))
     } finally {
       setAssigningId(null)
     }
@@ -339,15 +381,17 @@ export default function PoolClient({
       if (!data?.success) throw new Error('Operação não confirmada')
 
       await loadPoolAndSellers()
+
       setSelectedIds(new Set())
       setAllPoolSelected(false)
       setBulkSeller('')
       setShowBulkModal(false)
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
+
       window.alert(`${cycleIds.length} leads redistribuídos!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao redistribuir leads.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao redistribuir leads.'))
     } finally {
       setAssigningId(null)
     }
@@ -371,15 +415,17 @@ export default function PoolClient({
       if (!data?.success) throw new Error('Operação não confirmada')
 
       await Promise.all([loadGroups(), loadPoolAndSellers()])
+
       setSelectedIds(new Set())
       setAllPoolSelected(false)
       setBulkGroup('')
       setShowBulkModal(false)
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
+
       window.alert(`${cycleIds.length} leads vinculados ao grupo!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao agrupar leads.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao agrupar leads.'))
     } finally {
       setAssigningId(null)
     }
@@ -393,7 +439,7 @@ export default function PoolClient({
 
     try {
       const cycleIds = Array.from(selectedIds)
-      const sellerIds = sellers.map((s) => s.id)
+      const sellerIds = sellers.map((seller) => seller.id)
 
       const { data, error } = await supabase.rpc('rpc_bulk_assign_round_robin', {
         p_cycle_ids: cycleIds,
@@ -404,14 +450,16 @@ export default function PoolClient({
       if (!data?.success) throw new Error('Operação não confirmada')
 
       await loadPoolAndSellers()
+
       setSelectedIds(new Set())
       setAllPoolSelected(false)
       setShowBulkModal(false)
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
+
       window.alert(`${cycleIds.length} leads distribuídos automaticamente!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao distribuir leads.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao distribuir leads.'))
     } finally {
       setAssigningId(null)
     }
@@ -423,6 +471,7 @@ export default function PoolClient({
     const confirmRecall = window.confirm(
       'Tem certeza? Isso vai recolher todos os leads do grupo de volta para o pool.'
     )
+
     if (!confirmRecall) return
 
     setError(null)
@@ -436,8 +485,8 @@ export default function PoolClient({
 
       window.alert('Grupo recolhido ao pool com sucesso!')
       await loadPoolAndSellers()
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao recolher grupo.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao recolher grupo.'))
     }
   }
 
@@ -447,13 +496,14 @@ export default function PoolClient({
     const confirmDistribute = window.confirm(
       'Distribuir TODOS os leads do grupo entre os vendedores em round-robin?'
     )
+
     if (!confirmDistribute) return
 
     setDistributeGroupLoading(true)
     setError(null)
 
     try {
-      const sellerIds = sellers.map((s) => s.id)
+      const sellerIds = sellers.map((seller) => seller.id)
 
       const { data: allGroupLeads, error: fetchErr } = await supabase
         .from('v_pipeline_items')
@@ -465,7 +515,7 @@ export default function PoolClient({
 
       if (fetchErr) throw fetchErr
 
-      const allLeadIds = (allGroupLeads ?? []).map((lead: any) => lead.id)
+      const allLeadIds = ((allGroupLeads ?? []) as Array<{ id: string }>).map((lead) => lead.id)
 
       if (allLeadIds.length === 0) {
         window.alert('Nenhum lead no pool para este grupo.')
@@ -481,12 +531,13 @@ export default function PoolClient({
       if (!data?.success) throw new Error('Operação não confirmada')
 
       const updatedCount = data.updated_count ?? allLeadIds.length
+
       window.alert(`${updatedCount} leads distribuídos do grupo com sucesso!`)
 
       setSelectedGroupId(null)
       await loadPoolAndSellers()
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao distribuir grupo.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao distribuir grupo.'))
     } finally {
       setDistributeGroupLoading(false)
     }
@@ -498,6 +549,7 @@ export default function PoolClient({
     const confirmDelete = window.confirm(
       'Tem certeza que deseja excluir este grupo? Os leads serão desvinculados do grupo e o grupo será arquivado.'
     )
+
     if (!confirmDelete) return
 
     setError(null)
@@ -511,7 +563,7 @@ export default function PoolClient({
 
       if (fetchErr) throw fetchErr
 
-      const cycleIds = (cyclesInGroup ?? []).map((c: any) => c.id)
+      const cycleIds = ((cyclesInGroup ?? []) as Array<{ id: string }>).map((cycle) => cycle.id)
 
       if (cycleIds.length > 0) {
         const { data, error } = await supabase.rpc('rpc_bulk_set_cycles_group', {
@@ -532,10 +584,12 @@ export default function PoolClient({
       if (archiveErr) throw archiveErr
 
       setSelectedGroupId(null)
+
       await Promise.all([loadGroups(), loadPoolAndSellers()])
+
       window.alert('Grupo excluído com sucesso!')
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao excluir grupo.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao excluir grupo.'))
     }
   }
 
@@ -560,7 +614,7 @@ export default function PoolClient({
         body: JSON.stringify({ password: deletePassword }),
       })
 
-      const verifyJson = await verifyRes.json()
+      const verifyJson = (await verifyRes.json()) as { ok?: boolean; error?: string }
 
       if (!verifyRes.ok || !verifyJson.ok) {
         window.alert(verifyJson?.error ?? 'Senha incorreta.')
@@ -581,6 +635,7 @@ export default function PoolClient({
       const confirmDelete = window.confirm(
         `Tem certeza que deseja excluir ${selectedLeadIds.length} lead(s)? Esta ação não pode ser desfeita.`
       )
+
       if (!confirmDelete) {
         setDeletingLeads(false)
         return
@@ -604,9 +659,10 @@ export default function PoolClient({
       setShowBulkModal(false)
 
       await loadPoolAndSellers()
+
       window.alert(`${selectedLeadIds.length} lead(s) excluído(s) com sucesso!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao excluir leads.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao excluir leads.'))
     } finally {
       setDeletingLeads(false)
     }
@@ -614,9 +670,11 @@ export default function PoolClient({
 
   async function handleCreateGroupInline() {
     const groupName = window.prompt('Nome do novo grupo:')
+
     if (!groupName || !groupName.trim()) return
 
     setCreatingGroup(true)
+    setError(null)
 
     try {
       const { data, error } = await supabase.rpc('rpc_create_lead_group', {
@@ -627,10 +685,12 @@ export default function PoolClient({
       if (!data?.success) throw new Error('Falha ao criar grupo')
 
       await loadGroups()
+
       setBulkGroup(data.id)
+
       window.alert(`Grupo "${data.name}" criado!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao criar grupo.')
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Erro ao criar grupo.'))
     } finally {
       setCreatingGroup(false)
     }
@@ -667,27 +727,108 @@ export default function PoolClient({
           >
             Pool
           </div>
+
           <div style={{ fontSize: 13, color: DS.textSecondary }}>
             Administração, triagem e distribuição de leads
           </div>
         </div>
 
-        <button
-          onClick={() => void loadPoolAndSellers()}
-          style={{
-            padding: '10px 14px',
-            borderRadius: DS.radius,
-            border: `1px solid ${DS.border}`,
-            background: DS.surfaceBg,
-            color: DS.textPrimary,
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 700,
-          }}
-        >
-          Atualizar
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowCreateLeadModal(true)}
+            style={{
+              padding: '10px 14px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.greenBorder}`,
+              background: DS.greenBg,
+              color: DS.greenText,
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 800,
+            }}
+          >
+            + Criar Lead
+          </button>
+
+          <ImportExcelDialog
+            userId={userId}
+            companyId={companyId}
+            onImported={() => {
+              void Promise.all([loadGroups(), loadPoolAndSellers()])
+            }}
+            trigger={
+              <button
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.border}`,
+                  background: DS.surfaceBg,
+                  color: DS.textPrimary,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                Importar Excel
+              </button>
+            }
+          />
+
+          <DeleteLeadsDialog
+            companyId={companyId}
+            isAdmin={true}
+            onDeleted={() => {
+              void Promise.all([loadGroups(), loadPoolAndSellers()])
+            }}
+            trigger={
+              <button
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.redBorder}`,
+                  background: DS.redBg,
+                  color: DS.redText,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                Deletar Leads
+              </button>
+            }
+          />
+
+          <button
+            onClick={() => void loadPoolAndSellers()}
+            style={{
+              padding: '10px 14px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.surfaceBg,
+              color: DS.textPrimary,
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            Atualizar
+          </button>
+        </div>
       </div>
+
+      {showCreateLeadModal && (
+        <CreateLeadModal
+          companyId={companyId}
+          userId={userId}
+          isAdmin={true}
+          groups={groups}
+          onLeadCreated={() => {
+            setShowCreateLeadModal(false)
+            void Promise.all([loadGroups(), loadPoolAndSellers()])
+          }}
+          onClose={() => setShowCreateLeadModal(false)}
+        />
+      )}
 
       <div
         style={{
@@ -705,10 +846,20 @@ export default function PoolClient({
             padding: 14,
           }}
         >
-          <div style={{ fontSize: 11, color: DS.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: DS.textMuted,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+            }}
+          >
             Vendedores
           </div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{sellers.length}</div>
+
+          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
+            {sellers.length}
+          </div>
         </div>
 
         <div
@@ -719,10 +870,20 @@ export default function PoolClient({
             padding: 14,
           }}
         >
-          <div style={{ fontSize: 11, color: DS.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: DS.textMuted,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+            }}
+          >
             Leads no Pool
           </div>
-          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{poolTotal}</div>
+
+          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
+            {poolTotal}
+          </div>
         </div>
       </div>
 
@@ -756,9 +917,9 @@ export default function PoolClient({
           }}
         >
           <option value="">Todos os grupos</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
+          {groups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name}
             </option>
           ))}
         </select>
@@ -893,8 +1054,11 @@ export default function PoolClient({
         >
           <div style={{ fontWeight: 800, fontSize: 14, color: DS.textPrimary }}>
             Pool de Leads
-            {selectedGroupId && <span style={{ color: DS.textMuted, fontWeight: 500 }}> (filtrado)</span>}
+            {selectedGroupId && (
+              <span style={{ color: DS.textMuted, fontWeight: 500 }}> (filtrado)</span>
+            )}
           </div>
+
           <div style={{ fontSize: 12, color: DS.textMuted }}>
             {poolCycles.length} de {poolTotal}
           </div>
@@ -982,15 +1146,20 @@ export default function PoolClient({
                           color: DS.amberText,
                         }}
                       >
-                        <div style={{ fontWeight: 800, marginBottom: 3 }}>Retornado ao Pool</div>
+                        <div style={{ fontWeight: 800, marginBottom: 3 }}>
+                          Retornado ao Pool
+                        </div>
+
                         <div>
                           <strong>Motivo:</strong>{' '}
-                          {RETURN_REASONS.find((r) => r.value === cycle.last_return_reason)?.label ||
+                          {RETURN_REASONS.find((reason) => reason.value === cycle.last_return_reason)?.label ||
                             cycle.last_return_reason}
                         </div>
+
                         <div style={{ marginTop: 3, color: DS.textSecondary }}>
                           {cycle.last_return_details}
                         </div>
+
                         {cycle.last_return_at && (
                           <div style={{ marginTop: 3, fontSize: 9, color: DS.textMuted }}>
                             {new Date(cycle.last_return_at).toLocaleString('pt-BR')}
@@ -1028,9 +1197,10 @@ export default function PoolClient({
                     <option value="">
                       {assigningId === cycle.id ? 'Encaminhando...' : 'Encaminhar para...'}
                     </option>
-                    {sellers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {(s.full_name ?? s.email ?? s.id) + ` (${s.role})`}
+
+                    {sellers.map((seller) => (
+                      <option key={seller.id} value={seller.id}>
+                        {(seller.full_name ?? seller.email ?? seller.id) + ` (${seller.role})`}
                       </option>
                     ))}
                   </select>
@@ -1071,12 +1241,14 @@ export default function PoolClient({
               {'<<'}
             </button>
 
-            {Array.from({ length: totalPages }).map((_, i) => {
-              const pageNum = i + 1
+            {Array.from({ length: totalPages }).map((_, index) => {
+              const pageNum = index + 1
               const isCurrentPage = poolPageNum === pageNum
               const show = pageNum <= 7 || isCurrentPage
 
-              return show ? (
+              if (!show) return null
+
+              return (
                 <button
                   key={pageNum}
                   onClick={() => void loadPoolPage(pageNum)}
@@ -1095,7 +1267,7 @@ export default function PoolClient({
                 >
                   {pageNum}
                 </button>
-              ) : null
+              )
             })}
 
             {totalPages > 7 && <span style={{ color: DS.textMuted, fontSize: 12 }}>…</span>}
@@ -1171,9 +1343,11 @@ export default function PoolClient({
               >
                 Distribuição Automática
               </label>
+
               <p style={{ fontSize: 11, color: DS.textMuted, marginBottom: 12 }}>
                 Distribui {selectedIds.size} leads uniformemente entre {sellers.length} vendedores
               </p>
+
               <button
                 onClick={() => void distributeAutomatically()}
                 disabled={assigningId === 'bulk' || sellers.length === 0}
@@ -1225,9 +1399,9 @@ export default function PoolClient({
                 }}
               >
                 <option value="">Selecione vendedor…</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name ?? s.email} ({s.role})
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.full_name ?? seller.email} ({seller.role})
                   </option>
                 ))}
               </select>
@@ -1283,9 +1457,9 @@ export default function PoolClient({
                   }}
                 >
                   <option value="">Selecione grupo…</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
                     </option>
                   ))}
                 </select>
