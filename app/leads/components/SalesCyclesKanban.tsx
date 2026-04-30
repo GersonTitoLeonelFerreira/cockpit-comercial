@@ -1,6 +1,6 @@
 'use client'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -250,18 +250,18 @@ function EmptyColumnSkeleton({ status }: { status: Status }) {
   const rgb = STATUS_RGB[status]
 
   return (
-    <div style={{ display: 'grid', gap: 14, paddingTop: 4 }}>
+    <div style={{ display: 'grid', gap: 16, paddingTop: 2 }}>
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}
           style={{
             minHeight: 82,
             borderRadius: 14,
-            border: `1px solid rgba(${rgb},0.10)`,
-            background: `linear-gradient(135deg, rgba(15,23,42,0.78), rgba(15,23,42,0.34))`,
-            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 26px rgba(0,0,0,0.22)`,
+            border: `1px solid rgba(${rgb},0.14)`,
+            background: `linear-gradient(135deg, rgba(18,27,44,0.72), rgba(10,16,27,0.40))`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(0,0,0,0.24)`,
             padding: 14,
-            opacity: 0.78,
+            opacity: 0.76,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 13 }}>
@@ -270,16 +270,16 @@ function EmptyColumnSkeleton({ status }: { status: Status }) {
                 width: 13,
                 height: 13,
                 borderRadius: 4,
-                background: `rgba(${rgb},0.55)`,
-                boxShadow: `0 0 14px rgba(${rgb},0.28)`,
+                background: `rgba(${rgb},0.58)`,
+                boxShadow: `0 0 14px rgba(${rgb},0.30)`,
               }}
             />
             <div
               style={{
-                width: index % 2 === 0 ? 88 : 128,
+                width: index % 2 === 0 ? 90 : 126,
                 height: 11,
                 borderRadius: 999,
-                background: 'rgba(148,163,184,0.14)',
+                background: 'rgba(148,163,184,0.15)',
               }}
             />
           </div>
@@ -290,12 +290,12 @@ function EmptyColumnSkeleton({ status }: { status: Status }) {
                 width: 13,
                 height: 13,
                 borderRadius: 4,
-                background: 'rgba(71,85,105,0.35)',
+                background: 'rgba(71,85,105,0.38)',
               }}
             />
             <div
               style={{
-                width: index % 2 === 0 ? 155 : 118,
+                width: index % 2 === 0 ? 158 : 120,
                 height: 11,
                 borderRadius: 999,
                 background: 'rgba(148,163,184,0.08)',
@@ -342,6 +342,7 @@ function ReturnReasonModal({
 }) {
   const [reason, setReason] = useState('')
   const [details, setDetails] = useState('')
+
 
   const isValid = reason && details.trim().length >= 15
 
@@ -1379,23 +1380,24 @@ function VirtualizedStatusColumn({
       <div
         style={{
           position: 'relative',
-          minWidth: 300,
-          maxWidth: 340,
-          flex: '0 0 320px',
+          minWidth: 288,
+          maxWidth: 288,
+          flex: '0 0 288px',
+          height: 'min(520px, calc(100vh - 255px))',
+          minHeight: 500,
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-            ? `linear-gradient(180deg, rgba(${statusRgb},0.18) 0%, rgba(${statusRgb},0.08) 34%, rgba(9,11,15,0.92) 100%)`
-            : `linear-gradient(180deg, rgba(${statusRgb},0.13) 0%, rgba(${statusRgb},0.045) 30%, rgba(9,11,15,0.94) 100%)`,
+            ? `linear-gradient(180deg, rgba(${statusRgb},0.22) 0%, rgba(${statusRgb},0.10) 36%, rgba(6,10,18,0.94) 100%)`
+            : `linear-gradient(180deg, rgba(${statusRgb},0.16) 0%, rgba(${statusRgb},0.055) 34%, rgba(6,10,18,0.96) 100%)`,
           borderRadius: 18,
-          border: `1px solid rgba(${statusRgb},0.58)`,
+          border: `1px solid rgba(${statusRgb},0.62)`,
           borderTop: `3px solid ${STATUS_COLORS[status]}`,
           transition: 'background 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease',
-          maxHeight: 'calc(100vh - 200px)',
           overflow: 'hidden',
           boxShadow: isDraggingOver
-            ? `0 0 0 1px rgba(${statusRgb},0.16), 0 22px 60px rgba(0,0,0,0.44), 0 0 38px rgba(${statusRgb},0.28)`
-            : `0 0 0 1px rgba(${statusRgb},0.08), 0 18px 46px rgba(0,0,0,0.34), 0 0 28px rgba(${statusRgb},0.14)`,
+            ? `0 0 0 1px rgba(${statusRgb},0.18), 0 24px 62px rgba(0,0,0,0.48), 0 0 46px rgba(${statusRgb},0.30)`
+            : `0 0 0 1px rgba(${statusRgb},0.08), 0 18px 46px rgba(0,0,0,0.36), 0 0 30px rgba(${statusRgb},0.16)`,
         }}
         onDragEnter={(e) => {
           e.preventDefault()
@@ -1421,18 +1423,19 @@ function VirtualizedStatusColumn({
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            background: `radial-gradient(circle at 50% 0%, rgba(${statusRgb},0.18), transparent 42%)`,
-            opacity: 0.9,
+            background: `radial-gradient(circle at 50% 0%, rgba(${statusRgb},0.22), transparent 46%)`,
+            opacity: 0.92,
           }}
         />
+
         <div
           style={{
             position: 'sticky',
             top: 0,
             zIndex: 10,
-            padding: '18px 18px 14px',
-            background: `linear-gradient(180deg, rgba(${statusRgb},0.16), rgba(9,11,15,0.18))`,
-            borderBottom: `1px solid rgba(${statusRgb},0.18)`,
+            padding: '24px 20px 16px',
+            background: `linear-gradient(180deg, rgba(${statusRgb},0.17), rgba(9,11,15,0.10))`,
+            borderBottom: `1px solid rgba(${statusRgb},0.20)`,
             backdropFilter: 'blur(10px)',
           }}
         >
@@ -1450,8 +1453,8 @@ function VirtualizedStatusColumn({
                   fontWeight: 900,
                   letterSpacing: '-0.04em',
                   background: `rgba(${statusRgb},0.12)`,
-                  border: `1px solid rgba(${statusRgb},0.18)`,
-                  boxShadow: `0 0 24px rgba(${statusRgb},0.12)`,
+                  border: `1px solid rgba(${statusRgb},0.22)`,
+                  boxShadow: `0 0 24px rgba(${statusRgb},0.16)`,
                   flexShrink: 0,
                 }}
               >
@@ -1488,7 +1491,7 @@ function VirtualizedStatusColumn({
 
           <div
             style={{
-              marginTop: 16,
+              marginTop: 18,
               height: 3,
               background: 'rgba(148,163,184,0.10)',
               borderRadius: 999,
@@ -1500,7 +1503,7 @@ function VirtualizedStatusColumn({
                 height: '100%',
                 width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
                 background: `linear-gradient(90deg, ${STATUS_COLORS[status]}, rgba(${statusRgb},0.35))`,
-                boxShadow: `0 0 18px rgba(${statusRgb},0.35)`,
+                boxShadow: `0 0 18px rgba(${statusRgb},0.38)`,
                 transition: 'width 300ms ease',
               }}
             />
@@ -1509,12 +1512,12 @@ function VirtualizedStatusColumn({
 
         <div
           className="kanban-column-scroll"
-          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '14px 14px 22px' }}
+          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '18px 18px 22px' }}
         >
           {filteredCycles.length === 0 ? (
             <EmptyColumnSkeleton status={status} />
           ) : (
-            <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gap: 12 }}>
               {filteredCycles.map((item) => (
                 <KanbanCard
                   key={item.id}
@@ -1765,58 +1768,19 @@ export default function SalesCyclesKanban({
 
   const loadGroups = useCallback(async () => {
     if (!companyId) return
-
     try {
-      if (!isAdmin) {
-        const { data, error } = await supabase
-          .from('v_pipeline_items')
-          .select('group_id, lead_groups(name)')
-          .eq('company_id', companyId)
-          .eq('owner_id', userId)
-          .not('group_id', 'is', null)
-
-        if (error) throw error
-
-        const groupMap = new Map<string, LeadGroup>()
-
-        for (const row of (data ?? []) as any[]) {
-          if (!row.group_id) continue
-
-          const rawGroup = Array.isArray(row.lead_groups)
-            ? row.lead_groups[0]
-            : row.lead_groups
-
-          const groupName = rawGroup?.name
-          if (!groupName) continue
-
-          groupMap.set(row.group_id, {
-            id: row.group_id,
-            name: groupName,
-          })
-        }
-
-        setGroups(
-          Array.from(groupMap.values()).sort((a, b) =>
-            a.name.localeCompare(b.name)
-          )
-        )
-        return
-      }
-
       const { data, error } = await supabase
         .from('lead_groups')
         .select('id, name')
         .eq('company_id', companyId)
         .is('archived_at', null)
         .order('name', { ascending: true })
-
       if (error) throw error
-
       setGroups((data ?? []) as LeadGroup[])
     } catch (e) {
       console.error('Erro ao carregar grupos:', e)
     }
-  }, [companyId, isAdmin, supabase, userId])
+  }, [companyId, supabase])
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
@@ -1930,16 +1894,6 @@ export default function SalesCyclesKanban({
   useEffect(() => {
     void Promise.all([loadGroups(), loadSellers(), loadSLARules()])
   }, [loadGroups, loadSellers, loadSLARules])
-
-  useEffect(() => {
-    if (isAdmin || !selectedGroupId) return
-
-    const selectedGroupStillExists = groups.some((group) => group.id === selectedGroupId)
-
-    if (!selectedGroupStillExists) {
-      setSelectedGroupId(null)
-    }
-  }, [groups, isAdmin, selectedGroupId])
 
   useEffect(() => {
     void loadTotals()
@@ -2231,7 +2185,6 @@ export default function SalesCyclesKanban({
     const fromStatus = Object.entries(items).find(([, cycles]) =>
       cycles.some((cycle) => cycle.id === cycleId)
     )?.[0] as Status | undefined
-
     if (!fromStatus || fromStatus === toStatus) return
 
     const cycle = Object.values(items).flat().find((item) => item.id === cycleId) ?? null
@@ -2549,14 +2502,45 @@ export default function SalesCyclesKanban({
         </div>
       )}
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{
+          position: 'relative',
+          flex: 1,
+          display: 'flex',
+          overflow: 'hidden',
+          minHeight: 0,
+          background:
+            'radial-gradient(circle at 20% 90%, rgba(0,96,255,0.12), transparent 28%), radial-gradient(circle at 72% 90%, rgba(0,232,137,0.10), transparent 28%), #05070c',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            background:
+              'linear-gradient(180deg, rgba(5,7,12,0.92) 0%, rgba(5,7,12,0.72) 28%, rgba(5,7,12,0.96) 100%)',
+          }}
+        />
+
+        <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
 
           {loading ? (
             <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
           ) : (
-            <div className="kanban-column-scroll" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px 16px', display: 'flex', gap: 12 }}>
+            <div
+              className="kanban-column-scroll"
+              style={{
+                flex: 1,
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                padding: '48px 56px 38px',
+                display: 'flex',
+                gap: 18,
+                alignItems: 'flex-start',
+              }}
+            >
               {STATUSES.map((status) => (
   <VirtualizedStatusColumn
     key={status}
@@ -2709,7 +2693,7 @@ export default function SalesCyclesKanban({
         </div>
       )}
 
-<ReturnReasonModal
+      <ReturnReasonModal
         key={returnCycleId ?? 'return-reason-modal'}
         isOpen={returnReasonModalOpen}
         cycleId={returnCycleId}
