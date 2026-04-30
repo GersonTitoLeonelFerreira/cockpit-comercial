@@ -10,25 +10,25 @@ export const dynamic = 'force-dynamic'
 // DESIGN TOKENS — mesmos do shell/kanban
 // ==============================================================================
 const DS = {
-  contentBg:     '#090b0f',
-  surfaceBg:     '#0d1017',
-  panelBg:       '#101420',
-  cardBg:        '#141722',
-  border:        '#1a1d2e',
-  textPrimary:   '#edf2f7',
+  contentBg: '#090b0f',
+  surfaceBg: '#0d1017',
+  panelBg: '#101420',
+  cardBg: '#141722',
+  border: '#1a1d2e',
+  textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
-  textLabel:     '#6b7fa3',
-  textMuted:     '#4a5568',
-  blueSoft:      '#7eb6ff',
-  blue:          '#3b82f6',
-  red:           '#ef4444',
-  redBg:         '#1c0a0a',
-  redBorder:     '#450a0a',
-  green:         '#22c55e',
-  yellow:        '#fbbf24',
-  radius:        7,
+  textLabel: '#6b7fa3',
+  textMuted: '#4a5568',
+  blueSoft: '#7eb6ff',
+  blue: '#3b82f6',
+  red: '#ef4444',
+  redBg: '#1c0a0a',
+  redBorder: '#450a0a',
+  green: '#22c55e',
+  yellow: '#fbbf24',
+  radius: 7,
   radiusContainer: 9,
-  shadowCard:    '0 2px 12px rgba(0,0,0,0.25)',
+  shadowCard: '0 2px 12px rgba(0,0,0,0.25)',
 }
 
 // ==============================================================================
@@ -38,6 +38,7 @@ function formatSeconds(secs: number) {
   const s = Math.max(0, Math.floor(secs || 0))
   const m = Math.floor(s / 60)
   if (m < 1) return '0min'
+
   const h = Math.floor(m / 60)
   const mm = m % 60
   const d = Math.floor(h / 24)
@@ -45,6 +46,7 @@ function formatSeconds(secs: number) {
 
   if (d > 0) return `${d}d ${hh}h`
   if (h > 0) return mm > 0 ? `${h}h ${mm}min` : `${h}h`
+
   return `${m}min`
 }
 
@@ -131,6 +133,7 @@ function parseDateKey(value: string) {
   if (!key) return null
 
   const date = new Date(`${key}T00:00:00`)
+
   return Number.isNaN(date.getTime()) ? null : date
 }
 
@@ -153,8 +156,18 @@ function formatDateBR(value: string) {
   return `${day}/${month}/${year}`
 }
 
+function normalizeFunnelStatus(value: unknown) {
+  const status = String(value ?? '').trim().toLowerCase()
+
+  if (status === 'fechado') return 'ganho'
+  if (status === 'respondido') return 'respondeu'
+
+  return status
+}
+
 function isDefaultBusinessDay(date: Date) {
   const weekday = date.getDay()
+
   return weekday >= 1 && weekday <= 5
 }
 
@@ -257,6 +270,11 @@ type SlaRiskRow = {
   over_seconds: number
   owner_user_id: string | null
   owner_name: string | null
+}
+
+type FunnelStatusRow = {
+  status: string
+  stage_entered_at: string | null
 }
 
 // ==============================================================================
@@ -396,7 +414,20 @@ export default async function RelatoriosGeraisPage() {
     owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
   }))
 
-  // --- Meta vs Realidade — mesma base do Simulador ---
+  // --- Saúde atual do funil ---
+  const { data: cycleStatusData, error: cycleStatusErr } = await supabase
+    .from('sales_cycles')
+    .select('status, stage_entered_at')
+    .eq('company_id', companyId)
+
+  const cycleStatusRows: FunnelStatusRow[] = (cycleStatusData ?? []).map(
+    (r: Record<string, unknown>) => ({
+      status: normalizeFunnelStatus(r.status),
+      stage_entered_at: typeof r.stage_entered_at === 'string' ? r.stage_entered_at : null,
+    })
+  )
+
+  // --- Referência de meta — contexto secundário do Simulador ---
   const { data: activeCompetencyRaw, error: activeCompetencyErr } = await supabase.rpc(
     'rpc_get_active_competency'
   )
@@ -450,9 +481,9 @@ export default async function RelatoriosGeraisPage() {
 
   const taxaReal = workedCount > 0 ? currentWins / workedCount : 0
 
-  // O relatório precisa bater com a leitura padrão Planejada do Simulador.
-  // Enquanto a escolha Planejada/Real não for persistida no banco, o relatório usa 20%.
-  const taxaConversao = 0.20
+  // O relatório mantém a leitura padrão Planejada do Simulador apenas como contexto.
+  // Enquanto a escolha Planejada/Real não for persistida no banco, a referência usa 20%.
+  const taxaConversao = 0.2
 
   const diasUteisTot = hasActivePeriod ? countBusinessDaysInRange(periodStart, periodEnd) : 22
   const diasUteisPass = hasActivePeriod ? countBusinessDaysUntilToday(periodStart, periodEnd) : 0
@@ -466,13 +497,12 @@ export default async function RelatoriosGeraisPage() {
   const faturNecessarioDia = diasUteisRest > 0 ? gap / diasUteisRest : gap
 
   const vendasNecessarias = ticketParaCalc > 0 ? Math.ceil(metaVal / ticketParaCalc) : 0
-
   const vendasRestantes = ticketParaCalc > 0 ? Math.ceil(gap / ticketParaCalc) : 0
   const ciclosRestantes = taxaConversao > 0 ? Math.ceil(vendasRestantes / taxaConversao) : 0
   const ciclosRestantesPorDia = diasUteisRest > 0 ? Math.ceil(ciclosRestantes / diasUteisRest) : 0
 
   const pacingRatio = metaVal > 0 ? projecao / metaVal : 0
-  const statusMeta = pacingRatio >= 1 ? 'no_ritmo' : pacingRatio >= 0.90 ? 'atencao' : 'acelerar'
+  const statusMeta = pacingRatio >= 1 ? 'no_ritmo' : pacingRatio >= 0.9 ? 'atencao' : 'acelerar'
   const statusColor = statusMeta === 'no_ritmo' ? DS.green : statusMeta === 'atencao' ? DS.yellow : DS.red
   const statusLabelText = statusMeta === 'no_ritmo' ? 'No ritmo' : statusMeta === 'atencao' ? 'Atenção' : 'Acelerar'
 
@@ -481,16 +511,17 @@ export default async function RelatoriosGeraisPage() {
     revenueGoalErr?.message ||
     revenueSummaryErr?.message ||
     cycleMetricsErr?.message ||
+    cycleStatusErr?.message ||
     null
 
-    function toBRL(v: number) {
-      return (Number(v) || 0).toLocaleString('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
-    }
+  function toBRL(v: number) {
+    return (Number(v) || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  }
 
   const slaCount = slaRows.length
   const stageRiskCounts = slaRows.reduce<Record<string, number>>((acc, r) => {
@@ -501,7 +532,7 @@ export default async function RelatoriosGeraisPage() {
   const worstStageByCount =
     Object.entries(stageRiskCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
 
-    const topRiskLeads = slaRows.slice(0, 50)
+  const topRiskLeads = slaRows.slice(0, 50)
 
   const finalStep = convRows.find(
     (r) => r.from_stage === 'negociacao' && r.to_stage === 'fechado'
@@ -557,9 +588,58 @@ export default async function RelatoriosGeraisPage() {
     ? `${slaCount} oportunidades estão acima do SLA. A prioridade é destravar o funil antes de ampliar volume.`
     : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
 
-  // ============================================================================
-  // Render
-  // ============================================================================
+  const funnelStages = [
+    { key: 'novo', label: 'Novo' },
+    { key: 'contato', label: 'Contato' },
+    { key: 'respondeu', label: 'Respondeu' },
+    { key: 'negociacao', label: 'Negociação' },
+    { key: 'ganho', label: 'Ganho' },
+    { key: 'perdido', label: 'Perdido' },
+  ]
+
+  const funnelStatusCounts = cycleStatusRows.reduce<Record<string, number>>((acc, row) => {
+    const status = row.status || 'sem_status'
+    acc[status] = (acc[status] ?? 0) + 1
+    return acc
+  }, {})
+
+  const openFunnelCount = cycleStatusRows.filter(
+    (row) => !['ganho', 'perdido', 'cancelado'].includes(row.status)
+  ).length
+
+  const closedFunnelCount = cycleStatusRows.filter(
+    (row) => ['ganho', 'perdido'].includes(row.status)
+  ).length
+
+  const stageWithMostAccumulation = funnelStages
+    .filter((stage) => !['ganho', 'perdido'].includes(stage.key))
+    .map((stage) => ({
+      ...stage,
+      count: funnelStatusCounts[stage.key] ?? 0,
+    }))
+    .sort((a, b) => b.count - a.count)[0]
+
+  const funnelAccumulationText =
+    stageWithMostAccumulation && stageWithMostAccumulation.count > 0
+      ? `A maior concentração atual está em ${stageWithMostAccumulation.label}, com ${stageWithMostAccumulation.count} oportunidades.`
+      : 'Não há acúmulo relevante nas etapas abertas do funil.'
+
+  const conversionLeak = convRows
+    .filter((row) => row.entered > 0)
+    .slice()
+    .sort((a, b) => a.conversion - b.conversion)[0]
+
+  const conversionLeakText = conversionLeak
+    ? `Maior vazamento identificado em ${conversionLeak.from_stage} → ${conversionLeak.to_stage}, com ${conversionLeak.conversion.toFixed(0)}% de conversão.`
+    : 'Ainda não há volume suficiente para apontar um vazamento de conversão confiável.'
+
+  const lossText = worstLoss
+    ? `Maior perda em ${worstLoss.stage}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
+    : 'Ainda não há perda suficiente para formar diagnóstico confiável.'
+
+  const timeBottleneckText = slowestStage
+    ? `Etapa mais lenta: ${slowestStage.from_stage}, com tempo médio de ${formatSeconds(slowestStage.avg_seconds)} e mediana de ${formatSeconds(slowestStage.median_seconds)}.`
+    : 'Ainda não há dados suficientes para identificar gargalo de tempo.'
 
   return (
     <div
@@ -571,9 +651,6 @@ export default async function RelatoriosGeraisPage() {
         background: DS.contentBg,
       }}
     >
-      {/* ================================================================== */}
-      {/* Header com degradê azul                                            */}
-      {/* ================================================================== */}
       <div
         style={{
           background: `linear-gradient(135deg, ${DS.blue}18 0%, ${DS.contentBg} 60%)`,
@@ -609,19 +686,14 @@ export default async function RelatoriosGeraisPage() {
           Diagnóstico da saúde operacional do funil: SLA, acúmulo por etapa, vazamentos, perdas e gargalos de execução.
         </p>
 
-        {/* Navegação de relatórios — dropdown agrupado */}
         <div style={{ marginTop: 8 }}>
           <ReportNavDropdown currentPath="/relatorios/gerais" />
         </div>
       </div>
 
-      {/* ================================================================== */}
-      {/* Conteúdo principal                                                 */}
-      {/* ================================================================== */}
       <div style={{ maxWidth: 980, margin: '28px auto 0', padding: '0 24px', display: 'grid', gap: 20 }}>
-
         {/* ============================================================== */}
-        {/* DIAGNÓSTICO DA OPERAÇÃO — Auditoria do Funil                    */}
+        {/* DIAGNÓSTICO DA OPERAÇÃO                                         */}
         {/* ============================================================== */}
         <div
           style={{
@@ -748,25 +820,15 @@ export default async function RelatoriosGeraisPage() {
             }}
           >
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
-              <b style={{ color: operationStatusColor }}>Leitura:</b>{' '}
-              {funnelHealthText}
+              <b style={{ color: operationStatusColor }}>Leitura:</b> {funnelHealthText}
             </div>
 
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
-              <b style={{ color: DS.textPrimary }}>Ação recomendada:</b>{' '}
-              {recommendedAction}
+              <b style={{ color: DS.textPrimary }}>Ação recomendada:</b> {recommendedAction}
             </div>
           </div>
 
-          <div
-            style={{
-              marginTop: 12,
-              display: 'flex',
-              gap: 10,
-              flexWrap: 'wrap',
-              alignItems: 'center',
-            }}
-          >
+          <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <Link
               href="/leads?risk=1"
               style={{
@@ -802,7 +864,195 @@ export default async function RelatoriosGeraisPage() {
         </div>
 
         {/* ============================================================== */}
-        {/* META vs REALIDADE — Simulador vs Trabalho Real                  */}
+        {/* SAÚDE DO FUNIL                                                  */}
+        {/* ============================================================== */}
+        <div
+          style={{
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: DS.cardBg,
+            boxShadow: DS.shadowCard,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
+                Saúde do funil
+              </h3>
+              <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5, maxWidth: 680 }}>
+                Mostra a distribuição atual das oportunidades e aponta se existe acúmulo operacional em alguma etapa.
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '6px 11px',
+                borderRadius: 999,
+                background: `${operationStatusColor}12`,
+                border: `1px solid ${operationStatusColor}35`,
+                color: operationStatusColor,
+                fontSize: 11,
+                fontWeight: 900,
+              }}
+            >
+              {openFunnelCount} abertas · {closedFunnelCount} fechadas
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+              gap: 10,
+              marginTop: 16,
+            }}
+          >
+            {funnelStages.map((stage) => {
+              const count = funnelStatusCounts[stage.key] ?? 0
+              const isCriticalStage =
+                stageWithMostAccumulation?.key === stage.key &&
+                count > 0 &&
+                !['ganho', 'perdido'].includes(stage.key)
+              const isClosedPositive = stage.key === 'ganho'
+              const isClosedNegative = stage.key === 'perdido'
+
+              return (
+                <div
+                  key={stage.key}
+                  style={{
+                    padding: 13,
+                    borderRadius: DS.radius,
+                    background: DS.panelBg,
+                    border: `1px solid ${
+                      isCriticalStage
+                        ? `${DS.yellow}55`
+                        : isClosedPositive
+                          ? `${DS.green}35`
+                          : isClosedNegative
+                            ? `${DS.red}35`
+                            : DS.border
+                    }`,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: DS.textLabel,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      marginBottom: 8,
+                    }}
+                  >
+                    {stage.label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 24,
+                      fontWeight: 900,
+                      color: isClosedPositive ? DS.green : isClosedNegative ? DS.red : DS.textPrimary,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {count}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 11, color: DS.textSecondary }}>
+                    {isCriticalStage ? 'maior acúmulo atual' : 'oportunidades'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              padding: 14,
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.panelBg,
+              fontSize: 12,
+              color: DS.textSecondary,
+              lineHeight: 1.6,
+            }}
+          >
+            <b style={{ color: DS.textPrimary }}>Leitura:</b> {funnelAccumulationText}
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* SLA, CONVERSÃO, PERDAS E GARGALOS                               */}
+        {/* ============================================================== */}
+        <div
+          style={{
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: 20,
+            background: DS.cardBg,
+            boxShadow: DS.shadowCard,
+          }}
+        >
+          <div>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
+              Pontos críticos da operação
+            </h3>
+            <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5, maxWidth: 720 }}>
+              Resumo dos principais sinais que explicam onde o funil está perdendo velocidade, eficiência ou previsibilidade.
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 12,
+              marginTop: 16,
+            }}
+          >
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${slaCount > 0 ? `${DS.yellow}40` : DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                SLA e risco
+              </div>
+              <div style={{ fontSize: 22, color: slaCount > 0 ? DS.yellow : DS.green, fontWeight: 900 }}>
+                {slaCount}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
+                {slaCount > 0 ? `Etapa mais crítica: ${worstStageByCount ?? 'não identificada'}.` : 'Sem oportunidades acima do SLA.'}
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                Conversão e vazamento
+              </div>
+              <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
+                {conversionLeakText}
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${worstLoss ? `${DS.red}35` : DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                Perdas
+              </div>
+              <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
+                {lossText}
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${slowestStage ? `${DS.blue}35` : DS.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                Gargalo de tempo
+              </div>
+              <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
+                {timeBottleneckText}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* REFERÊNCIA DE META — contexto secundário do Simulador            */}
         {/* ============================================================== */}
         {metaVal > 0 ? (
           <div
@@ -817,24 +1067,27 @@ export default async function RelatoriosGeraisPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ margin: '0 0 4px 0', fontSize: 13, fontWeight: 800, color: DS.blueSoft, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Meta vs Realidade
+                  Referência de meta
                 </h3>
                 <div style={{ fontSize: 12, color: DS.textSecondary }}>
-                  O Simulador define o plano operacional. Este relatório mostra a execução real registrada.
+                  Resumo financeiro mantido apenas como contexto. O planejamento completo continua no Simulador de Meta.
                 </div>
               </div>
-              <div style={{
-                padding: '6px 14px',
-                borderRadius: DS.radius,
-                background: `${statusColor}18`,
-                border: `1px solid ${statusColor}40`,
-                color: statusColor,
-                fontSize: 13,
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}>
+
+              <div
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: DS.radius,
+                  background: `${statusColor}18`,
+                  border: `1px solid ${statusColor}40`,
+                  color: statusColor,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
                 {statusMeta === 'no_ritmo' ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M20 6L9 17l-5-5" />
@@ -854,20 +1107,25 @@ export default async function RelatoriosGeraisPage() {
               </div>
             </div>
 
-            {/* Barra de progresso */}
             <div style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: DS.textLabel, marginBottom: 4 }}>
-                <span>Faturamento real: <b style={{ color: DS.textPrimary }}>{toBRL(faturReal)}</b></span>
-                <span>Meta: <b style={{ color: DS.textPrimary }}>{toBRL(metaVal)}</b></span>
+                <span>
+                  Faturamento real: <b style={{ color: DS.textPrimary }}>{toBRL(faturReal)}</b>
+                </span>
+                <span>
+                  Meta: <b style={{ color: DS.textPrimary }}>{toBRL(metaVal)}</b>
+                </span>
               </div>
               <div style={{ height: 10, borderRadius: 5, background: DS.panelBg, overflow: 'hidden', position: 'relative' }}>
-                <div style={{
-                  height: '100%',
-                  width: `${Math.min(100, progressPct)}%`,
-                  background: `linear-gradient(90deg, ${DS.blue}, ${statusColor})`,
-                  borderRadius: 5,
-                  transition: 'width 0.5s ease',
-                }} />
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, progressPct)}%`,
+                    background: `linear-gradient(90deg, ${DS.blue}, ${statusColor})`,
+                    borderRadius: 5,
+                    transition: 'width 0.5s ease',
+                  }}
+                />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: DS.textMuted, marginTop: 3 }}>
                 <span>{progressPct.toFixed(1)}% alcançado</span>
@@ -875,9 +1133,7 @@ export default async function RelatoriosGeraisPage() {
               </div>
             </div>
 
-            {/* Grid de comparação: Plano vs Real */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginTop: 20 }}>
-              {/* Card: Faturamento/dia */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                   Faturamento / dia útil
@@ -892,7 +1148,6 @@ export default async function RelatoriosGeraisPage() {
                 </div>
               </div>
 
-              {/* Card: Ritmo de oportunidades */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                   Ritmo de oportunidades
@@ -907,7 +1162,6 @@ export default async function RelatoriosGeraisPage() {
                 </div>
               </div>
 
-              {/* Card: Taxa usada no plano */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                   Taxa usada no plano
@@ -926,7 +1180,6 @@ export default async function RelatoriosGeraisPage() {
                 </div>
               </div>
 
-              {/* Card: Plano de vendas */}
               <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                   Plano de vendas
@@ -946,14 +1199,15 @@ export default async function RelatoriosGeraisPage() {
               </div>
             </div>
 
-            {/* Resumo de urgência */}
-            <div style={{
-              marginTop: 16,
-              padding: 14,
-              borderRadius: DS.radius,
-              background: `${statusColor}08`,
-              border: `1px solid ${statusColor}25`,
-            }}>
+            <div
+              style={{
+                marginTop: 16,
+                padding: 14,
+                borderRadius: DS.radius,
+                background: `${statusColor}08`,
+                border: `1px solid ${statusColor}25`,
+              }}
+            >
               <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.7 }}>
                 <b style={{ color: statusColor }}>Resumo:</b>{' '}
                 Faltam <b style={{ color: DS.textPrimary }}>{toBRL(gap)}</b> para a meta em{' '}
@@ -973,7 +1227,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ marginTop: 10, fontSize: 10, color: DS.textMuted }}>
-            Dados calculados com o mesmo período e a mesma meta financeira do Simulador. Período usado: {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}. Ticket usado no plano: {toBRL(ticketParaCalc)}.
+              Dados calculados com o mesmo período e a mesma meta financeira do Simulador. Período usado: {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}. Ticket usado no plano: {toBRL(ticketParaCalc)}.
               {workedCount < 30 ? ' ⚠️ Amostra pequena — dados ganham precisão com mais movimentações.' : ''}
             </div>
           </div>
@@ -988,17 +1242,19 @@ export default async function RelatoriosGeraisPage() {
             }}
           >
             <h3 style={{ margin: '0 0 6px 0', fontSize: 13, fontWeight: 800, color: DS.blueSoft, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Meta vs Realidade
+              Referência de meta
             </h3>
             <p style={{ margin: 0, fontSize: 12, color: DS.textMuted }}>
               Nenhuma meta cadastrada para este mês. Configure no{' '}
-              <Link href="/dashboard/simulador-meta" style={{ color: DS.blue, textDecoration: 'none' }}>Simulador de Meta</Link>.
+              <Link href="/dashboard/simulador-meta" style={{ color: DS.blue, textDecoration: 'none' }}>
+                Simulador de Meta
+              </Link>.
             </p>
           </div>
         )}
 
         {/* ============================================================== */}
-        {/* SLA / Risco                                                     */}
+        {/* SLA / RISCO — DETALHAMENTO                                      */}
         {/* ============================================================== */}
         <div
           style={{
@@ -1029,7 +1285,7 @@ export default async function RelatoriosGeraisPage() {
                   letterSpacing: '0.06em',
                 }}
               >
-                Oportunidades em risco (acima do SLA)
+                Detalhamento: oportunidades em risco
               </h3>
 
               <div style={{ fontSize: 12, color: DS.textSecondary }}>
@@ -1087,8 +1343,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
-                Aqui aparecem oportunidades em etapas ativas (exceto <b>fechado</b> e <b>perdido</b>)
-                cujo tempo na etapa ultrapassou o SLA padrão.
+                Aqui aparecem oportunidades em etapas ativas cujo tempo na etapa ultrapassou o SLA padrão.
               </p>
 
               {slaRows.length === 0 ? (
@@ -1106,7 +1361,7 @@ export default async function RelatoriosGeraisPage() {
                   >
                     <thead>
                       <tr>
-                      <th style={thStyle}>Lead</th>
+                        <th style={thStyle}>Lead</th>
                         <th style={thStyle}>Consultor</th>
                         <th style={thStyle}>Etapa</th>
                         <th style={thStyle}>Tempo na etapa</th>
@@ -1116,7 +1371,7 @@ export default async function RelatoriosGeraisPage() {
                       </tr>
                     </thead>
                     <tbody>
-                    {topRiskLeads.map((r) => (
+                      {topRiskLeads.map((r) => (
                         <tr key={r.lead_id}>
                           <td style={tdStyle}>
                             <a
@@ -1152,7 +1407,7 @@ export default async function RelatoriosGeraisPage() {
         </div>
 
         {/* ============================================================== */}
-        {/* Conversão                                                       */}
+        {/* CONVERSÃO — DETALHAMENTO                                        */}
         {/* ============================================================== */}
         <div
           style={{
@@ -1182,7 +1437,7 @@ export default async function RelatoriosGeraisPage() {
                 letterSpacing: '0.06em',
               }}
             >
-              Taxa de conversão entre etapas
+              Detalhamento: conversão entre etapas
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
               Conversão final (Negociação → Fechado): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
@@ -1207,7 +1462,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-                Baseado em leads únicos que <b>entraram</b> na etapa e depois <b>progrediram</b> para a próxima.
+                Baseado em oportunidades únicas que entraram na etapa e depois progrediram para a próxima.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1247,7 +1502,7 @@ export default async function RelatoriosGeraisPage() {
         </div>
 
         {/* ============================================================== */}
-        {/* Perdas                                                          */}
+        {/* PERDAS — DETALHAMENTO                                           */}
         {/* ============================================================== */}
         <div
           style={{
@@ -1277,7 +1532,7 @@ export default async function RelatoriosGeraisPage() {
                 letterSpacing: '0.06em',
               }}
             >
-              Perdas por etapa
+              Detalhamento: perdas por etapa
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
               Maior perda:{' '}
@@ -1305,7 +1560,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-                % de leads que saíram da etapa direto para <b>perdido</b>.
+                Percentual de oportunidades que saíram da etapa direto para perdido.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1343,7 +1598,7 @@ export default async function RelatoriosGeraisPage() {
         </div>
 
         {/* ============================================================== */}
-        {/* Gargalo                                                         */}
+        {/* GARGALO — DETALHAMENTO                                          */}
         {/* ============================================================== */}
         <div
           style={{
@@ -1364,7 +1619,7 @@ export default async function RelatoriosGeraisPage() {
               letterSpacing: '0.06em',
             }}
           >
-            Gargalo por etapa
+            Detalhamento: gargalo por etapa
           </h3>
 
           {timeErr ? (
@@ -1385,14 +1640,14 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
-                Baseado em eventos <code style={{ background: DS.panelBg, padding: '1px 5px', borderRadius: 4, fontSize: 11 }}>stage_changed</code> (lead_events).
+                Baseado nos eventos de mudança de etapa registrados no funil.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
                   <thead>
                     <tr>
-                      <th style={thStyle}>Etapa (from)</th>
+                      <th style={thStyle}>Etapa de origem</th>
                       <th style={thStyle}>Movimentos</th>
                       <th style={thStyle}>Tempo médio</th>
                       <th style={thStyle}>Mediana</th>
