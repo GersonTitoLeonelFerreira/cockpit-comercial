@@ -1,134 +1,125 @@
 'use client'
 
-import { useMemo } from 'react'
-import { useKPIsAndAnalytics } from '@/app/hooks/useKPIsAndAnalytics'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 
-type DashboardTone = 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'slate'
+type LeadStatus =
+  | 'novo'
+  | 'contato'
+  | 'respondeu'
+  | 'negociacao'
+  | 'pausado'
+  | 'ganho'
+  | 'perdido'
+  | 'cancelado'
+  | string
 
-type AnyRecord = Record<string, any>
+type SalesCycle = {
+  id: string
+  company_id: string
+  lead_id: string | null
+  owner_user_id: string | null
+  status: LeadStatus | null
+  previous_status: LeadStatus | null
+  stage_entered_at: string | null
+  next_action: string | null
+  next_action_date: string | null
+  current_group_id: string | null
+  created_at: string | null
+  updated_at: string | null
+  closed_at: string | null
+  won_at: string | null
+  lost_at: string | null
+  won_owner_user_id: string | null
+  lost_owner_user_id: string | null
+  lost_reason: string | null
+  won_total: number | null
+  paused_at: string | null
+  canceled_at: string | null
+}
 
-const currencyFormatter = new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-  maximumFractionDigits: 2,
-})
+type Lead = {
+  id: string
+  name: string | null
+  phone: string | null
+  email: string | null
+}
 
-const numberFormatter = new Intl.NumberFormat('pt-BR')
+type Profile = {
+  id: string
+  company_id?: string | null
+  role?: string | null
+  full_name: string | null
+  email: string | null
+}
 
-const percentFormatter = new Intl.NumberFormat('pt-BR', {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-})
+type LeadGroup = {
+  id: string
+  name: string | null
+}
 
-const statusLabels: Record<string, string> = {
+type DashboardState = {
+  profile: Profile | null
+  cycles: SalesCycle[]
+  leads: Record<string, Lead>
+  owners: Record<string, Profile>
+  groups: Record<string, LeadGroup>
+}
+
+const OPEN_STATUSES = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
+const CLOSED_STATUSES = ['ganho', 'perdido', 'cancelado']
+const STATUS_ORDER = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado', 'ganho', 'perdido', 'cancelado']
+
+const STATUS_LABELS: Record<string, string> = {
   novo: 'Novo',
   contato: 'Contato',
   respondeu: 'Respondeu',
   negociacao: 'Negociação',
-  negociação: 'Negociação',
-  fechado: 'Fechado',
+  pausado: 'Pausado',
   ganho: 'Ganho',
-  won: 'Ganho',
   perdido: 'Perdido',
-  lost: 'Perdido',
+  cancelado: 'Cancelado',
 }
 
-const statusOrder = [
-  'novo',
-  'contato',
-  'respondeu',
-  'negociacao',
-  'negociação',
-  'fechado',
-  'ganho',
-  'won',
-  'perdido',
-  'lost',
-]
-
-const toneClasses: Record<
-  DashboardTone,
-  {
-    card: string
-    badge: string
-    value: string
-    border: string
-    soft: string
-    bar: string
-  }
-> = {
-  blue: {
-    card: 'from-blue-500/14 to-blue-500/5',
-    badge: 'bg-blue-500/12 text-blue-200 ring-blue-400/20',
-    value: 'text-blue-100',
-    border: 'border-blue-400/20',
-    soft: 'bg-blue-500/10 text-blue-200',
-    bar: 'bg-blue-400',
-  },
-  green: {
-    card: 'from-emerald-500/14 to-emerald-500/5',
-    badge: 'bg-emerald-500/12 text-emerald-200 ring-emerald-400/20',
-    value: 'text-emerald-100',
-    border: 'border-emerald-400/20',
-    soft: 'bg-emerald-500/10 text-emerald-200',
-    bar: 'bg-emerald-400',
-  },
-  amber: {
-    card: 'from-amber-500/14 to-amber-500/5',
-    badge: 'bg-amber-500/12 text-amber-200 ring-amber-400/20',
-    value: 'text-amber-100',
-    border: 'border-amber-400/20',
-    soft: 'bg-amber-500/10 text-amber-200',
-    bar: 'bg-amber-400',
-  },
-  red: {
-    card: 'from-red-500/14 to-red-500/5',
-    badge: 'bg-red-500/12 text-red-200 ring-red-400/20',
-    value: 'text-red-100',
-    border: 'border-red-400/20',
-    soft: 'bg-red-500/10 text-red-200',
-    bar: 'bg-red-400',
-  },
-  purple: {
-    card: 'from-violet-500/14 to-violet-500/5',
-    badge: 'bg-violet-500/12 text-violet-200 ring-violet-400/20',
-    value: 'text-violet-100',
-    border: 'border-violet-400/20',
-    soft: 'bg-violet-500/10 text-violet-200',
-    bar: 'bg-violet-400',
-  },
-  slate: {
-    card: 'from-slate-500/14 to-slate-500/5',
-    badge: 'bg-slate-500/12 text-slate-200 ring-slate-400/20',
-    value: 'text-slate-100',
-    border: 'border-slate-400/20',
-    soft: 'bg-slate-500/10 text-slate-200',
-    bar: 'bg-slate-400',
-  },
+const STATUS_COLORS: Record<string, string> = {
+  novo: '#3b82f6',
+  contato: '#06b6d4',
+  respondeu: '#f59e0b',
+  negociacao: '#a855f7',
+  pausado: '#64748b',
+  ganho: '#22c55e',
+  perdido: '#ef4444',
+  cancelado: '#94a3b8',
 }
 
-function normalizeStatus(status?: string | null) {
-  return String(status || '').trim().toLowerCase()
+const money = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+})
+
+const number = new Intl.NumberFormat('pt-BR')
+
+function normalizeStatus(status: LeadStatus | null | undefined) {
+  return String(status || 'sem_status').trim().toLowerCase()
 }
 
-function getStatusLabel(status?: string | null) {
-  const normalized = normalizeStatus(status)
-  return statusLabels[normalized] || status || 'Sem status'
-}
-
-function formatCurrency(value: number) {
-  return currencyFormatter.format(Number.isFinite(value) ? value : 0)
+function formatMoney(value: number) {
+  return money.format(Number.isFinite(value) ? value : 0)
 }
 
 function formatNumber(value: number) {
-  return numberFormatter.format(Number.isFinite(value) ? value : 0)
+  return number.format(Number.isFinite(value) ? value : 0)
 }
 
 function formatPercent(value: number) {
-  return `${percentFormatter.format(Number.isFinite(value) ? value : 0)}%`
+  if (!Number.isFinite(value)) return '0,0%'
+  return `${value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`
 }
 
-function formatDate(value?: string | null) {
+function formatDate(value: string | null | undefined) {
   if (!value) return 'Sem data'
 
   const date = new Date(value)
@@ -138,760 +129,1030 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: '2-digit',
-    year: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
 }
 
-function getLeadName(deal: AnyRecord) {
-  return (
-    deal.lead_name ||
-    deal.name ||
-    deal.nome ||
-    deal.razao_social ||
-    deal.company_name ||
-    deal.lead_id ||
-    deal.id ||
-    'Lead sem identificação'
-  )
+function getTime(value: string | null | undefined) {
+  if (!value) return 0
+
+  const time = new Date(value).getTime()
+
+  return Number.isNaN(time) ? 0 : time
 }
 
-function getOwnerLabel(item: AnyRecord) {
-  return (
-    item.owner_email ||
-    item.email ||
-    item.seller_email ||
-    item.user_email ||
-    item.owner_id ||
-    'Sem responsável'
-  )
+function isOpenCycle(cycle: SalesCycle) {
+  return OPEN_STATUSES.includes(normalizeStatus(cycle.status))
 }
 
-function getConversionTone(conversion: number): DashboardTone {
-  if (conversion >= 20) return 'green'
-  if (conversion >= 12) return 'amber'
-  return 'red'
+function isWonCycle(cycle: SalesCycle) {
+  return normalizeStatus(cycle.status) === 'ganho' || Boolean(cycle.won_at)
 }
 
-function getPipelineTone(status: string): DashboardTone {
+function isLostCycle(cycle: SalesCycle) {
+  return normalizeStatus(cycle.status) === 'perdido' || Boolean(cycle.lost_at)
+}
+
+function getStatusLabel(status: LeadStatus | null | undefined) {
   const normalized = normalizeStatus(status)
-
-  if (['ganho', 'fechado', 'won'].includes(normalized)) return 'green'
-  if (['perdido', 'lost'].includes(normalized)) return 'red'
-  if (['negociacao', 'negociação'].includes(normalized)) return 'amber'
-  if (['respondeu'].includes(normalized)) return 'purple'
-  if (['contato'].includes(normalized)) return 'blue'
-
-  return 'slate'
+  return STATUS_LABELS[normalized] || status || 'Sem status'
 }
 
-function MetricCard({
-  label,
+function getLeadLabel(cycle: SalesCycle, leads: Record<string, Lead>) {
+  if (!cycle.lead_id) return 'Lead sem vínculo'
+
+  const lead = leads[cycle.lead_id]
+
+  return lead?.name || lead?.phone || lead?.email || cycle.lead_id
+}
+
+function getOwnerLabel(ownerId: string | null, owners: Record<string, Profile>) {
+  if (!ownerId) return 'Pool'
+
+  const owner = owners[ownerId]
+
+  return owner?.full_name || owner?.email || 'Responsável não identificado'
+}
+
+function Card({
+  title,
   value,
   description,
-  tone,
-  helper,
+  accent = '#3b82f6',
 }: {
-  label: string
+  title: string
   value: string
   description: string
-  tone: DashboardTone
-  helper?: string
+  accent?: string
 }) {
-  const classes = toneClasses[tone]
-
   return (
     <div
-      className={`rounded-2xl border ${classes.border} bg-gradient-to-br ${classes.card} p-5 shadow-[0_18px_50px_rgba(0,0,0,0.22)]`}
+      style={{
+        border: `1px solid ${accent}33`,
+        background: `linear-gradient(135deg, ${accent}1f, rgba(13,15,20,0.96))`,
+        borderRadius: 18,
+        padding: 18,
+        boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
+      }}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            {label}
-          </p>
-          <p className={`mt-3 text-2xl font-semibold tracking-tight ${classes.value}`}>
-            {value}
-          </p>
-        </div>
-
-        {helper ? (
-          <span
-            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${classes.badge}`}
-          >
-            {helper}
-          </span>
-        ) : null}
+      <div
+        style={{
+          fontSize: 11,
+          color: '#64748b',
+          textTransform: 'uppercase',
+          letterSpacing: '0.12em',
+          fontWeight: 800,
+        }}
+      >
+        {title}
       </div>
 
-      <p className="mt-3 text-sm leading-5 text-slate-400">{description}</p>
+      <div
+        style={{
+          marginTop: 10,
+          color: '#f8fafc',
+          fontSize: 26,
+          fontWeight: 850,
+          letterSpacing: '-0.04em',
+        }}
+      >
+        {value}
+      </div>
+
+      <div
+        style={{
+          marginTop: 8,
+          color: '#94a3b8',
+          fontSize: 13,
+          lineHeight: 1.45,
+        }}
+      >
+        {description}
+      </div>
     </div>
   )
 }
 
-function SectionCard({
+function Panel({
   title,
   description,
   children,
-  action,
 }: {
   title: string
   description?: string
   children: React.ReactNode
-  action?: React.ReactNode
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800/80 bg-[#0d0f14] shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
-      <div className="flex flex-col gap-3 border-b border-slate-800/80 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-slate-100">{title}</h2>
-          {description ? (
-            <p className="mt-1 text-sm text-slate-500">{description}</p>
-          ) : null}
-        </div>
+    <section
+      style={{
+        background: '#0d0f14',
+        border: '1px solid #1a1d2e',
+        borderRadius: 18,
+        overflow: 'hidden',
+        boxShadow: '0 18px 60px rgba(0,0,0,0.26)',
+      }}
+    >
+      <div
+        style={{
+          padding: '16px 18px',
+          borderBottom: '1px solid #1a1d2e',
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            color: '#f8fafc',
+            fontSize: 15,
+            fontWeight: 850,
+          }}
+        >
+          {title}
+        </h2>
 
-        {action ? <div className="shrink-0">{action}</div> : null}
+        {description ? (
+          <p
+            style={{
+              margin: '6px 0 0',
+              color: '#64748b',
+              fontSize: 13,
+              lineHeight: 1.45,
+            }}
+          >
+            {description}
+          </p>
+        ) : null}
       </div>
 
-      <div className="p-5">{children}</div>
+      <div style={{ padding: 18 }}>{children}</div>
     </section>
   )
 }
 
-function EmptyState({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
+function Empty({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 p-6 text-center">
-      <p className="text-sm font-semibold text-slate-300">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+    <div
+      style={{
+        padding: 22,
+        border: '1px dashed #334155',
+        borderRadius: 14,
+        color: '#64748b',
+        fontSize: 13,
+        textAlign: 'center',
+        background: '#090b0f',
+      }}
+    >
+      {text}
     </div>
   )
 }
 
-function LoadingSkeleton() {
-  return (
-    <div className="min-h-screen bg-[#090b0f] p-6 text-slate-100">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="h-28 animate-pulse rounded-3xl border border-slate-800 bg-slate-900/60" />
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="h-36 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/60"
-            />
-          ))}
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-          <div className="h-96 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/60" />
-          <div className="h-96 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/60" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ProgressLine({
+function Bar({
   label,
   value,
   max,
-  tone,
-  helper,
+  color,
+  detail,
 }: {
   label: string
   value: number
   max: number
-  tone: DashboardTone
-  helper?: string
+  color: string
+  detail?: string
 }) {
-  const safeMax = max > 0 ? max : 1
-  const width = Math.max(4, Math.min(100, (value / safeMax) * 100))
-  const classes = toneClasses[tone]
+  const width = max > 0 ? Math.max(4, Math.min(100, (value / max) * 100)) : 0
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
+    <div style={{ display: 'grid', gap: 8 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+          alignItems: 'baseline',
+        }}
+      >
         <div>
-          <p className="text-sm font-medium text-slate-200">{label}</p>
-          {helper ? <p className="text-xs text-slate-500">{helper}</p> : null}
+          <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 750 }}>
+            {label}
+          </div>
+
+          {detail ? (
+            <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+              {detail}
+            </div>
+          ) : null}
         </div>
 
-        <p className="text-sm font-semibold text-slate-300">{formatNumber(value)}</p>
+        <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 800 }}>
+          {formatNumber(value)}
+        </div>
       </div>
 
-      <div className="h-2 overflow-hidden rounded-full bg-slate-900">
+      <div
+        style={{
+          height: 8,
+          background: '#111827',
+          borderRadius: 999,
+          overflow: 'hidden',
+          border: '1px solid #1f2937',
+        }}
+      >
         <div
-          className={`h-full rounded-full ${classes.bar}`}
-          style={{ width: `${width}%` }}
+          style={{
+            height: '100%',
+            width: `${width}%`,
+            background: color,
+            borderRadius: 999,
+          }}
         />
       </div>
     </div>
   )
 }
 
-function StatusPill({ status }: { status?: string | null }) {
-  const tone = getPipelineTone(status || '')
-  const classes = toneClasses[tone]
-
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${classes.badge}`}
-    >
-      {getStatusLabel(status)}
-    </span>
-  )
-}
-
 export default function DashboardPage() {
-  const {
-    funnel,
-    performance,
-    monthly,
-    lost,
-    upcomingDeals,
-    loading,
-    error,
-  } = useKPIsAndAnalytics()
+  const [state, setState] = useState<DashboardState>({
+    profile: null,
+    cycles: [],
+    leads: {},
+    owners: {},
+    groups: {},
+  })
 
-  const totals = useMemo(() => {
-    const hasPerformance = performance.length > 0
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
-    const totalDealsByPerformance = performance.reduce(
-      (sum, item) => sum + Number(item.total_deals || 0),
-      0
-    )
+  const loadDashboard = useCallback(async () => {
+    const supabase = supabaseBrowser()
 
-    const wonDealsByPerformance = performance.reduce(
-      (sum, item) => sum + Number(item.deals_ganhos || 0),
-      0
-    )
+    setLoading(true)
+    setError(null)
 
-    const lostDealsByPerformance = performance.reduce(
-      (sum, item) => sum + Number(item.deals_perdidos || 0),
-      0
-    )
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser()
 
-    const activeDealsByPerformance = performance.reduce(
-      (sum, item) => sum + Number(item.deals_ativos || 0),
-      0
-    )
+      if (authError || !auth?.user?.id) {
+        throw new Error('Sessão não encontrada. Faça login novamente.')
+      }
 
-    const revenueByPerformance = performance.reduce(
-      (sum, item) => sum + Number(item.valor_total_ganho || 0),
-      0
-    )
+      const userId = auth.user.id
 
-    const totalDealsByFunnel = funnel.reduce(
-      (sum, item) => sum + Number(item.total_deals || 0),
-      0
-    )
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, company_id, role, full_name, email')
+        .eq('id', userId)
+        .single()
 
-    const wonDealsByFunnel = funnel.reduce(
-      (sum, item) => sum + Number(item.deals_ganhos || 0),
-      0
-    )
+      if (profileError || !profile?.company_id) {
+        throw new Error('Perfil do usuário não encontrado.')
+      }
 
-    const lostDealsByFunnel = funnel.reduce(
-      (sum, item) => sum + Number(item.deals_perdidos || 0),
-      0
-    )
+      const isAdmin = profile.role === 'admin'
 
-    const revenueByFunnel = funnel.reduce(
-      (sum, item) => sum + Number(item.valor_total_ganho || 0),
-      0
-    )
+      let query = supabase
+        .from('sales_cycles')
+        .select(`
+          id,
+          company_id,
+          lead_id,
+          owner_user_id,
+          status,
+          previous_status,
+          stage_entered_at,
+          next_action,
+          next_action_date,
+          current_group_id,
+          created_at,
+          updated_at,
+          closed_at,
+          won_at,
+          lost_at,
+          won_owner_user_id,
+          lost_owner_user_id,
+          lost_reason,
+          won_total,
+          paused_at,
+          canceled_at
+        `)
+        .eq('company_id', profile.company_id)
+        .order('created_at', { ascending: false })
+        .range(0, 4999)
 
-    const activeDealsByFunnel = funnel.reduce((sum, item) => {
-      const status = normalizeStatus(item.status)
-      const isClosed = ['perdido', 'lost', 'ganho', 'won', 'fechado'].includes(status)
+      if (!isAdmin) {
+        query = query.eq('owner_user_id', userId)
+      }
 
-      return isClosed ? sum : sum + Number(item.total_deals || 0)
-    }, 0)
+      const { data: cyclesData, error: cyclesError } = await query
 
-    const totalDeals = hasPerformance ? totalDealsByPerformance : totalDealsByFunnel
-    const wonDeals = hasPerformance ? wonDealsByPerformance : wonDealsByFunnel
-    const lostDeals = hasPerformance ? lostDealsByPerformance : lostDealsByFunnel
-    const activeDeals = hasPerformance ? activeDealsByPerformance : activeDealsByFunnel
-    const revenue = hasPerformance ? revenueByPerformance : revenueByFunnel
+      if (cyclesError) {
+        throw new Error(`Erro ao carregar ciclos reais: ${cyclesError.message}`)
+      }
 
-    const conversion = totalDeals > 0 ? (wonDeals / totalDeals) * 100 : 0
-    const lossRate = totalDeals > 0 ? (lostDeals / totalDeals) * 100 : 0
-    const averageTicket = wonDeals > 0 ? revenue / wonDeals : 0
+      const cycles = (cyclesData || []) as SalesCycle[]
+
+      const leadIds = Array.from(
+        new Set(cycles.map((cycle) => cycle.lead_id).filter(Boolean))
+      ) as string[]
+
+      const ownerIds = Array.from(
+        new Set(
+          cycles
+            .flatMap((cycle) => [
+              cycle.owner_user_id,
+              cycle.won_owner_user_id,
+              cycle.lost_owner_user_id,
+            ])
+            .filter(Boolean)
+        )
+      ) as string[]
+
+      const groupIds = Array.from(
+        new Set(cycles.map((cycle) => cycle.current_group_id).filter(Boolean))
+      ) as string[]
+
+      let leads: Record<string, Lead> = {}
+      let owners: Record<string, Profile> = {}
+      let groups: Record<string, LeadGroup> = {}
+
+      if (leadIds.length > 0) {
+        const { data: leadsData, error: leadsError } = await supabase
+          .from('leads')
+          .select('id, name, phone, email')
+          .in('id', leadIds)
+
+        if (leadsError) {
+          throw new Error(`Erro ao carregar leads reais: ${leadsError.message}`)
+        }
+
+        leads = Object.fromEntries(
+          ((leadsData || []) as Lead[]).map((lead) => [lead.id, lead])
+        )
+      }
+
+      if (ownerIds.length > 0) {
+        const { data: ownersData, error: ownersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, role')
+          .in('id', ownerIds)
+
+        if (ownersError) {
+          throw new Error(`Erro ao carregar responsáveis: ${ownersError.message}`)
+        }
+
+        owners = Object.fromEntries(
+          ((ownersData || []) as Profile[]).map((owner) => [owner.id, owner])
+        )
+      }
+
+      if (groupIds.length > 0) {
+        const { data: groupsData, error: groupsError } = await supabase
+          .from('lead_groups')
+          .select('id, name')
+          .in('id', groupIds)
+
+        if (groupsError) {
+          throw new Error(`Erro ao carregar grupos: ${groupsError.message}`)
+        }
+
+        groups = Object.fromEntries(
+          ((groupsData || []) as LeadGroup[]).map((group) => [group.id, group])
+        )
+      }
+
+      setState({
+        profile: profile as Profile,
+        cycles,
+        leads,
+        owners,
+        groups,
+      })
+
+      setUpdatedAt(new Date().toISOString())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dashboard.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadDashboard()
+  }, [loadDashboard])
+
+  const metrics = useMemo(() => {
+    const cycles = state.cycles
+
+    const active = cycles.filter(isOpenCycle)
+    const won = cycles.filter(isWonCycle)
+    const lost = cycles.filter(isLostCycle)
+    const closed = cycles.filter((cycle) => CLOSED_STATUSES.includes(normalizeStatus(cycle.status)))
+
+    const revenue = won.reduce((sum, cycle) => sum + Number(cycle.won_total || 0), 0)
+
+    const closeBase = won.length + lost.length
+    const closeRate = closeBase > 0 ? (won.length / closeBase) * 100 : 0
+    const generalConversion = cycles.length > 0 ? (won.length / cycles.length) * 100 : 0
+    const averageTicket = won.length > 0 ? revenue / won.length : 0
+
+    const pool = cycles.filter((cycle) => !cycle.owner_user_id && isOpenCycle(cycle))
+
+    const now = Date.now()
+    const overdue = active.filter((cycle) => {
+      const nextActionTime = getTime(cycle.next_action_date)
+      return nextActionTime > 0 && nextActionTime < now
+    })
+
+    const withoutNextAction = active.filter((cycle) => !cycle.next_action_date)
+
+    const idle = active.filter((cycle) => {
+      const enteredAt = getTime(cycle.stage_entered_at)
+      if (!enteredAt) return false
+
+      const hours = (now - enteredAt) / 1000 / 60 / 60
+      return hours >= 72
+    })
 
     return {
-      totalDeals,
-      wonDeals,
-      lostDeals,
-      activeDeals,
+      total: cycles.length,
+      active: active.length,
+      won: won.length,
+      lost: lost.length,
+      closed: closed.length,
       revenue,
-      conversion,
-      lossRate,
+      closeRate,
+      generalConversion,
       averageTicket,
+      pool: pool.length,
+      overdue: overdue.length,
+      withoutNextAction: withoutNextAction.length,
+      idle: idle.length,
     }
-  }, [performance, funnel])
+  }, [state.cycles])
 
-  const orderedPipeline = useMemo(() => {
-    return [...funnel]
-      .map((item) => ({
-        status: String(item.status || 'sem_status'),
-        total: Number(item.total_deals || 0),
-        won: Number(item.deals_ganhos || 0),
-        lost: Number(item.deals_perdidos || 0),
+  const funnel = useMemo(() => {
+    const map = new Map<string, number>()
+
+    for (const status of STATUS_ORDER) {
+      map.set(status, 0)
+    }
+
+    for (const cycle of state.cycles) {
+      const status = normalizeStatus(cycle.status)
+      map.set(status, (map.get(status) || 0) + 1)
+    }
+
+    return Array.from(map.entries())
+      .filter(([, total]) => total > 0)
+      .map(([status, total]) => ({
+        status,
+        total,
+        label: getStatusLabel(status),
+        color: STATUS_COLORS[status] || '#64748b',
       }))
-      .sort((a, b) => {
-        const indexA = statusOrder.indexOf(normalizeStatus(a.status))
-        const indexB = statusOrder.indexOf(normalizeStatus(b.status))
+  }, [state.cycles])
 
-        return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB)
-      })
+  const maxFunnel = useMemo(() => {
+    return Math.max(...funnel.map((item) => item.total), 1)
   }, [funnel])
 
-  const maxPipelineValue = useMemo(() => {
-    return Math.max(...orderedPipeline.map((item) => item.total), 1)
-  }, [orderedPipeline])
+  const upcoming = useMemo(() => {
+    return state.cycles
+      .filter((cycle) => isOpenCycle(cycle) && cycle.next_action_date)
+      .sort((a, b) => getTime(a.next_action_date) - getTime(b.next_action_date))
+      .slice(0, 8)
+  }, [state.cycles])
 
-  const topPerformers = useMemo(() => {
-    return [...performance]
-      .sort(
-        (a, b) =>
-          Number(b.valor_total_ganho || 0) - Number(a.valor_total_ganho || 0)
-      )
-      .slice(0, 5)
-  }, [performance])
-
-  const monthlyTrend = useMemo(() => {
-    return [...monthly]
-      .sort((a, b) => String(a.mes || '').localeCompare(String(b.mes || '')))
-      .slice(-6)
-  }, [monthly])
-
-  const maxMonthlyRevenue = useMemo(() => {
-    return Math.max(
-      ...monthlyTrend.map((item) => Number(item.receita_total || 0)),
-      1
-    )
-  }, [monthlyTrend])
-
-  const topLostReasons = useMemo(() => {
-    return [...lost]
-      .sort(
-        (a, b) =>
-          Number(b.total_deals_perdidos || 0) -
-          Number(a.total_deals_perdidos || 0)
-      )
-      .slice(0, 5)
-  }, [lost])
-
-  const dashboardDiagnosis = useMemo(() => {
-    if (totals.totalDeals === 0) {
-      return {
-        tone: 'slate' as DashboardTone,
-        title: 'Base comercial ainda sem leitura',
-        description:
-          'A dashboard precisa de ciclos de venda registrados para gerar diagnóstico operacional.',
+  const sellerRanking = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        ownerId: string | null
+        label: string
+        active: number
+        won: number
+        lost: number
+        revenue: number
+        total: number
       }
-    }
+    >()
 
-    if (totals.activeDeals > 0 && upcomingDeals.length === 0) {
-      return {
-        tone: 'red' as DashboardTone,
-        title: 'Risco de follow-up invisível',
-        description:
-          'Existem ciclos ativos, mas nenhum próximo contato aparece na agenda. Isso indica possível falha de disciplina comercial.',
+    for (const cycle of state.cycles) {
+      const key = cycle.owner_user_id || 'pool'
+
+      if (!map.has(key)) {
+        map.set(key, {
+          ownerId: cycle.owner_user_id,
+          label: getOwnerLabel(cycle.owner_user_id, state.owners),
+          active: 0,
+          won: 0,
+          lost: 0,
+          revenue: 0,
+          total: 0,
+        })
       }
-    }
 
-    if (totals.conversion >= 20) {
-      return {
-        tone: 'green' as DashboardTone,
-        title: 'Conversão dentro da zona saudável',
-        description:
-          'A operação está próxima ou acima da referência de 20%. O foco agora deve ser escala, ticket médio e consistência.',
+      const current = map.get(key)!
+
+      current.total += 1
+
+      if (isOpenCycle(cycle)) current.active += 1
+      if (isWonCycle(cycle)) {
+        current.won += 1
+        current.revenue += Number(cycle.won_total || 0)
       }
+      if (isLostCycle(cycle)) current.lost += 1
     }
 
-    if (totals.conversion >= 12) {
-      return {
-        tone: 'amber' as DashboardTone,
-        title: 'Conversão em zona de atenção',
-        description:
-          'Existe tração, mas a eficiência ainda não está madura. Revise abordagem, follow-up e qualidade dos leads trabalhados.',
-      }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8)
+  }, [state.cycles, state.owners])
+
+  const lostReasons = useMemo(() => {
+    const map = new Map<string, number>()
+
+    for (const cycle of state.cycles.filter(isLostCycle)) {
+      const reason = cycle.lost_reason?.trim() || 'Sem motivo registrado'
+      map.set(reason, (map.get(reason) || 0) + 1)
     }
 
-    return {
-      tone: 'red' as DashboardTone,
-      title: 'Conversão abaixo do mínimo operacional',
-      description:
-        'O funil está gerando esforço, mas pouco fechamento. A prioridade é auditar perda, objeções e passagem entre etapas.',
-    }
-  }, [totals, upcomingDeals.length])
+    return Array.from(map.entries())
+      .map(([reason, total]) => ({ reason, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6)
+  }, [state.cycles])
 
-  if (loading) {
-    return <LoadingSkeleton />
-  }
+  const groups = useMemo(() => {
+    const map = new Map<string, number>()
+
+    for (const cycle of state.cycles) {
+      const groupId = cycle.current_group_id || 'sem_grupo'
+      const groupName =
+        groupId === 'sem_grupo'
+          ? 'Sem grupo'
+          : state.groups[groupId]?.name || 'Grupo não identificado'
+
+      map.set(groupName, (map.get(groupName) || 0) + 1)
+    }
+
+    return Array.from(map.entries())
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+  }, [state.cycles, state.groups])
+
+  const maxLostReason = Math.max(...lostReasons.map((item) => item.total), 1)
+  const maxGroups = Math.max(...groups.map((item) => item.total), 1)
 
   return (
-    <main className="min-h-screen bg-[#090b0f] p-4 text-slate-100 sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="overflow-hidden rounded-3xl border border-slate-800/80 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.22),transparent_34%),linear-gradient(135deg,#0d0f14,#111318)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.34)]">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <main
+      style={{
+        minHeight: '100vh',
+        background: '#090b0f',
+        color: '#f8fafc',
+        padding: 24,
+      }}
+    >
+      <div style={{ maxWidth: 1440, margin: '0 auto', display: 'grid', gap: 18 }}>
+        <header
+          style={{
+            border: '1px solid #1a1d2e',
+            background:
+              'radial-gradient(circle at top left, rgba(37,99,235,0.22), transparent 32%), linear-gradient(135deg, #0d0f14, #111318)',
+            borderRadius: 24,
+            padding: 24,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.35)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 20,
+              alignItems: 'flex-start',
+              flexWrap: 'wrap',
+            }}
+          >
             <div>
-              <span className="inline-flex rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
-                Cockpit Comercial
-              </span>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  border: '1px solid rgba(59,130,246,0.25)',
+                  background: 'rgba(59,130,246,0.10)',
+                  color: '#bfdbfe',
+                  borderRadius: 999,
+                  padding: '6px 10px',
+                  fontSize: 11,
+                  fontWeight: 850,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Dashboard real
+              </div>
 
-              <h1 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                Dashboard executivo da operação comercial
+              <h1
+                style={{
+                  margin: '14px 0 0',
+                  fontSize: 30,
+                  lineHeight: 1.05,
+                  letterSpacing: '-0.05em',
+                  fontWeight: 900,
+                }}
+              >
+                Cockpit da operação comercial
               </h1>
 
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400 sm:text-base">
-                Visão direta de receita, conversão, pipeline, próximos contatos,
-                performance por vendedor e perdas. O foco aqui é decisão rápida,
-                não gráfico decorativo.
+              <p
+                style={{
+                  margin: '10px 0 0',
+                  color: '#94a3b8',
+                  maxWidth: 820,
+                  lineHeight: 1.55,
+                  fontSize: 14,
+                }}
+              >
+                Esta dashboard lê diretamente as tabelas operacionais atuais:
+                sales_cycles, leads, profiles e lead_groups. Não usa as views antigas
+                do módulo genérico de analytics.
               </p>
             </div>
 
             <div
-              className={`max-w-xl rounded-2xl border ${
-                toneClasses[dashboardDiagnosis.tone].border
-              } bg-slate-950/45 p-4`}
+              style={{
+                display: 'flex',
+                gap: 10,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }}
             >
-              <div className="flex items-start gap-3">
-                <span
-                  className={`mt-1 h-2.5 w-2.5 rounded-full ${
-                    toneClasses[dashboardDiagnosis.tone].bar
-                  }`}
-                />
-                <div>
-                  <p className="text-sm font-semibold text-slate-100">
-                    {dashboardDiagnosis.title}
-                  </p>
-                  <p className="mt-1 text-sm leading-5 text-slate-400">
-                    {dashboardDiagnosis.description}
-                  </p>
-                </div>
+              <div
+                style={{
+                  border: '1px solid #1a1d2e',
+                  background: '#0d0f14',
+                  borderRadius: 14,
+                  padding: '10px 12px',
+                  color: '#94a3b8',
+                  fontSize: 12,
+                }}
+              >
+                Perfil:{' '}
+                <strong style={{ color: '#e2e8f0' }}>
+                  {state.profile?.role || 'carregando'}
+                </strong>
               </div>
+
+              <button
+                onClick={() => void loadDashboard()}
+                disabled={loading}
+                style={{
+                  border: '1px solid rgba(59,130,246,0.35)',
+                  background: loading ? '#111827' : '#2563eb',
+                  color: '#eff6ff',
+                  borderRadius: 14,
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  fontWeight: 850,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.65 : 1,
+                }}
+              >
+                {loading ? 'Atualizando...' : 'Atualizar'}
+              </button>
             </div>
           </div>
+
+          {updatedAt ? (
+            <div style={{ marginTop: 14, color: '#64748b', fontSize: 12 }}>
+              Última leitura: {formatDate(updatedAt)}
+            </div>
+          ) : null}
         </header>
 
         {error ? (
-          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-100">
-            Erro ao carregar os dados da dashboard: {error}
+          <div
+            style={{
+              border: '1px solid rgba(239,68,68,0.35)',
+              background: 'rgba(239,68,68,0.10)',
+              color: '#fecaca',
+              borderRadius: 16,
+              padding: 16,
+              fontSize: 13,
+            }}
+          >
+            {error}
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            label="Receita gerada"
-            value={formatCurrency(totals.revenue)}
-            description="Valor ganho registrado nos ciclos fechados."
-            tone="green"
-            helper={`${formatNumber(totals.wonDeals)} ganhos`}
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 14,
+          }}
+        >
+          <Card
+            title="Ciclos ativos"
+            value={loading ? '...' : formatNumber(metrics.active)}
+            description="Leads que ainda exigem ação comercial."
+            accent="#3b82f6"
           />
 
-          <MetricCard
-            label="Conversão real"
-            value={formatPercent(totals.conversion)}
-            description="Ganhos sobre o total de ciclos analisados."
-            tone={getConversionTone(totals.conversion)}
-            helper="meta 20%"
+          <Card
+            title="Ganhos"
+            value={loading ? '...' : formatNumber(metrics.won)}
+            description="Ciclos fechados como ganho no sistema real."
+            accent="#22c55e"
           />
 
-          <MetricCard
-            label="Ciclos ativos"
-            value={formatNumber(totals.activeDeals)}
-            description="Volume vivo que ainda precisa de ação comercial."
-            tone="blue"
-            helper={`${formatNumber(totals.totalDeals)} total`}
+          <Card
+            title="Receita ganha"
+            value={loading ? '...' : formatMoney(metrics.revenue)}
+            description="Soma real de won_total nos ciclos ganhos."
+            accent="#10b981"
           />
 
-          <MetricCard
-            label="Ticket médio"
-            value={formatCurrency(totals.averageTicket)}
-            description="Receita média por ciclo ganho."
-            tone="purple"
-            helper={`${formatPercent(totals.lossRate)} perda`}
+          <Card
+            title="Fechamento"
+            value={loading ? '...' : formatPercent(metrics.closeRate)}
+            description="Ganhos sobre ciclos encerrados como ganho ou perda."
+            accent={metrics.closeRate >= 20 ? '#22c55e' : '#f59e0b'}
+          />
+
+          <Card
+            title="Pool"
+            value={loading ? '...' : formatNumber(metrics.pool)}
+            description="Ciclos sem responsável, visíveis para administração."
+            accent="#a855f7"
+          />
+
+          <Card
+            title="Atrasados"
+            value={loading ? '...' : formatNumber(metrics.overdue)}
+            description="Próximas ações vencidas nos ciclos ativos."
+            accent="#ef4444"
           />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <SectionCard
-            title="Pipeline vivo"
-            description="Distribuição dos ciclos por etapa. Aqui aparece onde a operação concentra esforço."
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1.1fr) minmax(360px, 0.9fr)',
+            gap: 18,
+          }}
+        >
+          <Panel
+            title="Pipeline real"
+            description="Distribuição baseada no campo status da tabela sales_cycles."
           >
-            {orderedPipeline.length > 0 ? (
-              <div className="space-y-5">
-                {orderedPipeline.map((item) => (
-                  <ProgressLine
+            {loading ? (
+              <Empty text="Carregando pipeline..." />
+            ) : funnel.length === 0 ? (
+              <Empty text="Nenhum ciclo encontrado na operação real." />
+            ) : (
+              <div style={{ display: 'grid', gap: 14 }}>
+                {funnel.map((item) => (
+                  <Bar
                     key={item.status}
-                    label={getStatusLabel(item.status)}
+                    label={item.label}
                     value={item.total}
-                    max={maxPipelineValue}
-                    tone={getPipelineTone(item.status)}
-                    helper={
-                      item.won > 0 || item.lost > 0
-                        ? `${formatNumber(item.won)} ganhos · ${formatNumber(
-                            item.lost
-                          )} perdidos`
-                        : 'Etapa ativa do funil'
-                    }
+                    max={maxFunnel}
+                    color={item.color}
+                    detail={`Status técnico: ${item.status}`}
                   />
                 ))}
               </div>
-            ) : (
-              <EmptyState
-                title="Sem dados de funil"
-                description="Quando houver ciclos cadastrados, a distribuição por etapa aparecerá aqui."
-              />
             )}
-          </SectionCard>
+          </Panel>
 
-          <SectionCard
-            title="Próximas ações"
-            description="Agenda comercial dos próximos contatos registrados."
-            action={
-              <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-300 ring-1 ring-slate-700">
-                {formatNumber(upcomingDeals.length)} pendências
-              </span>
-            }
+          <Panel
+            title="Agenda comercial"
+            description="Próximas ações reais registradas nos ciclos ativos."
           >
-            {upcomingDeals.length > 0 ? (
-              <div className="space-y-3">
-                {upcomingDeals.slice(0, 6).map((deal, index) => (
+            {loading ? (
+              <Empty text="Carregando próximas ações..." />
+            ) : upcoming.length === 0 ? (
+              <Empty text="Nenhuma próxima ação encontrada. Se existem ciclos ativos, isso indica falha de follow-up." />
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {upcoming.map((cycle) => (
                   <div
-                    key={`${deal.id || deal.sales_cycle_id || deal.lead_id}-${index}`}
-                    className="rounded-xl border border-slate-800 bg-slate-950/45 p-4"
+                    key={cycle.id}
+                    style={{
+                      border: '1px solid #1a1d2e',
+                      background: '#090b0f',
+                      borderRadius: 14,
+                      padding: 14,
+                    }}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-100">
-                          {getLeadName(deal)}
-                        </p>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        alignItems: 'flex-start',
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: '#f8fafc', fontWeight: 850, fontSize: 13 }}>
+                          {getLeadLabel(cycle, state.leads)}
+                        </div>
 
-                        <p className="mt-1 truncate text-xs text-slate-500">
-                          {deal.next_action || 'Próxima ação não descrita'}
-                        </p>
+                        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+                          {cycle.next_action || 'Ação sem descrição'}
+                        </div>
                       </div>
 
-                      <StatusPill status={deal.status} />
+                      <div
+                        style={{
+                          color: STATUS_COLORS[normalizeStatus(cycle.status)] || '#94a3b8',
+                          border: `1px solid ${
+                            STATUS_COLORS[normalizeStatus(cycle.status)] || '#94a3b8'
+                          }55`,
+                          borderRadius: 999,
+                          padding: '4px 8px',
+                          fontSize: 10,
+                          fontWeight: 850,
+                        }}
+                      >
+                        {getStatusLabel(cycle.status)}
+                      </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span>{formatDate(deal.next_action_date)}</span>
-                      <span className="h-1 w-1 rounded-full bg-slate-700" />
-                      <span>{getOwnerLabel(deal)}</span>
+                    <div
+                      style={{
+                        marginTop: 10,
+                        color: '#94a3b8',
+                        fontSize: 12,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                      }}
+                    >
+                      <span>{formatDate(cycle.next_action_date)}</span>
+                      <span>{getOwnerLabel(cycle.owner_user_id, state.owners)}</span>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <EmptyState
-                title="Nenhuma próxima ação encontrada"
-                description="Isso pode ser bom se não houver ciclos ativos. Se houver ciclos ativos, é um sinal de falha de follow-up."
-              />
             )}
-          </SectionCard>
+          </Panel>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <SectionCard
-            title="Ranking de performance"
-            description="Leitura objetiva de vendedor, receita, conversão e ciclos ativos."
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+            gap: 18,
+          }}
+        >
+          <Panel
+            title="Performance por responsável"
+            description="Ranking montado a partir dos ciclos reais e seus owner_user_id."
           >
-            {topPerformers.length > 0 ? (
-              <div className="overflow-hidden rounded-xl border border-slate-800">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-950/80 text-xs uppercase tracking-[0.14em] text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">Vendedor</th>
-                      <th className="px-4 py-3 font-semibold">Receita</th>
-                      <th className="px-4 py-3 font-semibold">Conv.</th>
-                      <th className="px-4 py-3 font-semibold">Ativos</th>
+            {loading ? (
+              <Empty text="Carregando responsáveis..." />
+            ) : sellerRanking.length === 0 ? (
+              <Empty text="Nenhum responsável encontrado." />
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table
+                  style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: 13,
+                  }}
+                >
+                  <thead>
+                    <tr style={{ color: '#64748b', textAlign: 'left' }}>
+                      <th style={{ padding: '0 0 10px' }}>Responsável</th>
+                      <th style={{ padding: '0 0 10px' }}>Ativos</th>
+                      <th style={{ padding: '0 0 10px' }}>Ganhos</th>
+                      <th style={{ padding: '0 0 10px' }}>Perdidos</th>
+                      <th style={{ padding: '0 0 10px' }}>Receita</th>
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y divide-slate-800">
-                    {topPerformers.map((seller, index) => (
-                      <tr
-                        key={`${seller.owner_id || seller.owner_email}-${index}`}
-                        className="bg-slate-950/30"
-                      >
-                        <td className="max-w-[220px] px-4 py-3">
-                          <p className="truncate font-medium text-slate-200">
-                            {getOwnerLabel(seller)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {formatNumber(Number(seller.total_deals || 0))} ciclos
-                          </p>
+                  <tbody>
+                    {sellerRanking.map((seller) => (
+                      <tr key={seller.ownerId || 'pool'} style={{ borderTop: '1px solid #1a1d2e' }}>
+                        <td style={{ padding: '11px 0', color: '#e2e8f0', fontWeight: 750 }}>
+                          {seller.label}
                         </td>
-
-                        <td className="px-4 py-3 font-semibold text-emerald-200">
-                          {formatCurrency(Number(seller.valor_total_ganho || 0))}
+                        <td style={{ padding: '11px 0', color: '#cbd5e1' }}>
+                          {formatNumber(seller.active)}
                         </td>
-
-                        <td className="px-4 py-3 text-slate-300">
-                          {formatPercent(Number(seller.taxa_conversao_pct || 0))}
+                        <td style={{ padding: '11px 0', color: '#86efac' }}>
+                          {formatNumber(seller.won)}
                         </td>
-
-                        <td className="px-4 py-3 text-slate-300">
-                          {formatNumber(Number(seller.deals_ativos || 0))}
+                        <td style={{ padding: '11px 0', color: '#fca5a5' }}>
+                          {formatNumber(seller.lost)}
+                        </td>
+                        <td style={{ padding: '11px 0', color: '#bfdbfe', fontWeight: 850 }}>
+                          {formatMoney(seller.revenue)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            ) : (
-              <EmptyState
-                title="Sem performance por vendedor"
-                description="A tabela será preenchida quando houver ciclos vinculados a responsáveis."
-              />
             )}
-          </SectionCard>
+          </Panel>
 
-          <SectionCard
-            title="Evolução mensal"
-            description="Receita e volume de ganhos nos últimos meses disponíveis."
+          <Panel
+            title="Riscos operacionais"
+            description="Problemas reais derivados de prazo, agenda e ciclos parados."
           >
-            {monthlyTrend.length > 0 ? (
-              <div className="space-y-4">
-                {monthlyTrend.map((item) => {
-                  const revenue = Number(item.receita_total || 0)
-                  const width = Math.max(
-                    4,
-                    Math.min(100, (revenue / maxMonthlyRevenue) * 100)
-                  )
-
-                  return (
-                    <div key={String(item.mes)} className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-slate-200">
-                            {String(item.mes || 'Mês não informado')}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {formatNumber(Number(item.deals_ganhos || 0))} ganhos ·{' '}
-                            {formatPercent(Number(item.taxa_conversao_pct || 0))}
-                          </p>
-                        </div>
-
-                        <p className="text-sm font-semibold text-emerald-200">
-                          {formatCurrency(revenue)}
-                        </p>
-                      </div>
-
-                      <div className="h-9 overflow-hidden rounded-xl bg-slate-950 ring-1 ring-slate-800">
-                        <div
-                          className="flex h-full items-center justify-end rounded-xl bg-gradient-to-r from-blue-500 to-emerald-400 pr-3 text-xs font-semibold text-slate-950"
-                          style={{ width: `${width}%` }}
-                        >
-                          {width > 22 ? formatCurrency(revenue) : ''}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <EmptyState
-                title="Sem histórico mensal"
-                description="Quando houver ciclos ganhos com data de fechamento, a evolução mensal aparecerá aqui."
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: 12,
+              }}
+            >
+              <Card
+                title="Sem próxima ação"
+                value={loading ? '...' : formatNumber(metrics.withoutNextAction)}
+                description="Ciclos ativos sem follow-up marcado."
+                accent="#ef4444"
               />
-            )}
-          </SectionCard>
+
+              <Card
+                title="Parados 72h+"
+                value={loading ? '...' : formatNumber(metrics.idle)}
+                description="Ciclos ativos sem mudança recente de etapa."
+                accent="#f59e0b"
+              />
+
+              <Card
+                title="Conversão geral"
+                value={loading ? '...' : formatPercent(metrics.generalConversion)}
+                description="Ganhos sobre todos os ciclos carregados."
+                accent="#8b5cf6"
+              />
+
+              <Card
+                title="Ticket médio"
+                value={loading ? '...' : formatMoney(metrics.averageTicket)}
+                description="Receita média por ciclo ganho."
+                accent="#06b6d4"
+              />
+            </div>
+          </Panel>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-          <SectionCard
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+            gap: 18,
+          }}
+        >
+          <Panel
             title="Motivos de perda"
-            description="O que está bloqueando fechamento. Sem motivo registrado, a gestão fica cega."
+            description="Baseado no campo lost_reason dos ciclos perdidos."
           >
-            {topLostReasons.length > 0 ? (
-              <div className="space-y-4">
-                {topLostReasons.map((reason, index) => (
-                  <ProgressLine
-                    key={`${reason.lost_reason || 'sem-motivo'}-${index}`}
-                    label={reason.lost_reason || 'Sem motivo registrado'}
-                    value={Number(reason.total_deals_perdidos || 0)}
-                    max={Math.max(
-                      ...topLostReasons.map((item) =>
-                        Number(item.total_deals_perdidos || 0)
-                      ),
-                      1
-                    )}
-                    tone={index === 0 ? 'red' : 'amber'}
-                    helper={`${formatPercent(
-                      Number(reason.percentual_pct || 0)
-                    )} das perdas · ${formatNumber(
-                      Number(reason.dias_ate_perda || 0)
-                    )} dias até perda`}
+            {loading ? (
+              <Empty text="Carregando perdas..." />
+            ) : lostReasons.length === 0 ? (
+              <Empty text="Nenhum motivo de perda encontrado." />
+            ) : (
+              <div style={{ display: 'grid', gap: 14 }}>
+                {lostReasons.map((item) => (
+                  <Bar
+                    key={item.reason}
+                    label={item.reason}
+                    value={item.total}
+                    max={maxLostReason}
+                    color="#ef4444"
                   />
                 ))}
               </div>
-            ) : (
-              <EmptyState
-                title="Sem perdas registradas"
-                description="Quando houver ciclos perdidos, os motivos mais recorrentes aparecerão aqui."
-              />
             )}
-          </SectionCard>
+          </Panel>
 
-          <SectionCard
-            title="Leitura gerencial"
-            description="Resumo para tomada de decisão rápida."
+          <Panel
+            title="Grupos da operação"
+            description="Distribuição real por current_group_id conectado a lead_groups."
           >
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Eficiência
-                </p>
-                <p className="mt-3 text-lg font-semibold text-slate-100">
-                  {totals.conversion >= 20
-                    ? 'Boa'
-                    : totals.conversion >= 12
-                      ? 'Atenção'
-                      : 'Crítica'}
-                </p>
-                <p className="mt-2 text-sm leading-5 text-slate-500">
-                  A conversão atual está em {formatPercent(totals.conversion)}.
-                </p>
+            {loading ? (
+              <Empty text="Carregando grupos..." />
+            ) : groups.length === 0 ? (
+              <Empty text="Nenhum grupo encontrado." />
+            ) : (
+              <div style={{ display: 'grid', gap: 14 }}>
+                {groups.map((item) => (
+                  <Bar
+                    key={item.name}
+                    label={item.name}
+                    value={item.total}
+                    max={maxGroups}
+                    color="#3b82f6"
+                  />
+                ))}
               </div>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Execução
-                </p>
-                <p className="mt-3 text-lg font-semibold text-slate-100">
-                  {upcomingDeals.length > 0 ? 'Com agenda' : 'Sem agenda'}
-                </p>
-                <p className="mt-2 text-sm leading-5 text-slate-500">
-                  Existem {formatNumber(upcomingDeals.length)} próximas ações
-                  registradas.
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Prioridade
-                </p>
-                <p className="mt-3 text-lg font-semibold text-slate-100">
-                  {totals.activeDeals > 0 ? 'Trabalhar pipeline' : 'Gerar demanda'}
-                </p>
-                <p className="mt-2 text-sm leading-5 text-slate-500">
-                  A base ativa atual tem {formatNumber(totals.activeDeals)} ciclos
-                  vivos.
-                </p>
-              </div>
-            </div>
-          </SectionCard>
+            )}
+          </Panel>
         </section>
       </div>
     </main>
