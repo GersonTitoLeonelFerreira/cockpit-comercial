@@ -51,6 +51,24 @@ export type Seller = {
   role: string
 }
 
+export type RevenueSaleDetail = {
+  cycle_id: string
+  lead_id: string | null
+  lead_name: string | null
+  seller_id: string | null
+  seller_name: string | null
+  seller_email: string | null
+  product_id: string | null
+  product_name: string | null
+  product_category: string | null
+  won_total: number
+  won_unit_price: number | null
+  payment_method: string | null
+  payment_type: string | null
+  won_at: string | null
+  revenue_seller_ref_date: string | null
+}
+
 // ============================================================================
 // QUERIES
 // ============================================================================
@@ -129,6 +147,26 @@ export async function getRevenueDailyExtras(
 
   if (error) throw error
   return (data ?? []) as RevenueDailyExtra[]
+}
+
+/**
+ * Busca as vendas ganhas registradas em um dia financeiro específico.
+ * Usa a mesma regra de data da Gestão de Faturamento:
+ * revenue_seller_ref_date -> won_at -> closed_at.
+ */
+export async function getRevenueSalesDetailsByDay(
+  supabase: SupabaseClient,
+  refDate: string,
+  ownerId?: string | null
+) {
+  const { data, error } = await supabase.rpc('rpc_revenue_sales_details_by_day', {
+    p_ref_date: refDate,
+    p_owner_id: ownerId ?? null,
+  })
+
+  if (error) throw error
+
+  return (data ?? []) as RevenueSaleDetail[]
 }
 
 /**
