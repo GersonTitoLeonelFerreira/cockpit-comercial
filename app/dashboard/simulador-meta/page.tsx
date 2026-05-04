@@ -2694,104 +2694,67 @@ function SimulatorTopControls({
 
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              display: 'flex',
               gap: 8,
+              alignItems: 'center',
+              flexWrap: 'wrap',
             }}
           >
-            <div>
-  <div
-    style={{
-      color: SIMULATOR_UI.textMuted,
-      fontSize: 12,
-      fontWeight: 800,
-      marginBottom: 6,
-    }}
-  >
-    Período
-  </div>
+            <select
+              value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
+              onChange={(event) => {
+                const currentMonthKey = getMonthKeyFromDate(periodStart)
+                const currentYear = getYearFromMonthKey(currentMonthKey)
+                const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
+                const period = getMonthPeriod(selectedMonthKey)
 
-  <div
-    style={{
-      display: 'flex',
-      gap: 8,
-      alignItems: 'center',
-      flexWrap: 'wrap',
-    }}
-  >
-    <select
-      value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
-      onChange={(event) => {
-        const currentMonthKey = getMonthKeyFromDate(periodStart)
-        const currentYear = getYearFromMonthKey(currentMonthKey)
-        const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
-        const period = getMonthPeriod(selectedMonthKey)
+                setPeriodStart(period.start)
+                setPeriodEnd(period.end)
+              }}
+              style={{
+                ...controlBaseStyle(),
+                width: 140,
+              }}
+            >
+              {MONTH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
 
-        setPeriodStart(period.start)
-        setPeriodEnd(period.end)
-      }}
-      style={{
-        height: 34,
-        minWidth: 132,
-        borderRadius: 9,
-        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-        background: '#090b0f',
-        color: SIMULATOR_UI.textPrimary,
-        padding: '0 12px',
-        fontSize: 13,
-        fontWeight: 800,
-        outline: 'none',
-      }}
-    >
-      {MONTH_OPTIONS.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+            <input
+              type="number"
+              value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
+              onChange={(event) => {
+                const currentMonthKey = getMonthKeyFromDate(periodStart)
+                const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
+                const selectedYear = Number(event.target.value)
+                const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
+                const period = getMonthPeriod(selectedMonthKey)
 
-    <input
-      type="number"
-      value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
-      onChange={(event) => {
-        const currentMonthKey = getMonthKeyFromDate(periodStart)
-        const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
-        const selectedYear = Number(event.target.value)
-        const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
-        const period = getMonthPeriod(selectedMonthKey)
+                setPeriodStart(period.start)
+                setPeriodEnd(period.end)
+              }}
+              min={1900}
+              max={2200}
+              style={{
+                ...controlBaseStyle(),
+                width: 96,
+              }}
+            />
+          </div>
 
-        setPeriodStart(period.start)
-        setPeriodEnd(period.end)
-      }}
-      min={1900}
-      max={2200}
-      style={{
-        height: 34,
-        width: 92,
-        borderRadius: 9,
-        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-        background: '#090b0f',
-        color: SIMULATOR_UI.textPrimary,
-        padding: '0 12px',
-        fontSize: 13,
-        fontWeight: 800,
-        outline: 'none',
-      }}
-    />
-  </div>
-
-  <div
-    style={{
-      marginTop: 6,
-      color: SIMULATOR_UI.textSubtle,
-      fontSize: 11.5,
-      lineHeight: 1.35,
-    }}
-  >
-    {formatMonthLabelBR(getMonthKeyFromDate(periodStart))} · {formatDateBR(periodStart)} até{' '}
-    {formatDateBR(periodEnd)}
-  </div>
-</div>
+          <div
+            style={{
+              marginTop: 7,
+              color: SIMULATOR_UI.textSubtle,
+              fontSize: 12,
+              lineHeight: 1.35,
+            }}
+          >
+            {formatMonthLabelBR(getMonthKeyFromDate(periodStart))} · {formatDateBR(periodStart)} até{' '}
+            {formatDateBR(periodEnd)}
           </div>
         </div>
 
@@ -3838,16 +3801,13 @@ export default function SimuladorMetaPage() {
         const comp = await getActiveCompetency()
         setCompetency(comp)
 
-        // Corrigir month_end: a RPC retorna o 1º dia do próximo mês (exclusivo)
-        // Converter para o último dia do mês (inclusivo) para exibição
-        const rawEnd = new Date(toYMD(comp.month_end) + 'T00:00:00')
-        rawEnd.setDate(rawEnd.getDate() - 1)
-        const correctedEnd = rawEnd.toISOString().slice(0, 10)
+        const initialPeriodStart = toYMD(comp.month_start)
+        const initialPeriodEnd = toYMD(comp.month_end)
 
-        setPeriodStart(toYMD(comp.month_start))
-        setPeriodEnd(correctedEnd)
+        setPeriodStart(initialPeriodStart)
+        setPeriodEnd(initialPeriodEnd)
 
-        const endDate = new Date(correctedEnd + 'T00:00:00')
+        const endDate = new Date(initialPeriodEnd + 'T00:00:00')
         const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
         setRemainingBusinessDays(remainingDays)
 
@@ -3874,8 +3834,8 @@ export default function SimuladorMetaPage() {
         setMetrics(m)
 
         const totalDays = countWorkDaysInRange(
-          toYMD(comp.month_start),
-          correctedEnd,
+          initialPeriodStart,
+          initialPeriodEnd,
           workDays,
         )
         const res = calculateSimulatorResult(m, {
@@ -4171,18 +4131,20 @@ function handleUndoGoalFromTop() {
 
   // Load historical ticket
   useEffect(() => {
-    if (!companyId || !competency) return
+    if (!companyId || !periodStart || !periodEnd) return
     if (mode !== 'faturamento') return
 
     async function loadHistoricalTicket() {
       setHistoricalTicketLoading(true)
+
       try {
         const data = await getHistoricalTicket({
           companyId: companyId!,
           ownerId: analysisOwnerId,
-          dateStart: toYMD(competency!.month_start),
-          dateEnd: toYMD(competency!.month_end),
+          dateStart: periodStart,
+          dateEnd: periodEnd,
         })
+
         setHistoricalTicket(data)
       } catch (e: unknown) {
         console.warn('Erro ao carregar ticket histórico:', getErrorMessage(e, 'Erro desconhecido.'))
@@ -4193,7 +4155,7 @@ function handleUndoGoalFromTop() {
     }
 
     void loadHistoricalTicket()
-  }, [companyId, competency, mode, analysisOwnerId])
+  }, [companyId, periodStart, periodEnd, mode, analysisOwnerId])
 
   // Distribuição inteligente — carrega quando a aba é ativada
   useEffect(() => {
