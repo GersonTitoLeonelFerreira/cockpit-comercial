@@ -11,15 +11,31 @@ import type {
   Theory10020Result,
 } from '../../types/simulator'
 
-export async function getActiveCompetency(): Promise<ActiveCompetency> {
-  const supabase = supabaseBrowser()
-  const { data, error } = await supabase.rpc('rpc_get_active_competency')
-  if (error) throw error
+function toLocalDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function getCurrentMonthCompetency(): ActiveCompetency {
+  const today = new Date()
+  const year = today.getFullYear()
+  const monthIndex = today.getMonth()
+
+  const monthStart = new Date(year, monthIndex, 1)
+  const monthEnd = new Date(year, monthIndex + 1, 0)
+
   return {
-    month: data.month,
-    month_start: data.month_start,
-    month_end: data.month_end,
+    month: toLocalDateKey(monthStart),
+    month_start: toLocalDateKey(monthStart),
+    month_end: toLocalDateKey(monthEnd),
   }
+}
+
+export async function getActiveCompetency(): Promise<ActiveCompetency> {
+  return getCurrentMonthCompetency()
 }
 
 export async function getSalesCycleMetrics(
@@ -27,11 +43,15 @@ export async function getSalesCycleMetrics(
   month?: string | null,
 ): Promise<SimulatorMetrics> {
   const supabase = supabaseBrowser()
+  const currentCompetency = getCurrentMonthCompetency()
+
   const { data, error } = await supabase.rpc('rpc_get_sales_cycle_metrics_v1', {
     p_owner_user_id: ownerUserId ?? null,
-    p_month: month ?? null,
+    p_month: month ?? currentCompetency.month,
   })
+
   if (error) throw error
+
   return data as SimulatorMetrics
 }
 
