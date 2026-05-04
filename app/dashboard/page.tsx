@@ -1,7 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import {
+  getActiveCompetency,
+  getGroupConversion,
+  getRevenueSummary,
+  getSalesCycleMetrics,
+} from '@/app/lib/services/simulator'
+import type {
+  ActiveCompetency,
+  GroupConversionRow,
+  RevenueSummaryResponse,
+  SimulatorMetrics,
+} from '@/app/types/simulator'
 
 type LeadStatus =
   | 'novo'
@@ -13,31 +25,6 @@ type LeadStatus =
   | 'perdido'
   | 'cancelado'
   | string
-
-  type SalesCycle = {
-    id: string
-    company_id: string
-    lead_id: string | null
-    owner_user_id: string | null
-    status: LeadStatus | null
-    previous_status: LeadStatus | null
-    stage_entered_at: string | null
-    next_action: string | null
-    next_action_date: string | null
-    current_group_id: string | null
-    created_at: string | null
-    updated_at: string | null
-    closed_at: string | null
-    won_at: string | null
-    lost_at: string | null
-    won_owner_user_id: string | null
-    lost_owner_user_id: string | null
-    lost_reason: string | null
-    won_total: number | null
-    paused_at: string | null
-    canceled_at: string | null
-    leads?: Lead | null
-  }
 
 type Lead = {
   id: string
@@ -54,22 +41,42 @@ type Profile = {
   email: string | null
 }
 
-type LeadGroup = {
+type SalesCycle = {
   id: string
-  name: string | null
+  company_id: string
+  lead_id: string | null
+  owner_user_id: string | null
+  status: LeadStatus | null
+  previous_status: LeadStatus | null
+  stage_entered_at: string | null
+  next_action: string | null
+  next_action_date: string | null
+  current_group_id: string | null
+  created_at: string | null
+  updated_at: string | null
+  closed_at: string | null
+  won_at: string | null
+  lost_at: string | null
+  won_owner_user_id: string | null
+  lost_owner_user_id: string | null
+  lost_reason: string | null
+  won_total: number | null
+  paused_at: string | null
+  canceled_at: string | null
+  leads?: Lead | Lead[] | null
 }
 
 type DashboardState = {
   profile: Profile | null
+  competency: ActiveCompetency | null
+  simulatorMetrics: SimulatorMetrics | null
+  revenueSummary: RevenueSummaryResponse | null
+  groupConversion: GroupConversionRow[]
   cycles: SalesCycle[]
-  leads: Record<string, Lead>
   owners: Record<string, Profile>
-  groups: Record<string, LeadGroup>
 }
 
-const OPEN_STATUSES = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
-const CLOSED_STATUSES = ['ganho', 'perdido', 'cancelado']
-const STATUS_ORDER = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado', 'ganho', 'perdido', 'cancelado']
+const STATUS_ORDER = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
 
 const STATUS_LABELS: Record<string, string> = {
   novo: 'Novo',
@@ -93,34 +100,43 @@ const STATUS_COLORS: Record<string, string> = {
   cancelado: '#94a3b8',
 }
 
-const money = new Intl.NumberFormat('pt-BR', {
+const moneyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
 })
 
-const number = new Intl.NumberFormat('pt-BR')
+const numberFormatter = new Intl.NumberFormat('pt-BR')
 
-function normalizeStatus(status: LeadStatus | null | undefined) {
+function toYMD(value?: string | null) {
+  return String(value || '').split('T')[0].split(' ')[0]
+}
+
+function normalizeStatus(status?: LeadStatus | null) {
   return String(status || 'sem_status').trim().toLowerCase()
 }
 
 function formatMoney(value: number) {
-  return money.format(Number.isFinite(value) ? value : 0)
+  return moneyFormatter.format(Number.isFinite(value) ? value : 0)
 }
 
 function formatNumber(value: number) {
-  return number.format(Number.isFinite(value) ? value : 0)
+  return numberFormatter.format(Number.isFinite(value) ? value : 0)
 }
 
 function formatPercent(value: number) {
-  if (!Number.isFinite(value)) return '0,0%'
-  return `${value.toLocaleString('pt-BR', {
+  const safeValue = Number.isFinite(value) ? value : 0
+
+  return `${safeValue.toLocaleString('pt-BR', {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })}%`
 }
 
-function formatDate(value: string | null | undefined) {
+function formatRatioPercent(value: number) {
+  return formatPercent((Number.isFinite(value) ? value : 0) * 100)
+}
+
+function formatDate(value?: string | null) {
   if (!value) return 'Sem data'
 
   const date = new Date(value)
@@ -135,7 +151,19 @@ function formatDate(value: string | null | undefined) {
   }).format(date)
 }
 
-function getTime(value: string | null | undefined) {
+function formatCompetency(competency: ActiveCompetency | null) {
+  if (!competency?.month_start) return 'Competência atual'
+
+  const [year, month] = toYMD(competency.month_start).split('-')
+  const date = new Date(Number(year), Number(month) - 1, 1)
+
+  return date.toLocaleDateString('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function getTime(value?: string | null) {
   if (!value) return 0
 
   const time = new Date(value).getTime()
@@ -143,8 +171,16 @@ function getTime(value: string | null | undefined) {
   return Number.isNaN(time) ? 0 : time
 }
 
-function isOpenCycle(cycle: SalesCycle) {
-  return OPEN_STATUSES.includes(normalizeStatus(cycle.status))
+function getStatusLabel(status?: LeadStatus | null) {
+  const normalized = normalizeStatus(status)
+
+  return STATUS_LABELS[normalized] || status || 'Sem status'
+}
+
+function isOpenStatus(status?: LeadStatus | null) {
+  return ['novo', 'contato', 'respondeu', 'negociacao', 'pausado'].includes(
+    normalizeStatus(status)
+  )
 }
 
 function isWonCycle(cycle: SalesCycle) {
@@ -155,17 +191,39 @@ function isLostCycle(cycle: SalesCycle) {
   return normalizeStatus(cycle.status) === 'perdido' || Boolean(cycle.lost_at)
 }
 
-function getStatusLabel(status: LeadStatus | null | undefined) {
-  const normalized = normalizeStatus(status)
-  return STATUS_LABELS[normalized] || status || 'Sem status'
+function getCyclePeriodDate(cycle: SalesCycle) {
+  if (isWonCycle(cycle)) return cycle.won_at
+  if (isLostCycle(cycle)) return cycle.lost_at || cycle.closed_at
+  return cycle.created_at
 }
 
-function getLeadLabel(cycle: SalesCycle, leads: Record<string, Lead>) {
-  if (!cycle.lead_id) return 'Lead sem vínculo'
+function isCycleInsideCompetency(
+  cycle: SalesCycle,
+  competency: ActiveCompetency | null
+) {
+  if (!competency) return true
 
-  const lead = leads[cycle.lead_id]
+  const refDate = toYMD(getCyclePeriodDate(cycle))
+  const start = toYMD(competency.month_start)
+  const end = toYMD(competency.month_end)
 
-  return lead?.name || lead?.phone || lead?.email || cycle.lead_id
+  if (!refDate || !start || !end) return false
+
+  return refDate >= start && refDate <= end
+}
+
+function getLeadFromCycle(cycle: SalesCycle) {
+  const lead = cycle.leads
+
+  if (Array.isArray(lead)) return lead[0] ?? null
+
+  return lead ?? null
+}
+
+function getLeadLabel(cycle: SalesCycle) {
+  const lead = getLeadFromCycle(cycle)
+
+  return lead?.name || lead?.phone || lead?.email || cycle.lead_id || 'Lead sem identificação'
 }
 
 function getOwnerLabel(ownerId: string | null, owners: Record<string, Profile>) {
@@ -180,12 +238,12 @@ function Card({
   title,
   value,
   description,
-  accent = '#3b82f6',
+  accent,
 }: {
   title: string
   value: string
   description: string
-  accent?: string
+  accent: string
 }) {
   return (
     <div
@@ -194,6 +252,7 @@ function Card({
         background: `linear-gradient(135deg, ${accent}1f, rgba(13,15,20,0.96))`,
         borderRadius: 18,
         padding: 18,
+        minHeight: 128,
         boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
       }}
     >
@@ -203,7 +262,7 @@ function Card({
           color: '#64748b',
           textTransform: 'uppercase',
           letterSpacing: '0.12em',
-          fontWeight: 800,
+          fontWeight: 850,
         }}
       >
         {title}
@@ -214,7 +273,7 @@ function Card({
           marginTop: 10,
           color: '#f8fafc',
           fontSize: 26,
-          fontWeight: 850,
+          fontWeight: 900,
           letterSpacing: '-0.04em',
         }}
       >
@@ -265,7 +324,7 @@ function Panel({
             margin: 0,
             color: '#f8fafc',
             fontSize: 15,
-            fontWeight: 850,
+            fontWeight: 900,
           }}
         >
           {title}
@@ -334,7 +393,7 @@ function Bar({
         }}
       >
         <div>
-          <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 750 }}>
+          <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 800 }}>
             {label}
           </div>
 
@@ -345,7 +404,7 @@ function Bar({
           ) : null}
         </div>
 
-        <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 800 }}>
+        <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 900 }}>
           {formatNumber(value)}
         </div>
       </div>
@@ -375,10 +434,12 @@ function Bar({
 export default function DashboardPage() {
   const [state, setState] = useState<DashboardState>({
     profile: null,
+    competency: null,
+    simulatorMetrics: null,
+    revenueSummary: null,
+    groupConversion: [],
     cycles: [],
-    leads: {},
     owners: {},
-    groups: {},
   })
 
   const [loading, setLoading] = useState(true)
@@ -411,8 +472,30 @@ export default function DashboardPage() {
       }
 
       const isAdmin = profile.role === 'admin'
+      const ownerScope = isAdmin ? null : userId
 
-      let query = supabase
+      const competency = await getActiveCompetency()
+      const startDate = toYMD(competency.month_start)
+      const endDate = toYMD(competency.month_end)
+
+      const [simulatorMetrics, revenueSummary, groupConversion] = await Promise.all([
+        getSalesCycleMetrics(ownerScope, competency.month),
+        getRevenueSummary({
+          companyId: profile.company_id,
+          ownerId: ownerScope,
+          startDate,
+          endDate,
+          metric: 'faturamento',
+        }),
+        getGroupConversion({
+          companyId: profile.company_id,
+          ownerId: ownerScope,
+          dateStart: startDate,
+          dateEnd: endDate,
+        }),
+      ])
+
+      let cyclesQuery = supabase
         .from('sales_cycles')
         .select(`
           id,
@@ -448,23 +531,16 @@ export default function DashboardPage() {
         .range(0, 4999)
 
       if (!isAdmin) {
-        query = query.eq('owner_user_id', userId)
+        cyclesQuery = cyclesQuery.eq('owner_user_id', userId)
       }
 
-      const { data: cyclesData, error: cyclesError } = await query
+      const { data: cyclesData, error: cyclesError } = await cyclesQuery
 
       if (cyclesError) {
         throw new Error(`Erro ao carregar ciclos reais: ${cyclesError.message}`)
       }
 
       const cycles = (cyclesData || []) as SalesCycle[]
-
-      const leads = Object.fromEntries(
-        cycles
-          .map((cycle) => cycle.leads)
-          .filter(Boolean)
-          .map((lead) => [lead!.id, lead!])
-      )
 
       const ownerIds = Array.from(
         new Set(
@@ -478,12 +554,7 @@ export default function DashboardPage() {
         )
       ) as string[]
 
-      const groupIds = Array.from(
-        new Set(cycles.map((cycle) => cycle.current_group_id).filter(Boolean))
-      ) as string[]
-
       let owners: Record<string, Profile> = {}
-      let groups: Record<string, LeadGroup> = {}
 
       if (ownerIds.length > 0) {
         const { data: ownersData, error: ownersError } = await supabase
@@ -500,27 +571,14 @@ export default function DashboardPage() {
         )
       }
 
-      if (groupIds.length > 0) {
-        const { data: groupsData, error: groupsError } = await supabase
-          .from('lead_groups')
-          .select('id, name')
-          .in('id', groupIds)
-
-        if (groupsError) {
-          throw new Error(`Erro ao carregar grupos: ${groupsError.message}`)
-        }
-
-        groups = Object.fromEntries(
-          ((groupsData || []) as LeadGroup[]).map((group) => [group.id, group])
-        )
-      }
-
       setState({
         profile: profile as Profile,
+        competency,
+        simulatorMetrics,
+        revenueSummary,
+        groupConversion,
         cycles,
-        leads,
         owners,
-        groups,
       })
 
       setUpdatedAt(new Date().toISOString())
@@ -535,77 +593,61 @@ export default function DashboardPage() {
     void loadDashboard()
   }, [loadDashboard])
 
-  const metrics = useMemo(() => {
-    const cycles = state.cycles
+  const periodCycles = useMemo(() => {
+    return state.cycles.filter((cycle) =>
+      isCycleInsideCompetency(cycle, state.competency)
+    )
+  }, [state.cycles, state.competency])
 
-    const active = cycles.filter(isOpenCycle)
-    const won = cycles.filter(isWonCycle)
-    const lost = cycles.filter(isLostCycle)
-    const closed = cycles.filter((cycle) => CLOSED_STATUSES.includes(normalizeStatus(cycle.status)))
+  const dashboardMetrics = useMemo(() => {
+    const metrics = state.simulatorMetrics
 
-    const revenue = won.reduce((sum, cycle) => sum + Number(cycle.won_total || 0), 0)
+    const counts = metrics?.counts_by_status ?? {
+      novo: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'novo').length,
+      contato: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'contato').length,
+      respondeu: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'respondeu').length,
+      negociacao: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'negociacao').length,
+      ganho: periodCycles.filter(isWonCycle).length,
+      perdido: periodCycles.filter(isLostCycle).length,
+    }
 
-    const closeBase = won.length + lost.length
-    const closeRate = closeBase > 0 ? (won.length / closeBase) * 100 : 0
-    const generalConversion = cycles.length > 0 ? (won.length / cycles.length) * 100 : 0
-    const averageTicket = won.length > 0 ? revenue / won.length : 0
+    const worked = metrics?.worked_count ?? periodCycles.length
+    const wins = metrics?.current_wins ?? counts.ganho
+    const losses = counts.perdido
+    const revenue = Number(state.revenueSummary?.total_real || 0)
+    const totalOpen = metrics?.total_open ?? periodCycles.filter((cycle) => isOpenStatus(cycle.status)).length
+    const totalPool = metrics?.total_pool ?? periodCycles.filter((cycle) => !cycle.owner_user_id && isOpenStatus(cycle.status)).length
 
-    const pool = cycles.filter((cycle) => !cycle.owner_user_id && isOpenCycle(cycle))
-
-    const now = Date.now()
-    const overdue = active.filter((cycle) => {
-      const nextActionTime = getTime(cycle.next_action_date)
-      return nextActionTime > 0 && nextActionTime < now
-    })
-
-    const withoutNextAction = active.filter((cycle) => !cycle.next_action_date)
-
-    const idle = active.filter((cycle) => {
-      const enteredAt = getTime(cycle.stage_entered_at)
-      if (!enteredAt) return false
-
-      const hours = (now - enteredAt) / 1000 / 60 / 60
-      return hours >= 72
-    })
+    const conversion = worked > 0 ? (wins / worked) * 100 : 0
+    const closingRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0
+    const averageTicket = wins > 0 ? revenue / wins : 0
 
     return {
-      total: cycles.length,
-      active: active.length,
-      won: won.length,
-      lost: lost.length,
-      closed: closed.length,
+      counts,
+      worked,
+      wins,
+      losses,
       revenue,
-      closeRate,
-      generalConversion,
+      totalOpen,
+      totalPool,
+      conversion,
+      closingRate,
       averageTicket,
-      pool: pool.length,
-      overdue: overdue.length,
-      withoutNextAction: withoutNextAction.length,
-      idle: idle.length,
     }
-  }, [state.cycles])
+  }, [periodCycles, state.revenueSummary, state.simulatorMetrics])
 
   const funnel = useMemo(() => {
-    const map = new Map<string, number>()
-
-    for (const status of STATUS_ORDER) {
-      map.set(status, 0)
-    }
-
-    for (const cycle of state.cycles) {
-      const status = normalizeStatus(cycle.status)
-      map.set(status, (map.get(status) || 0) + 1)
-    }
-
-    return Array.from(map.entries())
-      .filter(([, total]) => total > 0)
-      .map(([status, total]) => ({
-        status,
-        total,
-        label: getStatusLabel(status),
-        color: STATUS_COLORS[status] || '#64748b',
-      }))
-  }, [state.cycles])
+    return STATUS_ORDER.map((status) => ({
+      status,
+      label: getStatusLabel(status),
+      total: Number(
+        dashboardMetrics.counts[
+          status as keyof typeof dashboardMetrics.counts
+        ] || 0
+      ),
+      color: STATUS_COLORS[status] || '#64748b',
+    })).filter((item) => item.total > 0)
+  }, [dashboardMetrics.counts])
 
   const maxFunnel = useMemo(() => {
     return Math.max(...funnel.map((item) => item.total), 1)
@@ -613,9 +655,37 @@ export default function DashboardPage() {
 
   const upcoming = useMemo(() => {
     return state.cycles
-      .filter((cycle) => isOpenCycle(cycle) && cycle.next_action_date)
+      .filter((cycle) => isOpenStatus(cycle.status) && cycle.next_action_date)
       .sort((a, b) => getTime(a.next_action_date) - getTime(b.next_action_date))
       .slice(0, 8)
+  }, [state.cycles])
+
+  const risks = useMemo(() => {
+    const activeCycles = state.cycles.filter((cycle) => isOpenStatus(cycle.status))
+    const now = Date.now()
+
+    const overdue = activeCycles.filter((cycle) => {
+      const nextActionTime = getTime(cycle.next_action_date)
+      return nextActionTime > 0 && nextActionTime < now
+    })
+
+    const withoutNextAction = activeCycles.filter((cycle) => !cycle.next_action_date)
+
+    const idle = activeCycles.filter((cycle) => {
+      const enteredAt = getTime(cycle.stage_entered_at)
+
+      if (!enteredAt) return false
+
+      const hours = (now - enteredAt) / 1000 / 60 / 60
+
+      return hours >= 72
+    })
+
+    return {
+      overdue: overdue.length,
+      withoutNextAction: withoutNextAction.length,
+      idle: idle.length,
+    }
   }, [state.cycles])
 
   const sellerRanking = useMemo(() => {
@@ -624,48 +694,51 @@ export default function DashboardPage() {
       {
         ownerId: string | null
         label: string
-        active: number
-        won: number
-        lost: number
+        worked: number
+        wins: number
+        losses: number
         revenue: number
-        total: number
       }
     >()
 
-    for (const cycle of state.cycles) {
-      const key = cycle.owner_user_id || 'pool'
+    for (const cycle of periodCycles) {
+      const ownerId = cycle.won_owner_user_id || cycle.owner_user_id || null
+      const key = ownerId || 'pool'
 
       if (!map.has(key)) {
         map.set(key, {
-          ownerId: cycle.owner_user_id,
-          label: getOwnerLabel(cycle.owner_user_id, state.owners),
-          active: 0,
-          won: 0,
-          lost: 0,
+          ownerId,
+          label: getOwnerLabel(ownerId, state.owners),
+          worked: 0,
+          wins: 0,
+          losses: 0,
           revenue: 0,
-          total: 0,
         })
       }
 
       const current = map.get(key)!
 
-      current.total += 1
+      current.worked += 1
 
-      if (isOpenCycle(cycle)) current.active += 1
       if (isWonCycle(cycle)) {
-        current.won += 1
+        current.wins += 1
         current.revenue += Number(cycle.won_total || 0)
       }
-      if (isLostCycle(cycle)) current.lost += 1
+
+      if (isLostCycle(cycle)) {
+        current.losses += 1
+      }
     }
 
-    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 8)
-  }, [state.cycles, state.owners])
+    return Array.from(map.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 8)
+  }, [periodCycles, state.owners])
 
   const lostReasons = useMemo(() => {
     const map = new Map<string, number>()
 
-    for (const cycle of state.cycles.filter(isLostCycle)) {
+    for (const cycle of periodCycles.filter(isLostCycle)) {
       const reason = cycle.lost_reason?.trim() || 'Sem motivo registrado'
       map.set(reason, (map.get(reason) || 0) + 1)
     }
@@ -674,29 +747,14 @@ export default function DashboardPage() {
       .map(([reason, total]) => ({ reason, total }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 6)
-  }, [state.cycles])
-
-  const groups = useMemo(() => {
-    const map = new Map<string, number>()
-
-    for (const cycle of state.cycles) {
-      const groupId = cycle.current_group_id || 'sem_grupo'
-      const groupName =
-        groupId === 'sem_grupo'
-          ? 'Sem grupo'
-          : state.groups[groupId]?.name || 'Grupo não identificado'
-
-      map.set(groupName, (map.get(groupName) || 0) + 1)
-    }
-
-    return Array.from(map.entries())
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 8)
-  }, [state.cycles, state.groups])
+  }, [periodCycles])
 
   const maxLostReason = Math.max(...lostReasons.map((item) => item.total), 1)
-  const maxGroups = Math.max(...groups.map((item) => item.total), 1)
+
+  const maxGroupWorked = Math.max(
+    ...state.groupConversion.map((item) => Number(item.trabalhados || 0)),
+    1
+  )
 
   return (
     <main
@@ -742,7 +800,7 @@ export default function DashboardPage() {
                   textTransform: 'uppercase',
                 }}
               >
-                Dashboard real
+                Dashboard da competência
               </div>
 
               <h1
@@ -761,14 +819,13 @@ export default function DashboardPage() {
                 style={{
                   margin: '10px 0 0',
                   color: '#94a3b8',
-                  maxWidth: 820,
+                  maxWidth: 860,
                   lineHeight: 1.55,
                   fontSize: 14,
                 }}
               >
-                Esta dashboard lê diretamente as tabelas operacionais atuais:
-                sales_cycles, leads, profiles e lead_groups. Não usa as views antigas
-                do módulo genérico de analytics.
+                Esta página usa a mesma competência, as mesmas métricas do Simulador
+                de Meta e o mesmo faturamento real da Gestão de Faturamento.
               </p>
             </div>
 
@@ -790,9 +847,9 @@ export default function DashboardPage() {
                   fontSize: 12,
                 }}
               >
-                Perfil:{' '}
+                Competência:{' '}
                 <strong style={{ color: '#e2e8f0' }}>
-                  {state.profile?.role || 'carregando'}
+                  {formatCompetency(state.competency)}
                 </strong>
               </div>
 
@@ -846,45 +903,45 @@ export default function DashboardPage() {
           }}
         >
           <Card
-            title="Ciclos ativos"
-            value={loading ? '...' : formatNumber(metrics.active)}
-            description="Leads que ainda exigem ação comercial."
-            accent="#3b82f6"
-          />
-
-          <Card
-            title="Ganhos"
-            value={loading ? '...' : formatNumber(metrics.won)}
-            description="Ciclos fechados como ganho no sistema real."
+            title="Faturamento real"
+            value={loading ? '...' : formatMoney(dashboardMetrics.revenue)}
+            description="Mesmo valor usado na Gestão de Faturamento para a competência."
             accent="#22c55e"
           />
 
           <Card
-            title="Receita ganha"
-            value={loading ? '...' : formatMoney(metrics.revenue)}
-            description="Soma real de won_total nos ciclos ganhos."
+            title="Oportunidades trabalhadas"
+            value={loading ? '...' : formatNumber(dashboardMetrics.worked)}
+            description="Base comercial movimentada no período."
+            accent="#3b82f6"
+          />
+
+          <Card
+            title="Vendas no período"
+            value={loading ? '...' : formatNumber(dashboardMetrics.wins)}
+            description="Mesmo indicador de ganhos usado pelo Simulador de Meta."
             accent="#10b981"
           />
 
           <Card
-            title="Fechamento"
-            value={loading ? '...' : formatPercent(metrics.closeRate)}
-            description="Ganhos sobre ciclos encerrados como ganho ou perda."
-            accent={metrics.closeRate >= 20 ? '#22c55e' : '#f59e0b'}
+            title="Conversão do período"
+            value={loading ? '...' : formatPercent(dashboardMetrics.conversion)}
+            description="Vendas sobre oportunidades trabalhadas."
+            accent={dashboardMetrics.conversion >= 20 ? '#22c55e' : '#f59e0b'}
+          />
+
+          <Card
+            title="Ciclos abertos"
+            value={loading ? '...' : formatNumber(dashboardMetrics.totalOpen)}
+            description="Ciclos ainda em andamento na competência operacional."
+            accent="#8b5cf6"
           />
 
           <Card
             title="Pool"
-            value={loading ? '...' : formatNumber(metrics.pool)}
-            description="Ciclos sem responsável, visíveis para administração."
+            value={loading ? '...' : formatNumber(dashboardMetrics.totalPool)}
+            description="Oportunidades sem responsável no recorte atual."
             accent="#a855f7"
-          />
-
-          <Card
-            title="Atrasados"
-            value={loading ? '...' : formatNumber(metrics.overdue)}
-            description="Próximas ações vencidas nos ciclos ativos."
-            accent="#ef4444"
           />
         </section>
 
@@ -896,13 +953,13 @@ export default function DashboardPage() {
           }}
         >
           <Panel
-            title="Pipeline real"
-            description="Distribuição baseada no campo status da tabela sales_cycles."
+            title="Funil do período"
+            description="Distribuição oficial vinda da mesma RPC usada pelo Simulador de Meta."
           >
             {loading ? (
-              <Empty text="Carregando pipeline..." />
+              <Empty text="Carregando funil..." />
             ) : funnel.length === 0 ? (
-              <Empty text="Nenhum ciclo encontrado na operação real." />
+              <Empty text="Nenhum ciclo encontrado na competência." />
             ) : (
               <div style={{ display: 'grid', gap: 14 }}>
                 {funnel.map((item) => (
@@ -921,7 +978,7 @@ export default function DashboardPage() {
 
           <Panel
             title="Agenda comercial"
-            description="Próximas ações reais registradas nos ciclos ativos."
+            description="Próximas ações reais registradas nos ciclos abertos."
           >
             {loading ? (
               <Empty text="Carregando próximas ações..." />
@@ -949,7 +1006,7 @@ export default function DashboardPage() {
                     >
                       <div>
                         <div style={{ color: '#f8fafc', fontWeight: 850, fontSize: 13 }}>
-                          {getLeadLabel(cycle, state.leads)}
+                          {getLeadLabel(cycle)}
                         </div>
 
                         <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
@@ -1002,12 +1059,12 @@ export default function DashboardPage() {
         >
           <Panel
             title="Performance por responsável"
-            description="Ranking montado a partir dos ciclos reais e seus owner_user_id."
+            description="Leitura por responsável dentro da competência atual."
           >
             {loading ? (
               <Empty text="Carregando responsáveis..." />
             ) : sellerRanking.length === 0 ? (
-              <Empty text="Nenhum responsável encontrado." />
+              <Empty text="Nenhum responsável encontrado no período." />
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table
@@ -1020,27 +1077,30 @@ export default function DashboardPage() {
                   <thead>
                     <tr style={{ color: '#64748b', textAlign: 'left' }}>
                       <th style={{ padding: '0 0 10px' }}>Responsável</th>
-                      <th style={{ padding: '0 0 10px' }}>Ativos</th>
+                      <th style={{ padding: '0 0 10px' }}>Trab.</th>
                       <th style={{ padding: '0 0 10px' }}>Ganhos</th>
                       <th style={{ padding: '0 0 10px' }}>Perdidos</th>
-                      <th style={{ padding: '0 0 10px' }}>Receita</th>
+                      <th style={{ padding: '0 0 10px' }}>Won Total</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {sellerRanking.map((seller) => (
-                      <tr key={seller.ownerId || 'pool'} style={{ borderTop: '1px solid #1a1d2e' }}>
+                      <tr
+                        key={seller.ownerId || 'pool'}
+                        style={{ borderTop: '1px solid #1a1d2e' }}
+                      >
                         <td style={{ padding: '11px 0', color: '#e2e8f0', fontWeight: 750 }}>
                           {seller.label}
                         </td>
                         <td style={{ padding: '11px 0', color: '#cbd5e1' }}>
-                          {formatNumber(seller.active)}
+                          {formatNumber(seller.worked)}
                         </td>
                         <td style={{ padding: '11px 0', color: '#86efac' }}>
-                          {formatNumber(seller.won)}
+                          {formatNumber(seller.wins)}
                         </td>
                         <td style={{ padding: '11px 0', color: '#fca5a5' }}>
-                          {formatNumber(seller.lost)}
+                          {formatNumber(seller.losses)}
                         </td>
                         <td style={{ padding: '11px 0', color: '#bfdbfe', fontWeight: 850 }}>
                           {formatMoney(seller.revenue)}
@@ -1054,8 +1114,8 @@ export default function DashboardPage() {
           </Panel>
 
           <Panel
-            title="Riscos operacionais"
-            description="Problemas reais derivados de prazo, agenda e ciclos parados."
+            title="Riscos operacionais atuais"
+            description="Riscos sobre os ciclos abertos agora, não sobre o histórico encerrado."
           >
             <div
               style={{
@@ -1065,30 +1125,30 @@ export default function DashboardPage() {
               }}
             >
               <Card
-                title="Sem próxima ação"
-                value={loading ? '...' : formatNumber(metrics.withoutNextAction)}
-                description="Ciclos ativos sem follow-up marcado."
+                title="Atrasados"
+                value={loading ? '...' : formatNumber(risks.overdue)}
+                description="Próximas ações vencidas."
                 accent="#ef4444"
               />
 
               <Card
-                title="Parados 72h+"
-                value={loading ? '...' : formatNumber(metrics.idle)}
-                description="Ciclos ativos sem mudança recente de etapa."
+                title="Sem próxima ação"
+                value={loading ? '...' : formatNumber(risks.withoutNextAction)}
+                description="Ciclos abertos sem follow-up marcado."
                 accent="#f59e0b"
               />
 
               <Card
-                title="Conversão geral"
-                value={loading ? '...' : formatPercent(metrics.generalConversion)}
-                description="Ganhos sobre todos os ciclos carregados."
-                accent="#8b5cf6"
+                title="Parados 72h+"
+                value={loading ? '...' : formatNumber(risks.idle)}
+                description="Ciclos sem mudança recente de etapa."
+                accent="#a855f7"
               />
 
               <Card
-                title="Ticket médio"
-                value={loading ? '...' : formatMoney(metrics.averageTicket)}
-                description="Receita média por ciclo ganho."
+                title="Ticket médio real"
+                value={loading ? '...' : formatMoney(dashboardMetrics.averageTicket)}
+                description="Faturamento real dividido pelas vendas do período."
                 accent="#06b6d4"
               />
             </div>
@@ -1104,12 +1164,12 @@ export default function DashboardPage() {
         >
           <Panel
             title="Motivos de perda"
-            description="Baseado no campo lost_reason dos ciclos perdidos."
+            description="Perdas da competência atual, usando lost_reason dos ciclos perdidos."
           >
             {loading ? (
               <Empty text="Carregando perdas..." />
             ) : lostReasons.length === 0 ? (
-              <Empty text="Nenhum motivo de perda encontrado." />
+              <Empty text="Nenhum motivo de perda encontrado na competência." />
             ) : (
               <div style={{ display: 'grid', gap: 14 }}>
                 {lostReasons.map((item) => (
@@ -1126,22 +1186,25 @@ export default function DashboardPage() {
           </Panel>
 
           <Panel
-            title="Grupos da operação"
-            description="Distribuição real por current_group_id conectado a lead_groups."
+            title="Conversão por grupo"
+            description="Mesma leitura de grupos usada no Simulador de Meta."
           >
             {loading ? (
               <Empty text="Carregando grupos..." />
-            ) : groups.length === 0 ? (
-              <Empty text="Nenhum grupo encontrado." />
+            ) : state.groupConversion.length === 0 ? (
+              <Empty text="Nenhum grupo encontrado no período." />
             ) : (
               <div style={{ display: 'grid', gap: 14 }}>
-                {groups.map((item) => (
+                {state.groupConversion.map((row, index) => (
                   <Bar
-                    key={item.name}
-                    label={item.name}
-                    value={item.total}
-                    max={maxGroups}
-                    color="#3b82f6"
+                    key={row.group_id || `${row.group_name}-${index}`}
+                    label={row.group_name || 'Sem grupo'}
+                    value={Number(row.trabalhados || 0)}
+                    max={maxGroupWorked}
+                    color={Number(row.ganho || 0) > 0 ? '#22c55e' : '#3b82f6'}
+                    detail={`${formatNumber(Number(row.ganho || 0))} vendas · ${formatRatioPercent(
+                      Number(row.pct_grupo || 0)
+                    )} conversão`}
                   />
                 ))}
               </div>
