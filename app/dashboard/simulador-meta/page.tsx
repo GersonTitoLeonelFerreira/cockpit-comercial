@@ -40,6 +40,7 @@ import {
 import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
 import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
 import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
+import GoalViabilityPanel from './components/GoalViabilityPanel'
 
 function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
@@ -4212,11 +4213,11 @@ function handleUndoGoalFromTop() {
     void loadHistoricalTicket()
   }, [companyId, periodStart, periodEnd, mode, analysisOwnerId])
 
-  // Distribuição inteligente — carrega quando a aba é ativada
-  useEffect(() => {
-    if (activeTab !== 'distribuicao') return
-    if (!companyId || !competency) return
 
+  // Distribuição inteligente — carrega quando a aba de plano ou distribuição é ativada
+  useEffect(() => {
+    if (activeTab !== 'distribuicao' && activeTab !== 'teoria') return
+    if (!companyId || !competency) return
     const cid = companyId
     const dateStart = periodStart
     const dateEnd = periodEnd
@@ -4896,28 +4897,39 @@ function handleUndoGoalFromTop() {
         {/* ============================================================ */}
         {activeTab === 'teoria' && (
           mode === 'faturamento' ? (
-            <Section
-              title={
-                <TitleWithTip label="Plano de Execução" tipTitle="Como o plano é calculado?" width={480}>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div>
-                      O plano transforma a meta financeira em uma sequência operacional: quanto falta, quantas vendas faltam, quantas oportunidades precisam ser trabalhadas e qual ritmo diário deve ser executado.
+            <div style={{ display: 'grid', gap: 16 }}>
+              <Section
+                title={
+                  <TitleWithTip label="Plano de Execução" tipTitle="Como o plano é calculado?" width={480}>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div>
+                        O plano transforma a meta financeira em uma sequência operacional: quanto falta, quantas vendas faltam, quantas oportunidades precisam ser trabalhadas e qual ritmo diário deve ser executado.
+                      </div>
+                      <div>
+                        A leitura executiva segue a ordem: Meta → Gap → Esforço → Ação diária → Risco.
+                      </div>
                     </div>
-                    <div>
-                      A leitura executiva segue a ordem: Meta → Gap → Esforço → Ação diária → Risco.
-                    </div>
-                  </div>
-                </TitleWithTip>
-              }
-              description="Resume a execução em meta, gap, esforço comercial, ação diária e risco operacional."
-            >
-              <ExecutionPlanPanel
-                theory10020Result={theory10020Result}
+                  </TitleWithTip>
+                }
+                description="Resume a execução em meta, gap, esforço comercial, ação diária e risco operacional."
+              >
+                <ExecutionPlanPanel
+                  theory10020Result={theory10020Result}
+                  remainingBusinessDays={remainingBusinessDays}
+                  rateSource={rateSource}
+                  rateRealData={rateRealData}
+                />
+              </Section>
+
+              <GoalViabilityPanel
+                theoryResult={theory10020Result}
+                metrics={metrics}
+                closeRateReal={rateRealData}
+                historicalTicket={historicalTicket}
+                distribution={distribution}
                 remainingBusinessDays={remainingBusinessDays}
-                rateSource={rateSource}
-                rateRealData={rateRealData}
               />
-            </Section>
+            </div>
           ) : (
             <div style={{ padding: 24, textAlign: 'center', fontSize: 14, opacity: 0.5 }}>
               Plano de Execução disponível apenas no modo Faturamento.
