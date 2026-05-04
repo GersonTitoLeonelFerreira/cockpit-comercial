@@ -74,6 +74,84 @@ function formatDateBR(value: string) {
   return `${day}/${month}/${year}`
 }
 
+function getMonthKeyFromDate(value: string) {
+  const ymd = toYMD(value)
+
+  if (!ymd || !ymd.includes('-')) {
+    const today = new Date()
+    const year = today.getFullYear()
+    const month = String(today.getMonth() + 1).padStart(2, '0')
+
+    return `${year}-${month}`
+  }
+
+  return ymd.slice(0, 7)
+}
+
+function getMonthPeriod(monthKey: string) {
+  const [yearText, monthText] = monthKey.split('-')
+  const year = Number(yearText)
+  const monthIndex = Number(monthText) - 1
+
+  if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) {
+    const today = new Date()
+    const currentYear = today.getFullYear()
+    const currentMonthIndex = today.getMonth()
+
+    const start = new Date(currentYear, currentMonthIndex, 1)
+    const end = new Date(currentYear, currentMonthIndex + 1, 0)
+
+    return {
+      start: dateKey(start),
+      end: dateKey(end),
+    }
+  }
+
+  const start = new Date(year, monthIndex, 1)
+  const end = new Date(year, monthIndex + 1, 0)
+
+  return {
+    start: dateKey(start),
+    end: dateKey(end),
+  }
+}
+
+function formatMonthLabelBR(monthKey: string) {
+  const [yearText, monthText] = monthKey.split('-')
+  const year = Number(yearText)
+  const monthIndex = Number(monthText) - 1
+
+  if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) {
+    return 'Mês atual'
+  }
+
+  const label = new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(year, monthIndex, 1))
+
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+function buildMonthOptions() {
+  const today = new Date()
+  const options: Array<{ value: string; label: string }> = []
+
+  for (let offset = -12; offset <= 12; offset += 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() + offset, 1)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const value = `${year}-${month}`
+
+    options.push({
+      value,
+      label: formatMonthLabelBR(value),
+    })
+  }
+
+  return options
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) {
     return error.message
@@ -2602,19 +2680,58 @@ function SimulatorTopControls({
               gap: 8,
             }}
           >
-            <input
-              type="date"
-              value={periodStart}
-              onChange={(event) => setPeriodStart(event.target.value)}
-              style={controlBaseStyle()}
-            />
+            <div>
+  <div
+    style={{
+      color: SIMULATOR_UI.textMuted,
+      fontSize: 12,
+      fontWeight: 800,
+      marginBottom: 6,
+    }}
+  >
+    Período
+  </div>
 
-            <input
-              type="date"
-              value={periodEnd}
-              onChange={(event) => setPeriodEnd(event.target.value)}
-              style={controlBaseStyle()}
-            />
+  <select
+    value={getMonthKeyFromDate(periodStart)}
+    onChange={(event) => {
+      const selectedMonth = event.target.value
+      const period = getMonthPeriod(selectedMonth)
+
+      setPeriodStart(period.start)
+      setPeriodEnd(period.end)
+    }}
+    style={{
+      height: 34,
+      minWidth: 180,
+      borderRadius: 9,
+      border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+      background: '#090b0f',
+      color: SIMULATOR_UI.textPrimary,
+      padding: '0 12px',
+      fontSize: 13,
+      fontWeight: 800,
+      outline: 'none',
+    }}
+  >
+    {buildMonthOptions().map((option) => (
+      <option key={option.value} value={option.value}>
+        {option.label}
+      </option>
+    ))}
+  </select>
+
+  <div
+    style={{
+      marginTop: 6,
+      color: SIMULATOR_UI.textSubtle,
+      fontSize: 11.5,
+      lineHeight: 1.35,
+    }}
+  >
+    {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}
+  </div>
+</div>
           </div>
         </div>
 
