@@ -2086,6 +2086,8 @@ function DecisionCommandPanel({
   showRevenueMode,
   goalContextLabel,
   canEditGoal,
+  periodStart,
+  periodEnd,
 }: {
   revenueKpis: DecisionRevenueKpis | null
   result: SimulatorResult | null
@@ -2097,6 +2099,8 @@ function DecisionCommandPanel({
   showRevenueMode: boolean
   goalContextLabel: string
   canEditGoal: boolean
+  periodStart: string
+  periodEnd: string
 }) {
   const goal = revenueKpis?.goal ?? 0
   const totalReal = revenueKpis?.totalReal ?? 0
@@ -2110,84 +2114,135 @@ function DecisionCommandPanel({
       ? Math.ceil(remainingOpportunities / remainingBusinessDays)
       : remainingOpportunities
 
-  const hasGoal = goal > 0
-  const goalReached = hasGoal && gap <= 0
-  const progressPct = hasGoal
-    ? Math.max(0, Math.min(100, Math.round((totalReal / goal) * 100)))
-    : 0
+      const hasGoal = goal > 0
+      const goalReached = hasGoal && gap <= 0
+      const progressPct = hasGoal
+        ? Math.max(0, Math.min(100, Math.round((totalReal / goal) * 100)))
+        : 0
+    
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+    
+      const selectedPeriodStart = periodStart ? new Date(`${toYMD(periodStart)}T00:00:00`) : null
+      const selectedPeriodEnd = periodEnd ? new Date(`${toYMD(periodEnd)}T00:00:00`) : null
+    
+      const isPastPeriod = Boolean(selectedPeriodEnd && selectedPeriodEnd < today)
+      const isFuturePeriod = Boolean(selectedPeriodStart && selectedPeriodStart > today)
+    
+      const isCritical =
+        hasGoal &&
+        !goalReached &&
+        !isPastPeriod &&
+        !isFuturePeriod &&
+        (dailyOpportunities >= 100 || remainingBusinessDays <= 2)
+    
+      const isHigh =
+        hasGoal &&
+        !goalReached &&
+        !isPastPeriod &&
+        !isFuturePeriod &&
+        !isCritical &&
+        dailyOpportunities >= 40
+    
+      const decisionTone = !hasGoal
+        ? 'neutral'
+        : isPastPeriod
+          ? 'historical'
+          : isFuturePeriod
+            ? 'scheduled'
+            : goalReached
+              ? 'good'
+              : isCritical
+                ? 'critical'
+                : isHigh
+                  ? 'warning'
+                  : 'good'
 
-  const isCritical = hasGoal && !goalReached && (dailyOpportunities >= 100 || remainingBusinessDays <= 2)
-  const isHigh = hasGoal && !goalReached && !isCritical && dailyOpportunities >= 40
+                  const decisionLabel =
+                  decisionTone === 'historical'
+                    ? 'Período encerrado'
+                    : decisionTone === 'scheduled'
+                      ? 'Período futuro'
+                      : decisionTone === 'critical'
+                        ? 'Ritmo crítico'
+                        : decisionTone === 'warning'
+                          ? 'Acelerar'
+                          : decisionTone === 'good'
+                            ? goalReached
+                              ? 'Meta atingida'
+                              : 'Ritmo controlável'
+                            : 'Meta pendente'
+              
+                const decisionColor =
+                  decisionTone === 'historical'
+                    ? '#93c5fd'
+                    : decisionTone === 'scheduled'
+                      ? '#c4b5fd'
+                      : decisionTone === 'critical'
+                        ? '#fca5a5'
+                        : decisionTone === 'warning'
+                          ? '#fbbf24'
+                          : decisionTone === 'good'
+                            ? '#86efac'
+                            : SIMULATOR_UI.textMuted
+              
+                const decisionBorder =
+                  decisionTone === 'historical'
+                    ? 'rgba(59, 130, 246, 0.30)'
+                    : decisionTone === 'scheduled'
+                      ? 'rgba(139, 92, 246, 0.30)'
+                      : decisionTone === 'critical'
+                        ? 'rgba(239, 68, 68, 0.30)'
+                        : decisionTone === 'warning'
+                          ? 'rgba(245, 158, 11, 0.28)'
+                          : decisionTone === 'good'
+                            ? 'rgba(34, 197, 94, 0.24)'
+                            : SIMULATOR_UI.borderMuted
+              
+                const decisionBackground =
+                  decisionTone === 'historical'
+                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.13) 0%, rgba(9, 11, 15, 0.70) 100%)'
+                    : decisionTone === 'scheduled'
+                      ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.13) 0%, rgba(9, 11, 15, 0.70) 100%)'
+                      : decisionTone === 'critical'
+                        ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(9, 11, 15, 0.70) 100%)'
+                        : decisionTone === 'warning'
+                          ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(9, 11, 15, 0.70) 100%)'
+                          : decisionTone === 'good'
+                            ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.10) 0%, rgba(9, 11, 15, 0.70) 100%)'
+                            : 'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, rgba(9, 11, 15, 0.70) 100%)'
 
-  const decisionTone = !hasGoal
-    ? 'neutral'
-    : goalReached
-      ? 'good'
-      : isCritical
-        ? 'critical'
-        : isHigh
-          ? 'warning'
-          : 'good'
-
-  const decisionLabel =
-    decisionTone === 'critical'
-      ? 'Ritmo crítico'
-      : decisionTone === 'warning'
-        ? 'Acelerar'
-        : decisionTone === 'good'
-          ? goalReached
-            ? 'Meta atingida'
-            : 'Ritmo controlável'
-          : 'Meta pendente'
-
-  const decisionColor =
-    decisionTone === 'critical'
-      ? '#fca5a5'
-      : decisionTone === 'warning'
-        ? '#fbbf24'
-        : decisionTone === 'good'
-          ? '#86efac'
-          : SIMULATOR_UI.textMuted
-
-  const decisionBorder =
-    decisionTone === 'critical'
-      ? 'rgba(239, 68, 68, 0.30)'
-      : decisionTone === 'warning'
-        ? 'rgba(245, 158, 11, 0.28)'
-        : decisionTone === 'good'
-          ? 'rgba(34, 197, 94, 0.24)'
-          : SIMULATOR_UI.borderMuted
-
-  const decisionBackground =
-    decisionTone === 'critical'
-      ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(9, 11, 15, 0.70) 100%)'
-      : decisionTone === 'warning'
-        ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(9, 11, 15, 0.70) 100%)'
-        : decisionTone === 'good'
-          ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.10) 0%, rgba(9, 11, 15, 0.70) 100%)'
-          : 'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, rgba(9, 11, 15, 0.70) 100%)'
-
-  const mainCommand =
-    !hasGoal
-      ? canEditGoal
-        ? 'Defina uma meta para liberar a recomendação operacional do período.'
-        : `${goalContextLabel} ainda não definida. Solicite ao gestor a definição da meta para liberar a recomendação operacional.`
-      : goalReached
-        ? 'Meta atingida. Mantenha o acompanhamento para preservar o resultado até o fim do período.'
-        : remainingBusinessDays <= 0
-          ? 'Não há dias de execução restantes. Revise o calendário operacional ou reprograme a meta.'
-          : `Trabalhar ${dailyOpportunities.toLocaleString('pt-BR')} oportunidades por dia pelos próximos ${remainingBusinessDays} dias de execução para buscar ${remainingWins.toLocaleString('pt-BR')} vendas restantes. Total estimado: ${remainingOpportunities.toLocaleString('pt-BR')} oportunidades restantes.`
-
-  const supportCommand =
-    !hasGoal
-      ? 'Sem meta cadastrada, o simulador não consegue calcular gap, ritmo diário e esforço necessário.'
-      : goalReached
-        ? 'O foco agora é proteger as oportunidades abertas, evitar perdas e manter cadência de acompanhamento.'
-        : isCritical
-          ? 'Ritmo crítico: a decisão gerencial é reforçar base, redistribuir carteira, aumentar cadência ou revisar a meta.'
-          : isHigh
-            ? 'Ritmo alto: valide capacidade real do time, qualidade da base e consistência da abordagem diária.'
-            : 'Ritmo operacionalmente viável se houver disciplina diária de execução e acompanhamento próximo.'
+                            const mainCommand =
+                            !hasGoal
+                              ? canEditGoal
+                                ? 'Defina uma meta para liberar a recomendação operacional do período.'
+                                : `${goalContextLabel} ainda não definida. Solicite ao gestor a definição da meta para liberar a recomendação operacional.`
+                              : isPastPeriod
+                                ? `Período encerrado. Resultado histórico: ${toBRL(totalReal)} realizado de ${toBRL(goal)}.`
+                                : isFuturePeriod
+                                  ? `Período futuro programado. Meta prevista de ${toBRL(goal)} para ${formatMonthLabelBR(getMonthKeyFromDate(periodStart))}.`
+                                  : goalReached
+                                    ? 'Meta atingida. Mantenha o acompanhamento para preservar o resultado até o fim do período.'
+                                    : remainingBusinessDays <= 0
+                                      ? 'Não há dias de execução restantes no período atual. Revise o calendário operacional ou reprograme a meta.'
+                                      : `Trabalhar ${dailyOpportunities.toLocaleString('pt-BR')} oportunidades por dia pelos próximos ${remainingBusinessDays} dias de execução para buscar ${remainingWins.toLocaleString('pt-BR')} vendas restantes. Total estimado: ${remainingOpportunities.toLocaleString('pt-BR')} oportunidades restantes.`
+                        
+                          const supportCommand =
+                            !hasGoal
+                              ? 'Sem meta cadastrada, o simulador não consegue calcular gap, ritmo diário e esforço necessário.'
+                              : isPastPeriod
+                                ? gap > 0
+                                  ? `Leitura histórica: a meta não foi atingida no período. Faltaram ${toBRL(gap)}. Use esta análise para entender desempenho, ticket, conversão e capacidade de execução, não para reprogramar o mês encerrado.`
+                                  : 'Leitura histórica: a meta foi atingida ou superada no período. Use esta análise para identificar o que funcionou e replicar o padrão nos próximos ciclos.'
+                                : isFuturePeriod
+                                  ? 'Leitura de planejamento: este período ainda não começou. Use o simulador para calibrar meta, ticket médio, taxa de conversão e dias de execução antes do início do mês.'
+                                  : goalReached
+                                    ? 'O foco agora é proteger as oportunidades abertas, evitar perdas e manter cadência de acompanhamento.'
+                                    : isCritical
+                                      ? 'Ritmo crítico: a decisão gerencial é reforçar base, redistribuir carteira, aumentar cadência ou revisar a meta.'
+                                      : isHigh
+                                        ? 'Ritmo alto: valide capacidade real do time, qualidade da base e consistência da abordagem diária.'
+                                        : 'Ritmo operacionalmente viável se houver disciplina diária de execução e acompanhamento próximo.'
 
   const decisionButtonStyle = (active: boolean): React.CSSProperties => ({
     height: 34,
@@ -4749,6 +4804,8 @@ function handleUndoGoalFromTop() {
         showRevenueMode={showRevenueMode}
         goalContextLabel={revenueGoalContextLabel}
         canEditGoal={isAdmin}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
       />
 
 
