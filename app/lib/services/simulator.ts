@@ -302,27 +302,54 @@ async function queryTicket(
 ): Promise<{ ticket_medio: number; sample_size: number; total_won: number }> {
   let query = supabase
     .from('sales_cycles')
-    .select('won_total')
+    .select('won_total, owner_user_id, won_owner_user_id, won_at, revenue_seller_ref_date')
     .eq('company_id', companyId)
     .eq('status', 'ganho')
     .gt('won_total', 0)
-    .gte('won_at', dateStart)
-    .lte('won_at', dateEnd + 'T23:59:59')
 
   if (ownerId) {
-    query = query.eq('won_owner_user_id', ownerId)
+    query = query.or(`won_owner_user_id.eq.${ownerId},owner_user_id.eq.${ownerId}`)
   }
 
   const { data, error } = await query
+
   if (error) {
     console.warn('Erro ao buscar ticket histórico:', error.message)
     return { ticket_medio: 0, sample_size: 0, total_won: 0 }
   }
 
-  const rows = (data ?? []) as Array<{ won_total: number }>
-  const validRows = rows.filter((r) => r.won_total > 0)
+  const start = new Date(`${dateStart}T00:00:00`)
+  const end = new Date(`${dateEnd}T23:59:59`)
+
+  const rows = (data ?? []) as Array<{
+    won_total: number
+    owner_user_id: string | null
+    won_owner_user_id: string | null
+    won_at: string | null
+    revenue_seller_ref_date: string | null
+  }>
+
+  const validRows = rows.filter((row) => {
+    const revenueOwnerId = row.won_owner_user_id ?? row.owner_user_id
+
+    if (ownerId && revenueOwnerId !== ownerId) {
+      return false
+    }
+
+    const refDateText = row.revenue_seller_ref_date ?? row.won_at
+
+    if (!refDateText) {
+      return false
+    }
+
+    const refDate = new Date(`${refDateText.split('T')[0]}T12:00:00`)
+
+    return refDate >= start && refDate <= end && Number(row.won_total) > 0
+  })
+
   const sample_size = validRows.length
-  const total_won = validRows.reduce((acc, r) => acc + Number(r.won_total), 0)
+  const total_won = validRows.reduce((acc, row) => acc + Number(row.won_total || 0), 0)
   const ticket_medio = sample_size > 0 ? Math.round(total_won / sample_size) : 0
+
   return { ticket_medio, sample_size, total_won }
 }
