@@ -133,23 +133,42 @@ function formatMonthLabelBR(monthKey: string) {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
-function buildMonthOptions() {
-  const today = new Date()
-  const options: Array<{ value: string; label: string }> = []
+const MONTH_OPTIONS = [
+  { value: '01', label: 'Janeiro' },
+  { value: '02', label: 'Fevereiro' },
+  { value: '03', label: 'Março' },
+  { value: '04', label: 'Abril' },
+  { value: '05', label: 'Maio' },
+  { value: '06', label: 'Junho' },
+  { value: '07', label: 'Julho' },
+  { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Setembro' },
+  { value: '10', label: 'Outubro' },
+  { value: '11', label: 'Novembro' },
+  { value: '12', label: 'Dezembro' },
+] as const
 
-  for (let offset = -12; offset <= 12; offset += 1) {
-    const date = new Date(today.getFullYear(), today.getMonth() + offset, 1)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const value = `${year}-${month}`
+function getMonthNumberFromMonthKey(monthKey: string) {
+  const [, monthText] = monthKey.split('-')
+  return monthText || '01'
+}
 
-    options.push({
-      value,
-      label: formatMonthLabelBR(value),
-    })
+function getYearFromMonthKey(monthKey: string) {
+  const [yearText] = monthKey.split('-')
+  const year = Number(yearText)
+
+  if (!Number.isFinite(year)) {
+    return new Date().getFullYear()
   }
 
-  return options
+  return year
+}
+
+function buildMonthKey(year: number, month: string) {
+  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear()
+  const safeMonth = MONTH_OPTIONS.some((option) => option.value === month) ? month : '01'
+
+  return `${safeYear}-${safeMonth}`
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -2692,34 +2711,74 @@ function SimulatorTopControls({
     Período
   </div>
 
-  <select
-    value={getMonthKeyFromDate(periodStart)}
-    onChange={(event) => {
-      const selectedMonth = event.target.value
-      const period = getMonthPeriod(selectedMonth)
-
-      setPeriodStart(period.start)
-      setPeriodEnd(period.end)
-    }}
+  <div
     style={{
-      height: 34,
-      minWidth: 180,
-      borderRadius: 9,
-      border: `1px solid ${SIMULATOR_UI.borderMuted}`,
-      background: '#090b0f',
-      color: SIMULATOR_UI.textPrimary,
-      padding: '0 12px',
-      fontSize: 13,
-      fontWeight: 800,
-      outline: 'none',
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center',
+      flexWrap: 'wrap',
     }}
   >
-    {buildMonthOptions().map((option) => (
-      <option key={option.value} value={option.value}>
-        {option.label}
-      </option>
-    ))}
-  </select>
+    <select
+      value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
+      onChange={(event) => {
+        const currentMonthKey = getMonthKeyFromDate(periodStart)
+        const currentYear = getYearFromMonthKey(currentMonthKey)
+        const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
+        const period = getMonthPeriod(selectedMonthKey)
+
+        setPeriodStart(period.start)
+        setPeriodEnd(period.end)
+      }}
+      style={{
+        height: 34,
+        minWidth: 132,
+        borderRadius: 9,
+        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: '#090b0f',
+        color: SIMULATOR_UI.textPrimary,
+        padding: '0 12px',
+        fontSize: 13,
+        fontWeight: 800,
+        outline: 'none',
+      }}
+    >
+      {MONTH_OPTIONS.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+
+    <input
+      type="number"
+      value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
+      onChange={(event) => {
+        const currentMonthKey = getMonthKeyFromDate(periodStart)
+        const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
+        const selectedYear = Number(event.target.value)
+        const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
+        const period = getMonthPeriod(selectedMonthKey)
+
+        setPeriodStart(period.start)
+        setPeriodEnd(period.end)
+      }}
+      min={1900}
+      max={2200}
+      style={{
+        height: 34,
+        width: 92,
+        borderRadius: 9,
+        border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+        background: '#090b0f',
+        color: SIMULATOR_UI.textPrimary,
+        padding: '0 12px',
+        fontSize: 13,
+        fontWeight: 800,
+        outline: 'none',
+      }}
+    />
+  </div>
 
   <div
     style={{
@@ -2729,7 +2788,8 @@ function SimulatorTopControls({
       lineHeight: 1.35,
     }}
   >
-    {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}
+    {formatMonthLabelBR(getMonthKeyFromDate(periodStart))} · {formatDateBR(periodStart)} até{' '}
+    {formatDateBR(periodEnd)}
   </div>
 </div>
           </div>
