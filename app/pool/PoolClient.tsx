@@ -4,7 +4,6 @@ import * as React from 'react'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import CreateLeadModal from '../leads/components/CreateLeadModal'
 import ImportExcelDialog from '../leads/components/ImportExcelDialog'
-import DeleteLeadsDialog from '../leads/components/DeleteLeadsDialog'
 
 const DS = {
   contentBg: '#090b0f',
@@ -770,30 +769,6 @@ export default function PoolClient({
                 }}
               >
                 Importar Excel
-              </button>
-            }
-          />
-
-          <DeleteLeadsDialog
-            companyId={companyId}
-            isAdmin={true}
-            onDeleted={() => {
-              void Promise.all([loadGroups(), loadPoolAndSellers()])
-            }}
-            trigger={
-              <button
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: DS.radius,
-                  border: `1px solid ${DS.redBorder}`,
-                  background: DS.redBg,
-                  color: DS.redText,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                Deletar Leads
               </button>
             }
           />
