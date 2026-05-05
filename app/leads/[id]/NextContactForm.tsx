@@ -1,54 +1,82 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
+import { setNextAction as saveNextAction } from '@/app/lib/services/sales-cycles'
 import { toLocalDatetimeInputValue } from '@/app/lib/dateUtils'
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : 'Erro ao atualizar próxima ação.'
+}
+
 export default function NextContactForm({
-  leadId,
+  cycleId,
   initialAction,
-  initialNextContactAt
+  initialNextActionDate,
 }: {
-  leadId: string
+  cycleId: string
   initialAction?: string | null
-  initialNextContactAt?: string | null
+  initialNextActionDate?: string | null
 }) {
   const router = useRouter()
+
   const [nextAction, setNextAction] = useState(initialAction ?? '')
-  const [nextContactAt, setNextContactAt] = useState(
-    initialNextContactAt ? toLocalDatetimeInputValue(initialNextContactAt) : ''
+  const [nextActionDate, setNextActionDate] = useState(
+    initialNextActionDate ? toLocalDatetimeInputValue(initialNextActionDate) : ''
   )
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const salvar = async () => {
-    if (!nextContactAt) {
-      alert('Defina a data/hora do próximo contato.')
+    if (loading) return
+
+    if (!cycleId) {
+      setError('Ciclo comercial não encontrado.')
+      return
+    }
+
+    if (!nextActionDate) {
+      setError('Defina a data/hora da próxima ação.')
       return
     }
 
     setLoading(true)
+    setError(null)
 
-    const { error } = await supabase
-      .from('leads')
-      .update({
-        next_action: nextAction || null,
-        next_contact_at: new Date(nextContactAt).toISOString()
+    try {
+      await saveNextAction({
+        cycle_id: cycleId,
+        next_action: nextAction.trim() || 'Próxima ação',
+        next_action_date: new Date(nextActionDate),
       })
-      .eq('id', leadId)
 
-    setLoading(false)
-
-    if (error) {
-      alert('Erro: ' + error.message)
-      return
+      router.refresh()
+    } catch (err: unknown) {
+      setError(getErrorMessage(err))
+    } finally {
+      setLoading(false)
     }
-
-    router.refresh()
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {error && (
+        <div
+          style={{
+            border: '1px solid rgba(239,68,68,0.35)',
+            background: 'rgba(239,68,68,0.10)',
+            color: '#fecaca',
+            borderRadius: 10,
+            padding: 10,
+            fontSize: 12,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
       <input
         value={nextAction}
         onChange={(e) => setNextAction(e.target.value)}
@@ -57,12 +85,12 @@ export default function NextContactForm({
 
       <input
         type="datetime-local"
-        value={nextContactAt}
-        onChange={(e) => setNextContactAt(e.target.value)}
+        value={nextActionDate}
+        onChange={(e) => setNextActionDate(e.target.value)}
       />
 
       <button onClick={salvar} disabled={loading}>
-        {loading ? 'Salvando...' : 'Salvar próximo contato'}
+        {loading ? 'Salvando...' : 'Salvar próxima ação'}
       </button>
     </div>
   )
