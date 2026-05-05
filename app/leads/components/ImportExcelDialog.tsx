@@ -56,6 +56,34 @@ type ImportSummary = {
   errors: Array<{ row: number; error: string }>
 }
 
+const UI = {
+  overlay: 'rgba(2,6,23,0.78)',
+  pageBg: '#090b0f',
+  modalBg: '#0d0f14',
+  surface: '#111318',
+  surfaceSoft: '#141722',
+  border: '#1a1d2e',
+  borderSoft: '#232842',
+  text: '#edf2f7',
+  muted: '#8fa3bc',
+  faint: '#546070',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  greenBg: 'rgba(22,163,74,0.12)',
+  greenBorder: 'rgba(34,197,94,0.28)',
+  greenText: '#86efac',
+  redBg: 'rgba(127,29,29,0.36)',
+  redBorder: 'rgba(239,68,68,0.30)',
+  redText: '#fecaca',
+  amberBg: 'rgba(245,158,11,0.14)',
+  amberBorder: 'rgba(245,158,11,0.38)',
+  amberText: '#fef3c7',
+  purpleBorder: 'rgba(168,85,247,0.45)',
+  purpleText: '#d8b4fe',
+  radius: 10,
+  radiusLarge: 16,
+} as const
+
 const onlyDigits = (val: unknown) => String(val || '').replace(/\D/g, '')
 
 function hasRepeatedDigits(value: string) {
@@ -613,69 +641,107 @@ export default function ImportExcelDialog({
 
       {isOpen && (
         <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-          }}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: UI.overlay,
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: 20,
+        }}
           onClick={() => setIsOpen(false)}
         >
           <div
             style={{
-              background: '#111',
-              border: '1px solid #333',
-              borderRadius: 12,
-              padding: 24,
-              width: '90%',
-              maxWidth: 900,
-              color: 'white',
+              background: `linear-gradient(180deg, ${UI.surface} 0%, ${UI.modalBg} 100%)`,
+              border: `1px solid ${UI.border}`,
+              borderRadius: UI.radiusLarge,
+              padding: 0,
+              width: '92%',
+              maxWidth: 920,
+              color: UI.text,
               maxHeight: '90vh',
-              overflowY: 'auto',
+              overflow: 'hidden',
+              boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
+                        <div
+              style={{
+                padding: 24,
+                maxHeight: '90vh',
+                overflowY: 'auto',
+              }}
+            >
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 20,
+                alignItems: 'flex-start',
+                gap: 16,
+                marginBottom: 22,
+                paddingBottom: 16,
+                borderBottom: `1px solid ${UI.border}`,
               }}
             >
-              <div style={{ fontSize: 18, fontWeight: 900 }}>
-                Importar Leads {step === 'preview' && `(${leads.length})`}
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 900,
+                    letterSpacing: '0.12em',
+                    color: UI.blueSoft,
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  Importação inteligente
+                </div>
+
+                <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.03em' }}>
+                  Importar Leads {step === 'preview' && `(${leads.length})`}
+                </div>
+
+                <div style={{ marginTop: 6, color: UI.muted, fontSize: 12 }}>
+                  Valide dados, evite duplicidade e reative leads excluídos com segurança.
+                </div>
               </div>
               <button
                 onClick={() => setIsOpen(false)}
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#999',
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  border: `1px solid ${UI.border}`,
+                  background: UI.modalBg,
+                  color: UI.muted,
                   cursor: 'pointer',
-                  fontSize: 24,
-                  padding: 0,
+                  fontSize: 20,
+                  display: 'grid',
+                  placeItems: 'center',
                 }}
               >
-                ✕
+                ×
               </button>
             </div>
 
             {error && (
               <div
                 style={{
-                  background: '#7f1d1d',
-                  color: '#fecaca',
+                  background: UI.redBg,
+                  color: UI.redText,
+                  border: `1px solid ${UI.redBorder}`,
                   padding: 12,
-                  borderRadius: 10,
+                  borderRadius: UI.radius,
                   marginBottom: 16,
                   fontSize: 12,
+                  fontWeight: 700,
                 }}
               >
                 {error}
@@ -1218,68 +1284,47 @@ export default function ImportExcelDialog({
               </>
             )}
 
-            {step === 'preview' && (
+{step === 'preview' && (
               <>
-                              {activeConflicts.length > 0 && (
+
+                {deletedConflicts.length > 0 && (
                   <div
                     style={{
-                      background: 'rgba(239,68,68,0.14)',
-                      border: '1px solid rgba(239,68,68,0.45)',
-                      color: '#fecaca',
-                      borderRadius: 10,
+                      background: UI.surfaceSoft,
+                      border: `1px solid ${UI.amberBorder}`,
+                      borderLeft: `4px solid ${UI.amberText}`,
+                      color: UI.text,
+                      borderRadius: UI.radius,
                       padding: 14,
-                      marginBottom: 16,
+                      marginBottom: 14,
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 6 }}>
-                      Leads já ativos encontrados
-                    </div>
-
-                    <div style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.5 }}>
-                      Esta planilha contém {activeConflicts.length} lead(s) que já estão ativos no sistema.
-                      Essas linhas não serão importadas novamente para evitar duplicidade de CPF, telefone ou e-mail.
-                    </div>
-
-                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                      {activeConflicts.map((conflict) => (
-                        <div
-                          key={conflict.lead_id}
-                          style={{
-                            background: 'rgba(0,0,0,0.18)',
-                            border: '1px solid rgba(239,68,68,0.25)',
-                            borderRadius: 8,
-                            padding: 10,
-                            fontSize: 12,
-                          }}
-                        >
-                          <strong>{conflict.name || 'Lead sem nome'}</strong>
-                          <div style={{ opacity: 0.8, marginTop: 3 }}>
-                            Linha {conflict.row} • CPF/CNPJ: {conflict.document || '—'} • Tel: {conflict.phone || '—'}
-                          </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 4 }}>
+                          Leads excluídos encontrados
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                              {deletedConflicts.length > 0 && (
-                  <div
-                    style={{
-                      background: 'rgba(245,158,11,0.14)',
-                      border: '1px solid rgba(245,158,11,0.45)',
-                      color: '#fef3c7',
-                      borderRadius: 10,
-                      padding: 14,
-                      marginBottom: 16,
-                    }}
-                  >
-                    <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 6 }}>
-                      Leads excluídos encontrados
-                    </div>
+                        <div style={{ fontSize: 12, color: UI.muted, lineHeight: 1.5 }}>
+                          Existem {deletedConflicts.length} lead(s) já cadastrados, mas excluídos.
+                          Decida se deseja reativá-los ou manter esses registros bloqueados.
+                        </div>
+                      </div>
 
-                    <div style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.5 }}>
-                      Esta planilha contém {deletedConflicts.length} lead(s) que já existem no sistema,
-                      mas estão excluídos. Para evitar duplicidade de CPF/telefone, você precisa decidir
-                      se deseja reativá-los.
+                      <span
+                        style={{
+                          height: 24,
+                          padding: '4px 9px',
+                          borderRadius: 999,
+                          background: UI.amberBg,
+                          color: UI.amberText,
+                          border: `1px solid ${UI.amberBorder}`,
+                          fontSize: 11,
+                          fontWeight: 900,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Decisão necessária
+                      </span>
                     </div>
 
                     <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
@@ -1287,18 +1332,19 @@ export default function ImportExcelDialog({
                         <div
                           key={conflict.lead_id}
                           style={{
-                            background: 'rgba(0,0,0,0.18)',
-                            border: '1px solid rgba(245,158,11,0.25)',
-                            borderRadius: 8,
+                            background: UI.modalBg,
+                            border: `1px solid ${UI.border}`,
+                            borderRadius: UI.radius,
                             padding: 10,
                             fontSize: 12,
                           }}
                         >
                           <strong>{conflict.name || 'Lead sem nome'}</strong>
-                          <div style={{ opacity: 0.8, marginTop: 3 }}>
-                            Linha {conflict.row} • CPF/CNPJ: {conflict.document || '—'} • Tel: {conflict.phone || '—'}
+                          <div style={{ color: UI.muted, marginTop: 3 }}>
+                            Linha {conflict.row} • CPF/CNPJ: {conflict.document || '—'} • Tel:{' '}
+                            {conflict.phone || '—'}
                           </div>
-                          <div style={{ opacity: 0.65, marginTop: 3 }}>
+                          <div style={{ color: UI.faint, marginTop: 3 }}>
                             Excluído em: {new Date(conflict.deleted_at).toLocaleString('pt-BR')}
                           </div>
                         </div>
@@ -1311,17 +1357,17 @@ export default function ImportExcelDialog({
                         disabled={importing}
                         style={{
                           padding: '9px 14px',
-                          borderRadius: 8,
-                          border: '1px solid rgba(245,158,11,0.45)',
-                          background: keepDeletedBlocked ? 'rgba(245,158,11,0.22)' : 'transparent',
-                          color: '#fef3c7',
+                          borderRadius: UI.radius,
+                          border: `1px solid ${UI.amberBorder}`,
+                          background: keepDeletedBlocked ? UI.amberBg : 'transparent',
+                          color: UI.amberText,
                           cursor: importing ? 'not-allowed' : 'pointer',
                           fontWeight: 900,
                           fontSize: 12,
                           opacity: importing ? 0.5 : 1,
                         }}
-                        >
-                        {keepDeletedBlocked ? 'Bloqueados' : 'Não reativar'}
+                      >
+                        {keepDeletedBlocked ? 'Mantidos bloqueados' : 'Não reativar'}
                       </button>
 
                       <button
@@ -1329,121 +1375,185 @@ export default function ImportExcelDialog({
                         disabled={importing}
                         style={{
                           padding: '9px 14px',
-                          borderRadius: 8,
-                          border: 'none',
-                          background: '#10b981',
-                          color: 'white',
+                          borderRadius: UI.radius,
+                          border: `1px solid ${UI.greenBorder}`,
+                          background: UI.greenBg,
+                          color: UI.greenText,
                           cursor: importing ? 'not-allowed' : 'pointer',
                           fontWeight: 900,
                           fontSize: 12,
                           opacity: importing ? 0.5 : 1,
                         }}
                       >
-                        {importing ? 'Reativando...' : 'Sim, reativar e importar'}
+                        {importing ? 'Reativando...' : 'Reativar e importar'}
                       </button>
                     </div>
                   </div>
                 )}
-                <div style={{ marginBottom: 16 }}>
+
+<div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 10,
+                    marginBottom: 0,
+                    border: `1px solid ${UI.border}`,
+                    borderBottom: 'none',
+                    borderRadius: `${UI.radius}px ${UI.radius}px 0 0`,
+                    background: UI.surfaceSoft,
+                    padding: 10,
+                  }}
+                >
                   <div
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: 12,
-                      marginBottom: 16,
+                      background: UI.modalBg,
+                      border: `1px solid ${UI.border}`,
+                      borderRadius: UI.radius,
+                      padding: 12,
+                      textAlign: 'center',
                     }}
                   >
                     <div
                       style={{
-                        background: '#064e3b',
-                        padding: 12,
-                        borderRadius: 8,
-                        textAlign: 'center',
+                        fontSize: 11,
+                        color: UI.muted,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
                       }}
                     >
-                      <div style={{ fontSize: 24, fontWeight: 900, color: '#a7f3d0' }}>
-                        {leads.filter((l) => !l.error).length}
-                      </div>
-                      <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Válidos</div>
+                      Novos para importar
                     </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.greenText }}>
+                      {leads.filter((l) => !l.error).length}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: UI.modalBg,
+                      border: `1px solid ${UI.border}`,
+                      borderRadius: UI.radius,
+                      padding: 12,
+                      textAlign: 'center',
+                    }}
+                  >
                     <div
                       style={{
-                        background: '#7f1d1d',
-                        padding: 12,
-                        borderRadius: 8,
-                        textAlign: 'center',
+                        fontSize: 11,
+                        color: UI.muted,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
                       }}
                     >
-                      <div style={{ fontSize: 24, fontWeight: 900, color: '#fecaca' }}>
-                        {leads.filter((l) => l.error).length}
-                      </div>
-                      <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Com Erro</div>
+                      Bloqueados / atenção
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.amberText }}>
+                      {leads.filter((l) => l.error).length}
                     </div>
                   </div>
                 </div>
 
                 <div
                   style={{
-                    border: '1px solid #2a2a2a',
-                    borderRadius: 10,
+                    border: `1px solid ${UI.border}`,
+                    borderRadius: UI.radius,
                     maxHeight: 350,
                     overflowY: 'auto',
                     marginBottom: 16,
+                    background: UI.modalBg,
                   }}
                 >
-                  {leads.map((lead, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        padding: 12,
-                        borderBottom: idx < leads.length - 1 ? '1px solid #1a1a1a' : 'none',
-                        background: lead.error ? '#2a0a0a' : '#0a2a1a',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                        <div>
-                          <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>
-                            {lead.name}
+                  {leads.map((lead, idx) => {
+                    const tone = lead.activeConflict
+                      ? 'active'
+                      : lead.deletedConflict
+                        ? 'deleted'
+                        : lead.error
+                          ? 'error'
+                          : 'ok'
+
+                    const borderColor =
+                      tone === 'ok'
+                        ? UI.greenBorder
+                        : tone === 'deleted'
+                          ? UI.amberBorder
+                          : UI.redBorder
+
+                          const label =
+                          tone === 'ok'
+                            ? 'Pronto para importar'
+                            : tone === 'deleted'
+                              ? 'Aguardando decisão'
+                              : tone === 'active'
+                                ? 'Já existe ativo'
+                                : 'Bloqueado'
+
+                    const labelColor =
+                      tone === 'ok'
+                        ? UI.greenText
+                        : tone === 'deleted'
+                          ? UI.amberText
+                          : UI.redText
+
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: 12,
+                          borderBottom: idx < leads.length - 1 ? `1px solid ${UI.border}` : 'none',
+                          background: UI.surface,
+                          borderLeft: `3px solid ${borderColor}`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                          <div>
+                            <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>
+                              {lead.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: UI.muted }}>
+                              CPF/CNPJ: {lead.cpf_cnpj} {lead.phone && `• Tel: ${lead.phone}`}
+                            </div>
+                            {lead.email && (
+                              <div style={{ fontSize: 11, color: UI.muted }}>Email: {lead.email}</div>
+                            )}
+                            {lead.birth_date && (
+                              <div style={{ fontSize: 11, color: UI.muted }}>
+                                Nascimento:{' '}
+                                {new Date(`${lead.birth_date}T00:00:00`).toLocaleDateString('pt-BR')}
+                              </div>
+                            )}
+                            {lead.address_city && (
+                              <div style={{ fontSize: 11, color: UI.muted }}>
+                                {lead.address_street} {lead.address_number && `, ${lead.address_number}`}
+                              </div>
+                            )}
                           </div>
-                          <div style={{ fontSize: 11, opacity: 0.7 }}>
-                            CPF/CNPJ: {lead.cpf_cnpj} {lead.phone && `• Tel: ${lead.phone}`}
+
+                          <div style={{ textAlign: 'right', minWidth: 150 }}>
+                            <div style={{ color: labelColor, fontSize: 11, fontWeight: 900 }}>
+                              {label}
+                            </div>
+                            {lead.error && (
+                              <div style={{ color: UI.muted, fontSize: 11, marginTop: 4 }}>
+                                {lead.error}
+                              </div>
+                            )}
                           </div>
-                          {lead.email && (
-                            <div style={{ fontSize: 11, opacity: 0.7 }}>Email: {lead.email}</div>
-                          )}
-                          {lead.birth_date && (
-                            <div style={{ fontSize: 11, opacity: 0.7 }}>
-                              Nascimento:{' '}
-                              {new Date(`${lead.birth_date}T00:00:00`).toLocaleDateString('pt-BR')}
-                            </div>
-                          )}
-                          {lead.address_city && (
-                            <div style={{ fontSize: 11, opacity: 0.7 }}>
-                              📍 {lead.address_street} {lead.address_number && `, ${lead.address_number}`}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          {lead.error ? (
-                            <div style={{ color: '#f87171', fontSize: 11, fontWeight: 900 }}>
-                              ✗ {lead.error}
-                            </div>
-                          ) : (
-                            <div style={{ color: '#86efac', fontSize: 11, fontWeight: 900 }}>
-                              ✓ OK
-                            </div>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 <div
                   style={{
                     marginBottom: 16,
                     paddingBottom: 16,
-                    borderBottom: '1px solid #222',
+                    borderBottom: `1px solid ${UI.border}`,
                   }}
                 >
                   <label
@@ -1452,9 +1562,10 @@ export default function ImportExcelDialog({
                       fontWeight: 900,
                       display: 'block',
                       marginBottom: 8,
+                      color: UI.text,
                     }}
                   >
-                    📁 Vincular a um Grupo (Opcional)
+                    Vincular a um grupo
                   </label>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <select
@@ -1462,11 +1573,11 @@ export default function ImportExcelDialog({
                       onChange={(e) => setSelectedGroup(e.target.value)}
                       style={{
                         flex: 1,
-                        padding: '8px',
-                        borderRadius: 6,
-                        border: '1px solid #2a2a2a',
-                        background: '#222',
-                        color: 'white',
+                        padding: '9px 10px',
+                        borderRadius: UI.radius,
+                        border: `1px solid ${UI.border}`,
+                        background: UI.surface,
+                        color: UI.text,
                         fontSize: 12,
                       }}
                     >
@@ -1481,11 +1592,11 @@ export default function ImportExcelDialog({
                     <button
                       onClick={() => setShowCreateGroupModal(true)}
                       style={{
-                        padding: '8px 12px',
-                        borderRadius: 6,
-                        border: '1px solid #8b5cf6',
+                        padding: '9px 12px',
+                        borderRadius: UI.radius,
+                        border: `1px solid ${UI.purpleBorder}`,
                         background: 'transparent',
-                        color: '#d8b4fe',
+                        color: UI.purpleText,
                         cursor: 'pointer',
                         fontWeight: 900,
                         fontSize: 11,
@@ -1501,11 +1612,11 @@ export default function ImportExcelDialog({
                   <button
                     onClick={() => setStep('map')}
                     style={{
-                      padding: '10px 20px',
-                      borderRadius: 8,
-                      border: '1px solid #2a2a2a',
-                      background: 'transparent',
-                      color: 'white',
+                      padding: '10px 18px',
+                      borderRadius: UI.radius,
+                      border: `1px solid ${UI.border}`,
+                      background: UI.surface,
+                      color: UI.text,
                       cursor: 'pointer',
                       fontWeight: 900,
                       fontSize: 13,
@@ -1520,19 +1631,20 @@ export default function ImportExcelDialog({
                       importing ||
                       (deletedConflicts.length > 0 && !keepDeletedBlocked) ||
                       leads.filter((l) => !l.error).length === 0
-                    }                    style={{
-                      padding: '10px 20px',
-                      borderRadius: 8,
-                      border: 'none',
-                      background: leads.filter((l) => !l.error).length > 0 ? '#10b981' : '#1f2937',
-                      color: 'white',
+                    }
+                    style={{
+                      padding: '10px 18px',
+                      borderRadius: UI.radius,
+                      border: `1px solid ${UI.greenBorder}`,
+                      background: leads.filter((l) => !l.error).length > 0 ? UI.greenBg : UI.surface,
+                      color: leads.filter((l) => !l.error).length > 0 ? UI.greenText : UI.faint,
                       cursor: leads.filter((l) => !l.error).length > 0 ? 'pointer' : 'not-allowed',
                       fontWeight: 900,
                       fontSize: 13,
                       opacity: leads.filter((l) => !l.error).length > 0 ? 1 : 0.5,
                     }}
                   >
-                    {importing ? 'Importando…' : `+ Importar (${leads.filter((l) => !l.error).length})`}
+                    {importing ? 'Importando…' : `Importar novos (${leads.filter((l) => !l.error).length})`}
                   </button>
                 </div>
               </>
@@ -1708,6 +1820,7 @@ export default function ImportExcelDialog({
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
