@@ -8,6 +8,11 @@ type DeleteLeadsBody = {
   password?: unknown
 }
 
+type LeadForDelete = {
+  id: string
+  deleted_at: string | null
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
   return fallback
@@ -138,7 +143,7 @@ export async function POST(req: Request) {
 
     const { data: leads, error: leadsError } = await admin
       .from('leads')
-      .select('id')
+      .select('id, deleted_at')
       .eq('company_id', companyId)
       .in('id', leadIds)
 
@@ -149,7 +154,11 @@ export async function POST(req: Request) {
       )
     }
 
-    const validLeadIds = (leads ?? []).map((lead) => lead.id as string)
+    const validLeads = (leads ?? []) as LeadForDelete[]
+    const validLeadIds = validLeads.map((lead) => lead.id)
+    const alreadyDeletedLeadIds = validLeads
+      .filter((lead) => Boolean(lead.deleted_at))
+      .map((lead) => lead.id)
 
     if (validLeadIds.length === 0) {
       return NextResponse.json(
@@ -169,16 +178,46 @@ export async function POST(req: Request) {
       )
     }
 
-    const { error: deleteError } = await admin
-      .from('leads')
-      .delete()
-      .eq('company_id', companyId)
-      .in('id', validLeadIds)
-
-    if (deleteError) {
+    if (alreadyDeletedLeadIds.length > 0) {
       return NextResponse.json(
-        { ok: false, error: deleteError.message },
+        {
+          ok: false,
+          error: 'A operação foi bloqueada porque um ou mais leads já estão excluídos.',
+        },
+        { status: 409 }
+      )
+    }
+
+    const deletedAt = new Date().toISOString()
+
+    const { data: updatedLeads, error: updateError } = await admin
+      .from('leads')
+      .update({
+        deleted_at: deletedAt,
+        deleted_by: user.id,
+      })
+      .eq('company_id', companyId)
+      .is('deleted_at', null)
+      .in('id', validLeadIds)
+      .select('id')
+
+    if (updateError) {
+      return NextResponse.json(
+        { ok: false, error: updateError.message },
         { status: 400 }
+      )
+    }
+
+    const softDeletedLeadIds = (updatedLeads ?? []).map((lead) => lead.id as string)
+
+    if (softDeletedLeadIds.length !== validLeadIds.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Nem todos os leads foram excluídos. A operação foi interrompida para evitar inconsistência.',
+        },
+        { status: 409 }
       )
     }
 
@@ -186,17 +225,18 @@ export async function POST(req: Request) {
       company_id: companyId,
       actor_user_id: user.id,
       target_user_id: null,
-      event_type: 'leads_deleted',
+      event_type: 'leads_soft_deleted',
       metadata: {
-        lead_ids: validLeadIds,
-        deleted_count: validLeadIds.length,
+        lead_ids: softDeletedLeadIds,
+        deleted_count: softDeletedLeadIds.length,
+        deleted_at: deletedAt,
         source: 'pool',
       },
     })
 
     return NextResponse.json({
       ok: true,
-      deleted_count: validLeadIds.length,
+      deleted_count: softDeletedLeadIds.length,
       warning: auditError ? `Leads excluídos, mas falhou auditoria: ${auditError.message}` : null,
     })
   } catch (error: unknown) {
