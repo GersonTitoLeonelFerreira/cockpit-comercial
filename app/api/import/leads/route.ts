@@ -68,6 +68,16 @@ type DeletedLeadConflict = {
   deleted_at: string
 }
 
+type ActiveLeadConflict = {
+  row: number
+  lead_id: string
+  name: string | null
+  document: string | null
+  phone: string | null
+  email: string | null
+  matched_by: 'document' | 'phone' | 'email'
+}
+
 function onlyDigits(v: unknown) {
   return String(v ?? '').replace(/\D/g, '')
 }
@@ -307,6 +317,47 @@ function findDeletedConflicts(
   return Array.from(conflictsByLeadId.values())
 }
 
+function findActiveConflicts(
+  rows: NormalizedRow[],
+  existingLeadById: Map<string, LeadRow>,
+  leadIdByDoc: Map<string, string>,
+  leadIdByEmail: Map<string, string>,
+  leadIdByPhone: Map<string, string>,
+) {
+  const conflictsByLeadId = new Map<string, ActiveLeadConflict>()
+
+  for (const row of rows) {
+    if (!row.cpf_cnpj || !isValidDocument(row.cpf_cnpj)) continue
+
+    const candidates: Array<{ leadId: string | null; matchedBy: ActiveLeadConflict['matched_by'] }> = [
+      { leadId: leadIdByDoc.get(row.cpf_cnpj) || null, matchedBy: 'document' },
+      { leadId: row.phone ? leadIdByPhone.get(row.phone) || null : null, matchedBy: 'phone' },
+      { leadId: row.email ? leadIdByEmail.get(row.email) || null : null, matchedBy: 'email' },
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate.leadId) continue
+
+      const lead = existingLeadById.get(candidate.leadId)
+      if (!lead || lead.deleted_at) continue
+
+      if (!conflictsByLeadId.has(lead.id)) {
+        conflictsByLeadId.set(lead.id, {
+          row: row.rowNumber,
+          lead_id: lead.id,
+          name: lead.name,
+          document: lead.cpf_cnpj,
+          phone: lead.phone,
+          email: lead.email,
+          matched_by: candidate.matchedBy,
+        })
+      }
+    }
+  }
+
+  return Array.from(conflictsByLeadId.values())
+}
+
 export async function POST(req: Request) {
   try {
     let supabase, user
@@ -480,10 +531,19 @@ export async function POST(req: Request) {
       leadIdByPhone,
     )
 
+    const activeConflicts = findActiveConflicts(
+      rows,
+      existingLeadById,
+      leadIdByDoc,
+      leadIdByEmail,
+      leadIdByPhone,
+    )
+
     if (checkDeletedConflictsOnly) {
       return NextResponse.json({
         ok: true,
         deleted_conflicts: deletedConflicts,
+        active_conflicts: activeConflicts,
       })
     }
 
@@ -591,6 +651,18 @@ export async function POST(req: Request) {
         }
 
         let leadId = leadIdFromDoc
+
+        if (leadId) {
+          const currentLead = existingLeadById.get(leadId) || null
+
+          if (currentLead && !currentLead.deleted_at) {
+            errors.push({
+              row: row.rowNumber,
+              error: `Lead já ativo no sistema (${currentLead.name || 'Sem nome'} - ${currentLead.id.slice(0, 8)}).`,
+            })
+            continue
+          }
+        }
 
         if (!leadId) {
           const insertLeadPayload = {

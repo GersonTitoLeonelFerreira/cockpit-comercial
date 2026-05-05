@@ -15,6 +15,16 @@ type DeletedLeadConflict = {
   deleted_at: string
 }
 
+type ActiveLeadConflict = {
+  row: number
+  lead_id: string
+  name: string | null
+  document: string | null
+  phone: string | null
+  email: string | null
+  matched_by: 'document' | 'phone' | 'email'
+}
+
 type LeadData = {
   rowNumber: number
   name: string
@@ -31,6 +41,7 @@ type LeadData = {
   address_state: string | null
   error: string | null
   deletedConflict?: DeletedLeadConflict | null
+  activeConflict?: ActiveLeadConflict | null
 }
 
 type LeadGroup = {
@@ -219,6 +230,7 @@ export default function ImportExcelDialog({
 
   const [leads, setLeads] = useState<LeadData[]>([])
   const [deletedConflicts, setDeletedConflicts] = useState<DeletedLeadConflict[]>([])
+  const [activeConflicts, setActiveConflicts] = useState<ActiveLeadConflict[]>([])
   const [keepDeletedBlocked, setKeepDeletedBlocked] = useState(false)
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -309,8 +321,13 @@ export default function ImportExcelDialog({
     }
   }
 
-  const checkDeletedLeadConflicts = async (rowsToCheck: LeadData[]) => {
-    if (rowsToCheck.length === 0) return []
+  const checkImportConflicts = async (rowsToCheck: LeadData[]) => {
+    if (rowsToCheck.length === 0) {
+      return {
+        deleted: [] as DeletedLeadConflict[],
+        active: [] as ActiveLeadConflict[],
+      }
+    }
 
     const response = await fetch('/api/import/leads', {
       method: 'POST',
@@ -327,12 +344,17 @@ export default function ImportExcelDialog({
     const result = await response.json().catch(() => ({}))
 
     if (!response.ok) {
-      throw new Error(result?.error || 'Erro ao verificar leads excluídos.')
+      throw new Error(result?.error || 'Erro ao verificar conflitos de importação.')
     }
 
-    return Array.isArray(result?.deleted_conflicts)
-      ? (result.deleted_conflicts as DeletedLeadConflict[])
-      : []
+    return {
+      deleted: Array.isArray(result?.deleted_conflicts)
+        ? (result.deleted_conflicts as DeletedLeadConflict[])
+        : [],
+      active: Array.isArray(result?.active_conflicts)
+        ? (result.active_conflicts as ActiveLeadConflict[])
+        : [],
+    }
   }
 
   const processWithMapping = async () => {
@@ -434,22 +456,47 @@ export default function ImportExcelDialog({
       }
 
       const validRows = leadsData.filter((lead) => !lead.error)
-      const conflicts = await checkDeletedLeadConflicts(validRows)
-      const conflictByRow = new Map(conflicts.map((conflict) => [conflict.row, conflict]))
+      const importConflicts = await checkImportConflicts(validRows)
+
+      const deletedConflictByRow = new Map(
+        importConflicts.deleted.map((conflict) => [conflict.row, conflict])
+      )
+
+      const activeConflictByRow = new Map(
+        importConflicts.active.map((conflict) => [conflict.row, conflict])
+      )
 
       const leadsWithConflicts = leadsData.map((lead) => {
-        const conflict = conflictByRow.get(lead.rowNumber)
+        const activeConflict = activeConflictByRow.get(lead.rowNumber)
+        const deletedConflict = deletedConflictByRow.get(lead.rowNumber)
 
-        if (!conflict) return { ...lead, deletedConflict: null }
+        if (activeConflict) {
+          return {
+            ...lead,
+            activeConflict,
+            deletedConflict: null,
+            error: 'Lead já ativo no sistema. Importação duplicada bloqueada.',
+          }
+        }
+
+        if (deletedConflict) {
+          return {
+            ...lead,
+            activeConflict: null,
+            deletedConflict,
+            error: 'Lead excluído encontrado. Escolha se deseja reativar.',
+          }
+        }
 
         return {
           ...lead,
-          deletedConflict: conflict,
-          error: 'Lead excluído encontrado. Escolha se deseja reativar.',
+          activeConflict: null,
+          deletedConflict: null,
         }
       })
 
-      setDeletedConflicts(conflicts)
+      setDeletedConflicts(importConflicts.deleted)
+      setActiveConflicts(importConflicts.active)
       setLeads(leadsWithConflicts)
       setStep('preview')
       setStep('preview')
@@ -536,6 +583,7 @@ export default function ImportExcelDialog({
     setRawRows([])
     setLeads([])
     setDeletedConflicts([])
+    setActiveConflicts([])
     setError(null)
     setImportSummary(null)
     setSelectedGroup('')
@@ -1172,6 +1220,47 @@ export default function ImportExcelDialog({
 
             {step === 'preview' && (
               <>
+                              {activeConflicts.length > 0 && (
+                  <div
+                    style={{
+                      background: 'rgba(239,68,68,0.14)',
+                      border: '1px solid rgba(239,68,68,0.45)',
+                      color: '#fecaca',
+                      borderRadius: 10,
+                      padding: 14,
+                      marginBottom: 16,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 6 }}>
+                      Leads já ativos encontrados
+                    </div>
+
+                    <div style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.5 }}>
+                      Esta planilha contém {activeConflicts.length} lead(s) que já estão ativos no sistema.
+                      Essas linhas não serão importadas novamente para evitar duplicidade de CPF, telefone ou e-mail.
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                      {activeConflicts.map((conflict) => (
+                        <div
+                          key={conflict.lead_id}
+                          style={{
+                            background: 'rgba(0,0,0,0.18)',
+                            border: '1px solid rgba(239,68,68,0.25)',
+                            borderRadius: 8,
+                            padding: 10,
+                            fontSize: 12,
+                          }}
+                        >
+                          <strong>{conflict.name || 'Lead sem nome'}</strong>
+                          <div style={{ opacity: 0.8, marginTop: 3 }}>
+                            Linha {conflict.row} • CPF/CNPJ: {conflict.document || '—'} • Tel: {conflict.phone || '—'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                               {deletedConflicts.length > 0 && (
                   <div
                     style={{
