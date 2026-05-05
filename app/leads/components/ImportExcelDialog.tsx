@@ -219,6 +219,7 @@ export default function ImportExcelDialog({
 
   const [leads, setLeads] = useState<LeadData[]>([])
   const [deletedConflicts, setDeletedConflicts] = useState<DeletedLeadConflict[]>([])
+  const [keepDeletedBlocked, setKeepDeletedBlocked] = useState(false)
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -342,6 +343,7 @@ export default function ImportExcelDialog({
 
     setLoading(true)
     setError(null)
+    setKeepDeletedBlocked(false)
 
     try {
       const docsInSheet = new Set<string>()
@@ -471,8 +473,8 @@ export default function ImportExcelDialog({
       return
     }
 
-    if (deletedConflicts.length > 0 && !reactivateDeletedLeads) {
-      setError('Importação bloqueada. Existem leads excluídos. Escolha se deseja reativá-los ou voltar.')
+    if (deletedConflicts.length > 0 && !reactivateDeletedLeads && !keepDeletedBlocked) {
+      setError('Escolha se deseja reativar ou manter bloqueados os leads excluídos antes de importar.')
       return
     }
 
@@ -523,7 +525,8 @@ export default function ImportExcelDialog({
   }
 
   const keepDeletedLeadsBlocked = () => {
-    setError('Leads excluídos mantidos bloqueados. Nenhum lead duplicado será criado com o mesmo CPF/telefone.')
+    setKeepDeletedBlocked(true)
+    setError('Leads excluídos mantidos bloqueados. Você pode importar apenas os leads válidos da planilha.')
   }
 
   const resetDialog = () => {
@@ -1221,15 +1224,15 @@ export default function ImportExcelDialog({
                           padding: '9px 14px',
                           borderRadius: 8,
                           border: '1px solid rgba(245,158,11,0.45)',
-                          background: 'transparent',
+                          background: keepDeletedBlocked ? 'rgba(245,158,11,0.22)' : 'transparent',
                           color: '#fef3c7',
                           cursor: importing ? 'not-allowed' : 'pointer',
                           fontWeight: 900,
                           fontSize: 12,
                           opacity: importing ? 0.5 : 1,
                         }}
-                      >
-                        Não reativar
+                        >
+                        {keepDeletedBlocked ? 'Bloqueados' : 'Não reativar'}
                       </button>
 
                       <button
@@ -1426,7 +1429,7 @@ export default function ImportExcelDialog({
                     onClick={createAllLeads}
                     disabled={
                       importing ||
-                      deletedConflicts.length > 0 ||
+                      (deletedConflicts.length > 0 && !keepDeletedBlocked) ||
                       leads.filter((l) => !l.error).length === 0
                     }                    style={{
                       padding: '10px 20px',
