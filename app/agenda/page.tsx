@@ -1,18 +1,149 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
-type LeadRow = {
+type LeadRelation = {
   id: string
-  name: string
+  name: string | null
   phone: string | null
-  status: string
-  next_action: string | null
-  next_contact_at: string | null
+  email: string | null
 }
 
-function toISO(d: Date) {
-  return d.toISOString()
+type CycleAgendaRow = {
+  id: string
+  lead_id: string | null
+  owner_user_id: string | null
+  status: string | null
+  next_action: string | null
+  next_action_date: string | null
+  leads?: LeadRelation | LeadRelation[] | null
+}
+
+type AgendaItem = {
+  id: string
+  leadId: string | null
+  leadName: string
+  phone: string | null
+  email: string | null
+  status: string
+  nextAction: string | null
+  nextActionDate: string
+}
+
+const OPEN_STATUSES = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
+
+const STATUS_LABELS: Record<string, string> = {
+  novo: 'Novo',
+  contato: 'Contato',
+  respondeu: 'Respondeu',
+  negociacao: 'Negociação',
+  pausado: 'Pausado',
+}
+
+function toISO(date: Date) {
+  return date.toISOString()
+}
+
+function normalizeStatus(status: string | null | undefined) {
+  return String(status ?? '').trim().toLowerCase()
+}
+
+function getStatusLabel(status: string | null | undefined) {
+  const normalized = normalizeStatus(status)
+  return STATUS_LABELS[normalized] ?? status ?? 'Sem status'
+}
+
+function getLeadFromRelation(relation: LeadRelation | LeadRelation[] | null | undefined) {
+  if (Array.isArray(relation)) return relation[0] ?? null
+  return relation ?? null
+}
+
+function toAgendaItem(cycle: CycleAgendaRow): AgendaItem {
+  const lead = getLeadFromRelation(cycle.leads)
+
+  return {
+    id: cycle.id,
+    leadId: cycle.lead_id,
+    leadName: lead?.name || lead?.phone || lead?.email || 'Lead sem identificação',
+    phone: lead?.phone ?? null,
+    email: lead?.email ?? null,
+    status: getStatusLabel(cycle.status),
+    nextAction: cycle.next_action,
+    nextActionDate: cycle.next_action_date || '',
+  }
+}
+
+function formatDate(value: string) {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return 'Data inválida'
+
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function AgendaBox({ title, items }: { title: string; items: AgendaItem[] }) {
+  return (
+    <div
+      style={{
+        marginTop: 18,
+        padding: 16,
+        border: '1px solid #1a1d2e',
+        borderRadius: 12,
+        background: '#0d0f14',
+      }}
+    >
+      <h3 style={{ margin: 0 }}>{title}</h3>
+
+      {items.length === 0 && (
+        <div style={{ opacity: 0.7, marginTop: 10 }}>Nada aqui por enquanto.</div>
+      )}
+
+      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {items.map((item) => (
+          <div
+            key={item.id}
+            style={{
+              padding: 14,
+              border: '1px solid #1a1d2e',
+              borderRadius: 12,
+              background: '#090b0f',
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <div>
+              <Link href={`/sales-cycles/${item.id}`} style={{ color: 'white', textDecoration: 'none' }}>
+                <strong>{item.leadName}</strong>
+              </Link>
+
+              <div style={{ opacity: 0.8 }}>{item.phone ?? item.email ?? 'Sem contato'}</div>
+
+              <div style={{ opacity: 0.65, fontSize: 12, marginTop: 6 }}>
+                Status: <strong>{item.status}</strong>
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ opacity: 0.85 }}>
+                Próxima ação: <strong>{item.nextAction ?? '—'}</strong>
+              </div>
+              <div style={{ opacity: 0.65, fontSize: 12, marginTop: 6 }}>
+                Data da ação: <strong>{formatDate(item.nextActionDate)}</strong>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export default async function AgendaPage() {
@@ -27,109 +158,89 @@ export default async function AgendaPage() {
           return cookieStore.getAll()
         },
         setAll() {
-          // aqui é só leitura — não mexe em cookies
+          // Server Component de leitura.
         },
       },
     }
   )
 
-  // agora
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    redirect('/login')
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('company_id, role')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile?.company_id) {
+    redirect('/leads')
+  }
+
   const now = new Date()
 
-  // início do dia (hoje) e fim do dia
   const startToday = new Date(now)
   startToday.setHours(0, 0, 0, 0)
 
   const endToday = new Date(now)
   endToday.setHours(23, 59, 59, 999)
 
-  // próximos 7 dias (fim do 7º dia)
-  const end7Days = new Date(now)
-  end7Days.setDate(end7Days.getDate() + 7)
-  end7Days.setHours(23, 59, 59, 999)
-
-  // VENCIDOS: next_contact_at < início de hoje
-  const { data: overdue, error: errOverdue } = await supabase
-    .from('leads')
-    .select('id, name, phone, status, next_action, next_contact_at')
-    .not('next_contact_at', 'is', null)
-    .lt('next_contact_at', toISO(startToday))
-    .order('next_contact_at', { ascending: true })
-
-  // HOJE: next_contact_at entre início e fim de hoje
-  const { data: today, error: errToday } = await supabase
-    .from('leads')
-    .select('id, name, phone, status, next_action, next_contact_at')
-    .not('next_contact_at', 'is', null)
-    .gte('next_contact_at', toISO(startToday))
-    .lte('next_contact_at', toISO(endToday))
-    .order('next_contact_at', { ascending: true })
-
-  // PRÓXIMOS 7 DIAS: amanhã até 7 dias (exclui hoje)
   const tomorrow = new Date(now)
   tomorrow.setDate(tomorrow.getDate() + 1)
   tomorrow.setHours(0, 0, 0, 0)
 
-  const { data: next7, error: errNext7 } = await supabase
-    .from('leads')
-    .select('id, name, phone, status, next_action, next_contact_at')
-    .not('next_contact_at', 'is', null)
-    .gte('next_contact_at', toISO(tomorrow))
-    .lte('next_contact_at', toISO(end7Days))
-    .order('next_contact_at', { ascending: true })
+  const end7Days = new Date(now)
+  end7Days.setDate(end7Days.getDate() + 7)
+  end7Days.setHours(23, 59, 59, 999)
 
-  const anyError = errOverdue || errToday || errNext7
+  let cyclesQuery = supabase
+    .from('sales_cycles')
+    .select(`
+      id,
+      lead_id,
+      owner_user_id,
+      status,
+      next_action,
+      next_action_date,
+      leads:lead_id (
+        id,
+        name,
+        phone,
+        email
+      )
+    `)
+    .eq('company_id', profile.company_id)
+    .in('status', OPEN_STATUSES)
+    .not('next_action_date', 'is', null)
+    .lte('next_action_date', toISO(end7Days))
+    .order('next_action_date', { ascending: true })
 
-  const Box = ({ title, items }: { title: string; items: LeadRow[] | null | undefined }) => (
-    <div style={{ marginTop: 18, padding: 16, border: '1px solid #333', borderRadius: 12, background: '#111' }}>
-      <h3 style={{ margin: 0 }}>{title}</h3>
+  if (profile.role !== 'admin') {
+    cyclesQuery = cyclesQuery.eq('owner_user_id', user.id)
+  }
 
-      {(!items || items.length === 0) && (
-        <div style={{ opacity: 0.7, marginTop: 10 }}>Nada aqui por enquanto.</div>
-      )}
+  const { data: cyclesData, error: cyclesError } = await cyclesQuery
+  const cycles = ((cyclesData ?? []) as CycleAgendaRow[]).map(toAgendaItem)
 
-      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {items?.map((lead) => (
-          <div
-            key={lead.id}
-            style={{
-              padding: 14,
-              border: '1px solid #222',
-              borderRadius: 12,
-              background: '#0f0f0f',
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
-            <div>
-              <Link href={`/leads/${lead.id}`} style={{ color: 'white', textDecoration: 'none' }}>
-                <strong>{lead.name}</strong>
-              </Link>
-
-              <div style={{ opacity: 0.8 }}>{lead.phone ?? '—'}</div>
-
-              <div style={{ opacity: 0.65, fontSize: 12, marginTop: 6 }}>
-                Status: <strong>{lead.status}</strong>
-              </div>
-            </div>
-
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ opacity: 0.85 }}>
-                Próxima ação: <strong>{lead.next_action ?? '—'}</strong>
-              </div>
-              <div style={{ opacity: 0.65, fontSize: 12, marginTop: 6 }}>
-                Próximo contato:{' '}
-                <strong>
-                  {lead.next_contact_at ? new Date(lead.next_contact_at).toLocaleString() : '—'}
-                </strong>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+  const overdue = cycles.filter(
+    (item) => new Date(item.nextActionDate).getTime() < startToday.getTime()
   )
+
+  const today = cycles.filter((item) => {
+    const time = new Date(item.nextActionDate).getTime()
+    return time >= startToday.getTime() && time <= endToday.getTime()
+  })
+
+  const next7 = cycles.filter((item) => {
+    const time = new Date(item.nextActionDate).getTime()
+    return time >= tomorrow.getTime() && time <= end7Days.getTime()
+  })
 
   return (
     <div style={{ width: 900, margin: '60px auto', color: 'white' }}>
@@ -147,29 +258,21 @@ export default async function AgendaPage() {
       </div>
 
       <p style={{ opacity: 0.75, marginTop: 6 }}>
-        Aqui fica a cobrança operacional: vencidos, hoje e próximos 7 dias.
+        Cobrança operacional baseada nos ciclos comerciais: vencidos, hoje e próximos 7 dias.
       </p>
 
-      {anyError && (
+      {cyclesError && (
         <div style={{ marginTop: 18, padding: 16, border: '1px solid #553', borderRadius: 12 }}>
           Erro ao buscar agenda:{' '}
           <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
-            {JSON.stringify(
-              {
-                overdue: errOverdue?.message,
-                today: errToday?.message,
-                next7: errNext7?.message,
-              },
-              null,
-              2
-            )}
+            {JSON.stringify({ error: cyclesError.message }, null, 2)}
           </pre>
         </div>
       )}
 
-      <Box title="Vencidos (atrasados)" items={overdue as LeadRow[] | null} />
-      <Box title="Hoje" items={today as LeadRow[] | null} />
-      <Box title="Próximos 7 dias" items={next7 as LeadRow[] | null} />
+      <AgendaBox title="Vencidos (atrasados)" items={overdue} />
+      <AgendaBox title="Hoje" items={today} />
+      <AgendaBox title="Próximos 7 dias" items={next7} />
     </div>
   )
 }
