@@ -14,6 +14,7 @@ import {
   DAYS_STALE_THRESHOLD,
   MILLISECONDS_PER_DAY,
 } from './cycle-event-helpers'
+import type { SalesCycle } from '@/app/types/sales_cycles'
 
 const DS = {
   contentBg: '#090b0f',
@@ -27,6 +28,25 @@ const DS = {
   blue: '#3b82f6',
   blueSoft: '#93c5fd',
 } as const
+
+type CycleLeadRelation = {
+  id?: string
+  name?: string | null
+  phone?: string | null
+  email?: string | null
+  deleted_at?: string | null
+}
+
+type CycleProductRelation = {
+  id?: string
+  name?: string | null
+  category?: string | null
+}
+
+type SalesCycleDetail = SalesCycle & {
+  leads?: CycleLeadRelation | null
+  products?: CycleProductRelation | null
+}
 
 async function getSalesCycleDetail(cycleId: string) {
   const cookieStore = await cookies()
@@ -51,13 +71,22 @@ async function getSalesCycleDetail(cycleId: string) {
     .from('sales_cycles')
     .select(`
       *,
-      leads:lead_id (id, name, phone, email),
+      leads:lead_id (id, name, phone, email, deleted_at),
       products:product_id (id, name, category)
     `)
     .eq('id', cycleId)
     .single()
 
   if (cycleErr || !cycleData) redirect('/leads')
+
+  const typedCycleData = cycleData as SalesCycleDetail
+  const cycleLead = typedCycleData.leads ?? null
+
+  if (cycleLead?.deleted_at) {
+    redirect('/leads')
+  }
+
+  const currentTimeMs = new Date().getTime()
 
   const { data: eventsData } = await supabase
     .from('cycle_events')
@@ -90,10 +119,11 @@ async function getSalesCycleDetail(cycleId: string) {
   }
 
   return {
-    cycle: cycleData,
+    cycle: typedCycleData,
     events: (eventsData || []) as CycleEvent[],
     leadProfile: leadProfile ?? null,
     activeGroupName,
+    currentTimeMs,
   }
 }
 
@@ -111,12 +141,24 @@ export default async function SalesCycleDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const { cycle, events, leadProfile, activeGroupName } = await getSalesCycleDetail(id)
+  const { cycle, events, leadProfile, activeGroupName, currentTimeMs } = await getSalesCycleDetail(id)
 
-  const lead = cycle.leads as { name?: string; phone?: string; email?: string } | null
-  const product = cycle.products as { id?: string; name?: string; category?: string } | null
+  const lead = cycle.leads ?? null
+  const product = cycle.products ?? null
+
+  const copilotCycle = {
+    ...cycle,
+    leads: lead
+      ? {
+          id: lead.id,
+          name: lead.name ?? undefined,
+          phone: lead.phone ?? null,
+          email: lead.email ?? null,
+        }
+      : undefined,
+  }
   const daysInStatus = cycle.stage_entered_at
-    ? Math.floor((Date.now() - new Date(cycle.stage_entered_at as string).getTime()) / MILLISECONDS_PER_DAY)
+    ? Math.floor((currentTimeMs - new Date(cycle.stage_entered_at as string).getTime()) / MILLISECONDS_PER_DAY)
     : null
   const lastEvent = events.length > 0 ? events[0] : null
   const badgeStyle = statusBadgeStyle(cycle.status as string)
@@ -315,7 +357,7 @@ export default async function SalesCycleDetailPage({
           marginBottom: 18,
         }}
       >
-        <ConversationCopilot cycle={cycle as any} />
+        <ConversationCopilot cycle={copilotCycle} />
       </div>
 
       <div
