@@ -20,6 +20,7 @@ import {
   segmentPreview,
   hasFinalResolution,
   hasActiveNegotiationWithoutResolution,
+  extractSuggestedDateFromText,
   type TranscriptSegments,
   type TranscriptSignals,
 } from '@/app/lib/ai/sales-copilot-transcript'
@@ -358,6 +359,7 @@ function buildFallbackSuggestion(
   const text = normalizeWhitespace(input.conversationText)
   const currentStatus = input.context.current_status
   const channel = inferChannel(text, input.source)
+  const suggestedDateFromText = extractSuggestedDateFromText(text)
 
   // ---- Camada 1: ciclo já terminal ---------------------------------------
   if (TERMINAL_STATUSES.includes(currentStatus)) {
@@ -486,7 +488,7 @@ function buildFallbackSuggestion(
       action_result: 'Lead respondeu e fechou próximo passo concreto',
       result_detail: `No sistema, ${getSalesCycleLabel('respondeu')} é o nome visual da etapa interna "respondeu". O desfecho final da conversa trouxe ${reasonParts.join(' e ') || 'compromisso concreto'}.`,
       next_action: 'Confirmar agenda / próximo passo',
-      next_action_date: buildFutureIso(12),
+      next_action_date: suggestedDateFromText ?? buildFutureIso(12),
       summary: 'A conversa terminou com compromisso concreto ou agendamento do lead.',
       tags: extractTags(text),
       should_close_won: false,
@@ -559,7 +561,7 @@ function buildFallbackSuggestion(
       action_result: 'Lead respondeu com continuidade concreta',
       result_detail: `No sistema, ${getSalesCycleLabel('respondeu')} é o nome visual da etapa interna "respondeu". A conversa indica resposta com próximo passo concreto.`,
       next_action: 'Confirmar agenda / próximo passo',
-      next_action_date: buildFutureIso(12),
+      next_action_date: suggestedDateFromText ?? buildFutureIso(12),
       summary: 'O lead respondeu e existe continuidade objetiva para a conversa ou visita.',
       tags: extractTags(text),
       should_close_won: false,

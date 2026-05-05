@@ -117,86 +117,97 @@ const NARRATION_MARKER_REGEX = /^\s*(nota|observacao|observação|obs|vendedor\/
  * Costuma aparecer no final da conversa.
  */
 const FINAL_COMMITMENT_TERMS: string[] = [
-  'pode sim',
-  'fechado',
-  'fechou',
-  'fechamos',
-  'combinado',
-  'ta combinado',
-  'combinadissimo',
+  'cliente confirmou',
+  'confirmou presença',
+  'confirmou que vai',
+  'confirmou que vem',
   'vou sim',
-  'estarei la',
+  'vou passar ai',
+  'vou passar aí',
+  'vou na loja',
+  'vou ate a loja',
+  'vou até a loja',
+  'passo ai',
+  'passo aí',
+  'passo hoje',
+  'passo amanha',
+  'passo amanhã',
   'estarei ai',
-  'estarei ai sim',
-  'te espero',
-  'te espero aqui',
-  'te espero amanha',
-  'te espero la',
-  'ficou agendado',
-  'ficou combinado',
-  'confirmado',
-  'ta confirmado',
-  'tudo certo',
+  'estarei aí',
+  'estarei la',
+  'estarei lá',
   'pode marcar',
   'pode agendar',
   'pode deixar marcado',
-  'aceito',
-  'aceitou',
-  'aceito sim',
-  'vamos marcar',
-  'vamos fechar a visita',
-  'vamos fechar o test drive',
-  'conta comigo',
-  'conte comigo',
-  'perfeito',
-  'beleza',
-  'topo',
-  'topo sim',
-  'pra mim ta bom',
-  'pra mim ta otimo',
+  'ta confirmado',
+  'tá confirmado',
+  'ficou confirmado',
+  'ficou combinado para',
+  'ficou combinado pra',
+  'ficou agendado para',
+  'ficou agendado pra',
+  'marcamos para',
+  'marcamos pra',
+  'marcado para',
+  'marcado pra',
 ]
 
 /**
  * "Agendamento final" — compromisso com data, hora ou evento concreto.
  */
 const FINAL_SCHEDULE_TERMS: string[] = [
-  // horário com âncora
-  'pode ser amanha',
-  'amanha de manha',
-  'amanha a tarde',
-  'amanha a noite',
-  'hoje a tarde',
-  'hoje a noite',
-  'hoje mais tarde',
-  'mais tarde hoje',
+  // resposta com data/período
   'pode ser hoje',
-  'pode ser sexta',
-  'pode ser quarta',
-  'pode ser quinta',
+  'pode ser amanha',
+  'pode ser amanhã',
   'pode ser segunda',
   'pode ser terca',
+  'pode ser terça',
+  'pode ser quarta',
+  'pode ser quinta',
+  'pode ser sexta',
   'pode ser sabado',
+  'pode ser sábado',
   'pode ser domingo',
-  'sexta de manha',
-  'sabado de manha',
-  'segunda de manha',
-  'terca de manha',
-  'quarta de manha',
-  'quinta de manha',
+  'amanha de manha',
+  'amanhã de manhã',
+  'amanha a tarde',
+  'amanhã à tarde',
+  'amanha a noite',
+  'amanhã à noite',
+  'hoje a tarde',
+  'hoje à tarde',
+  'hoje a noite',
+  'hoje à noite',
+  'hoje mais tarde',
+
   // horário explícito
   'as 8h',
+  'às 8h',
   'as 9h',
+  'às 9h',
   'as 10h',
+  'às 10h',
   'as 11h',
+  'às 11h',
   'as 12h',
+  'às 12h',
   'as 13h',
+  'às 13h',
   'as 14h',
+  'às 14h',
   'as 15h',
+  'às 15h',
   'as 16h',
+  'às 16h',
   'as 17h',
+  'às 17h',
   'as 18h',
+  'às 18h',
   'as 19h',
+  'às 19h',
   'as 20h',
+  'às 20h',
   '10h30',
   '11h30',
   '14h30',
@@ -204,44 +215,44 @@ const FINAL_SCHEDULE_TERMS: string[] = [
   '16h30',
   '17h30',
   '18h30',
-  // natureza do compromisso
-  'test drive agendado',
-  'test drive marcado',
-  'test drive amanha',
-  'marcar o test drive',
+
+  // compromisso operacional concreto
   'visita marcada',
   'visita agendada',
   'visita na loja',
   'ir ate a loja',
+  'ir até a loja',
   'ir na loja',
   'passar na loja',
   'passo ai',
-  'passo amanha',
+  'passo aí',
   'passo hoje',
+  'passo amanha',
+  'passo amanhã',
   'vou passar ai',
+  'vou passar aí',
   'vou na loja',
   'estou indo ai',
+  'estou indo aí',
   'estou indo na loja',
-  'te espero aqui',
-  'te espero amanha',
-  'aguardo voce',
-  'aguardo amanha',
-  'agendado',
-  'ficou agendado',
+  'ficou agendado para',
+  'ficou agendado pra',
   'marcamos para',
   'marcamos pra',
   'marcado para',
   'marcado pra',
   'horario combinado',
+  'horário combinado',
   'horario marcado',
-  'retorno amanha',
-  'retorno as',
-  'retornar amanha',
-  'retornar as',
+  'horário marcado',
   'pode ser nesse horario',
+  'pode ser nesse horário',
   'funciona esse horario',
+  'funciona esse horário',
   'esse horario ta bom',
+  'esse horário tá bom',
   'esse horario ta otimo',
+  'esse horário está ótimo',
 ]
 
 /**
@@ -296,21 +307,45 @@ const COMMERCIAL_TERMS: string[] = [
 
 /** Tentativa de contato sem resposta */
 const NO_RESPONSE_TERMS: string[] = [
+  'apenas fiz contato',
+  'fiz contato',
+  'contato feito',
+  'realizei contato',
+  'entrei em contato',
+  'tentei contato',
+  'tentativa de contato',
+  'chamei no whatsapp',
+  'chamei no whats',
+  'chamei no zap',
+  'mandei whatsapp',
+  'mandei mensagem',
+  'enviei whatsapp',
+  'enviei mensagem',
+  'mensagem enviada',
+  'disparei mensagem',
+  'liguei',
+  'liguei para',
+  'fiz ligacao',
+  'fiz ligação',
+  'liguei e nao atendeu',
+  'liguei e não atendeu',
+  'nao atendeu',
+  'não atendeu',
   'sem resposta',
   'nao respondeu',
-  'mensagem enviada',
-  'tentativa de contato',
-  'liguei e nao atendeu',
-  'nao atendeu',
+  'não respondeu',
   'visualizou e nao respondeu',
+  'visualizou e não respondeu',
   'visualizou mas nao respondeu',
+  'visualizou mas não respondeu',
   'visualizou e nada',
   'nao retornou',
+  'não retornou',
   'sem retorno',
-  'enviei mensagem',
   'enviei ontem',
   'caixa postal',
   'chamada nao atendida',
+  'chamada não atendida',
 ]
 
 /** Perda explícita */
@@ -358,6 +393,131 @@ export function normalizeForCompare(text: string): string {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+export function extractSuggestedDateFromText(rawText: string): string | null {
+  const text = String(rawText ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const compare = normalizeForCompare(rawText)
+
+  if (!text || !compare) return null
+
+  function readTime(): { hour: number; minute: number } | null {
+    const patterns = [
+      /\bas\s*(\d{1,2})(?:(?:h|:)\s*(\d{2}))?\b/,
+      /\b(\d{1,2})h(\d{2})?\b/,
+      /\b(\d{1,2}):(\d{2})\b/,
+    ]
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern)
+
+      if (!match) continue
+
+      const hour = Number(match[1])
+      const minute = match[2] ? Number(match[2]) : 0
+
+      if (
+        Number.isFinite(hour) &&
+        Number.isFinite(minute) &&
+        hour >= 0 &&
+        hour <= 23 &&
+        minute >= 0 &&
+        minute <= 59
+      ) {
+        return { hour, minute }
+      }
+    }
+
+    return null
+  }
+
+  function buildDate(year: number, month: number, day: number, hour: number, minute: number): string | null {
+    const date = new Date(year, month - 1, day, hour, minute, 0, 0)
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null
+    }
+
+    return date.toISOString()
+  }
+
+  const explicitDateMatch = text.match(/\b(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/)
+  const time = readTime()
+
+  if (explicitDateMatch) {
+    const day = Number(explicitDateMatch[1])
+    const month = Number(explicitDateMatch[2])
+    const now = new Date()
+
+    let year = explicitDateMatch[3]
+      ? Number(explicitDateMatch[3])
+      : now.getFullYear()
+
+    if (year < 100) {
+      year += 2000
+    }
+
+    if (!explicitDateMatch[3] && compare.includes('ano que vem')) {
+      year += 1
+    }
+
+    const hour = time?.hour ?? 9
+    const minute = time?.minute ?? 0
+
+    const explicitIso = buildDate(year, month, day, hour, minute)
+
+    if (!explicitIso) return null
+
+    const explicitDate = new Date(explicitIso)
+
+    if (!explicitDateMatch[3] && explicitDate.getTime() < now.getTime()) {
+      return buildDate(year + 1, month, day, hour, minute)
+    }
+
+    return explicitIso
+  }
+
+  const relativeDaysMatch = compare.match(/\bdaqui a (\d{1,3}) dias?\b/)
+
+  if (relativeDaysMatch) {
+    const days = Number(relativeDaysMatch[1])
+
+    if (!Number.isFinite(days) || days < 0) return null
+
+    const date = new Date()
+    date.setDate(date.getDate() + days)
+    date.setHours(time?.hour ?? 9, time?.minute ?? 0, 0, 0)
+
+    return date.toISOString()
+  }
+
+  if (!time) return null
+
+  const date = new Date()
+
+  if (compare.includes('depois de amanha')) {
+    date.setDate(date.getDate() + 2)
+  } else if (compare.includes('amanha')) {
+    date.setDate(date.getDate() + 1)
+  } else if (compare.includes('hoje')) {
+    // mantém hoje
+  } else {
+    return null
+  }
+
+  date.setHours(time.hour, time.minute, 0, 0)
+
+  return date.toISOString()
 }
 
 function normalizeLines(text: string): string {
@@ -549,9 +709,14 @@ export function buildTranscriptSegments(rawText: string): TranscriptSegments {
 
 function detectSignalSet(segmentText: string): TranscriptSignalSet {
   const n = normalizeForCompare(segmentText)
+  const finalSchedule = findAnyTerms(n, FINAL_SCHEDULE_TERMS)
+  const extractedDate = extractSuggestedDateFromText(segmentText)
+
   return {
     final_commitment: findAnyTerms(n, FINAL_COMMITMENT_TERMS),
-    final_schedule: findAnyTerms(n, FINAL_SCHEDULE_TERMS),
+    final_schedule: extractedDate && finalSchedule.length === 0
+      ? ['data_hora_extraida']
+      : finalSchedule,
     commercial: findAnyTerms(n, COMMERCIAL_TERMS),
     no_response: findAnyTerms(n, NO_RESPONSE_TERMS),
     lost: findAnyTerms(n, LOST_TERMS),
