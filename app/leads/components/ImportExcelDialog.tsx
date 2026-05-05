@@ -34,10 +34,84 @@ type ImportSummary = {
 
 const onlyDigits = (val: any) => String(val || '').replace(/\D/g, '')
 
+function hasRepeatedDigits(value: string) {
+  return /^(\d)\1+$/.test(value)
+}
+
+function isValidCPF(value: string) {
+  const cpf = onlyDigits(value)
+
+  if (cpf.length !== 11) return false
+  if (hasRepeatedDigits(cpf)) return false
+
+  let sum = 0
+  for (let i = 0; i < 9; i++) {
+    sum += Number(cpf[i]) * (10 - i)
+  }
+
+  let firstCheck = (sum * 10) % 11
+  if (firstCheck === 10) firstCheck = 0
+  if (firstCheck !== Number(cpf[9])) return false
+
+  sum = 0
+  for (let i = 0; i < 10; i++) {
+    sum += Number(cpf[i]) * (11 - i)
+  }
+
+  let secondCheck = (sum * 10) % 11
+  if (secondCheck === 10) secondCheck = 0
+
+  return secondCheck === Number(cpf[10])
+}
+
+function isValidCNPJ(value: string) {
+  const cnpj = onlyDigits(value)
+
+  if (cnpj.length !== 14) return false
+  if (hasRepeatedDigits(cnpj)) return false
+
+  const calcCheckDigit = (base: string, weights: number[]) => {
+    const sum = base
+      .split('')
+      .reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0)
+
+    const remainder = sum % 11
+    return remainder < 2 ? 0 : 11 - remainder
+  }
+
+  const base12 = cnpj.slice(0, 12)
+  const digit1 = calcCheckDigit(base12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+  const base13 = `${base12}${digit1}`
+  const digit2 = calcCheckDigit(base13, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
+
+  return cnpj === `${base12}${digit1}${digit2}`
+}
+
+function normalizeDocumentInput(value: any) {
+  const digits = onlyDigits(value)
+
+  if (!digits) return ''
+
+  if (digits.length === 11 && isValidCPF(digits)) return digits
+  if (digits.length === 14 && isValidCNPJ(digits)) return digits
+
+  if (digits.length < 11) {
+    const cpfCandidate = digits.padStart(11, '0')
+    if (isValidCPF(cpfCandidate)) return cpfCandidate
+  }
+
+  if (digits.length > 11 && digits.length < 14) {
+    const cnpjCandidate = digits.padStart(14, '0')
+    if (isValidCNPJ(cnpjCandidate)) return cnpjCandidate
+  }
+
+  return digits
+}
+
 const validators = {
   isDocument: (val: any): boolean => {
-    const str = onlyDigits(val)
-    return (str.length === 11 || str.length === 14) && /^\d+$/.test(str)
+    const str = normalizeDocumentInput(val)
+    return isValidCPF(str) || isValidCNPJ(str)
   },
   isEmail: (val: any): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(val || '').trim())
@@ -234,7 +308,7 @@ export default function ImportExcelDialog({
       const duplicateEmails = new Set<string>()
 
       for (const row of rawRows) {
-        const doc = onlyDigits(row[columnMap.cpf])
+        const doc = normalizeDocumentInput(row[columnMap.cpf])
         const phone = columnMap.phone ? onlyDigits(row[columnMap.phone]) : ''
         const email = columnMap.email ? normalizeEmail(row[columnMap.email]) : null
 
@@ -261,7 +335,7 @@ export default function ImportExcelDialog({
         const rowNumber = rowIndex + 2
 
         const rawName = String(row[columnMap.name] || '').trim()
-        const rawDoc = onlyDigits(row[columnMap.cpf])
+        const rawDoc = normalizeDocumentInput(row[columnMap.cpf])
         const rawPhone = columnMap.phone ? onlyDigits(row[columnMap.phone]) : ''
         const rawEmail = columnMap.email ? normalizeEmail(row[columnMap.email]) : null
 

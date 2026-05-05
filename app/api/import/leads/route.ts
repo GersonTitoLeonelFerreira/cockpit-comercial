@@ -40,6 +40,8 @@ type LeadRow = {
   phone: string | null
   email: string | null
   cpf_cnpj: string | null
+  deleted_at: string | null
+  deleted_by: string | null
 }
 
 type ProfileRow = {
@@ -55,16 +57,27 @@ type CycleRow = {
   current_group_id: string | null
 }
 
-function onlyDigits(v: any) {
+type DeletedLeadConflict = {
+  row: number
+  lead_id: string
+  name: string | null
+  document: string | null
+  phone: string | null
+  email: string | null
+  matched_by: 'document' | 'phone' | 'email'
+  deleted_at: string
+}
+
+function onlyDigits(v: unknown) {
   return String(v ?? '').replace(/\D/g, '')
 }
 
-function cleanStr(v: any) {
+function cleanStr(v: unknown) {
   const s = String(v ?? '').trim()
   return s ? s : null
 }
 
-function normEmail(v: any) {
+function normEmail(v: unknown) {
   const s = String(v ?? '').trim().toLowerCase()
   return s ? s : null
 }
@@ -133,6 +146,27 @@ function isValidDocument(value: string | null) {
   return false
 }
 
+function normalizeDocumentInput(value: unknown) {
+  const digits = onlyDigits(value)
+
+  if (!digits) return ''
+
+  if (digits.length === 11 && isValidCPF(digits)) return digits
+  if (digits.length === 14 && isValidCNPJ(digits)) return digits
+
+  if (digits.length < 11) {
+    const cpfCandidate = digits.padStart(11, '0')
+    if (isValidCPF(cpfCandidate)) return cpfCandidate
+  }
+
+  if (digits.length > 11 && digits.length < 14) {
+    const cnpjCandidate = digits.padStart(14, '0')
+    if (isValidCNPJ(cnpjCandidate)) return cnpjCandidate
+  }
+
+  return digits
+}
+
 function isDuplicateError(message: string) {
   const msg = String(message || '').toLowerCase()
   return msg.includes('duplicate') || msg.includes('unique')
@@ -149,7 +183,7 @@ function normalizeRow(row: InputRow, index: number): NormalizedRow {
   return {
     rowNumber: Number(row?.rowNumber || index + 2),
     name: cleanStr(row?.name) || '',
-    cpf_cnpj: onlyDigits(row?.cpf_cnpj) || null,
+    cpf_cnpj: normalizeDocumentInput(row?.cpf_cnpj) || null,
     phone: onlyDigits(row?.phone) || null,
     email: normEmail(row?.email),
     birth_date: cleanStr(row?.birth_date),
@@ -164,7 +198,7 @@ function normalizeRow(row: InputRow, index: number): NormalizedRow {
 }
 
 function buildLeadPatch(row: NormalizedRow) {
-  const patch: Record<string, any> = {}
+  const patch: Record<string, unknown> = {}
 
   if (row.name) patch.name = row.name
   if (row.phone) patch.phone = row.phone
@@ -184,7 +218,7 @@ function buildLeadPatch(row: NormalizedRow) {
 function buildProfilePayload(companyId: string, leadId: string, row: NormalizedRow) {
   const leadType = buildLeadType(row.cpf_cnpj)
 
-  const payload: Record<string, any> = {
+  const payload: Record<string, unknown> = {
     lead_id: leadId,
     company_id: companyId,
     lead_type: leadType,
@@ -231,6 +265,48 @@ function registerLeadMaps(
   if (lead.phone) byPhone.set(lead.phone, lead.id)
 }
 
+function findDeletedConflicts(
+  rows: NormalizedRow[],
+  existingLeadById: Map<string, LeadRow>,
+  leadIdByDoc: Map<string, string>,
+  leadIdByEmail: Map<string, string>,
+  leadIdByPhone: Map<string, string>,
+) {
+  const conflictsByLeadId = new Map<string, DeletedLeadConflict>()
+
+  for (const row of rows) {
+    if (!row.cpf_cnpj || !isValidDocument(row.cpf_cnpj)) continue
+
+    const candidates: Array<{ leadId: string | null; matchedBy: DeletedLeadConflict['matched_by'] }> = [
+      { leadId: leadIdByDoc.get(row.cpf_cnpj) || null, matchedBy: 'document' },
+      { leadId: row.phone ? leadIdByPhone.get(row.phone) || null : null, matchedBy: 'phone' },
+      { leadId: row.email ? leadIdByEmail.get(row.email) || null : null, matchedBy: 'email' },
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate.leadId) continue
+
+      const lead = existingLeadById.get(candidate.leadId)
+      if (!lead?.deleted_at) continue
+
+      if (!conflictsByLeadId.has(lead.id)) {
+        conflictsByLeadId.set(lead.id, {
+          row: row.rowNumber,
+          lead_id: lead.id,
+          name: lead.name,
+          document: lead.cpf_cnpj,
+          phone: lead.phone,
+          email: lead.email,
+          matched_by: candidate.matchedBy,
+          deleted_at: lead.deleted_at,
+        })
+      }
+    }
+  }
+
+  return Array.from(conflictsByLeadId.values())
+}
+
 export async function POST(req: Request) {
   try {
     let supabase, user
@@ -240,9 +316,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
     }
 
-    const body = await req.json().catch(() => ({} as any))
+    const body = await req.json().catch(() => ({} as Record<string, unknown>))
     const rowsInput: InputRow[] = Array.isArray(body?.rows) ? body.rows : []
     const groupId = cleanStr(body?.group_id)
+    const reactivateDeletedLeads = body?.reactivate_deleted_leads === true
 
     if (rowsInput.length === 0) {
       return NextResponse.json({ error: 'Nenhuma linha recebida.' }, { status: 400 })
@@ -349,7 +426,7 @@ export async function POST(req: Request) {
     if (leadIdsFromProfiles.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, name, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
         .eq('company_id', companyId)
         .in('id', leadIdsFromProfiles)
 
@@ -361,7 +438,7 @@ export async function POST(req: Request) {
     if (phones.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, name, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
         .eq('company_id', companyId)
         .in('phone', phones)
 
@@ -373,7 +450,7 @@ export async function POST(req: Request) {
     if (emails.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, name, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
         .eq('company_id', companyId)
         .in('email', emails)
 
@@ -385,13 +462,33 @@ export async function POST(req: Request) {
     if (documents.length > 0) {
       const { data } = await supabase
         .from('leads')
-        .select('id, name, phone, email, cpf_cnpj')
+        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
         .eq('company_id', companyId)
         .in('cpf_cnpj', documents)
 
       for (const lead of (data ?? []) as LeadRow[]) {
         registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
       }
+    }
+
+    const deletedConflicts = findDeletedConflicts(
+      rows,
+      existingLeadById,
+      leadIdByDoc,
+      leadIdByEmail,
+      leadIdByPhone,
+    )
+
+    if (deletedConflicts.length > 0 && !reactivateDeletedLeads) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'deleted_lead_conflict',
+          error: 'Existem leads excluídos nesta importação. Confirme se deseja reativá-los.',
+          deleted_conflicts: deletedConflicts,
+        },
+        { status: 409 },
+      )
     }
 
     const allKnownLeadIds = Array.from(existingLeadById.keys())
@@ -418,6 +515,7 @@ export async function POST(req: Request) {
 
     let created = 0
     let updated = 0
+    let reactivated = 0
     let createdCycles = 0
 
     for (const row of rows) {
@@ -507,7 +605,7 @@ export async function POST(req: Request) {
           const { data: newLead, error: leadErr } = await supabase
             .from('leads')
             .insert(insertLeadPayload)
-            .select('id, name, phone, email, cpf_cnpj')
+            .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
             .single()
 
           if (leadErr || !newLead?.id) {
@@ -528,6 +626,8 @@ export async function POST(req: Request) {
               phone: newLead.phone,
               email: newLead.email,
               cpf_cnpj: newLead.cpf_cnpj,
+              deleted_at: newLead.deleted_at,
+              deleted_by: newLead.deleted_by,
             },
             existingLeadById,
             leadIdByDoc,
@@ -535,31 +635,75 @@ export async function POST(req: Request) {
             leadIdByPhone,
           )
         } else {
+          const currentLead = existingLeadById.get(leadId) || null
           const patch = buildLeadPatch(row)
 
+          if (currentLead?.deleted_at) {
+            if (!reactivateDeletedLeads) {
+              errors.push({
+                row: row.rowNumber,
+                error: `Lead excluído encontrado (${currentLead.id.slice(0, 8)}). Reativação não confirmada.`,
+              })
+              continue
+            }
+
+            patch.deleted_at = null
+            patch.deleted_by = null
+          }
+
           if (Object.keys(patch).length > 0) {
-            const { error: updateErr } = await supabase
+            const { data: updatedLead, error: updateErr } = await supabase
               .from('leads')
               .update(patch)
               .eq('id', leadId)
               .eq('company_id', companyId)
+              .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
+              .single()
 
             if (updateErr) {
               errors.push({ row: row.rowNumber, error: updateErr.message })
               continue
             }
+
+            if (updatedLead) {
+              existingLeadById.set(leadId, updatedLead as LeadRow)
+            }
           }
 
-          updated++
+          if (currentLead?.deleted_at && reactivateDeletedLeads) {
+            reactivated++
 
-          const currentLead = existingLeadById.get(leadId)
+            const { error: reactivationEventErr } = await supabase
+              .from('cycle_events')
+              .insert({
+                company_id: companyId,
+                cycle_id: cycleByLeadId.get(leadId)?.id ?? null,
+                event_type: 'lead_reactivated_from_import',
+                created_by: user.id,
+                metadata: {
+                  lead_id: leadId,
+                  source: 'import_excel',
+                  previous_deleted_at: currentLead.deleted_at,
+                },
+                occurred_at: new Date().toISOString(),
+              })
+
+            void reactivationEventErr
+          } else {
+            updated++
+          }
+
+          const refreshedLead = existingLeadById.get(leadId) || currentLead
+
           registerLeadMaps(
             {
               id: leadId,
-              name: row.name || currentLead?.name || null,
-              phone: row.phone || currentLead?.phone || null,
-              email: row.email || currentLead?.email || null,
-              cpf_cnpj: row.cpf_cnpj || currentLead?.cpf_cnpj || null,
+              name: row.name || refreshedLead?.name || null,
+              phone: row.phone || refreshedLead?.phone || null,
+              email: row.email || refreshedLead?.email || null,
+              cpf_cnpj: row.cpf_cnpj || refreshedLead?.cpf_cnpj || null,
+              deleted_at: refreshedLead?.deleted_at ?? null,
+              deleted_by: refreshedLead?.deleted_by ?? null,
             },
             existingLeadById,
             leadIdByDoc,
@@ -575,9 +719,8 @@ export async function POST(req: Request) {
           })
           continue
         }
-        
-        const resolvedLeadId = leadId
 
+        const resolvedLeadId = leadId
         const profilePayload = buildProfilePayload(companyId, resolvedLeadId, row)
 
         const { error: profileErr } = await supabase
@@ -709,10 +852,10 @@ export async function POST(req: Request) {
             void groupEventErr
           }
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         errors.push({
           row: row.rowNumber,
-          error: e?.message || 'Erro inesperado ao processar linha.',
+          error: e instanceof Error && e.message ? e.message : 'Erro inesperado ao processar linha.',
         })
       }
     }
@@ -721,10 +864,14 @@ export async function POST(req: Request) {
       ok: true,
       created,
       updated,
+      reactivated,
       created_cycles: createdCycles,
       errors,
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro inesperado' }, { status: 500 })
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: e instanceof Error && e.message ? e.message : 'Erro inesperado' },
+      { status: 500 },
+    )
   }
 }
