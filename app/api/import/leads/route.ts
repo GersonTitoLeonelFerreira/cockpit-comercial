@@ -320,6 +320,7 @@ export async function POST(req: Request) {
     const rowsInput: InputRow[] = Array.isArray(body?.rows) ? body.rows : []
     const groupId = cleanStr(body?.group_id)
     const reactivateDeletedLeads = body?.reactivate_deleted_leads === true
+    const checkDeletedConflictsOnly = body?.check_deleted_conflicts_only === true
 
     if (rowsInput.length === 0) {
       return NextResponse.json({ error: 'Nenhuma linha recebida.' }, { status: 400 })
@@ -478,6 +479,13 @@ export async function POST(req: Request) {
       leadIdByEmail,
       leadIdByPhone,
     )
+
+    if (checkDeletedConflictsOnly) {
+      return NextResponse.json({
+        ok: true,
+        deleted_conflicts: deletedConflicts,
+      })
+    }
 
     if (deletedConflicts.length > 0 && !reactivateDeletedLeads) {
       return NextResponse.json(

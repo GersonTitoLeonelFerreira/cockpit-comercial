@@ -4,6 +4,17 @@ import React, { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
 
+type DeletedLeadConflict = {
+  row: number
+  lead_id: string
+  name: string | null
+  document: string | null
+  phone: string | null
+  email: string | null
+  matched_by: 'document' | 'phone' | 'email'
+  deleted_at: string
+}
+
 type LeadData = {
   rowNumber: number
   name: string
@@ -19,6 +30,7 @@ type LeadData = {
   address_city: string | null
   address_state: string | null
   error: string | null
+  deletedConflict?: DeletedLeadConflict | null
 }
 
 type LeadGroup = {
@@ -29,10 +41,11 @@ type LeadGroup = {
 type ImportSummary = {
   created: number
   updated: number
+  reactivated?: number
   errors: Array<{ row: number; error: string }>
 }
 
-const onlyDigits = (val: any) => String(val || '').replace(/\D/g, '')
+const onlyDigits = (val: unknown) => String(val || '').replace(/\D/g, '')
 
 function hasRepeatedDigits(value: string) {
   return /^(\d)\1+$/.test(value)
@@ -87,7 +100,7 @@ function isValidCNPJ(value: string) {
   return cnpj === `${base12}${digit1}${digit2}`
 }
 
-function normalizeDocumentInput(value: any) {
+function normalizeDocumentInput(value: unknown) {
   const digits = onlyDigits(value)
 
   if (!digits) return ''
@@ -109,29 +122,29 @@ function normalizeDocumentInput(value: any) {
 }
 
 const validators = {
-  isDocument: (val: any): boolean => {
+  isDocument: (val: unknown): boolean => {
     const str = normalizeDocumentInput(val)
     return isValidCPF(str) || isValidCNPJ(str)
   },
-  isEmail: (val: any): boolean => {
+  isEmail: (val: unknown): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(val || '').trim())
   },
-  isPhone: (val: any): boolean => {
+  isPhone: (val: unknown): boolean => {
     const str = onlyDigits(val)
     return str.length >= 10 && str.length <= 11 && /^\d+$/.test(str)
   },
-  isCEP: (val: any): boolean => {
+  isCEP: (val: unknown): boolean => {
     const str = onlyDigits(val)
     return str.length === 8 && /^\d+$/.test(str)
   },
 }
 
-const normalizeEmail = (val: any): string | null => {
+const normalizeEmail = (val: unknown): string | null => {
   const str = String(val || '').trim().toLowerCase()
   return str || null
 }
 
-const cleanDate = (val: any): string | null => {
+const cleanDate = (val: unknown): string | null => {
   if (val === null || val === undefined || val === '') return null
 
   if (typeof val === 'number') {
@@ -165,6 +178,10 @@ const cleanDate = (val: any): string | null => {
   return null
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 export default function ImportExcelDialog({
   userId,
   companyId,
@@ -183,7 +200,7 @@ export default function ImportExcelDialog({
   const [step, setStep] = useState<'select' | 'map' | 'preview' | 'success'>('select')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
-  const [rawRows, setRawRows] = useState<Record<string, any>[]>([])
+  const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([])
 
   const [columnMap, setColumnMap] = useState({
     name: '',
@@ -201,6 +218,7 @@ export default function ImportExcelDialog({
   })
 
   const [leads, setLeads] = useState<LeadData[]>([])
+  const [deletedConflicts, setDeletedConflicts] = useState<DeletedLeadConflict[]>([])
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -248,7 +266,7 @@ export default function ImportExcelDialog({
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const sheetName = workbook.SheetNames[0]
       const sheet = workbook.Sheets[sheetName]
-      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: null })
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null })
 
       if (rows.length === 0) {
         setError('Planilha vazia')
@@ -260,8 +278,8 @@ export default function ImportExcelDialog({
       setRawRows(rows)
       await loadGroups()
       setStep('map')
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao ler arquivo')
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Erro ao ler arquivo'))
     } finally {
       setLoading(false)
     }
@@ -285,9 +303,35 @@ export default function ImportExcelDialog({
       setSelectedGroup(data.id)
       setShowCreateGroupModal(false)
       setNewGroupName('')
-    } catch (e: any) {
-      alert(`Erro ao criar grupo: ${e?.message}`)
+    } catch (e: unknown) {
+      alert(`Erro ao criar grupo: ${getErrorMessage(e, 'Erro desconhecido')}`)
     }
+  }
+
+  const checkDeletedLeadConflicts = async (rowsToCheck: LeadData[]) => {
+    if (rowsToCheck.length === 0) return []
+
+    const response = await fetch('/api/import/leads', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        rows: rowsToCheck,
+        group_id: selectedGroup || null,
+        check_deleted_conflicts_only: true,
+      }),
+    })
+
+    const result = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      throw new Error(result?.error || 'Erro ao verificar leads excluídos.')
+    }
+
+    return Array.isArray(result?.deleted_conflicts)
+      ? (result.deleted_conflicts as DeletedLeadConflict[])
+      : []
   }
 
   const processWithMapping = async () => {
@@ -387,20 +431,48 @@ export default function ImportExcelDialog({
         })
       }
 
-      setLeads(leadsData)
+      const validRows = leadsData.filter((lead) => !lead.error)
+      const conflicts = await checkDeletedLeadConflicts(validRows)
+      const conflictByRow = new Map(conflicts.map((conflict) => [conflict.row, conflict]))
+
+      const leadsWithConflicts = leadsData.map((lead) => {
+        const conflict = conflictByRow.get(lead.rowNumber)
+
+        if (!conflict) return { ...lead, deletedConflict: null }
+
+        return {
+          ...lead,
+          deletedConflict: conflict,
+          error: 'Lead excluído encontrado. Escolha se deseja reativar.',
+        }
+      })
+
+      setDeletedConflicts(conflicts)
+      setLeads(leadsWithConflicts)
       setStep('preview')
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao processar')
+      setStep('preview')
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Erro ao processar'))
     } finally {
       setLoading(false)
     }
   }
 
-  const createAllLeads = async () => {
-    const leadsToImport = leads.filter((l) => !l.error)
+  const submitImport = async (reactivateDeletedLeads: boolean) => {
+    const conflictRows = new Set(deletedConflicts.map((conflict) => conflict.row))
+
+    const leadsToImport = leads.filter((lead) => {
+      if (!lead.error) return true
+      return reactivateDeletedLeads && conflictRows.has(lead.rowNumber)
+    })
 
     if (leadsToImport.length === 0) {
-      setError('Nenhum lead válido')
+      setError('Nenhum lead válido para importar.')
+      return
+    }
+
+    if (deletedConflicts.length > 0 && !reactivateDeletedLeads) {
+      setError('Importação bloqueada. Existem leads excluídos. Escolha se deseja reativá-los ou voltar.')
       return
     }
 
@@ -416,6 +488,7 @@ export default function ImportExcelDialog({
         body: JSON.stringify({
           rows: leadsToImport,
           group_id: selectedGroup || null,
+          reactivate_deleted_leads: reactivateDeletedLeads,
         }),
       })
 
@@ -428,16 +501,29 @@ export default function ImportExcelDialog({
       setImportSummary({
         created: Number(result?.created || 0),
         updated: Number(result?.updated || 0),
+        reactivated: Number(result?.reactivated || 0),
         errors: Array.isArray(result?.errors) ? result.errors : [],
       })
 
       setStep('success')
       onImported()
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao importar leads')
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Erro ao importar leads'))
     } finally {
       setImporting(false)
     }
+  }
+
+  const createAllLeads = async () => {
+    await submitImport(false)
+  }
+
+  const reactivateAndImportDeletedLeads = async () => {
+    await submitImport(true)
+  }
+
+  const keepDeletedLeadsBlocked = () => {
+    setError('Leads excluídos mantidos bloqueados. Nenhum lead duplicado será criado com o mesmo CPF/telefone.')
   }
 
   const resetDialog = () => {
@@ -446,6 +532,7 @@ export default function ImportExcelDialog({
     setHeaders([])
     setRawRows([])
     setLeads([])
+    setDeletedConflicts([])
     setError(null)
     setImportSummary(null)
     setSelectedGroup('')
@@ -1082,6 +1169,89 @@ export default function ImportExcelDialog({
 
             {step === 'preview' && (
               <>
+                              {deletedConflicts.length > 0 && (
+                  <div
+                    style={{
+                      background: 'rgba(245,158,11,0.14)',
+                      border: '1px solid rgba(245,158,11,0.45)',
+                      color: '#fef3c7',
+                      borderRadius: 10,
+                      padding: 14,
+                      marginBottom: 16,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 6 }}>
+                      Leads excluídos encontrados
+                    </div>
+
+                    <div style={{ fontSize: 12, opacity: 0.9, lineHeight: 1.5 }}>
+                      Esta planilha contém {deletedConflicts.length} lead(s) que já existem no sistema,
+                      mas estão excluídos. Para evitar duplicidade de CPF/telefone, você precisa decidir
+                      se deseja reativá-los.
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                      {deletedConflicts.map((conflict) => (
+                        <div
+                          key={conflict.lead_id}
+                          style={{
+                            background: 'rgba(0,0,0,0.18)',
+                            border: '1px solid rgba(245,158,11,0.25)',
+                            borderRadius: 8,
+                            padding: 10,
+                            fontSize: 12,
+                          }}
+                        >
+                          <strong>{conflict.name || 'Lead sem nome'}</strong>
+                          <div style={{ opacity: 0.8, marginTop: 3 }}>
+                            Linha {conflict.row} • CPF/CNPJ: {conflict.document || '—'} • Tel: {conflict.phone || '—'}
+                          </div>
+                          <div style={{ opacity: 0.65, marginTop: 3 }}>
+                            Excluído em: {new Date(conflict.deleted_at).toLocaleString('pt-BR')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+                      <button
+                        onClick={keepDeletedLeadsBlocked}
+                        disabled={importing}
+                        style={{
+                          padding: '9px 14px',
+                          borderRadius: 8,
+                          border: '1px solid rgba(245,158,11,0.45)',
+                          background: 'transparent',
+                          color: '#fef3c7',
+                          cursor: importing ? 'not-allowed' : 'pointer',
+                          fontWeight: 900,
+                          fontSize: 12,
+                          opacity: importing ? 0.5 : 1,
+                        }}
+                      >
+                        Não reativar
+                      </button>
+
+                      <button
+                        onClick={reactivateAndImportDeletedLeads}
+                        disabled={importing}
+                        style={{
+                          padding: '9px 14px',
+                          borderRadius: 8,
+                          border: 'none',
+                          background: '#10b981',
+                          color: 'white',
+                          cursor: importing ? 'not-allowed' : 'pointer',
+                          fontWeight: 900,
+                          fontSize: 12,
+                          opacity: importing ? 0.5 : 1,
+                        }}
+                      >
+                        {importing ? 'Reativando...' : 'Sim, reativar e importar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div style={{ marginBottom: 16 }}>
                   <div
                     style={{
@@ -1254,8 +1424,11 @@ export default function ImportExcelDialog({
 
                   <button
                     onClick={createAllLeads}
-                    disabled={leads.filter((l) => !l.error).length === 0 || importing}
-                    style={{
+                    disabled={
+                      importing ||
+                      deletedConflicts.length > 0 ||
+                      leads.filter((l) => !l.error).length === 0
+                    }                    style={{
                       padding: '10px 20px',
                       borderRadius: 8,
                       border: 'none',
