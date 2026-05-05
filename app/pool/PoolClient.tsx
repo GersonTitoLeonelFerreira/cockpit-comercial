@@ -603,52 +603,45 @@ export default function PoolClient({
       return
     }
 
+    const selectedLeadIds = poolCycles
+      .filter((cycle) => selectedIds.has(cycle.id))
+      .map((cycle) => cycle.lead_id)
+      .filter(Boolean)
+
+    if (selectedLeadIds.length === 0) {
+      window.alert('Nenhum lead válido encontrado para exclusão.')
+      return
+    }
+
+    const confirmDelete = window.confirm(
+      `Tem certeza que deseja excluir ${selectedLeadIds.length} lead(s)? Esta ação não pode ser desfeita.`
+    )
+
+    if (!confirmDelete) return
+
     setDeletingLeads(true)
     setError(null)
 
     try {
-      const verifyRes = await fetch('/api/admin/verify-password', {
+      const res = await fetch('/api/admin/leads/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: deletePassword }),
+        body: JSON.stringify({
+          lead_ids: selectedLeadIds,
+          password: deletePassword,
+        }),
       })
 
-      const verifyJson = (await verifyRes.json()) as { ok?: boolean; error?: string }
-
-      if (!verifyRes.ok || !verifyJson.ok) {
-        window.alert(verifyJson?.error ?? 'Senha incorreta.')
-        setDeletingLeads(false)
-        return
+      const json = (await res.json()) as {
+        ok?: boolean
+        error?: string
+        deleted_count?: number
+        warning?: string | null
       }
 
-      const selectedLeadIds = poolCycles
-        .filter((cycle) => selectedIds.has(cycle.id))
-        .map((cycle) => cycle.lead_id)
-
-      if (selectedLeadIds.length === 0) {
-        window.alert('Nenhum lead válido encontrado para exclusão.')
-        setDeletingLeads(false)
+      if (!res.ok || !json.ok) {
+        window.alert(json.error ?? 'Erro ao excluir leads.')
         return
-      }
-
-      const confirmDelete = window.confirm(
-        `Tem certeza que deseja excluir ${selectedLeadIds.length} lead(s)? Esta ação não pode ser desfeita.`
-      )
-
-      if (!confirmDelete) {
-        setDeletingLeads(false)
-        return
-      }
-
-      for (let i = 0; i < selectedLeadIds.length; i += 100) {
-        const chunk = selectedLeadIds.slice(i, i + 100)
-
-        const { error } = await supabase
-          .from('leads')
-          .delete()
-          .in('id', chunk)
-
-        if (error) throw error
       }
 
       setSelectedIds(new Set())
@@ -659,9 +652,14 @@ export default function PoolClient({
 
       await loadPoolAndSellers()
 
-      window.alert(`${selectedLeadIds.length} lead(s) excluído(s) com sucesso!`)
+      if (json.warning) {
+        window.alert(json.warning)
+        return
+      }
+
+      window.alert(`${json.deleted_count ?? selectedLeadIds.length} lead(s) excluído(s) com sucesso!`)
     } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Erro ao excluir leads.'))
+      window.alert(getErrorMessage(err, 'Erro ao excluir leads.'))
     } finally {
       setDeletingLeads(false)
     }
