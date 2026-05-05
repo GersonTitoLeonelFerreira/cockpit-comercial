@@ -26,7 +26,7 @@ import type { StageEffect } from '@/app/config/actionEffects'
  */
 export type EventSource =
   | 'quick_action'      // ação rápida no kanban (QuickActionModal)
-  | 'kanban_drag'       // arraste de card no kanban (KanbanBoard)
+  | 'kanban_drag'       // arraste de card no kanban (SalesCyclesKanban)
   | 'lead_detail'       // ação na página de detalhe do lead (LeadActions)
   | 'stage_checkpoint'  // movimentação com checkpoint de etapa (StageCheckpointModal)
   | 'cycle_create'      // criação de novo ciclo/lead
