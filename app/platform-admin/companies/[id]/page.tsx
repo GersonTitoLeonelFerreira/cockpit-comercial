@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import type { CSSProperties } from 'react'
+import AdminInvitationForm from './AdminInvitationForm'
 
 export const metadata = {
   title: 'Detalhe da Empresa | Administração da Plataforma',
@@ -429,6 +430,14 @@ export default async function PlatformAdminCompanyDetailPage({
         </div>
       </section>
 
+      <div style={{ marginTop: 18 }}>
+        <AdminInvitationForm
+          companyId={company.id}
+          hasActiveAdmin={activeAdmins.length > 0}
+          onboardingStatus={company.onboarding_status}
+        />
+      </div>
+
       <section
         style={{
           marginTop: 18,
@@ -456,34 +465,18 @@ export default async function PlatformAdminCompanyDetailPage({
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <div
-              style={{
-                border: '1px solid rgba(245,158,11,0.28)',
-                background: 'rgba(245,158,11,0.10)',
-                color: '#fde68a',
-                padding: '9px 12px',
-                borderRadius: 10,
-                fontWeight: 900,
-                fontSize: 12,
-              }}
-            >
-              Convite do admin: próxima etapa
-            </div>
-
-            <Link
-              href="/platform-admin/companies"
-              style={{
-                color: '#93c5fd',
-                textDecoration: 'none',
-                fontSize: 13,
-                fontWeight: 800,
-                alignSelf: 'center',
-              }}
-            >
-              Voltar para empresas
-            </Link>
-          </div>
+          <Link
+            href="/platform-admin/companies"
+            style={{
+              color: '#93c5fd',
+              textDecoration: 'none',
+              fontSize: 13,
+              fontWeight: 800,
+              alignSelf: 'center',
+            }}
+          >
+            Voltar para empresas
+          </Link>
         </div>
 
         {profilesError ? (
