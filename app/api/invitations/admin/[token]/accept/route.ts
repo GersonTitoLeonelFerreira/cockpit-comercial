@@ -97,6 +97,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
 
     const admin = createClient(url, serviceKey)
+
+    async function cleanupCreatedUser(userId: string) {
+      await admin.from('profile_details').delete().eq('profile_id', userId)
+      await admin.from('profiles').delete().eq('id', userId)
+      await admin.auth.admin.deleteUser(userId)
+    }
+
     const tokenHash = hashToken(token)
 
     const { data: invitationData, error: invitationError } = await admin
@@ -221,7 +228,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     })
 
     if (profileError) {
-      await admin.auth.admin.deleteUser(userId)
+      await cleanupCreatedUser(userId)
 
       return NextResponse.json(
         { error: `Falha ao criar profile: ${profileError.message}` },
@@ -239,7 +246,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     })
 
     if (detailsError) {
-      await admin.auth.admin.deleteUser(userId)
+      await cleanupCreatedUser(userId)
 
       return NextResponse.json(
         { error: `Falha ao criar profile_details: ${detailsError.message}` },
@@ -249,7 +256,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
     const now = new Date().toISOString()
 
-    const { error: invitationUpdateError } = await admin
+    const { data: acceptedInvite, error: invitationUpdateError } = await admin
       .from('company_admin_invitations')
       .update({
         status: 'accepted',
@@ -258,13 +265,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       })
       .eq('id', invitation.id)
       .eq('status', 'pending')
+      .select('id, status, accepted_user_id')
+      .maybeSingle()
 
     if (invitationUpdateError) {
-      await admin.auth.admin.deleteUser(userId)
+      await cleanupCreatedUser(userId)
 
       return NextResponse.json(
         { error: `Falha ao atualizar convite: ${invitationUpdateError.message}` },
         { status: 400 },
+      )
+    }
+
+    if (!acceptedInvite?.id) {
+      await cleanupCreatedUser(userId)
+
+      return NextResponse.json(
+        {
+          error:
+            'Este convite foi consumido por outra requisição. A conta criada nesta tentativa foi revertida.',
+        },
+        { status: 409 },
       )
     }
 
@@ -280,7 +301,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       return NextResponse.json(
         {
           error:
-            'Conta criada, mas houve falha ao atualizar onboarding da empresa: ' +
+            'Conta criada e convite aceito, mas houve falha ao atualizar onboarding da empresa: ' +
             companyUpdateError.message,
         },
         { status: 500 },
