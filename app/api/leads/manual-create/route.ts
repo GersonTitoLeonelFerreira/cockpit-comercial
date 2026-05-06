@@ -18,7 +18,6 @@ type ManualCreateBody = {
   notes?: unknown
   group_id?: unknown
   owner_user_id?: unknown
-  reactivate_deleted_lead?: unknown
 }
 
 type ActorProfile = {
@@ -366,18 +365,6 @@ export async function POST(req: Request) {
     const notes = cleanText(body.notes)
     const groupId = cleanText(body.group_id)
     const requestedOwnerUserId = cleanText(body.owner_user_id)
-    const reactivateDeletedLead = body.reactivate_deleted_lead === true
-
-    if (reactivateDeletedLead) {
-      return NextResponse.json(
-        {
-          ok: false,
-          code: 'reactivation_moved_to_admin_flow',
-          error: 'A reativação de lead excluído deve ser feita pelo administrador.',
-        },
-        { status: 403 },
-      )
-    }
 
     if (!name) {
       return NextResponse.json({ ok: false, error: 'Nome é obrigatório.' }, { status: 400 })
