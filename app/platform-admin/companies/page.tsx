@@ -416,15 +416,41 @@ export default async function PlatformAdminCompaniesPage() {
 
                   <div
                     style={{
-                      ...statusStyle(company),
-                      borderRadius: 999,
-                      padding: '6px 10px',
-                      fontSize: 12,
-                      fontWeight: 900,
-                      height: 'fit-content',
+                      display: 'flex',
+                      gap: 10,
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
                     }}
                   >
-                    {statusLabel(company)}
+                    <div
+                      style={{
+                        ...statusStyle(company),
+                        borderRadius: 999,
+                        padding: '6px 10px',
+                        fontSize: 12,
+                        fontWeight: 900,
+                        height: 'fit-content',
+                      }}
+                    >
+                      {statusLabel(company)}
+                    </div>
+
+                    <Link
+                      href={`/platform-admin/companies/${company.id}`}
+                      style={{
+                        border: `1px solid ${C.blue}`,
+                        background:
+                          'linear-gradient(90deg, rgba(59,130,246,0.24) 0%, rgba(59,130,246,0.10) 100%)',
+                        color: '#93c5fd',
+                        padding: '7px 10px',
+                        borderRadius: 10,
+                        fontWeight: 900,
+                        fontSize: 12,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Abrir detalhe
+                    </Link>
                   </div>
                 </div>
 
