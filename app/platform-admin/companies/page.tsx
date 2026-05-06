@@ -348,17 +348,37 @@ export default async function PlatformAdminCompaniesPage() {
             </div>
           </div>
 
-          <Link
-            href="/platform-admin"
-            style={{
-              color: '#93c5fd',
-              textDecoration: 'none',
-              fontSize: 13,
-              fontWeight: 800,
-            }}
-          >
-            Voltar ao cockpit da plataforma
-          </Link>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Link
+              href="/platform-admin/companies/new"
+              style={{
+                border: `1px solid ${C.blue}`,
+                background:
+                  'linear-gradient(90deg, rgba(59,130,246,0.24) 0%, rgba(59,130,246,0.10) 100%)',
+                color: '#93c5fd',
+                padding: '9px 12px',
+                borderRadius: 10,
+                fontWeight: 900,
+                fontSize: 12,
+                textDecoration: 'none',
+              }}
+            >
+              Nova empresa
+            </Link>
+
+            <Link
+              href="/platform-admin"
+              style={{
+                color: '#93c5fd',
+                textDecoration: 'none',
+                fontSize: 13,
+                fontWeight: 800,
+                alignSelf: 'center',
+              }}
+            >
+              Voltar ao cockpit
+            </Link>
+          </div>
         </div>
 
         {companiesView.length === 0 ? (

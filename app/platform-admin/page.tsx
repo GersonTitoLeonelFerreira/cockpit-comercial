@@ -220,11 +220,30 @@ export default async function PlatformAdminPage() {
           <div>
             <div style={{ fontSize: 17, fontWeight: 900 }}>Nova empresa</div>
             <div style={{ marginTop: 8, color: C.textSoft, fontSize: 13, lineHeight: 1.6 }}>
-              Fluxo futuro para cadastrar empresa e enviar convite ao primeiro administrador.
+              Cadastre uma empresa cliente e prepare o envio do convite ao primeiro administrador.
             </div>
           </div>
 
-          <div style={disabledActionStyle()}>Próxima etapa</div>
+          <Link
+            href="/platform-admin/companies/new"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 'fit-content',
+              border: `1px solid ${C.blue}`,
+              background:
+                'linear-gradient(90deg, rgba(59,130,246,0.24) 0%, rgba(59,130,246,0.10) 100%)',
+              color: '#93c5fd',
+              padding: '9px 12px',
+              borderRadius: 10,
+              fontWeight: 900,
+              fontSize: 12,
+              textDecoration: 'none',
+            }}
+          >
+            Criar empresa
+          </Link>
         </div>
 
         <div style={cardStyle()}>
