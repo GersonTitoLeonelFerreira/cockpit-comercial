@@ -330,8 +330,8 @@ function NavBtnWithSubmenu({
           maxHeight: 'calc(100vh - 160px)',
           overflowY: 'auto',
           overflowX: 'hidden',
-          scrollbarWidth: 'none' as any,
-          msOverflowStyle: 'none' as any,
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
           background: '#111318',
           border: `1px solid ${C.border}`,
           borderRadius: 12,
@@ -576,38 +576,45 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (href === '/admin/vendedores') {
       return pathname === '/admin/vendedores' || pathname.startsWith('/admin/vendedores/')
     }
+    if (href === '/platform') {
+      return pathname === '/platform' || pathname.startsWith('/platform/')
+    }
     return pathname.startsWith(href)
   }
 
   const topTitle =
-    pathname?.startsWith('/pool')
-      ? 'Pool'
-      : pathname?.startsWith('/admin')
-        ? 'Admin'
-        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
-          ? 'Cockpit Comercial'
-          : pathname?.startsWith('/relatorios')
-            ? 'Relatórios'
-            : pathname?.startsWith('/dashboard/simulador-meta')
-              ? 'Simulador de Meta'
-              : pathname?.startsWith('/platform')
-                ? 'Configurações'
-                : 'Dashboard'
+    pathname?.startsWith('/platform-admin')
+      ? 'Administração da Plataforma'
+      : pathname?.startsWith('/pool')
+        ? 'Pool'
+        : pathname?.startsWith('/admin')
+          ? 'Admin'
+          : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+            ? 'Cockpit Comercial'
+            : pathname?.startsWith('/relatorios')
+              ? 'Relatórios'
+              : pathname?.startsWith('/dashboard/simulador-meta')
+                ? 'Simulador de Meta'
+                : pathname?.startsWith('/platform')
+                  ? 'Configurações'
+                  : 'Dashboard'
 
-  const topSubtitle =
-    pathname?.startsWith('/pool')
-      ? 'Administre, distribua e organize a entrada de leads'
-      : pathname?.startsWith('/admin')
-        ? 'Gestão e administração do sistema'
-        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
-          ? 'Execução comercial da operação'
-          : pathname?.startsWith('/relatorios')
-            ? 'Análise e inteligência comercial'
-            : pathname?.startsWith('/dashboard/simulador-meta')
-              ? 'Projeção e planejamento de metas'
-              : pathname?.startsWith('/platform')
-                ? 'Configurações da plataforma'
-                : 'Visão geral da operação comercial'
+                  const topSubtitle =
+                  pathname?.startsWith('/platform-admin')
+                    ? 'Governança global do SaaS, empresas, convites e administração da plataforma'
+                    : pathname?.startsWith('/pool')
+                      ? 'Administre, distribua e organize a entrada de leads'
+                      : pathname?.startsWith('/admin')
+                        ? 'Gestão e administração do sistema'
+                        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+                          ? 'Execução comercial da operação'
+                          : pathname?.startsWith('/relatorios')
+                            ? 'Análise e inteligência comercial'
+                            : pathname?.startsWith('/dashboard/simulador-meta')
+                              ? 'Projeção e planejamento de metas'
+                              : pathname?.startsWith('/platform')
+                                ? 'Configurações da plataforma'
+                                : 'Visão geral da operação comercial'
 
   return (
     <div
