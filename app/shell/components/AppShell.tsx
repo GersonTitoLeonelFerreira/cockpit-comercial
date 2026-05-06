@@ -31,7 +31,17 @@ const C = {
 } as const
 
 type MeResponse =
-  | { ok: true; full_name: string | null; email: string | null; role: string | null }
+  | {
+      ok: true
+      user_id: string
+      profile_id: string
+      full_name: string | null
+      email: string | null
+      role: string | null
+      company_id: string | null
+      is_active: boolean
+      is_platform_admin: boolean
+    }
   | { error: string }
 
 // ─── Icon set ───────────────────────────────────────────────────────────────
@@ -536,29 +546,88 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
   const [userRole, setUserRole] = React.useState<string | null>(null)
+  const [, setSessionKey] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let active = true
 
-    ;(async () => {
+    const buildSessionKey = (json: Extract<MeResponse, { ok: true }>) => {
+      return [
+        json.user_id,
+        json.company_id ?? 'no-company',
+        json.role ?? 'no-role',
+        json.is_active ? 'active' : 'inactive',
+        json.is_platform_admin ? 'platform-admin' : 'tenant-user',
+      ].join('|')
+    }
+
+    const validateSession = async (mode: 'initial' | 'refresh' = 'refresh') => {
       try {
         const res = await fetch('/api/me', { method: 'GET', cache: 'no-store' })
         const json = (await res.json()) as MeResponse
+
         if (!active) return
 
-        if (res.ok && 'ok' in json && json.ok) {
-          setUserRole(json.role ?? null)
+        if (!res.ok || !('ok' in json) || !json.ok) {
+          setUserRole(null)
+          setSessionKey(null)
+
+          if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+            window.location.href = '/login'
+          }
+
           return
         }
 
-        setUserRole(null)
+        const nextSessionKey = buildSessionKey(json)
+
+        setUserRole(json.role ?? null)
+
+        setSessionKey((previousSessionKey) => {
+          if (
+            mode !== 'initial' &&
+            previousSessionKey &&
+            previousSessionKey !== nextSessionKey &&
+            typeof window !== 'undefined'
+          ) {
+            window.location.href = '/leads'
+            return nextSessionKey
+          }
+
+          return nextSessionKey
+        })
       } catch {
-        if (active) setUserRole(null)
+        if (!active) return
+
+        setUserRole(null)
+        setSessionKey(null)
       }
-    })()
+    }
+
+    void validateSession('initial')
+
+    const onFocus = () => {
+      void validateSession('refresh')
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void validateSession('refresh')
+      }
+    }
+
+    const interval = window.setInterval(() => {
+      void validateSession('refresh')
+    }, 15000)
+
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
 

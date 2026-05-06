@@ -10,7 +10,7 @@ export async function GET() {
     if (!url || !anon) {
       return NextResponse.json(
         { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY' },
-        { status: 500 }
+        { status: 500 },
       )
     }
 
@@ -37,17 +37,34 @@ export async function GET() {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileErr } = await supabase
       .from('profiles')
-      .select('full_name, email, role')
+      .select('id, full_name, email, role, company_id, is_active, is_platform_admin')
       .eq('id', auth.user.id)
       .single()
 
+    if (profileErr) {
+      return NextResponse.json({ error: profileErr.message }, { status: 400 })
+    }
+
+    if (!profile) {
+      return NextResponse.json({ error: 'Perfil não encontrado.' }, { status: 404 })
+    }
+
+    if (profile.is_active === false) {
+      return NextResponse.json({ error: 'Usuário inativo.' }, { status: 403 })
+    }
+
     return NextResponse.json({
       ok: true,
-      full_name: profile?.full_name ?? null,
-      email: profile?.email ?? auth.user.email ?? null,
-      role: profile?.role ?? null,
+      user_id: auth.user.id,
+      profile_id: profile.id,
+      full_name: profile.full_name ?? null,
+      email: profile.email ?? auth.user.email ?? null,
+      role: profile.role ?? null,
+      company_id: profile.company_id ?? null,
+      is_active: profile.is_active !== false,
+      is_platform_admin: profile.is_platform_admin === true,
     })
   } catch (error: unknown) {
     return NextResponse.json(
@@ -57,7 +74,7 @@ export async function GET() {
             ? error.message
             : 'Erro inesperado',
       },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
