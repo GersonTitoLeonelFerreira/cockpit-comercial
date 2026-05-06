@@ -194,7 +194,26 @@ export default async function PlatformAdminPage() {
             </div>
           </div>
 
-          <div style={disabledActionStyle()}>Próxima etapa</div>
+          <Link
+            href="/platform-admin/companies"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 'fit-content',
+              border: `1px solid ${C.blue}`,
+              background:
+                'linear-gradient(90deg, rgba(59,130,246,0.24) 0%, rgba(59,130,246,0.10) 100%)',
+              color: '#93c5fd',
+              padding: '9px 12px',
+              borderRadius: 10,
+              fontWeight: 900,
+              fontSize: 12,
+              textDecoration: 'none',
+            }}
+          >
+            Abrir empresas
+          </Link>
         </div>
 
         <div style={cardStyle()}>
