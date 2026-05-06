@@ -114,9 +114,19 @@ function SimpleKpiCard({
 // Main page
 // ==============================================================================
 
-interface SellerOption {
+type SellerOption = {
   id: string
   label: string
+}
+
+type SellerProfileRow = {
+  id: string
+  full_name: string | null
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  return fallback
 }
 
 export default function ProdutoRelatorioPg() {
@@ -128,7 +138,6 @@ export default function ProdutoRelatorioPg() {
   // User/profile state
   const [isAdmin, setIsAdmin] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
-  const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
 
   // Filters
@@ -156,7 +165,6 @@ export default function ProdutoRelatorioPg() {
         if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
 
         const uid = userData.user.id
-        setCurrentUserId(uid)
 
         const { data: profile } = await supabase
           .from('profiles')
@@ -178,18 +186,18 @@ export default function ProdutoRelatorioPg() {
             .eq('role', 'member')
             .order('full_name')
 
-          setSellers(
-            (sellersData ?? []).map((s: any) => ({
-              id: s.id,
-              label: s.full_name || s.id,
-            }))
-          )
+            setSellers(
+              ((sellersData ?? []) as SellerProfileRow[]).map((seller) => ({
+                id: seller.id,
+                label: seller.full_name || seller.id,
+              }))
+            )
           setSelectedSellerId(null) // empresa toda por padrão
         } else {
           setSelectedSellerId(uid)
         }
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao carregar perfil.')
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, 'Erro ao carregar perfil.'))
       } finally {
         setLoading(false)
       }
@@ -215,8 +223,8 @@ export default function ProdutoRelatorioPg() {
           dateEnd,
         })
         setSummary(result)
-      } catch (e: any) {
-        setDataError(e?.message ?? 'Erro ao buscar dados.')
+      } catch (e: unknown) {
+        setDataError(getErrorMessage(e, 'Erro ao buscar dados.'))
       } finally {
         setDataLoading(false)
       }
@@ -228,8 +236,8 @@ export default function ProdutoRelatorioPg() {
           dateEnd,
         })
         setMixSummary(mixResult)
-      } catch (e: any) {
-        setMixError(e?.message ?? 'Erro ao buscar mix comercial.')
+      } catch (e: unknown) {
+        setMixError(getErrorMessage(e, 'Erro ao buscar mix comercial.'))
       } finally {
         setMixLoading(false)
       }
@@ -289,9 +297,6 @@ export default function ProdutoRelatorioPg() {
       >
         <a href="/relatorios" style={navLinkBase}>
           Relatórios
-        </a>
-        <a href="/dashboard/relatorios/ia" style={navLinkBase}>
-          Relatório IA
         </a>
         <a href="/dashboard/relatorios/produto" style={navLinkActive}>
           Performance por Produto
@@ -544,14 +549,14 @@ export default function ProdutoRelatorioPg() {
                     no momento do fechamento da venda. Ciclos perdidos ou em andamento
                     normalmente não têm produto registrado. Por isso, a conversão aqui
                     representa a distribuição de produtos nos ganhos, não uma conversão real
-                    de funil. Conversões marcadas com "—" têm menos de 5 ciclos registrados
+                    de funil. Conversões marcadas com &quot;—&quot; têm menos de 5 ciclos registrados
                     com esse produto — base insuficiente para ser confiável.
                   </div>
                 )}
                 {summary.has_unlinked_sales && (
                   <div>
                     <b>Vendas sem produto vinculado:</b> Existem ganhos sem produto
-                    registrado no período. Eles aparecem como "Sem produto vinculado" na
+                    registrado no período. Eles aparecem como &quot;Sem produto vinculado&quot; na
                     tabela. Para melhorar a qualidade dos dados, vincule o produto ao
                     registrar uma venda ganha.
                   </div>
