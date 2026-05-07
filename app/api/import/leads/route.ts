@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { getAuthedSupabase } from '@/app/lib/supabase/server'
 import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 
@@ -377,9 +378,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Nenhuma linha recebida.' }, { status: 400 })
     }
 
+    const cookieStore = await cookies()
+    const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+    if (!activeCompanyId) {
+      return NextResponse.json({ error: 'Empresa ativa não selecionada.' }, { status: 400 })
+    }
+
     const { data: actorProfile, error: actorErr } = await supabase
       .from('profiles')
-      .select('company_id, role, is_active')
+      .select('id, is_active_global')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -387,16 +395,38 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: actorErr.message }, { status: 400 })
     }
 
-    if (!actorProfile?.company_id) {
-      return NextResponse.json({ error: 'company_id não encontrado.' }, { status: 400 })
+    if (!actorProfile?.id) {
+      return NextResponse.json(
+        { error: 'Perfil do usuário logado não encontrado.' },
+        { status: 403 },
+      )
     }
 
-    if (actorProfile.is_active === false) {
-      return NextResponse.json({ error: 'Usuário inativo.' }, { status: 403 })
+    if (actorProfile.is_active_global === false) {
+      return NextResponse.json({ error: 'Usuário globalmente inativo.' }, { status: 403 })
     }
 
-    const companyId = String(actorProfile.company_id)
-    const defaultOwnerUserId = actorProfile.role === 'admin' ? null : user.id
+    const { data: actorMembership, error: actorMembershipErr } = await supabase
+      .from('company_memberships')
+      .select('company_id, role, is_active')
+      .eq('company_id', activeCompanyId)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (actorMembershipErr) {
+      return NextResponse.json({ error: actorMembershipErr.message }, { status: 400 })
+    }
+
+    if (!actorMembership?.company_id) {
+      return NextResponse.json(
+        { error: 'Usuário sem vínculo ativo com a empresa.' },
+        { status: 403 },
+      )
+    }
+
+    const companyId = String(actorMembership.company_id)
+    const defaultOwnerUserId = actorMembership.role === 'admin' ? null : user.id
 
     if (groupId) {
       const { data: group, error: groupErr } = await supabase
