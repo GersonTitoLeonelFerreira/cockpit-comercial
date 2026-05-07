@@ -7,8 +7,19 @@ export const metadata = {
   title: 'Configurações | Cockpit Comercial',
 }
 
+type MembershipRow = {
+  company_id: string
+  role: string | null
+  is_active: boolean | null
+}
+
 export default async function ConfiguracoesPage() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  if (!activeCompanyId) {
+    redirect('/select-company')
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,24 +35,47 @@ export default async function ConfiguracoesPage() {
   )
 
   const { data: auth } = await supabase.auth.getUser()
-  if (!auth?.user?.id) redirect('/login')
 
-  const { data: profile, error: profErr } = await supabase
+  if (!auth?.user?.id) {
+    redirect('/login')
+  }
+
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('full_name, role, company_id')
+    .select('full_name, is_active_global')
     .eq('id', auth.user.id)
-    .single()
+    .maybeSingle()
 
-  if (profErr || !profile?.company_id) redirect('/login')
+  if (profileError || !profile) {
+    redirect('/login')
+  }
 
-  let company: any = null
+  if (profile.is_active_global === false) {
+    redirect('/login')
+  }
 
-  if (profile.role === 'admin') {
+  const { data: membershipData, error: membershipError } = await supabase
+    .from('company_memberships')
+    .select('company_id, role, is_active')
+    .eq('company_id', activeCompanyId)
+    .eq('user_id', auth.user.id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (membershipError || !membershipData) {
+    redirect('/select-company')
+  }
+
+  const membership = membershipData as MembershipRow
+
+  let company = null
+
+  if (membership.role === 'admin') {
     const { data: companyData } = await supabase
       .from('companies')
       .select('id, name, legal_name, trade_name, cnpj, segment, email, phone, city, state, cep, address')
-      .eq('id', profile.company_id)
-      .single()
+      .eq('id', membership.company_id)
+      .maybeSingle()
 
     company = companyData
   }
@@ -50,8 +84,12 @@ export default async function ConfiguracoesPage() {
     <ConfiguracoesClient
       userId={auth.user.id}
       userEmail={auth.user.email ?? ''}
-      userRole={profile.role ?? null}
-      profile={profile}
+      userRole={membership.role ?? null}
+      profile={{
+        full_name: profile.full_name ?? null,
+        role: membership.role ?? null,
+        company_id: membership.company_id,
+      }}
       company={company}
     />
   )
