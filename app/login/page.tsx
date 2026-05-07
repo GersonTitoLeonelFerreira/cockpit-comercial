@@ -100,257 +100,6 @@ function VisualPill({
   )
 }
 
-function MiniPreviewCard({
-  label,
-  title,
-  lines,
-}: {
-  label: string
-  title: string
-  lines: string[]
-}) {
-  return (
-    <div
-      style={{
-        borderRadius: 18,
-        border: `1px solid ${DS.border}`,
-        background: 'linear-gradient(180deg, rgba(17,19,24,0.98) 0%, rgba(9,11,15,0.96) 100%)',
-        boxShadow: '0 16px 36px rgba(0,0,0,0.28)',
-        padding: 18,
-        minWidth: 0,
-      }}
-    >
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          minHeight: 26,
-          padding: '0 10px',
-          borderRadius: 999,
-          border: '1px solid rgba(59,130,246,0.22)',
-          background: 'rgba(59,130,246,0.08)',
-          color: DS.blueSoft,
-          fontSize: 11,
-          fontWeight: 800,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-        }}
-      >
-        {label}
-      </div>
-
-      <div
-        style={{
-          marginTop: 14,
-          fontSize: 18,
-          fontWeight: 800,
-          color: DS.textPrimary,
-          lineHeight: 1.15,
-        }}
-      >
-        {title}
-      </div>
-
-      <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-        {lines.map((line) => (
-          <div
-            key={line}
-            style={{
-              borderRadius: 12,
-              border: `1px solid ${DS.borderSubtle}`,
-              background: 'rgba(255,255,255,0.015)',
-              padding: '10px 12px',
-              fontSize: 13,
-              color: DS.textSecondary,
-              lineHeight: 1.5,
-            }}
-          >
-            {line}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function PreviewBoard({ isMobile }: { isMobile: boolean }) {
-  return (
-    <div
-      style={{
-        borderRadius: 24,
-        border: 'none',
-        background:
-          'linear-gradient(180deg, rgba(59,130,246,0.08) 0%, rgba(17,19,24,0.98) 24%, rgba(9,11,15,0.98) 100%)',
-        boxShadow:
-          'inset 0 1px 0 rgba(255,255,255,0.03), 0 24px 80px rgba(0,0,0,0.34)',
-        padding: isMobile ? 18 : 22,
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 18,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 800,
-              color: DS.blueSoft,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
-          >
-            cockpit comercial
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 24,
-              fontWeight: 900,
-              color: DS.textPrimary,
-              letterSpacing: '-0.03em',
-            }}
-          >
-            Execução comercial em andamento
-          </div>
-        </div>
-      </div>
-
-      <div
-  style={{
-    display: 'grid',
-    gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr',
-    gap: 16,
-    alignItems: 'start',
-  }}
->
-<div
-  style={{
-    borderRadius: 20,
-    border: `1px solid ${DS.border}`,
-    background: 'rgba(9,11,15,0.82)',
-    padding: 16,
-    minWidth: 0,
-    alignSelf: 'start',
-    height: 'fit-content',
-  }}
->
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-              gap: 10,
-            }}
-          >
-            {[
-              { label: 'Novo', color: '#3b82f6' },
-              { label: 'Contato', color: '#06b6d4' },
-              { label: 'Negociação', color: '#8b5cf6' },
-              { label: 'Ganho', color: '#22c55e' },
-            ].map((col) => (
-              <div
-                key={col.label}
-                style={{
-                  borderRadius: 16,
-                  border: `1px solid ${DS.border}`,
-                  background: 'rgba(17,19,24,0.76)',
-                  minHeight: 158,
-                  padding: 12,
-                  boxSizing: 'border-box',
-                  minWidth: 0,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    color: DS.textPrimary,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 999,
-                      background: col.color,
-                      display: 'inline-block',
-                      flexShrink: 0,
-                    }}
-                  />
-                  {col.label}
-                </div>
-
-                <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-                  {[1, 2, 3].map((n) => (
-                    <div
-                      key={n}
-                      style={{
-                        borderRadius: 12,
-                        border: `1px solid ${DS.borderSubtle}`,
-                        background: 'rgba(255,255,255,0.015)',
-                        padding: 10,
-                        minHeight: 34,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: n === 2 ? '78%' : n === 3 ? '64%' : '88%',
-                          height: 8,
-                          borderRadius: 999,
-                          background: 'rgba(255,255,255,0.10)',
-                        }}
-                      />
-                      <div
-                        style={{
-                          marginTop: 8,
-                          width: n === 2 ? '52%' : '44%',
-                          height: 6,
-                          borderRadius: 999,
-                          background: 'rgba(255,255,255,0.05)',
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gap: 16 }}>
-          <MiniPreviewCard
-            label="IA comercial"
-            title="IA que orienta o vendedor"
-            lines={[
-              'Analisa conversa e sinaliza o estágio mais coerente.',
-              'Recomenda próxima ação para evitar improviso e travamento.',
-            ]}
-          />
-
-          <MiniPreviewCard
-            label="meta + execução"
-            title="Meta acompanhada como operação"
-            lines={[
-              'O gerente enxerga ritmo, prioridade e atraso antes do problema estourar.',
-              'A equipe conecta follow-up, pipeline e meta no mesmo cockpit.',
-            ]}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function InputLabel({
   label,
   required,
@@ -484,8 +233,26 @@ export default function LoginPage() {
       return
     }
 
-    router.replace('/dashboard')
-    router.refresh()
+    try {
+      const sessionRes = await fetch('/api/me', { method: 'GET', cache: 'no-store' })
+      const sessionJson = (await sessionRes.json()) as {
+        ok?: boolean
+        requires_company_selection?: boolean
+        active_company_id?: string | null
+      }
+
+      if (sessionRes.ok && sessionJson.ok && sessionJson.requires_company_selection) {
+        router.replace('/select-company')
+        router.refresh()
+        return
+      }
+
+      router.replace('/dashboard')
+      router.refresh()
+    } catch {
+      router.replace('/dashboard')
+      router.refresh()
+    }
   }
 
   return (
