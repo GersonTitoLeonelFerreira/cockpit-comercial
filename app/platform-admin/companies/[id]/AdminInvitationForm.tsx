@@ -281,7 +281,7 @@ export default function AdminInvitationForm({
             }}
           >
             <div>
-              <strong>Convite gerado com sucesso.</strong>
+              <strong>Convite enviado com sucesso.</strong>
             </div>
 
             <div style={{ color: C.textSoft }}>
@@ -339,7 +339,7 @@ export default function AdminInvitationForm({
             opacity: loading ? 0.65 : 1,
           }}
         >
-          {loading ? 'Gerando convite...' : 'Gerar convite'}
+              {loading ? 'Enviando convite...' : 'Enviar convite'}
         </button>
       </form>
     </section>

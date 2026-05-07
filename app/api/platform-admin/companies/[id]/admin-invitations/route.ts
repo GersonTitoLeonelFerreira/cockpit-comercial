@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { createHash, randomBytes } from 'crypto'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
+import { Resend } from 'resend'
 
 type InviteBody = {
   email?: string
@@ -34,6 +35,74 @@ function getBaseUrl(req: Request) {
 
   const requestUrl = new URL(req.url)
   return requestUrl.origin
+}
+
+function buildInviteEmailText(params: {
+  companyName: string
+  inviteUrl: string
+  expiresAt: string
+}) {
+  return [
+    `Olá,`,
+    ``,
+    `Você foi convidado para ativar a primeira conta administrativa da empresa ${params.companyName} no Cockpit Comercial.`,
+    ``,
+    `Acesse o link abaixo para criar sua senha e concluir a ativação:`,
+    params.inviteUrl,
+    ``,
+    `Este convite expira em: ${params.expiresAt}`,
+    ``,
+    `Se você não reconhece este convite, ignore este e-mail.`,
+    ``,
+    `Cockpit Comercial`,
+  ].join('\n')
+}
+
+function buildInviteEmailHtml(params: {
+  companyName: string
+  inviteUrl: string
+  expiresAt: string
+}) {
+  return `
+    <div style="font-family: Arial, sans-serif; background:#090b0f; color:#edf2f7; padding:28px;">
+      <div style="max-width:620px; margin:0 auto; background:#0d0f14; border:1px solid #1a1d2e; border-radius:16px; padding:24px;">
+        <div style="display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.32); color:#93c5fd; font-size:12px; font-weight:700;">
+          Convite administrativo
+        </div>
+
+        <h1 style="margin:18px 0 8px; font-size:24px; line-height:1.2; color:#edf2f7;">
+          Ative sua conta no Cockpit Comercial
+        </h1>
+
+        <p style="font-size:14px; line-height:1.7; color:#8fa3bc;">
+          Você foi convidado para ativar a primeira conta administrativa da empresa
+          <strong style="color:#edf2f7;">${params.companyName}</strong>.
+        </p>
+
+        <p style="font-size:14px; line-height:1.7; color:#8fa3bc;">
+          Clique no botão abaixo para criar sua senha e concluir a ativação.
+        </p>
+
+        <div style="margin:22px 0;">
+          <a href="${params.inviteUrl}" style="display:inline-block; background:#2563eb; color:#ffffff; text-decoration:none; padding:12px 18px; border-radius:10px; font-weight:700;">
+            Ativar minha conta
+          </a>
+        </div>
+
+        <p style="font-size:12px; line-height:1.6; color:#546070;">
+          Se o botão não funcionar, copie e cole este link no navegador:
+        </p>
+
+        <div style="word-break:break-all; font-size:12px; line-height:1.6; color:#93c5fd; background:#111318; border:1px solid #1a1d2e; padding:12px; border-radius:10px;">
+          ${params.inviteUrl}
+        </div>
+
+        <p style="font-size:12px; line-height:1.6; color:#546070; margin-top:18px;">
+          Este convite expira em: ${params.expiresAt}
+        </p>
+      </div>
+    </div>
+  `
 }
 
 async function getPlatformAdminActor() {
@@ -72,7 +141,7 @@ async function getPlatformAdminActor() {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('id, is_active, is_platform_admin')
+    .select('id, is_active_global, is_platform_admin')
     .eq('id', auth.user.id)
     .single()
 
@@ -84,8 +153,8 @@ async function getPlatformAdminActor() {
     return { error: 'Perfil do usuário logado não encontrado.', status: 403 } as const
   }
 
-  if (profile.is_active === false) {
-    return { error: 'Usuário inativo.', status: 403 } as const
+  if (profile.is_active_global === false) {
+    return { error: 'Usuário globalmente inativo.', status: 403 } as const
   }
 
   if (profile.is_platform_admin !== true) {
@@ -105,10 +174,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const resendKey = process.env.RESEND_API_KEY
+    const inviteFromEmail =
+      process.env.ADMIN_INVITE_FROM_EMAIL ||
+      process.env.RESEND_FROM_EMAIL ||
+      'Cockpit Comercial <onboarding@resend.dev>'
 
     if (!url || !serviceKey) {
       return NextResponse.json(
         { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY.' },
+        { status: 500 },
+      )
+    }
+
+    if (!resendKey) {
+      return NextResponse.json(
+        { error: 'ENV faltando: RESEND_API_KEY. O convite foi bloqueado antes de ser criado.' },
         { status: 500 },
       )
     }
@@ -132,6 +213,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     const admin = createClient(url, serviceKey)
+    const resend = new Resend(resendKey)
 
     const { data: company, error: companyError } = await admin
       .from('companies')
@@ -155,7 +237,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     const { count: activeAdminsCount, error: activeAdminsError } = await admin
-      .from('profiles')
+      .from('company_memberships')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId)
       .eq('role', 'admin')
@@ -200,6 +282,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const token = randomBytes(32).toString('hex')
     const tokenHash = hashToken(token)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    const inviteUrl = `${getBaseUrl(req)}/convites/admin/${token}`
+    const companyName = company.trade_name || company.name || company.legal_name || 'Empresa'
 
     const { data: invitation, error: invitationError } = await admin
       .from('company_admin_invitations')
@@ -214,7 +298,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         last_sent_at: new Date().toISOString(),
         metadata: {
           source: 'platform_admin_company_detail',
-          company_name: company.trade_name || company.name || company.legal_name || null,
+          company_name: companyName,
+          delivery: 'email',
         },
       })
       .select('id, email, expires_at')
@@ -222,6 +307,39 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     if (invitationError) {
       return NextResponse.json({ error: invitationError.message }, { status: 400 })
+    }
+
+    const emailText = buildInviteEmailText({
+      companyName,
+      inviteUrl,
+      expiresAt,
+    })
+
+    const emailHtml = buildInviteEmailHtml({
+      companyName,
+      inviteUrl,
+      expiresAt,
+    })
+
+    const emailResult = await resend.emails.send({
+      from: inviteFromEmail,
+      to: [email],
+      subject: `Convite para ativar sua conta no Cockpit Comercial - ${companyName}`,
+      text: emailText,
+      html: emailHtml,
+    })
+
+    if (emailResult.error) {
+      await admin.from('company_admin_invitations').delete().eq('id', invitation.id)
+
+      return NextResponse.json(
+        {
+          error:
+            'Falha ao enviar e-mail do convite. O convite foi revertido: ' +
+            emailResult.error.message,
+        },
+        { status: 500 },
+      )
     }
 
     const now = new Date().toISOString()
@@ -248,10 +366,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         email,
         full_name: fullName,
         expires_at: invitation.expires_at,
+        email_provider: 'resend',
+        email_id: emailResult.data?.id ?? null,
       },
     })
-
-    const inviteUrl = `${getBaseUrl(req)}/convites/admin/${token}`
 
     return NextResponse.json({
       ok: true,
@@ -259,6 +377,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         id: invitation.id,
         email: invitation.email,
         expires_at: invitation.expires_at,
+      },
+      email: {
+        sent: true,
+        provider: 'resend',
+        id: emailResult.data?.id ?? null,
       },
       invite_url: inviteUrl,
     })
