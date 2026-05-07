@@ -24,12 +24,13 @@ type CompanyRow = {
   created_at: string | null
 }
 
-type ProfileRow = {
-  id: string
-  company_id: string | null
-  role: string | null
-  is_active: boolean | null
-}
+type CompanyMembershipRow = {
+    id: string
+    company_id: string
+    user_id: string
+    role: string
+    is_active: boolean
+  }
 
 type CompanyView = CompanyRow & {
   usersTotal: number
@@ -161,7 +162,7 @@ export default async function PlatformAdminCompaniesPage() {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('is_active, is_platform_admin')
+    .select('is_active_global, is_platform_admin')
     .eq('id', auth.user.id)
     .single()
 
@@ -169,7 +170,7 @@ export default async function PlatformAdminCompaniesPage() {
     redirect('/login')
   }
 
-  if (profile.is_active === false) {
+  if (profile.is_active_global === false) {
     redirect('/login')
   }
 
@@ -204,33 +205,37 @@ export default async function PlatformAdminCompaniesPage() {
   const companies = (companiesData ?? []) as CompanyRow[]
   const companyIds = companies.map((company) => company.id)
 
-  let profiles: ProfileRow[] = []
+  let memberships: CompanyMembershipRow[] = []
   let profilesErrorMessage: string | null = null
 
   if (companyIds.length > 0) {
-    const { data: profilesData, error: profilesError } = await admin
-      .from('profiles')
-      .select('id, company_id, role, is_active')
+    const { data: membershipsData, error: membershipsError } = await admin
+      .from('company_memberships')
+      .select('id, company_id, user_id, role, is_active')
       .in('company_id', companyIds)
 
-    if (profilesError) {
-      profilesErrorMessage = profilesError.message
+    if (membershipsError) {
+      profilesErrorMessage = membershipsError.message
     } else {
-      profiles = (profilesData ?? []) as ProfileRow[]
+      memberships = (membershipsData ?? []) as CompanyMembershipRow[]
     }
   }
 
   const companiesView: CompanyView[] = companies.map((company) => {
-    const companyProfiles = profiles.filter((profileItem) => profileItem.company_id === company.id)
-    const activeProfiles = companyProfiles.filter((profileItem) => profileItem.is_active === true)
+    const companyMemberships = memberships.filter(
+      (membership) => membership.company_id === company.id,
+    )
+    const activeMemberships = companyMemberships.filter(
+      (membership) => membership.is_active === true,
+    )
 
     return {
       ...company,
-      usersTotal: companyProfiles.length,
-      activeUsers: activeProfiles.length,
-      activeAdmins: activeProfiles.filter((profileItem) => profileItem.role === 'admin').length,
-      activeMembers: activeProfiles.filter((profileItem) => profileItem.role === 'member').length,
-      inactiveUsers: companyProfiles.filter((profileItem) => profileItem.is_active === false).length,
+      usersTotal: companyMemberships.length,
+      activeUsers: activeMemberships.length,
+      activeAdmins: activeMemberships.filter((membership) => membership.role === 'admin').length,
+      activeMembers: activeMemberships.filter((membership) => membership.role === 'member').length,
+      inactiveUsers: companyMemberships.filter((membership) => membership.is_active === false).length,
     }
   })
 
