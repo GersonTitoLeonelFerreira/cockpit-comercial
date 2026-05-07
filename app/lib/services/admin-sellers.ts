@@ -16,23 +16,36 @@ export type AdminSellerStatsRow = {
   last_activity_at: string | null
 }
 
-export async function adminListSellersStats(p_days: number) {
+export async function adminListSellersStats(params: {
+  companyId: string
+  days: number
+}) {
   const supabase = supabaseBrowser()
-  const { data, error } = await supabase.rpc('rpc_admin_list_sellers_stats', { p_days })
+
+  const { data, error } = await supabase.rpc('rpc_admin_list_sellers_stats_for_company', {
+    p_company_id: params.companyId,
+    p_days: params.days,
+  })
+
   if (error) throw error
+
   return (data ?? []) as AdminSellerStatsRow[]
 }
 
 export async function adminUpdateSellerAccess(params: {
+  companyId: string
   sellerId: string
   role: string
   isActive: boolean
 }) {
   const supabase = supabaseBrowser()
-  const { error } = await supabase.rpc('rpc_admin_update_seller_access', {
+
+  const { error } = await supabase.rpc('rpc_admin_update_seller_access_for_company', {
+    p_company_id: params.companyId,
     p_seller_id: params.sellerId,
     p_role: params.role,
     p_is_active: params.isActive,
   })
+
   if (error) throw error
 }

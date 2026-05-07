@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import {
   adminListSellersStats,
   adminUpdateSellerAccess,
@@ -9,6 +10,11 @@ import {
 
 type FilterActive = 'all' | 'active' | 'inactive'
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message
+  return fallback
+}
+
 function toBRDateTime(v?: string | null) {
   if (!v) return '—'
   const d = new Date(v)
@@ -16,7 +22,11 @@ function toBRDateTime(v?: string | null) {
   return d.toLocaleString('pt-BR')
 }
 
-export default function SellersAdminClient() {
+export default function SellersAdminClient({
+  activeCompanyId,
+}: {
+  activeCompanyId: string
+}) {
   const [q, setQ] = React.useState('')
   const [activeFilter, setActiveFilter] = React.useState<FilterActive>('active')
   const [days, setDays] = React.useState<7 | 30 | 90>(30)
@@ -29,10 +39,13 @@ export default function SellersAdminClient() {
     setLoading(true)
     setError(null)
     try {
-      const data = await adminListSellersStats(days)
+      const data = await adminListSellersStats({
+        companyId: activeCompanyId,
+        days,
+      })
       setRows(data)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar vendedores.')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Erro ao carregar vendedores.'))
       setRows([])
     } finally {
       setLoading(false)
@@ -67,13 +80,14 @@ export default function SellersAdminClient() {
 
     try {
       await adminUpdateSellerAccess({
+        companyId: activeCompanyId,
         sellerId: r.seller_id,
         role: r.role ?? 'member',
         isActive: next,
       })
       await load()
-    } catch (e: any) {
-      alert(e?.message ?? 'Erro ao atualizar acesso.')
+    } catch (error: unknown) {
+      alert(getErrorMessage(error, 'Erro ao atualizar acesso.'))
     }
   }
 
@@ -99,7 +113,7 @@ export default function SellersAdminClient() {
 
         <select
           value={days}
-          onChange={(e) => setDays(parseInt(e.target.value) as any)}
+          onChange={(e) => setDays(Number(e.target.value) as 7 | 30 | 90)}
           className="h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-semibold outline-none"
         >
           <option value={7}>7 dias</option>
@@ -115,12 +129,12 @@ export default function SellersAdminClient() {
           {loading ? 'Atualizando...' : 'Atualizar'}
         </button>
 
-        <a
+        <Link
           href="/admin/vendedores/novo"
           className="ml-auto inline-flex h-10 items-center justify-center rounded-xl bg-emerald-500 px-4 text-sm font-black text-black hover:bg-emerald-400"
         >
           + Cadastrar vendedor
-        </a>
+        </Link>
       </div>
 
       {error ? (
