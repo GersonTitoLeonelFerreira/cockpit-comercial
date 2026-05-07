@@ -76,15 +76,15 @@ export default async function PlatformAdminPage() {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('full_name, email, role, is_active, is_platform_admin')
+    .select('full_name, email, is_active_global, is_platform_admin')
     .eq('id', auth.user.id)
-    .single()
+    .maybeSingle()
 
   if (profileError || !profile) {
     redirect('/login')
   }
 
-  if (profile.is_active === false) {
+  if (profile.is_active_global === false) {
     redirect('/login')
   }
 
