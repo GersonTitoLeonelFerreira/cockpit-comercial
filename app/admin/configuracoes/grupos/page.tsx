@@ -5,6 +5,11 @@ import GruposClient from './GruposClient'
 
 export default async function GruposPage() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  if (!activeCompanyId) {
+    redirect('/select-company')
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,21 +21,45 @@ export default async function GruposPage() {
         },
         setAll() {},
       },
-    }
+    },
   )
 
   const { data: auth, error: authErr } = await supabase.auth.getUser()
   const user = auth?.user
 
-  if (authErr || !user?.id) redirect('/login')
+  if (authErr || !user?.id) {
+    redirect('/login')
+  }
 
-  const { data: profile, error: profErr } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('company_id, role')
+    .select('id, is_active_global')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
-  if (profErr || !profile?.company_id || profile.role !== 'admin') redirect('/login')
+  if (profileError || !profile?.id) {
+    redirect('/login')
+  }
 
-  return <GruposClient companyId={profile.company_id} userId={user.id} />
+  if (profile.is_active_global === false) {
+    redirect('/login')
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from('company_memberships')
+    .select('company_id, role, is_active')
+    .eq('company_id', activeCompanyId)
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (membershipError || !membership) {
+    redirect('/select-company')
+  }
+
+  if (membership.role !== 'admin') {
+    redirect('/leads')
+  }
+
+  return <GruposClient companyId={membership.company_id} userId={user.id} />
 }
