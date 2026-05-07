@@ -7,6 +7,8 @@ import AppShell from './components/AppShell'
 export default function ShellGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
+  const currentPathname = pathname || ''
+
   const noShellRoutes = [
     '/login',
     '/esqueci-senha',
@@ -16,10 +18,11 @@ export default function ShellGate({ children }: { children: React.ReactNode }) {
   ]
 
   const noShell =
-    noShellRoutes.includes(pathname || '') ||
-    pathname?.startsWith('/auth') ||
-    pathname?.startsWith('/_next') ||
-    pathname?.startsWith('/api')
+    noShellRoutes.includes(currentPathname) ||
+    currentPathname.startsWith('/auth') ||
+    currentPathname.startsWith('/convites') ||
+    currentPathname.startsWith('/_next') ||
+    currentPathname.startsWith('/api')
 
   if (noShell) return <>{children}</>
 

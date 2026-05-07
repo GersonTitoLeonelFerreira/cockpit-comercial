@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
 type MeResponse =
   | { ok: true; full_name: string | null; email: string | null; role: string | null }
@@ -51,11 +52,13 @@ export default function ProfileMenu() {
       await refreshLabelFromProfile(email)
     })()
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      async (_event: AuthChangeEvent, session: Session | null) => {
       setIsAuthed(!!session)
       const email = session?.user?.email ?? ''
       await refreshLabelFromProfile(email)
-    })
+    },
+    )
 
     return () => {
       alive = false
@@ -271,7 +274,7 @@ export default function ProfileMenu() {
           </div>
 
           <div style={{ padding: '8px', display: 'grid', gap: 3 }}>
-            <Link
+          <Link
               href="/perfil"
               onClick={() => setOpen(false)}
               style={{
@@ -299,6 +302,43 @@ export default function ProfileMenu() {
                 <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth="1.8" />
               </svg>
               Editar Perfil
+            </Link>
+
+            <Link
+              href="/select-company"
+              onClick={() => setOpen(false)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '9px 10px',
+                borderRadius: 7,
+                textDecoration: 'none',
+                color: TEXT_SECONDARY,
+                border: '1px solid transparent',
+                background: 'transparent',
+                fontSize: 12,
+                fontWeight: 500,
+                transition: 'background 200ms ease, color 200ms ease',
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M7 7h11m0 0-3-3m3 3-3 3"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M17 17H6m0 0 3 3m-3-3 3-3"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Trocar empresa
             </Link>
 
             <button

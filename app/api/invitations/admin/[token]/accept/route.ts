@@ -298,6 +298,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       id: userId,
       email: invitationEmail,
       full_name: fullName,
+
+      // Compatibilidade temporária:
+      // o banco ainda exige company_id em profiles para gerar user_code.
+      // A fonte oficial de empresa/permissão continua sendo company_memberships.
+      company_id: company.id,
+      role: 'admin',
+      is_active: true,
+
       is_active_global: true,
       is_platform_admin: false,
       status: 'active',

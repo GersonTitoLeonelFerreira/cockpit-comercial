@@ -254,16 +254,20 @@ export default function InviteAdminActivationClient({ token }: { token: string }
 
   return (
     <main
-      style={{
-        minHeight: '100vh',
-        background:
-          'radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 32%), #090b0f',
-        color: C.text,
-        display: 'grid',
-        placeItems: 'center',
-        padding: 24,
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      }}
+    style={{
+      minHeight: '100vh',
+      maxHeight: '100vh',
+      background:
+        'radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 32%), #090b0f',
+      color: C.text,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'flex-start',
+      padding: '32px 24px',
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    }}
     >
       <section
         style={{

@@ -45,6 +45,14 @@ function roleLabel(role: CompanyOption['role']) {
   return 'Membro'
 }
 
+function normalizeSearch(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
 export default function SelectCompanyPage() {
   const router = useRouter()
 
@@ -53,6 +61,30 @@ export default function SelectCompanyPage() {
   const [companies, setCompanies] = React.useState<CompanyOption[]>([])
   const [userLabel, setUserLabel] = React.useState<string>('Usuário')
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [search, setSearch] = React.useState('')
+
+  const filteredCompanies = React.useMemo(() => {
+    const query = normalizeSearch(search)
+
+    if (!query) return companies
+
+    return companies.filter((company) => {
+      const haystack = normalizeSearch(
+        [
+          company.display_name,
+          company.company_name,
+          company.trade_name,
+          company.legal_name,
+          company.company_id,
+          roleLabel(company.role),
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
+
+      return haystack.includes(query)
+    })
+  }, [companies, search])
 
   React.useEffect(() => {
     let active = true
@@ -133,20 +165,24 @@ export default function SelectCompanyPage() {
     <main
       style={{
         minHeight: '100vh',
+        maxHeight: '100vh',
+        overflowY: 'auto',
+        overflowX: 'hidden',
         background:
           'radial-gradient(circle at top left, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0) 30%), linear-gradient(180deg, #090b0f 0%, #06080c 100%)',
         color: DS.textPrimary,
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        display: 'grid',
-        placeItems: 'center',
-        padding: 24,
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+        padding: '36px 24px',
         boxSizing: 'border-box',
       }}
     >
       <section
         style={{
           width: '100%',
-          maxWidth: 860,
+          maxWidth: 980,
           borderRadius: 28,
           border: `1px solid ${DS.border}`,
           background:
@@ -193,12 +229,55 @@ export default function SelectCompanyPage() {
             color: DS.textSecondary,
             fontSize: 15,
             lineHeight: 1.7,
-            maxWidth: 640,
+            maxWidth: 720,
           }}
         >
-          {userLabel}, seu e-mail possui acesso a mais de uma operação. Selecione
-          o contexto correto para carregar dashboard, Pool, Kanban, relatórios e permissões.
+          {userLabel}, selecione o contexto correto para carregar dashboard, Pool, Kanban,
+          relatórios e permissões.
         </p>
+
+        <div
+          style={{
+            marginTop: 20,
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) auto',
+            gap: 12,
+            alignItems: 'center',
+          }}
+        >
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Pesquisar empresa por nome, razão social, ID ou papel..."
+            autoFocus
+            style={{
+              width: '100%',
+              border: `1px solid ${DS.border}`,
+              background: '#0b0d12',
+              color: DS.textPrimary,
+              borderRadius: 14,
+              padding: '13px 14px',
+              outline: 'none',
+              fontSize: 14,
+              boxSizing: 'border-box',
+            }}
+          />
+
+          <div
+            style={{
+              border: `1px solid ${DS.border}`,
+              background: DS.surfaceBg,
+              color: DS.textSecondary,
+              borderRadius: 14,
+              padding: '12px 14px',
+              fontSize: 13,
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {filteredCompanies.length}/{companies.length} empresas
+          </div>
+        </div>
 
         {errorMessage ? (
           <div
@@ -219,18 +298,16 @@ export default function SelectCompanyPage() {
 
         <div
           style={{
-            marginTop: 24,
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: 14,
+            marginTop: 20,
+            border: `1px solid ${DS.borderSubtle}`,
+            borderRadius: 18,
+            background: 'rgba(9,11,15,0.56)',
+            overflow: 'hidden',
           }}
         >
           {loading ? (
             <div
               style={{
-                borderRadius: 18,
-                border: `1px solid ${DS.borderSubtle}`,
-                background: 'rgba(9,11,15,0.72)',
                 padding: 18,
                 color: DS.textSecondary,
                 fontSize: 14,
@@ -238,84 +315,106 @@ export default function SelectCompanyPage() {
             >
               Carregando empresas...
             </div>
+          ) : filteredCompanies.length === 0 ? (
+            <div
+              style={{
+                padding: 18,
+                color: DS.textSecondary,
+                fontSize: 14,
+              }}
+            >
+              Nenhuma empresa encontrada para a busca informada.
+            </div>
           ) : (
-            companies.map((company) => {
-              const submitting = submittingCompanyId === company.company_id
+            <div
+              style={{
+                maxHeight: '52vh',
+                overflowY: 'auto',
+                display: 'grid',
+              }}
+            >
+              {filteredCompanies.map((company) => {
+                const submitting = submittingCompanyId === company.company_id
 
-              return (
-                <button
-                  key={company.company_id}
-                  type="button"
-                  onClick={() => void selectCompany(company.company_id)}
-                  disabled={Boolean(submittingCompanyId)}
-                  style={{
-                    textAlign: 'left',
-                    borderRadius: 20,
-                    border: `1px solid ${DS.border}`,
-                    background: submitting
-                      ? 'rgba(59,130,246,0.14)'
-                      : 'rgba(9,11,15,0.72)',
-                    padding: 18,
-                    cursor: submittingCompanyId ? 'not-allowed' : 'pointer',
-                    boxShadow: submitting
-                      ? '0 14px 34px rgba(37,99,235,0.18)'
-                      : 'none',
-                  }}
-                >
-                  <div
+                return (
+                  <button
+                    key={company.company_id}
+                    type="button"
+                    onClick={() => void selectCompany(company.company_id)}
+                    disabled={Boolean(submittingCompanyId)}
                     style={{
-                      fontSize: 17,
-                      fontWeight: 850,
-                      color: DS.textPrimary,
-                      lineHeight: 1.25,
-                    }}
-                  >
-                    {company.display_name}
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: 10,
-                      display: 'inline-flex',
+                      textAlign: 'left',
+                      border: 0,
+                      borderBottom: `1px solid ${DS.borderSubtle}`,
+                      background: submitting ? 'rgba(59,130,246,0.14)' : 'transparent',
+                      padding: '16px 18px',
+                      cursor: submittingCompanyId ? 'not-allowed' : 'pointer',
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      gap: 14,
                       alignItems: 'center',
-                      minHeight: 28,
-                      padding: '0 10px',
-                      borderRadius: 999,
-                      border: '1px solid rgba(59,130,246,0.20)',
-                      background: 'rgba(59,130,246,0.08)',
-                      color: DS.blueSoft,
-                      fontSize: 12,
-                      fontWeight: 800,
                     }}
                   >
-                    {roleLabel(company.role)}
-                  </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 850,
+                          color: DS.textPrimary,
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {company.display_name}
+                      </div>
 
-                  <div
-                    style={{
-                      marginTop: 12,
-                      color: DS.textMuted,
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    ID: {company.company_id}
-                  </div>
+                      <div
+                        style={{
+                          marginTop: 6,
+                          color: DS.textMuted,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        ID: {company.company_id}
+                      </div>
+                    </div>
 
-                  <div
-                    style={{
-                      marginTop: 14,
-                      color: submitting ? DS.blueSoft : DS.textSecondary,
-                      fontSize: 13,
-                      fontWeight: 800,
-                    }}
-                  >
-                    {submitting ? 'Selecionando...' : 'Acessar esta empresa'}
-                  </div>
-                </button>
-              )
-            })
+                    <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          minHeight: 28,
+                          padding: '0 10px',
+                          borderRadius: 999,
+                          border: '1px solid rgba(59,130,246,0.20)',
+                          background: 'rgba(59,130,246,0.08)',
+                          color: DS.blueSoft,
+                          fontSize: 12,
+                          fontWeight: 800,
+                        }}
+                      >
+                        {roleLabel(company.role)}
+                      </div>
+
+                      <div
+                        style={{
+                          color: submitting ? DS.blueSoft : DS.textSecondary,
+                          fontSize: 13,
+                          fontWeight: 800,
+                        }}
+                      >
+                        {submitting ? 'Selecionando...' : 'Acessar'}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
           )}
         </div>
       </section>
