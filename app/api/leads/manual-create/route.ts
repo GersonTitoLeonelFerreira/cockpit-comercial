@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
 import { getAuthedSupabase } from '@/app/lib/supabase/server'
 import { EVENT_SOURCES } from '@/app/config/analyticsBase'
@@ -18,12 +19,6 @@ type ManualCreateBody = {
   notes?: unknown
   group_id?: unknown
   owner_user_id?: unknown
-}
-
-type ActorProfile = {
-  company_id: string | null
-  role: string | null
-  is_active: boolean | null
 }
 
 type LeadRow = {
@@ -47,6 +42,12 @@ type ProfileRow = {
 type ConflictMatch = {
   lead: LeadRow
   matched_by: 'document' | 'phone' | 'email'
+}
+
+type MembershipRow = {
+  company_id: string
+  role: string | null
+  is_active: boolean | null
 }
 
 function onlyDigits(value: unknown): string {
@@ -382,9 +383,19 @@ export async function POST(req: Request) {
       }
     }
 
+    const cookieStore = await cookies()
+    const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+    if (!activeCompanyId) {
+      return NextResponse.json(
+        { ok: false, error: 'Empresa ativa não selecionada.' },
+        { status: 400 },
+      )
+    }
+
     const { data: actorProfile, error: actorErr } = await supabase
       .from('profiles')
-      .select('company_id, role, is_active')
+      .select('id, is_active_global')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -392,25 +403,53 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: actorErr.message }, { status: 400 })
     }
 
-    const profile = actorProfile as ActorProfile | null
-
-    if (!profile?.company_id) {
-      return NextResponse.json({ ok: false, error: 'company_id não encontrado.' }, { status: 400 })
+    if (!actorProfile?.id) {
+      return NextResponse.json(
+        { ok: false, error: 'Perfil do usuário logado não encontrado.' },
+        { status: 403 },
+      )
     }
 
-    if (profile.is_active === false) {
-      return NextResponse.json({ ok: false, error: 'Usuário inativo.' }, { status: 403 })
+    if (actorProfile.is_active_global === false) {
+      return NextResponse.json(
+        { ok: false, error: 'Usuário globalmente inativo.' },
+        { status: 403 },
+      )
     }
 
-    const companyId = profile.company_id
-    const actorIsAdmin = isAdminRole(profile.role)
+    const { data: actorMembership, error: actorMembershipErr } = await supabase
+      .from('company_memberships')
+      .select('company_id, role, is_active')
+      .eq('company_id', activeCompanyId)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (actorMembershipErr) {
+      return NextResponse.json(
+        { ok: false, error: actorMembershipErr.message },
+        { status: 400 },
+      )
+    }
+
+    const membership = actorMembership as MembershipRow | null
+
+    if (!membership?.company_id) {
+      return NextResponse.json(
+        { ok: false, error: 'Usuário sem vínculo ativo com a empresa.' },
+        { status: 403 },
+      )
+    }
+
+    const companyId = membership.company_id
+    const actorIsAdmin = isAdminRole(membership.role)
     let ownerUserId: string | null = actorIsAdmin ? null : user.id
 
     if (actorIsAdmin && requestedOwnerUserId) {
-      const { data: ownerProfile, error: ownerErr } = await admin
-        .from('profiles')
-        .select('id, company_id, is_active')
-        .eq('id', requestedOwnerUserId)
+      const { data: ownerMembership, error: ownerErr } = await admin
+        .from('company_memberships')
+        .select('user_id, company_id, role, is_active')
+        .eq('user_id', requestedOwnerUserId)
         .eq('company_id', companyId)
         .maybeSingle()
 
@@ -418,14 +457,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: ownerErr.message }, { status: 400 })
       }
 
-      if (!ownerProfile?.id) {
+      if (!ownerMembership?.user_id) {
         return NextResponse.json(
           { ok: false, error: 'Vendedor inválido para esta empresa.' },
           { status: 400 },
         )
       }
 
-      if (ownerProfile.is_active === false) {
+      if (ownerMembership.is_active === false) {
         return NextResponse.json({ ok: false, error: 'Vendedor inativo.' }, { status: 403 })
       }
 
