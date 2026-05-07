@@ -12,31 +12,68 @@ async function getSupabaseFromCookies() {
 
   const cookieStore = await cookies()
 
-  return createServerClient(url, anon, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll()
+  return {
+    supabase: createServerClient(url, anon, {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll() {},
       },
-      setAll() {},
-    },
-  })
+    }),
+    activeCompanyId: cookieStore.get('cockpit_active_company_id')?.value ?? null,
+  }
 }
 
 export async function GET() {
   try {
-    const supabase = await getSupabaseFromCookies()
+    const { supabase, activeCompanyId } = await getSupabaseFromCookies()
 
     const { data: auth, error: authErr } = await supabase.auth.getUser()
-    if (authErr) return NextResponse.json({ error: authErr.message }, { status: 401 })
-    if (!auth?.user?.id) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+
+    if (authErr) {
+      return NextResponse.json({ error: authErr.message }, { status: 401 })
+    }
+
+    if (!auth?.user?.id) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+    }
 
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, phone, job_title, birth_date, role')
+      .select('id, full_name, email, phone, job_title, birth_date, is_active_global')
       .eq('id', auth.user.id)
-      .single()
+      .maybeSingle()
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    if (!profile?.id) {
+      return NextResponse.json({ error: 'Perfil não encontrado.' }, { status: 404 })
+    }
+
+    if (profile.is_active_global === false) {
+      return NextResponse.json({ error: 'Usuário globalmente inativo.' }, { status: 403 })
+    }
+
+    let role: string | null = null
+
+    if (activeCompanyId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('company_memberships')
+        .select('role, is_active')
+        .eq('company_id', activeCompanyId)
+        .eq('user_id', auth.user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (membershipError) {
+        return NextResponse.json({ error: membershipError.message }, { status: 400 })
+      }
+
+      role = membership?.role ?? null
+    }
 
     return NextResponse.json({
       ok: true,
@@ -47,37 +84,84 @@ export async function GET() {
         phone: profile.phone ?? null,
         job_title: profile.job_title ?? null,
         birth_date: profile.birth_date ?? null,
-        role: profile.role ?? null,
+        role,
       },
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro inesperado' }, { status: 500 })
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Erro inesperado' },
+      { status: 500 },
+    )
   }
 }
 
 export async function PATCH(req: Request) {
   try {
-    const supabase = await getSupabaseFromCookies()
+    const { supabase } = await getSupabaseFromCookies()
 
     const { data: auth, error: authErr } = await supabase.auth.getUser()
-    if (authErr) return NextResponse.json({ error: authErr.message }, { status: 401 })
-    if (!auth?.user?.id) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+
+    if (authErr) {
+      return NextResponse.json({ error: authErr.message }, { status: 401 })
+    }
+
+    if (!auth?.user?.id) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, is_active_global')
+      .eq('id', auth.user.id)
+      .maybeSingle()
+
+    if (profileError) {
+      return NextResponse.json({ error: profileError.message }, { status: 400 })
+    }
+
+    if (!profile?.id) {
+      return NextResponse.json({ error: 'Perfil não encontrado.' }, { status: 404 })
+    }
+
+    if (profile.is_active_global === false) {
+      return NextResponse.json({ error: 'Usuário globalmente inativo.' }, { status: 403 })
+    }
 
     const body = await req.json().catch(() => ({}))
 
-    const payload: Record<string, any> = {}
+    const payload: Record<string, unknown> = {}
 
-    if (body.full_name !== undefined) payload.full_name = String(body.full_name ?? '').trim() || null
-    if (body.phone !== undefined) payload.phone = String(body.phone ?? '').trim() || null
-    if (body.job_title !== undefined) payload.job_title = String(body.job_title ?? '').trim() || null
-    if (body.birth_date !== undefined) payload.birth_date = body.birth_date || null
+    if (body.full_name !== undefined) {
+      payload.full_name = String(body.full_name ?? '').trim() || null
+    }
+
+    if (body.phone !== undefined) {
+      payload.phone = String(body.phone ?? '').trim() || null
+    }
+
+    if (body.job_title !== undefined) {
+      payload.job_title = String(body.job_title ?? '').trim() || null
+    }
+
+    if (body.birth_date !== undefined) {
+      payload.birth_date = body.birth_date || null
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return NextResponse.json({ ok: true })
+    }
 
     const { error } = await supabase.from('profiles').update(payload).eq('id', auth.user.id)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
 
     return NextResponse.json({ ok: true })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro inesperado' }, { status: 500 })
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Erro inesperado' },
+      { status: 500 },
+    )
   }
 }
