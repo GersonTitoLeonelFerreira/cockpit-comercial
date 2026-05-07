@@ -248,15 +248,15 @@ async function requirePlatformAdmin() {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('is_active, is_platform_admin')
+    .select('is_active_global, is_platform_admin')
     .eq('id', auth.user.id)
-    .single()
+    .maybeSingle()
 
   if (profileError || !profile) {
     redirect('/login')
   }
 
-  if (profile.is_active === false) {
+  if (profile.is_active_global === false) {
     redirect('/login')
   }
 
