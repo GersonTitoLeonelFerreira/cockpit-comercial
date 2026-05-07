@@ -39,14 +39,61 @@ type PatchBody = {
   cep?: string | null
 }
 
-async function getActorCompanyAndRole() {
+type ActorContext =
+  | {
+      ok: true
+      actorId: string
+      companyId: string
+    }
+  | {
+      ok: false
+      error: string
+      status: number
+    }
+
+type MembershipRow = {
+  user_id: string
+  company_id: string
+  role: 'admin' | 'manager' | 'member' | null
+  is_active: boolean | null
+}
+
+type SellerProfileRow = {
+  id: string
+  full_name: string | null
+  email: string | null
+  phone: string | null
+  job_title: string | null
+  status: string | null
+  username: string | null
+  birth_date: string | null
+  cpf: string | null
+  created_at: string | null
+}
+
+async function getActorCompanyAndRole(): Promise<ActorContext> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
   if (!url || !anon) {
-    return { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY' as const }
+    return {
+      ok: false,
+      error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY',
+      status: 500,
+    }
   }
 
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  if (!activeCompanyId) {
+    return {
+      ok: false,
+      error: 'Empresa ativa não selecionada.',
+      status: 400,
+    }
+  }
+
   const supabase = createServerClient(url, anon, {
     cookies: {
       getAll() {
@@ -61,34 +108,93 @@ async function getActorCompanyAndRole() {
   })
 
   const { data: userData, error: userErr } = await supabase.auth.getUser()
-  if (userErr) return { error: userErr.message }
+
+  if (userErr) {
+    return { ok: false, error: userErr.message, status: 401 }
+  }
+
   const actor = userData?.user
-  if (!actor) return { error: 'Não autenticado' as const }
+
+  if (!actor?.id) {
+    return { ok: false, error: 'Não autenticado', status: 401 }
+  }
 
   const { data: actorProfile, error: actorProfileErr } = await supabase
     .from('profiles')
-    .select('company_id, role')
+    .select('id, is_active_global')
     .eq('id', actor.id)
-    .single()
+    .maybeSingle()
 
-    if (actorProfileErr) return { error: actorProfileErr.message }
-  if (!actorProfile || actorProfile.role !== 'admin') return { error: 'Acesso negado (admin only)' as const }
-  if (!actorProfile.company_id) return { error: 'company_id do admin não encontrado' as const }
+  if (actorProfileErr) {
+    return { ok: false, error: actorProfileErr.message, status: 400 }
+  }
 
-  return { actorId: actor.id, companyId: actorProfile.company_id, ok: true as const }
+  if (!actorProfile?.id) {
+    return { ok: false, error: 'Perfil do usuário logado não encontrado.', status: 403 }
+  }
+
+  if (actorProfile.is_active_global === false) {
+    return { ok: false, error: 'Usuário globalmente inativo.', status: 403 }
+  }
+
+  const { data: actorMembership, error: actorMembershipErr } = await supabase
+    .from('company_memberships')
+    .select('company_id, role, is_active')
+    .eq('company_id', activeCompanyId)
+    .eq('user_id', actor.id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (actorMembershipErr) {
+    return { ok: false, error: actorMembershipErr.message, status: 400 }
+  }
+
+  if (!actorMembership?.company_id) {
+    return { ok: false, error: 'Usuário sem vínculo ativo com a empresa.', status: 403 }
+  }
+
+  if (actorMembership.role !== 'admin') {
+    return { ok: false, error: 'Acesso negado (admin only)', status: 403 }
+  }
+
+  return {
+    ok: true,
+    actorId: actor.id,
+    companyId: actorMembership.company_id,
+  }
 }
 
-function nullIfEmpty(v: any) {
-  const s = (v ?? '').toString().trim()
-  return s ? s : null
+function nullIfEmpty(value: unknown) {
+  const text = String(value ?? '').trim()
+  return text ? text : null
 }
-function onlyDigits(v: string) {
-  return (v ?? '').replace(/\D/g, '')
+
+function onlyDigits(value: string) {
+  return (value ?? '').replace(/\D/g, '')
+}
+
+function buildSellerPayload(profile: SellerProfileRow, membership: MembershipRow) {
+  return {
+    id: profile.id,
+    company_id: membership.company_id,
+    role: membership.role,
+    is_active: membership.is_active !== false,
+    full_name: profile.full_name,
+    email: profile.email,
+    phone: profile.phone,
+    job_title: profile.job_title,
+    status: profile.status,
+    username: profile.username,
+    birth_date: profile.birth_date,
+    cpf: profile.cpf,
+    created_at: profile.created_at,
+  }
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
   if (!envUrl || !serviceKey) {
     return NextResponse.json(
       { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY' },
@@ -97,31 +203,74 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const actor = await getActorCompanyAndRole()
-  if ((actor as any).error) return NextResponse.json({ error: (actor as any).error }, { status: 401 })
+
+  if (!actor.ok) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status })
+  }
 
   const { id } = await ctx.params
-  const admin = createClient(envUrl, serviceKey)
+
+  const admin = createClient(envUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
+
+  const { data: targetMembership, error: membershipErr } = await admin
+    .from('company_memberships')
+    .select('user_id, company_id, role, is_active')
+    .eq('user_id', id)
+    .eq('company_id', actor.companyId)
+    .maybeSingle()
+
+  if (membershipErr) {
+    return NextResponse.json({ error: membershipErr.message }, { status: 400 })
+  }
+
+  if (!targetMembership?.user_id) {
+    return NextResponse.json({ error: 'Vendedor não encontrado nesta empresa.' }, { status: 404 })
+  }
 
   const { data: profile, error: profErr } = await admin
     .from('profiles')
-    .select(
-      'id, company_id, role, full_name, email, phone, job_title, status, username, birth_date, cpf, is_active, created_at',
-    )
+    .select('id, full_name, email, phone, job_title, status, username, birth_date, cpf, created_at')
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
-  if (profErr) return NextResponse.json({ error: profErr.message }, { status: 400 })
-  if (!profile) return NextResponse.json({ error: 'Vendedor não encontrado' }, { status: 404 })
-  if (profile.company_id !== (actor as any).companyId) return NextResponse.json({ error: 'Acesso negado (empresa diferente)' }, { status: 403 })
+  if (profErr) {
+    return NextResponse.json({ error: profErr.message }, { status: 400 })
+  }
 
-  const { data: details, error: detErr } = await admin.from('profile_details').select('*').eq('profile_id', id).maybeSingle()
-  if (detErr) return NextResponse.json({ ok: true, profile, details: null })
-  return NextResponse.json({ ok: true, profile, details })
+  if (!profile?.id) {
+    return NextResponse.json({ error: 'Perfil do vendedor não encontrado.' }, { status: 404 })
+  }
+
+  const { data: details, error: detErr } = await admin
+    .from('profile_details')
+    .select('*')
+    .eq('profile_id', id)
+    .maybeSingle()
+
+  if (detErr) {
+    return NextResponse.json({
+      ok: true,
+      profile: buildSellerPayload(profile as SellerProfileRow, targetMembership as MembershipRow),
+      details: null,
+    })
+  }
+
+  return NextResponse.json({
+    ok: true,
+    profile: buildSellerPayload(profile as SellerProfileRow, targetMembership as MembershipRow),
+    details,
+  })
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
   if (!envUrl || !serviceKey) {
     return NextResponse.json(
       { error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY' },
@@ -130,34 +279,62 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const actor = await getActorCompanyAndRole()
-  if ((actor as any).error) return NextResponse.json({ error: (actor as any).error }, { status: 401 })
+
+  if (!actor.ok) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status })
+  }
 
   const { id } = await ctx.params
   const body = (await req.json().catch(() => ({}))) as PatchBody
-  const admin = createClient(envUrl, serviceKey)
 
-  // garante mesma empresa (e pega cpf)
+  const admin = createClient(envUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  })
+
+  const { data: targetMembership, error: membershipErr } = await admin
+    .from('company_memberships')
+    .select('user_id, company_id, role, is_active')
+    .eq('user_id', id)
+    .eq('company_id', actor.companyId)
+    .maybeSingle()
+
+  if (membershipErr) {
+    return NextResponse.json({ error: membershipErr.message }, { status: 400 })
+  }
+
+  if (!targetMembership?.user_id) {
+    return NextResponse.json({ error: 'Vendedor não encontrado nesta empresa.' }, { status: 404 })
+  }
+
   const { data: existing, error: existingErr } = await admin
     .from('profiles')
-    .select('id, company_id, cpf')
+    .select('id, cpf')
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
-  if (existingErr) return NextResponse.json({ error: existingErr.message }, { status: 400 })
-  if (!existing) return NextResponse.json({ error: 'Vendedor não encontrado' }, { status: 404 })
-  if (existing.company_id !== (actor as any).companyId) return NextResponse.json({ error: 'Acesso negado (empresa diferente)' }, { status: 403 })
+  if (existingErr) {
+    return NextResponse.json({ error: existingErr.message }, { status: 400 })
+  }
 
-  // Detecta existência de details de um jeito que não depende de maybeSingle()
+  if (!existing?.id) {
+    return NextResponse.json({ error: 'Perfil do vendedor não encontrado.' }, { status: 404 })
+  }
+
   const { data: detRows, error: detRowsErr } = await admin
     .from('profile_details')
     .select('profile_id')
     .eq('profile_id', id)
     .limit(1)
 
-  if (detRowsErr) return NextResponse.json({ error: detRowsErr.message }, { status: 400 })
+  if (detRowsErr) {
+    return NextResponse.json({ error: detRowsErr.message }, { status: 400 })
+  }
+
   const detailsExists = (detRows?.length ?? 0) > 0
 
-  // travas
   if (detailsExists) {
     if (body.tipo_pessoa !== undefined || body.cpf !== undefined) {
       return NextResponse.json(
@@ -166,7 +343,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       )
     }
   } else {
-    // se for inicializar, precisa garantir NOT NULL
     const allowedTipo = new Set(['fisica', 'juridica', 'estrangeiro'])
     const tipo = (body.tipo_pessoa ?? 'fisica').trim()
     const cpfDigits = onlyDigits(body.cpf ?? '') || onlyDigits(existing.cpf ?? '')
@@ -177,6 +353,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         { status: 400 },
       )
     }
+
     if (!cpfDigits) {
       return NextResponse.json(
         { error: 'CPF não encontrado para inicializar. Envie cpf no PATCH ou preencha profiles.cpf.' },
@@ -185,25 +362,41 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
   }
 
-  // update profiles
-  const profileUpdate: any = {}
+  const profileUpdate: Record<string, unknown> = {}
+
   if (body.full_name !== undefined) profileUpdate.full_name = body.full_name.trim()
   if (body.phone !== undefined) profileUpdate.phone = nullIfEmpty(body.phone)
   if (body.job_title !== undefined) profileUpdate.job_title = nullIfEmpty(body.job_title)
   if (body.username !== undefined) profileUpdate.username = nullIfEmpty(body.username)
   if (body.status !== undefined) profileUpdate.status = nullIfEmpty(body.status)
-  if (body.role !== undefined) profileUpdate.role = body.role
-  if (body.is_active !== undefined) profileUpdate.is_active = !!body.is_active
 
   if (Object.keys(profileUpdate).length) {
     const { error: upErr } = await admin.from('profiles').update(profileUpdate).eq('id', id)
-    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 400 })
+
+    if (upErr) {
+      return NextResponse.json({ error: upErr.message }, { status: 400 })
+    }
   }
 
-  // monta update/insert de details
-  const detailsData: any = {}
+  const membershipUpdate: Record<string, unknown> = {}
 
-  // Só no INSERT
+  if (body.role !== undefined) membershipUpdate.role = body.role
+  if (body.is_active !== undefined) membershipUpdate.is_active = Boolean(body.is_active)
+
+  if (Object.keys(membershipUpdate).length) {
+    const { error: membershipUpdateErr } = await admin
+      .from('company_memberships')
+      .update(membershipUpdate)
+      .eq('user_id', id)
+      .eq('company_id', actor.companyId)
+
+    if (membershipUpdateErr) {
+      return NextResponse.json({ error: membershipUpdateErr.message }, { status: 400 })
+    }
+  }
+
+  const detailsData: Record<string, unknown> = {}
+
   if (!detailsExists) {
     detailsData.profile_id = id
     detailsData.tipo_pessoa = (body.tipo_pessoa ?? 'fisica').trim()
@@ -235,19 +428,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     'cep',
   ] as const
 
-  for (const k of optFields) {
-    if ((body as any)[k] !== undefined) detailsData[k] = nullIfEmpty((body as any)[k])
+  for (const key of optFields) {
+    if (body[key] !== undefined) detailsData[key] = nullIfEmpty(body[key])
   }
 
   if (!detailsExists) {
-    // INSERT
     const { error: insErr } = await admin.from('profile_details').insert(detailsData)
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 })
-  } else {
-    // UPDATE (nunca insere, nunca mexe em tipo_pessoa/cpf/profile_id)
-    if (Object.keys(detailsData).length) {
-      const { error: updErr } = await admin.from('profile_details').update(detailsData).eq('profile_id', id)
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 400 })
+
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 400 })
+    }
+  } else if (Object.keys(detailsData).length) {
+    const { error: updErr } = await admin
+      .from('profile_details')
+      .update(detailsData)
+      .eq('profile_id', id)
+
+    if (updErr) {
+      return NextResponse.json({ error: updErr.message }, { status: 400 })
     }
   }
 
