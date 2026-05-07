@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createHash } from 'crypto'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 type AcceptInviteBody = {
   full_name?: string
@@ -30,6 +30,11 @@ type CompanyRow = {
   onboarding_status: string | null
 }
 
+type ExistingAuthUser = {
+  id: string
+  email?: string
+}
+
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
@@ -47,8 +52,39 @@ function normalizePhone(value: string | null | undefined) {
   return digits || null
 }
 
+function normalizeEmail(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase()
+}
+
 function getCompanyDisplayName(company: CompanyRow) {
   return company.trade_name || company.name || company.legal_name || 'Empresa'
+}
+
+async function findAuthUserByEmail(
+    admin: SupabaseClient,
+    email: string,
+  ): Promise<ExistingAuthUser | null> {
+  const normalizedEmail = normalizeEmail(email)
+
+  const { data, error } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  })
+
+  if (error) {
+    throw new Error(`Falha ao consultar usuários existentes: ${error.message}`)
+  }
+
+  const found = data.users.find(
+    (user) => normalizeEmail(user.email) === normalizedEmail,
+  )
+
+  if (!found?.id) return null
+
+  return {
+    id: found.id,
+    email: found.email ?? normalizedEmail,
+  }
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
@@ -97,13 +133,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
 
     const admin = createClient(url, serviceKey)
-
-    async function cleanupCreatedUser(userId: string) {
-      await admin.from('profile_details').delete().eq('profile_id', userId)
-      await admin.from('profiles').delete().eq('id', userId)
-      await admin.auth.admin.deleteUser(userId)
-    }
-
     const tokenHash = hashToken(token)
 
     const { data: invitationData, error: invitationError } = await admin
@@ -121,6 +150,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
 
     const invitation = invitationData as InvitationRow
+    const invitationEmail = normalizeEmail(invitation.email)
 
     if (invitation.status !== 'pending') {
       return NextResponse.json(
@@ -173,7 +203,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
 
     const { count: activeAdminsCount, error: activeAdminsError } = await admin
-      .from('profiles')
+      .from('company_memberships')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', company.id)
       .eq('role', 'admin')
@@ -190,37 +220,86 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       )
     }
 
-    const { data: createdUser, error: createUserError } = await admin.auth.admin.createUser({
-      email: invitation.email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName,
-        role: 'admin',
-        company_id: company.id,
-      },
-    })
+    const existingAuthUser = await findAuthUserByEmail(admin, invitationEmail)
+    let userId = existingAuthUser?.id ?? null
+    let createdNewAuthUser = false
 
-    if (createUserError) {
+    if (!userId) {
+      const { data: createdUser, error: createUserError } = await admin.auth.admin.createUser({
+        email: invitationEmail,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          full_name: fullName,
+        },
+      })
+
+      if (createUserError) {
+        return NextResponse.json(
+          { error: `Falha ao criar usuário: ${createUserError.message}` },
+          { status: 400 },
+        )
+      }
+
+      userId = createdUser.user?.id ?? null
+      createdNewAuthUser = true
+
+      if (!userId) {
+        return NextResponse.json({ error: 'Usuário criado sem ID.' }, { status: 500 })
+      }
+    } else {
+      const { error: updateUserError } = await admin.auth.admin.updateUserById(userId, {
+        password,
+        user_metadata: {
+          full_name: fullName,
+        },
+      })
+
+      if (updateUserError) {
+        return NextResponse.json(
+          { error: `Falha ao atualizar usuário existente: ${updateUserError.message}` },
+          { status: 400 },
+        )
+      }
+    }
+
+    async function rollbackCreatedAuthUser() {
+      if (!createdNewAuthUser || !userId) return
+
+      await admin.from('profile_details').delete().eq('profile_id', userId)
+      await admin.from('company_memberships').delete().eq('user_id', userId).eq('company_id', company.id)
+      await admin.from('profiles').delete().eq('id', userId)
+      await admin.auth.admin.deleteUser(userId)
+    }
+
+    const { data: existingMembership, error: existingMembershipError } = await admin
+      .from('company_memberships')
+      .select('id, is_active, role')
+      .eq('company_id', company.id)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (existingMembershipError) {
+      await rollbackCreatedAuthUser()
+
+      return NextResponse.json({ error: existingMembershipError.message }, { status: 400 })
+    }
+
+    if (existingMembership?.is_active) {
+      await rollbackCreatedAuthUser()
+
       return NextResponse.json(
-        { error: `Falha ao criar usuário: ${createUserError.message}` },
+        { error: 'Este usuário já possui vínculo ativo com esta empresa.' },
         { status: 400 },
       )
     }
 
-    const userId = createdUser.user?.id
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Usuário criado sem ID.' }, { status: 500 })
-    }
-
     const { error: profileError } = await admin.from('profiles').upsert({
       id: userId,
-      company_id: company.id,
-      email: invitation.email,
+      email: invitationEmail,
       full_name: fullName,
-      role: 'admin',
-      is_active: true,
+      is_active_global: true,
+      is_platform_admin: false,
       status: 'active',
       phone,
       cpf,
@@ -228,10 +307,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     })
 
     if (profileError) {
-      await cleanupCreatedUser(userId)
+      await rollbackCreatedAuthUser()
 
       return NextResponse.json(
-        { error: `Falha ao criar profile: ${profileError.message}` },
+        { error: `Falha ao salvar profile global: ${profileError.message}` },
         { status: 400 },
       )
     }
@@ -246,10 +325,38 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     })
 
     if (detailsError) {
-      await cleanupCreatedUser(userId)
+      await rollbackCreatedAuthUser()
 
       return NextResponse.json(
         { error: `Falha ao criar profile_details: ${detailsError.message}` },
+        { status: 400 },
+      )
+    }
+
+    const membershipPayload = {
+      company_id: company.id,
+      user_id: userId,
+      role: 'admin',
+      is_active: true,
+      metadata: {
+        source: 'first_admin_invitation_accept',
+        invitation_id: invitation.id,
+        invitation_email: invitationEmail,
+        reused_existing_auth_user: !createdNewAuthUser,
+      },
+    }
+
+    const { error: membershipError } = await admin
+      .from('company_memberships')
+      .upsert(membershipPayload, {
+        onConflict: 'company_id,user_id',
+      })
+
+    if (membershipError) {
+      await rollbackCreatedAuthUser()
+
+      return NextResponse.json(
+        { error: `Falha ao criar vínculo com a empresa: ${membershipError.message}` },
         { status: 400 },
       )
     }
@@ -269,7 +376,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       .maybeSingle()
 
     if (invitationUpdateError) {
-      await cleanupCreatedUser(userId)
+      await rollbackCreatedAuthUser()
 
       return NextResponse.json(
         { error: `Falha ao atualizar convite: ${invitationUpdateError.message}` },
@@ -278,7 +385,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     }
 
     if (!acceptedInvite?.id) {
-      await cleanupCreatedUser(userId)
+      await rollbackCreatedAuthUser()
 
       return NextResponse.json(
         {
@@ -301,7 +408,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       return NextResponse.json(
         {
           error:
-            'Conta criada e convite aceito, mas houve falha ao atualizar onboarding da empresa: ' +
+            'Conta vinculada e convite aceito, mas houve falha ao atualizar onboarding da empresa: ' +
             companyUpdateError.message,
         },
         { status: 500 },
@@ -316,7 +423,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       metadata: {
         invitation_id: invitation.id,
         company_name: getCompanyDisplayName(company),
-        email: invitation.email,
+        email: invitationEmail,
+        reused_existing_auth_user: !createdNewAuthUser,
       },
     })
 
@@ -324,8 +432,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       ok: true,
       user: {
         id: userId,
-        email: invitation.email,
+        email: invitationEmail,
         full_name: fullName,
+        reused_existing_auth_user: !createdNewAuthUser,
       },
       company: {
         id: company.id,
