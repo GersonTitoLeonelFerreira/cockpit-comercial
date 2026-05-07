@@ -9,6 +9,11 @@ export const metadata = {
 
 export default async function AdminVendedoresNovoPage() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  if (!activeCompanyId) {
+    redirect('/select-company')
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,15 +35,40 @@ export default async function AdminVendedoresNovoPage() {
   )
 
   const { data } = await supabase.auth.getUser()
-  if (!data?.user) redirect('/login')
 
-  const { data: profile } = await supabase
+  if (!data?.user?.id) {
+    redirect('/login')
+  }
+
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('role')
+    .select('id, is_active_global')
     .eq('id', data.user.id)
-    .single()
+    .maybeSingle()
 
-  if (!profile || profile.role !== 'admin') redirect('/leads')
+  if (profileError || !profile?.id) {
+    redirect('/login')
+  }
+
+  if (profile.is_active_global === false) {
+    redirect('/login')
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from('company_memberships')
+    .select('company_id, role, is_active')
+    .eq('company_id', activeCompanyId)
+    .eq('user_id', data.user.id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (membershipError || !membership) {
+    redirect('/select-company')
+  }
+
+  if (membership.role !== 'admin') {
+    redirect('/leads')
+  }
 
   return (
     <div style={{ padding: 30, color: 'white', maxWidth: 720 }}>
