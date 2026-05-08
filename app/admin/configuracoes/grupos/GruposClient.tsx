@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { supabaseBrowser } from '../../../lib/supabaseBrowser'
+import React, { useCallback, useEffect, useState } from 'react'
 
 type LeadGroup = {
   id: string
@@ -35,11 +34,12 @@ async function postGroupAction(body: Record<string, unknown>): Promise<GroupActi
 }
 
 export default function GruposClient({ companyId }: { companyId: string; userId: string }) {
-  const supabase = useMemo(() => supabaseBrowser(), [])
+  void companyId
 
   const [groups, setGroups] = useState<LeadGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const [newGroupName, setNewGroupName] = useState('')
   const [newGroupDesc, setNewGroupDesc] = useState('')
@@ -80,11 +80,13 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
   const createGroup = useCallback(async () => {
     if (!newGroupName.trim()) {
       setError('Nome do grupo é obrigatório')
+      setNotice(null)
       return
     }
 
     setCreatingGroup(true)
     setError(null)
+    setNotice(null)
 
     try {
       await postGroupAction({
@@ -95,9 +97,11 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
 
       setNewGroupName('')
       setNewGroupDesc('')
+      setNotice('Grupo criado com sucesso.')
       await loadGroups()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao criar grupo')
+      setNotice(null)
     } finally {
       setCreatingGroup(false)
     }
@@ -107,16 +111,20 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
     async (groupId: string) => {
       if (!confirm('Tem certeza? Isso vai arquivar o grupo.')) return
 
+      setError(null)
+      setNotice(null)
+
       try {
         await postGroupAction({
           action: 'archive_group',
           group_id: groupId,
         })
 
-        setError('Grupo arquivado com sucesso.')
+        setNotice('Grupo arquivado com sucesso.')
         await loadGroups()
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Erro ao arquivar grupo')
+        setNotice(null)
       }
     },
     [loadGroups]
@@ -126,16 +134,20 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
     async (groupId: string) => {
       if (!confirm('Tem certeza? Isso vai desvincular todos os ciclos do grupo.')) return
 
+      setError(null)
+      setNotice(null)
+
       try {
         const data = await postGroupAction({
           action: 'detach_group_cycles',
           group_id: groupId,
         })
 
-        setError(`${data.updated_count ?? 0} ciclo(s) desvinculado(s) do grupo.`)
+        setNotice(`${data.updated_count ?? 0} ciclo(s) desvinculado(s) do grupo.`)
         await loadGroups()
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Erro ao desvincular ciclos')
+        setNotice(null)
       }
     },
     [loadGroups]
@@ -145,16 +157,20 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
     async (groupId: string) => {
       if (!confirm('Tem certeza? Isso vai recolher todos os ciclos do grupo ao pool.')) return
 
+      setError(null)
+      setNotice(null)
+
       try {
         const data = await postGroupAction({
           action: 'recall_group_to_pool',
           group_id: groupId,
         })
 
-        setError(`${data.updated_count ?? 0} ciclo(s) recolhido(s) ao Pool com sucesso.`)
+        setNotice(`${data.updated_count ?? 0} ciclo(s) recolhido(s) ao Pool com sucesso.`)
         await loadGroups()
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Erro ao recolher grupo')
+        setNotice(null)
       }
     },
     [loadGroups]
@@ -176,6 +192,23 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
           }}
         >
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div
+          style={{
+            background: 'rgba(22, 163, 74, 0.16)',
+            color: '#86efac',
+            border: '1px solid rgba(34, 197, 94, 0.35)',
+            padding: 12,
+            borderRadius: 10,
+            marginBottom: 20,
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          {notice}
         </div>
       )}
 
