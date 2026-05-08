@@ -6,9 +6,11 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 type KanbanActionBody = {
     action?: unknown
     cycle_id?: unknown
+    cycle_ids?: unknown
     group_id?: unknown
     name?: unknown
     owner_user_id?: unknown
+    owner_ids?: unknown
     reason?: unknown
     details?: unknown
   }
@@ -65,6 +67,18 @@ function normalizeUuid(value: unknown) {
 
   return uuidRegex.test(trimmed) ? trimmed : null
 }
+
+function normalizeUuidArray(value: unknown) {
+    if (!Array.isArray(value)) return []
+  
+    return Array.from(
+      new Set(
+        value
+          .map((item) => normalizeUuid(item))
+          .filter((item): item is string => Boolean(item)),
+      ),
+    )
+  }
 
 function normalizeName(value: unknown) {
   if (typeof value !== 'string') return ''
@@ -137,6 +151,38 @@ async function getCycleForAction(params: {
 
   return data as CycleRow
 }
+
+async function getCyclesForBulkAction(params: {
+    admin: SupabaseAdminClient
+    companyId: string
+    cycleIds: string[]
+  }) {
+    const { admin, companyId, cycleIds } = params
+  
+    if (cycleIds.length === 0) {
+      throw new Error('Nenhum ciclo informado.')
+    }
+  
+    if (cycleIds.length > 1000) {
+      throw new Error('Limite máximo de 1000 ciclos por operação.')
+    }
+  
+    const { data, error } = await admin
+      .from('sales_cycles')
+      .select('id, company_id, owner_user_id, current_group_id')
+      .eq('company_id', companyId)
+      .in('id', cycleIds)
+  
+    if (error) throw error
+  
+    const rows = (data ?? []) as CycleRow[]
+  
+    if (rows.length !== cycleIds.length) {
+      throw new Error('A operação foi bloqueada porque um ou mais ciclos não pertencem à empresa ativa.')
+    }
+  
+    return rows
+  }
 
 function canOperateCycle(params: {
   cycle: CycleRow
@@ -354,6 +400,283 @@ export async function POST(req: Request) {
           ok: true,
           success: true,
           id: updated.id,
+        })
+      }
+
+      if (action === 'bulk_return_to_pool') {
+        const cycleIds = normalizeUuidArray(body.cycle_ids)
+  
+        const cycles = await getCyclesForBulkAction({
+          admin,
+          companyId: activeCompanyId,
+          cycleIds,
+        })
+  
+        const allowedCycles =
+          membership.role === 'admin'
+            ? cycles
+            : cycles.filter((cycle) => cycle.owner_user_id === user.id)
+  
+        if (allowedCycles.length === 0) {
+          return jsonError('Nenhum ciclo permitido para devolver ao Pool.', 403)
+        }
+  
+        const now = new Date().toISOString()
+        const allowedCycleIds = allowedCycles.map((cycle) => cycle.id)
+  
+        const { data: updated, error: updateError } = await admin
+          .from('sales_cycles')
+          .update({
+            owner_user_id: null,
+            updated_at: now,
+          })
+          .eq('company_id', activeCompanyId)
+          .in('id', allowedCycleIds)
+          .select('id')
+  
+        if (updateError) throw updateError
+  
+        const updatedCycleIds = ((updated ?? []) as Array<{ id: string }>).map((row) => row.id)
+  
+        if (updatedCycleIds.length > 0) {
+          const previousOwnerByCycle = new Map(
+            allowedCycles.map((cycle) => [cycle.id, cycle.owner_user_id])
+          )
+  
+          const { error: eventError } = await admin.from('cycle_events').insert(
+            updatedCycleIds.map((cycleId) => ({
+              cycle_id: cycleId,
+              company_id: activeCompanyId,
+              event_type: 'returned_to_pool',
+              metadata: {
+                previous_owner: previousOwnerByCycle.get(cycleId) ?? null,
+                source: 'kanban_bulk_api',
+              },
+              created_by: user.id,
+              occurred_at: now,
+            })),
+          )
+  
+          if (eventError) throw eventError
+        }
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          updated_count: updatedCycleIds.length,
+          skipped_count: cycleIds.length - updatedCycleIds.length,
+        })
+      }
+  
+      if (action === 'bulk_reassign_owner') {
+        if (membership.role !== 'admin') {
+          return jsonError('Apenas admin pode redistribuir ciclos.', 403)
+        }
+  
+        const cycleIds = normalizeUuidArray(body.cycle_ids)
+        const ownerUserId = normalizeUuid(body.owner_user_id)
+  
+        if (!ownerUserId) return jsonError('Vendedor inválido.', 400)
+  
+        await validateActiveOwner({
+          admin,
+          companyId: activeCompanyId,
+          ownerUserId,
+        })
+  
+        const cycles = await getCyclesForBulkAction({
+          admin,
+          companyId: activeCompanyId,
+          cycleIds,
+        })
+  
+        const now = new Date().toISOString()
+  
+        const { data: updated, error: updateError } = await admin
+          .from('sales_cycles')
+          .update({
+            owner_user_id: ownerUserId,
+            updated_at: now,
+          })
+          .eq('company_id', activeCompanyId)
+          .in('id', cycleIds)
+          .select('id')
+  
+        if (updateError) throw updateError
+  
+        const updatedCycleIds = ((updated ?? []) as Array<{ id: string }>).map((row) => row.id)
+  
+        if (updatedCycleIds.length > 0) {
+          const previousOwnerByCycle = new Map(
+            cycles.map((cycle) => [cycle.id, cycle.owner_user_id])
+          )
+  
+          const { error: eventError } = await admin.from('cycle_events').insert(
+            updatedCycleIds.map((cycleId) => ({
+              cycle_id: cycleId,
+              company_id: activeCompanyId,
+              event_type: 'reassigned',
+              metadata: {
+                from_owner: previousOwnerByCycle.get(cycleId) ?? null,
+                to_owner: ownerUserId,
+                source: 'kanban_bulk_api',
+              },
+              created_by: user.id,
+              occurred_at: now,
+            })),
+          )
+  
+          if (eventError) throw eventError
+        }
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          updated_count: updatedCycleIds.length,
+        })
+      }
+  
+      if (action === 'bulk_set_group') {
+        const cycleIds = normalizeUuidArray(body.cycle_ids)
+        const groupId = body.group_id === null ? null : normalizeUuid(body.group_id)
+  
+        if (body.group_id !== null && !groupId) {
+          return jsonError('Grupo inválido.', 400)
+        }
+  
+        if (groupId) {
+          await validateGroup({
+            admin,
+            companyId: activeCompanyId,
+            groupId,
+          })
+        }
+  
+        const cycles = await getCyclesForBulkAction({
+          admin,
+          companyId: activeCompanyId,
+          cycleIds,
+        })
+  
+        const allowedCycles =
+          membership.role === 'admin'
+            ? cycles
+            : cycles.filter((cycle) => cycle.owner_user_id === user.id)
+  
+        if (allowedCycles.length === 0) {
+          return jsonError('Nenhum ciclo permitido para vincular grupo.', 403)
+        }
+  
+        const allowedCycleIds = allowedCycles.map((cycle) => cycle.id)
+  
+        const { data: updated, error: updateError } = await admin
+          .from('sales_cycles')
+          .update({
+            current_group_id: groupId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('company_id', activeCompanyId)
+          .in('id', allowedCycleIds)
+          .select('id')
+  
+        if (updateError) throw updateError
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          updated_count: (updated ?? []).length,
+        })
+      }
+  
+      if (action === 'bulk_round_robin') {
+        if (membership.role !== 'admin') {
+          return jsonError('Apenas admin pode distribuir ciclos automaticamente.', 403)
+        }
+  
+        const cycleIds = normalizeUuidArray(body.cycle_ids)
+        const ownerIds = normalizeUuidArray(body.owner_ids)
+  
+        if (ownerIds.length === 0) {
+          return jsonError('Nenhum vendedor informado.', 400)
+        }
+  
+        const { data: validOwners, error: ownersError } = await admin
+          .from('company_memberships')
+          .select('user_id')
+          .eq('company_id', activeCompanyId)
+          .eq('is_active', true)
+          .in('user_id', ownerIds)
+  
+        if (ownersError) throw ownersError
+  
+        const validOwnerIds = new Set(
+          ((validOwners ?? []) as Array<{ user_id: string }>).map((row) => row.user_id)
+        )
+  
+        if (validOwnerIds.size !== ownerIds.length) {
+          return jsonError('Um ou mais vendedores não pertencem à empresa ativa.', 403)
+        }
+  
+        const cycles = await getCyclesForBulkAction({
+          admin,
+          companyId: activeCompanyId,
+          cycleIds,
+        })
+  
+        const now = new Date().toISOString()
+        const updatedCycleIds: string[] = []
+        const ownerByCycleId = new Map<string, string>()
+        const previousOwnerByCycle = new Map(
+          cycles.map((cycle) => [cycle.id, cycle.owner_user_id])
+        )
+  
+        for (let index = 0; index < cycleIds.length; index += 1) {
+          const cycleId = cycleIds[index]
+          const ownerUserId = ownerIds[index % ownerIds.length]
+  
+          const { data: updated, error: updateError } = await admin
+            .from('sales_cycles')
+            .update({
+              owner_user_id: ownerUserId,
+              updated_at: now,
+            })
+            .eq('company_id', activeCompanyId)
+            .eq('id', cycleId)
+            .select('id')
+            .maybeSingle()
+  
+          if (updateError) throw updateError
+  
+          if (updated?.id) {
+            updatedCycleIds.push(updated.id)
+            ownerByCycleId.set(updated.id, ownerUserId)
+          }
+        }
+  
+        if (updatedCycleIds.length > 0) {
+          const { error: eventError } = await admin.from('cycle_events').insert(
+            updatedCycleIds.map((cycleId) => ({
+              cycle_id: cycleId,
+              company_id: activeCompanyId,
+              event_type: 'assigned',
+              metadata: {
+                from_owner: previousOwnerByCycle.get(cycleId) ?? null,
+                to_owner: ownerByCycleId.get(cycleId) ?? null,
+                round_robin: true,
+                source: 'kanban_bulk_api',
+              },
+              created_by: user.id,
+              occurred_at: now,
+            })),
+          )
+  
+          if (eventError) throw eventError
+        }
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          updated_count: updatedCycleIds.length,
         })
       }
 

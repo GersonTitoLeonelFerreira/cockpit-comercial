@@ -362,6 +362,8 @@ type KanbanActionResponse = {
   error?: string
   id?: string
   name?: string
+  updated_count?: number
+  skipped_count?: number
 }
 
 async function loadKanbanFromApi(params: {
@@ -2168,117 +2170,142 @@ export default function SalesCyclesKanban({
 
   const bulkReturnToPool = useCallback(async () => {
     if (selectedIds.size === 0) return
-  
+
     const selectedCycles = allItems.filter((item) => selectedIds.has(item.id))
     const eligibleCycleIds = selectedCycles
       .filter((item) => item.status !== 'ganho' && item.status !== 'perdido')
       .map((item) => item.id)
-  
-    const skippedCount = selectedCycles.length - eligibleCycleIds.length
-  
+
+    const skippedTerminalCount = selectedCycles.length - eligibleCycleIds.length
+
     if (eligibleCycleIds.length === 0) {
       addToast('Selecione leads que não estejam em ganho ou perdido.')
       return
     }
-  
+
     setAssigningId('bulk')
     setError(null)
-  
+
     try {
-      const rpcName = isAdmin ? 'rpc_bulk_return_cycles_to_pool' : 'rpc_bulk_return_cycles_to_pool_self'
-      const { data, error } = await supabase.rpc(rpcName, { p_cycle_ids: eligibleCycleIds })
-  
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
-  
+      const data = await postKanbanAction({
+        action: 'bulk_return_to_pool',
+        cycle_ids: eligibleCycleIds,
+      })
+
+      if (!data.success) throw new Error('Operação não confirmada')
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
-  
+
       setSelectedIds(new Set())
       setShowBulkModal(false)
-  
+
+      const returnedCount = data.updated_count ?? eligibleCycleIds.length
+      const skippedCount = skippedTerminalCount + (data.skipped_count ?? 0)
+
       if (skippedCount > 0) {
-        addToast(`${eligibleCycleIds.length} leads devolvidos ao pool. ${skippedCount} ignorados por estarem em ganho/perdido.`)
+        addToast(`${returnedCount} leads devolvidos ao pool. ${skippedCount} ignorados.`)
       } else {
-        addToast(`${eligibleCycleIds.length} leads devolvidos ao pool!`)
+        addToast(`${returnedCount} leads devolvidos ao pool!`)
       }
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao devolver leads')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao devolver leads')
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, allItems, isAdmin, supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, allItems, loadItems, loadTotals, searchTerm, addToast])
 
   const bulkReassignToSeller = useCallback(async (sellerId: string) => {
     if (selectedIds.size === 0 || !sellerId || !isAdmin) return
+
     setAssigningId('bulk')
     setError(null)
+
     try {
       const cycleIds = Array.from(selectedIds)
-      const { data, error } = await supabase.rpc('rpc_bulk_assign_cycles_owner', {
-        p_cycle_ids: cycleIds,
-        p_owner_user_id: sellerId,
+
+      const data = await postKanbanAction({
+        action: 'bulk_reassign_owner',
+        cycle_ids: cycleIds,
+        owner_user_id: sellerId,
       })
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
+
+      if (!data.success) throw new Error('Operação não confirmada')
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
+
       setSelectedIds(new Set())
       setBulkSeller('')
       setShowBulkModal(false)
-      addToast(`${cycleIds.length} leads redistribuídos!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao redistribuir leads')
+
+      addToast(`${data.updated_count ?? cycleIds.length} leads redistribuídos!`)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao redistribuir leads')
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, isAdmin, supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, isAdmin, loadItems, loadTotals, searchTerm, addToast])
 
   const bulkSetGroup = useCallback(async (groupId: string) => {
     if (selectedIds.size === 0 || !groupId) return
+
     setAssigningId('bulk')
     setError(null)
+
     try {
       const cycleIds = Array.from(selectedIds)
-      const { data, error } = await supabase.rpc('rpc_bulk_set_cycles_group', {
-        p_cycle_ids: cycleIds,
-        p_group_id: groupId,
+
+      const data = await postKanbanAction({
+        action: 'bulk_set_group',
+        cycle_ids: cycleIds,
+        group_id: groupId,
       })
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
+
+      if (!data.success) throw new Error('Operação não confirmada')
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
+
       setSelectedIds(new Set())
       setBulkGroup('')
       setShowBulkModal(false)
-      addToast(`${cycleIds.length} leads vinculados ao grupo!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao agrupar leads')
+
+      addToast(`${data.updated_count ?? cycleIds.length} leads vinculados ao grupo!`)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao agrupar leads')
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, loadItems, loadTotals, searchTerm, addToast])
 
   const distributeAutomatically = useCallback(async () => {
     if (selectedIds.size === 0 || sellers.length === 0 || !isAdmin) return
+
     setAssigningId('bulk')
     setError(null)
+
     try {
       const cycleIds = Array.from(selectedIds)
-      const sellerIds = sellers.map((s) => s.id)
-      const { data, error } = await supabase.rpc('rpc_bulk_assign_round_robin', {
-        p_cycle_ids: cycleIds,
-        p_owner_ids: sellerIds,
+      const sellerIds = sellers.map((seller) => seller.id)
+
+      const data = await postKanbanAction({
+        action: 'bulk_round_robin',
+        cycle_ids: cycleIds,
+        owner_ids: sellerIds,
       })
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
+
+      if (!data.success) throw new Error('Operação não confirmada')
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
+
       setSelectedIds(new Set())
       setShowBulkModal(false)
-      addToast(`${cycleIds.length} leads distribuídos automaticamente!`)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao distribuir')
+
+      addToast(`${data.updated_count ?? cycleIds.length} leads distribuídos automaticamente!`)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao distribuir')
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, sellers, isAdmin, supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, sellers, isAdmin, loadItems, loadTotals, searchTerm, addToast])
 
   const handleCheckpointConfirm = useCallback(async (payload: CheckpointPayload) => {
     if (!pendingMove) return
