@@ -10,7 +10,31 @@ type LeadGroup = {
   archived_at: string | null
 }
 
-export default function GruposClient({ companyId, userId }: { companyId: string; userId: string }) {
+type GroupActionResponse = {
+  ok?: boolean
+  success?: boolean
+  error?: string
+  updated_count?: number
+}
+
+async function postGroupAction(body: Record<string, unknown>): Promise<GroupActionResponse> {
+  const response = await fetch('/api/admin/configuracoes/grupos/actions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(body),
+  })
+
+  const json = (await response.json()) as GroupActionResponse
+
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error ?? 'Erro ao executar ação do grupo.')
+  }
+
+  return json
+}
+
+export default function GruposClient({ companyId }: { companyId: string; userId: string }) {
   const supabase = useMemo(() => supabaseBrowser(), [])
 
   const [groups, setGroups] = useState<LeadGroup[]>([])
@@ -26,20 +50,28 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
     setError(null)
 
     try {
-      const { data, error: err } = await supabase
-        .from('lead_groups')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
+      const response = await fetch('/api/admin/configuracoes/grupos/actions', {
+        method: 'GET',
+        cache: 'no-store',
+      })
 
-      if (err) throw err
-      setGroups((data ?? []) as LeadGroup[])
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar grupos')
+      const json = (await response.json()) as {
+        ok?: boolean
+        error?: string
+        groups?: LeadGroup[]
+      }
+
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error ?? 'Erro ao carregar grupos')
+      }
+
+      setGroups(json.groups ?? [])
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao carregar grupos')
     } finally {
       setLoading(false)
     }
-  }, [companyId, supabase])
+  }, [])
 
   useEffect(() => {
     void loadGroups()
@@ -55,43 +87,39 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
     setError(null)
 
     try {
-      const { error: err } = await supabase.from('lead_groups').insert({
-        company_id: companyId,
+      await postGroupAction({
+        action: 'create_group',
         name: newGroupName.trim(),
         description: newGroupDesc.trim() || null,
-        created_by: userId,
       })
-
-      if (err) throw err
 
       setNewGroupName('')
       setNewGroupDesc('')
       await loadGroups()
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao criar grupo')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao criar grupo')
     } finally {
       setCreatingGroup(false)
     }
-  }, [newGroupName, newGroupDesc, companyId, userId, supabase, loadGroups])
+  }, [newGroupName, newGroupDesc, loadGroups])
 
   const archiveGroup = useCallback(
     async (groupId: string) => {
       if (!confirm('Tem certeza? Isso vai arquivar o grupo.')) return
 
       try {
-        const { error: err } = await supabase
-          .from('lead_groups')
-          .update({ archived_at: new Date().toISOString() })
-          .eq('id', groupId)
-          .eq('company_id', companyId)
+        await postGroupAction({
+          action: 'archive_group',
+          group_id: groupId,
+        })
 
-        if (err) throw err
+        setError('Grupo arquivado com sucesso.')
         await loadGroups()
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao arquivar grupo')
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Erro ao arquivar grupo')
       }
     },
-    [companyId, supabase, loadGroups]
+    [loadGroups]
   )
 
   const detachGroupCycles = useCallback(
@@ -99,33 +127,18 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
       if (!confirm('Tem certeza? Isso vai desvincular todos os ciclos do grupo.')) return
 
       try {
-        // Busca todos os ciclos do grupo para desvincular individualmente via RPC
-        const { data: cycles, error: fetchErr } = await supabase
-          .from('sales_cycles')
-          .select('id')
-          .eq('group_id', groupId)
+        const data = await postGroupAction({
+          action: 'detach_group_cycles',
+          group_id: groupId,
+        })
 
-        if (fetchErr) throw fetchErr
-
-        const cycleRows = (cycles ?? []) as Array<{ id: string }>
-
-        await Promise.all(
-          cycleRows.map(async (cycle) => {
-            const { error: err } = await supabase.rpc('rpc_set_cycle_group', {
-              p_cycle_id: cycle.id,
-              p_group_id: null,
-            })
-
-            if (err) throw err
-          }),
-        )
-
+        setError(`${data.updated_count ?? 0} ciclo(s) desvinculado(s) do grupo.`)
         await loadGroups()
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao desvincular ciclos')
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Erro ao desvincular ciclos')
       }
     },
-    [supabase, loadGroups]
+    [loadGroups]
   )
 
   const recallGroupToPool = useCallback(
@@ -133,18 +146,18 @@ export default function GruposClient({ companyId, userId }: { companyId: string;
       if (!confirm('Tem certeza? Isso vai recolher todos os ciclos do grupo ao pool.')) return
 
       try {
-        const { error: err } = await supabase.rpc('rpc_recall_group_to_pool', {
-          p_group_id: groupId,
+        const data = await postGroupAction({
+          action: 'recall_group_to_pool',
+          group_id: groupId,
         })
 
-        if (err) throw err
-        setError('Grupo recolhido ao pool com sucesso!')
+        setError(`${data.updated_count ?? 0} ciclo(s) recolhido(s) ao Pool com sucesso.`)
         await loadGroups()
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao recolher grupo')
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Erro ao recolher grupo')
       }
     },
-    [supabase, loadGroups]
+    [loadGroups]
   )
 
   return (
