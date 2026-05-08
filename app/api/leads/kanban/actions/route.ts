@@ -405,6 +405,16 @@ export async function POST(req: Request) {
 
       if (action === 'bulk_return_to_pool') {
         const cycleIds = normalizeUuidArray(body.cycle_ids)
+        const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+        const details = typeof body.details === 'string' ? body.details.trim() : ''
+  
+        if (!reason) {
+          return jsonError('Motivo obrigatório.', 400)
+        }
+  
+        if (details.length < 15) {
+          return jsonError('Detalhes devem ter pelo menos 15 caracteres.', 400)
+        }
   
         const cycles = await getCyclesForBulkAction({
           admin,
@@ -449,6 +459,8 @@ export async function POST(req: Request) {
               company_id: activeCompanyId,
               event_type: 'returned_to_pool',
               metadata: {
+                reason,
+                details,
                 previous_owner: previousOwnerByCycle.get(cycleId) ?? null,
                 source: 'kanban_bulk_api',
               },

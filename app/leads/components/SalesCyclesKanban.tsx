@@ -1814,6 +1814,10 @@ export default function SalesCyclesKanban({
   const [returnCycleName, setReturnCycleName] = useState('')
   const [returnSaving, setReturnSaving] = useState(false)
 
+  const [bulkReturnReasonModalOpen, setBulkReturnReasonModalOpen] = useState(false)
+  const [bulkReturnCycleIds, setBulkReturnCycleIds] = useState<string[]>([])
+  const [bulkReturnSkippedTerminalCount, setBulkReturnSkippedTerminalCount] = useState(0)
+
 // ==========================================================================
   // Movimentação via Análise de IA (substitui o StageCheckpointModal no arrasto)
   // ==========================================================================
@@ -2219,13 +2223,24 @@ export default function SalesCyclesKanban({
       return
     }
 
+    setBulkReturnCycleIds(eligibleCycleIds)
+    setBulkReturnSkippedTerminalCount(skippedTerminalCount)
+    setBulkReturnReasonModalOpen(true)
+  }, [selectedIds, allItems, addToast])
+
+  const confirmBulkReturnToPoolWithReason = useCallback(async (_cycleId: string, reason: string, details: string) => {
+    if (bulkReturnCycleIds.length === 0) return
+
     setAssigningId('bulk')
+    setReturnSaving(true)
     setError(null)
 
     try {
       const data = await postKanbanAction({
         action: 'bulk_return_to_pool',
-        cycle_ids: eligibleCycleIds,
+        cycle_ids: bulkReturnCycleIds,
+        reason,
+        details,
       })
 
       if (!data.success) throw new Error('Operação não confirmada')
@@ -2235,20 +2250,32 @@ export default function SalesCyclesKanban({
       setSelectedIds(new Set())
       setShowBulkModal(false)
 
-      const returnedCount = data.updated_count ?? eligibleCycleIds.length
-      const skippedCount = skippedTerminalCount + (data.skipped_count ?? 0)
+      const returnedCount = data.updated_count ?? bulkReturnCycleIds.length
+      const skippedCount = bulkReturnSkippedTerminalCount + (data.skipped_count ?? 0)
 
       if (skippedCount > 0) {
         addToast(`${returnedCount} leads devolvidos ao pool. ${skippedCount} ignorados.`)
       } else {
         addToast(`${returnedCount} leads devolvidos ao pool!`)
       }
+
+      setBulkReturnReasonModalOpen(false)
+      setBulkReturnCycleIds([])
+      setBulkReturnSkippedTerminalCount(0)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao devolver leads')
     } finally {
       setAssigningId(null)
+      setReturnSaving(false)
     }
-  }, [selectedIds, allItems, loadItems, loadTotals, searchTerm, addToast])
+  }, [
+    bulkReturnCycleIds,
+    bulkReturnSkippedTerminalCount,
+    loadItems,
+    loadTotals,
+    searchTerm,
+    addToast,
+  ])
 
   const bulkReassignToSeller = useCallback(async (sellerId: string) => {
     if (selectedIds.size === 0 || !sellerId || !isAdmin) return
@@ -2881,7 +2908,7 @@ export default function SalesCyclesKanban({
         </div>
       )}
 
-      <ReturnReasonModal
+<ReturnReasonModal
         key={returnCycleId ?? 'return-reason-modal'}
         isOpen={returnReasonModalOpen}
         cycleId={returnCycleId}
@@ -2892,6 +2919,20 @@ export default function SalesCyclesKanban({
           setReturnCycleName('')
         }}
         onConfirm={returnCycleToPoolWithReason}
+        isLoading={returnSaving}
+      />
+
+      <ReturnReasonModal
+        key={`bulk-return-${bulkReturnCycleIds.join('-') || 'empty'}`}
+        isOpen={bulkReturnReasonModalOpen}
+        cycleId="bulk-return"
+        cycleName={`${bulkReturnCycleIds.length} lead(s) selecionado(s)`}
+        onClose={() => {
+          setBulkReturnReasonModalOpen(false)
+          setBulkReturnCycleIds([])
+          setBulkReturnSkippedTerminalCount(0)
+        }}
+        onConfirm={confirmBulkReturnToPoolWithReason}
         isLoading={returnSaving}
       />
 
