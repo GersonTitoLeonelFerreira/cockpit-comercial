@@ -1068,35 +1068,6 @@ function KanbanCard({
         />
       </div>
 
-      <button
-        ref={menuButtonRef}
-        onClick={(e) => {
-          e.stopPropagation()
-          if (!menuButtonRef.current) return
-          onOpenMenu(item, menuButtonRef.current.getBoundingClientRect())
-        }}
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-        }}
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          background: 'none',
-          border: 'none',
-          color: DS.textLabel,
-          cursor: 'pointer',
-          fontSize: 14,
-          lineHeight: 1,
-          padding: '2px 4px',
-          borderRadius: 4,
-        }}
-        title="Ações"
-      >
-        ···
-      </button>
-
       <div
         style={{ cursor: 'pointer', marginLeft: 20, marginRight: 16, overflow: 'hidden', minWidth: 0 }}
         onClick={() => {
@@ -1158,7 +1129,42 @@ function KanbanCard({
             <div />
           )}
 
-          <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
+<div
+            style={{
+              display: 'flex',
+              gap: 4,
+              flexWrap: 'wrap',
+              justifyContent: 'flex-end',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              ref={menuButtonRef}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (!menuButtonRef.current) return
+                onOpenMenu(item, menuButtonRef.current.getBoundingClientRect())
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              title="Gerenciar ações do lead"
+              style={{
+                background: 'rgba(148,163,184,0.12)',
+                border: '1px solid rgba(148,163,184,0.28)',
+                borderRadius: 5,
+                padding: '3px 8px',
+                cursor: 'pointer',
+                fontSize: 10,
+                color: DS.textSecondary,
+                fontWeight: 800,
+                lineHeight: 1,
+              }}
+            >
+              Gerenciar
+            </button>
+
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -1205,6 +1211,7 @@ function KanbanCard({
                 >
                   <WhatsAppIcon size={14} />
                 </button>
+
                 <button
                   onClick={handleCopyPhone}
                   onMouseDown={(e) => {
