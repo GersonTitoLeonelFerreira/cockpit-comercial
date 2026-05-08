@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
+import { adminListSellersStats } from '../lib/services/admin-sellers'
 import CreateLeadModal from '../leads/components/CreateLeadModal'
 import ImportExcelDialog from '../leads/components/ImportExcelDialog'
 
@@ -45,8 +46,6 @@ const RETURN_REASONS = [
   { value: 'outro', label: 'Outro' },
 ]
 
-type SupabaseBrowserClient = ReturnType<typeof supabaseBrowser>
-
 type Profile = {
   id: string
   full_name: string | null
@@ -80,20 +79,6 @@ type PoolItem = {
   last_return_by?: string | null
 }
 
-type VPipelinePoolRow = Omit<PoolItem, 'lead_groups'> & {
-  lead_groups?: LeadGroupRelation | LeadGroupRelation[] | null
-}
-
-type CycleEventRow = {
-  cycle_id: string
-  metadata: {
-    reason?: string | null
-    details?: string | null
-  } | null
-  occurred_at: string | null
-  created_by: string | null
-}
-
 type PoolPage = {
   items: PoolItem[]
   total: number
@@ -105,93 +90,41 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback
 }
 
-function normalizeLeadGroupRelation(
-  relation: LeadGroupRelation | LeadGroupRelation[] | null | undefined
-): LeadGroupRelation | null {
-  if (Array.isArray(relation)) return relation[0] ?? null
-  return relation ?? null
-}
-
 async function loadPoolWithOffset(
-  supabase: SupabaseBrowserClient,
-  companyId: string,
   selectedGroupId: string | null,
   pageNum: number,
   pageSize: number
 ): Promise<PoolPage> {
-  const offset = (pageNum - 1) * pageSize
-
-  let countQuery = supabase
-    .from('v_pipeline_items')
-    .select('id', { head: true, count: 'exact' })
-    .eq('company_id', companyId)
-    .eq('status', 'novo')
-    .is('owner_id', null)
+  const params = new URLSearchParams({
+    page: String(pageNum),
+    page_size: String(pageSize),
+  })
 
   if (selectedGroupId) {
-    countQuery = countQuery.eq('group_id', selectedGroupId)
+    params.set('group_id', selectedGroupId)
   }
 
-  const { count, error: countErr } = await countQuery
-  if (countErr) throw countErr
+  const response = await fetch(`/api/pool/cycles?${params.toString()}`, {
+    method: 'GET',
+    cache: 'no-store',
+  })
 
-  let query = supabase
-    .from('v_pipeline_items')
-    .select('id, lead_id, name, phone, email, status, owner_id, group_id, lead_groups(name), created_at')
-    .eq('company_id', companyId)
-    .eq('status', 'novo')
-    .is('owner_id', null)
-    .order('created_at', { ascending: false })
-
-  if (selectedGroupId) {
-    query = query.eq('group_id', selectedGroupId)
+  const json = (await response.json()) as {
+    ok?: boolean
+    error?: string
+    items?: PoolItem[]
+    total?: number
+    hasMore?: boolean
   }
 
-  const { data, error } = await query.range(offset, offset + pageSize - 1)
-  if (error) throw error
-
-  const items: PoolItem[] = ((data ?? []) as VPipelinePoolRow[]).map((item) => ({
-    ...item,
-    lead_groups: normalizeLeadGroupRelation(item.lead_groups),
-  }))
-
-  if (items.length > 0) {
-    const cycleIds = items.map((item) => item.id)
-
-    const { data: events, error: eventsErr } = await supabase
-      .from('cycle_events')
-      .select('cycle_id, metadata, occurred_at, created_by')
-      .eq('event_type', 'returned_to_pool')
-      .eq('company_id', companyId)
-      .in('cycle_id', cycleIds)
-      .order('occurred_at', { ascending: false })
-
-    if (eventsErr) throw eventsErr
-
-    const latestByCycle: Record<string, CycleEventRow> = {}
-
-    for (const event of (events ?? []) as CycleEventRow[]) {
-      if (!latestByCycle[event.cycle_id]) {
-        latestByCycle[event.cycle_id] = event
-      }
-    }
-
-    for (const item of items) {
-      const event = latestByCycle[item.id]
-
-      if (event) {
-        item.last_return_reason = event.metadata?.reason ?? null
-        item.last_return_details = event.metadata?.details ?? null
-        item.last_return_at = event.occurred_at ?? null
-        item.last_return_by = event.created_by ?? null
-      }
-    }
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error ?? 'Erro ao carregar Pool.')
   }
 
   return {
-    items,
-    total: count ?? 0,
-    hasMore: offset + pageSize < (count ?? 0),
+    items: json.items ?? [],
+    total: json.total ?? 0,
+    hasMore: json.hasMore ?? false,
   }
 }
 
@@ -256,21 +189,26 @@ export default function PoolClient({
   const loadPoolAndSellers = React.useCallback(async () => {
     setLoading(true)
     setError(null)
-
+  
     try {
-      const [sellersResult, poolPage] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id, full_name, email, role')
-          .eq('company_id', companyId)
-          .in('role', ['member', 'seller', 'consultor'])
-          .order('full_name', { ascending: true }),
-        loadPoolWithOffset(supabase, companyId, selectedGroupId, 1, PAGE_SIZE),
+      const [sellersData, poolPage] = await Promise.all([
+        adminListSellersStats({
+          companyId,
+          days: 30,
+        }),
+        loadPoolWithOffset(selectedGroupId, 1, PAGE_SIZE),
       ])
-
-      if (sellersResult.error) throw sellersResult.error
-
-      setSellers((sellersResult.data ?? []) as Profile[])
+  
+      const activeSellers = sellersData
+        .filter((seller) => seller.is_active)
+        .map((seller) => ({
+          id: seller.seller_id,
+          full_name: seller.full_name,
+          email: seller.email,
+          role: seller.role ?? 'member',
+        }))
+  
+      setSellers(activeSellers)
       setPoolCycles(poolPage.items)
       setPoolTotal(poolPage.total)
       setPoolPageNum(1)
@@ -279,16 +217,16 @@ export default function PoolClient({
     } finally {
       setLoading(false)
     }
-  }, [companyId, selectedGroupId, supabase])
+  }, [companyId, selectedGroupId])
 
   const loadPoolPage = React.useCallback(
     async (pageNum: number) => {
       setPoolLoading(true)
       setError(null)
-
+  
       try {
-        const poolPage = await loadPoolWithOffset(supabase, companyId, selectedGroupId, pageNum, PAGE_SIZE)
-
+        const poolPage = await loadPoolWithOffset(selectedGroupId, pageNum, PAGE_SIZE)
+  
         setPoolCycles(poolPage.items)
         setPoolPageNum(pageNum)
       } catch (err: unknown) {
@@ -297,7 +235,7 @@ export default function PoolClient({
         setPoolLoading(false)
       }
     },
-    [companyId, selectedGroupId, supabase]
+    [selectedGroupId]
   )
 
   React.useEffect(() => {
@@ -505,12 +443,11 @@ export default function PoolClient({
       const sellerIds = sellers.map((seller) => seller.id)
 
       const { data: allGroupLeads, error: fetchErr } = await supabase
-        .from('v_pipeline_items')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('status', 'novo')
-        .eq('group_id', selectedGroupId)
-        .is('owner_id', null)
+      .from('v_pipeline_items')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('group_id', selectedGroupId)
+      .is('owner_id', null)
 
       if (fetchErr) throw fetchErr
 
