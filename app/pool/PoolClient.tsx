@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { adminListSellersStats } from '../lib/services/admin-sellers'
 import CreateLeadModal from '../leads/components/CreateLeadModal'
 import ImportExcelDialog from '../leads/components/ImportExcelDialog'
@@ -163,7 +162,6 @@ export default function PoolClient({
   companyId: string
   userLabel: string
 }) {
-  const supabase = React.useMemo(() => supabaseBrowser(), [])
   void userLabel
 
   const [groups, setGroups] = React.useState<LeadGroup[]>([])
@@ -197,20 +195,26 @@ export default function PoolClient({
 
   const loadGroups = React.useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('lead_groups')
-        .select('id, name')
-        .eq('company_id', companyId)
-        .is('archived_at', null)
-        .order('name', { ascending: true })
-
-      if (error) throw error
-
-      setGroups((data ?? []) as LeadGroup[])
+      const response = await fetch('/api/pool/groups', {
+        method: 'GET',
+        cache: 'no-store',
+      })
+  
+      const json = (await response.json()) as {
+        ok?: boolean
+        error?: string
+        groups?: LeadGroup[]
+      }
+  
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error ?? 'Erro ao carregar grupos.')
+      }
+  
+      setGroups(json.groups ?? [])
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao carregar grupos.'))
     }
-  }, [companyId, supabase])
+  }, [])
 
   const loadPoolAndSellers = React.useCallback(async () => {
     setLoading(true)
@@ -328,31 +332,31 @@ export default function PoolClient({
 
   async function bulkReassignToSeller(sellerId: string) {
     if (selectedIds.size === 0 || !sellerId) return
-
+  
     setAssigningId('bulk')
     setError(null)
-
+  
     try {
       const cycleIds = Array.from(selectedIds)
-
-      const { data, error } = await supabase.rpc('rpc_bulk_assign_cycles_owner', {
-        p_cycle_ids: cycleIds,
-        p_owner_user_id: sellerId,
+  
+      const data = await postPoolAction({
+        action: 'assign_owner',
+        cycle_ids: cycleIds,
+        owner_user_id: sellerId,
       })
-
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
-
+  
+      if (!data.success) throw new Error('Operação não confirmada')
+  
       await loadPoolAndSellers()
-
+  
       setSelectedIds(new Set())
       setAllPoolSelected(false)
       setBulkSeller('')
       setShowBulkModal(false)
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
-
-      window.alert(`${cycleIds.length} leads redistribuídos!`)
+  
+      window.alert(`${data.updated_count ?? cycleIds.length} leads redistribuídos!`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao redistribuir leads.'))
     } finally {
@@ -362,31 +366,31 @@ export default function PoolClient({
 
   async function bulkSetGroup(groupId: string) {
     if (selectedIds.size === 0 || !groupId) return
-
+  
     setAssigningId('bulk')
     setError(null)
-
+  
     try {
       const cycleIds = Array.from(selectedIds)
-
-      const { data, error } = await supabase.rpc('rpc_bulk_set_cycles_group', {
-        p_cycle_ids: cycleIds,
-        p_group_id: groupId,
+  
+      const data = await postPoolAction({
+        action: 'set_group',
+        cycle_ids: cycleIds,
+        group_id: groupId,
       })
-
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
-
+  
+      if (!data.success) throw new Error('Operação não confirmada')
+  
       await Promise.all([loadGroups(), loadPoolAndSellers()])
-
+  
       setSelectedIds(new Set())
       setAllPoolSelected(false)
       setBulkGroup('')
       setShowBulkModal(false)
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
-
-      window.alert(`${cycleIds.length} leads vinculados ao grupo!`)
+  
+      window.alert(`${data.updated_count ?? cycleIds.length} leads vinculados ao grupo!`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao agrupar leads.'))
     } finally {
@@ -396,31 +400,31 @@ export default function PoolClient({
 
   async function distributeAutomatically() {
     if (selectedIds.size === 0 || sellers.length === 0) return
-
+  
     setAssigningId('bulk')
     setError(null)
-
+  
     try {
       const cycleIds = Array.from(selectedIds)
       const sellerIds = sellers.map((seller) => seller.id)
-
-      const { data, error } = await supabase.rpc('rpc_bulk_assign_round_robin', {
-        p_cycle_ids: cycleIds,
-        p_owner_ids: sellerIds,
+  
+      const data = await postPoolAction({
+        action: 'round_robin',
+        cycle_ids: cycleIds,
+        owner_ids: sellerIds,
       })
-
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
-
+  
+      if (!data.success) throw new Error('Operação não confirmada')
+  
       await loadPoolAndSellers()
-
+  
       setSelectedIds(new Set())
       setAllPoolSelected(false)
       setShowBulkModal(false)
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
-
-      window.alert(`${cycleIds.length} leads distribuídos automaticamente!`)
+  
+      window.alert(`${data.updated_count ?? cycleIds.length} leads distribuídos automaticamente!`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao distribuir leads.'))
     } finally {
@@ -430,22 +434,23 @@ export default function PoolClient({
 
   async function recallGroupToPool() {
     if (!selectedGroupId) return
-
+  
     const confirmRecall = window.confirm(
       'Tem certeza? Isso vai recolher todos os leads do grupo de volta para o pool.'
     )
-
+  
     if (!confirmRecall) return
-
+  
     setError(null)
-
+  
     try {
-      const { error } = await supabase.rpc('rpc_recall_group_to_pool', {
-        p_group_id: selectedGroupId,
+      const data = await postPoolAction({
+        action: 'recall_group_to_pool',
+        group_id: selectedGroupId,
       })
-
-      if (error) throw error
-
+  
+      if (!data.success) throw new Error('Operação não confirmada')
+  
       window.alert('Grupo recolhido ao pool com sucesso!')
       await loadPoolAndSellers()
     } catch (err: unknown) {
@@ -455,47 +460,36 @@ export default function PoolClient({
 
   async function distributeGroupPoolRoundRobin() {
     if (!selectedGroupId || sellers.length === 0) return
-
+  
     const confirmDistribute = window.confirm(
       'Distribuir TODOS os leads do grupo entre os vendedores em round-robin?'
     )
-
+  
     if (!confirmDistribute) return
-
+  
     setDistributeGroupLoading(true)
     setError(null)
-
+  
     try {
       const sellerIds = sellers.map((seller) => seller.id)
-
-      const { data: allGroupLeads, error: fetchErr } = await supabase
-      .from('v_pipeline_items')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('group_id', selectedGroupId)
-      .is('owner_id', null)
-
-      if (fetchErr) throw fetchErr
-
-      const allLeadIds = ((allGroupLeads ?? []) as Array<{ id: string }>).map((lead) => lead.id)
-
-      if (allLeadIds.length === 0) {
+  
+      const data = await postPoolAction({
+        action: 'round_robin_group_pool',
+        group_id: selectedGroupId,
+        owner_ids: sellerIds,
+      })
+  
+      if (!data.success) throw new Error('Operação não confirmada')
+  
+      const updatedCount = data.updated_count ?? 0
+  
+      if (updatedCount === 0) {
         window.alert('Nenhum lead no pool para este grupo.')
         return
       }
-
-      const { data, error } = await supabase.rpc('rpc_bulk_assign_round_robin', {
-        p_cycle_ids: allLeadIds,
-        p_owner_ids: sellerIds,
-      })
-
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
-
-      const updatedCount = data.updated_count ?? allLeadIds.length
-
+  
       window.alert(`${updatedCount} leads distribuídos do grupo com sucesso!`)
-
+  
       setSelectedGroupId(null)
       await loadPoolAndSellers()
     } catch (err: unknown) {
@@ -507,48 +501,27 @@ export default function PoolClient({
 
   async function deleteSelectedGroup() {
     if (!selectedGroupId) return
-
+  
     const confirmDelete = window.confirm(
       'Tem certeza que deseja excluir este grupo? Os leads serão desvinculados do grupo e o grupo será arquivado.'
     )
-
+  
     if (!confirmDelete) return
-
+  
     setError(null)
-
+  
     try {
-      const { data: cyclesInGroup, error: fetchErr } = await supabase
-        .from('v_pipeline_items')
-        .select('id')
-        .eq('company_id', companyId)
-        .eq('group_id', selectedGroupId)
-
-      if (fetchErr) throw fetchErr
-
-      const cycleIds = ((cyclesInGroup ?? []) as Array<{ id: string }>).map((cycle) => cycle.id)
-
-      if (cycleIds.length > 0) {
-        const { data, error } = await supabase.rpc('rpc_bulk_set_cycles_group', {
-          p_cycle_ids: cycleIds,
-          p_group_id: null,
-        })
-
-        if (error) throw error
-        if (!data?.success) throw new Error('Falha ao desvincular os leads do grupo')
-      }
-
-      const { error: archiveErr } = await supabase
-        .from('lead_groups')
-        .update({ archived_at: new Date().toISOString() })
-        .eq('id', selectedGroupId)
-        .eq('company_id', companyId)
-
-      if (archiveErr) throw archiveErr
-
+      const data = await postPoolAction({
+        action: 'archive_group',
+        group_id: selectedGroupId,
+      })
+  
+      if (!data.success) throw new Error('Falha ao arquivar grupo')
+  
       setSelectedGroupId(null)
-
+  
       await Promise.all([loadGroups(), loadPoolAndSellers()])
-
+  
       window.alert('Grupo excluído com sucesso!')
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao excluir grupo.'))
@@ -630,25 +603,25 @@ export default function PoolClient({
 
   async function handleCreateGroupInline() {
     const groupName = window.prompt('Nome do novo grupo:')
-
+  
     if (!groupName || !groupName.trim()) return
-
+  
     setCreatingGroup(true)
     setError(null)
-
+  
     try {
-      const { data, error } = await supabase.rpc('rpc_create_lead_group', {
-        p_name: groupName.trim(),
+      const data = await postPoolAction({
+        action: 'create_group',
+        name: groupName.trim(),
       })
-
-      if (error) throw error
-      if (!data?.success) throw new Error('Falha ao criar grupo')
-
+  
+      if (!data.success || !data.id) throw new Error('Falha ao criar grupo')
+  
       await loadGroups()
-
+  
       setBulkGroup(data.id)
-
-      window.alert(`Grupo "${data.name}" criado!`)
+  
+      window.alert(`Grupo "${data.name ?? groupName.trim()}" criado!`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao criar grupo.'))
     } finally {

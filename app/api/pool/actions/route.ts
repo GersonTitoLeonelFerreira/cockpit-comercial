@@ -28,6 +28,25 @@ type MembershipRow = {
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'details' in error &&
+    typeof (error as { details?: unknown }).details === 'string'
+  ) {
+    return (error as { details: string }).details
+  }
+
   return fallback
 }
 
@@ -553,28 +572,29 @@ export async function POST(req: Request) {
       if (!name) return jsonError('Nome do grupo é obrigatório.', 400)
       if (name.length > 120) return jsonError('Nome do grupo muito longo.', 400)
 
-      const { data: existing, error: existingError } = await admin
-        .from('lead_groups')
-        .select('id')
-        .eq('company_id', activeCompanyId)
-        .eq('name', name)
-        .is('archived_at', null)
-        .maybeSingle()
+      const { data: existingGroups, error: existingError } = await admin
+      .from('lead_groups')
+      .select('id')
+      .eq('company_id', activeCompanyId)
+      .eq('name', name)
+      .is('archived_at', null)
+      .limit(1)
+    
+    if (existingError) throw existingError
+    
+    if ((existingGroups ?? []).length > 0) {
+      return jsonError('Já existe um grupo com esse nome.', 409)
+    }
 
-      if (existingError) throw existingError
-
-      if (existing) {
-        return jsonError('Já existe um grupo com esse nome.', 409)
-      }
-
-      const { data: inserted, error: insertError } = await admin
-        .from('lead_groups')
-        .insert({
-          company_id: activeCompanyId,
-          name,
-        })
-        .select('id, name')
-        .single()
+    const { data: inserted, error: insertError } = await admin
+    .from('lead_groups')
+    .insert({
+      company_id: activeCompanyId,
+      name,
+      created_by: user.id,
+    })
+    .select('id, name')
+    .single()
 
       if (insertError) throw insertError
 
