@@ -128,6 +128,32 @@ async function loadPoolWithOffset(
   }
 }
 
+type PoolActionResponse = {
+  ok?: boolean
+  success?: boolean
+  error?: string
+  updated_count?: number
+  id?: string
+  name?: string
+}
+
+async function postPoolAction(body: Record<string, unknown>): Promise<PoolActionResponse> {
+  const response = await fetch('/api/pool/actions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(body),
+  })
+
+  const json = (await response.json()) as PoolActionResponse
+
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error ?? 'Erro ao executar ação do Pool.')
+  }
+
+  return json
+}
+
 export default function PoolClient({
   userId,
   companyId,
@@ -279,19 +305,19 @@ export default function PoolClient({
 
   async function assignCycleToSeller(cycleId: string, sellerId: string) {
     if (!sellerId) return
-
+  
     setAssigningId(cycleId)
     setError(null)
-
+  
     try {
-      const { data, error } = await supabase.rpc('rpc_bulk_assign_cycles_owner', {
-        p_cycle_ids: [cycleId],
-        p_owner_user_id: sellerId,
+      const data = await postPoolAction({
+        action: 'assign_owner',
+        cycle_ids: [cycleId],
+        owner_user_id: sellerId,
       })
-
-      if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
-
+  
+      if (!data.success) throw new Error('Operação não confirmada')
+  
       await loadPoolAndSellers()
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao atribuir lead.'))

@@ -18,6 +18,7 @@ import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import LeadCopilotPanel from '@/app/components/leads/LeadCopilotPanel'
 import { QuickActionModal, logQuickAction, QuickActionType } from '@/app/components/leads/QuickActionModal'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { adminListSellersStats } from '@/app/lib/services/admin-sellers'
 
 import CreateLeadModal from './CreateLeadModal'
 import SellerMicroKPIs from './SellerMicroKPIs'
@@ -323,6 +324,70 @@ function detectSearchType(term: string): 'email' | 'numeric' | 'name' {
   if (digits.length >= 6) return 'numeric'
 
   return 'name'
+}
+
+function emptyKanbanItems(): Record<Status, PipelineItem[]> {
+  return {
+    novo: [],
+    contato: [],
+    respondeu: [],
+    negociacao: [],
+    ganho: [],
+    perdido: [],
+  }
+}
+
+function emptyKanbanTotals(): Record<Status, number> {
+  return {
+    novo: 0,
+    contato: 0,
+    respondeu: 0,
+    negociacao: 0,
+    ganho: 0,
+    perdido: 0,
+  }
+}
+
+type KanbanApiResponse = {
+  ok?: boolean
+  error?: string
+  itemsByStatus?: Record<Status, PipelineItem[]>
+  totals?: Record<Status, number>
+  exactCount?: number
+}
+
+async function loadKanbanFromApi(params: {
+  ownerId: string
+  groupId: string | null
+  searchTerm: string
+  limit: number
+}) {
+  const query = new URLSearchParams({
+    owner_id: params.ownerId,
+    search: params.searchTerm,
+    limit: String(params.limit),
+  })
+
+  if (params.groupId) {
+    query.set('group_id', params.groupId)
+  }
+
+  const response = await fetch(`/api/leads/kanban?${query.toString()}`, {
+    method: 'GET',
+    cache: 'no-store',
+  })
+
+  const json = (await response.json()) as KanbanApiResponse
+
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error ?? 'Erro ao carregar Kanban.')
+  }
+
+  return {
+    data: json.itemsByStatus ?? emptyKanbanItems(),
+    totals: json.totals ?? emptyKanbanTotals(),
+    exactCount: json.exactCount ?? 0,
+  }
 }
 
 function ReturnReasonModal({
@@ -1784,87 +1849,81 @@ export default function SalesCyclesKanban({
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
+  
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, role')
-        .eq('company_id', companyId)
-        .in('role', ['member', 'seller', 'consultor'])
-        .order('full_name', { ascending: true })
-      if (error) throw error
-      setSellers((data ?? []) as Profile[])
+      const sellersData = await adminListSellersStats({
+        companyId,
+        days: 30,
+      })
+  
+      const activeSellers = sellersData
+        .filter((seller) => seller.is_active)
+        .map((seller) => ({
+          id: seller.seller_id,
+          full_name: seller.full_name,
+          email: seller.email,
+          role: seller.role ?? 'member',
+        }))
+  
+      setSellers(activeSellers)
     } catch (e) {
       console.error('Erro ao carregar vendedores:', e)
     }
-  }, [companyId, isAdmin, supabase])
+  }, [companyId, isAdmin])
 
   const loadTotals = useCallback(async () => {
     if (!companyId) return
-
+  
     const ownerToCount = isAdmin ? selectedOwnerId : userId
+  
     if (!ownerToCount) {
-      setTotals({ novo: 0, contato: 0, respondeu: 0, negociacao: 0, ganho: 0, perdido: 0 })
+      setTotals(emptyKanbanTotals())
       return
     }
-
+  
     try {
-      const { data, error } = await supabase.rpc('rpc_cycles_status_totals', {
-        p_owner_user_id: ownerToCount,
-        p_group_id: selectedGroupId,
-        p_search_term: searchTerm.trim() || null,
+      const result = await loadKanbanFromApi({
+        ownerId: ownerToCount,
+        groupId: selectedGroupId,
+        searchTerm: searchTerm.trim(),
+        limit: 1,
       })
-      if (error) throw error
-
-      const next: Record<Status, number> = {
-        novo: 0,
-        contato: 0,
-        respondeu: 0,
-        negociacao: 0,
-        ganho: 0,
-        perdido: 0,
-      }
-
-      for (const row of (data ?? []) as any[]) {
-        next[row.status as Status] = Number(row.total ?? 0)
-      }
-
-      setTotals(next)
+  
+      setTotals(result.totals)
     } catch (e) {
       console.error('Erro ao carregar totals:', e)
     }
-  }, [companyId, isAdmin, selectedOwnerId, userId, selectedGroupId, supabase, searchTerm])
-
+  }, [companyId, isAdmin, selectedOwnerId, userId, selectedGroupId, searchTerm])
   const loadItems = useCallback(async (searchTermParam = '') => {
     if (!companyId) return
+  
     setLoading(true)
     setError(null)
-
+  
     try {
       const ownerToFilter = isAdmin ? selectedOwnerId : userId
+  
       if (!ownerToFilter) {
-        setItems({ novo: [], contato: [], respondeu: [], negociacao: [], ganho: [], perdido: [] })
+        setItems(emptyKanbanItems())
         setSearchCount(null)
         return
       }
-
-      const { data, exactCount } = await loadKanbanWithCursor(
-        supabase,
-        companyId,
-        selectedOwnerId,
-        userId,
-        selectedGroupId,
-        searchTermParam,
-        50
-      )
-
+  
+      const { data, exactCount } = await loadKanbanFromApi({
+        ownerId: ownerToFilter,
+        groupId: selectedGroupId,
+        searchTerm: searchTermParam.trim(),
+        limit: 50,
+      })
+  
       setItems(data)
-      setSearchCount(searchTermParam.trim() ? (exactCount ?? Object.values(data).flat().length) : null)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar ciclos')
+      setSearchCount(searchTermParam.trim() ? exactCount : null)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao carregar ciclos')
     } finally {
       setLoading(false)
     }
-  }, [companyId, isAdmin, selectedGroupId, selectedOwnerId, supabase, userId])
+  }, [companyId, isAdmin, selectedGroupId, selectedOwnerId, userId])
 
   const loadSLARules = useCallback(async () => {
     if (!companyId) return

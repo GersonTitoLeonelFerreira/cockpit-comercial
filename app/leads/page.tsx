@@ -18,6 +18,11 @@ export default async function LeadsPage(props: {
         : null
 
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  if (!activeCompanyId) {
+    redirect('/select-company')
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,8 +32,14 @@ export default async function LeadsPage(props: {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll() {
-          // esta page não precisa escrever cookies
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options)
+            })
+          } catch {
+            // Mantém compatibilidade com Server Components.
+          }
         },
       },
     }
@@ -37,17 +48,37 @@ export default async function LeadsPage(props: {
   const { data: auth, error: authErr } = await supabase.auth.getUser()
   const user = auth?.user
 
-  if (authErr || !user?.id) redirect('/login')
+  if (authErr || !user?.id) {
+    redirect('/login')
+  }
 
-  const { data: profile, error: profErr } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('company_id, role, full_name, email')
+    .select('id, full_name, email, is_active_global')
     .eq('id', user.id)
-    .single()
+    .maybeSingle()
 
-  if (profErr || !profile?.company_id) redirect('/login')
+  if (profileError || !profile?.id) {
+    redirect('/login')
+  }
 
-  const role = (profile.role ?? 'member') as string
+  if (profile.is_active_global === false) {
+    redirect('/login')
+  }
+
+  const { data: membership, error: membershipError } = await supabase
+    .from('company_memberships')
+    .select('company_id, role, is_active')
+    .eq('company_id', activeCompanyId)
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (membershipError || !membership) {
+    redirect('/select-company')
+  }
+
+  const role = (membership.role ?? 'member') as string
   const label = (profile.full_name ?? profile.email ?? user.email ?? user.id) as string
 
   const effectiveDefaultOwnerId =
@@ -58,7 +89,7 @@ export default async function LeadsPage(props: {
   return (
     <LeadsClient
       userId={user.id}
-      companyId={profile.company_id}
+      companyId={activeCompanyId}
       role={role}
       userLabel={label}
       defaultOwnerId={effectiveDefaultOwnerId}
