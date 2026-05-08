@@ -610,20 +610,37 @@ function CardActionsMenuPortal({
 
   const canReturnToPool = item.status !== 'ganho' && item.status !== 'perdido'
 
+  const viewportPadding = 12
+  const menuWidth = 300
+  const estimatedMenuHeight = 320
+  const availableBelow = window.innerHeight - anchorRect.bottom - viewportPadding
+  const shouldOpenUp = availableBelow < estimatedMenuHeight
+
+  const menuTop = shouldOpenUp
+    ? Math.max(viewportPadding, anchorRect.top - estimatedMenuHeight - 6)
+    : Math.min(anchorRect.bottom + 6, window.innerHeight - viewportPadding - estimatedMenuHeight)
+
+  const menuLeft = Math.min(
+    Math.max(anchorRect.left, viewportPadding),
+    window.innerWidth - menuWidth - viewportPadding
+  )
+
   const menu = (
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9000 }} onClick={onClose} />
       <div
         style={{
           position: 'fixed',
-          top: anchorRect.bottom + 4,
-          right: window.innerWidth - anchorRect.right,
+          top: menuTop,
+          left: menuLeft,
+          width: menuWidth,
+          maxHeight: estimatedMenuHeight,
+          overflowY: 'auto',
           background: DS.surfaceBg,
           border: `1px solid ${DS.border}`,
           borderRadius: DS.radiusContainer,
           padding: 8,
           zIndex: 9001,
-          minWidth: 240,
           boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
           color: DS.textPrimary,
           fontSize: 13,
