@@ -2086,43 +2086,51 @@ export default function SalesCyclesKanban({
   const returnCycleToPoolWithReason = useCallback(async (cycleId: string, reason: string, details: string) => {
     setReturnSaving(true)
     setError(null)
+
     try {
-      const { data, error } = await supabase.rpc('rpc_return_cycle_to_pool_with_reason', {
-        p_cycle_id: cycleId,
-        p_reason: reason,
-        p_details: details,
+      const data = await postKanbanAction({
+        action: 'return_to_pool_with_reason',
+        cycle_id: cycleId,
+        reason,
+        details,
       })
-      if (error) throw error
-      if (!data?.success) throw new Error('Falha ao devolver ciclo')
+
+      if (!data.success) throw new Error('Falha ao devolver ciclo')
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
       addToast('Lead devolvido ao pool!')
       setKpiRefreshKey((v) => v + 1)
       setReturnReasonModalOpen(false)
       setReturnCycleId(null)
       setReturnCycleName('')
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao devolver ciclo')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao devolver ciclo')
     } finally {
       setReturnSaving(false)
     }
-  }, [supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [loadItems, loadTotals, searchTerm, addToast])
 
   const reassignCycle = useCallback(async (cycleId: string, newOwnerId: string) => {
     setSavingId(cycleId)
+    setError(null)
+
     try {
-      const { error } = await supabase.rpc('rpc_reassign_cycle_owner', {
-        p_cycle_id: cycleId,
-        p_owner_user_id: newOwnerId,
+      const data = await postKanbanAction({
+        action: 'reassign_owner',
+        cycle_id: cycleId,
+        owner_user_id: newOwnerId,
       })
-      if (error) throw error
+
+      if (!data.success) throw new Error('Operação não confirmada')
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
       addToast('Lead redistribuído!')
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao redistribuir')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao redistribuir')
     } finally {
       setSavingId(null)
     }
-  }, [supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [loadItems, loadTotals, searchTerm, addToast])
 
   const handleCreateGroupInline = useCallback(async (target: 'bulk' | 'card', cycleId?: string) => {
     if (!isAdmin) return

@@ -4,11 +4,14 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 type KanbanActionBody = {
-  action?: unknown
-  cycle_id?: unknown
-  group_id?: unknown
-  name?: unknown
-}
+    action?: unknown
+    cycle_id?: unknown
+    group_id?: unknown
+    name?: unknown
+    owner_user_id?: unknown
+    reason?: unknown
+    details?: unknown
+  }
 
 type MembershipRow = {
   company_id: string
@@ -89,6 +92,28 @@ async function validateGroup(params: {
     throw new Error('Grupo não encontrado na empresa ativa.')
   }
 }
+
+async function validateActiveOwner(params: {
+    admin: SupabaseAdminClient
+    companyId: string
+    ownerUserId: string
+  }) {
+    const { admin, companyId, ownerUserId } = params
+  
+    const { data, error } = await admin
+      .from('company_memberships')
+      .select('user_id')
+      .eq('company_id', companyId)
+      .eq('user_id', ownerUserId)
+      .eq('is_active', true)
+      .maybeSingle()
+  
+    if (error) throw error
+  
+    if (!data) {
+      throw new Error('Vendedor sem vínculo ativo com a empresa.')
+    }
+  }
 
 async function getCycleForAction(params: {
   admin: SupabaseAdminClient
@@ -200,6 +225,137 @@ export async function POST(req: Request) {
         autoRefreshToken: false,
       },
     })
+
+    if (action === 'return_to_pool_with_reason') {
+        const cycleId = normalizeUuid(body.cycle_id)
+        const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+        const details = typeof body.details === 'string' ? body.details.trim() : ''
+  
+        if (!cycleId) return jsonError('Ciclo inválido.', 400)
+        if (!reason) return jsonError('Motivo obrigatório.', 400)
+        if (details.length < 15) return jsonError('Detalhes devem ter pelo menos 15 caracteres.', 400)
+  
+        const cycle = await getCycleForAction({
+          admin,
+          companyId: activeCompanyId,
+          cycleId,
+        })
+  
+        if (
+          !canOperateCycle({
+            cycle,
+            userId: user.id,
+            role: membership.role,
+          })
+        ) {
+          return jsonError('Usuário sem permissão para devolver este ciclo ao Pool.', 403)
+        }
+  
+        const now = new Date().toISOString()
+  
+        const { data: updated, error: updateError } = await admin
+          .from('sales_cycles')
+          .update({
+            owner_user_id: null,
+            updated_at: now,
+          })
+          .eq('company_id', activeCompanyId)
+          .eq('id', cycleId)
+          .select('id')
+          .maybeSingle()
+  
+        if (updateError) throw updateError
+  
+        if (!updated?.id) {
+          return jsonError('Ciclo não encontrado ou não atualizado.', 404)
+        }
+  
+        const { error: eventError } = await admin.from('cycle_events').insert({
+          cycle_id: cycleId,
+          company_id: activeCompanyId,
+          event_type: 'returned_to_pool',
+          metadata: {
+            reason,
+            details,
+            previous_owner: cycle.owner_user_id,
+            source: 'kanban_api',
+          },
+          created_by: user.id,
+          occurred_at: now,
+        })
+  
+        if (eventError) throw eventError
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          id: updated.id,
+        })
+      }
+  
+      if (action === 'reassign_owner') {
+        if (membership.role !== 'admin') {
+          return jsonError('Apenas admin pode redistribuir ciclos.', 403)
+        }
+  
+        const cycleId = normalizeUuid(body.cycle_id)
+        const ownerUserId = normalizeUuid(body.owner_user_id)
+  
+        if (!cycleId) return jsonError('Ciclo inválido.', 400)
+        if (!ownerUserId) return jsonError('Vendedor inválido.', 400)
+  
+        await validateActiveOwner({
+          admin,
+          companyId: activeCompanyId,
+          ownerUserId,
+        })
+  
+        const cycle = await getCycleForAction({
+          admin,
+          companyId: activeCompanyId,
+          cycleId,
+        })
+  
+        const now = new Date().toISOString()
+  
+        const { data: updated, error: updateError } = await admin
+          .from('sales_cycles')
+          .update({
+            owner_user_id: ownerUserId,
+            updated_at: now,
+          })
+          .eq('company_id', activeCompanyId)
+          .eq('id', cycleId)
+          .select('id')
+          .maybeSingle()
+  
+        if (updateError) throw updateError
+  
+        if (!updated?.id) {
+          return jsonError('Ciclo não encontrado ou não atualizado.', 404)
+        }
+  
+        const { error: eventError } = await admin.from('cycle_events').insert({
+          cycle_id: cycleId,
+          company_id: activeCompanyId,
+          event_type: 'reassigned',
+          metadata: {
+            from_owner: cycle.owner_user_id,
+            to_owner: ownerUserId,
+            source: 'kanban_api',
+          },
+          created_by: user.id,
+          occurred_at: now,
+        })
+  
+        if (eventError) throw eventError
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          id: updated.id,
+        })
+      }
 
     if (action === 'set_group') {
       const cycleId = normalizeUuid(body.cycle_id)
