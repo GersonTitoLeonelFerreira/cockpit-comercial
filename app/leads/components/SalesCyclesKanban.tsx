@@ -356,6 +356,14 @@ type KanbanApiResponse = {
   exactCount?: number
 }
 
+type KanbanActionResponse = {
+  ok?: boolean
+  success?: boolean
+  error?: string
+  id?: string
+  name?: string
+}
+
 async function loadKanbanFromApi(params: {
   ownerId: string
   groupId: string | null
@@ -388,6 +396,23 @@ async function loadKanbanFromApi(params: {
     totals: json.totals ?? emptyKanbanTotals(),
     exactCount: json.exactCount ?? 0,
   }
+}
+
+async function postKanbanAction(body: Record<string, unknown>): Promise<KanbanActionResponse> {
+  const response = await fetch('/api/leads/kanban/actions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(body),
+  })
+
+  const json = (await response.json()) as KanbanActionResponse
+
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error ?? 'Erro ao executar ação do Kanban.')
+  }
+
+  return json
 }
 
 function ReturnReasonModal({
@@ -2016,20 +2041,23 @@ export default function SalesCyclesKanban({
   const setGroupForCycle = useCallback(async (cycleId: string, groupId: string | null) => {
     setSavingId(cycleId)
     setError(null)
+  
     try {
-      const { data, error } = await supabase.rpc('rpc_set_cycle_group', {
-        p_cycle_id: cycleId,
-        p_group_id: groupId,
+      const data = await postKanbanAction({
+        action: 'set_group',
+        cycle_id: cycleId,
+        group_id: groupId,
       })
-      if (error) throw error
-      if (!data) throw new Error('Ciclo não encontrado ou sem permissão')
+  
+      if (!data.success) throw new Error('Ciclo não encontrado ou sem permissão')
+  
       await Promise.all([loadItems(searchTerm), loadTotals()])
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao vincular grupo')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao vincular grupo')
     } finally {
       setSavingId(null)
     }
-  }, [supabase, loadItems, loadTotals, searchTerm])
+  }, [loadItems, loadTotals, searchTerm])
 
   const returnCycleToPoolWithReason = useCallback(async (cycleId: string, reason: string, details: string) => {
     setReturnSaving(true)
@@ -2074,31 +2102,37 @@ export default function SalesCyclesKanban({
 
   const handleCreateGroupInline = useCallback(async (target: 'bulk' | 'card', cycleId?: string) => {
     if (!isAdmin) return
-
+  
     const groupName = window.prompt('Nome do novo grupo:')
     if (!groupName || !groupName.trim()) return
-
+  
     setCreatingGroup(true)
+  
     try {
-      const { data, error } = await supabase.rpc('rpc_create_lead_group', { p_name: groupName.trim() })
-      if (error) throw error
-      if (!data?.success) throw new Error('Falha ao criar grupo')
-
+      const data = await postKanbanAction({
+        action: 'create_group',
+        name: groupName.trim(),
+      })
+  
+      if (!data.success || !data.id) throw new Error('Falha ao criar grupo')
+  
       await loadGroups()
-
+  
+      const createdGroupName = data.name ?? groupName.trim()
+  
       if (target === 'bulk') {
         setBulkGroup(data.id)
-        addToast(`Grupo "${data.name}" criado!`)
+        addToast(`Grupo "${createdGroupName}" criado!`)
       } else if (cycleId) {
-        const shouldBind = window.confirm(`Grupo "${data.name}" criado. Deseja vincular neste lead agora?`)
+        const shouldBind = window.confirm(`Grupo "${createdGroupName}" criado. Deseja vincular neste lead agora?`)
         if (shouldBind) await setGroupForCycle(cycleId, data.id)
       }
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao criar grupo')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao criar grupo')
     } finally {
       setCreatingGroup(false)
     }
-  }, [isAdmin, supabase, loadGroups, setGroupForCycle, addToast])
+  }, [isAdmin, loadGroups, setGroupForCycle, addToast])
 
   const bulkReturnToPool = useCallback(async () => {
     if (selectedIds.size === 0) return
