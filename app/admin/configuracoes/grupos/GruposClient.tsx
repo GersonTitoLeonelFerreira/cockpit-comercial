@@ -130,6 +130,29 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
     [loadGroups]
   )
 
+  const unarchiveGroup = useCallback(
+    async (groupId: string) => {
+      if (!confirm('Deseja desarquivar este grupo?')) return
+
+      setError(null)
+      setNotice(null)
+
+      try {
+        await postGroupAction({
+          action: 'unarchive_group',
+          group_id: groupId,
+        })
+
+        setNotice('Grupo desarquivado com sucesso.')
+        await loadGroups()
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Erro ao desarquivar grupo')
+        setNotice(null)
+      }
+    },
+    [loadGroups]
+  )
+
   const detachGroupCycles = useCallback(
     async (groupId: string) => {
       if (!confirm('Tem certeza? Isso vai desvincular todos os ciclos do grupo.')) return
@@ -340,21 +363,39 @@ export default function GruposClient({ companyId }: { companyId: string; userId:
                     </>
                   )}
 
-                  <button
-                    onClick={() => void archiveGroup(group.id)}
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 8,
-                      border: '1px solid #666',
-                      background: '#222',
-                      color: '#999',
-                      cursor: 'pointer',
-                      fontSize: 11,
-                      fontWeight: 900,
-                    }}
-                  >
-                    {group.archived_at ? 'Arquivado' : 'Arquivar'}
-                  </button>
+{group.archived_at ? (
+                    <button
+                      onClick={() => void unarchiveGroup(group.id)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #22c55e',
+                        background: 'rgba(22, 101, 52, 0.35)',
+                        color: '#86efac',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 900,
+                      }}
+                    >
+                      Desarquivar
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => void archiveGroup(group.id)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #666',
+                        background: '#222',
+                        color: '#999',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 900,
+                      }}
+                    >
+                      Arquivar
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

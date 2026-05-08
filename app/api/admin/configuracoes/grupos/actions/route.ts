@@ -256,21 +256,38 @@ export async function POST(req: Request) {
     })
 
     if (action === 'archive_group') {
-      const { error } = await admin
-        .from('lead_groups')
-        .update({
-          archived_at: new Date().toISOString(),
+        const { error } = await admin
+          .from('lead_groups')
+          .update({
+            archived_at: new Date().toISOString(),
+          })
+          .eq('company_id', activeCompanyId)
+          .eq('id', groupId)
+  
+        if (error) throw error
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
         })
-        .eq('company_id', activeCompanyId)
-        .eq('id', groupId)
-
-      if (error) throw error
-
-      return NextResponse.json({
-        ok: true,
-        success: true,
-      })
-    }
+      }
+  
+      if (action === 'unarchive_group') {
+        const { error } = await admin
+          .from('lead_groups')
+          .update({
+            archived_at: null,
+          })
+          .eq('company_id', activeCompanyId)
+          .eq('id', groupId)
+  
+        if (error) throw error
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+        })
+      }
 
     if (action === 'detach_group_cycles') {
       const { data: updated, error: updateError } = await admin
