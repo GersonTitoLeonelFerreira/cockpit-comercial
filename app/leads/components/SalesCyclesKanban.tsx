@@ -1884,19 +1884,39 @@ export default function SalesCyclesKanban({
 
   const loadGroups = useCallback(async () => {
     if (!companyId) return
+
+    const ownerToLoadGroups = isAdmin ? selectedOwnerId : userId
+
+    if (!ownerToLoadGroups) {
+      setGroups([])
+      return
+    }
+
     try {
-      const { data, error } = await supabase
-        .from('lead_groups')
-        .select('id, name')
-        .eq('company_id', companyId)
-        .is('archived_at', null)
-        .order('name', { ascending: true })
-      if (error) throw error
-      setGroups((data ?? []) as LeadGroup[])
+      const params = new URLSearchParams({
+        owner_id: ownerToLoadGroups,
+      })
+
+      const response = await fetch(`/api/leads/kanban/groups?${params.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+      })
+
+      const json = (await response.json()) as {
+        ok?: boolean
+        error?: string
+        groups?: LeadGroup[]
+      }
+
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error ?? 'Erro ao carregar grupos.')
+      }
+
+      setGroups(json.groups ?? [])
     } catch (e) {
       console.error('Erro ao carregar grupos:', e)
     }
-  }, [companyId, supabase])
+  }, [companyId, isAdmin, selectedOwnerId, userId])
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
@@ -2150,13 +2170,29 @@ export default function SalesCyclesKanban({
   
       if (!data.success || !data.id) throw new Error('Falha ao criar grupo')
   
+      const createdGroupName = data.name ?? groupName.trim()
+      const createdGroup = {
+        id: data.id,
+        name: createdGroupName,
+      }
+  
       await loadGroups()
   
-      const createdGroupName = data.name ?? groupName.trim()
+      setGroups((currentGroups) => {
+        const alreadyExists = currentGroups.some((group) => group.id === createdGroup.id)
+  
+        if (alreadyExists) {
+          return currentGroups
+        }
+  
+        return [...currentGroups, createdGroup].sort((a, b) =>
+          a.name.localeCompare(b.name, 'pt-BR'),
+        )
+      })
   
       if (target === 'bulk') {
         setBulkGroup(data.id)
-        addToast(`Grupo "${createdGroupName}" criado!`)
+        addToast(`Grupo "${createdGroupName}" criado e selecionado. Clique em "Agrupar Todos" para vincular os leads.`)
       } else if (cycleId) {
         const shouldBind = window.confirm(`Grupo "${createdGroupName}" criado. Deseja vincular neste lead agora?`)
         if (shouldBind) await setGroupForCycle(cycleId, data.id)
