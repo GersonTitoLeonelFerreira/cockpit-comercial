@@ -310,64 +310,68 @@ export async function POST(req: Request) {
     }
 
     if (action === 'recall_group_to_pool') {
-      const { data: cycles, error: cyclesError } = await admin
-        .from('sales_cycles')
-        .select('id, owner_user_id')
-        .eq('company_id', activeCompanyId)
-        .eq('current_group_id', groupId)
-
-      if (cyclesError) throw cyclesError
-
-      const cycleRows = (cycles ?? []) as Array<{
-        id: string
-        owner_user_id: string | null
-      }>
-
-      const now = new Date().toISOString()
-
-      const { data: updated, error: updateError } = await admin
-        .from('sales_cycles')
-        .update({
-          owner_user_id: null,
-          updated_at: now,
+        const operationalStatuses = ['novo', 'contato', 'respondeu', 'negociacao']
+  
+        const { data: cycles, error: cyclesError } = await admin
+          .from('sales_cycles')
+          .select('id, owner_user_id')
+          .eq('company_id', activeCompanyId)
+          .eq('current_group_id', groupId)
+          .in('status', operationalStatuses)
+  
+        if (cyclesError) throw cyclesError
+  
+        const cycleRows = (cycles ?? []) as Array<{
+          id: string
+          owner_user_id: string | null
+        }>
+  
+        const now = new Date().toISOString()
+  
+        const { data: updated, error: updateError } = await admin
+          .from('sales_cycles')
+          .update({
+            owner_user_id: null,
+            updated_at: now,
+          })
+          .eq('company_id', activeCompanyId)
+          .eq('current_group_id', groupId)
+          .in('status', operationalStatuses)
+          .select('id')
+  
+        if (updateError) throw updateError
+  
+        const updatedCycleIds = ((updated ?? []) as Array<{ id: string }>).map((row) => row.id)
+  
+        if (updatedCycleIds.length > 0) {
+          const previousOwnerByCycle = new Map(
+            cycleRows.map((cycle) => [cycle.id, cycle.owner_user_id]),
+          )
+  
+          const { error: eventError } = await admin.from('cycle_events').insert(
+            updatedCycleIds.map((cycleId) => ({
+              cycle_id: cycleId,
+              company_id: activeCompanyId,
+              event_type: 'returned_to_pool',
+              metadata: {
+                previous_owner: previousOwnerByCycle.get(cycleId) ?? null,
+                group_id: groupId,
+                source: 'groups_admin_api',
+              },
+              created_by: userId,
+              occurred_at: now,
+            })),
+          )
+  
+          if (eventError) throw eventError
+        }
+  
+        return NextResponse.json({
+          ok: true,
+          success: true,
+          updated_count: updatedCycleIds.length,
         })
-        .eq('company_id', activeCompanyId)
-        .eq('current_group_id', groupId)
-        .select('id')
-
-      if (updateError) throw updateError
-
-      const updatedCycleIds = ((updated ?? []) as Array<{ id: string }>).map((row) => row.id)
-
-      if (updatedCycleIds.length > 0) {
-        const previousOwnerByCycle = new Map(
-          cycleRows.map((cycle) => [cycle.id, cycle.owner_user_id]),
-        )
-
-        const { error: eventError } = await admin.from('cycle_events').insert(
-          updatedCycleIds.map((cycleId) => ({
-            cycle_id: cycleId,
-            company_id: activeCompanyId,
-            event_type: 'returned_to_pool',
-            metadata: {
-              previous_owner: previousOwnerByCycle.get(cycleId) ?? null,
-              group_id: groupId,
-              source: 'groups_admin_api',
-            },
-            created_by: userId,
-            occurred_at: now,
-          })),
-        )
-
-        if (eventError) throw eventError
       }
-
-      return NextResponse.json({
-        ok: true,
-        success: true,
-        updated_count: updatedCycleIds.length,
-      })
-    }
 
     return jsonError('Ação inválida.', 400)
   } catch (error: unknown) {

@@ -502,6 +502,8 @@ export async function POST(req: Request) {
 
       await validateGroup({ admin, companyId: activeCompanyId, groupId })
 
+      const operationalStatuses = ['novo', 'contato', 'respondeu', 'negociacao']
+
       const { data: updated, error } = await admin
         .from('sales_cycles')
         .update({
@@ -510,6 +512,7 @@ export async function POST(req: Request) {
         })
         .eq('company_id', activeCompanyId)
         .eq('current_group_id', groupId)
+        .in('status', operationalStatuses)
         .select('id')
 
       if (error) throw error
@@ -528,29 +531,6 @@ export async function POST(req: Request) {
 
       await validateGroup({ admin, companyId: activeCompanyId, groupId })
 
-      const { data: cyclesInGroup, error: fetchError } = await admin
-        .from('v_pipeline_items')
-        .select('id')
-        .eq('company_id', activeCompanyId)
-        .eq('group_id', groupId)
-
-      if (fetchError) throw fetchError
-
-      const cycleIds = ((cyclesInGroup ?? []) as Array<{ id: string }>).map((cycle) => cycle.id)
-
-      if (cycleIds.length > 0) {
-        const { error: clearError } = await admin
-          .from('sales_cycles')
-          .update({
-            current_group_id: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('company_id', activeCompanyId)
-          .in('id', cycleIds)
-
-        if (clearError) throw clearError
-      }
-
       const { error: archiveError } = await admin
         .from('lead_groups')
         .update({ archived_at: new Date().toISOString() })
@@ -562,7 +542,6 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         success: true,
-        updated_count: cycleIds.length,
       })
     }
 
