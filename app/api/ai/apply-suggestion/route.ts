@@ -11,6 +11,7 @@ const OPEN_APPLY_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'nego
 
 async function getAuthedSupabase() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,7 +32,7 @@ async function getAuthedSupabase() {
     throw new Error('Não autenticado.')
   }
 
-  return { supabase, user: data.user }
+  return { supabase, user: data.user, activeCompanyId }
 }
 
 export async function POST(req: Request) {
@@ -74,9 +75,17 @@ export async function POST(req: Request) {
       nextActionDate = parsed.toISOString()
     }
 
-    const { supabase } = await getAuthedSupabase()
+    const { supabase, activeCompanyId } = await getAuthedSupabase()
 
-    const { data, error } = await supabase.rpc('rpc_apply_ai_open_suggestion', {
+    if (!activeCompanyId) {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        { ok: false, error: 'Empresa ativa não selecionada.' },
+        { status: 400 }
+      )
+    }
+
+    const { data, error } = await supabase.rpc('rpc_apply_ai_open_suggestion_for_company', {
+      p_company_id: activeCompanyId,
       p_cycle_id: body.cycle_id,
       p_to_status: body.applied_status,
       p_next_action: body.next_action ?? null,
@@ -112,9 +121,11 @@ export async function POST(req: Request) {
         next_action_date: result.next_action_date ?? null,
       },
     })
-  } catch (e: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido.'
+
     return NextResponse.json<ApplyAISuggestionResponse>(
-      { ok: false, error: e?.message || 'Erro desconhecido.' },
+      { ok: false, error: message },
       { status: 500 }
     )
   }

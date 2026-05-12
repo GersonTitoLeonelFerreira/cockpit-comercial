@@ -11,6 +11,7 @@ import type {
 
 async function getAuthedSupabase() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,7 +32,7 @@ async function getAuthedSupabase() {
     throw new Error('Não autenticado.')
   }
 
-  return { supabase, user: data.user }
+  return { supabase, user: data.user, activeCompanyId }
 }
 
 export async function POST(req: Request) {
@@ -52,9 +53,17 @@ export async function POST(req: Request) {
       )
     }
 
-    const { supabase } = await getAuthedSupabase()
+    const { supabase, activeCompanyId } = await getAuthedSupabase()
 
-    const { data, error } = await supabase.rpc('rpc_get_cycle_ai_context', {
+    if (!activeCompanyId) {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        { ok: false, error: 'Empresa ativa não selecionada.' },
+        { status: 400 }
+      )
+    }
+
+    const { data, error } = await supabase.rpc('rpc_get_cycle_ai_context_for_company', {
+      p_company_id: activeCompanyId,
       p_cycle_id: body.cycle_id,
       p_events_limit: 12,
     })
@@ -105,9 +114,11 @@ export async function POST(req: Request) {
         diagnostics: result.diagnostics,
       },
     })
-  } catch (e: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido.'
+
     return NextResponse.json<AnalyzeConversationResponse>(
-      { ok: false, error: e?.message || 'Erro desconhecido.' },
+      { ok: false, error: message },
       { status: 500 }
     )
   }
