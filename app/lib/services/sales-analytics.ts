@@ -3,25 +3,124 @@
 // Funções para KPIs e relatórios
 // ==============================================================================
 
+import { RpcCycleResponse } from '@/app/types/sales_cycles'
 import { supabaseBrowser } from '../supabaseBrowser'
 
+export interface SalesFunnelRow {
+  status: string
+  total_deals: number
+  deals_ganhos: number
+  deals_perdidos: number
+  taxa_conversao_pct: number
+  valor_medio_ganho: number
+  valor_total_ganho: number
+}
+
+export interface PerformanceByOwnerRow {
+  owner_id: string
+  owner_email: string
+  total_deals: number
+  deals_ganhos: number
+  deals_perdidos: number
+  deals_ativos: number
+  taxa_conversao_pct: number
+  valor_total_ganho: number
+  dias_medio_ciclo: number
+}
+
+export interface MonthlySalesAnalysisRow {
+  mes: string
+  total_deals_criados: number
+  deals_ganhos: number
+  deals_perdidos: number
+  taxa_conversao_pct: number
+  receita_total: number
+  receita_media_por_deal: number
+}
+
+export interface LostAnalysisRow {
+  lost_reason: string
+  total_deals_perdidos: number
+  percentual_pct: number
+  dias_ate_perda: number
+}
+
+export interface SalesCycleCompleteRow {
+  [key: string]: unknown
+  id: string
+}
+
+export interface CycleAuditHistoryRow {
+  audit_id: string
+  sales_cycle_id: string
+  operation: string
+  changed_at: string
+  changed_by_email: string
+  changes_summary: string
+  old_data: unknown
+  new_data: unknown
+}
+
+export interface UpcomingDealRow {
+  [key: string]: unknown
+  id: string
+  status: string
+  next_action_date: string | null
+}
+
+export interface MarkDealWonOptions {
+  revenueDateRef?: string
+  wonNote?: string
+  productId?: string | null
+  wonUnitPrice?: number | null
+  paymentMethod?: string | null
+  paymentType?: string | null
+  entryAmount?: number | null
+  installmentsCount?: number | null
+  installmentAmount?: number | null
+  paymentNotes?: string | null
+}
+
+type ApiCycleResponse<T> = {
+  ok?: boolean
+  data?: T
+  error?: string
+}
+
+async function parseCycleApiResponse<T>(
+  response: Response,
+  fallbackMessage: string
+): Promise<T> {
+  const payload = (await response.json().catch(() => ({}))) as ApiCycleResponse<T>
+
+  if (!response.ok || payload.error) {
+    throw new Error(payload.error ?? fallbackMessage)
+  }
+
+  if (!payload.data) {
+    throw new Error('Operação não confirmada')
+  }
+
+  return payload.data
+}
+
 /**
- * Retorna KPIs principais do funil
+ * Retorna KPIs principais do funil.
  */
-export async function getSalesFunnel(): Promise<any[]> {
+export async function getSalesFunnel(): Promise<SalesFunnelRow[]> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase.from('vw_sales_funnel').select('*')
 
   if (error) throw new Error(`Erro ao buscar funil: ${error.message}`)
 
-  return data || []
+  return (data || []) as SalesFunnelRow[]
 }
 
 /**
- * Retorna performance por vendedor
+ * Retorna performance por vendedor.
  */
-export async function getPerformanceByOwner(): Promise<any[]> {
+export async function getPerformanceByOwner(): Promise<PerformanceByOwnerRow[]> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -31,13 +130,13 @@ export async function getPerformanceByOwner(): Promise<any[]> {
 
   if (error) throw new Error(`Erro ao buscar performance: ${error.message}`)
 
-  return data || []
+  return (data || []) as PerformanceByOwnerRow[]
 }
 
 /**
- * Retorna análise mensal
+ * Retorna análise mensal.
  */
-export async function getMonthlySalesAnalysis(): Promise<any[]> {
+export async function getMonthlySalesAnalysis(): Promise<MonthlySalesAnalysisRow[]> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -47,13 +146,13 @@ export async function getMonthlySalesAnalysis(): Promise<any[]> {
 
   if (error) throw new Error(`Erro ao buscar análise mensal: ${error.message}`)
 
-  return data || []
+  return (data || []) as MonthlySalesAnalysisRow[]
 }
 
 /**
- * Retorna análise de motivos de perda
+ * Retorna análise de motivos de perda.
  */
-export async function getLostAnalysis(): Promise<any[]> {
+export async function getLostAnalysis(): Promise<LostAnalysisRow[]> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -66,13 +165,13 @@ export async function getLostAnalysis(): Promise<any[]> {
     return []
   }
 
-  return data || []
+  return (data || []) as LostAnalysisRow[]
 }
 
 /**
- * Retorna ciclo completo com todas as informações
+ * Retorna ciclo completo com todas as informações.
  */
-export async function getSalesCycleComplete(cycleId: string): Promise<any> {
+export async function getSalesCycleComplete(cycleId: string): Promise<SalesCycleCompleteRow> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -83,13 +182,13 @@ export async function getSalesCycleComplete(cycleId: string): Promise<any> {
 
   if (error) throw new Error(`Erro ao buscar ciclo completo: ${error.message}`)
 
-  return data
+  return data as SalesCycleCompleteRow
 }
 
 /**
- * Retorna histórico de auditoria de um ciclo
+ * Retorna histórico de auditoria de um ciclo.
  */
-export async function getCycleAuditHistory(cycleId: string): Promise<any[]> {
+export async function getCycleAuditHistory(cycleId: string): Promise<CycleAuditHistoryRow[]> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -100,13 +199,13 @@ export async function getCycleAuditHistory(cycleId: string): Promise<any[]> {
 
   if (error) throw new Error(`Erro ao buscar auditoria: ${error.message}`)
 
-  return data || []
+  return (data || []) as CycleAuditHistoryRow[]
 }
 
 /**
- * Retorna deals que vencem nos próximos N dias
+ * Retorna deals que vencem nos próximos N dias.
  */
-export async function getUpcomingDeals(daysAhead: number = 7): Promise<any[]> {
+export async function getUpcomingDeals(daysAhead: number = 7): Promise<UpcomingDealRow[]> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -123,24 +222,11 @@ export async function getUpcomingDeals(daysAhead: number = 7): Promise<any[]> {
 
   if (error) throw new Error(`Erro ao buscar deals próximos: ${error.message}`)
 
-  return data || []
-}
-
-export interface MarkDealWonOptions {
-  revenueDateRef?: string
-  wonNote?: string
-  productId?: string | null
-  wonUnitPrice?: number | null
-  paymentMethod?: string | null
-  paymentType?: string | null
-  entryAmount?: number | null
-  installmentsCount?: number | null
-  installmentAmount?: number | null
-  paymentNotes?: string | null
+  return (data || []) as UpcomingDealRow[]
 }
 
 /**
- * Marca um deal como ganho usando a RPC formal de fechamento.
+ * Marca um deal como ganho usando a API formal de fechamento.
  */
 export async function markDealWonWithRevenue(
   dealId: string,
@@ -148,36 +234,32 @@ export async function markDealWonWithRevenue(
   revenueDateRef?: string,
   wonNote?: string,
   options?: MarkDealWonOptions
-): Promise<any> {
-  const supabase = supabaseBrowser()
-
+): Promise<RpcCycleResponse> {
   const revDate = options?.revenueDateRef ?? revenueDateRef ?? null
   const note = options?.wonNote ?? wonNote ?? null
 
-  const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
-    p_cycle_id: dealId,
-    p_won_value: wonValue,
-    p_revenue_date_ref: revDate,
-    p_won_note: note,
-    p_product_id: options?.productId ?? null,
-    p_won_unit_price: options?.wonUnitPrice ?? null,
-    p_payment_method: options?.paymentMethod ?? null,
-    p_payment_type: options?.paymentType ?? null,
-    p_entry_amount: options?.entryAmount ?? null,
-    p_installments_count: options?.installmentsCount ?? null,
-    p_installment_amount: options?.installmentAmount ?? null,
-    p_payment_notes: options?.paymentNotes ?? null,
+  const response = await fetch('/api/sales-cycles/close?action=won', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({
+      cycle_id: dealId,
+      won_value: wonValue,
+      revenue_date_ref: revDate,
+      won_note: note,
+      product_id: options?.productId ?? null,
+      won_unit_price: options?.wonUnitPrice ?? null,
+      payment_method: options?.paymentMethod ?? null,
+      payment_type: options?.paymentType ?? null,
+      entry_amount: options?.entryAmount ?? null,
+      installments_count: options?.installmentsCount ?? null,
+      installment_amount: options?.installmentAmount ?? null,
+      payment_notes: options?.paymentNotes ?? null,
+    }),
   })
 
-  if (error) {
-    throw new Error(`Erro ao marcar ganho: ${error.message}`)
-  }
-
-  const result = Array.isArray(data) ? data[0] : data
-
-  if (!result?.success) {
-    throw new Error(result?.error_message || result?.error || 'Operação não confirmada')
-  }
-
-  return result
+  return parseCycleApiResponse<RpcCycleResponse>(
+    response,
+    'Erro ao marcar ganho'
+  )
 }
