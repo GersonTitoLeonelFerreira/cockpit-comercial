@@ -5,6 +5,7 @@ import { CloseCycleWonRequest, CloseCycleLostRequest } from '@/app/types/sales_c
 
 async function getAuthedSupabase() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,12 +25,19 @@ async function getAuthedSupabase() {
     throw new Error('Não autenticado.')
   }
 
-  return { supabase, user: data.user }
+  return { supabase, user: data.user, activeCompanyId }
 }
 
 export async function POST(req: Request) {
   try {
-    const { supabase } = await getAuthedSupabase()
+    const { supabase, activeCompanyId } = await getAuthedSupabase()
+
+    if (!activeCompanyId) {
+      return NextResponse.json(
+        { error: 'Empresa ativa não selecionada.' },
+        { status: 400 }
+      )
+    }
 
     const { searchParams } = new URL(req.url)
     const action = searchParams.get('action')
@@ -48,7 +56,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'cycle_id é obrigatório.' }, { status: 400 })
       }
 
-      const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
+      const { data, error } = await supabase.rpc('rpc_close_cycle_won_for_company', {
+        p_company_id: activeCompanyId,
         p_cycle_id: body.cycle_id,
         p_won_value: body.won_value ?? null,
         p_revenue_date_ref: body.revenue_date_ref ?? null,
@@ -85,7 +94,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'cycle_id é obrigatório.' }, { status: 400 })
     }
 
-    const { data, error } = await supabase.rpc('rpc_close_cycle_lost', {
+    const { data, error } = await supabase.rpc('rpc_close_cycle_lost_for_company', {
+      p_company_id: activeCompanyId,
       p_cycle_id: body.cycle_id,
       p_lost_reason: body.lost_reason ?? null,
       p_note: body.note ?? null,
@@ -106,7 +116,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, data: result })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro desconhecido.' }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido.'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

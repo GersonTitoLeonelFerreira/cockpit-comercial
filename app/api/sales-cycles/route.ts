@@ -10,8 +10,6 @@ import {
   MoveCycleStageRequest,
   AssignCycleOwnerRequest,
   SetNextActionRequest,
-  CloseCycleWonRequest,
-  CloseCycleLostRequest,
 } from '@/app/types/sales_cycles'
 
 // ============================================================================
@@ -20,6 +18,7 @@ import {
 
 async function getAuthedSupabase() {
   const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,7 +38,7 @@ async function getAuthedSupabase() {
     throw new Error('Não autenticado.')
   }
 
-  return { supabase, user: data.user }
+  return { supabase, user: data.user, activeCompanyId }
 }
 
 // ============================================================================
@@ -48,7 +47,14 @@ async function getAuthedSupabase() {
 
 export async function POST(req: Request) {
   try {
-    const { supabase } = await getAuthedSupabase()
+    const { supabase, activeCompanyId } = await getAuthedSupabase()
+
+    if (!activeCompanyId) {
+      return NextResponse.json(
+        { error: 'Empresa ativa não selecionada.' },
+        { status: 400 }
+      )
+    }
 
     const body = (await req.json()) as MoveCycleStageRequest
 
@@ -59,7 +65,8 @@ export async function POST(req: Request) {
       )
     }
 
-    const { data, error } = await supabase.rpc('rpc_move_cycle_stage', {
+    const { data, error } = await supabase.rpc('rpc_move_cycle_stage_for_company', {
+      p_company_id: activeCompanyId,
       p_cycle_id: body.cycle_id,
       p_to_status: body.to_status,
       p_metadata: body.metadata || {},
@@ -71,13 +78,17 @@ export async function POST(req: Request) {
 
     const result = Array.isArray(data) ? data[0] : data
 
-    if (result?.error_message) {
-      return NextResponse.json({ error: result.error_message }, { status: 403 })
+    if (result?.error_message || result?.error) {
+      return NextResponse.json(
+        { error: result.error_message ?? result.error },
+        { status: 403 }
+      )
     }
 
     return NextResponse.json({ ok: true, data: result })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro desconhecido.' }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido.'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
@@ -88,7 +99,14 @@ export async function POST(req: Request) {
 // PUT: Assign Cycle Owner (admin only)
 export async function PUT(req: Request) {
   try {
-    const { supabase } = await getAuthedSupabase()
+    const { supabase, activeCompanyId } = await getAuthedSupabase()
+
+    if (!activeCompanyId) {
+      return NextResponse.json(
+        { error: 'Empresa ativa não selecionada.' },
+        { status: 400 }
+      )
+    }
 
     const body = (await req.json()) as AssignCycleOwnerRequest
 
@@ -99,7 +117,8 @@ export async function PUT(req: Request) {
       )
     }
 
-    const { data, error } = await supabase.rpc('rpc_assign_cycle_owner', {
+    const { data, error } = await supabase.rpc('rpc_assign_cycle_owner_for_company', {
+      p_company_id: activeCompanyId,
       p_cycle_id: body.cycle_id,
       p_owner_user_id: body.owner_user_id,
     })
@@ -110,20 +129,31 @@ export async function PUT(req: Request) {
 
     const result = Array.isArray(data) ? data[0] : data
 
-    if (result?.error_message) {
-      return NextResponse.json({ error: result.error_message }, { status: 403 })
+    if (result?.error_message || result?.error) {
+      return NextResponse.json(
+        { error: result.error_message ?? result.error },
+        { status: 403 }
+      )
     }
 
     return NextResponse.json({ ok: true, data: result })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro desconhecido.' }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido.'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
 // PATCH: Set Next Action
 export async function PATCH(req: Request) {
   try {
-    const { supabase } = await getAuthedSupabase()
+    const { supabase, activeCompanyId } = await getAuthedSupabase()
+
+    if (!activeCompanyId) {
+      return NextResponse.json(
+        { error: 'Empresa ativa não selecionada.' },
+        { status: 400 }
+      )
+    }
 
     const body = (await req.json()) as SetNextActionRequest
 
@@ -131,7 +161,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'cycle_id é obrigatório.' }, { status: 400 })
     }
 
-    const { data, error } = await supabase.rpc('rpc_set_next_action', {
+    const { data, error } = await supabase.rpc('rpc_set_next_action_for_company', {
+      p_company_id: activeCompanyId,
       p_cycle_id: body.cycle_id,
       p_next_action: body.next_action,
       p_next_action_date: body.next_action_date,
@@ -143,12 +174,16 @@ export async function PATCH(req: Request) {
 
     const result = Array.isArray(data) ? data[0] : data
 
-    if (result?.error_message) {
-      return NextResponse.json({ error: result.error_message }, { status: 403 })
+    if (result?.error_message || result?.error) {
+      return NextResponse.json(
+        { error: result.error_message ?? result.error },
+        { status: 403 }
+      )
     }
 
     return NextResponse.json({ ok: true, data: result })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Erro desconhecido.' }, { status: 500 })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido.'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
