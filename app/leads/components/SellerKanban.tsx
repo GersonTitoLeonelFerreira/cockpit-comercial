@@ -129,9 +129,10 @@ export default function SellerKanban({
       }
 
       setItems(grouped)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar ciclos')
-      console.error('SellerKanban load error:', e)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Erro ao carregar ciclos'
+      setError(message)
+      console.error('SellerKanban load error:', error)
     } finally {
       setLoading(false)
     }
@@ -141,33 +142,41 @@ export default function SellerKanban({
     void loadItems()
   }, [loadItems])
 
-  // ✅ Mover ciclo via RPC
+  // ✅ Mover ciclo via API server-side com empresa ativa
   const moveItem = useCallback(
     async (cycleId: string, toStatus: Status) => {
       setSavingId(cycleId)
       setError(null)
 
       try {
-        const { data, error: err } = await supabase.rpc('rpc_move_cycle_stage', {
-          p_cycle_id: cycleId,
-          p_to_status: toStatus,
-          p_metadata: {},
+        const response = await fetch('/api/sales-cycles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            cycle_id: cycleId,
+            to_status: toStatus,
+            metadata: {},
+          }),
         })
 
-        if (err) throw err
+        const result = (await response.json().catch(() => ({}))) as {
+          ok?: boolean
+          error?: string
+        }
 
-        if (data && data[0]?.error_message) {
-          throw new Error(data[0].error_message)
+        if (!response.ok || result.error) {
+          throw new Error(result.error ?? 'Erro ao mover')
         }
 
         await loadItems()
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao mover')
+      } catch (error: unknown) {
+        setError(error instanceof Error ? error.message : 'Erro ao mover')
       } finally {
         setSavingId(null)
       }
     },
-    [supabase, loadItems]
+    [loadItems]
   )
 
   const handleDragEnd = useCallback(

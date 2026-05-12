@@ -2072,21 +2072,35 @@ export default function SalesCyclesKanban({
   const moveItem = useCallback(async (cycleId: string, toStatus: Status) => {
     setSavingId(cycleId)
     setError(null)
+
     try {
-      const { data, error } = await supabase.rpc('rpc_move_cycle_stage', {
-        p_cycle_id: cycleId,
-        p_to_status: toStatus,
-        p_metadata: {},
+      const response = await fetch('/api/sales-cycles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          cycle_id: cycleId,
+          to_status: toStatus,
+          metadata: {},
+        }),
       })
-      if (error) throw error
-      if (!data) throw new Error('Ciclo não encontrado ou sem permissão')
+
+      const result = (await response.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+      }
+
+      if (!response.ok || result.error) {
+        throw new Error(result.error ?? 'Ciclo não encontrado ou sem permissão')
+      }
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao mover ciclo')
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Erro ao mover ciclo')
     } finally {
       setSavingId(null)
     }
-  }, [supabase, loadItems, loadTotals, searchTerm])
+  }, [loadItems, loadTotals, searchTerm])
 
   const setGroupForCycle = useCallback(async (cycleId: string, groupId: string | null) => {
     setSavingId(cycleId)
@@ -2372,29 +2386,39 @@ export default function SalesCyclesKanban({
 
   const handleCheckpointConfirm = useCallback(async (payload: CheckpointPayload) => {
     if (!pendingMove) return
+
     setCheckpointLoading(true)
+
     try {
       const normalizedPayload = {
         ...payload,
-        next_action_date: payload.next_action_date ? new Date(payload.next_action_date).toISOString() : null,
+        next_action_date: payload.next_action_date
+          ? new Date(payload.next_action_date).toISOString()
+          : null,
       }
-      const { data, error } = await supabase.rpc('rpc_move_cycle_stage_checkpoint', {
+
+      const { data, error } = await supabase.rpc('rpc_move_cycle_stage_checkpoint_for_company', {
+        p_company_id: companyId,
         p_cycle_id: pendingMove.cycleId,
         p_to_status: pendingMove.toStatus,
         p_checkpoint: normalizedPayload,
       })
+
       if (error) throw error
-      if (!data?.success) throw new Error('Operação não confirmada')
+      if (!data?.success) {
+        throw new Error(data?.error_message ?? data?.error ?? 'Operação não confirmada')
+      }
+
       await Promise.all([loadItems(searchTerm), loadTotals()])
       addToast('Lead atualizado com sucesso!')
       setCheckpointOpen(false)
       setPendingMove(null)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao mover lead')
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Erro ao mover lead')
     } finally {
       setCheckpointLoading(false)
     }
-  }, [pendingMove, supabase, loadItems, loadTotals, searchTerm, addToast])
+  }, [pendingMove, supabase, companyId, loadItems, loadTotals, searchTerm, addToast])
 
   const handleDrop = useCallback((cycleId: string, toStatus: Status) => {
     const fromStatus = Object.entries(items).find(([, cycles]) =>
