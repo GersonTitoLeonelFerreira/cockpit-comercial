@@ -1,6 +1,7 @@
 import { supabaseBrowser } from '../supabaseBrowser'
 import {
   LeadStatus,
+  SalesCycle,
   RpcCycleResponse,
   UserCycle,
   PoolCycle,
@@ -12,123 +13,112 @@ import {
   CloseCycleLostRequest,
 } from '@/app/types/sales_cycles'
 
-export async function moveCycleStage(req: MoveCycleStageRequest): Promise<RpcCycleResponse> {
-  const supabase = supabaseBrowser()
+type ApiCycleResponse<T> = {
+  ok?: boolean
+  data?: T
+  error?: string
+}
 
-  const { data, error } = await supabase.rpc('rpc_move_cycle_stage', {
-    p_cycle_id: req.cycle_id,
-    p_to_status: req.to_status,
-    p_metadata: req.metadata || {},
-  })
+type JsonPayload = object
 
-  if (error) throw new Error(`Erro ao mover ciclo: ${error.message}`)
+type SalesCycleWithLeadRow = SalesCycle & {
+  leads: {
+    id: string
+    name: string
+    phone: string | null
+    email: string | null
+  } | null
+}
 
-  const result = Array.isArray(data) ? data[0] : data
+async function parseCycleApiResponse<T>(
+  response: Response,
+  fallbackMessage: string
+): Promise<T> {
+  const payload = (await response.json().catch(() => ({}))) as ApiCycleResponse<T>
 
-  if (result?.error_message || result?.error) {
-    throw new Error(result.error_message ?? result.error)
+  if (!response.ok || payload.error) {
+    throw new Error(payload.error ?? fallbackMessage)
   }
 
-  return result as RpcCycleResponse
+  if (!payload.data) {
+    throw new Error('Operação não confirmada')
+  }
+
+  return payload.data
+}
+
+export async function moveCycleStage(req: MoveCycleStageRequest): Promise<RpcCycleResponse> {
+  const response = await fetch('/api/sales-cycles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(req),
+  })
+
+  return parseCycleApiResponse<RpcCycleResponse>(response, 'Erro ao mover ciclo')
 }
 
 export async function assignCycleOwner(req: AssignCycleOwnerRequest): Promise<RpcCycleResponse> {
-  const supabase = supabaseBrowser()
-
-  const { data, error } = await supabase.rpc('rpc_assign_cycle_owner', {
-    p_cycle_id: req.cycle_id,
-    p_owner_user_id: req.owner_user_id,
+  const response = await fetch('/api/sales-cycles', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(req),
   })
 
-  if (error) throw new Error(`Erro ao atribuir ciclo: ${error.message}`)
-
-  const result = Array.isArray(data) ? data[0] : data
-
-  if (result?.error_message || result?.error) {
-    throw new Error(result.error_message ?? result.error)
-  }
-
-  return result as RpcCycleResponse
+  return parseCycleApiResponse<RpcCycleResponse>(response, 'Erro ao atribuir ciclo')
 }
 
 export async function setNextAction(req: SetNextActionRequest): Promise<RpcCycleResponse> {
-  const supabase = supabaseBrowser()
-
   const nextActionDate =
     typeof req.next_action_date === 'string'
       ? new Date(req.next_action_date).toISOString()
       : req.next_action_date.toISOString()
 
-  const { data, error } = await supabase.rpc('rpc_set_next_action', {
-    p_cycle_id: req.cycle_id,
-    p_next_action: req.next_action,
-    p_next_action_date: nextActionDate,
+  const response = await fetch('/api/sales-cycles', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({
+      ...req,
+      next_action_date: nextActionDate,
+    }),
   })
 
-  if (error) throw new Error(`Erro ao atualizar ação: ${error.message}`)
-
-  const result = Array.isArray(data) ? data[0] : data
-
-  if (result?.error_message || result?.error) {
-    throw new Error(result.error_message ?? result.error)
-  }
-
-  return result as RpcCycleResponse
+  return parseCycleApiResponse<RpcCycleResponse>(response, 'Erro ao atualizar ação')
 }
 
 export async function closeCycleWon(req: CloseCycleWonRequest): Promise<RpcCycleResponse> {
-  const supabase = supabaseBrowser()
-
-  const { data, error } = await supabase.rpc('rpc_close_cycle_won', {
-    p_cycle_id: req.cycle_id,
-    p_won_value: req.won_value ?? null,
-    p_revenue_date_ref: req.revenue_date_ref ?? null,
-    p_won_note: req.won_note ?? null,
-    p_product_id: req.product_id ?? null,
-    p_won_unit_price: req.won_unit_price ?? null,
-    p_payment_method: req.payment_method ?? null,
-    p_payment_type: req.payment_type ?? null,
-    p_entry_amount: req.entry_amount ?? null,
-    p_installments_count: req.installments_count ?? null,
-    p_installment_amount: req.installment_amount ?? null,
-    p_payment_notes: req.payment_notes ?? null,
+  const response = await fetch('/api/sales-cycles/close?action=won', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(req),
   })
 
-  if (error) throw new Error(`Erro ao fechar ciclo como ganho: ${error.message}`)
-
-  const result = Array.isArray(data) ? data[0] : data
-
-  if (result?.error_message || result?.error) {
-    throw new Error(result.error_message ?? result.error)
-  }
-
-  return result as RpcCycleResponse
+  return parseCycleApiResponse<RpcCycleResponse>(
+    response,
+    'Erro ao fechar ciclo como ganho'
+  )
 }
 
 export async function closeCycleLost(req: CloseCycleLostRequest): Promise<RpcCycleResponse> {
-  const supabase = supabaseBrowser()
-
-  const { data, error } = await supabase.rpc('rpc_close_cycle_lost', {
-    p_cycle_id: req.cycle_id,
-    p_lost_reason: req.lost_reason ?? null,
-    p_note: req.note ?? null,
-    p_action_channel: req.action_channel ?? null,
+  const response = await fetch('/api/sales-cycles/close?action=lost', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify(req),
   })
 
-  if (error) throw new Error(`Erro ao fechar ciclo como perdido: ${error.message}`)
-
-  const result = Array.isArray(data) ? data[0] : data
-
-  if (result?.error_message || result?.error) {
-    throw new Error(result.error_message ?? result.error)
-  }
-
-  return result as RpcCycleResponse
+  return parseCycleApiResponse<RpcCycleResponse>(
+    response,
+    'Erro ao fechar ciclo como perdido'
+  )
 }
 
 export async function logAIAnalysis(
   cycleId: string,
-  suggestion: Record<string, any>,
+  suggestion: JsonPayload,
   conversationExcerpt?: string
 ): Promise<void> {
   const supabase = supabaseBrowser()
@@ -149,7 +139,7 @@ export async function logAIAnalysis(
 
 export async function logAISuggestionApplied(
   cycleId: string,
-  payload: Record<string, any>
+  payload: JsonPayload
 ): Promise<void> {
   const supabase = supabaseBrowser()
 
@@ -168,7 +158,7 @@ export async function logAISuggestionApplied(
 
 export async function logAISuggestionRejected(
   cycleId: string,
-  payload: Record<string, any>
+  payload: JsonPayload
 ): Promise<void> {
   const supabase = supabaseBrowser()
 
@@ -235,7 +225,9 @@ export async function getCycleEvents(cycleId: string): Promise<CycleEvent[]> {
   return (data || []) as CycleEvent[]
 }
 
-export async function getSalesCycleWithLead(cycleId: string): Promise<any> {
+export async function getSalesCycleWithLead(
+  cycleId: string
+): Promise<SalesCycleWithLeadRow> {
   const supabase = supabaseBrowser()
 
   const { data, error } = await supabase
@@ -249,5 +241,5 @@ export async function getSalesCycleWithLead(cycleId: string): Promise<any> {
 
   if (error) throw new Error(`Erro ao buscar ciclo: ${error.message}`)
 
-  return data
+  return data as SalesCycleWithLeadRow
 }
