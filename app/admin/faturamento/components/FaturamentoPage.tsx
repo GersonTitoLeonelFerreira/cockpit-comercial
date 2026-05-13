@@ -195,7 +195,15 @@ export default function FaturamentoPage({
 
     try {
       setSaving(true)
-      await faturamentoService.createRevenueExtraSource(supabase, newSourceName)
+      if (!activeCompanyId) {
+        throw new Error('Empresa ativa não selecionada.')
+      }
+
+      await faturamentoService.createRevenueExtraSource(
+        supabase,
+        activeCompanyId,
+        newSourceName,
+      )
       setNewSourceName('')
       setShowAddSourceModal(false)
       await loadData()
@@ -228,8 +236,13 @@ export default function FaturamentoPage({
     try {
       setSaving(true)
 
+      if (!activeCompanyId) {
+        throw new Error('Empresa ativa não selecionada.')
+      }
+
       await faturamentoService.upsertRevenueOverride(
         supabase,
+        activeCompanyId,
         editingCell.sourceKind,
         editingCell.sourceId,
         editingCell.refDate,

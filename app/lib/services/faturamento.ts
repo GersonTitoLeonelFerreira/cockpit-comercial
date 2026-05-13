@@ -264,11 +264,15 @@ export async function getRevenueOverridesForDay(
  */
 export async function createRevenueExtraSource(
   supabase: SupabaseClient,
+  companyId: string,
   name: string
 ): Promise<string> {
   const { data, error } = await supabase.rpc(
-    'rpc_create_revenue_extra_source',
-    { p_name: name }
+    'rpc_create_revenue_extra_source_for_company',
+    {
+      p_company_id: companyId,
+      p_name: name,
+    }
   )
 
   if (error) throw error
@@ -280,6 +284,7 @@ export async function createRevenueExtraSource(
  */
 export async function upsertRevenueOverride(
   supabase: SupabaseClient,
+  companyId: string,
   sourceKind: 'seller' | 'extra',
   sourceId: string,
   refDate: string,
@@ -288,8 +293,9 @@ export async function upsertRevenueOverride(
   notes?: string
 ): Promise<boolean> {
   const { data, error } = await supabase.rpc(
-    'rpc_upsert_revenue_daily_override',
+    'rpc_upsert_revenue_daily_override_for_company',
     {
+      p_company_id: companyId,
       p_source_kind: sourceKind,
       p_source_id: sourceId,
       p_ref_date: refDate,
