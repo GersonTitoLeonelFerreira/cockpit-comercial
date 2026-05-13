@@ -51,6 +51,19 @@ export type Seller = {
   role: string
 }
 
+type SellerMembershipRow = {
+  company_id: string
+  user_id: string
+  role: string
+  is_active: boolean
+}
+
+type SellerProfileRow = {
+  id: string
+  full_name: string | null
+  email: string | null
+}
+
 export type RevenueSaleDetail = {
   cycle_id: string
   lead_id: string | null
@@ -77,10 +90,14 @@ export type RevenueSaleDetail = {
  * Lista todas as fontes extra de faturamento ativas
  * Nota: filtragem por company_id é garantida pelo RLS do Supabase
  */
-export async function getRevenueExtraSources(supabase: SupabaseClient) {
+export async function getRevenueExtraSources(
+  supabase: SupabaseClient,
+  companyId: string,
+) {
   const { data, error } = await supabase
     .from('revenue_extra_sources')
     .select('*')
+    .eq('company_id', companyId)
     .is('archived_at', null)
     .order('name', { ascending: true })
 
@@ -92,18 +109,53 @@ export async function getRevenueExtraSources(supabase: SupabaseClient) {
  * Lista vendedores ativos para seletor
  * Nota: filtragem por company_id é garantida pelo RLS do Supabase
  */
-export async function getSellers(supabase: SupabaseClient) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, company_id, full_name, email, role')
-      .in('role', ['member', 'seller', 'consultor', 'admin'])
-      .neq('status', 'archived')
-      .eq('is_active', true)
-      .order('full_name', { ascending: true })
-  
-    if (error) throw error
-    return (data ?? []) as Seller[]
-  }
+export async function getSellers(
+  supabase: SupabaseClient,
+  companyId: string,
+) {
+  const { data: memberships, error: membershipsError } = await supabase
+    .from('company_memberships')
+    .select('company_id, user_id, role, is_active')
+    .eq('company_id', companyId)
+    .eq('is_active', true)
+    .in('role', ['admin', 'manager', 'member', 'seller', 'consultor'])
+
+  if (membershipsError) throw membershipsError
+
+  const membershipRows = (memberships ?? []) as SellerMembershipRow[]
+  const userIds = Array.from(new Set(membershipRows.map((row) => row.user_id)))
+
+  if (userIds.length === 0) return []
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .in('id', userIds)
+
+  if (profilesError) throw profilesError
+
+  const profilesById = new Map(
+    ((profiles ?? []) as SellerProfileRow[]).map((profile) => [profile.id, profile]),
+  )
+
+  return membershipRows
+    .map((membership) => {
+      const profile = profilesById.get(membership.user_id)
+
+      return {
+        id: membership.user_id,
+        company_id: membership.company_id,
+        full_name: profile?.full_name ?? null,
+        email: profile?.email ?? null,
+        role: membership.role,
+      }
+    })
+    .sort((a, b) => {
+      const nameA = a.full_name || a.email || ''
+      const nameB = b.full_name || b.email || ''
+      return nameA.localeCompare(nameB, 'pt-BR')
+    }) as Seller[]
+}
 
 /**
  * Busca faturamento diário de vendedores para o mês
@@ -111,11 +163,13 @@ export async function getSellers(supabase: SupabaseClient) {
  */
 export async function getRevenueDailySellers(
   supabase: SupabaseClient,
-  sellerId?: string
+  companyId: string,
+  sellerId?: string,
 ) {
   let query = supabase
     .from('v_revenue_daily_seller')
     .select('*')
+    .eq('company_id', companyId)
 
   if (sellerId) {
     query = query.eq('seller_id', sellerId)
@@ -133,11 +187,13 @@ export async function getRevenueDailySellers(
  */
 export async function getRevenueDailyExtras(
   supabase: SupabaseClient,
-  extraId?: string
+  companyId: string,
+  extraId?: string,
 ) {
   let query = supabase
     .from('v_revenue_daily_extra')
     .select('*')
+    .eq('company_id', companyId)
 
   if (extraId) {
     query = query.eq('extra_id', extraId)
@@ -156,13 +212,18 @@ export async function getRevenueDailyExtras(
  */
 export async function getRevenueSalesDetailsByDay(
   supabase: SupabaseClient,
+  companyId: string,
   refDate: string,
   ownerId?: string | null
 ) {
-  const { data, error } = await supabase.rpc('rpc_revenue_sales_details_by_day', {
-    p_ref_date: refDate,
-    p_owner_id: ownerId ?? null,
-  })
+  const { data, error } = await supabase.rpc(
+    'rpc_revenue_sales_details_by_day_for_company',
+    {
+      p_company_id: companyId,
+      p_ref_date: refDate,
+      p_owner_id: ownerId ?? null,
+    }
+  )
 
   if (error) throw error
 

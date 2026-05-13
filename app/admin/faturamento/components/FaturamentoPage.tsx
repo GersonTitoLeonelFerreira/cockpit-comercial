@@ -70,7 +70,16 @@ function formatPaymentLabel(value: string | null) {
   return labels[value] ?? value
 }
 
-export default function FaturamentoPage() {
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
+export default function FaturamentoPage({
+  activeCompanyId,
+}: {
+  activeCompanyId: string | null
+}) {
   const supabase = useMemo(() => supabaseBrowser(), [])
 
   const today = new Date()
@@ -113,24 +122,28 @@ export default function FaturamentoPage() {
     setError(null)
 
     try {
+      if (!activeCompanyId) {
+        throw new Error('Empresa ativa não selecionada.')
+      }
+
       const [sellersData, extrasData, revenueSellerData, revenueExtraData] = await Promise.all([
-        faturamentoService.getSellers(supabase),
-        faturamentoService.getRevenueExtraSources(supabase),
-        faturamentoService.getRevenueDailySellers(supabase),
-        faturamentoService.getRevenueDailyExtras(supabase),
+        faturamentoService.getSellers(supabase, activeCompanyId),
+        faturamentoService.getRevenueExtraSources(supabase, activeCompanyId),
+        faturamentoService.getRevenueDailySellers(supabase, activeCompanyId),
+        faturamentoService.getRevenueDailyExtras(supabase, activeCompanyId),
       ])
 
       setSellers(sellersData)
       setExtras(extrasData)
       setRevenueSellers(revenueSellerData)
       setRevenueExtras(revenueExtraData)
-    } catch (e: any) {
-      setError(e?.message ?? 'Erro ao carregar dados')
-      console.error('Erro ao carregar dados:', e)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Erro ao carregar dados'))
+      console.error('Erro ao carregar dados:', error)
     } finally {
       setLoading(false)
     }
-  }, [supabase])
+  }, [supabase, activeCompanyId])
 
   useEffect(() => {
     void loadData()
@@ -187,8 +200,8 @@ export default function FaturamentoPage() {
       setShowAddSourceModal(false)
       await loadData()
       alert('Fonte de faturamento criada com sucesso.')
-    } catch (e: any) {
-      alert(`Erro: ${e?.message ?? String(e)}`)
+    } catch (error: unknown) {
+      alert(`Erro: ${getErrorMessage(error, 'Erro ao criar fonte de faturamento')}`)
     } finally {
       setSaving(false)
     }
@@ -228,8 +241,8 @@ export default function FaturamentoPage() {
       setShowEditModal(false)
       await loadData()
       alert('Faturamento atualizado com sucesso.')
-    } catch (e: any) {
-      alert(`Erro: ${e?.message ?? String(e)}`)
+    } catch (error: unknown) {
+      alert(`Erro: ${getErrorMessage(error, 'Erro ao atualizar faturamento')}`)
     } finally {
       setSaving(false)
     }
@@ -243,17 +256,22 @@ export default function FaturamentoPage() {
     setSalesDetails([])
 
     try {
+      if (!activeCompanyId) {
+        throw new Error('Empresa ativa não selecionada.')
+      }
+
       const ownerId = sourceType === 'seller' ? selectedSellerId : null
 
       const rows = await faturamentoService.getRevenueSalesDetailsByDay(
         supabase,
+        activeCompanyId,
         date,
         ownerId,
       )
 
       setSalesDetails(rows)
-    } catch (e: any) {
-      setSalesModalError(e?.message ?? 'Erro ao carregar vendas do dia.')
+    } catch (error: unknown) {
+      setSalesModalError(getErrorMessage(error, 'Erro ao carregar vendas do dia.'))
       setSalesDetails([])
     } finally {
       setSalesModalLoading(false)
