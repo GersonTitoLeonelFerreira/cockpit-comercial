@@ -262,7 +262,10 @@ export async function POST(req: Request) {
         company_id: companyId,
         role,
         is_active: true,
-        created_by: actor.id,
+        metadata: {
+          created_by: actor.id,
+          source: 'admin_seller_invite',
+        },
       },
       { onConflict: 'company_id,user_id' },
     )
