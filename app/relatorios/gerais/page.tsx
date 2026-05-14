@@ -275,6 +275,10 @@ type SlaRiskRow = {
 type FunnelStatusRow = {
   status: string
   stage_entered_at: string | null
+  won_total: number
+  revenue_seller_ref_date: string | null
+  won_at: string | null
+  closed_at: string | null
 }
 
 // ==============================================================================
@@ -430,13 +434,18 @@ export default async function RelatoriosGeraisPage() {
   // --- Saúde atual do funil ---
   const { data: cycleStatusData, error: cycleStatusErr } = await supabase
     .from('sales_cycles')
-    .select('status, stage_entered_at')
+    .select('status, stage_entered_at, won_total, revenue_seller_ref_date, won_at, closed_at')
     .eq('company_id', companyId)
 
   const cycleStatusRows: FunnelStatusRow[] = (cycleStatusData ?? []).map(
     (r: Record<string, unknown>) => ({
       status: normalizeFunnelStatus(r.status),
       stage_entered_at: typeof r.stage_entered_at === 'string' ? r.stage_entered_at : null,
+      won_total: Number(r.won_total ?? 0),
+      revenue_seller_ref_date:
+        typeof r.revenue_seller_ref_date === 'string' ? r.revenue_seller_ref_date : null,
+      won_at: typeof r.won_at === 'string' ? r.won_at : null,
+      closed_at: typeof r.closed_at === 'string' ? r.closed_at : null,
     })
   )
 
@@ -492,7 +501,28 @@ export default async function RelatoriosGeraisPage() {
   const currentWins = Number(cycleMetrics.current_wins ?? 0)
   const workedCount = Number(cycleMetrics.worked_count ?? 0)
 
-  const ticketReal = currentWins > 0 ? Math.round(faturReal / currentWins) : 0
+  const productWonCycles = cycleStatusRows.filter((cycle) => {
+    if (cycle.status !== 'ganho') return false
+    if (Number(cycle.won_total || 0) <= 0) return false
+
+    const refDate =
+      toDateKey(cycle.revenue_seller_ref_date) ||
+      toDateKey(cycle.won_at) ||
+      toDateKey(cycle.closed_at)
+
+    if (!hasActivePeriod || !refDate) return false
+
+    return refDate >= periodStart && refDate <= periodEnd
+  })
+
+  const productSalesRevenue = productWonCycles.reduce(
+    (total, cycle) => total + Number(cycle.won_total || 0),
+    0
+  )
+
+  const ticketReal =
+    productWonCycles.length > 0 ? Math.round(productSalesRevenue / productWonCycles.length) : 0
+
   const ticketParaCalc = ticketSimulador > 0 ? ticketSimulador : ticketReal
 
   const taxaReal = workedCount > 0 ? currentWins / workedCount : 0
