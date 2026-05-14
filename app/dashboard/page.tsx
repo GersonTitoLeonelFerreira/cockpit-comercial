@@ -77,6 +77,15 @@ type SalesCycle = {
   leads?: Lead | Lead[] | null
 }
 
+type DashboardStatusCounts = {
+  novo: number
+  contato: number
+  respondeu: number
+  negociacao: number
+  ganho: number
+  perdido: number
+}
+
 type DashboardState = {
   profile: Profile | null
   competency: ActiveCompetency | null
@@ -87,9 +96,26 @@ type DashboardState = {
   owners: Record<string, Profile>
   poolOperationalTotal: number | null
   inProgressOperationalTotal: number | null
+  operationalFunnelCounts: DashboardStatusCounts | null
 }
 
-const STATUS_ORDER = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
+const STATUS_ORDER: Array<keyof DashboardStatusCounts> = [
+  'novo',
+  'contato',
+  'respondeu',
+  'negociacao',
+  'ganho',
+  'perdido',
+]
+
+const EMPTY_STATUS_COUNTS: DashboardStatusCounts = {
+  novo: 0,
+  contato: 0,
+  respondeu: 0,
+  negociacao: 0,
+  ganho: 0,
+  perdido: 0,
+}
 
 const STATUS_LABELS: Record<string, string> = {
   novo: 'Novo',
@@ -455,6 +481,7 @@ export default function DashboardPage() {
     owners: {},
     poolOperationalTotal: null,
     inProgressOperationalTotal: null,
+    operationalFunnelCounts: null,
   })
 
   const [loading, setLoading] = useState(true)
@@ -514,6 +541,7 @@ export default function DashboardPage() {
         groupConversion,
         poolOperationalTotal,
         inProgressOperationalTotal,
+        operationalFunnelCounts,
       ] = await Promise.all([
         getSalesCycleMetrics({
           companyId,
@@ -550,7 +578,7 @@ export default function DashboardPage() {
               return Number(json.total ?? 0)
             })
           : Promise.resolve(null),
-          supabase
+        supabase
           .from('v_pipeline_items')
           .select('id', { head: true, count: 'exact' })
           .eq('company_id', companyId)
@@ -572,6 +600,37 @@ export default function DashboardPage() {
               }
 
               return count ?? 0
+            }
+          ),
+        supabase
+          .from('v_pipeline_items')
+          .select('status')
+          .eq('company_id', companyId)
+          .not('owner_id', 'is', null)
+          .then(
+            (result: {
+              data: Array<{ status: string | null }> | null
+              error: { message: string } | null
+            }) => {
+              const { data, error: funnelError } = result
+
+              if (funnelError) {
+                throw new Error(
+                  `Erro ao carregar funil dos vendedores: ${funnelError.message}`
+                )
+              }
+
+              const counts: DashboardStatusCounts = { ...EMPTY_STATUS_COUNTS }
+
+              for (const row of data ?? []) {
+                const status = normalizeStatus(row.status)
+
+                if (status in counts) {
+                  counts[status as keyof DashboardStatusCounts] += 1
+                }
+              }
+
+              return counts
             }
           ),
       ])
@@ -662,6 +721,7 @@ export default function DashboardPage() {
         owners,
         poolOperationalTotal,
         inProgressOperationalTotal,
+        operationalFunnelCounts,
       })
 
       setUpdatedAt(new Date().toISOString())
@@ -685,7 +745,7 @@ export default function DashboardPage() {
   const dashboardMetrics = useMemo(() => {
     const metrics = state.simulatorMetrics
 
-    const counts = metrics?.counts_by_status ?? {
+    const periodCounts: DashboardStatusCounts = metrics?.counts_by_status ?? {
       novo: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'novo').length,
       contato: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'contato').length,
       respondeu: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'respondeu').length,
@@ -694,9 +754,14 @@ export default function DashboardPage() {
       perdido: periodCycles.filter(isLostCycle).length,
     }
 
+    const operationalCounts: DashboardStatusCounts =
+      state.operationalFunnelCounts ?? {
+        ...EMPTY_STATUS_COUNTS,
+      }
+
     const worked = metrics?.worked_count ?? periodCycles.length
-    const wins = metrics?.current_wins ?? counts.ganho
-    const losses = counts.perdido
+    const wins = metrics?.current_wins ?? periodCounts.ganho
+    const losses = periodCounts.perdido
     const revenue = Number(state.revenueSummary?.total_real || 0)
     const totalInProgress =
       state.inProgressOperationalTotal ??
@@ -712,7 +777,8 @@ export default function DashboardPage() {
     const averageTicket = wins > 0 ? revenue / wins : 0
 
     return {
-      counts,
+      counts: operationalCounts,
+      periodCounts,
       worked,
       wins,
       losses,
@@ -726,6 +792,7 @@ export default function DashboardPage() {
   }, [
     periodCycles,
     state.inProgressOperationalTotal,
+    state.operationalFunnelCounts,
     state.poolOperationalTotal,
     state.revenueSummary,
     state.simulatorMetrics,
@@ -1048,8 +1115,8 @@ export default function DashboardPage() {
           }}
         >
           <Panel
-            title="Funil do período"
-            description="Distribuição oficial vinda da mesma RPC usada pelo Simulador de Meta."
+            title="Funil dos vendedores"
+            description="Distribuição atual das oportunidades que já estão com responsáveis."
           >
             {loading ? (
               <Empty text="Carregando funil..." />
