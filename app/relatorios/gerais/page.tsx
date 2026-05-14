@@ -1436,7 +1436,9 @@ export default async function RelatoriosGeraisPage() {
                           <td style={tdStyle}>
                             {r.owner_name ? r.owner_name : <span style={{ color: DS.textMuted, fontStyle: 'italic' }}>Sem dono</span>}
                           </td>
-                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.stage}</td>
+                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>
+                            {r.stage === 'novo' ? 'Novo atribuído' : r.stage}
+                          </td>
                           <td style={tdStyle}>{formatSeconds(r.seconds_in_stage)}</td>
                           <td style={tdStyle}>{formatSeconds(r.sla_seconds)}</td>
                           <td style={tdBold}>{formatSeconds(r.over_seconds)}</td>
