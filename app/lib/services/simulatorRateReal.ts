@@ -2,12 +2,14 @@ import { supabaseBrowser } from '../supabaseBrowser'
 import { CloseRateRealResponse } from '../../types/simulatorRateReal'
 
 export async function getCloseRateReal(
+  companyId: string,
   ownerUserId: string | null = null,
   daysWindow: number = 90
 ): Promise<CloseRateRealResponse> {
   const supabase = supabaseBrowser()
 
-  const { data, error } = await supabase.rpc('rpc_get_close_rate_real', {
+  const { data, error } = await supabase.rpc('rpc_get_close_rate_real_for_company', {
+    p_company_id: companyId,
     p_owner_user_id: ownerUserId,
     p_days_window: daysWindow,
   })

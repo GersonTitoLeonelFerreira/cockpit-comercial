@@ -4093,9 +4093,12 @@ export default function SimulatorMetaClient({
   // taxa real
   useEffect(() => {
     async function loadRateReal() {
+      if (!companyId) return
+
       setRateRealLoading(true)
+
       try {
-        const data = await getCloseRateReal(analysisOwnerId, daysWindow)
+        const data = await getCloseRateReal(companyId, analysisOwnerId, daysWindow)
         setRateRealData(data)
       } catch (e: unknown) {
         console.warn('Erro ao carregar taxa real:', getErrorMessage(e, 'Erro desconhecido.'))
@@ -4104,8 +4107,9 @@ export default function SimulatorMetaClient({
         setRateRealLoading(false)
       }
     }
-    if (competency) void loadRateReal()
-  }, [analysisOwnerId, daysWindow, competency])
+
+    if (competency && companyId) void loadRateReal()
+  }, [analysisOwnerId, daysWindow, competency, companyId])
 
   // recalcula ganhos
   useEffect(() => {
