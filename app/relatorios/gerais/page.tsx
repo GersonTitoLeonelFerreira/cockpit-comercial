@@ -455,11 +455,12 @@ export default async function RelatoriosGeraisPage() {
     })
   )
 
-  // --- Saúde atual do funil ---
+  // --- Saúde atual do funil dos atendimentos ---
   const { data: pipelineStatusData, error: pipelineStatusErr } = await supabase
     .from('v_pipeline_items')
     .select('status')
     .eq('company_id', companyId)
+    .not('owner_id', 'is', null)
 
   const pipelineStatusRows: PipelineStatusRow[] = (pipelineStatusData ?? []).map(
     (r: Record<string, unknown>) => ({
