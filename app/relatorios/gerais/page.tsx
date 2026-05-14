@@ -617,16 +617,14 @@ export default async function RelatoriosGeraisPage() {
     .slice()
     .sort((a, b) => Number(b.avg_seconds ?? 0) - Number(a.avg_seconds ?? 0))[0]
 
-  const hasCriticalSla = slaCount >= 20
-  const hasSlaRisk = slaCount > 0
-  const hasLossRisk = Boolean(worstLoss && worstLoss.loss_rate >= 30)
-  const hasConversionRisk = finalConv > 0 && finalConv < 20
-
-  const operationStatus = hasCriticalSla
-    ? 'Operação crítica'
-    : hasSlaRisk || hasLossRisk || hasConversionRisk
-      ? 'Operação em atenção'
-      : 'Operação saudável'
+    const hasCriticalSla = slaCount >= 20
+    const hasSlaRisk = slaCount > 0
+  
+    const operationStatus = hasCriticalSla
+      ? 'Operação crítica'
+      : hasSlaRisk
+        ? 'Operação em atenção'
+        : 'Operação saudável'
 
   const operationStatusColor =
     operationStatus === 'Operação crítica'
@@ -635,22 +633,14 @@ export default async function RelatoriosGeraisPage() {
         ? DS.yellow
         : DS.green
 
-  const mainBottleneck = hasSlaRisk && worstStageByCount
-    ? `SLA acima do limite na etapa ${worstStageByCount}.`
-    : hasLossRisk && worstLoss
-      ? `Perdas concentradas na etapa ${worstLoss.stage}.`
-      : slowestStage
-        ? `Maior tempo médio na etapa ${slowestStage.from_stage}.`
-        : 'Nenhum gargalo crítico identificado pelos dados atuais.'
+        const mainBottleneck = hasSlaRisk && worstStageByCount
+        ? `SLA acima do limite na etapa ${worstStageByCount}.`
+        : 'Nenhum gargalo crítico identificado nos atendimentos atuais.'
 
-  const recommendedAction = hasCriticalSla
-    ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
-    : hasSlaRisk
-      ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
-      : hasLossRisk
-        ? 'Revisar os motivos de perda e ajustar abordagem comercial na etapa mais sensível.'
-        : hasConversionRisk
-          ? 'Revisar a passagem entre etapas e identificar onde o funil está perdendo eficiência.'
+        const recommendedAction = hasCriticalSla
+        ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
+        : hasSlaRisk
+          ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
           : 'Manter a cadência operacional e acompanhar preventivamente os indicadores de SLA e avanço.'
 
   const funnelHealthText = slaCount > 0
