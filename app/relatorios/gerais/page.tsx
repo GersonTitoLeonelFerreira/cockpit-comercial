@@ -648,7 +648,7 @@ export default async function RelatoriosGeraisPage() {
     : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
 
     const funnelStages = [
-      { key: 'novo', label: 'Novo' },
+      { key: 'novo', label: 'Novo atribuído' },
       { key: 'contato', label: 'Contato' },
       { key: 'respondeu', label: 'Respondeu' },
       { key: 'negociacao', label: 'Negociação' },
