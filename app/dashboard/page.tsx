@@ -85,6 +85,7 @@ type DashboardState = {
   groupConversion: GroupConversionRow[]
   cycles: SalesCycle[]
   owners: Record<string, Profile>
+  poolOperationalTotal: number | null
 }
 
 const STATUS_ORDER = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
@@ -451,6 +452,7 @@ export default function DashboardPage() {
     groupConversion: [],
     cycles: [],
     owners: {},
+    poolOperationalTotal: null,
   })
 
   const [loading, setLoading] = useState(true)
@@ -504,26 +506,45 @@ export default function DashboardPage() {
       const startDate = toYMD(competency.month_start)
       const endDate = toYMD(competency.month_end)
 
-      const [simulatorMetrics, revenueSummary, groupConversion] = await Promise.all([
-        getSalesCycleMetrics({
-          companyId,
-          ownerUserId: ownerScope,
-          month: competency.month,
-        }),
-        getRevenueSummary({
-          companyId,
-          ownerId: ownerScope,
-          startDate,
-          endDate,
-          metric: 'faturamento',
-        }),
-        getGroupConversion({
-          companyId,
-          ownerId: ownerScope,
-          dateStart: startDate,
-          dateEnd: endDate,
-        }),
-      ])
+      const [simulatorMetrics, revenueSummary, groupConversion, poolOperationalTotal] =
+        await Promise.all([
+          getSalesCycleMetrics({
+            companyId,
+            ownerUserId: ownerScope,
+            month: competency.month,
+          }),
+          getRevenueSummary({
+            companyId,
+            ownerId: ownerScope,
+            startDate,
+            endDate,
+            metric: 'faturamento',
+          }),
+          getGroupConversion({
+            companyId,
+            ownerId: ownerScope,
+            dateStart: startDate,
+            dateEnd: endDate,
+          }),
+          isAdmin
+            ? fetch('/api/pool/cycles?page=1&page_size=1', {
+                cache: 'no-store',
+              })
+                .then(async (response) => {
+                  const json = (await response.json().catch(() => null)) as {
+                    ok?: boolean
+                    total?: number
+                    error?: string
+                  } | null
+
+                  if (!response.ok || !json?.ok) {
+                    throw new Error(json?.error || 'Erro ao carregar total oficial do Pool.')
+                  }
+
+                  return Number(json.total ?? 0)
+                })
+            : Promise.resolve(null),
+        ])
 
       let cyclesQuery = supabase
         .from('sales_cycles')
@@ -609,6 +630,7 @@ export default function DashboardPage() {
         groupConversion,
         cycles,
         owners,
+        poolOperationalTotal,
       })
 
       setUpdatedAt(new Date().toISOString())
@@ -646,7 +668,10 @@ export default function DashboardPage() {
     const losses = counts.perdido
     const revenue = Number(state.revenueSummary?.total_real || 0)
     const totalOpen = metrics?.total_open ?? periodCycles.filter((cycle) => isOpenStatus(cycle.status)).length
-    const totalPool = metrics?.total_pool ?? periodCycles.filter((cycle) => !cycle.owner_user_id && isOpenStatus(cycle.status)).length
+    const totalPool =
+      state.poolOperationalTotal ??
+      metrics?.total_pool ??
+      periodCycles.filter((cycle) => !cycle.owner_user_id && isOpenStatus(cycle.status)).length
 
     const conversion = worked > 0 ? (wins / worked) * 100 : 0
     const closingRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0
@@ -664,7 +689,7 @@ export default function DashboardPage() {
       closingRate,
       averageTicket,
     }
-  }, [periodCycles, state.revenueSummary, state.simulatorMetrics])
+  }, [periodCycles, state.poolOperationalTotal, state.revenueSummary, state.simulatorMetrics])
 
   const funnel = useMemo(() => {
     return STATUS_ORDER.map((status) => ({
