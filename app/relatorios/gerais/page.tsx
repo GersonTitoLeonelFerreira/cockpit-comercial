@@ -423,17 +423,19 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const slaRows: SlaRiskRow[] = (slaData ?? []).map((r: Record<string, unknown>) => ({
-    lead_id: String(r.lead_id ?? ''),
-    name: String(r.name ?? ''),
-    phone: typeof r.phone === 'string' ? r.phone : null,
-    stage: String(r.stage ?? ''),
-    seconds_in_stage: Number(r.seconds_in_stage ?? 0),
-    sla_seconds: Number(r.sla_seconds ?? 0),
-    over_seconds: Number(r.over_seconds ?? 0),
-    owner_user_id: typeof r.owner_user_id === 'string' ? r.owner_user_id : null,
-    owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
-  }))
+  const slaRows: SlaRiskRow[] = (slaData ?? [])
+    .map((r: Record<string, unknown>) => ({
+      lead_id: String(r.lead_id ?? ''),
+      name: String(r.name ?? ''),
+      phone: typeof r.phone === 'string' ? r.phone : null,
+      stage: String(r.stage ?? ''),
+      seconds_in_stage: Number(r.seconds_in_stage ?? 0),
+      sla_seconds: Number(r.sla_seconds ?? 0),
+      over_seconds: Number(r.over_seconds ?? 0),
+      owner_user_id: typeof r.owner_user_id === 'string' ? r.owner_user_id : null,
+      owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
+    }))
+    .filter((row) => Boolean(row.owner_user_id))
 
   // --- Base de vendas para ticket real ---
   const { data: cycleStatusData, error: cycleStatusErr } = await supabase
