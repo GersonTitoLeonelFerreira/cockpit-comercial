@@ -823,17 +823,22 @@ export default function DashboardPage() {
   }, [state.cycles])
 
   const risks = useMemo(() => {
-    const activeCycles = state.cycles.filter((cycle) => isOpenStatus(cycle.status))
+    const activeAssignedCycles = state.cycles.filter(
+      (cycle) => cycle.owner_user_id && isOpenStatus(cycle.status)
+    )
+
     const now = Date.now()
 
-    const overdue = activeCycles.filter((cycle) => {
+    const overdue = activeAssignedCycles.filter((cycle) => {
       const nextActionTime = getTime(cycle.next_action_date)
       return nextActionTime > 0 && nextActionTime < now
     })
 
-    const withoutNextAction = activeCycles.filter((cycle) => !cycle.next_action_date)
+    const withoutNextAction = activeAssignedCycles.filter(
+      (cycle) => !cycle.next_action_date
+    )
 
-    const idle = activeCycles.filter((cycle) => {
+    const idle = activeAssignedCycles.filter((cycle) => {
       const enteredAt = getTime(cycle.stage_entered_at)
 
       if (!enteredAt) return false
@@ -1121,7 +1126,7 @@ export default function DashboardPage() {
             {loading ? (
               <Empty text="Carregando funil..." />
             ) : funnel.length === 0 ? (
-              <Empty text="Nenhum ciclo encontrado na competência." />
+              <Empty text="Nenhuma oportunidade com vendedor encontrada." />
             ) : (
               <div style={{ display: 'grid', gap: 14 }}>
                 {funnel.map((item) => (
@@ -1277,7 +1282,7 @@ export default function DashboardPage() {
 
           <Panel
             title="Riscos operacionais atuais"
-            description="Riscos sobre os ciclos abertos agora, não sobre o histórico encerrado."
+            description="Riscos sobre oportunidades com responsável agora, não sobre Pool nem histórico encerrado."
           >
             <div
               style={{
