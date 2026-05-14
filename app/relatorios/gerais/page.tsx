@@ -636,8 +636,8 @@ export default async function RelatoriosGeraisPage() {
         const mainBottleneck = hasSlaRisk && worstStageByCount
         ? `SLA acima do limite na etapa ${worstStageByCount}.`
         : 'Nenhum gargalo crítico identificado nos atendimentos atuais.'
-
-        const recommendedAction = hasCriticalSla
+    
+      const recommendedAction = hasCriticalSla
         ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
         : hasSlaRisk
           ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
