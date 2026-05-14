@@ -817,7 +817,12 @@ export default function DashboardPage() {
 
   const upcoming = useMemo(() => {
     return state.cycles
-      .filter((cycle) => isOpenStatus(cycle.status) && cycle.next_action_date)
+      .filter(
+        (cycle) =>
+          cycle.owner_user_id &&
+          isOpenStatus(cycle.status) &&
+          cycle.next_action_date
+      )
       .sort((a, b) => getTime(a.next_action_date) - getTime(b.next_action_date))
       .slice(0, 8)
   }, [state.cycles])
@@ -1154,12 +1159,12 @@ export default function DashboardPage() {
 
           <Panel
             title="Agenda comercial"
-            description="Próximas ações reais registradas nos ciclos abertos."
+            description="Próximas ações reais das oportunidades com responsável."
           >
             {loading ? (
               <Empty text="Carregando próximas ações..." />
             ) : upcoming.length === 0 ? (
-              <Empty text="Nenhuma próxima ação encontrada. Se existem ciclos ativos, isso indica falha de follow-up." />
+              <Empty text="Nenhuma próxima ação encontrada para oportunidades com responsável. Se existem atendimentos em andamento, isso indica falha de follow-up." />
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {upcoming.map((cycle) => (
