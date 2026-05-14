@@ -86,6 +86,7 @@ type DashboardState = {
   cycles: SalesCycle[]
   owners: Record<string, Profile>
   poolOperationalTotal: number | null
+  inProgressOperationalTotal: number | null
 }
 
 const STATUS_ORDER = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
@@ -453,6 +454,7 @@ export default function DashboardPage() {
     cycles: [],
     owners: {},
     poolOperationalTotal: null,
+    inProgressOperationalTotal: null,
   })
 
   const [loading, setLoading] = useState(true)
@@ -506,45 +508,73 @@ export default function DashboardPage() {
       const startDate = toYMD(competency.month_start)
       const endDate = toYMD(competency.month_end)
 
-      const [simulatorMetrics, revenueSummary, groupConversion, poolOperationalTotal] =
-        await Promise.all([
-          getSalesCycleMetrics({
-            companyId,
-            ownerUserId: ownerScope,
-            month: competency.month,
-          }),
-          getRevenueSummary({
-            companyId,
-            ownerId: ownerScope,
-            startDate,
-            endDate,
-            metric: 'faturamento',
-          }),
-          getGroupConversion({
-            companyId,
-            ownerId: ownerScope,
-            dateStart: startDate,
-            dateEnd: endDate,
-          }),
-          isAdmin
-            ? fetch('/api/pool/cycles?page=1&page_size=1', {
-                cache: 'no-store',
-              })
-                .then(async (response) => {
-                  const json = (await response.json().catch(() => null)) as {
-                    ok?: boolean
-                    total?: number
-                    error?: string
-                  } | null
+      const [
+        simulatorMetrics,
+        revenueSummary,
+        groupConversion,
+        poolOperationalTotal,
+        inProgressOperationalTotal,
+      ] = await Promise.all([
+        getSalesCycleMetrics({
+          companyId,
+          ownerUserId: ownerScope,
+          month: competency.month,
+        }),
+        getRevenueSummary({
+          companyId,
+          ownerId: ownerScope,
+          startDate,
+          endDate,
+          metric: 'faturamento',
+        }),
+        getGroupConversion({
+          companyId,
+          ownerId: ownerScope,
+          dateStart: startDate,
+          dateEnd: endDate,
+        }),
+        isAdmin
+          ? fetch('/api/pool/cycles?page=1&page_size=1', {
+              cache: 'no-store',
+            }).then(async (response) => {
+              const json = (await response.json().catch(() => null)) as {
+                ok?: boolean
+                total?: number
+                error?: string
+              } | null
 
-                  if (!response.ok || !json?.ok) {
-                    throw new Error(json?.error || 'Erro ao carregar total oficial do Pool.')
-                  }
+              if (!response.ok || !json?.ok) {
+                throw new Error(json?.error || 'Erro ao carregar total oficial do Pool.')
+              }
 
-                  return Number(json.total ?? 0)
-                })
-            : Promise.resolve(null),
-        ])
+              return Number(json.total ?? 0)
+            })
+          : Promise.resolve(null),
+          supabase
+          .from('v_pipeline_items')
+          .select('id', { head: true, count: 'exact' })
+          .eq('company_id', companyId)
+          .not('owner_id', 'is', null)
+          .neq('status', 'ganho')
+          .neq('status', 'perdido')
+          .neq('status', 'cancelado')
+          .then(
+            (result: {
+              count: number | null
+              error: { message: string } | null
+            }) => {
+              const { count, error: inProgressError } = result
+
+              if (inProgressError) {
+                throw new Error(
+                  `Erro ao carregar atendimentos em andamento: ${inProgressError.message}`
+                )
+              }
+
+              return count ?? 0
+            }
+          ),
+      ])
 
       let cyclesQuery = supabase
         .from('sales_cycles')
@@ -631,6 +661,7 @@ export default function DashboardPage() {
         cycles,
         owners,
         poolOperationalTotal,
+        inProgressOperationalTotal,
       })
 
       setUpdatedAt(new Date().toISOString())
@@ -667,7 +698,10 @@ export default function DashboardPage() {
     const wins = metrics?.current_wins ?? counts.ganho
     const losses = counts.perdido
     const revenue = Number(state.revenueSummary?.total_real || 0)
-    const totalOpen = metrics?.total_open ?? periodCycles.filter((cycle) => isOpenStatus(cycle.status)).length
+    const totalInProgress =
+      state.inProgressOperationalTotal ??
+      periodCycles.filter((cycle) => cycle.owner_user_id && isOpenStatus(cycle.status)).length
+
     const totalPool =
       state.poolOperationalTotal ??
       metrics?.total_pool ??
@@ -683,13 +717,19 @@ export default function DashboardPage() {
       wins,
       losses,
       revenue,
-      totalOpen,
+      totalInProgress,
       totalPool,
       conversion,
       closingRate,
       averageTicket,
     }
-  }, [periodCycles, state.poolOperationalTotal, state.revenueSummary, state.simulatorMetrics])
+  }, [
+    periodCycles,
+    state.inProgressOperationalTotal,
+    state.poolOperationalTotal,
+    state.revenueSummary,
+    state.simulatorMetrics,
+  ])
 
   const funnel = useMemo(() => {
     return STATUS_ORDER.map((status) => ({
@@ -985,17 +1025,17 @@ export default function DashboardPage() {
             accent={dashboardMetrics.conversion >= 20 ? '#22c55e' : '#f59e0b'}
           />
 
-          <Card
-            title="Ciclos abertos"
-            value={loading ? '...' : formatNumber(dashboardMetrics.totalOpen)}
-            description="Ciclos ainda em andamento na competência operacional."
+<Card
+            title="Atendimentos em andamento"
+            value={loading ? '...' : formatNumber(dashboardMetrics.totalInProgress)}
+            description="Oportunidades com vendedor e ainda não finalizadas."
             accent="#8b5cf6"
           />
 
-          <Card
-            title="Pool"
+<Card
+            title="Pool atual"
             value={loading ? '...' : formatNumber(dashboardMetrics.totalPool)}
-            description="Oportunidades sem responsável no recorte atual."
+            description="Oportunidades operacionais sem responsável."
             accent="#a855f7"
           />
         </section>
