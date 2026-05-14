@@ -1045,11 +1045,11 @@ export default async function RelatoriosGeraisPage() {
           }}
         >
           <div>
-            <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
-              Pontos críticos da operação
+          <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
+              Sinais operacionais e histórico do funil
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5, maxWidth: 720 }}>
-              Resumo dos principais sinais que explicam onde o funil está perdendo velocidade, eficiência ou previsibilidade.
+              Separa risco atual de atendimento dos indicadores históricos de conversão, perdas e tempo por etapa.
             </div>
           </div>
 
@@ -1075,7 +1075,7 @@ export default async function RelatoriosGeraisPage() {
 
             <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                Conversão e vazamento
+              Histórico de conversão
               </div>
               <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
                 {conversionLeakText}
@@ -1084,7 +1084,7 @@ export default async function RelatoriosGeraisPage() {
 
             <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${worstLoss ? `${DS.red}35` : DS.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                Perdas
+              Histórico de perdas
               </div>
               <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
                 {lossText}
@@ -1093,7 +1093,7 @@ export default async function RelatoriosGeraisPage() {
 
             <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${slowestStage ? `${DS.blue}35` : DS.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                Gargalo de tempo
+              Tempo histórico por etapa
               </div>
               <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
                 {timeBottleneckText}
