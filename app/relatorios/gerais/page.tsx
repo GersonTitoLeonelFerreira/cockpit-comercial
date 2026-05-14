@@ -281,6 +281,10 @@ type FunnelStatusRow = {
   closed_at: string | null
 }
 
+type PipelineStatusRow = {
+  status: string
+}
+
 // ==============================================================================
 // Table styles
 // ==============================================================================
@@ -431,7 +435,7 @@ export default async function RelatoriosGeraisPage() {
     owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
   }))
 
-  // --- Saúde atual do funil ---
+  // --- Base de vendas para ticket real ---
   const { data: cycleStatusData, error: cycleStatusErr } = await supabase
     .from('sales_cycles')
     .select('status, stage_entered_at, won_total, revenue_seller_ref_date, won_at, closed_at')
@@ -446,6 +450,18 @@ export default async function RelatoriosGeraisPage() {
         typeof r.revenue_seller_ref_date === 'string' ? r.revenue_seller_ref_date : null,
       won_at: typeof r.won_at === 'string' ? r.won_at : null,
       closed_at: typeof r.closed_at === 'string' ? r.closed_at : null,
+    })
+  )
+
+  // --- Saúde atual do funil ---
+  const { data: pipelineStatusData, error: pipelineStatusErr } = await supabase
+    .from('v_pipeline_items')
+    .select('status')
+    .eq('company_id', companyId)
+
+  const pipelineStatusRows: PipelineStatusRow[] = (pipelineStatusData ?? []).map(
+    (r: Record<string, unknown>) => ({
+      status: normalizeFunnelStatus(r.status),
     })
   )
 
@@ -558,6 +574,7 @@ export default async function RelatoriosGeraisPage() {
     revenueSummaryErr?.message ||
     cycleMetricsErr?.message ||
     cycleStatusErr?.message ||
+    pipelineStatusErr?.message ||
     null
 
   function toBRL(v: number) {
@@ -643,17 +660,17 @@ export default async function RelatoriosGeraisPage() {
     { key: 'perdido', label: 'Perdido' },
   ]
 
-  const funnelStatusCounts = cycleStatusRows.reduce<Record<string, number>>((acc, row) => {
+  const funnelStatusCounts = pipelineStatusRows.reduce<Record<string, number>>((acc, row) => {
     const status = row.status || 'sem_status'
     acc[status] = (acc[status] ?? 0) + 1
     return acc
   }, {})
 
-  const openFunnelCount = cycleStatusRows.filter(
+  const openFunnelCount = pipelineStatusRows.filter(
     (row) => !['ganho', 'perdido', 'cancelado'].includes(row.status)
   ).length
 
-  const closedFunnelCount = cycleStatusRows.filter(
+  const closedFunnelCount = pipelineStatusRows.filter(
     (row) => ['ganho', 'perdido'].includes(row.status)
   ).length
 
