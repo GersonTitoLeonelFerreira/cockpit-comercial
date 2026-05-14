@@ -310,14 +310,16 @@ const tdBold: React.CSSProperties = {
 // ==============================================================================
 
 export default async function RelatoriosGeraisPage() {
+  const cookieStore = await cookies()
+  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         async getAll() {
-          const store = await cookies()
-          return store.getAll()
+          return cookieStore.getAll()
         },
         async setAll() {
           // Server Component não escreve cookie
@@ -333,25 +335,36 @@ export default async function RelatoriosGeraisPage() {
 
   if (!user || userErr) redirect('/login')
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
+  if (!activeCompanyId) {
+    return (
+      <div style={{ width: 900, margin: '80px auto', color: DS.textPrimary }}>
+        <h1>Relatórios</h1>
+        <p>Empresa ativa não selecionada.</p>
+      </div>
+    )
+  }
 
-  if (profileError || !profile?.company_id) {
+  const { data: membership, error: membershipError } = await supabase
+    .from('company_memberships')
+    .select('company_id, role, is_active')
+    .eq('company_id', activeCompanyId)
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (membershipError || !membership?.company_id) {
     return (
       <div style={{ width: 900, margin: '80px auto', color: DS.textPrimary }}>
         <h1>Relatórios</h1>
         <p>
-          Erro ao buscar seu perfil/empresa:{' '}
-          {profileError?.message ?? 'company_id não encontrado'}
+          Usuário sem vínculo ativo com a empresa selecionada:{' '}
+          {membershipError?.message ?? 'membership não encontrada'}
         </p>
       </div>
     )
   }
 
-  const companyId = profile.company_id as string
+  const companyId = activeCompanyId
 
   // --- Conversão ---
   const { data: convData, error: convErr } = await supabase.rpc(
@@ -428,11 +441,13 @@ export default async function RelatoriosGeraisPage() {
   )
 
   // --- Referência de meta — contexto secundário do Simulador ---
-  const { data: activeCompetencyRaw, error: activeCompetencyErr } = await supabase.rpc(
-    'rpc_get_active_competency'
-  )
+  const activeCompetencyErrMessage: string | null = null
+  const activeCompetency = {
+    month: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+    month_start: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+    month_end: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
+  }
 
-  const activeCompetency = (activeCompetencyRaw ?? {}) as Record<string, unknown>
   const periodStart = getPeriodStartFromCompetency(activeCompetency)
   const periodEnd = getMonthEndInclusiveFromStart(periodStart)
   const hasActivePeriod = Boolean(periodStart && periodEnd)
@@ -457,13 +472,14 @@ export default async function RelatoriosGeraisPage() {
       })
     : { data: null, error: null }
 
-  const { data: cycleMetricsRaw, error: cycleMetricsErr } = await supabase.rpc(
-    'rpc_get_sales_cycle_metrics_v1',
-    {
-      p_owner_user_id: ownerScopeId,
-      p_month: periodStart || null,
-    }
-  )
+    const { data: cycleMetricsRaw, error: cycleMetricsErr } = await supabase.rpc(
+      'rpc_get_sales_cycle_metrics_v1_for_company',
+      {
+        p_company_id: companyId,
+        p_owner_user_id: ownerScopeId,
+        p_month: periodStart || null,
+      }
+    )
 
   const revenueGoal = (revenueGoalRaw ?? {}) as Record<string, unknown>
   const revenueSummary = (revenueSummaryRaw ?? {}) as Record<string, unknown>
@@ -507,7 +523,7 @@ export default async function RelatoriosGeraisPage() {
   const statusLabelText = statusMeta === 'no_ritmo' ? 'No ritmo' : statusMeta === 'atencao' ? 'Atenção' : 'Acelerar'
 
   const metaVsRealityError =
-    activeCompetencyErr?.message ||
+    activeCompetencyErrMessage ||
     revenueGoalErr?.message ||
     revenueSummaryErr?.message ||
     cycleMetricsErr?.message ||
