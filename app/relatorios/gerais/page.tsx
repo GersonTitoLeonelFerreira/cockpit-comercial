@@ -165,6 +165,22 @@ function normalizeFunnelStatus(value: unknown) {
   return status
 }
 
+function getReportStageLabel(value: unknown) {
+  const status = normalizeFunnelStatus(value)
+
+  const labels: Record<string, string> = {
+    novo: 'Novo atribuído',
+    contato: 'Contato',
+    respondeu: 'Respondeu',
+    negociacao: 'Negociação',
+    ganho: 'Ganho',
+    perdido: 'Perdido',
+    cancelado: 'Cancelado',
+  }
+
+  return labels[status] || status || '—'
+}
+
 function isDefaultBusinessDay(date: Date) {
   const weekday = date.getDay()
 
@@ -604,7 +620,7 @@ export default async function RelatoriosGeraisPage() {
   const topRiskLeads = slaRows.slice(0, 50)
 
   const finalStep = convRows.find(
-    (r) => r.from_stage === 'negociacao' && r.to_stage === 'fechado'
+    (r) => r.from_stage === 'negociacao' && r.to_stage === 'ganho'
   )
   const finalConv = finalStep ? finalStep.conversion : 0
 
@@ -634,7 +650,7 @@ export default async function RelatoriosGeraisPage() {
           : DS.green
   
     const mainBottleneck = hasSlaRisk && worstStageByCount
-      ? `SLA acima do limite na etapa ${worstStageByCount}.`
+      ? `SLA acima do limite na etapa ${getReportStageLabel(worstStageByCount)}.`
       : 'Nenhum gargalo crítico identificado nos atendimentos atuais.'
   
     const recommendedAction = hasCriticalSla
@@ -1045,7 +1061,7 @@ export default async function RelatoriosGeraisPage() {
           }}
         >
           <div>
-          <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
               Sinais operacionais e histórico do funil
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5, maxWidth: 720 }}>
@@ -1069,7 +1085,7 @@ export default async function RelatoriosGeraisPage() {
                 {slaCount}
               </div>
               <div style={{ marginTop: 6, fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
-                {slaCount > 0 ? `Etapa mais crítica: ${worstStageByCount ?? 'não identificada'}.` : 'Sem oportunidades acima do SLA.'}
+              {slaCount > 0 ? `Etapa mais crítica: ${getReportStageLabel(worstStageByCount)}.` : 'Sem oportunidades acima do SLA.'}
               </div>
             </div>
 
@@ -1434,11 +1450,9 @@ export default async function RelatoriosGeraisPage() {
                             </a>
                           </td>
                           <td style={tdStyle}>
-                            {r.owner_name ? r.owner_name : <span style={{ color: DS.textMuted, fontStyle: 'italic' }}>Sem dono</span>}
+                          {r.owner_name ? r.owner_name : <span style={{ color: DS.textMuted, fontStyle: 'italic' }}>Responsável não identificado</span>}
                           </td>
-                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>
-                            {r.stage === 'novo' ? 'Novo atribuído' : r.stage}
-                          </td>
+                          <td style={tdStyle}>{getReportStageLabel(r.stage)}</td>
                           <td style={tdStyle}>{formatSeconds(r.seconds_in_stage)}</td>
                           <td style={tdStyle}>{formatSeconds(r.sla_seconds)}</td>
                           <td style={tdBold}>{formatSeconds(r.over_seconds)}</td>
@@ -1493,7 +1507,7 @@ export default async function RelatoriosGeraisPage() {
               Detalhamento: conversão entre etapas
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
-              Conversão final (Negociação → Fechado): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
+            Conversão final (Negociação → Ganho): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
             </div>
           </div>
 
@@ -1539,8 +1553,8 @@ export default async function RelatoriosGeraisPage() {
                     ) : (
                       convRows.map((r) => (
                         <tr key={`${r.from_stage}->${r.to_stage}`}>
-                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.from_stage}</td>
-                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.to_stage}</td>
+                          <td style={tdStyle}>{getReportStageLabel(r.from_stage)}</td>
+                          <td style={tdStyle}>{getReportStageLabel(r.to_stage)}</td>
                           <td style={tdStyle}>{r.entered}</td>
                           <td style={tdStyle}>{r.progressed}</td>
                           <td style={tdBold}>{r.conversion.toFixed(2)}%</td>
