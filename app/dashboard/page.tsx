@@ -479,7 +479,11 @@ export default function DashboardPage() {
       const endDate = toYMD(competency.month_end)
 
       const [simulatorMetrics, revenueSummary, groupConversion] = await Promise.all([
-        getSalesCycleMetrics(ownerScope, competency.month),
+        getSalesCycleMetrics({
+          companyId: profile.company_id,
+          ownerUserId: ownerScope,
+          month: competency.month,
+        }),
         getRevenueSummary({
           companyId: profile.company_id,
           ownerId: ownerScope,

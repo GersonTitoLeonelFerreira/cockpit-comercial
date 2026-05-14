@@ -38,16 +38,18 @@ export async function getActiveCompetency(): Promise<ActiveCompetency> {
   return getCurrentMonthCompetency()
 }
 
-export async function getSalesCycleMetrics(
-  ownerUserId?: string | null,
-  month?: string | null,
-): Promise<SimulatorMetrics> {
+export async function getSalesCycleMetrics(params: {
+  companyId: string
+  ownerUserId?: string | null
+  month?: string | null
+}): Promise<SimulatorMetrics> {
   const supabase = supabaseBrowser()
   const currentCompetency = getCurrentMonthCompetency()
 
-  const { data, error } = await supabase.rpc('rpc_get_sales_cycle_metrics_v1', {
-    p_owner_user_id: ownerUserId ?? null,
-    p_month: month ?? currentCompetency.month,
+  const { data, error } = await supabase.rpc('rpc_get_sales_cycle_metrics_v1_for_company', {
+    p_company_id: params.companyId,
+    p_owner_user_id: params.ownerUserId ?? null,
+    p_month: params.month ?? currentCompetency.month,
   })
 
   if (error) throw error
