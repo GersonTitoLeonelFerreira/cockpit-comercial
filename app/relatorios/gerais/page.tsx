@@ -435,7 +435,7 @@ export default async function RelatoriosGeraisPage() {
       owner_user_id: typeof r.owner_user_id === 'string' ? r.owner_user_id : null,
       owner_name: typeof r.owner_name === 'string' ? r.owner_name : null,
     }))
-    .filter((row) => Boolean(row.owner_user_id))
+    .filter((row: SlaRiskRow) => Boolean(row.owner_user_id))
 
   // --- Base de vendas para ticket real ---
   const { data: cycleStatusData, error: cycleStatusErr } = await supabase
