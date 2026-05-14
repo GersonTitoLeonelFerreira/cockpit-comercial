@@ -859,7 +859,7 @@ export default function DashboardPage() {
     const map = new Map<
       string,
       {
-        ownerId: string | null
+        ownerId: string
         label: string
         worked: number
         wins: number
@@ -869,8 +869,17 @@ export default function DashboardPage() {
     >()
 
     for (const cycle of periodCycles) {
-      const ownerId = cycle.won_owner_user_id || cycle.owner_user_id || null
-      const key = ownerId || 'pool'
+      let ownerId = cycle.owner_user_id
+
+      if (isWonCycle(cycle)) {
+        ownerId = cycle.won_owner_user_id || cycle.owner_user_id
+      } else if (isLostCycle(cycle)) {
+        ownerId = cycle.lost_owner_user_id || cycle.owner_user_id
+      }
+
+      if (!ownerId) continue
+
+      const key = ownerId
 
       if (!map.has(key)) {
         map.set(key, {
@@ -1226,7 +1235,7 @@ export default function DashboardPage() {
         >
           <Panel
             title="Performance por responsável"
-            description="Leitura por responsável dentro da competência atual."
+            description="Performance de oportunidades com responsável dentro da competência atual."
           >
             {loading ? (
               <Empty text="Carregando responsáveis..." />
