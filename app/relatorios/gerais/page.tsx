@@ -625,28 +625,28 @@ export default async function RelatoriosGeraisPage() {
       : hasSlaRisk
         ? 'Operação em atenção'
         : 'Operação saudável'
-
-  const operationStatusColor =
-    operationStatus === 'Operação crítica'
-      ? DS.red
-      : operationStatus === 'Operação em atenção'
-        ? DS.yellow
-        : DS.green
-
-        const mainBottleneck = hasSlaRisk && worstStageByCount
-        ? `SLA acima do limite na etapa ${worstStageByCount}.`
-        : 'Nenhum gargalo crítico identificado nos atendimentos atuais.'
-    
-      const recommendedAction = hasCriticalSla
-        ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
-        : hasSlaRisk
-          ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
-          : 'Manter a cadência operacional e acompanhar preventivamente os indicadores de SLA e avanço.'
-
-  const funnelHealthText = slaCount > 0
-    ? `${slaCount} oportunidades estão acima do SLA. A prioridade é destravar o funil antes de ampliar volume.`
-    : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
-
+  
+    const operationStatusColor =
+      operationStatus === 'Operação crítica'
+        ? DS.red
+        : operationStatus === 'Operação em atenção'
+          ? DS.yellow
+          : DS.green
+  
+    const mainBottleneck = hasSlaRisk && worstStageByCount
+      ? `SLA acima do limite na etapa ${worstStageByCount}.`
+      : 'Nenhum gargalo crítico identificado nos atendimentos atuais.'
+  
+    const recommendedAction = hasCriticalSla
+      ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
+      : hasSlaRisk
+        ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
+        : 'Manter a cadência operacional e acompanhar preventivamente os indicadores de SLA e avanço.'
+  
+    const funnelHealthText = slaCount > 0
+      ? `${slaCount} oportunidades estão acima do SLA. A prioridade é destravar o funil antes de ampliar volume.`
+      : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
+  
     const funnelStages = [
       { key: 'novo', label: 'Novo atribuído' },
       { key: 'contato', label: 'Contato' },
