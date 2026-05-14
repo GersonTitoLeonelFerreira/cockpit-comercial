@@ -461,6 +461,9 @@ export default async function RelatoriosGeraisPage() {
     .select('status')
     .eq('company_id', companyId)
     .not('owner_id', 'is', null)
+    .neq('status', 'ganho')
+    .neq('status', 'perdido')
+    .neq('status', 'cancelado')
 
   const pipelineStatusRows: PipelineStatusRow[] = (pipelineStatusData ?? []).map(
     (r: Record<string, unknown>) => ({
@@ -654,14 +657,12 @@ export default async function RelatoriosGeraisPage() {
     ? `${slaCount} oportunidades estão acima do SLA. A prioridade é destravar o funil antes de ampliar volume.`
     : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
 
-  const funnelStages = [
-    { key: 'novo', label: 'Novo' },
-    { key: 'contato', label: 'Contato' },
-    { key: 'respondeu', label: 'Respondeu' },
-    { key: 'negociacao', label: 'Negociação' },
-    { key: 'ganho', label: 'Ganho' },
-    { key: 'perdido', label: 'Perdido' },
-  ]
+    const funnelStages = [
+      { key: 'novo', label: 'Novo' },
+      { key: 'contato', label: 'Contato' },
+      { key: 'respondeu', label: 'Respondeu' },
+      { key: 'negociacao', label: 'Negociação' },
+    ]
 
   const funnelStatusCounts = pipelineStatusRows.reduce<Record<string, number>>((acc, row) => {
     const status = row.status || 'sem_status'
@@ -669,13 +670,7 @@ export default async function RelatoriosGeraisPage() {
     return acc
   }, {})
 
-  const openFunnelCount = pipelineStatusRows.filter(
-    (row) => !['ganho', 'perdido', 'cancelado'].includes(row.status)
-  ).length
-
-  const closedFunnelCount = pipelineStatusRows.filter(
-    (row) => ['ganho', 'perdido'].includes(row.status)
-  ).length
+  const openFunnelCount = pipelineStatusRows.length
 
   const stageWithMostAccumulation = funnelStages
     .filter((stage) => !['ganho', 'perdido'].includes(stage.key))
@@ -962,7 +957,7 @@ export default async function RelatoriosGeraisPage() {
                 fontWeight: 900,
               }}
             >
-              {openFunnelCount} abertas · {closedFunnelCount} fechadas
+              {openFunnelCount} em atendimento
             </div>
           </div>
 
