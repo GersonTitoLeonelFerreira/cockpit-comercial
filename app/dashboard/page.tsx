@@ -1368,12 +1368,12 @@ export default function DashboardPage() {
 
           <Panel
             title="Conversão por grupo"
-            description="Mesma leitura de grupos usada no Simulador de Meta."
+            description="Grupos trabalhados na competência atual, usando a mesma métrica do Simulador de Meta."
           >
             {loading ? (
               <Empty text="Carregando grupos..." />
             ) : state.groupConversion.length === 0 ? (
-              <Empty text="Nenhum grupo encontrado no período." />
+              <Empty text="Nenhum grupo trabalhado encontrado na competência atual." />
             ) : (
               <div style={{ display: 'grid', gap: 14 }}>
                 {state.groupConversion.map((row, index) => (
