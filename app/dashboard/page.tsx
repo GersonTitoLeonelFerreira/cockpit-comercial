@@ -759,22 +759,30 @@ export default function DashboardPage() {
         ...EMPTY_STATUS_COUNTS,
       }
 
-    const worked = metrics?.worked_count ?? periodCycles.length
-    const wins = metrics?.current_wins ?? periodCounts.ganho
-    const losses = periodCounts.perdido
-    const revenue = Number(state.revenueSummary?.total_real || 0)
-    const totalInProgress =
-      state.inProgressOperationalTotal ??
-      periodCycles.filter((cycle) => cycle.owner_user_id && isOpenStatus(cycle.status)).length
-
-    const totalPool =
-      state.poolOperationalTotal ??
-      metrics?.total_pool ??
-      periodCycles.filter((cycle) => !cycle.owner_user_id && isOpenStatus(cycle.status)).length
-
-    const conversion = worked > 0 ? (wins / worked) * 100 : 0
-    const closingRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0
-    const averageTicket = wins > 0 ? revenue / wins : 0
+      const worked = metrics?.worked_count ?? periodCycles.length
+      const wins = metrics?.current_wins ?? periodCounts.ganho
+      const losses = periodCounts.perdido
+      const revenue = Number(state.revenueSummary?.total_real || 0)
+  
+      const wonCycles = periodCycles.filter(isWonCycle)
+      const productSalesRevenue = wonCycles.reduce(
+        (total, cycle) => total + Number(cycle.won_total || 0),
+        0
+      )
+  
+      const totalInProgress =
+        state.inProgressOperationalTotal ??
+        periodCycles.filter((cycle) => cycle.owner_user_id && isOpenStatus(cycle.status)).length
+  
+      const totalPool =
+        state.poolOperationalTotal ??
+        metrics?.total_pool ??
+        periodCycles.filter((cycle) => !cycle.owner_user_id && isOpenStatus(cycle.status)).length
+  
+      const conversion = worked > 0 ? (wins / worked) * 100 : 0
+      const closingRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0
+      const averageTicket =
+        wonCycles.length > 0 ? productSalesRevenue / wonCycles.length : 0
 
     return {
       counts: operationalCounts,
@@ -1118,7 +1126,14 @@ export default function DashboardPage() {
             accent="#8b5cf6"
           />
 
-<Card
+          <Card
+            title="Ticket médio real"
+            value={loading ? '...' : formatMoney(dashboardMetrics.averageTicket)}
+            description="Valor médio dos produtos vendidos na competência."
+            accent="#06b6d4"
+          />
+
+          <Card
             title="Pool atual"
             value={loading ? '...' : formatNumber(dashboardMetrics.totalPool)}
             description="Oportunidades operacionais sem responsável."
@@ -1326,12 +1341,6 @@ export default function DashboardPage() {
                 accent="#a855f7"
               />
 
-              <Card
-                title="Ticket médio real"
-                value={loading ? '...' : formatMoney(dashboardMetrics.averageTicket)}
-                description="Faturamento real dividido pelas vendas do período."
-                accent="#06b6d4"
-              />
             </div>
           </Panel>
         </section>
