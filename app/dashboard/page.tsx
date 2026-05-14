@@ -1345,12 +1345,12 @@ export default function DashboardPage() {
         >
           <Panel
             title="Motivos de perda"
-            description="Perdas da competência atual, usando lost_reason dos ciclos perdidos."
+            description="Perdas encerradas na competência atual, agrupadas pelo motivo registrado no ciclo."
           >
             {loading ? (
               <Empty text="Carregando perdas..." />
             ) : lostReasons.length === 0 ? (
-              <Empty text="Nenhum motivo de perda encontrado na competência." />
+              <Empty text="Nenhuma perda encerrada encontrada na competência atual." />
             ) : (
               <div style={{ display: 'grid', gap: 14 }}>
                 {lostReasons.map((item) => (
