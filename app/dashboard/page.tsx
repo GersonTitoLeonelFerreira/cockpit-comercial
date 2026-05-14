@@ -746,12 +746,7 @@ export default function DashboardPage() {
     const metrics = state.simulatorMetrics
 
     const periodCounts: DashboardStatusCounts = metrics?.counts_by_status ?? {
-      novo: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'novo').length,
-      contato: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'contato').length,
-      respondeu: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'respondeu').length,
-      negociacao: periodCycles.filter((cycle) => normalizeStatus(cycle.status) === 'negociacao').length,
-      ganho: periodCycles.filter(isWonCycle).length,
-      perdido: periodCycles.filter(isLostCycle).length,
+      ...EMPTY_STATUS_COUNTS,
     }
 
     const operationalCounts: DashboardStatusCounts =
