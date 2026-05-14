@@ -41,6 +41,17 @@ type Profile = {
   email: string | null
 }
 
+type ApiMeResponse = {
+  ok?: boolean
+  user_id?: string
+  profile_id?: string
+  full_name?: string | null
+  email?: string | null
+  active_company_id?: string | null
+  active_role?: string | null
+  error?: string
+}
+
 type SalesCycle = {
   id: string
   company_id: string
@@ -461,17 +472,32 @@ export default function DashboardPage() {
 
       const userId = auth.user.id
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, company_id, role, full_name, email')
-        .eq('id', userId)
-        .single()
+      const meResponse = await fetch('/api/me', {
+        cache: 'no-store',
+      })
 
-      if (profileError || !profile?.company_id) {
-        throw new Error('Perfil do usuário não encontrado.')
+      const me = (await meResponse.json().catch(() => null)) as ApiMeResponse | null
+
+      if (!meResponse.ok || !me?.ok) {
+        throw new Error(me?.error || 'Erro ao carregar empresa ativa.')
       }
 
-      const isAdmin = profile.role === 'admin'
+      if (!me.active_company_id) {
+        throw new Error('Empresa ativa não selecionada.')
+      }
+
+      const companyId = me.active_company_id
+      const activeRole = me.active_role ?? null
+
+      const profile: Profile = {
+        id: userId,
+        company_id: companyId,
+        role: activeRole,
+        full_name: me.full_name ?? null,
+        email: me.email ?? auth.user.email ?? null,
+      }
+
+      const isAdmin = activeRole === 'admin' || activeRole === 'manager'
       const ownerScope = isAdmin ? null : userId
 
       const competency = await getActiveCompetency()
@@ -480,19 +506,19 @@ export default function DashboardPage() {
 
       const [simulatorMetrics, revenueSummary, groupConversion] = await Promise.all([
         getSalesCycleMetrics({
-          companyId: profile.company_id,
+          companyId,
           ownerUserId: ownerScope,
           month: competency.month,
         }),
         getRevenueSummary({
-          companyId: profile.company_id,
+          companyId,
           ownerId: ownerScope,
           startDate,
           endDate,
           metric: 'faturamento',
         }),
         getGroupConversion({
-          companyId: profile.company_id,
+          companyId,
           ownerId: ownerScope,
           dateStart: startDate,
           dateEnd: endDate,
@@ -530,7 +556,7 @@ export default function DashboardPage() {
             email
           )
         `)
-        .eq('company_id', profile.company_id)
+        .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .range(0, 4999)
 
@@ -651,7 +677,7 @@ export default function DashboardPage() {
       ),
       color: STATUS_COLORS[status] || '#64748b',
     })).filter((item) => item.total > 0)
-  }, [dashboardMetrics.counts])
+  }, [dashboardMetrics])
 
   const maxFunnel = useMemo(() => {
     return Math.max(...funnel.map((item) => item.total), 1)
