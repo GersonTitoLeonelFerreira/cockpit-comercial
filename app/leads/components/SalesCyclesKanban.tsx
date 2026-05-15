@@ -1851,17 +1851,22 @@ export default function SalesCyclesKanban({
   const loadGroups = useCallback(async () => {
     if (!companyId) return
 
+    const scopeToLoad: KanbanScope = isAdmin ? selectedScope : 'mine'
     const ownerToLoadGroups = isAdmin ? scopedOwnerId : userId
 
-    if (!ownerToLoadGroups) {
+    if (scopeToLoad !== 'company' && !ownerToLoadGroups) {
       setGroups([])
       return
     }
 
     try {
       const params = new URLSearchParams({
-        owner_id: ownerToLoadGroups,
+        scope: scopeToLoad,
       })
+
+      if (ownerToLoadGroups) {
+        params.set('owner_id', ownerToLoadGroups)
+      }
 
       const response = await fetch(`/api/leads/kanban/groups?${params.toString()}`, {
         method: 'GET',
@@ -1882,7 +1887,7 @@ export default function SalesCyclesKanban({
     } catch (e) {
       console.error('Erro ao carregar grupos:', e)
     }
-  }, [companyId, isAdmin, scopedOwnerId, userId])
+  }, [companyId, isAdmin, selectedScope, scopedOwnerId, userId])
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
