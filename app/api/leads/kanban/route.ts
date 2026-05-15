@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
+type KanbanScope = 'mine' | 'seller' | 'company'
 
 type MembershipRow = {
   company_id: string
@@ -77,6 +78,14 @@ function normalizeOptionalUuid(value: string | null) {
   return uuidRegex.test(trimmed) ? trimmed : null
 }
 
+function normalizeKanbanScope(value: string | null): KanbanScope | null {
+  if (value === 'mine' || value === 'seller' || value === 'company') {
+    return value
+  }
+
+  return null
+}
+
 function normalizeSearch(value: string | null) {
   return (value ?? '')
     .trim()
@@ -139,6 +148,7 @@ export async function GET(req: Request) {
 
     const requestUrl = new URL(req.url)
     const ownerIdParam = normalizeOptionalUuid(requestUrl.searchParams.get('owner_id'))
+    const requestedScope = normalizeKanbanScope(requestUrl.searchParams.get('scope'))
     const groupId = normalizeOptionalUuid(requestUrl.searchParams.get('group_id'))
     const searchTerm = normalizeSearch(requestUrl.searchParams.get('search'))
     const limit = parsePositiveInt(requestUrl.searchParams.get('limit'), 50, 200)
@@ -231,16 +241,30 @@ export async function GET(req: Request) {
       )
     }
 
-    const isAdmin = membership.role === 'admin'
-    const effectiveOwnerId = isAdmin ? ownerIdParam : user.id
+    const canViewTeam = membership.role === 'admin' || membership.role === 'manager'
 
-    if (!effectiveOwnerId) {
-      return NextResponse.json({
-        ok: true,
-        itemsByStatus: emptyItemsByStatus(),
-        totals: emptyTotals(),
-        exactCount: 0,
-      })
+    const scope: KanbanScope =
+      requestedScope ?? (canViewTeam ? (ownerIdParam ? 'seller' : 'company') : 'mine')
+
+    if (!canViewTeam && scope !== 'mine') {
+      return NextResponse.json(
+        { ok: false, error: 'Usuário sem permissão para visualizar esse escopo do Kanban.' },
+        { status: 403 },
+      )
+    }
+
+    const effectiveOwnerId =
+      scope === 'mine'
+        ? user.id
+        : scope === 'seller'
+          ? ownerIdParam
+          : null
+
+    if (scope === 'seller' && !effectiveOwnerId) {
+      return NextResponse.json(
+        { ok: false, error: 'Vendedor não informado para o escopo selecionado.' },
+        { status: 400 },
+      )
     }
 
     const admin = createClient(url, serviceKey, {
@@ -250,7 +274,9 @@ export async function GET(req: Request) {
       },
     })
 
-    if (isAdmin) {
+    let companyScopeOwnerIds: string[] | null = null
+
+    if (scope === 'seller' && effectiveOwnerId) {
       const { data: ownerMembership, error: ownerMembershipError } = await admin
         .from('company_memberships')
         .select('user_id')
@@ -274,11 +300,46 @@ export async function GET(req: Request) {
       }
     }
 
+    if (scope === 'company') {
+      const { data: activeOwners, error: activeOwnersError } = await admin
+        .from('company_memberships')
+        .select('user_id')
+        .eq('company_id', activeCompanyId)
+        .eq('is_active', true)
+
+      if (activeOwnersError) {
+        return NextResponse.json(
+          { ok: false, error: activeOwnersError.message },
+          { status: 400 },
+        )
+      }
+
+      companyScopeOwnerIds = ((activeOwners ?? []) as Array<{ user_id: string }>)
+        .map((owner) => owner.user_id)
+        .filter(Boolean)
+
+      if (companyScopeOwnerIds.length === 0) {
+        return NextResponse.json({
+          ok: true,
+          itemsByStatus: emptyItemsByStatus(),
+          totals: emptyTotals(),
+          exactCount: 0,
+        })
+      }
+    }
+
     let countQuery = admin
       .from('v_pipeline_items')
       .select('status')
       .eq('company_id', activeCompanyId)
-      .eq('owner_id', effectiveOwnerId)
+
+    if (scope === 'company') {
+      countQuery = countQuery
+        .not('owner_id', 'is', null)
+        .in('owner_id', companyScopeOwnerIds ?? [])
+    } else {
+      countQuery = countQuery.eq('owner_id', effectiveOwnerId)
+    }
 
     if (groupId) {
       countQuery = countQuery.eq('group_id', groupId)
@@ -315,10 +376,17 @@ export async function GET(req: Request) {
           'id, lead_id, owner_id, group_id, status, stage_entered_at, name, phone, email, cpf, document, phone_digits, document_digits, next_action, next_action_date, created_at',
         )
         .eq('company_id', activeCompanyId)
-        .eq('owner_id', effectiveOwnerId)
         .eq('status', status)
         .order('created_at', { ascending: false })
         .limit(limit)
+
+      if (scope === 'company') {
+        itemQuery = itemQuery
+          .not('owner_id', 'is', null)
+          .in('owner_id', companyScopeOwnerIds ?? [])
+      } else {
+        itemQuery = itemQuery.eq('owner_id', effectiveOwnerId)
+      }
 
       if (groupId) {
         itemQuery = itemQuery.eq('group_id', groupId)
