@@ -1504,16 +1504,16 @@ function VirtualizedStatusColumn({
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-            ? `linear-gradient(180deg, rgba(${statusRgb},0.22) 0%, rgba(${statusRgb},0.10) 36%, rgba(6,10,18,0.94) 100%)`
-            : `linear-gradient(180deg, rgba(${statusRgb},0.16) 0%, rgba(${statusRgb},0.055) 34%, rgba(6,10,18,0.96) 100%)`,
+            ? `linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.98) 100%)`
+            : `linear-gradient(180deg, rgba(13,15,20,0.96) 0%, rgba(6,10,18,0.96) 100%)`,
           borderRadius: 18,
           border: `1px solid rgba(${statusRgb},0.62)`,
           borderTop: `3px solid ${STATUS_COLORS[status]}`,
           transition: 'background 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease',
           overflow: 'hidden',
           boxShadow: isDraggingOver
-            ? `0 0 0 1px rgba(${statusRgb},0.18), 0 24px 62px rgba(0,0,0,0.48), 0 0 46px rgba(${statusRgb},0.30)`
-            : `0 0 0 1px rgba(${statusRgb},0.08), 0 18px 46px rgba(0,0,0,0.36), 0 0 30px rgba(${statusRgb},0.16)`,
+            ? `0 0 0 1px rgba(${statusRgb},0.22), 0 24px 62px rgba(0,0,0,0.48)`
+            : `0 0 0 1px rgba(${statusRgb},0.08), 0 18px 46px rgba(0,0,0,0.36)`,
         }}
         onDragEnter={(e) => {
           e.preventDefault()
@@ -1539,8 +1539,7 @@ function VirtualizedStatusColumn({
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            background: `radial-gradient(circle at 50% 0%, rgba(${statusRgb},0.22), transparent 46%)`,
-            opacity: 0.92,
+            background: 'transparent',
           }}
         />
 
@@ -1550,7 +1549,7 @@ function VirtualizedStatusColumn({
             top: 0,
             zIndex: 10,
             padding: '24px 20px 16px',
-            background: `linear-gradient(180deg, rgba(${statusRgb},0.17), rgba(9,11,15,0.10))`,
+            background: 'linear-gradient(180deg, rgba(13,15,20,0.98), rgba(9,11,15,0.88))',
             borderBottom: `1px solid rgba(${statusRgb},0.20)`,
             backdropFilter: 'blur(10px)',
           }}
