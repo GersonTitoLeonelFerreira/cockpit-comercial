@@ -181,6 +181,22 @@ function getReportStageLabel(value: unknown) {
   return labels[status] || status || '—'
 }
 
+function getHistoricalStageLabel(value: unknown) {
+  const status = normalizeFunnelStatus(value)
+
+  const labels: Record<string, string> = {
+    novo: 'Ciclos criados',
+    contato: 'Contato',
+    respondeu: 'Respondeu',
+    negociacao: 'Negociação',
+    ganho: 'Ganho',
+    perdido: 'Perdido',
+    cancelado: 'Cancelado',
+  }
+
+  return labels[status] || status || '—'
+}
+
 function isDefaultBusinessDay(date: Date) {
   const weekday = date.getDay()
 
@@ -696,17 +712,17 @@ export default async function RelatoriosGeraisPage() {
     .slice()
     .sort((a, b) => a.conversion - b.conversion)[0]
 
-  const conversionLeakText = conversionLeak
-    ? `Maior vazamento identificado em ${conversionLeak.from_stage} → ${conversionLeak.to_stage}, com ${conversionLeak.conversion.toFixed(0)}% de conversão.`
-    : 'Ainda não há volume suficiente para apontar um vazamento de conversão confiável.'
+    const conversionLeakText = conversionLeak
+    ? `Maior vazamento histórico em ${getHistoricalStageLabel(conversionLeak.from_stage)} → ${getHistoricalStageLabel(conversionLeak.to_stage)}, com ${conversionLeak.conversion.toFixed(0)}% de conversão.`
+    : 'Ainda não há volume suficiente para apontar um vazamento histórico confiável.'
 
   const lossText = worstLoss
-    ? `Maior perda em ${worstLoss.stage}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
-    : 'Ainda não há perda suficiente para formar diagnóstico confiável.'
+    ? `Maior perda histórica em ${getHistoricalStageLabel(worstLoss.stage)}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
+    : 'Ainda não há perda suficiente para formar diagnóstico histórico confiável.'
 
   const timeBottleneckText = slowestStage
-    ? `Etapa mais lenta: ${slowestStage.from_stage}, com tempo médio de ${formatSeconds(slowestStage.avg_seconds)} e mediana de ${formatSeconds(slowestStage.median_seconds)}.`
-    : 'Ainda não há dados suficientes para identificar gargalo de tempo.'
+    ? `Etapa historicamente mais lenta: ${getHistoricalStageLabel(slowestStage.from_stage)}, com tempo médio de ${formatSeconds(slowestStage.avg_seconds)} e mediana de ${formatSeconds(slowestStage.median_seconds)}.`
+    : 'Ainda não há dados suficientes para identificar gargalo histórico de tempo.'
 
   return (
     <div
@@ -1065,7 +1081,7 @@ export default async function RelatoriosGeraisPage() {
               Sinais operacionais e histórico do funil
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5, maxWidth: 720 }}>
-              Separa risco atual de atendimento dos indicadores históricos de conversão, perdas e tempo por etapa.
+              SLA mostra risco atual de atendimento. Conversão, perdas e tempo por etapa são históricos e não representam o estoque atual do Kanban.
             </div>
           </div>
 
@@ -1507,7 +1523,7 @@ export default async function RelatoriosGeraisPage() {
               Detalhamento: conversão entre etapas
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
-            Conversão final (Negociação → Ganho): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
+              Conversão histórica final (Negociação → Ganho): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
             </div>
           </div>
 
@@ -1529,7 +1545,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-                Baseado em oportunidades únicas que entraram na etapa e depois progrediram para a próxima.
+                Leitura histórica de progressão entre etapas. A linha “Ciclos criados” representa ciclos criados no sistema e pode incluir oportunidades que nasceram no Pool.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1538,9 +1554,9 @@ export default async function RelatoriosGeraisPage() {
                     <tr>
                       <th style={thStyle}>De</th>
                       <th style={thStyle}>Para</th>
-                      <th style={thStyle}>Entraram</th>
-                      <th style={thStyle}>Progrediram</th>
-                      <th style={thStyle}>Conversão</th>
+                      <th style={thStyle}>Base histórica</th>
+                      <th style={thStyle}>Avançaram</th>
+                      <th style={thStyle}>Conversão histórica</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1553,8 +1569,8 @@ export default async function RelatoriosGeraisPage() {
                     ) : (
                       convRows.map((r) => (
                         <tr key={`${r.from_stage}->${r.to_stage}`}>
-                          <td style={tdStyle}>{getReportStageLabel(r.from_stage)}</td>
-                          <td style={tdStyle}>{getReportStageLabel(r.to_stage)}</td>
+                          <td style={tdStyle}>{getHistoricalStageLabel(r.from_stage)}</td>
+                          <td style={tdStyle}>{getHistoricalStageLabel(r.to_stage)}</td>
                           <td style={tdStyle}>{r.entered}</td>
                           <td style={tdStyle}>{r.progressed}</td>
                           <td style={tdBold}>{r.conversion.toFixed(2)}%</td>
@@ -1604,7 +1620,7 @@ export default async function RelatoriosGeraisPage() {
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
               Maior perda:{' '}
               <b style={{ color: DS.red }}>
-                {worstLoss ? `${worstLoss.stage} (${worstLoss.loss_rate.toFixed(2)}%)` : '—'}
+              {worstLoss ? `${getHistoricalStageLabel(worstLoss.stage)} (${worstLoss.loss_rate.toFixed(2)}%)` : '—'}
               </b>
             </div>
           </div>
@@ -1627,7 +1643,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-                Percentual de oportunidades que saíram da etapa direto para perdido.
+                Leitura histórica de perdas por etapa. Não representa o volume atual em atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1635,9 +1651,9 @@ export default async function RelatoriosGeraisPage() {
                   <thead>
                     <tr>
                       <th style={thStyle}>Etapa</th>
-                      <th style={thStyle}>Entraram</th>
-                      <th style={thStyle}>Viraram perdido</th>
-                      <th style={thStyle}>Taxa de perda</th>
+                      <th style={thStyle}>Base histórica</th>
+                      <th style={thStyle}>Foram perdidos</th>
+                      <th style={thStyle}>Taxa histórica</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1650,7 +1666,7 @@ export default async function RelatoriosGeraisPage() {
                     ) : (
                       lossRows.map((r) => (
                         <tr key={`loss-${r.stage}`}>
-                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.stage}</td>
+                          <td style={tdStyle}>{getHistoricalStageLabel(r.stage)}</td>
                           <td style={tdStyle}>{r.entered}</td>
                           <td style={tdStyle}>{r.lost}</td>
                           <td style={tdBold}>{r.loss_rate.toFixed(2)}%</td>
@@ -1686,7 +1702,7 @@ export default async function RelatoriosGeraisPage() {
               letterSpacing: '0.06em',
             }}
           >
-            Detalhamento: gargalo por etapa
+            Detalhamento histórico: tempo por etapa
           </h3>
 
           {timeErr ? (
@@ -1707,7 +1723,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
-                Baseado nos eventos de mudança de etapa registrados no funil.
+                Leitura histórica baseada nos eventos de mudança de etapa. Não representa apenas oportunidades atualmente em atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1730,7 +1746,7 @@ export default async function RelatoriosGeraisPage() {
                     ) : (
                       timeRows.map((r) => (
                         <tr key={r.from_stage}>
-                          <td style={{ ...tdStyle, textTransform: 'capitalize' }}>{r.from_stage}</td>
+                          <td style={tdStyle}>{getHistoricalStageLabel(r.from_stage)}</td>
                           <td style={tdStyle}>{r.moves}</td>
                           <td style={tdStyle}>{formatSeconds(r.avg_seconds)}</td>
                           <td style={tdStyle}>{formatSeconds(r.median_seconds)}</td>
