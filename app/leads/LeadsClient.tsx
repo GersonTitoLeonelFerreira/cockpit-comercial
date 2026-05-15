@@ -10,6 +10,23 @@ function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+
+  return fallback
+}
+
 function countBusinessDaysInRange(startYMD: string, endYMD: string) {
   const s = new Date(toYMD(startYMD) + 'T00:00:00')
   const e = new Date(toYMD(endYMD) + 'T00:00:00')
@@ -46,6 +63,27 @@ function countBusinessDaysUntilToday(startYMD: string, endYMD: string) {
     if (dow !== 0 && dow !== 6) count++
     cur.setDate(cur.getDate() + 1)
   }
+  return count
+}
+
+function countBusinessDaysRemaining(endYMD: string) {
+  const today = new Date()
+  const e = new Date(toYMD(endYMD) + 'T00:00:00')
+
+  today.setHours(0, 0, 0, 0)
+  e.setHours(0, 0, 0, 0)
+
+  if (e < today) return 0
+
+  let count = 0
+  const cur = new Date(today)
+
+  while (cur <= e) {
+    const dow = cur.getDay()
+    if (dow !== 0 && dow !== 6) count++
+    cur.setDate(cur.getDate() + 1)
+  }
+
   return count
 }
 
@@ -128,8 +166,8 @@ export default function LeadsClient({
 
         setGoalCompany(Number(companyRes?.goal_value || 0))
         setGoalMine(Number(mineRes?.goal_value || 0))
-      } catch (e: any) {
-        setGoalError(e?.message ?? 'Erro ao carregar metas.')
+      } catch (e: unknown) {
+        setGoalError(getErrorMessage(e, 'Erro ao carregar metas.'))
         setGoalCompany(0)
         setGoalMine(0)
       } finally {
@@ -161,7 +199,7 @@ export default function LeadsClient({
 
         const bdTotal = countBusinessDaysInRange(start, end)
         const bdElapsed = countBusinessDaysUntilToday(start, end)
-        const bdRemaining = Math.max(0, bdTotal - bdElapsed)
+        const bdRemaining = countBusinessDaysRemaining(end)
 
         const avgDaily = bdElapsed > 0 ? totalReal / bdElapsed : 0
         const projection = avgDaily * Math.max(1, bdTotal)
@@ -169,8 +207,8 @@ export default function LeadsClient({
         setRevenueTotalReal(totalReal)
         setRevenueProjection(projection)
         setRevenueBDRemaining(bdRemaining)
-      } catch (e: any) {
-        setRevenueError(e?.message ?? 'Erro ao carregar faturamento do período.')
+      } catch (e: unknown) {
+        setRevenueError(getErrorMessage(e, 'Erro ao carregar faturamento do período.'))
         setRevenueTotalReal(0)
         setRevenueProjection(0)
         setRevenueBDRemaining(0)
