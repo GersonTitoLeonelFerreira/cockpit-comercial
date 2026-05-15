@@ -1607,9 +1607,9 @@ function VirtualizedStatusColumn({
                 minWidth: 24,
                 textAlign: 'center',
               }}
-              title={total > shown ? `${shown} de ${total}` : `${shown} leads`}
+              title={total > shown ? `${shown} visíveis de ${total} totais` : `${shown} leads`}
             >
-              {shown}
+              {total > shown ? `${shown}/${total}` : shown}
             </div>
           </div>
 
