@@ -58,6 +58,7 @@ const DS = {
 } as const
 
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
+type KanbanScope = 'mine' | 'seller' | 'company'
 type SLALevel = 'ok' | 'warn' | 'danger'
 type AgendaState = 'none' | 'today' | 'overdue' | 'future'
 type PendingMove = { cycleId: string; fromStatus: Status; toStatus: Status } | null
@@ -370,17 +371,22 @@ type KanbanActionResponse = {
 }
 
 async function loadKanbanFromApi(params: {
-  ownerId: string
+  scope: KanbanScope
+  ownerId: string | null
   groupId: string | null
   searchTerm: string
   limit: number
   signal?: AbortSignal
 }) {
   const query = new URLSearchParams({
-    owner_id: params.ownerId,
+    scope: params.scope,
     search: params.searchTerm,
     limit: String(params.limit),
   })
+
+  if (params.ownerId) {
+    query.set('owner_id', params.ownerId)
+  }
 
   if (params.groupId) {
     query.set('group_id', params.groupId)
@@ -1737,7 +1743,12 @@ export default function SalesCyclesKanban({
   const [groups, setGroups] = useState<LeadGroup[]>([])
   const [sellers, setSellers] = useState<Profile[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
-  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(defaultOwnerId ?? (isAdmin ? userId : null))
+  const [selectedScope, setSelectedScope] = useState<KanbanScope>(() => {
+    if (!isAdmin) return 'mine'
+    if (defaultOwnerId) return 'seller'
+    return 'company'
+  })
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(defaultOwnerId ?? null)
 
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -1808,6 +1819,13 @@ export default function SalesCyclesKanban({
   const kanbanAbortRef = useRef<AbortController | null>(null)
   const kanbanRequestSeqRef = useRef(0)
 
+  const scopedOwnerId =
+  selectedScope === 'mine'
+    ? userId
+    : selectedScope === 'seller'
+      ? selectedOwnerId
+      : null
+
 
   const allItems = Object.values(items).flat()
   const operationalItems = allItems.filter((item) => supportsOperationalAgenda(item.status))
@@ -1833,7 +1851,7 @@ export default function SalesCyclesKanban({
   const loadGroups = useCallback(async () => {
     if (!companyId) return
 
-    const ownerToLoadGroups = isAdmin ? selectedOwnerId : userId
+    const ownerToLoadGroups = isAdmin ? scopedOwnerId : userId
 
     if (!ownerToLoadGroups) {
       setGroups([])
@@ -1864,7 +1882,7 @@ export default function SalesCyclesKanban({
     } catch (e) {
       console.error('Erro ao carregar grupos:', e)
     }
-  }, [companyId, isAdmin, selectedOwnerId, userId])
+  }, [companyId, isAdmin, scopedOwnerId, userId])
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
@@ -1907,9 +1925,10 @@ export default function SalesCyclesKanban({
     setError(null)
   
     try {
-      const ownerToFilter = isAdmin ? selectedOwnerId : userId
+      const scopeToLoad: KanbanScope = isAdmin ? selectedScope : 'mine'
+      const ownerToFilter = isAdmin ? scopedOwnerId : userId
   
-      if (!ownerToFilter) {
+      if (scopeToLoad !== 'company' && !ownerToFilter) {
         setItems(emptyKanbanItems())
         setTotals(emptyKanbanTotals())
         setSearchCount(null)
@@ -1921,6 +1940,7 @@ export default function SalesCyclesKanban({
         totals: nextTotals,
         exactCount,
       } = await loadKanbanFromApi({
+        scope: scopeToLoad,
         ownerId: ownerToFilter,
         groupId: selectedGroupId,
         searchTerm: searchTermParam.trim(),
@@ -1950,7 +1970,7 @@ export default function SalesCyclesKanban({
         }
       }
     }
-  }, [companyId, isAdmin, selectedGroupId, selectedOwnerId, userId])
+  }, [companyId, isAdmin, selectedGroupId, selectedScope, scopedOwnerId, userId])
 
   const loadSLARules = useCallback(async () => {
     if (!companyId) return
@@ -1989,7 +2009,7 @@ export default function SalesCyclesKanban({
   useEffect(() => {
     setShowBulkModal(false)
     setSelectedIds(new Set())
-  }, [selectedGroupId, selectedOwnerId, searchTerm, slaFilter, agendaFilter])
+  }, [selectedGroupId, selectedScope, selectedOwnerId, searchTerm, slaFilter, agendaFilter])
 
   useEffect(() => {
     let isCurrentSearch = true
@@ -2457,7 +2477,16 @@ export default function SalesCyclesKanban({
     }
   }, [visibleKanbanItems, selectedIds])
 
-  const validSellersForRedistribution = sellers.filter((s) => !!s.full_name && (!selectedOwnerId || s.id !== selectedOwnerId))
+  const currentRedistributionOwnerId =
+    selectedScope === 'mine'
+      ? userId
+      : selectedScope === 'seller'
+        ? selectedOwnerId
+        : null
+
+  const validSellersForRedistribution = sellers.filter(
+    (s) => !!s.full_name && (!currentRedistributionOwnerId || s.id !== currentRedistributionOwnerId),
+  )
   const canRedistribute = validSellersForRedistribution.length > 0
 
   const allKanbanItems = visibleKanbanItems
@@ -2531,8 +2560,40 @@ export default function SalesCyclesKanban({
       >
         {/* Zona 1 — Contexto */}
         {isAdmin && (
-          <select value={selectedOwnerId || userId} onChange={(e) => setSelectedOwnerId(e.target.value || userId)} style={pillStyle} title="Vendedor">
-            <option value={userId}>Meu Cockpit</option>
+          <select
+            value={
+              selectedScope === 'company'
+                ? 'company'
+                : selectedScope === 'mine'
+                  ? 'mine'
+                  : selectedOwnerId ?? ''
+            }
+            onChange={(e) => {
+              const value = e.target.value
+
+              if (value === 'company') {
+                setSelectedScope('company')
+                setSelectedOwnerId(null)
+                setSelectedGroupId(null)
+                return
+              }
+
+              if (value === 'mine') {
+                setSelectedScope('mine')
+                setSelectedOwnerId(null)
+                setSelectedGroupId(null)
+                return
+              }
+
+              setSelectedScope('seller')
+              setSelectedOwnerId(value)
+              setSelectedGroupId(null)
+            }}
+            style={pillStyle}
+            title="Escopo do Kanban"
+          >
+            <option value="company">Empresa inteira</option>
+            <option value="mine">Meu Cockpit</option>
             {sellers.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.full_name ?? s.email} ({s.role})
