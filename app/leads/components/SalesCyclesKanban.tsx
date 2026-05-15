@@ -33,10 +33,13 @@ const DS = {
   surfaceBg: '#111318',
   border: '#1a1d2e',
   borderSubtle: '#13162a',
+  divider: '#1f2330',
   textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
   textMuted: '#546070',
   textLabel: '#4a5569',
+  iconNeutral: '#7a869a',
+  iconHover: '#cbd5e1',
   blue: '#3b82f6',
   blueSoft: '#93c5fd',
   greenBg: 'rgba(22,163,74,0.10)',
@@ -49,9 +52,9 @@ const DS = {
   redBorder: 'rgba(239,68,68,0.3)',
   redText: '#fca5a5',
   selectBg: '#0d0f14',
-  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
-  radius: 7,
-  radiusContainer: 9,
+  shadowCard: '0 1px 2px rgba(0,0,0,0.35)',
+  radius: 6,
+  radiusContainer: 8,
 } as const
 
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
