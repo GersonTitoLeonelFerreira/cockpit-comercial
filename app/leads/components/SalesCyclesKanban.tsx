@@ -1641,7 +1641,23 @@ function VirtualizedStatusColumn({
           style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '8px 8px 14px' }}
         >
           {filteredCycles.length === 0 ? (
-            <EmptyColumnSkeleton status={status} />
+            <div
+              style={{
+                minHeight: 82,
+                borderRadius: 8,
+                border: `1px dashed ${DS.border}`,
+                background: 'rgba(17, 19, 24, 0.38)',
+                color: DS.textMuted,
+                display: 'grid',
+                placeItems: 'center',
+                padding: 14,
+                fontSize: 12,
+                lineHeight: 1.4,
+                textAlign: 'center',
+              }}
+            >
+              Nenhum lead nesta etapa
+            </div>
           ) : (
             <div style={{ display: 'grid', gap: 6 }}>
               {filteredCycles.map((item) => (
