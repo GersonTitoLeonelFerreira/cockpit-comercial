@@ -1487,24 +1487,24 @@ function VirtualizedStatusColumn({
       <div
         style={{
           position: 'relative',
-          minWidth: 288,
-          maxWidth: 288,
-          flex: '0 0 288px',
-          height: 'min(520px, calc(100vh - 255px))',
-          minHeight: 500,
+          minWidth: 272,
+          maxWidth: 272,
+          flex: '0 0 272px',
+          height: 'calc(100vh - 200px)',
+          minHeight: 460,
           display: 'flex',
           flexDirection: 'column',
           background: isDraggingOver
-            ? `linear-gradient(180deg, rgba(13,15,20,0.98) 0%, rgba(9,11,15,0.98) 100%)`
-            : `linear-gradient(180deg, rgba(13,15,20,0.96) 0%, rgba(6,10,18,0.96) 100%)`,
-          borderRadius: 18,
-          border: `1px solid rgba(${statusRgb},0.62)`,
-          borderTop: `3px solid ${STATUS_COLORS[status]}`,
-          transition: 'background 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease',
+            ? `rgba(${statusRgb},0.04)`
+            : DS.panelBg,
+          borderRadius: 8,
+          border: isDraggingOver
+            ? `1px solid rgba(${statusRgb},0.45)`
+            : `1px solid ${DS.border}`,
+          borderTop: `2px solid ${STATUS_COLORS[status]}`,
+          transition: 'background 150ms ease, border-color 150ms ease',
           overflow: 'hidden',
-          boxShadow: isDraggingOver
-            ? `0 0 0 1px rgba(${statusRgb},0.22), 0 24px 62px rgba(0,0,0,0.48)`
-            : `0 0 0 1px rgba(${statusRgb},0.08), 0 18px 46px rgba(0,0,0,0.36)`,
+          boxShadow: 'none',
         }}
         onDragEnter={(e) => {
           e.preventDefault()
@@ -1534,34 +1534,31 @@ function VirtualizedStatusColumn({
           }}
         />
 
-        <div
+<div
           style={{
             position: 'sticky',
             top: 0,
             zIndex: 10,
-            padding: '24px 20px 16px',
-            background: 'linear-gradient(180deg, rgba(13,15,20,0.98), rgba(9,11,15,0.88))',
-            borderBottom: `1px solid rgba(${statusRgb},0.20)`,
-            backdropFilter: 'blur(10px)',
+            padding: '10px 12px 8px',
+            background: DS.panelBg,
+            borderBottom: `1px solid ${DS.borderSubtle}`,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <div
                 style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 16,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 4,
                   display: 'grid',
                   placeItems: 'center',
                   color: STATUS_COLORS[status],
-                  fontSize: 18,
-                  fontWeight: 900,
-                  letterSpacing: '-0.04em',
+                  fontSize: 10,
+                  fontWeight: 800,
                   background: `rgba(${statusRgb},0.12)`,
-                  border: `1px solid rgba(${statusRgb},0.22)`,
-                  boxShadow: `0 0 24px rgba(${statusRgb},0.16)`,
                   flexShrink: 0,
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 {stageMeta.index}
@@ -1570,9 +1567,10 @@ function VirtualizedStatusColumn({
               <div
                 style={{
                   color: DS.textPrimary,
-                  fontSize: 20,
-                  fontWeight: 850,
-                  letterSpacing: '-0.035em',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  letterSpacing: '-0.01em',
+                  textTransform: 'uppercase',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -1585,45 +1583,53 @@ function VirtualizedStatusColumn({
             <div
               style={{
                 color: DS.textSecondary,
-                fontSize: 20,
-                fontWeight: 800,
+                fontSize: 12,
+                fontWeight: 700,
                 fontVariantNumeric: 'tabular-nums',
-                opacity: 0.88,
+                background: DS.surfaceBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: 4,
+                padding: '1px 7px',
+                minWidth: 24,
+                textAlign: 'center',
               }}
+              title={total > shown ? `${shown} de ${total}` : `${shown} leads`}
             >
               {shown}
             </div>
           </div>
 
-          <div
-            style={{
-              marginTop: 18,
-              height: 3,
-              background: 'rgba(148,163,184,0.10)',
-              borderRadius: 999,
-              overflow: 'hidden',
-            }}
-          >
+          {total > 0 && (
             <div
               style={{
-                height: '100%',
-                width: `${total > 0 ? Math.min(100, (shown / total) * 100) : 0}%`,
-                background: `linear-gradient(90deg, ${STATUS_COLORS[status]}, rgba(${statusRgb},0.35))`,
-                boxShadow: `0 0 18px rgba(${statusRgb},0.38)`,
-                transition: 'width 300ms ease',
+                marginTop: 8,
+                height: 2,
+                background: DS.borderSubtle,
+                borderRadius: 999,
+                overflow: 'hidden',
               }}
-            />
-          </div>
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, (shown / total) * 100)}%`,
+                  background: STATUS_COLORS[status],
+                  opacity: 0.7,
+                  transition: 'width 300ms ease',
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <div
           className="kanban-column-scroll"
-          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '18px 18px 22px' }}
+          style={{ position: 'relative', flex: 1, overflowY: 'auto', padding: '8px 8px 14px' }}
         >
           {filteredCycles.length === 0 ? (
             <EmptyColumnSkeleton status={status} />
           ) : (
-            <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'grid', gap: 6 }}>
               {filteredCycles.map((item) => (
                 <KanbanCard
                   key={item.id}
