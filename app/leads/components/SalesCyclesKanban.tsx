@@ -1958,29 +1958,6 @@ export default function SalesCyclesKanban({
     }
   }, [companyId, isAdmin])
 
-  const loadTotals = useCallback(async () => {
-    if (!companyId) return
-  
-    const ownerToCount = isAdmin ? selectedOwnerId : userId
-  
-    if (!ownerToCount) {
-      setTotals(emptyKanbanTotals())
-      return
-    }
-  
-    try {
-      const result = await loadKanbanFromApi({
-        ownerId: ownerToCount,
-        groupId: selectedGroupId,
-        searchTerm: searchTerm.trim(),
-        limit: 1,
-      })
-  
-      setTotals(result.totals)
-    } catch {
-      setTotals(emptyKanbanTotals())
-    }
-  }, [companyId, isAdmin, selectedOwnerId, userId, selectedGroupId, searchTerm])
   const loadItems = useCallback(async (searchTermParam = '') => {
     if (!companyId) return
 
@@ -2073,10 +2050,6 @@ export default function SalesCyclesKanban({
   }, [loadGroups, loadSellers, loadSLARules])
 
   useEffect(() => {
-    void loadTotals()
-  }, [loadTotals])
-
-  useEffect(() => {
     const interval = setInterval(() => setNowTick(new Date()), 60000)
     return () => clearInterval(interval)
   }, [])
@@ -2115,9 +2088,9 @@ export default function SalesCyclesKanban({
   }, [searchTerm, loadItems])
 
   const handleCopilotSaved = useCallback(async () => {
-    await Promise.all([loadItems(searchTerm), loadTotals()])
+    await loadItems(searchTerm)
     setKpiRefreshKey((v) => v + 1)
-  }, [loadItems, loadTotals, searchTerm])
+  }, [loadItems, searchTerm])
 
   const moveItem = useCallback(async (cycleId: string, toStatus: Status) => {
     setSavingId(cycleId)
@@ -2144,13 +2117,13 @@ export default function SalesCyclesKanban({
         throw new Error(result.error ?? 'Ciclo não encontrado ou sem permissão')
       }
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'Erro ao mover ciclo')
     } finally {
       setSavingId(null)
     }
-  }, [loadItems, loadTotals, searchTerm])
+  }, [loadItems, searchTerm])
 
   const setGroupForCycle = useCallback(async (cycleId: string, groupId: string | null) => {
     setSavingId(cycleId)
@@ -2165,13 +2138,13 @@ export default function SalesCyclesKanban({
   
       if (!data.success) throw new Error('Ciclo não encontrado ou sem permissão')
   
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao vincular grupo')
     } finally {
       setSavingId(null)
     }
-  }, [loadItems, loadTotals, searchTerm])
+  }, [loadItems, searchTerm])
 
   const returnCycleToPoolWithReason = useCallback(async (cycleId: string, reason: string, details: string) => {
     setReturnSaving(true)
@@ -2187,7 +2160,7 @@ export default function SalesCyclesKanban({
 
       if (!data.success) throw new Error('Falha ao devolver ciclo')
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
       addToast('Lead devolvido ao pool!')
       setKpiRefreshKey((v) => v + 1)
       setReturnReasonModalOpen(false)
@@ -2198,7 +2171,7 @@ export default function SalesCyclesKanban({
     } finally {
       setReturnSaving(false)
     }
-  }, [loadItems, loadTotals, searchTerm, addToast])
+  }, [loadItems, searchTerm, addToast])
 
   const reassignCycle = useCallback(async (cycleId: string, newOwnerId: string) => {
     setSavingId(cycleId)
@@ -2213,14 +2186,14 @@ export default function SalesCyclesKanban({
 
       if (!data.success) throw new Error('Operação não confirmada')
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
       addToast('Lead redistribuído!')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao redistribuir')
     } finally {
       setSavingId(null)
     }
-  }, [loadItems, loadTotals, searchTerm, addToast])
+  }, [loadItems, searchTerm, addToast])
 
   const handleCreateGroupInline = useCallback(async (target: 'bulk' | 'card', cycleId?: string) => {
     if (!isAdmin) return
@@ -2309,7 +2282,7 @@ export default function SalesCyclesKanban({
 
       if (!data.success) throw new Error('Operação não confirmada')
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
 
       setSelectedIds(new Set())
       setShowBulkModal(false)
@@ -2336,7 +2309,6 @@ export default function SalesCyclesKanban({
     bulkReturnCycleIds,
     bulkReturnSkippedTerminalCount,
     loadItems,
-    loadTotals,
     searchTerm,
     addToast,
   ])
@@ -2358,7 +2330,7 @@ export default function SalesCyclesKanban({
 
       if (!data.success) throw new Error('Operação não confirmada')
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
 
       setSelectedIds(new Set())
       setBulkSeller('')
@@ -2370,7 +2342,7 @@ export default function SalesCyclesKanban({
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, isAdmin, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, isAdmin, loadItems, searchTerm, addToast])
 
   const bulkSetGroup = useCallback(async (groupId: string) => {
     if (selectedIds.size === 0 || !groupId) return
@@ -2389,7 +2361,7 @@ export default function SalesCyclesKanban({
 
       if (!data.success) throw new Error('Operação não confirmada')
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
 
       setSelectedIds(new Set())
       setBulkGroup('')
@@ -2401,7 +2373,7 @@ export default function SalesCyclesKanban({
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, loadItems, searchTerm, addToast])
 
   const distributeAutomatically = useCallback(async () => {
     if (selectedIds.size === 0 || sellers.length === 0 || !isAdmin) return
@@ -2421,7 +2393,7 @@ export default function SalesCyclesKanban({
 
       if (!data.success) throw new Error('Operação não confirmada')
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
 
       setSelectedIds(new Set())
       setShowBulkModal(false)
@@ -2432,7 +2404,7 @@ export default function SalesCyclesKanban({
     } finally {
       setAssigningId(null)
     }
-  }, [selectedIds, sellers, isAdmin, loadItems, loadTotals, searchTerm, addToast])
+  }, [selectedIds, sellers, isAdmin, loadItems, searchTerm, addToast])
 
   const handleCheckpointConfirm = useCallback(async (payload: CheckpointPayload) => {
     if (!pendingMove) return
@@ -2459,7 +2431,7 @@ export default function SalesCyclesKanban({
         throw new Error(data?.error_message ?? data?.error ?? 'Operação não confirmada')
       }
 
-      await Promise.all([loadItems(searchTerm), loadTotals()])
+      await loadItems(searchTerm)
       addToast('Lead atualizado com sucesso!')
       setCheckpointOpen(false)
       setPendingMove(null)
@@ -2468,7 +2440,7 @@ export default function SalesCyclesKanban({
     } finally {
       setCheckpointLoading(false)
     }
-  }, [pendingMove, supabase, companyId, loadItems, loadTotals, searchTerm, addToast])
+  }, [pendingMove, supabase, companyId, loadItems, searchTerm, addToast])
 
   const handleDrop = useCallback((cycleId: string, toStatus: Status) => {
     const fromStatus = Object.entries(items).find(([, cycles]) =>
@@ -2682,7 +2654,7 @@ export default function SalesCyclesKanban({
 
           <button
             onClick={() => {
-              void Promise.all([loadItems(searchTerm), loadTotals()])
+              void loadItems(searchTerm)
             }}
             style={iconButtonStyle}
             title="Atualizar kanban"
@@ -2883,7 +2855,7 @@ export default function SalesCyclesKanban({
           isAdmin={isAdmin}
           groups={groups}
           onLeadCreated={() => {
-            void Promise.all([loadItems(searchTerm), loadTotals()])
+            void loadItems(searchTerm)
           }}
           onClose={() => setShowCreateLeadModal(false)}
         />
@@ -3041,7 +3013,7 @@ export default function SalesCyclesKanban({
           setAiMovePending(null)
           // força refetch pra garantir que o card volte pra coluna original
           // caso a UI tenha otimisticamente movido.
-          void Promise.all([loadItems(searchTerm), loadTotals()])
+          void loadItems(searchTerm)
         }}
         onApplied={async () => {
           setAiMoveOpen(false)
@@ -3084,7 +3056,7 @@ export default function SalesCyclesKanban({
           setWinDealOpen(false)
           setWinDealCycleId(null)
           setWinDealName('')
-          await Promise.all([loadItems(searchTerm), loadTotals()])
+          await loadItems(searchTerm)
         }}
       />
 
@@ -3101,7 +3073,7 @@ export default function SalesCyclesKanban({
           setLostDealOpen(false)
           setLostDealCycleId(null)
           setLostDealName('')
-          await Promise.all([loadItems(searchTerm), loadTotals()])
+          await loadItems(searchTerm)
         }}
       />
 
