@@ -2057,7 +2057,7 @@ export default function SalesCyclesKanban({
   useEffect(() => {
     setShowBulkModal(false)
     setSelectedIds(new Set())
-  }, [selectedGroupId, selectedOwnerId])
+  }, [selectedGroupId, selectedOwnerId, searchTerm, slaFilter, agendaFilter])
 
   useEffect(() => {
     let isCurrentSearch = true
