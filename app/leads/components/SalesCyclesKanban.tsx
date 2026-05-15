@@ -2478,21 +2478,58 @@ export default function SalesCyclesKanban({
     })
   }, [])
 
+  const visibleKanbanItems = useMemo(() => {
+    return Object.values(items).flat().filter((item) => {
+      if (slaFilter !== 'all') {
+        if (!supportsOperationalSLA(item.status)) return false
+
+        const minutes = Math.floor(
+          (nowTick.getTime() - new Date(item.stage_entered_at).getTime()) / 60000,
+        )
+        const rule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
+        const level = getSLALevel(minutes, rule)
+
+        if (level !== slaFilter) return false
+      }
+
+      if (agendaFilter !== 'all') {
+        if (!supportsOperationalAgenda(item.status)) return false
+
+        const agendaState = getAgendaState(item.next_action_date)
+
+        if (agendaFilter === 'today') return agendaState === 'today'
+        if (agendaFilter === 'overdue') return agendaState === 'overdue'
+
+        if (agendaFilter === 'next7') {
+          if (agendaState === 'none' || agendaState === 'overdue') return false
+
+          const actionDate = new Date(item.next_action_date!)
+          const now = new Date()
+          const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+          return actionDate <= sevenDaysLater
+        }
+      }
+
+      return true
+    })
+  }, [items, slaFilter, agendaFilter, nowTick, slaRules])
+
   const toggleSelectAllKanban = useCallback(() => {
-    const allKanbanItems = Object.values(items).flat()
-    const allSelected = selectedIds.size === allKanbanItems.length && allKanbanItems.length > 0
+    const allSelected = selectedIds.size === visibleKanbanItems.length && visibleKanbanItems.length > 0
+
     if (allSelected) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(allKanbanItems.map((item) => item.id)))
+      setSelectedIds(new Set(visibleKanbanItems.map((item) => item.id)))
     }
-  }, [items, selectedIds])
+  }, [visibleKanbanItems, selectedIds])
 
   const validSellersForRedistribution = sellers.filter((s) => !!s.full_name && (!selectedOwnerId || s.id !== selectedOwnerId))
   const canRedistribute = validSellersForRedistribution.length > 0
 
-  const allKanbanItems = Object.values(items).flat()
-  const allKanbanSelected = selectedIds.size === allKanbanItems.length && allKanbanItems.length > 0
+  const allKanbanItems = visibleKanbanItems
+  const allKanbanSelected = selectedIds.size === visibleKanbanItems.length && visibleKanbanItems.length > 0
 
   const pillStyle: React.CSSProperties = {
     borderRadius: DS.radius,
