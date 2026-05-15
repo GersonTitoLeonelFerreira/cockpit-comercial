@@ -2773,26 +2773,16 @@ export default function SalesCyclesKanban({
         </div>
       )}
 
-      <div
+<div
         style={{
           position: 'relative',
           flex: 1,
           display: 'flex',
           overflow: 'hidden',
           minHeight: 0,
-          background:
-            'radial-gradient(circle at 20% 90%, rgba(0,96,255,0.12), transparent 28%), radial-gradient(circle at 72% 90%, rgba(0,232,137,0.10), transparent 28%), #05070c',
+          background: DS.contentBg,
         }}
       >
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            background:
-              'linear-gradient(180deg, rgba(5,7,12,0.92) 0%, rgba(5,7,12,0.72) 28%, rgba(5,7,12,0.96) 100%)',
-          }}
-        />
 
         <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
@@ -2806,9 +2796,9 @@ export default function SalesCyclesKanban({
                 flex: 1,
                 overflowX: 'auto',
                 overflowY: 'hidden',
-                padding: '48px 56px 38px',
+                padding: '12px 16px 16px',
                 display: 'flex',
-                gap: 18,
+                gap: 8,
                 alignItems: 'flex-start',
               }}
             >
