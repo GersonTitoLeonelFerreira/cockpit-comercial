@@ -684,18 +684,16 @@ export default async function RelatoriosGeraisPage() {
           : DS.green
   
     const mainBottleneck = hasSlaRisk && worstStageByCount
-      ? `SLA acima do limite na etapa ${getReportStageLabel(worstStageByCount)}.`
-      : 'Nenhum gargalo crítico identificado nos atendimentos atuais.'
+      ? `Maior concentração de risco em ${getReportStageLabel(worstStageByCount)}.`
+      : 'Nenhum risco crítico identificado nos atendimentos atuais.'
   
-    const recommendedAction = hasCriticalSla
-      ? 'Priorizar as oportunidades acima do SLA, redistribuir carteira se necessário e cobrar ação imediata dos responsáveis.'
-      : hasSlaRisk
-        ? 'Atacar primeiro as oportunidades paradas e acompanhar a evolução por etapa ainda hoje.'
-        : 'Manter a cadência operacional e acompanhar preventivamente os indicadores de SLA e avanço.'
+    const resultReading = slaCount > 0
+      ? `O relatório identificou ${slaCount} oportunidades acima do SLA dentro da carteira em atendimento.`
+      : 'O relatório não identificou oportunidades acima do SLA dentro da carteira em atendimento.'
   
     const funnelHealthText = slaCount > 0
-      ? `${slaCount} oportunidades estão acima do SLA. A prioridade é destravar o funil antes de ampliar volume.`
-      : 'Nenhuma oportunidade acima do SLA no momento. A operação não apresenta risco operacional crítico pelos dados atuais.'
+      ? `${slaCount} oportunidades estão acima do SLA dentro da carteira em atendimento.`
+      : 'Nenhuma oportunidade acima do SLA foi identificada na carteira em atendimento.'
   
     const funnelStages = [
       { key: 'novo', label: 'Novo atribuído' },
@@ -815,7 +813,7 @@ export default async function RelatoriosGeraisPage() {
             }}
           >
             <div>
-              <h2
+            <h2
                 style={{
                   margin: 0,
                   fontSize: 18,
@@ -824,7 +822,7 @@ export default async function RelatoriosGeraisPage() {
                   letterSpacing: '-0.02em',
                 }}
               >
-                Diagnóstico da operação
+                Resultado operacional do funil
               </h2>
               <p
                 style={{
@@ -835,7 +833,7 @@ export default async function RelatoriosGeraisPage() {
                   maxWidth: 640,
                 }}
               >
-                Esta leitura mostra onde o funil está travando, qual risco exige ação e qual decisão gerencial deve ser tomada primeiro.
+                Esta leitura consolida o estado medido da carteira em atendimento, com foco em SLA, acúmulo por etapa e risco operacional.
               </p>
             </div>
 
@@ -865,7 +863,7 @@ export default async function RelatoriosGeraisPage() {
           >
             <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                Principal gargalo
+              Principal leitura
               </div>
               <div style={{ fontSize: 14, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.35 }}>
                 {mainBottleneck}
@@ -925,7 +923,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
 
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
-              <b style={{ color: DS.textPrimary }}>Ação recomendada:</b> {recommendedAction}
+            <b style={{ color: DS.textPrimary }}>Leitura do resultado:</b> {resultReading}
             </div>
           </div>
 
