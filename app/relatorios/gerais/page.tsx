@@ -887,7 +887,7 @@ export default async function RelatoriosGeraisPage() {
                 Etapa crítica
               </div>
               <div style={{ fontSize: 18, color: DS.textPrimary, fontWeight: 900, textTransform: 'capitalize' }}>
-                {worstStageByCount ?? '—'}
+              {worstStageByCount ? getReportStageLabel(worstStageByCount) : '—'}
               </div>
               <div style={{ marginTop: 4, fontSize: 11, color: DS.textSecondary }}>
                 maior concentração de risco operacional
