@@ -78,7 +78,11 @@ function normalizeOptionalUuid(value: string | null) {
 }
 
 function normalizeSearch(value: string | null) {
-  return (value ?? '').trim()
+  return (value ?? '')
+    .trim()
+    .replace(/[,%()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120)
 }
 
 function detectSearchType(term: string): 'email' | 'numeric' | 'name' | 'empty' {

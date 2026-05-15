@@ -374,6 +374,7 @@ async function loadKanbanFromApi(params: {
   groupId: string | null
   searchTerm: string
   limit: number
+  signal?: AbortSignal
 }) {
   const query = new URLSearchParams({
     owner_id: params.ownerId,
@@ -388,9 +389,16 @@ async function loadKanbanFromApi(params: {
   const response = await fetch(`/api/leads/kanban?${query.toString()}`, {
     method: 'GET',
     cache: 'no-store',
+    signal: params.signal,
   })
 
-  const json = (await response.json()) as KanbanApiResponse
+  let json: KanbanApiResponse
+
+  try {
+    json = (await response.json()) as KanbanApiResponse
+  } catch {
+    throw new Error('Resposta inválida ao carregar Kanban.')
+  }
 
   if (!response.ok || !json.ok) {
     throw new Error(json.error ?? 'Erro ao carregar Kanban.')
@@ -1498,10 +1506,16 @@ function VirtualizedStatusColumn({
             ? `rgba(${statusRgb},0.04)`
             : DS.panelBg,
           borderRadius: 8,
-          border: isDraggingOver
+          borderTop: `2px solid ${STATUS_COLORS[status]}`,
+          borderRight: isDraggingOver
             ? `1px solid rgba(${statusRgb},0.45)`
             : `1px solid ${DS.border}`,
-          borderTop: `2px solid ${STATUS_COLORS[status]}`,
+          borderBottom: isDraggingOver
+            ? `1px solid rgba(${statusRgb},0.45)`
+            : `1px solid ${DS.border}`,
+          borderLeft: isDraggingOver
+            ? `1px solid rgba(${statusRgb},0.45)`
+            : `1px solid ${DS.border}`,
           transition: 'background 150ms ease, border-color 150ms ease',
           overflow: 'hidden',
           boxShadow: 'none',
@@ -1858,7 +1872,9 @@ export default function SalesCyclesKanban({
   const [searchTerm, setSearchTerm] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [searchCount, setSearchCount] = useState<number | null>(null)
-  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const kanbanAbortRef = useRef<AbortController | null>(null)
+  const kanbanRequestSeqRef = useRef(0)
 
 
   const allItems = Object.values(items).flat()
@@ -1961,12 +1977,22 @@ export default function SalesCyclesKanban({
       })
   
       setTotals(result.totals)
-    } catch (e) {
-      console.error('Erro ao carregar totals:', e)
+    } catch {
+      setTotals(emptyKanbanTotals())
     }
   }, [companyId, isAdmin, selectedOwnerId, userId, selectedGroupId, searchTerm])
   const loadItems = useCallback(async (searchTermParam = '') => {
     if (!companyId) return
+
+    const requestSeq = kanbanRequestSeqRef.current + 1
+    kanbanRequestSeqRef.current = requestSeq
+
+    if (kanbanAbortRef.current) {
+      kanbanAbortRef.current.abort()
+    }
+
+    const controller = new AbortController()
+    kanbanAbortRef.current = controller
   
     setLoading(true)
     setError(null)
@@ -1976,23 +2002,44 @@ export default function SalesCyclesKanban({
   
       if (!ownerToFilter) {
         setItems(emptyKanbanItems())
+        setTotals(emptyKanbanTotals())
         setSearchCount(null)
         return
       }
   
-      const { data, exactCount } = await loadKanbanFromApi({
+      const {
+        data,
+        totals: nextTotals,
+        exactCount,
+      } = await loadKanbanFromApi({
         ownerId: ownerToFilter,
         groupId: selectedGroupId,
         searchTerm: searchTermParam.trim(),
         limit: 50,
+        signal: controller.signal,
       })
+
+      if (controller.signal.aborted || requestSeq !== kanbanRequestSeqRef.current) {
+        return
+      }
   
       setItems(data)
+      setTotals(nextTotals)
       setSearchCount(searchTermParam.trim() ? exactCount : null)
     } catch (e: unknown) {
+      if (controller.signal.aborted || requestSeq !== kanbanRequestSeqRef.current) {
+        return
+      }
+
       setError(e instanceof Error ? e.message : 'Erro ao carregar ciclos')
     } finally {
-      setLoading(false)
+      if (requestSeq === kanbanRequestSeqRef.current) {
+        setLoading(false)
+
+        if (kanbanAbortRef.current === controller) {
+          kanbanAbortRef.current = null
+        }
+      }
     }
   }, [companyId, isAdmin, selectedGroupId, selectedOwnerId, userId])
 
@@ -2040,23 +2087,30 @@ export default function SalesCyclesKanban({
   }, [selectedGroupId, selectedOwnerId])
 
   useEffect(() => {
-    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current)
+    let isCurrentSearch = true
 
-    if (!searchTerm.trim()) {
-      setIsSearching(false)
-      void loadItems('')
-      setSearchCount(null)
-      return
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
     }
 
-    setIsSearching(true)
+    const normalizedSearch = searchTerm.trim()
+
+    setIsSearching(Boolean(normalizedSearch))
+
     debounceTimeoutRef.current = setTimeout(() => {
-      void loadItems(searchTerm)
-      setIsSearching(false)
-    }, 300)
+      void loadItems(searchTerm).finally(() => {
+        if (isCurrentSearch) {
+          setIsSearching(false)
+        }
+      })
+    }, normalizedSearch ? 300 : 0)
 
     return () => {
-      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current)
+      isCurrentSearch = false
+
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
     }
   }, [searchTerm, loadItems])
 
