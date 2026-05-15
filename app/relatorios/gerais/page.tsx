@@ -412,14 +412,16 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const convRows: ConvRow[] = (convData ?? []).map((r: Record<string, unknown>) => ({
-    step_order: Number(r.step_order ?? 0),
-    from_stage: String(r.from_stage ?? ''),
-    to_stage: String(r.to_stage ?? ''),
-    entered: Number(r.entered ?? 0),
-    progressed: Number(r.progressed ?? 0),
-    conversion: Number(r.conversion ?? 0),
-  }))
+  const convRows: ConvRow[] = (convData ?? [])
+    .map((r: Record<string, unknown>) => ({
+      step_order: Number(r.step_order ?? 0),
+      from_stage: String(r.from_stage ?? ''),
+      to_stage: String(r.to_stage ?? ''),
+      entered: Number(r.entered ?? 0),
+      progressed: Number(r.progressed ?? 0),
+      conversion: Number(r.conversion ?? 0),
+    }))
+    .filter((row: ConvRow) => normalizeFunnelStatus(row.from_stage) !== 'novo')
 
   // --- Perdas ---
   const { data: lossData, error: lossErr } = await supabase.rpc(
@@ -427,14 +429,16 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const lossRows: LossRow[] = (lossData ?? []).map((r: Record<string, unknown>) => ({
-    step_order: Number(r.step_order ?? 0),
-    stage: String(r.stage ?? ''),
-    lost_to: String(r.lost_to ?? ''),
-    entered: Number(r.entered ?? 0),
-    lost: Number(r.lost ?? 0),
-    loss_rate: Number(r.loss_rate ?? 0),
-  }))
+  const lossRows: LossRow[] = (lossData ?? [])
+    .map((r: Record<string, unknown>) => ({
+      step_order: Number(r.step_order ?? 0),
+      stage: String(r.stage ?? ''),
+      lost_to: String(r.lost_to ?? ''),
+      entered: Number(r.entered ?? 0),
+      lost: Number(r.lost ?? 0),
+      loss_rate: Number(r.loss_rate ?? 0),
+    }))
+    .filter((row: LossRow) => normalizeFunnelStatus(row.stage) !== 'novo')
 
   // --- Gargalo ---
   const { data: timeData, error: timeErr } = await supabase.rpc(
@@ -442,12 +446,14 @@ export default async function RelatoriosGeraisPage() {
     { p_company_id: companyId }
   )
 
-  const timeRows: StageTimeRow[] = (timeData ?? []).map((r: Record<string, unknown>) => ({
-    from_stage: String(r.from_stage ?? ''),
-    moves: Number(r.moves ?? 0),
-    avg_seconds: Number(r.avg_seconds ?? 0),
-    median_seconds: Number(r.median_seconds ?? 0),
-  }))
+  const timeRows: StageTimeRow[] = (timeData ?? [])
+    .map((r: Record<string, unknown>) => ({
+      from_stage: String(r.from_stage ?? ''),
+      moves: Number(r.moves ?? 0),
+      avg_seconds: Number(r.avg_seconds ?? 0),
+      median_seconds: Number(r.median_seconds ?? 0),
+    }))
+    .filter((row: StageTimeRow) => normalizeFunnelStatus(row.from_stage) !== 'novo')  
 
   // --- SLA / Risco ---
   const { data: slaData, error: slaErr } = await supabase.rpc(
@@ -1545,7 +1551,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-                Leitura histórica de progressão entre etapas. A linha “Ciclos criados” representa ciclos criados no sistema e pode incluir oportunidades que nasceram no Pool.
+              Leitura histórica de progressão entre etapas após a oportunidade iniciar atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1643,7 +1649,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-                Leitura histórica de perdas por etapa. Não representa o volume atual em atendimento.
+              Leitura histórica de perdas após a oportunidade iniciar atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1723,7 +1729,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
-                Leitura histórica baseada nos eventos de mudança de etapa. Não representa apenas oportunidades atualmente em atendimento.
+              Leitura histórica baseada nos eventos de mudança de etapa após a oportunidade iniciar atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
