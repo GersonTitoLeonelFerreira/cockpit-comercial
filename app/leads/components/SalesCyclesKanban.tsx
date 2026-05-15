@@ -1032,35 +1032,18 @@ function KanbanCard({
   return (
     <div
       style={{
-        background: isHovered
-          ? `linear-gradient(135deg, ${STATUS_COLORS[item.status]}06, ${STATUS_COLORS[item.status]}12)`
-          : isSelected
-            ? 'rgba(59,130,246,0.07)'
-            : DS.cardBg,
-        borderTop: isHovered
-          ? `1px solid ${STATUS_COLORS[item.status]}55`
-          : isSelected
-            ? '1px solid rgba(59,130,246,0.35)'
-            : `1px solid ${DS.border}`,
-        borderRight: isHovered
-          ? `1px solid ${STATUS_COLORS[item.status]}55`
-          : isSelected
-            ? '1px solid rgba(59,130,246,0.35)'
-            : `1px solid ${DS.border}`,
-        borderBottom: isHovered
-          ? `1px solid ${STATUS_COLORS[item.status]}55`
-          : isSelected
-            ? '1px solid rgba(59,130,246,0.35)'
-            : `1px solid ${DS.border}`,
+        background: isSelected ? 'rgba(59,130,246,0.07)' : DS.cardBg,
+        borderTop: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
+        borderRight: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
+        borderBottom: `1px solid ${isSelected ? 'rgba(59,130,246,0.35)' : DS.border}`,
         borderLeft: `3px solid ${STATUS_COLORS[item.status]}`,
-        borderRadius: DS.radius + 3,
-        padding: '10px 8px',
+        borderRadius: DS.radius,
+        padding: '8px 10px 8px 8px',
         cursor: isSaving ? 'not-allowed' : 'grab',
-        transition: 'transform 200ms ease, box-shadow 200ms ease, background 200ms ease, border-color 200ms ease',
+        transition: 'box-shadow 150ms ease, background 150ms ease',
         position: 'relative',
         overflow: 'hidden',
-        transform: isHovered ? 'translateY(-1px)' : 'none',
-        boxShadow: isHovered ? `0 4px 16px rgba(0,0,0,0.4)` : DS.shadowCard,
+        boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.45)' : DS.shadowCard,
       }}
       draggable
       onDragStart={(e) => {
@@ -1071,7 +1054,7 @@ function KanbanCard({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div
-        style={{ position: 'absolute', top: 8, right: 4, cursor: 'pointer' }}
+        style={{ position: 'absolute', top: 6, right: 6, cursor: 'pointer', opacity: isSelected || isHovered ? 1 : 0.35, transition: 'opacity 120ms ease' }}
         onClick={(e) => {
           e.stopPropagation()
           onToggleSelect(item.id)
@@ -1086,18 +1069,18 @@ function KanbanCard({
           checked={isSelected}
           onChange={() => {}}
           draggable={false}
-          style={{ width: 14, height: 14, cursor: 'pointer', pointerEvents: 'auto' }}
+          style={{ width: 13, height: 13, cursor: 'pointer', pointerEvents: 'auto' }}
         />
       </div>
 
       <div
-        style={{ cursor: 'pointer', marginLeft: 20, marginRight: 16, overflow: 'hidden', minWidth: 0 }}
+        style={{ cursor: 'pointer', marginRight: 18, overflow: 'hidden', minWidth: 0 }}
         onClick={() => {
           window.location.href = `/sales-cycles/${item.id}`
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: DS.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 12.5, color: DS.textPrimary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
             {item.name}
           </div>
           {supportsOperationalSLA(item.status) && (
@@ -1106,12 +1089,13 @@ function KanbanCard({
               style={{
                 fontSize: 9,
                 fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: `${getSLAColor(slaLevel)}18`,
-                color: getSLAColor(slaLevel),
+                padding: '1px 5px',
+                borderRadius: 3,
+                background: slaLevel === 'ok' ? 'transparent' : `${getSLAColor(slaLevel)}18`,
+                color: slaLevel === 'ok' ? DS.textMuted : getSLAColor(slaLevel),
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
               {formatTimeInStage(minutesInStage)}
@@ -1119,29 +1103,30 @@ function KanbanCard({
           )}
         </div>
 
-        <div style={{ fontSize: 11, color: DS.textSecondary }}>{item.phone || '—'}</div>
+        <div style={{ fontSize: 11, color: DS.textSecondary, fontVariantNumeric: 'tabular-nums' }}>{item.phone || '—'}</div>
 
         {supportsOperationalAgenda(item.status) && item.next_action && (
-          <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 4, fontStyle: 'italic' }}>
-            Próx: {item.next_action}
+          <div style={{ fontSize: 10.5, color: DS.textMuted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.next_action}
           </div>
         )}
 
         {groupName && <div style={{ fontSize: 10, color: DS.textLabel, marginTop: 2 }}>{groupName}</div>}
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
           {agendaState !== 'none' ? (
             <div
               style={{
-                fontSize: 9,
-                fontWeight: 800,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: agendaBadge.bg,
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '1px 6px',
+                borderRadius: 3,
+                background: 'transparent',
                 color: agendaBadge.text,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 3,
+                opacity: 0.95,
               }}
             >
               <span>{agendaBadge.icon}</span>
@@ -1151,67 +1136,15 @@ function KanbanCard({
             <div />
           )}
 
-<div
+          <div
             style={{
               display: 'flex',
-              gap: 4,
-              flexWrap: 'wrap',
+              gap: 2,
+              alignItems: 'center',
               justifyContent: 'flex-end',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              ref={menuButtonRef}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (!menuButtonRef.current) return
-                onOpenMenu(item, menuButtonRef.current.getBoundingClientRect())
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              title="Gerenciar ações do lead"
-              style={{
-                background: 'rgba(148,163,184,0.12)',
-                border: '1px solid rgba(148,163,184,0.28)',
-                borderRadius: 5,
-                padding: '3px 8px',
-                cursor: 'pointer',
-                fontSize: 10,
-                color: DS.textSecondary,
-                fontWeight: 800,
-                lineHeight: 1,
-              }}
-            >
-              Gerenciar
-            </button>
-
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowCopilot(true)
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              title="Registrar conversa com IA"
-              style={{
-                background: 'rgba(59,130,246,0.15)',
-                border: '1px solid rgba(59,130,246,0.3)',
-                borderRadius: 5,
-                padding: '3px 7px',
-                cursor: 'pointer',
-                fontSize: 11,
-                color: '#93c5fd',
-                fontWeight: 800,
-                lineHeight: 1,
-              }}
-            >
-              IA
-            </button>
-
             {item.phone && (
               <>
                 <button
@@ -1222,14 +1155,17 @@ function KanbanCard({
                   }}
                   title="Abrir WhatsApp"
                   style={{
-                    background: 'rgba(37,211,102,0.15)',
-                    border: '1px solid rgba(37,211,102,0.3)',
-                    borderRadius: 5,
-                    padding: '3px 7px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: 4,
+                    padding: '4px 5px',
                     cursor: 'pointer',
                     color: '#25d366',
                     lineHeight: 1,
+                    display: 'inline-flex',
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(37,211,102,0.12)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
                   <WhatsAppIcon size={14} />
                 </button>
@@ -1242,19 +1178,79 @@ function KanbanCard({
                   }}
                   title="Copiar telefone"
                   style={{
-                    background: 'rgba(156,163,175,0.1)',
-                    border: '1px solid rgba(156,163,175,0.2)',
-                    borderRadius: 5,
-                    padding: '3px 7px',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: 4,
+                    padding: '4px 5px',
                     cursor: 'pointer',
-                    color: '#9ca3af',
+                    color: DS.iconNeutral,
                     lineHeight: 1,
+                    display: 'inline-flex',
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = DS.iconHover }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = DS.iconNeutral }}
                 >
                   <ClipboardCopyIcon size={14} />
                 </button>
               </>
             )}
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowCopilot(true)
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              title="Registrar conversa com IA"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 4,
+                padding: '3px 6px',
+                cursor: 'pointer',
+                fontSize: 10,
+                color: DS.iconNeutral,
+                fontWeight: 700,
+                lineHeight: 1,
+                letterSpacing: '0.02em',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = DS.blueSoft }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = DS.iconNeutral }}
+            >
+              IA
+            </button>
+
+            <button
+              ref={menuButtonRef}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (!menuButtonRef.current) return
+                onOpenMenu(item, menuButtonRef.current.getBoundingClientRect())
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              title="Mais ações"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 4,
+                padding: '2px 6px',
+                cursor: 'pointer',
+                fontSize: 16,
+                color: DS.iconNeutral,
+                fontWeight: 700,
+                lineHeight: 1,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = DS.iconHover }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = DS.iconNeutral }}
+            >
+              ⋯
+            </button>
           </div>
         </div>
 
@@ -1262,19 +1258,19 @@ function KanbanCard({
           <div
             style={{
               marginTop: 6,
-              padding: '4px 8px',
-              background: 'rgba(59,130,246,0.1)',
-              border: '1px solid rgba(59,130,246,0.25)',
-              borderRadius: 6,
+              padding: '4px 6px',
+              background: 'transparent',
+              borderTop: `1px dashed ${DS.divider}`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               fontSize: 10,
+              gap: 6,
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <span style={{ color: '#93c5fd' }}>
-            Mover → {STATUS_LABELS[suggestedStatus as keyof typeof STATUS_LABELS] || suggestedStatus}?
+            <span style={{ color: DS.textSecondary }}>
+              IA sugere: <span style={{ color: STATUS_COLORS[suggestedStatus as Status] }}>{STATUS_LABELS[suggestedStatus as keyof typeof STATUS_LABELS] || suggestedStatus}</span>
             </span>
             <div style={{ display: 'flex', gap: 4 }}>
               <button
@@ -1283,46 +1279,38 @@ function KanbanCard({
                   setSuggestedStatus(null)
                 }}
                 style={{
-                  background: '#2563eb',
-                  border: 'none',
-                  borderRadius: 4,
-                  color: 'white',
+                  background: 'transparent',
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: 3,
+                  color: DS.textPrimary,
                   fontSize: 9,
-                  fontWeight: 800,
-                  padding: '2px 8px',
+                  fontWeight: 700,
+                  padding: '2px 7px',
                   cursor: 'pointer',
                 }}
               >
-                Sim
+                Mover
               </button>
               <button
                 onClick={() => setSuggestedStatus(null)}
                 style={{
                   background: 'transparent',
-                  border: '1px solid #374151',
-                  borderRadius: 4,
-                  color: '#9ca3af',
+                  border: 'none',
+                  borderRadius: 3,
+                  color: DS.textMuted,
                   fontSize: 9,
-                  fontWeight: 800,
-                  padding: '2px 8px',
+                  fontWeight: 600,
+                  padding: '2px 6px',
                   cursor: 'pointer',
                 }}
               >
-                Não
+                Ignorar
               </button>
             </div>
           </div>
         )}
 
-        <div
-          style={{
-            maxHeight: isHovered ? 120 : 0,
-            opacity: isHovered ? 1 : 0,
-            overflow: 'hidden',
-            transition: 'max-height 200ms ease, opacity 150ms ease',
-            marginTop: isHovered ? 8 : 0,
-          }}
-        >
+        <div style={{ display: 'none' }}>
           <div
             style={{
               padding: '6px 8px',
