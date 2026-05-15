@@ -377,7 +377,7 @@ export async function GET(req: Request) {
         )
         .eq('company_id', activeCompanyId)
         .eq('status', status)
-        .order('created_at', { ascending: false })
+        .order('stage_entered_at', { ascending: false, nullsFirst: false })
         .limit(limit)
 
       if (scope === 'company') {
