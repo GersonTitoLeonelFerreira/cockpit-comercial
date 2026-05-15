@@ -406,10 +406,27 @@ export default async function RelatoriosGeraisPage() {
 
   const companyId = activeCompanyId
 
-  // --- Conversão ---
+    // --- Competência atual ---
+    const activeCompetencyErrMessage: string | null = null
+    const activeCompetency = {
+      month: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+      month_start: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+      month_end: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
+    }
+  
+    const periodStart = getPeriodStartFromCompetency(activeCompetency)
+    const periodEnd = getMonthEndInclusiveFromStart(periodStart)
+    const hasActivePeriod = Boolean(periodStart && periodEnd)
+    const ownerScopeId: string | null = null
+
+  // --- Conversão da competência ---
   const { data: convData, error: convErr } = await supabase.rpc(
-    'report_stage_conversion',
-    { p_company_id: companyId }
+    'report_stage_conversion_for_period',
+    {
+      p_company_id: companyId,
+      p_date_start: periodStart,
+      p_date_end: periodEnd,
+    }
   )
 
   const convRows: ConvRow[] = (convData ?? [])
@@ -423,10 +440,14 @@ export default async function RelatoriosGeraisPage() {
     }))
     .filter((row: ConvRow) => normalizeFunnelStatus(row.from_stage) !== 'novo')
 
-  // --- Perdas ---
+  // --- Perdas da competência ---
   const { data: lossData, error: lossErr } = await supabase.rpc(
-    'report_stage_losses',
-    { p_company_id: companyId }
+    'report_stage_losses_for_period',
+    {
+      p_company_id: companyId,
+      p_date_start: periodStart,
+      p_date_end: periodEnd,
+    }
   )
 
   const lossRows: LossRow[] = (lossData ?? [])
@@ -440,10 +461,14 @@ export default async function RelatoriosGeraisPage() {
     }))
     .filter((row: LossRow) => normalizeFunnelStatus(row.stage) !== 'novo')
 
-  // --- Gargalo ---
+  // --- Tempo por etapa na competência ---
   const { data: timeData, error: timeErr } = await supabase.rpc(
-    'report_stage_time_summary',
-    { p_company_id: companyId }
+    'report_stage_time_summary_for_period',
+    {
+      p_company_id: companyId,
+      p_date_start: periodStart,
+      p_date_end: periodEnd,
+    }
   )
 
   const timeRows: StageTimeRow[] = (timeData ?? [])
@@ -508,19 +533,6 @@ export default async function RelatoriosGeraisPage() {
       status: normalizeFunnelStatus(r.status),
     })
   )
-
-  // --- Referência de meta — contexto secundário do Simulador ---
-  const activeCompetencyErrMessage: string | null = null
-  const activeCompetency = {
-    month: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    month_start: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    month_end: formatDateKey(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
-  }
-
-  const periodStart = getPeriodStartFromCompetency(activeCompetency)
-  const periodEnd = getMonthEndInclusiveFromStart(periodStart)
-  const hasActivePeriod = Boolean(periodStart && periodEnd)
-  const ownerScopeId: string | null = null
 
   const { data: revenueGoalRaw, error: revenueGoalErr } = hasActivePeriod
     ? await supabase.rpc('rpc_get_revenue_goal', {
@@ -1550,8 +1562,8 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-              <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-              Leitura histórica de progressão entre etapas após a oportunidade iniciar atendimento.
+                            <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
+                Progressão entre etapas dentro da competência atual, após a oportunidade iniciar atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1648,8 +1660,8 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-              <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
-              Leitura histórica de perdas após a oportunidade iniciar atendimento.
+                            <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
+                Perdas registradas dentro da competência atual, após a oportunidade iniciar atendimento.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
@@ -1728,8 +1740,8 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-              <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
-              Leitura histórica baseada nos eventos de mudança de etapa após a oportunidade iniciar atendimento.
+                            <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
+                Tempo por etapa calculado a partir dos movimentos registrados dentro da competência atual.
               </p>
 
               <div style={{ overflowX: 'auto', marginTop: 14 }}>
