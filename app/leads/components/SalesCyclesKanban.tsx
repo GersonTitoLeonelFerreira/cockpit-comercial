@@ -2476,14 +2476,34 @@ export default function SalesCyclesKanban({
 
   const pillStyle: React.CSSProperties = {
     borderRadius: DS.radius,
-    padding: '7px 12px',
-    background: DS.panelBg,
+    padding: '6px 10px',
+    background: 'transparent',
     border: `1px solid ${DS.border}`,
     color: DS.textSecondary,
     fontSize: 12,
     cursor: 'pointer',
-    fontWeight: 600,
+    fontWeight: 500,
     outline: 'none',
+    height: 30,
+    lineHeight: 1,
+  }
+
+  const iconButtonStyle: React.CSSProperties = {
+    ...pillStyle,
+    padding: '0 9px',
+    width: 30,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 13,
+  }
+
+  const dividerStyle: React.CSSProperties = {
+    width: 1,
+    height: 18,
+    background: DS.divider,
+    margin: '0 2px',
+    flexShrink: 0,
   }
 
   return (
@@ -2510,18 +2530,19 @@ export default function SalesCyclesKanban({
           position: 'sticky',
           top: 0,
           zIndex: 50,
-          background: 'rgba(17,19,24,0.94)',
-          backdropFilter: 'blur(12px)',
+          background: 'rgba(13,15,20,0.92)',
+          backdropFilter: 'blur(10px)',
           borderBottom: `1px solid ${DS.border}`,
           padding: '8px 16px',
           display: 'flex',
-          gap: 8,
+          gap: 6,
           alignItems: 'center',
           flexWrap: 'wrap',
         }}
       >
+        {/* Zona 1 — Contexto */}
         {isAdmin && (
-          <select value={selectedOwnerId || userId} onChange={(e) => setSelectedOwnerId(e.target.value || userId)} style={pillStyle}>
+          <select value={selectedOwnerId || userId} onChange={(e) => setSelectedOwnerId(e.target.value || userId)} style={pillStyle} title="Vendedor">
             <option value={userId}>Meu Cockpit</option>
             {sellers.map((s) => (
               <option key={s.id} value={s.id}>
@@ -2531,7 +2552,7 @@ export default function SalesCyclesKanban({
           </select>
         )}
 
-        <select value={selectedGroupId || ''} onChange={(e) => setSelectedGroupId(e.target.value || null)} style={pillStyle}>
+        <select value={selectedGroupId || ''} onChange={(e) => setSelectedGroupId(e.target.value || null)} style={pillStyle} title="Grupo">
           <option value="">Todos os grupos</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
@@ -2540,67 +2561,82 @@ export default function SalesCyclesKanban({
           ))}
         </select>
 
-        <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle}>
+        <div style={dividerStyle} />
+
+        {/* Zona 2 — Filtros */}
+        <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle} title="Filtrar por SLA">
           <option value="all">SLA: Todos</option>
           <option value="ok">SLA: OK</option>
           <option value="warn">SLA: Atenção</option>
           <option value="danger">SLA: Estourado</option>
         </select>
 
-        <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle}>
+        <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle} title="Filtrar por agenda">
           <option value="all">Agenda: Todos</option>
           <option value="today">Hoje ({todayCount})</option>
           <option value="overdue">Atrasados ({overdueCount})</option>
           <option value="next7">Próximos 7d ({next7Count})</option>
         </select>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por nome, telefone, CPF ou email..."
+            placeholder="Buscar nome, telefone, CPF, email..."
             style={{
               borderRadius: DS.radius,
-              padding: '7px 14px',
+              padding: '6px 10px 6px 28px',
               background: DS.selectBg,
               border: `1px solid ${DS.border}`,
               color: DS.textPrimary,
               fontSize: 12,
-              minWidth: 220,
+              minWidth: 240,
               outline: 'none',
+              height: 30,
             }}
           />
+          <span style={{ position: 'absolute', left: 9, color: DS.textMuted, fontSize: 12, pointerEvents: 'none' }}>⌕</span>
           {searchTerm.trim() && !isSearching && searchCount !== null && (
-            <div style={{ fontSize: 10, color: DS.blueSoft, fontWeight: 700, paddingLeft: 4 }}>
-              {searchCount} resultado{searchCount !== 1 ? 's' : ''}
-            </div>
+            <span style={{ position: 'absolute', right: 8, fontSize: 10, color: DS.textMuted, fontVariantNumeric: 'tabular-nums', pointerEvents: 'none' }}>
+              {searchCount}
+            </span>
           )}
-          {isSearching && <div style={{ fontSize: 10, color: DS.textMuted, paddingLeft: 4 }}>Buscando...</div>}
+          {isSearching && <span style={{ position: 'absolute', right: 8, fontSize: 10, color: DS.textMuted, pointerEvents: 'none' }}>...</span>}
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+        {/* Zona 3 — Ações */}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
+          {selectedIds.size > 0 && (
+            <>
+              <button
+                onClick={() => setShowBulkModal(true)}
+                style={{
+                  ...pillStyle,
+                  borderColor: DS.amberBorder,
+                  color: DS.amberText,
+                }}
+                title="Executar ações em massa nos leads selecionados"
+              >
+                Ações em massa · {selectedIds.size}
+              </button>
+              <div style={dividerStyle} />
+            </>
+          )}
+
           <button
-            onClick={() => setFocusMode((v) => !v)}
-            style={{
-              ...pillStyle,
-              background: focusMode ? 'rgba(59,130,246,0.14)' : DS.panelBg,
-              border: focusMode ? '1px solid rgba(59,130,246,0.4)' : `1px solid ${DS.border}`,
-              color: focusMode ? DS.blueSoft : DS.textSecondary,
-              fontSize: 14,
-              padding: '5px 10px',
-              lineHeight: 1,
-            }}
-            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+            onClick={toggleSelectAllKanban}
+            style={pillStyle}
+            title={allKanbanSelected ? 'Desmarcar todos' : `Selecionar todos (${allKanbanItems.length})`}
           >
-            {focusMode ? '⊡' : '⊞'}
+            {allKanbanSelected ? 'Desmarcar' : 'Selecionar tudo'}
           </button>
 
           <button
             onClick={() => {
               void Promise.all([loadItems(searchTerm), loadTotals()])
             }}
-            style={pillStyle}
+            style={iconButtonStyle}
             title="Atualizar kanban"
             aria-label="Atualizar kanban"
           >
@@ -2608,32 +2644,32 @@ export default function SalesCyclesKanban({
           </button>
 
           <button
-            onClick={toggleSelectAllKanban}
+            onClick={() => setFocusMode((v) => !v)}
             style={{
-              ...pillStyle,
-              background: allKanbanSelected ? 'rgba(139,92,246,0.15)' : DS.panelBg,
-              border: allKanbanSelected ? '1px solid rgba(139,92,246,0.4)' : `1px solid ${DS.border}`,
-              color: allKanbanSelected ? '#c4b5fd' : DS.textSecondary,
+              ...iconButtonStyle,
+              color: focusMode ? DS.blueSoft : DS.textSecondary,
+              borderColor: focusMode ? 'rgba(59,130,246,0.4)' : DS.border,
             }}
+            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
           >
-            {allKanbanSelected ? 'Desmarcar' : 'Selecionar'} ({allKanbanItems.length})
+            {focusMode ? '⊡' : '⊞'}
           </button>
 
-          {selectedIds.size > 0 && (
-            <button
-              onClick={() => setShowBulkModal(true)}
-              style={{ ...pillStyle, background: DS.amberBg, border: `1px solid ${DS.amberBorder}`, color: DS.amberText }}
-            >
-              Ações ({selectedIds.size})
-            </button>
-          )}
+          <div style={dividerStyle} />
 
           <button
             onClick={() => {
               onShowCreateLeadModal?.()
               setShowCreateLeadModal(true)
             }}
-            style={{ ...pillStyle, background: DS.greenBg, border: `1px solid ${DS.greenBorder}`, color: DS.greenText }}
+            style={{
+              ...pillStyle,
+              background: '#1e7d4a',
+              border: '1px solid #1e7d4a',
+              color: '#ffffff',
+              fontWeight: 600,
+              padding: '6px 12px',
+            }}
           >
             + Criar Lead
           </button>
