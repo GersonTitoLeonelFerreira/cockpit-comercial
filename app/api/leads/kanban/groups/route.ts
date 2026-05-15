@@ -3,6 +3,8 @@ import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
+type KanbanScope = 'mine' | 'seller' | 'company'
+
 type MembershipRow = {
   company_id: string
   role: string | null
@@ -27,6 +29,14 @@ function normalizeOptionalUuid(value: string | null) {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
   return uuidRegex.test(trimmed) ? trimmed : null
+}
+
+function normalizeKanbanScope(value: string | null): KanbanScope | null {
+  if (value === 'mine' || value === 'seller' || value === 'company') {
+    return value
+  }
+
+  return null
 }
 
 async function validateActiveOwner(params: {
@@ -70,6 +80,7 @@ export async function GET(req: Request) {
 
     const requestUrl = new URL(req.url)
     const ownerIdParam = normalizeOptionalUuid(requestUrl.searchParams.get('owner_id'))
+    const requestedScope = normalizeKanbanScope(requestUrl.searchParams.get('scope'))
 
     const cookieStore = await cookies()
     const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
@@ -155,8 +166,31 @@ export async function GET(req: Request) {
       )
     }
 
-    const isAdmin = membership.role === 'admin'
-    const effectiveOwnerId = isAdmin ? (ownerIdParam ?? user.id) : user.id
+    const canViewTeam = membership.role === 'admin' || membership.role === 'manager'
+
+    const scope: KanbanScope =
+      requestedScope ?? (canViewTeam ? (ownerIdParam ? 'seller' : 'company') : 'mine')
+
+    if (!canViewTeam && scope !== 'mine') {
+      return NextResponse.json(
+        { ok: false, error: 'Usuário sem permissão para visualizar grupos desse escopo.' },
+        { status: 403 },
+      )
+    }
+
+    const effectiveOwnerId =
+      scope === 'mine'
+        ? user.id
+        : scope === 'seller'
+          ? ownerIdParam
+          : null
+
+    if (scope === 'seller' && !effectiveOwnerId) {
+      return NextResponse.json(
+        { ok: false, error: 'Vendedor não informado para carregar grupos.' },
+        { status: 400 },
+      )
+    }
 
     const admin = createClient(url, serviceKey, {
       auth: {
@@ -164,6 +198,34 @@ export async function GET(req: Request) {
         autoRefreshToken: false,
       },
     })
+
+    if (scope === 'company') {
+      const { data: companyGroups, error: companyGroupsError } = await admin
+        .from('lead_groups')
+        .select('id, name')
+        .eq('company_id', activeCompanyId)
+        .is('archived_at', null)
+        .order('name', { ascending: true })
+
+      if (companyGroupsError) {
+        return NextResponse.json(
+          { ok: false, error: companyGroupsError.message },
+          { status: 400 },
+        )
+      }
+
+      return NextResponse.json({
+        ok: true,
+        groups: (companyGroups ?? []) as LeadGroupRow[],
+      })
+    }
+
+    if (!effectiveOwnerId) {
+      return NextResponse.json({
+        ok: true,
+        groups: [],
+      })
+    }
 
     await validateActiveOwner({
       admin,
@@ -196,8 +258,8 @@ export async function GET(req: Request) {
     const groupMap = new Map<string, LeadGroupRow>()
 
     const creatorIds = Array.from(
-        new Set([effectiveOwnerId, ...(isAdmin ? [user.id] : [])]),
-      )
+      new Set([effectiveOwnerId, ...(canViewTeam ? [user.id] : [])]),
+    )
   
       const { data: createdGroups, error: createdGroupsError } = await admin
         .from('lead_groups')
