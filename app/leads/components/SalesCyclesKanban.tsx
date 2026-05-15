@@ -2675,42 +2675,22 @@ export default function SalesCyclesKanban({
         groupId={selectedGroupId}
         supabase={supabase}
         refreshKey={kpiRefreshKey}
-      />
-
-      <div
-        style={{
-          background: DS.panelBg,
-          borderBottom: `1px solid ${DS.border}`,
-          padding: '0 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          minHeight: 34,
-          cursor: 'pointer',
-          backgroundImage: 'linear-gradient(180deg, rgba(59,130,246,0.05) 0%, transparent 100%)',
+        alerts={[
+          { key: 'overdue', label: 'Atrasados', value: overdueCount, active: agendaFilter === 'overdue' },
+          { key: 'danger', label: 'SLA estourado', value: dangerCount, active: slaFilter === 'danger' },
+          { key: 'today', label: 'Agenda hoje', value: todayCount, active: agendaFilter === 'today' },
+          { key: 'next7', label: 'Próximos 7d', value: next7Count, active: agendaFilter === 'next7' },
+        ]}
+        onAlertClick={(key) => {
+          if (key === 'danger') {
+            setSLAFilter((prev) => (prev === 'danger' ? 'all' : 'danger'))
+          } else {
+            setAgendaFilter((prev) => (prev === key ? 'all' : key))
+          }
         }}
-        onClick={() => setInsightsExpanded((v) => !v)}
-      >
-        <span style={{ fontSize: 9, fontWeight: 700, color: DS.textLabel, letterSpacing: '0.12em', whiteSpace: 'nowrap', flexShrink: 0, textTransform: 'uppercase' }}>
-          {insightsExpanded ? '▾' : '▸'} INSIGHTS
-        </span>
-
-        {!insightsExpanded && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            {[
-              { label: 'Atrasados', value: overdueCount, accent: '#ef4444' },
-              { label: 'SLA estourado', value: dangerCount, accent: '#f59e0b' },
-              { label: 'Agenda hoje', value: todayCount, accent: '#3b82f6' },
-              { label: 'Próximos 7d', value: next7Count, accent: '#8b5cf6' },
-            ].map((chip) => (
-              <div key={chip.label} style={{ display: 'flex', alignItems: 'center', gap: 4, background: `${chip.accent}12`, border: `1px solid ${chip.accent}25`, borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 800, color: chip.accent }}>
-                <span>{chip.value}</span>
-                <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.7 }}>{chip.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+        onToggleInsights={() => setInsightsExpanded((v) => !v)}
+        insightsExpanded={insightsExpanded}
+      />
 
       {insightsExpanded && (
         <div style={{ background: DS.contentBg, borderBottom: `1px solid ${DS.border}`, padding: '10px 16px 14px', maxHeight: 320, overflowY: 'auto' }}>
@@ -2739,18 +2719,19 @@ export default function SalesCyclesKanban({
             ]
 
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8 }}>
                 {sections.map((sec) => (
-                  <div key={sec.title} style={{ background: `linear-gradient(135deg, ${sec.accent}08 0%, ${DS.panelBg} 100%)`, border: `1px solid ${sec.accent}20`, borderTop: `2px solid ${sec.accent}`, borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: sec.accent, marginBottom: 8, letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div key={sec.title} style={{ background: DS.panelBg, border: `1px solid ${DS.border}`, borderRadius: 6, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: DS.textSecondary, marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: sec.accent, display: 'inline-block' }} />
                       {sec.title}
-                      <span style={{ fontSize: 9, fontWeight: 800, background: `${sec.accent}18`, color: sec.accent, padding: '1px 6px', borderRadius: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: sec.count > 0 ? sec.accent : DS.textMuted, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
                         {sec.count}
                       </span>
                     </div>
 
                     {sec.items.length === 0 ? (
-                      <div style={{ fontSize: 10, color: DS.textMuted, fontStyle: 'italic' }}>Nenhum</div>
+                      <div style={{ fontSize: 10.5, color: DS.textMuted }}>Nenhum</div>
                     ) : (
                       sec.items.slice(0, 10).map((c) => (
                         <div
@@ -2758,10 +2739,12 @@ export default function SalesCyclesKanban({
                           onClick={() => {
                             window.location.href = `/sales-cycles/${c.id}`
                           }}
-                          style={{ fontSize: 11, padding: '5px 8px', borderRadius: 6, background: `${sec.accent}08`, border: `1px solid ${sec.accent}12`, marginBottom: 4, cursor: 'pointer', color: DS.textPrimary, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
+                          style={{ fontSize: 11, padding: '4px 6px', borderRadius: 3, marginBottom: 1, cursor: 'pointer', color: DS.textPrimary, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = DS.surfaceBg }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                         >
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{c.name}</span>
-                          <span style={{ fontSize: 9, color: DS.textMuted, flexShrink: 0 }}>{sec.renderDetail(c)}</span>
+                          <span style={{ fontSize: 9.5, color: DS.textMuted, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{sec.renderDetail(c)}</span>
                         </div>
                       ))
                     )}

@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import React, { useCallback, useEffect, useState } from 'react'
 
 type MicroKPIs = {
@@ -13,11 +15,22 @@ type MicroKPIs = {
   won_period?: number
 }
 
+export type AlertChip = {
+  key: 'overdue' | 'danger' | 'today' | 'next7'
+  label: string
+  value: number
+  active?: boolean
+}
+
 type SellerMicroKPIsProps = {
   userId: string
   groupId?: string | null
   supabase: any
   refreshKey?: number
+  alerts?: AlertChip[]
+  onAlertClick?: (key: AlertChip['key']) => void
+  onToggleInsights?: () => void
+  insightsExpanded?: boolean
 }
 
 const DS = {
@@ -26,26 +39,24 @@ const DS = {
   cardBg: '#141722',
   border: '#1a1d2e',
   borderSubtle: '#13162a',
+  divider: '#1f2330',
   textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
   textMuted: '#546070',
   textLabel: '#4a5569',
-  blue: '#3b82f6',
-  blueSoft: '#93c5fd',
 } as const
 
-type KPICard = {
-  label: string
-  value: string | number
-  accent: string
-  icon: string
-  title?: string
-}
-
-export default function SellerMicroKPIs({ userId, supabase, refreshKey }: SellerMicroKPIsProps) {
+export default function SellerMicroKPIs({
+  userId,
+  supabase,
+  refreshKey,
+  alerts = [],
+  onAlertClick,
+  onToggleInsights,
+  insightsExpanded = false,
+}: SellerMicroKPIsProps) {
   const [kpis, setKpis] = useState<MicroKPIs | null>(null)
   const [loading, setLoading] = useState(true)
-  const [expanded, setExpanded] = useState(false)
 
   const load = useCallback(async () => {
     if (!userId) return
@@ -68,189 +79,123 @@ export default function SellerMicroKPIs({ userId, supabase, refreshKey }: Seller
     void load()
   }, [load, refreshKey])
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          padding: '6px 16px',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          borderBottom: `1px solid ${DS.border}`,
-          background: DS.panelBg,
-          height: 38,
-        }}
-      >
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            style={{
-              height: 22,
-              width: 64,
-              background: DS.borderSubtle,
-              borderRadius: 5,
-            }}
-          />
-        ))}
-      </div>
-    )
+  const hasConv = kpis && typeof kpis.advance_rate === 'number'
+  const periodDays = kpis?.period_days ?? 7
+  const conversionAccent =
+    !hasConv ? DS.textSecondary : kpis!.advance_rate >= 10 ? '#86efac' : kpis!.advance_rate >= 5 ? '#fde68a' : '#fca5a5'
+
+  const productivityStats: { label: string; value: string | number; title?: string; accent?: string }[] = kpis
+    ? [
+        { label: 'Trabalhados', value: kpis.worked_today ?? 0, title: 'Ciclos com atividade hoje' },
+        { label: 'Movidos', value: kpis.stage_moves_today ?? 0, title: 'Movimentos de etapa hoje' },
+        {
+          label: `Conversão ${periodDays}d`,
+          value: hasConv ? `${kpis!.advance_rate}%` : '—',
+          accent: conversionAccent,
+          title: `${kpis.won_period ?? 0} de ${kpis.worked_period ?? 0} leads convertidos nos últimos ${periodDays} dias`,
+        },
+      ]
+    : []
+
+  const alertColor = (key: AlertChip['key'], value: number) => {
+    if (value === 0) return DS.textMuted
+    switch (key) {
+      case 'overdue':
+        return '#fca5a5'
+      case 'danger':
+        return '#fcd34d'
+      case 'today':
+        return '#93c5fd'
+      case 'next7':
+        return '#c4b5fd'
+    }
   }
-
-  if (!kpis) return null
-
-  const cards: KPICard[] = [
-    {
-      label: 'Trabalhados',
-      value: kpis.worked_today,
-      accent: '#60a5fa',
-      icon: '*',
-      title: 'Ciclos com atividade hoje',
-    },
-    {
-      label: 'Atrasados',
-      value: kpis.overdue_count,
-      accent: kpis.overdue_count > 0 ? '#ef4444' : '#22c55e',
-      icon: '!',
-      title: 'Leads com agenda vencida',
-    },
-    {
-      label: 'Agendados',
-      value: kpis.scheduled_today,
-      accent: '#3b82f6',
-      icon: '>',
-      title: 'Contatos agendados para hoje',
-    },
-    {
-      label: 'Movidos',
-      value: kpis.stage_moves_today,
-      accent: '#8b5cf6',
-      icon: '→',
-      title: 'Movimentos de etapa hoje',
-    },
-    {
-      label: `Conversão ${kpis.period_days}d`,
-      value: `${kpis.advance_rate}%`,
-      accent: kpis.advance_rate >= 10 ? '#22c55e' : kpis.advance_rate >= 5 ? '#eab308' : '#ef4444',
-      icon: '↑',
-      title: `Dos ${kpis.worked_period ?? 0} leads trabalhados nos últimos ${kpis.period_days} dias, ${kpis.won_period ?? 0} converteram em venda`,
-    },
-  ]
 
   return (
     <div
       style={{
         background: DS.panelBg,
         borderBottom: `1px solid ${DS.border}`,
+        padding: '6px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        minHeight: 36,
+        flexWrap: 'wrap',
       }}
     >
-            {/* ── Compact pill bar ── */}
-            <div
-        style={{
-          padding: '5px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          cursor: 'pointer',
-          userSelect: 'none',
-          minHeight: 34,
-          background: 'linear-gradient(180deg, rgba(59,130,246,0.05) 0%, transparent 100%)',
-        }}
-        onClick={() => setExpanded((v) => !v)}
-        title={expanded ? 'Recolher KPIs' : 'Expandir KPIs'}
-      >
-        <span
-          style={{
-            fontSize: 9,
-            color: DS.textLabel,
-            fontWeight: 700,
-            marginRight: 2,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-          }}
-        >
-          {expanded ? '▾' : '▸'} KPIS
-        </span>
-
-        {!expanded && cards.map((card) => (
-          <div
-            key={card.label}
-            title={card.title}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              background: `${card.accent}12`,
-              border: `1px solid ${card.accent}25`,
-              borderRadius: 5,
-              padding: '2px 8px',
-              fontSize: 11,
-              fontWeight: 800,
-              color: card.accent,
-              whiteSpace: 'nowrap',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            <span style={{ fontSize: 9, opacity: 0.7 }}>{card.icon}</span>
-            <span>{card.value}</span>
-          </div>
-        ))}
+      {/* Produtividade */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+        {loading ? (
+          <span style={{ color: DS.textMuted }}>Carregando...</span>
+        ) : (
+          productivityStats.map((s) => (
+            <div key={s.label} title={s.title} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ color: DS.textMuted, fontSize: 10.5 }}>{s.label}</span>
+              <span style={{ color: s.accent ?? DS.textPrimary, fontWeight: 700 }}>{s.value}</span>
+            </div>
+          ))
+        )}
       </div>
 
-      {/* ── Expanded cards ── */}
-      {expanded && (
-        <div
-          style={{
-            padding: '6px 16px 10px',
-            display: 'flex',
-            gap: 8,
-            alignItems: 'stretch',
-            flexWrap: 'wrap',
-          }}
-        >
-          {cards.map((card) => (
-            <div
-              key={card.label}
-              title={card.title}
+      <div style={{ width: 1, height: 16, background: DS.divider }} />
+
+      {/* Alertas (clicáveis = filtros) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        {alerts.map((chip) => {
+          const color = alertColor(chip.key, chip.value)
+          const isActive = chip.active
+          return (
+            <button
+              key={chip.key}
+              onClick={() => onAlertClick?.(chip.key)}
               style={{
-                flex: '1 1 120px',
-                background: `linear-gradient(135deg, ${card.accent}0a 0%, ${DS.cardBg} 100%)`,
-                border: `1px solid ${card.accent}20`,
-                borderTop: `2px solid ${card.accent}`,
-                borderRadius: 8,
-                padding: '10px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                minWidth: 110,
+                background: isActive ? `${color}15` : 'transparent',
+                border: `1px solid ${isActive ? color : DS.border}`,
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontSize: 10.5,
+                color: chip.value > 0 ? color : DS.textMuted,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontVariantNumeric: 'tabular-nums',
+                lineHeight: 1.4,
+                transition: 'background 120ms ease, border-color 120ms ease',
               }}
+              title={`Filtrar por ${chip.label.toLowerCase()}`}
             >
-              <div
-                style={{
-                  fontSize: 10,
-                  color: DS.textSecondary,
-                  fontWeight: 600,
-                  letterSpacing: '0.02em',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {card.icon} {card.label}
-              </div>
-              <div
-                style={{
-                  fontSize: 22,
-                  fontWeight: 900,
-                  color: card.accent,
-                  lineHeight: 1.1,
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                {card.value}
-              </div>
-            </div>
-          ))}
-        </div>
+              <span style={{ color: DS.textMuted, fontWeight: 500 }}>{chip.label}</span>
+              <span style={{ fontWeight: 700 }}>{chip.value}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {onToggleInsights && (
+        <>
+          <div style={{ width: 1, height: 16, background: DS.divider }} />
+          <button
+            onClick={onToggleInsights}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: DS.textSecondary,
+              fontSize: 10.5,
+              fontWeight: 600,
+              cursor: 'pointer',
+              padding: '3px 6px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+            title={insightsExpanded ? 'Ocultar listas detalhadas' : 'Ver listas detalhadas'}
+          >
+            {insightsExpanded ? '▾' : '▸'} Detalhes
+          </button>
+        </>
       )}
     </div>
   )
