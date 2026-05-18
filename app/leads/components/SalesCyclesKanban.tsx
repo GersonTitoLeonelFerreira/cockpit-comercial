@@ -1980,7 +1980,9 @@ export default function SalesCyclesKanban({
   const loadSLARules = useCallback(async () => {
     if (!companyId) return
     try {
-      const { data, error } = await supabase.rpc('rpc_get_company_sla_rules')
+      const { data, error } = await supabase.rpc('rpc_get_company_sla_rules_for_company', {
+        p_company_id: companyId,
+      })
       if (error) return
 
       const next: Record<Status, SLARuleDB | null> = {
