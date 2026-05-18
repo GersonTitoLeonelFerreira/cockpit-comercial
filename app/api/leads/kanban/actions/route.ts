@@ -580,23 +580,49 @@ export async function POST(req: Request) {
         }
   
         const allowedCycleIds = allowedCycles.map((cycle) => cycle.id)
+        const now = new Date().toISOString()
+
+        const previousGroupByCycle = new Map(
+          allowedCycles.map((cycle) => [cycle.id, cycle.current_group_id]),
+        )
   
         const { data: updated, error: updateError } = await admin
           .from('sales_cycles')
           .update({
             current_group_id: groupId,
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           })
           .eq('company_id', activeCompanyId)
           .in('id', allowedCycleIds)
           .select('id')
   
         if (updateError) throw updateError
+
+        const updatedCycleIds = ((updated ?? []) as Array<{ id: string }>).map((row) => row.id)
+
+        if (updatedCycleIds.length > 0) {
+          const { error: eventError } = await admin.from('cycle_events').insert(
+            updatedCycleIds.map((cycleId) => ({
+              cycle_id: cycleId,
+              company_id: activeCompanyId,
+              event_type: 'group_changed',
+              metadata: {
+                from_group_id: previousGroupByCycle.get(cycleId) ?? null,
+                to_group_id: groupId,
+                source: 'kanban_bulk_api',
+              },
+              created_by: user.id,
+              occurred_at: now,
+            })),
+          )
+
+          if (eventError) throw eventError
+        }
   
         return NextResponse.json({
           ok: true,
           success: true,
-          updated_count: (updated ?? []).length,
+          updated_count: updatedCycleIds.length,
         })
       }
   
@@ -726,11 +752,13 @@ export async function POST(req: Request) {
         })
       }
 
+      const now = new Date().toISOString()
+
       const { data: updated, error: updateError } = await admin
         .from('sales_cycles')
         .update({
           current_group_id: groupId,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         })
         .eq('company_id', activeCompanyId)
         .eq('id', cycleId)
@@ -742,6 +770,21 @@ export async function POST(req: Request) {
       if (!updated?.id) {
         return jsonError('Ciclo não encontrado ou não atualizado.', 404)
       }
+
+      const { error: eventError } = await admin.from('cycle_events').insert({
+        cycle_id: cycleId,
+        company_id: activeCompanyId,
+        event_type: 'group_changed',
+        metadata: {
+          from_group_id: cycle.current_group_id,
+          to_group_id: groupId,
+          source: 'kanban_api',
+        },
+        created_by: user.id,
+        occurred_at: now,
+      })
+
+      if (eventError) throw eventError
 
       return NextResponse.json({
         ok: true,
