@@ -605,12 +605,6 @@ function CreateGroupModal({
 }) {
   const [groupName, setGroupName] = useState('')
 
-  useEffect(() => {
-    if (isOpen) {
-      setGroupName('')
-    }
-  }, [isOpen])
-
   if (!isOpen) return null
 
   const normalizedGroupName = groupName.trim()
@@ -618,7 +612,6 @@ function CreateGroupModal({
 
   const handleClose = () => {
     if (isLoading) return
-    setGroupName('')
     onClose()
   }
 
