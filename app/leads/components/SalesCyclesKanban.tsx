@@ -1465,31 +1465,74 @@ function VirtualizedStatusColumn({
   const [menuState, setMenuState] = useState<{ item: PipelineItem; anchorRect: DOMRect } | null>(null)
   const [isDraggingOver, setIsDraggingOver] = useState(false)
 
-  const filteredCycles = cycles.filter((item) => {
-    if (slaFilter !== 'all') {
-      if (!supportsOperationalSLA(item.status)) return false
-      const minutes = Math.floor((nowTick.getTime() - new Date(item.stage_entered_at).getTime()) / 60000)
+  const getOperationalSortRank = (item: PipelineItem) => {
+    const agendaState = supportsOperationalAgenda(item.status)
+      ? getAgendaState(item.next_action_date)
+      : 'none'
+
+    if (agendaState === 'overdue') return 0
+
+    if (supportsOperationalSLA(item.status)) {
+      const minutes = Math.floor(
+        (nowTick.getTime() - new Date(item.stage_entered_at).getTime()) / 60000,
+      )
       const rule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
       const level = getSLALevel(minutes, rule)
-      if (level !== slaFilter) return false
+
+      if (level === 'danger') return 1
     }
 
-    if (agendaFilter !== 'all') {
-      if (!supportsOperationalAgenda(item.status)) return false
-      const agendaState = getAgendaState(item.next_action_date)
-      if (agendaFilter === 'today') return agendaState === 'today'
-      if (agendaFilter === 'overdue') return agendaState === 'overdue'
-      if (agendaFilter === 'next7') {
-        if (agendaState === 'none' || agendaState === 'overdue') return false
-        const actionDate = new Date(item.next_action_date!)
-        const now = new Date()
-        const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-        return actionDate <= sevenDaysLater
+    if (agendaState === 'today') return 2
+    if (agendaState === 'future') return 3
+
+    return 4
+  }
+
+  const filteredCycles = cycles
+    .filter((item) => {
+      if (slaFilter !== 'all') {
+        if (!supportsOperationalSLA(item.status)) return false
+
+        const minutes = Math.floor(
+          (nowTick.getTime() - new Date(item.stage_entered_at).getTime()) / 60000,
+        )
+        const rule = slaRules[item.status] || { ...DEFAULT_SLA_RULES[item.status], id: 'default' }
+        const level = getSLALevel(minutes, rule)
+
+        if (level !== slaFilter) return false
       }
-    }
 
-    return true
-  })
+      if (agendaFilter !== 'all') {
+        if (!supportsOperationalAgenda(item.status)) return false
+
+        const agendaState = getAgendaState(item.next_action_date)
+
+        if (agendaFilter === 'today') return agendaState === 'today'
+        if (agendaFilter === 'overdue') return agendaState === 'overdue'
+
+        if (agendaFilter === 'next7') {
+          if (agendaState === 'none' || agendaState === 'overdue') return false
+
+          const actionDate = new Date(item.next_action_date!)
+          const now = new Date()
+          const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+          return actionDate <= sevenDaysLater
+        }
+      }
+
+      return true
+    })
+    .sort((a, b) => {
+      const rankDiff = getOperationalSortRank(a) - getOperationalSortRank(b)
+
+      if (rankDiff !== 0) return rankDiff
+
+      const aStageTime = new Date(a.stage_entered_at).getTime()
+      const bStageTime = new Date(b.stage_entered_at).getTime()
+
+      return bStageTime - aStageTime
+    })
 
   const shown = filteredCycles.length
   const total = totalCount ?? shown
