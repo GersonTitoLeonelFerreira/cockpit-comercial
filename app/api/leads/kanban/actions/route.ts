@@ -85,6 +85,10 @@ function normalizeName(value: unknown) {
   return value.trim()
 }
 
+function canManageKanban(role: string | null) {
+  return role === 'admin' || role === 'manager'
+}
+
 async function validateGroup(params: {
   admin: SupabaseAdminClient
   companyId: string
@@ -191,7 +195,7 @@ function canOperateCycle(params: {
 }) {
   const { cycle, userId, role } = params
 
-  if (role === 'admin') return true
+  if (canManageKanban(role)) return true
 
   return cycle.owner_user_id === userId
 }
@@ -340,8 +344,8 @@ export async function POST(req: Request) {
       }
   
       if (action === 'reassign_owner') {
-        if (membership.role !== 'admin') {
-          return jsonError('Apenas admin pode redistribuir ciclos.', 403)
+        if (!canManageKanban(membership.role)) {
+          return jsonError('Apenas admin ou manager pode redistribuir ciclos.', 403)
         }
   
         const cycleId = normalizeUuid(body.cycle_id)
@@ -423,7 +427,7 @@ export async function POST(req: Request) {
         })
   
         const allowedCycles =
-          membership.role === 'admin'
+          canManageKanban(membership.role)
             ? cycles
             : cycles.filter((cycle) => cycle.owner_user_id === user.id)
   
@@ -481,8 +485,8 @@ export async function POST(req: Request) {
       }
   
       if (action === 'bulk_reassign_owner') {
-        if (membership.role !== 'admin') {
-          return jsonError('Apenas admin pode redistribuir ciclos.', 403)
+        if (!canManageKanban(membership.role)) {
+          return jsonError('Apenas admin ou manager pode redistribuir ciclos.', 403)
         }
   
         const cycleIds = normalizeUuidArray(body.cycle_ids)
@@ -571,7 +575,7 @@ export async function POST(req: Request) {
         })
   
         const allowedCycles =
-          membership.role === 'admin'
+          canManageKanban(membership.role)
             ? cycles
             : cycles.filter((cycle) => cycle.owner_user_id === user.id)
   
@@ -627,8 +631,8 @@ export async function POST(req: Request) {
       }
   
       if (action === 'bulk_round_robin') {
-        if (membership.role !== 'admin') {
-          return jsonError('Apenas admin pode distribuir ciclos automaticamente.', 403)
+        if (!canManageKanban(membership.role)) {
+          return jsonError('Apenas admin ou manager pode distribuir ciclos automaticamente.', 403)
         }
   
         const cycleIds = normalizeUuidArray(body.cycle_ids)
@@ -794,8 +798,8 @@ export async function POST(req: Request) {
     }
 
     if (action === 'create_group') {
-      if (membership.role !== 'admin') {
-        return jsonError('Apenas admin pode criar grupos.', 403)
+      if (!canManageKanban(membership.role)) {
+        return jsonError('Apenas admin ou manager pode criar grupos.', 403)
       }
 
       const name = normalizeName(body.name)
