@@ -452,7 +452,6 @@ function ReturnReasonModal({
   const [reason, setReason] = useState('')
   const [details, setDetails] = useState('')
 
-
   const isValid = reason && details.trim().length >= 15
 
   if (!isOpen) return null
@@ -588,6 +587,152 @@ function ReturnReasonModal({
         </div>
       </div>
     </div>
+  )
+}
+
+function CreateGroupModal({
+  isOpen,
+  target,
+  isLoading,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean
+  target: 'bulk' | 'card'
+  isLoading: boolean
+  onClose: () => void
+  onConfirm: (groupName: string) => void
+}) {
+  const [groupName, setGroupName] = useState('')
+
+  useEffect(() => {
+    if (isOpen) {
+      setGroupName('')
+    }
+  }, [isOpen])
+
+  if (!isOpen) return null
+
+  const normalizedGroupName = groupName.trim()
+  const isValid = normalizedGroupName.length >= 2
+
+  const handleClose = () => {
+    if (isLoading) return
+    setGroupName('')
+    onClose()
+  }
+
+  const handleConfirm = () => {
+    if (!isValid || isLoading) return
+    onConfirm(normalizedGroupName)
+  }
+
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.72)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+      }}
+      onClick={handleClose}
+    >
+      <div
+        style={{
+          background: DS.surfaceBg,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radiusContainer + 3,
+          padding: 24,
+          width: '90%',
+          maxWidth: 460,
+          color: DS.textPrimary,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>
+          Criar grupo
+        </div>
+
+        <div style={{ fontSize: 12, marginBottom: 16, color: DS.textSecondary, lineHeight: 1.45 }}>
+          {target === 'card'
+            ? 'O grupo será criado e vinculado automaticamente ao lead selecionado.'
+            : 'O grupo será criado e ficará selecionado para a ação em massa.'}
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 6, color: DS.textMuted }}>
+            Nome do grupo *
+          </label>
+          <input
+            autoFocus
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleConfirm()
+              if (e.key === 'Escape') handleClose()
+            }}
+            placeholder="Ex.: Renovação Abril"
+            disabled={isLoading}
+            style={{
+              width: '100%',
+              padding: '9px 10px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.selectBg,
+              color: DS.textPrimary,
+              fontSize: 12,
+              outline: 'none',
+              opacity: isLoading ? 0.6 : 1,
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={handleClose}
+            disabled={isLoading}
+            style={{
+              flex: 1,
+              padding: '10px',
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.panelBg,
+              color: DS.textSecondary,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              fontWeight: 700,
+              fontSize: 12,
+              opacity: isLoading ? 0.5 : 1,
+            }}
+          >
+            Cancelar
+          </button>
+
+          <button
+            onClick={handleConfirm}
+            disabled={!isValid || isLoading}
+            style={{
+              flex: 1,
+              padding: '10px',
+              borderRadius: DS.radius,
+              border: 'none',
+              background: isValid && !isLoading ? '#1e7d4a' : DS.panelBg,
+              color: isValid && !isLoading ? '#ffffff' : DS.textMuted,
+              cursor: isValid && !isLoading ? 'pointer' : 'not-allowed',
+              fontWeight: 700,
+              fontSize: 12,
+              opacity: isValid && !isLoading ? 1 : 0.5,
+            }}
+          >
+            {isLoading ? 'Criando…' : 'Criar grupo'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -1803,6 +1948,10 @@ export default function SalesCyclesKanban({
   const [bulkGroup, setBulkGroup] = useState('')
   const [showBulkModal, setShowBulkModal] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState(false)
+  const [createGroupRequest, setCreateGroupRequest] = useState<{
+    target: 'bulk' | 'card'
+    cycleId?: string
+  } | null>(null)
   const [showCreateLeadModal, setShowCreateLeadModal] = useState(false)
 
   const [returnReasonModalOpen, setReturnReasonModalOpen] = useState(false)
@@ -2197,13 +2346,21 @@ export default function SalesCyclesKanban({
     }
   }, [loadItems, searchTerm, addToast])
 
-  const handleCreateGroupInline = useCallback(async (target: 'bulk' | 'card', cycleId?: string) => {
+  const handleCreateGroupInline = useCallback((target: 'bulk' | 'card', cycleId?: string) => {
     if (!isAdmin) return
-  
-    const groupName = window.prompt('Nome do novo grupo:')
-    if (!groupName || !groupName.trim()) return
+
+    setError(null)
+    setCreateGroupRequest({
+      target,
+      cycleId,
+    })
+  }, [isAdmin])
+
+  const confirmCreateGroup = useCallback(async (groupName: string) => {
+    if (!createGroupRequest) return
   
     setCreatingGroup(true)
+    setError(null)
   
     try {
       const data = await postKanbanAction({
@@ -2233,19 +2390,21 @@ export default function SalesCyclesKanban({
         )
       })
   
-      if (target === 'bulk') {
+      if (createGroupRequest.target === 'bulk') {
         setBulkGroup(data.id)
         addToast(`Grupo "${createdGroupName}" criado e selecionado. Clique em "Agrupar Todos" para vincular os leads.`)
-      } else if (cycleId) {
-        const shouldBind = window.confirm(`Grupo "${createdGroupName}" criado. Deseja vincular neste lead agora?`)
-        if (shouldBind) await setGroupForCycle(cycleId, data.id)
+      } else if (createGroupRequest.cycleId) {
+        await setGroupForCycle(createGroupRequest.cycleId, data.id)
+        addToast(`Grupo "${createdGroupName}" criado e vinculado ao lead.`)
       }
+
+      setCreateGroupRequest(null)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao criar grupo')
     } finally {
       setCreatingGroup(false)
     }
-  }, [isAdmin, loadGroups, setGroupForCycle, addToast])
+  }, [createGroupRequest, loadGroups, setGroupForCycle, addToast])
 
   const bulkReturnToPool = useCallback(async () => {
     if (selectedIds.size === 0) return
@@ -2941,7 +3100,7 @@ export default function SalesCyclesKanban({
         />
       )}
 
-      {showBulkModal && (
+{showBulkModal && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
           onClick={() => setShowBulkModal(false)}
@@ -3019,7 +3178,7 @@ export default function SalesCyclesKanban({
                 </select>
                 {isAdmin && (
                   <button
-                    onClick={() => void handleCreateGroupInline('bulk')}
+                    onClick={() => handleCreateGroupInline('bulk')}
                     disabled={creatingGroup}
                     style={{ padding: '8px 12px', borderRadius: DS.radius, border: `1px solid ${DS.greenBorder}`, background: DS.greenBg, color: DS.greenText, cursor: creatingGroup ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: creatingGroup ? 0.5 : 1, whiteSpace: 'nowrap' }}
                   >
@@ -3042,6 +3201,17 @@ export default function SalesCyclesKanban({
           </div>
         </div>
       )}
+
+      <CreateGroupModal
+        isOpen={Boolean(createGroupRequest)}
+        target={createGroupRequest?.target ?? 'bulk'}
+        isLoading={creatingGroup}
+        onClose={() => {
+          if (creatingGroup) return
+          setCreateGroupRequest(null)
+        }}
+        onConfirm={confirmCreateGroup}
+      />
 
 <ReturnReasonModal
         key={returnCycleId ?? 'return-reason-modal'}
