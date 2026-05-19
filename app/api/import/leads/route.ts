@@ -284,8 +284,6 @@ function findDeletedConflicts(
   rows: NormalizedRow[],
   existingLeadById: Map<string, LeadRow>,
   leadIdByDoc: Map<string, string>,
-  _leadIdByEmail: Map<string, string>,
-  _leadIdByPhone: Map<string, string>,
 ) {
   const conflictsByRow = new Map<number, DeletedLeadConflict>()
 
@@ -317,8 +315,6 @@ function findActiveConflicts(
   rows: NormalizedRow[],
   existingLeadById: Map<string, LeadRow>,
   leadIdByDoc: Map<string, string>,
-  _leadIdByEmail: Map<string, string>,
-  _leadIdByPhone: Map<string, string>,
 ) {
   const conflictsByRow = new Map<number, ActiveLeadConflict>()
 
@@ -564,16 +560,12 @@ export async function POST(req: Request) {
       rows,
       existingLeadById,
       leadIdByDoc,
-      leadIdByEmail,
-      leadIdByPhone,
     )
 
     const activeConflicts = findActiveConflicts(
       rows,
       existingLeadById,
       leadIdByDoc,
-      leadIdByEmail,
-      leadIdByPhone,
     )
 
     if (checkDeletedConflictsOnly) {
@@ -615,8 +607,6 @@ export async function POST(req: Request) {
 
     const errors: Array<{ row: number; error: string }> = []
     const seenDocs = new Set<string>()
-    const seenEmails = new Set<string>()
-    const seenPhones = new Set<string>()
 
     let created = 0
     let updated = 0
