@@ -22,8 +22,11 @@ export type AlertChip = {
   active?: boolean
 }
 
+type KanbanScope = 'mine' | 'seller' | 'company'
+
 type SellerMicroKPIsProps = {
-  userId: string
+  scope: KanbanScope
+  ownerUserId: string | null
   groupId?: string | null
   supabase: any
   refreshKey?: number
@@ -47,7 +50,8 @@ const DS = {
 } as const
 
 export default function SellerMicroKPIs({
-  userId,
+  scope,
+  ownerUserId,
   supabase,
   refreshKey,
   alerts = [],
@@ -59,21 +63,30 @@ export default function SellerMicroKPIs({
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
-    if (!userId) return
+    if (scope === 'company' || !ownerUserId) {
+      setKpis(null)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
+
     try {
       const { data, error } = await supabase.rpc('rpc_seller_micro_kpis', {
-        p_owner_user_id: userId,
+        p_owner_user_id: ownerUserId,
         p_days: 7,
       })
+
       if (error) throw error
+
       setKpis(data as MicroKPIs)
     } catch (e: any) {
       console.error('SellerMicroKPIs error:', e)
+      setKpis(null)
     } finally {
       setLoading(false)
     }
-  }, [userId, supabase])
+  }, [scope, ownerUserId, supabase])
 
   useEffect(() => {
     void load()
@@ -126,15 +139,21 @@ export default function SellerMicroKPIs({
     >
       {/* Produtividade */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-        {loading ? (
+      {loading ? (
           <span style={{ color: DS.textMuted }}>Carregando...</span>
-        ) : (
+        ) : scope === 'company' ? (
+          <span style={{ color: DS.textMuted }}>
+            Produtividade individual: selecione um vendedor
+          </span>
+        ) : productivityStats.length > 0 ? (
           productivityStats.map((s) => (
             <div key={s.label} title={s.title} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ color: DS.textMuted, fontSize: 10.5 }}>{s.label}</span>
               <span style={{ color: s.accent ?? DS.textPrimary, fontWeight: 700 }}>{s.value}</span>
             </div>
           ))
+        ) : (
+          <span style={{ color: DS.textMuted }}>Sem dados de produtividade</span>
         )}
       </div>
 

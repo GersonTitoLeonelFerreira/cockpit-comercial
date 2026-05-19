@@ -2929,7 +2929,14 @@ export default function SalesCyclesKanban({
       </div>
 
       <SellerMicroKPIs
-        userId={isAdmin && selectedOwnerId ? selectedOwnerId : userId}
+        scope={selectedScope}
+        ownerUserId={
+          selectedScope === 'mine'
+            ? userId
+            : selectedScope === 'seller'
+              ? selectedOwnerId
+              : null
+        }
         groupId={selectedGroupId}
         supabase={supabase}
         refreshKey={kpiRefreshKey}
