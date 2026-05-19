@@ -936,6 +936,44 @@ export default function PoolClient({
         </div>
       </div>
 
+      {error && (
+        <div
+          style={{
+            background: DS.redBg,
+            color: DS.redText,
+            border: `1px solid ${DS.redBorder}`,
+            borderRadius: DS.radiusContainer,
+            padding: 12,
+            marginBottom: 16,
+            fontSize: 12,
+            fontWeight: 700,
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            alignItems: 'center',
+          }}
+        >
+          <span>{error}</span>
+
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: DS.redText,
+              cursor: 'pointer',
+              fontWeight: 900,
+              fontSize: 14,
+              lineHeight: 1,
+            }}
+            aria-label="Fechar mensagem de erro"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {successMessage && (
         <div
           style={{
