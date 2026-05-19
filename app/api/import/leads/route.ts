@@ -657,6 +657,15 @@ export async function POST(req: Request) {
       attached_by: string
     }> = []
 
+    const cyclesToInsert: Array<{
+      rowNumber: number
+      leadName: string
+      leadId: string
+      ownerUserId: string | null
+      currentGroupId: string | null
+      stageEnteredAt: string
+    }> = []
+
     const profilesToUpsert: Array<Record<string, unknown>> = []
 
     type ImportWorkRow = {
@@ -913,62 +922,14 @@ export async function POST(req: Request) {
         let cycle = cycleByLeadId.get(resolvedLeadId) || null
 
         if (!cycle) {
-          const { data: createdCycle, error: cycleErr } = await supabase
-            .from('sales_cycles')
-            .insert({
-              company_id: companyId,
-              lead_id: resolvedLeadId,
-              owner_user_id: defaultOwnerUserId,
-              status: 'novo',
-              current_group_id: groupId || null,
-              stage_entered_at: new Date().toISOString(),
-            })
-            .select('id, lead_id, current_group_id')
-            .single()
-
-          if (cycleErr || !createdCycle?.id) {
-            errors.push({
-              row: row.rowNumber,
-              error: cycleErr?.message || 'Falha ao criar ciclo.',
-            })
-            continue
-          }
-
-          cycle = createdCycle as CycleRow
-          cycleByLeadId.set(leadId, cycle)
-          createdCycles++
-
-          cycleEventsToInsert.push({
-            company_id: companyId,
-            cycle_id: cycle.id,
-            event_type: 'cycle_created',
-            created_by: user.id,
-            metadata: {
-              lead_name: row.name,
-              owner_user_id: defaultOwnerUserId,
-              group_id: groupId || null,
-              source: EVENT_SOURCES.cycle_create,
-            },
-            occurred_at: new Date().toISOString(),
+          cyclesToInsert.push({
+            rowNumber: row.rowNumber,
+            leadName: row.name,
+            leadId: resolvedLeadId,
+            ownerUserId: defaultOwnerUserId,
+            currentGroupId: groupId || null,
+            stageEnteredAt: new Date().toISOString(),
           })
-
-          if (groupId) {
-            groupLinksToInsert.push({
-              company_id: companyId,
-              group_id: groupId,
-              cycle_id: cycle.id,
-              attached_by: user.id,
-            })
-
-            cycleEventsToInsert.push({
-              company_id: companyId,
-              cycle_id: cycle.id,
-              event_type: 'group_attached',
-              created_by: user.id,
-              metadata: { group_id: groupId },
-              occurred_at: new Date().toISOString(),
-            })
-          }
         } else if (groupId && !cycle.current_group_id) {
           const { error: cycleUpdateErr } = await supabase
             .from('sales_cycles')
@@ -1002,6 +963,86 @@ export async function POST(req: Request) {
           row: row.rowNumber,
           error: e instanceof Error && e.message ? e.message : 'Erro inesperado ao processar linha.',
         })
+      }
+    }
+
+    if (cyclesToInsert.length > 0) {
+      const { data: insertedCycles, error: cyclesInsertError } = await supabase
+        .from('sales_cycles')
+        .insert(
+          cyclesToInsert.map((cycleToInsert) => ({
+            company_id: companyId,
+            lead_id: cycleToInsert.leadId,
+            owner_user_id: cycleToInsert.ownerUserId,
+            status: 'novo',
+            current_group_id: cycleToInsert.currentGroupId,
+            stage_entered_at: cycleToInsert.stageEnteredAt,
+          })),
+        )
+        .select('id, lead_id, current_group_id')
+
+      if (cyclesInsertError) {
+        console.error('Erro ao criar ciclos da importação em lote:', cyclesInsertError)
+
+        for (const cycleToInsert of cyclesToInsert) {
+          errors.push({
+            row: cycleToInsert.rowNumber,
+            error: cyclesInsertError.message || 'Falha ao criar ciclo.',
+          })
+        }
+      } else {
+        const insertedCycleByLeadId = new Map<string, CycleRow>()
+
+        for (const cycle of (insertedCycles ?? []) as CycleRow[]) {
+          insertedCycleByLeadId.set(cycle.lead_id, cycle)
+          cycleByLeadId.set(cycle.lead_id, cycle)
+        }
+
+        for (const cycleToInsert of cyclesToInsert) {
+          const cycle = insertedCycleByLeadId.get(cycleToInsert.leadId) || null
+
+          if (!cycle?.id) {
+            errors.push({
+              row: cycleToInsert.rowNumber,
+              error: 'Ciclo criado em lote não retornou identificador.',
+            })
+            continue
+          }
+
+          createdCycles++
+
+          cycleEventsToInsert.push({
+            company_id: companyId,
+            cycle_id: cycle.id,
+            event_type: 'cycle_created',
+            created_by: user.id,
+            metadata: {
+              lead_name: cycleToInsert.leadName,
+              owner_user_id: cycleToInsert.ownerUserId,
+              group_id: cycleToInsert.currentGroupId,
+              source: EVENT_SOURCES.cycle_create,
+            },
+            occurred_at: new Date().toISOString(),
+          })
+
+          if (groupId) {
+            groupLinksToInsert.push({
+              company_id: companyId,
+              group_id: groupId,
+              cycle_id: cycle.id,
+              attached_by: user.id,
+            })
+
+            cycleEventsToInsert.push({
+              company_id: companyId,
+              cycle_id: cycle.id,
+              event_type: 'group_attached',
+              created_by: user.id,
+              metadata: { group_id: groupId },
+              occurred_at: new Date().toISOString(),
+            })
+          }
+        }
       }
     }
 
@@ -1049,6 +1090,7 @@ export async function POST(req: Request) {
       events_created: cycleEventsToInsert.length,
       group_links_created: groupLinksToInsert.length,
       profiles_upserted: profilesToUpsert.length,
+      cycles_inserted_in_batch: cyclesToInsert.length,
       errors,
     })
   } catch (e: unknown) {
