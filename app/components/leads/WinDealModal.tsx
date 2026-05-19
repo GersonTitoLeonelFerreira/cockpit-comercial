@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
+
+import { IconAlertTriangle, IconCircleCheck, IconLoader } from '@/app/components/icons/UiIcons'
 import * as salesAnalytics from '@/app/lib/services/sales-analytics'
 import { listActiveProducts } from '@/app/lib/services/products'
 import type { Product } from '@/app/types/product'
 import type { PaymentMethod, PaymentType } from '@/app/types/sales_cycles'
-import { IconCircleCheck, IconLoader, IconAlertTriangle } from '@/app/components/icons/UiIcons'
 
 type WinDealModalProps = {
   isOpen: boolean
@@ -16,12 +17,6 @@ type WinDealModalProps = {
   companyId?: string
   onClose: () => void
   onSuccess: () => void
-}
-
-type RevenueOption = {
-  ref_date: string
-  real_value: number
-  seller_id: string
 }
 
 const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
@@ -38,30 +33,86 @@ const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
 const PAYMENT_TYPE_OPTIONS: { value: PaymentType; label: string }[] = [
   { value: 'avista', label: 'À Vista' },
   { value: 'entrada_parcelas', label: 'Entrada + Parcelas' },
-  { value: 'parcelado_sem_entrada', label: 'Parcelado (sem entrada)' },
+  { value: 'parcelado_sem_entrada', label: 'Parcelado sem Entrada' },
   { value: 'recorrente', label: 'Recorrente / Mensalidade' },
   { value: 'outro', label: 'Outro' },
 ]
 
-const inputStyle: React.CSSProperties = {
+const DS = {
+  overlay: 'rgba(0,0,0,0.72)',
+  surfaceBg: '#111318',
+  panelBg: '#0d0f14',
+  cardBg: '#141722',
+  inputBg: '#090b0f',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+  divider: '#1f2330',
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+  green: '#10b981',
+  greenSoft: '#86efac',
+  greenBg: 'rgba(16,185,129,0.10)',
+  greenBorder: 'rgba(16,185,129,0.32)',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  blueBg: 'rgba(59,130,246,0.10)',
+  amber: '#f59e0b',
+  amberSoft: '#fcd34d',
+  amberBg: 'rgba(245,158,11,0.12)',
+  amberBorder: 'rgba(245,158,11,0.30)',
+  redBg: 'rgba(127,29,29,0.78)',
+  redText: '#fecaca',
+  redBorder: 'rgba(248,113,113,0.35)',
+  radius: 8,
+  radiusContainer: 14,
+} as const
+
+const inputStyle: CSSProperties = {
   width: '100%',
-  padding: '10px',
-  borderRadius: 6,
-  border: '1px solid #2a2a2a',
-  background: '#0f0f0f',
-  color: 'white',
+  minHeight: 42,
+  padding: '10px 12px',
+  borderRadius: DS.radius,
+  border: `1px solid ${DS.border}`,
+  background: DS.inputBg,
+  color: DS.textPrimary,
   fontSize: 12,
+  outline: 'none',
 }
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
+  display: 'block',
+  marginBottom: 7,
+  color: DS.textSecondary,
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: '0.02em',
+}
+
+const sectionCardStyle: CSSProperties = {
+  border: `1px solid ${DS.border}`,
+  background: DS.panelBg,
+  borderRadius: DS.radiusContainer,
+  padding: 14,
+}
+
+const sectionTitleStyle: CSSProperties = {
+  marginBottom: 12,
+  color: DS.textPrimary,
   fontSize: 12,
   fontWeight: 900,
-  display: 'block',
-  marginBottom: 8,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
 }
 
-const sectionStyle: React.CSSProperties = {
-  marginBottom: 16,
+function getTodayISODate(): string {
+  const today = new Date()
+  const yyyy = today.getFullYear()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+
+  return `${yyyy}-${mm}-${dd}`
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -69,32 +120,39 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+function parseMoney(value: string): number {
+  return Number.parseFloat(value.replace(',', '.'))
+}
+
+function formatCurrency(value: number | string | null | undefined): string {
+  const parsedValue = typeof value === 'number' ? value : Number(value ?? 0)
+
+  if (!Number.isFinite(parsedValue)) return 'R$ 0,00'
+
+  return parsedValue.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  })
+}
+
 export function WinDealModal({
   isOpen,
   dealId,
   dealName,
-  ownerUserId,
   companyId,
   onClose,
   onSuccess,
 }: WinDealModalProps) {
-  const supabase = useMemo(() => supabaseBrowser(), [])
-
-  // --- campos básicos ---
-  const [wonValue, setWonValue] = useState('')
-  const [winMethod, setWinMethod] = useState<'manual' | 'revenue'>('manual')
-  const [revenueDate, setRevenueDate] = useState<string>('')
-  const [revenueOptions, setRevenueOptions] = useState<RevenueOption[]>([])
-  const [winNote, setWinNote] = useState('')
-
-  // --- produto ---
   const [products, setProducts] = useState<Product[]>([])
   const [productsLoading, setProductsLoading] = useState(false)
   const [productsError, setProductsError] = useState<string | null>(null)
-  const [productId, setProductId] = useState<string>('')
-  const [wonUnitPrice, setWonUnitPrice] = useState('')
 
-  // --- pagamento ---
+  const [productId, setProductId] = useState('')
+  const [wonValue, setWonValue] = useState('')
+  const [wonUnitPrice, setWonUnitPrice] = useState('')
+  const [revenueDate, setRevenueDate] = useState(getTodayISODate())
+  const [winNote, setWinNote] = useState('')
+
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('')
   const [paymentType, setPaymentType] = useState<PaymentType | ''>('')
   const [entryAmount, setEntryAmount] = useState('')
@@ -102,47 +160,21 @@ export function WinDealModal({
   const [installmentAmount, setInstallmentAmount] = useState('')
   const [paymentNotes, setPaymentNotes] = useState('')
 
-  // --- estado geral ---
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Carregar opções de receita da empresa ativa (mantido para compatibilidade)
+  const showInstallments =
+    paymentType === 'entrada_parcelas' || paymentType === 'parcelado_sem_entrada'
+  const showEntry = paymentType === 'entrada_parcelas'
+  const requirePaymentNotes = paymentMethod === 'misto'
+
   useEffect(() => {
-    if (!isOpen || !ownerUserId || !companyId) {
-      setRevenueOptions([])
-      return
-    }
+    if (!isOpen) return
 
-    const loadRevenueOptions = async () => {
-      try {
-        setLoading(true)
-        setError(null)
+    setError(null)
+    setRevenueDate((currentDate) => currentDate || getTodayISODate())
+  }, [isOpen])
 
-        const { data, error: err } = await supabase
-          .from('v_revenue_daily_seller')
-          .select('ref_date, real_value, seller_id')
-          .eq('company_id', companyId)
-          .eq('seller_id', ownerUserId)
-          .gt('real_value', 0)
-          .order('ref_date', { ascending: false })
-          .limit(30)
-
-        if (err) throw err
-
-        setRevenueOptions(data || [])
-      } catch (e: unknown) {
-        setError(getErrorMessage(e, 'Erro ao carregar receitas'))
-        console.error('Erro:', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadRevenueOptions()
-  }, [isOpen, ownerUserId, companyId, supabase])
-
-  // Carregar produtos ativos da empresa
   useEffect(() => {
     if (!isOpen || !companyId) {
       setProducts([])
@@ -158,10 +190,10 @@ export function WinDealModal({
 
         const activeProducts = await listActiveProducts(companyId)
         setProducts(activeProducts)
-      } catch (e: unknown) {
+      } catch (loadError: unknown) {
         setProducts([])
-        setProductsError(getErrorMessage(e, 'Erro ao carregar produtos ativos'))
-        console.error('Erro ao carregar produtos:', e)
+        setProductsError(getErrorMessage(loadError, 'Erro ao carregar produtos ativos'))
+        console.error('Erro ao carregar produtos:', loadError)
       } finally {
         setProductsLoading(false)
       }
@@ -170,51 +202,55 @@ export function WinDealModal({
     void loadProducts()
   }, [isOpen, companyId])
 
-  // Default data para hoje ao abrir modo receita
-  useEffect(() => {
-    if (!isOpen) return
-    if (winMethod !== 'revenue') return
+  const handleProductChange = (nextProductId: string) => {
+    setProductId(nextProductId)
 
-    const today = new Date()
-    const yyyy = today.getFullYear()
-    const mm = String(today.getMonth() + 1).padStart(2, '0')
-    const dd = String(today.getDate()).padStart(2, '0')
-    setRevenueDate((prev) => prev || `${yyyy}-${mm}-${dd}`)
-  }, [isOpen, winMethod])
+    const selectedProduct = products.find((product) => product.id === nextProductId)
 
-  // Quando um produto é selecionado, preencher won_unit_price com o base_price
-  useEffect(() => {
-    if (!productId) return
-    const found = products.find((p) => p.id === productId)
-    if (found) {
-      setWonUnitPrice(String(found.base_price))
+    if (!selectedProduct) {
+      setWonUnitPrice('')
+      return
     }
-  }, [productId, products])
 
-  const showInstallments =
-    paymentType === 'entrada_parcelas' || paymentType === 'parcelado_sem_entrada'
-  const showEntry = paymentType === 'entrada_parcelas'
-  const requirePaymentNotes = paymentMethod === 'misto'
+    const basePrice = String(selectedProduct.base_price)
+
+    setWonUnitPrice(basePrice)
+
+    if (!wonValue) {
+      setWonValue(basePrice)
+    }
+  }
+
+  const resetFormAfterSuccess = () => {
+    setProductId('')
+    setWonValue('')
+    setWonUnitPrice('')
+    setRevenueDate(getTodayISODate())
+    setWinNote('')
+    setPaymentMethod('')
+    setPaymentType('')
+    setEntryAmount('')
+    setInstallmentsCount('')
+    setInstallmentAmount('')
+    setPaymentNotes('')
+    setError(null)
+  }
 
   const handleSave = async () => {
-    if (!wonValue) {
-      setError('Preencha o valor da venda')
+    const normalizedWonValue = parseMoney(wonValue)
+
+    if (!wonValue || !Number.isFinite(normalizedWonValue) || normalizedWonValue <= 0) {
+      setError('Informe um valor de venda maior que zero.')
       return
     }
 
-    const value = parseFloat(wonValue)
-    if (isNaN(value) || value <= 0) {
-      setError('Valor deve ser maior que 0')
-      return
-    }
-
-    if (winMethod === 'revenue' && !revenueDate) {
-      setError('Selecione a data da receita')
+    if (!revenueDate) {
+      setError('Informe a data de faturamento.')
       return
     }
 
     if (requirePaymentNotes && !paymentNotes.trim()) {
-      setError('Informe uma observação quando o pagamento for "Misto"')
+      setError('Informe uma observação quando o pagamento for misto.')
       return
     }
 
@@ -224,40 +260,27 @@ export function WinDealModal({
 
       await salesAnalytics.markDealWonWithRevenue(
         dealId,
-        value,
-        winMethod === 'revenue' ? revenueDate : undefined,
-        winNote || undefined,
+        normalizedWonValue,
+        revenueDate,
+        winNote.trim() || undefined,
         {
           productId: productId || null,
-          wonUnitPrice: wonUnitPrice ? parseFloat(wonUnitPrice) : null,
+          wonUnitPrice: wonUnitPrice ? parseMoney(wonUnitPrice) : null,
           paymentMethod: (paymentMethod || null) as PaymentMethod | null,
           paymentType: (paymentType || null) as PaymentType | null,
-          entryAmount: entryAmount ? parseFloat(entryAmount) : null,
-          installmentsCount: installmentsCount ? parseInt(installmentsCount, 10) : null,
-          installmentAmount: installmentAmount ? parseFloat(installmentAmount) : null,
+          entryAmount: entryAmount ? parseMoney(entryAmount) : null,
+          installmentsCount: installmentsCount ? Number.parseInt(installmentsCount, 10) : null,
+          installmentAmount: installmentAmount ? parseMoney(installmentAmount) : null,
           paymentNotes: paymentNotes.trim() || null,
         }
       )
 
-      // Reset
-      setWonValue('')
-      setWinNote('')
-      setRevenueDate('')
-      setWinMethod('manual')
-      setProductId('')
-      setWonUnitPrice('')
-      setPaymentMethod('')
-      setPaymentType('')
-      setEntryAmount('')
-      setInstallmentsCount('')
-      setInstallmentAmount('')
-      setPaymentNotes('')
-
+      resetFormAfterSuccess()
       onSuccess()
       onClose()
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, 'Erro ao salvar'))
-      console.error('Erro:', e)
+    } catch (saveError: unknown) {
+      setError(getErrorMessage(saveError, 'Erro ao confirmar ganho'))
+      console.error('Erro ao confirmar ganho:', saveError)
     } finally {
       setSaving(false)
     }
@@ -268,417 +291,531 @@ export function WinDealModal({
   const disableSave =
     saving ||
     !wonValue ||
-    (winMethod === 'revenue' && !revenueDate) ||
+    !revenueDate ||
     (requirePaymentNotes && !paymentNotes.trim())
+
+  const selectedProduct = products.find((product) => product.id === productId) ?? null
 
   return (
     <div
       style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.7)',
+        inset: 0,
+        zIndex: 9999,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 9999,
+        padding: 18,
+        background: DS.overlay,
+        backdropFilter: 'blur(8px)',
       }}
       onClick={onClose}
     >
       <div
         style={{
-          background: '#111',
-          border: '1px solid #333',
-          borderRadius: 12,
-          padding: 24,
-          width: '90%',
-          maxWidth: 520,
-          color: 'white',
-          maxHeight: '90vh',
-          overflowY: 'auto',
+          width: 'min(760px, 96vw)',
+          maxHeight: '92vh',
+          overflow: 'hidden',
+          border: `1px solid ${DS.border}`,
+          borderRadius: 18,
+          background: DS.surfaceBg,
+          color: DS.textPrimary,
+          boxShadow: '0 28px 80px rgba(0,0,0,0.62)',
+          display: 'flex',
+          flexDirection: 'column',
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
-        {/* Header */}
-        <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <IconCircleCheck size={20} color="#10b981" />
-          Marcar Deal como Ganho
-        </div>
-
-        {dealName && (
-          <div
-            style={{
-              fontSize: 12,
-              opacity: 0.7,
-              marginBottom: 16,
-              padding: '8px 12px',
-              background: '#0f0f0f',
-              borderRadius: 6,
-              border: '1px solid #222',
-            }}
-          >
-            <strong>Deal:</strong> {dealName}
-          </div>
-        )}
-
-        {/* Erro */}
-        {error && (
-          <div
-            style={{
-              fontSize: 12,
-              background: '#7f1d1d',
-              color: '#fecaca',
-              padding: 10,
-              borderRadius: 6,
-              marginBottom: 16,
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        {/* Método de Preenchimento */}
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Como preencher o valor?</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setWinMethod('manual')}
+        <div
+          style={{
+            padding: '18px 20px',
+            borderBottom: `1px solid ${DS.border}`,
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(17,19,24,0.98))',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <div
               style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: winMethod === 'manual' ? '2px solid #10b981' : '1px solid #2a2a2a',
-                background: winMethod === 'manual' ? '#10b98120' : '#0f0f0f',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 900,
+                width: 34,
+                height: 34,
+                borderRadius: 10,
+                border: `1px solid ${DS.greenBorder}`,
+                background: DS.greenBg,
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
               }}
             >
-              Manual
-            </button>
-            <button
-              onClick={() => setWinMethod('revenue')}
-              disabled={loading}
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: winMethod === 'revenue' ? '2px solid #10b981' : '1px solid #2a2a2a',
-                background: winMethod === 'revenue' ? '#10b98120' : '#0f0f0f',
-                color: 'white',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontSize: 12,
-                fontWeight: 900,
-                opacity: loading ? 0.5 : 1,
-              }}
-            >
-              Receita
-            </button>
+              <IconCircleCheck size={18} color={DS.greenSoft} />
+            </div>
+
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 900, marginBottom: 4 }}>
+                Confirmar venda ganha
+              </div>
+              <div style={{ color: DS.textSecondary, fontSize: 12, lineHeight: 1.45 }}>
+                Registre produto, valor, pagamento e data de faturamento em um único fluxo.
+              </div>
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              border: `1px solid ${DS.border}`,
+              background: DS.panelBg,
+              color: DS.textSecondary,
+              cursor: saving ? 'not-allowed' : 'pointer',
+              fontWeight: 900,
+              opacity: saving ? 0.6 : 1,
+            }}
+            aria-label="Fechar modal"
+          >
+            ×
+          </button>
         </div>
 
-        {/* Data da Receita */}
-        {winMethod === 'revenue' && (
-          <div style={sectionStyle}>
-            <label style={labelStyle}>Data da Receita</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                type="date"
-                value={revenueDate}
-                onChange={(e) => setRevenueDate(e.target.value)}
-                disabled={saving}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const today = new Date()
-                  const yyyy = today.getFullYear()
-                  const mm = String(today.getMonth() + 1).padStart(2, '0')
-                  const dd = String(today.getDate()).padStart(2, '0')
-                  setRevenueDate(`${yyyy}-${mm}-${dd}`)
-                }}
-                disabled={saving}
+        <div
+          style={{
+            padding: 20,
+            overflowY: 'auto',
+            display: 'grid',
+            gap: 14,
+          }}
+        >
+          {dealName && (
+            <div
+              style={{
+                border: `1px solid ${DS.borderSubtle}`,
+                background: DS.cardBg,
+                borderRadius: DS.radiusContainer,
+                padding: '10px 12px',
+              }}
+            >
+              <div
                 style={{
-                  padding: '10px 12px',
-                  borderRadius: 6,
-                  border: '1px solid #2a2a2a',
-                  background: '#0f0f0f',
-                  color: 'white',
-                  fontSize: 12,
-                  fontWeight: 900,
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  opacity: saving ? 0.5 : 1,
-                  whiteSpace: 'nowrap',
+                  color: DS.textLabel,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  marginBottom: 5,
                 }}
               >
-                Hoje
-              </button>
-            </div>
-            {loading ? (
-              <div style={{ fontSize: 12, opacity: 0.6, marginTop: 8 }}>Carregando receitas...</div>
-            ) : revenueOptions.length > 0 ? (
-              <div style={{ fontSize: 11, opacity: 0.65, marginTop: 8 }}>
-                Últimas datas com receita: {revenueOptions.slice(0, 3).map((r) => r.ref_date).join(', ')}
+                Oportunidade
               </div>
-            ) : null}
-          </div>
-        )}
-
-        {/* Valor da Venda */}
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Valor da Venda (R$) *</label>
-          <input
-            type="number"
-            step="0.01"
-            placeholder="0.00"
-            value={wonValue}
-            onChange={(e) => setWonValue(e.target.value)}
-            disabled={saving}
-            style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-          />
-        </div>
-
-        {/* Divisor */}
-        <div style={{ borderTop: '1px solid #222', margin: '16px 0' }} />
-
-        {/* Produto Vendido */}
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Produto Vendido (opcional)</label>
-
-          {productsLoading ? (
-            <div style={{ fontSize: 12, opacity: 0.6 }}>
-              Carregando produtos ativos...
+              <div style={{ color: DS.textPrimary, fontSize: 13, fontWeight: 800 }}>
+                {dealName}
+              </div>
             </div>
-          ) : productsError ? (
-            <div style={{ fontSize: 12, color: '#fca5a5' }}>
-              {productsError}
-            </div>
-          ) : products.length > 0 ? (
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              disabled={saving}
-              style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+          )}
+
+          {error && (
+            <div
+              style={{
+                border: `1px solid ${DS.redBorder}`,
+                background: DS.redBg,
+                color: DS.redText,
+                borderRadius: DS.radiusContainer,
+                padding: 12,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
             >
-              <option value="">— Sem produto vinculado —</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.category ? `${p.name} (${p.category})` : p.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div style={{ fontSize: 12, opacity: 0.65 }}>
-              Nenhum produto ativo encontrado para esta empresa.
+              {error}
             </div>
           )}
-        </div>
 
-        {/* Valor unitário do produto */}
-        {productId && (
-          <div style={sectionStyle}>
-            <label style={labelStyle}>Valor Comercial do Produto (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="0.00"
-              value={wonUnitPrice}
-              onChange={(e) => setWonUnitPrice(e.target.value)}
-              disabled={saving}
-              style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-            />
-            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>
-              Preenchido automaticamente com o preço base do produto.
+          <div style={sectionCardStyle}>
+            <div style={sectionTitleStyle}>Venda</div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1.35fr) minmax(160px, 0.65fr)',
+                gap: 12,
+              }}
+            >
+              <div>
+                <label style={labelStyle}>Produto vendido</label>
+
+                {productsLoading ? (
+                  <div
+                    style={{
+                      ...inputStyle,
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: DS.textMuted,
+                    }}
+                  >
+                    Carregando produtos ativos...
+                  </div>
+                ) : productsError ? (
+                  <div
+                    style={{
+                      border: `1px solid ${DS.redBorder}`,
+                      background: DS.redBg,
+                      color: DS.redText,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                      fontSize: 12,
+                    }}
+                  >
+                    {productsError}
+                  </div>
+                ) : products.length > 0 ? (
+                  <select
+                    value={productId}
+                    onChange={(event) => handleProductChange(event.target.value)}
+                    disabled={saving}
+                    style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                  >
+                    <option value="">Sem produto vinculado</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.category
+                          ? `${product.name} (${product.category}) — ${formatCurrency(product.base_price)}`
+                          : `${product.name} — ${formatCurrency(product.base_price)}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div
+                    style={{
+                      border: `1px solid ${DS.amberBorder}`,
+                      background: DS.amberBg,
+                      color: DS.amberSoft,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                      fontSize: 12,
+                    }}
+                  >
+                    Nenhum produto ativo encontrado para esta empresa.
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={labelStyle}>Valor da venda *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={wonValue}
+                  onChange={(event) => setWonValue(event.target.value)}
+                  disabled={saving}
+                  style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                />
+              </div>
+            </div>
+
+            {selectedProduct && (
+              <div
+                style={{
+                  marginTop: 10,
+                  border: `1px solid ${DS.borderSubtle}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  padding: '9px 10px',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 160px',
+                  gap: 10,
+                  alignItems: 'center',
+                }}
+              >
+                <div style={{ color: DS.textSecondary, fontSize: 12 }}>
+                  Produto selecionado:{' '}
+                  <strong style={{ color: DS.textPrimary }}>{selectedProduct.name}</strong>
+                </div>
+
+                <div>
+                  <label style={{ ...labelStyle, marginBottom: 5 }}>Preço base</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={wonUnitPrice}
+                    onChange={(event) => setWonUnitPrice(event.target.value)}
+                    disabled={saving}
+                    style={{ ...inputStyle, minHeight: 36, opacity: saving ? 0.7 : 1 }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={sectionCardStyle}>
+            <div style={sectionTitleStyle}>Faturamento</div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(180px, 220px) minmax(0, 1fr)',
+                gap: 12,
+                alignItems: 'end',
+              }}
+            >
+              <div>
+                <label style={labelStyle}>Data de faturamento *</label>
+                <input
+                  type="date"
+                  value={revenueDate}
+                  onChange={(event) => setRevenueDate(event.target.value)}
+                  disabled={saving}
+                  style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                />
+              </div>
+
+              <div
+                style={{
+                  border: `1px solid ${DS.blue}`,
+                  background: DS.blueBg,
+                  borderRadius: DS.radius,
+                  padding: '10px 12px',
+                  color: DS.blueSoft,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                }}
+              >
+                Essa data define em qual dia a venda entra no faturamento, dashboard e
+                simulador.
+              </div>
             </div>
           </div>
-        )}
 
-        {/* Divisor pagamento */}
-        <div style={{ borderTop: '1px solid #222', margin: '16px 0' }} />
-        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-          Forma de Pagamento (opcional)
-        </div>
+          <div style={sectionCardStyle}>
+            <div style={sectionTitleStyle}>Pagamento</div>
 
-        {/* Meio de Pagamento */}
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Meio de Pagamento</label>
-          <select
-            value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod | '')}
-            disabled={saving}
-            style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-          >
-            <option value="">— Não informado —</option>
-            {PAYMENT_METHOD_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          {paymentMethod === 'misto' && (
-            <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <IconAlertTriangle size={12} color="#fbbf24" /> Pagamento misto — obrigatório informar observação abaixo.
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 12,
+              }}
+            >
+              <div>
+                <label style={labelStyle}>Meio de pagamento</label>
+                <select
+                  value={paymentMethod}
+                  onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod | '')}
+                  disabled={saving}
+                  style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                >
+                  <option value="">Não informado</option>
+                  {PAYMENT_METHOD_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                {paymentMethod === 'misto' && (
+                  <div
+                    style={{
+                      marginTop: 7,
+                      color: DS.amberSoft,
+                      fontSize: 11,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                  >
+                    <IconAlertTriangle size={12} color={DS.amberSoft} />
+                    Pagamento misto exige observação.
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={labelStyle}>Estrutura da negociação</label>
+                <select
+                  value={paymentType}
+                  onChange={(event) => {
+                    setPaymentType(event.target.value as PaymentType | '')
+                    setEntryAmount('')
+                    setInstallmentsCount('')
+                    setInstallmentAmount('')
+                  }}
+                  disabled={saving}
+                  style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                >
+                  <option value="">Não informado</option>
+                  {PAYMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Estrutura da Negociação */}
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Estrutura da Negociação</label>
-          <select
-            value={paymentType}
-            onChange={(e) => {
-              setPaymentType(e.target.value as PaymentType | '')
-              // Limpar campos de parcela/entrada ao trocar
-              setEntryAmount('')
-              setInstallmentsCount('')
-              setInstallmentAmount('')
-            }}
-            disabled={saving}
-            style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-          >
-            <option value="">— Não informado —</option>
-            {PAYMENT_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
+            {(showEntry || showInstallments) && (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'grid',
+                  gridTemplateColumns: showEntry
+                    ? 'repeat(3, minmax(0, 1fr))'
+                    : 'repeat(2, minmax(0, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {showEntry && (
+                  <div>
+                    <label style={labelStyle}>Entrada (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={entryAmount}
+                      onChange={(event) => setEntryAmount(event.target.value)}
+                      disabled={saving}
+                      style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                    />
+                  </div>
+                )}
 
-        {/* Entrada */}
-        {showEntry && (
-          <div style={sectionStyle}>
-            <label style={labelStyle}>Valor da Entrada (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="0.00"
-              value={entryAmount}
-              onChange={(e) => setEntryAmount(e.target.value)}
-              disabled={saving}
-              style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-            />
+                <div>
+                  <label style={labelStyle}>Nº de parcelas</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="12"
+                    value={installmentsCount}
+                    onChange={(event) => setInstallmentsCount(event.target.value)}
+                    disabled={saving}
+                    style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Valor da parcela (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={installmentAmount}
+                    onChange={(event) => setInstallmentAmount(event.target.value)}
+                    disabled={saving}
+                    style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {(paymentMethod || requirePaymentNotes) && (
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>
+                  Observação de pagamento{requirePaymentNotes ? ' *' : ''}
+                </label>
+                <textarea
+                  placeholder={
+                    requirePaymentNotes
+                      ? 'Descreva como o pagamento misto foi dividido.'
+                      : 'Ex.: parcelado no cartão de outra pessoa, entrada em PIX etc.'
+                  }
+                  value={paymentNotes}
+                  onChange={(event) => setPaymentNotes(event.target.value)}
+                  disabled={saving}
+                  style={{
+                    ...inputStyle,
+                    minHeight: 74,
+                    resize: 'vertical',
+                    opacity: saving ? 0.7 : 1,
+                  }}
+                />
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Parcelas */}
-        {showInstallments && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Nº de Parcelas</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                placeholder="12"
-                value={installmentsCount}
-                onChange={(e) => setInstallmentsCount(e.target.value)}
-                disabled={saving}
-                style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Valor da Parcela (R$)</label>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={installmentAmount}
-                onChange={(e) => setInstallmentAmount(e.target.value)}
-                disabled={saving}
-                style={{ ...inputStyle, opacity: saving ? 0.7 : 1 }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Observação de Pagamento */}
-        {(paymentMethod || requirePaymentNotes) && (
-          <div style={sectionStyle}>
-            <label style={labelStyle}>
-              Observação de Pagamento{requirePaymentNotes ? ' *' : ' (opcional)'}
-            </label>
+          <div style={sectionCardStyle}>
+            <div style={sectionTitleStyle}>Observação interna</div>
             <textarea
-              placeholder={
-                requirePaymentNotes
-                  ? 'Descreva como foi dividido o pagamento misto...'
-                  : 'Ex: parcelado no cartão do cônjuge...'
-              }
-              value={paymentNotes}
-              onChange={(e) => setPaymentNotes(e.target.value)}
+              placeholder="Ex.: contrato assinado, confirmação recebida, condição especial combinada..."
+              value={winNote}
+              onChange={(event) => setWinNote(event.target.value)}
               disabled={saving}
               style={{
                 ...inputStyle,
-                minHeight: 60,
+                minHeight: 82,
                 resize: 'vertical',
                 opacity: saving ? 0.7 : 1,
               }}
             />
           </div>
-        )}
-
-        {/* Divisor */}
-        <div style={{ borderTop: '1px solid #222', margin: '16px 0' }} />
-
-        {/* Nota geral */}
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Nota (opcional)</label>
-          <textarea
-            placeholder="Ex: Contrato assinado, confirmação recebida..."
-            value={winNote}
-            onChange={(e) => setWinNote(e.target.value)}
-            disabled={saving}
-            style={{
-              ...inputStyle,
-              minHeight: 60,
-              resize: 'vertical',
-              opacity: saving ? 0.7 : 1,
-            }}
-          />
         </div>
 
-        {/* Botões */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div
+          style={{
+            padding: '14px 20px',
+            borderTop: `1px solid ${DS.border}`,
+            background: DS.surfaceBg,
+            display: 'flex',
+            gap: 10,
+          }}
+        >
           <button
-            onClick={handleSave}
-            disabled={disableSave}
-            style={{
-              flex: 1,
-              padding: '10px',
-              borderRadius: 6,
-              border: 'none',
-              background: '#10b981',
-              color: 'white',
-              cursor: disableSave ? 'not-allowed' : 'pointer',
-              fontWeight: 900,
-              fontSize: 12,
-              opacity: disableSave ? 0.5 : 1,
-            }}
-          >
-            {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconLoader size={14} /> Salvando...</span> : 'Confirmar Ganho'}
-          </button>
-          <button
+            type="button"
             onClick={onClose}
             disabled={saving}
             style={{
               flex: 1,
-              padding: '10px',
-              borderRadius: 6,
-              border: '1px solid #2a2a2a',
-              background: '#111',
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: 900,
+              minHeight: 42,
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.panelBg,
+              color: DS.textSecondary,
+              cursor: saving ? 'not-allowed' : 'pointer',
+              fontWeight: 800,
               fontSize: 12,
-              opacity: saving ? 0.7 : 1,
+              opacity: saving ? 0.6 : 1,
             }}
           >
             Cancelar
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={disableSave}
+            style={{
+              flex: 1.4,
+              minHeight: 42,
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.greenBorder}`,
+              background: disableSave ? DS.panelBg : '#1e7d4a',
+              color: disableSave ? DS.textMuted : '#ffffff',
+              cursor: disableSave ? 'not-allowed' : 'pointer',
+              fontWeight: 900,
+              fontSize: 12,
+              opacity: disableSave ? 0.62 : 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 7,
+            }}
+          >
+            {saving ? (
+              <>
+                <IconLoader size={14} />
+                Salvando venda...
+              </>
+            ) : (
+              'Confirmar venda ganha'
+            )}
           </button>
         </div>
       </div>
     </div>
   )
 }
-
