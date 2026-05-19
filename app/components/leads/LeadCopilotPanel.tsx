@@ -6,10 +6,6 @@ import {
   applyAISuggestion,
 } from '@/app/lib/services/ai-sales-copilot'
 import {
-  logAIAnalysis,
-  logAISuggestionRejected,
-} from '@/app/lib/services/sales-cycles'
-import {
   OPEN_SALES_CYCLE_STATUSES as OPEN_STATUSES,
   TERMINAL_SALES_CYCLE_STATUSES as TERMINAL_STATUSES,
   SALES_CYCLE_VISUAL_LABELS as STATUS_LABELS,
@@ -155,13 +151,8 @@ export default function LeadCopilotPanel({
       setEditableNextActionDate(toDatetimeLocalValue(response.suggestion.next_action_date))
       setEditableSummary(response.suggestion.summary || '')
 
-      try {
-        await logAIAnalysis(cycle.id, response.suggestion, excerpt(conversationText))
-      } catch {
-        // não bloqueia a UX por falha de auditoria
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao analisar conversa.')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao analisar conversa.')
       setSuggestion(null)
       setAuditDiagnostics(null)
     } finally {
@@ -215,27 +206,14 @@ export default function LeadCopilotPanel({
       setEditableNextActionDate('')
 
       await onApplied?.()
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao aplicar sugestão.')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao aplicar sugestão.')
     } finally {
       setApplying(false)
     }
   }
 
   const handleReject = async () => {
-    try {
-      if (suggestion) {
-        await logAISuggestionRejected(cycle.id, {
-          original_status: cycle.status,
-          suggested_status: suggestion.recommended_status,
-          suggestion,
-          source: compact ? 'ai_copilot_kanban' : 'ai_copilot_detail',
-        })
-      }
-    } catch {
-      // não bloqueia a UX por falha de auditoria
-    }
-
     setSuggestion(null)
     setAuditDiagnostics(null)
     setEditableSummary('')
