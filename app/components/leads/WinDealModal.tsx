@@ -64,6 +64,11 @@ const sectionStyle: React.CSSProperties = {
   marginBottom: 16,
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
 export function WinDealModal({
   isOpen,
   dealId,
@@ -84,6 +89,8 @@ export function WinDealModal({
 
   // --- produto ---
   const [products, setProducts] = useState<Product[]>([])
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [productsError, setProductsError] = useState<string | null>(null)
   const [productId, setProductId] = useState<string>('')
   const [wonUnitPrice, setWonUnitPrice] = useState('')
 
@@ -124,8 +131,8 @@ export function WinDealModal({
         if (err) throw err
 
         setRevenueOptions(data || [])
-      } catch (e: any) {
-        setError(e?.message || 'Erro ao carregar receitas')
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, 'Erro ao carregar receitas'))
         console.error('Erro:', e)
       } finally {
         setLoading(false)
@@ -137,11 +144,30 @@ export function WinDealModal({
 
   // Carregar produtos ativos da empresa
   useEffect(() => {
-    if (!isOpen || !companyId) return
+    if (!isOpen || !companyId) {
+      setProducts([])
+      setProductsError(null)
+      setProductsLoading(false)
+      return
+    }
 
-    listActiveProducts(companyId)
-      .then(setProducts)
-      .catch((e) => console.error('Erro ao carregar produtos:', e))
+    const loadProducts = async () => {
+      try {
+        setProductsLoading(true)
+        setProductsError(null)
+
+        const activeProducts = await listActiveProducts(companyId)
+        setProducts(activeProducts)
+      } catch (e: unknown) {
+        setProducts([])
+        setProductsError(getErrorMessage(e, 'Erro ao carregar produtos ativos'))
+        console.error('Erro ao carregar produtos:', e)
+      } finally {
+        setProductsLoading(false)
+      }
+    }
+
+    void loadProducts()
   }, [isOpen, companyId])
 
   // Default data para hoje ao abrir modo receita
@@ -229,8 +255,8 @@ export function WinDealModal({
 
       onSuccess()
       onClose()
-    } catch (e: any) {
-      setError(e?.message || 'Erro ao salvar')
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Erro ao salvar'))
       console.error('Erro:', e)
     } finally {
       setSaving(false)
@@ -420,9 +446,18 @@ export function WinDealModal({
         <div style={{ borderTop: '1px solid #222', margin: '16px 0' }} />
 
         {/* Produto Vendido */}
-        {products.length > 0 && (
-          <div style={sectionStyle}>
-            <label style={labelStyle}>Produto Vendido (opcional)</label>
+        <div style={sectionStyle}>
+          <label style={labelStyle}>Produto Vendido (opcional)</label>
+
+          {productsLoading ? (
+            <div style={{ fontSize: 12, opacity: 0.6 }}>
+              Carregando produtos ativos...
+            </div>
+          ) : productsError ? (
+            <div style={{ fontSize: 12, color: '#fca5a5' }}>
+              {productsError}
+            </div>
+          ) : products.length > 0 ? (
             <select
               value={productId}
               onChange={(e) => setProductId(e.target.value)}
@@ -436,8 +471,12 @@ export function WinDealModal({
                 </option>
               ))}
             </select>
-          </div>
-        )}
+          ) : (
+            <div style={{ fontSize: 12, opacity: 0.65 }}>
+              Nenhum produto ativo encontrado para esta empresa.
+            </div>
+          )}
+        </div>
 
         {/* Valor unitário do produto */}
         {productId && (
