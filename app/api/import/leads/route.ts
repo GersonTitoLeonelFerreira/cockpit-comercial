@@ -270,14 +270,10 @@ function registerLeadMaps(
   lead: LeadRow,
   byId: Map<string, LeadRow>,
   byDoc: Map<string, string>,
-  byEmail: Map<string, string>,
-  byPhone: Map<string, string>,
 ) {
   byId.set(lead.id, lead)
 
   if (lead.cpf_cnpj) byDoc.set(lead.cpf_cnpj, lead.id)
-  if (lead.email) byEmail.set(lead.email.toLowerCase(), lead.id)
-  if (lead.phone) byPhone.set(lead.phone, lead.id)
 }
 
 function findDeletedConflicts(
@@ -452,16 +448,12 @@ export async function POST(req: Request) {
     const rows = rowsInput.map(normalizeRow)
 
     const documents = Array.from(new Set(rows.map((r) => r.cpf_cnpj).filter((v): v is string => !!v)))
-    const emails = Array.from(new Set(rows.map((r) => r.email).filter((v): v is string => !!v)))
-    const phones = Array.from(new Set(rows.map((r) => r.phone).filter((v): v is string => !!v)))
 
-    const cpfs = documents.filter((d) => d.length === 11)
-    const cnpjs = documents.filter((d) => d.length === 14)
+    const cpfs = documents.filter((document) => document.length === 11)
+    const cnpjs = documents.filter((document) => document.length === 14)
 
     const existingLeadById = new Map<string, LeadRow>()
     const leadIdByDoc = new Map<string, string>()
-    const leadIdByEmail = new Map<string, string>()
-    const leadIdByPhone = new Map<string, string>()
     const cycleByLeadId = new Map<string, CycleRow>()
 
     if (cpfs.length > 0) {
@@ -471,10 +463,9 @@ export async function POST(req: Request) {
         .eq('company_id', companyId)
         .in('cpf', cpfs)
 
-      for (const row of (data ?? []) as ProfileRow[]) {
-        if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
-        if (row.email) leadIdByEmail.set(row.email.toLowerCase(), row.lead_id)
-      }
+        for (const row of (data ?? []) as ProfileRow[]) {
+          if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
+        }
     }
 
     if (cnpjs.length > 0) {
@@ -484,29 +475,12 @@ export async function POST(req: Request) {
         .eq('company_id', companyId)
         .in('cnpj', cnpjs)
 
-      for (const row of (data ?? []) as ProfileRow[]) {
-        if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
-        if (row.email) leadIdByEmail.set(row.email.toLowerCase(), row.lead_id)
-      }
+        for (const row of (data ?? []) as ProfileRow[]) {
+          if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
+        }
     }
 
-    if (emails.length > 0) {
-      const { data } = await supabase
-        .from('lead_profiles')
-        .select('lead_id, cpf, cnpj, email')
-        .eq('company_id', companyId)
-        .in('email', emails)
-
-      for (const row of (data ?? []) as ProfileRow[]) {
-        if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
-        if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
-        if (row.email) leadIdByEmail.set(row.email.toLowerCase(), row.lead_id)
-      }
-    }
-
-    const leadIdsFromProfiles = Array.from(
-      new Set([...Array.from(leadIdByDoc.values()), ...Array.from(leadIdByEmail.values())]),
-    )
+    const leadIdsFromProfiles = Array.from(new Set(Array.from(leadIdByDoc.values())))
 
     if (leadIdsFromProfiles.length > 0) {
       const { data } = await supabase
@@ -515,34 +489,10 @@ export async function POST(req: Request) {
         .eq('company_id', companyId)
         .in('id', leadIdsFromProfiles)
 
-      for (const lead of (data ?? []) as LeadRow[]) {
-        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
-      }
-    }
-
-    if (phones.length > 0) {
-      const { data } = await supabase
-        .from('leads')
-        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
-        .eq('company_id', companyId)
-        .in('phone', phones)
-
-      for (const lead of (data ?? []) as LeadRow[]) {
-        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
-      }
-    }
-
-    if (emails.length > 0) {
-      const { data } = await supabase
-        .from('leads')
-        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
-        .eq('company_id', companyId)
-        .in('email', emails)
-
-      for (const lead of (data ?? []) as LeadRow[]) {
-        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
-      }
-    }
+        for (const lead of (data ?? []) as LeadRow[]) {
+          registerLeadMaps(lead, existingLeadById, leadIdByDoc)
+        }
+    } 
 
     if (documents.length > 0) {
       const { data } = await supabase
@@ -551,9 +501,9 @@ export async function POST(req: Request) {
         .eq('company_id', companyId)
         .in('cpf_cnpj', documents)
 
-      for (const lead of (data ?? []) as LeadRow[]) {
-        registerLeadMaps(lead, existingLeadById, leadIdByDoc, leadIdByEmail, leadIdByPhone)
-      }
+        for (const lead of (data ?? []) as LeadRow[]) {
+          registerLeadMaps(lead, existingLeadById, leadIdByDoc)
+        }
     }
 
     const deletedConflicts = findDeletedConflicts(
@@ -728,13 +678,7 @@ export async function POST(req: Request) {
             insertedLeadByDocument.set(lead.cpf_cnpj, lead)
           }
 
-          registerLeadMaps(
-            lead,
-            existingLeadById,
-            leadIdByDoc,
-            leadIdByEmail,
-            leadIdByPhone,
-          )
+          registerLeadMaps(lead, existingLeadById, leadIdByDoc)
         }
 
         for (const workRow of newLeadWorkRows) {
@@ -840,8 +784,6 @@ export async function POST(req: Request) {
             },
             existingLeadById,
             leadIdByDoc,
-            leadIdByEmail,
-            leadIdByPhone,
           )
         }
 
