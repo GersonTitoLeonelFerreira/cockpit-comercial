@@ -575,16 +575,87 @@ export default function LeadCopilotPanel({
       </div>
 
       {suggestion && (
-        <div className="mt-6 rounded-xl border border-blue-900/60 bg-blue-950/20 p-5">
-          <div className="flex items-start justify-between gap-4 mb-4">
+        <div
+          style={{
+            marginTop: 18,
+            border: `1px solid ${DS.blueBorder}`,
+            borderRadius: DS.radiusContainer,
+            background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(13,15,20,0.98))',
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 16,
+              marginBottom: 16,
+            }}
+          >
             <div>
-              <div className="text-sm font-bold text-blue-300">Sugestão da IA</div>
-              <div className="text-xs text-gray-400 mt-1">
-                Confiança: <span className="font-semibold text-gray-200">{confidenceLabel(suggestion.confidence)}</span> ({Math.round(suggestion.confidence * 100)}%)
+              <div
+                style={{
+                  color: DS.blueSoft,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  marginBottom: 6,
+                }}
+              >
+                Sugestão da IA
+              </div>
+
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                }}
+              >
+                Confiança:{' '}
+                <span style={{ color: DS.textPrimary, fontWeight: 900 }}>
+                  {confidenceLabel(suggestion.confidence)}
+                </span>{' '}
+                <span style={{ color: DS.textMuted }}>
+                  ({Math.round(suggestion.confidence * 100)}%)
+                </span>
               </div>
             </div>
-            <div className="text-xs text-gray-500">
-              Origem: <span className="text-gray-300">{suggestion.source}</span>
+
+            <div
+              style={{
+                border: `1px solid ${DS.borderSubtle}`,
+                background: DS.panelBg,
+                borderRadius: DS.radius,
+                padding: '8px 10px',
+                minWidth: 120,
+                textAlign: 'right',
+              }}
+            >
+              <div
+                style={{
+                  color: DS.textLabel,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  marginBottom: 4,
+                }}
+              >
+                Origem
+              </div>
+
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                {suggestion.source}
+              </div>
             </div>
           </div>
 
