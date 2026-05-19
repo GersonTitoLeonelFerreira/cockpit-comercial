@@ -287,7 +287,7 @@ function findDeletedConflicts(
   leadIdByEmail: Map<string, string>,
   leadIdByPhone: Map<string, string>,
 ) {
-  const conflictsByLeadId = new Map<string, DeletedLeadConflict>()
+  const conflictsByRow = new Map<number, DeletedLeadConflict>()
 
   for (const row of rows) {
     if (!row.cpf_cnpj || !isValidDocument(row.cpf_cnpj)) continue
@@ -300,26 +300,25 @@ function findDeletedConflicts(
 
     for (const candidate of candidates) {
       if (!candidate.leadId) continue
+      if (conflictsByRow.has(row.rowNumber)) break
 
       const lead = existingLeadById.get(candidate.leadId)
       if (!lead?.deleted_at) continue
 
-      if (!conflictsByLeadId.has(lead.id)) {
-        conflictsByLeadId.set(lead.id, {
-          row: row.rowNumber,
-          lead_id: lead.id,
-          name: lead.name,
-          document: lead.cpf_cnpj,
-          phone: lead.phone,
-          email: lead.email,
-          matched_by: candidate.matchedBy,
-          deleted_at: lead.deleted_at,
-        })
-      }
+      conflictsByRow.set(row.rowNumber, {
+        row: row.rowNumber,
+        lead_id: lead.id,
+        name: lead.name,
+        document: lead.cpf_cnpj,
+        phone: lead.phone,
+        email: lead.email,
+        matched_by: candidate.matchedBy,
+        deleted_at: lead.deleted_at,
+      })
     }
   }
 
-  return Array.from(conflictsByLeadId.values())
+  return Array.from(conflictsByRow.values())
 }
 
 function findActiveConflicts(
@@ -329,7 +328,7 @@ function findActiveConflicts(
   leadIdByEmail: Map<string, string>,
   leadIdByPhone: Map<string, string>,
 ) {
-  const conflictsByLeadId = new Map<string, ActiveLeadConflict>()
+  const conflictsByRow = new Map<number, ActiveLeadConflict>()
 
   for (const row of rows) {
     if (!row.cpf_cnpj || !isValidDocument(row.cpf_cnpj)) continue
@@ -342,25 +341,24 @@ function findActiveConflicts(
 
     for (const candidate of candidates) {
       if (!candidate.leadId) continue
+      if (conflictsByRow.has(row.rowNumber)) break
 
       const lead = existingLeadById.get(candidate.leadId)
       if (!lead || lead.deleted_at) continue
 
-      if (!conflictsByLeadId.has(lead.id)) {
-        conflictsByLeadId.set(lead.id, {
-          row: row.rowNumber,
-          lead_id: lead.id,
-          name: lead.name,
-          document: lead.cpf_cnpj,
-          phone: lead.phone,
-          email: lead.email,
-          matched_by: candidate.matchedBy,
-        })
-      }
+      conflictsByRow.set(row.rowNumber, {
+        row: row.rowNumber,
+        lead_id: lead.id,
+        name: lead.name,
+        document: lead.cpf_cnpj,
+        phone: lead.phone,
+        email: lead.email,
+        matched_by: candidate.matchedBy,
+      })
     }
   }
 
-  return Array.from(conflictsByLeadId.values())
+  return Array.from(conflictsByRow.values())
 }
 
 export async function POST(req: Request) {
