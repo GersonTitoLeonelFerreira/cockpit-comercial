@@ -258,7 +258,6 @@ export default function ImportExcelDialog({
 
   const [leads, setLeads] = useState<LeadData[]>([])
   const [deletedConflicts, setDeletedConflicts] = useState<DeletedLeadConflict[]>([])
-  const [activeConflicts, setActiveConflicts] = useState<ActiveLeadConflict[]>([])
   const [keepDeletedBlocked, setKeepDeletedBlocked] = useState(false)
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -328,6 +327,8 @@ export default function ImportExcelDialog({
 
   const createNewGroup = async (groupName: string) => {
     try {
+      setError(null)
+
       const { data, error } = await supabase
         .from('lead_groups')
         .insert({
@@ -345,7 +346,7 @@ export default function ImportExcelDialog({
       setShowCreateGroupModal(false)
       setNewGroupName('')
     } catch (e: unknown) {
-      alert(`Erro ao criar grupo: ${getErrorMessage(e, 'Erro desconhecido')}`)
+      setError(`Erro ao criar grupo: ${getErrorMessage(e, 'Erro desconhecido')}`)
     }
   }
 
@@ -524,9 +525,7 @@ export default function ImportExcelDialog({
       })
 
       setDeletedConflicts(importConflicts.deleted)
-      setActiveConflicts(importConflicts.active)
       setLeads(leadsWithConflicts)
-      setStep('preview')
       setStep('preview')
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Erro ao processar'))
@@ -611,7 +610,6 @@ export default function ImportExcelDialog({
     setRawRows([])
     setLeads([])
     setDeletedConflicts([])
-    setActiveConflicts([])
     setError(null)
     setImportSummary(null)
     setSelectedGroup('')
