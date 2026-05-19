@@ -795,6 +795,7 @@ export default function ImportExcelDialog({
 
   const closeDialog = () => {
     if (!canCloseDialog) return
+    resetDialog()
     setIsOpen(false)
   }
 
@@ -802,7 +803,7 @@ export default function ImportExcelDialog({
     event.stopPropagation()
   }
 
-  const resetDialog = () => { 
+  const resetDialog = () => {
     setStep('select')
     setSelectedFile(null)
     setHeaders([])
