@@ -843,6 +843,54 @@ export default function ImportExcelDialog({
     }
   }
 
+  const previewStats = React.useMemo(() => {
+    const newToImport = leads.filter((lead) => !lead.error).length
+    const activeBlocked = leads.filter((lead) => Boolean(lead.activeConflict)).length
+    const deletedBlocked = leads.filter((lead) => Boolean(lead.deletedConflict)).length
+
+    const duplicatedInSheet = leads.filter((lead) => {
+      const errorMessage = String(lead.error ?? '').toLowerCase()
+      return errorMessage.includes('duplicado na planilha')
+    }).length
+
+    const invalidData = leads.filter((lead) => {
+      const errorMessage = String(lead.error ?? '').toLowerCase()
+      return (
+        errorMessage.includes('nome vazio') ||
+        errorMessage.includes('cpf/cnpj inválido')
+      )
+    }).length
+
+    const otherBlocked = leads.filter((lead) => {
+      if (!lead.error) return false
+      if (lead.activeConflict) return false
+      if (lead.deletedConflict) return false
+
+      const errorMessage = String(lead.error).toLowerCase()
+
+      if (errorMessage.includes('duplicado na planilha')) return false
+      if (errorMessage.includes('nome vazio')) return false
+      if (errorMessage.includes('cpf/cnpj inválido')) return false
+
+      return true
+    }).length
+
+    return {
+      newToImport,
+      activeBlocked,
+      deletedBlocked,
+      duplicatedInSheet,
+      invalidData,
+      otherBlocked,
+      totalBlocked:
+        activeBlocked +
+        deletedBlocked +
+        duplicatedInSheet +
+        invalidData +
+        otherBlocked,
+    }
+  }, [leads])
+
   return (
     <>
       <div onClick={() => setIsOpen(true)}>{trigger}</div>
@@ -1619,7 +1667,7 @@ export default function ImportExcelDialog({
 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
                     gap: 10,
                     marginBottom: 0,
                     border: `1px solid ${UI.border}`,
@@ -1632,7 +1680,7 @@ export default function ImportExcelDialog({
                   <div
                     style={{
                       background: UI.modalBg,
-                      border: `1px solid ${UI.border}`,
+                      border: `1px solid ${UI.greenBorder}`,
                       borderRadius: UI.radius,
                       padding: 12,
                       textAlign: 'center',
@@ -1640,7 +1688,7 @@ export default function ImportExcelDialog({
                   >
                     <div
                       style={{
-                        fontSize: 11,
+                        fontSize: 10,
                         color: UI.muted,
                         fontWeight: 900,
                         marginBottom: 6,
@@ -1648,10 +1696,114 @@ export default function ImportExcelDialog({
                         letterSpacing: '0.08em',
                       }}
                     >
-                      Novos para importar
+                      Novos
                     </div>
                     <div style={{ fontSize: 24, fontWeight: 900, color: UI.greenText }}>
-                      {leads.filter((l) => !l.error).length}
+                      {previewStats.newToImport}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: UI.modalBg,
+                      border: `1px solid ${UI.redBorder}`,
+                      borderRadius: UI.radius,
+                      padding: 12,
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: UI.muted,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      Já ativos
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.redText }}>
+                      {previewStats.activeBlocked}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: UI.modalBg,
+                      border: `1px solid ${UI.amberBorder}`,
+                      borderRadius: UI.radius,
+                      padding: 12,
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: UI.muted,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      Excluídos
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.amberText }}>
+                      {previewStats.deletedBlocked}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: UI.modalBg,
+                      border: `1px solid ${UI.amberBorder}`,
+                      borderRadius: UI.radius,
+                      padding: 12,
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: UI.muted,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      Duplicados
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.amberText }}>
+                      {previewStats.duplicatedInSheet}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: UI.modalBg,
+                      border: `1px solid ${UI.redBorder}`,
+                      borderRadius: UI.radius,
+                      padding: 12,
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: UI.muted,
+                        fontWeight: 900,
+                        marginBottom: 6,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                      }}
+                    >
+                      Inválidos
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.redText }}>
+                      {previewStats.invalidData}
                     </div>
                   </div>
 
@@ -1666,7 +1818,7 @@ export default function ImportExcelDialog({
                   >
                     <div
                       style={{
-                        fontSize: 11,
+                        fontSize: 10,
                         color: UI.muted,
                         fontWeight: 900,
                         marginBottom: 6,
@@ -1674,10 +1826,10 @@ export default function ImportExcelDialog({
                         letterSpacing: '0.08em',
                       }}
                     >
-                      Bloqueados / atenção
+                      Outros
                     </div>
-                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.amberText }}>
-                      {leads.filter((l) => l.error).length}
+                    <div style={{ fontSize: 24, fontWeight: 900, color: UI.muted }}>
+                      {previewStats.otherBlocked}
                     </div>
                   </div>
                 </div>
@@ -1855,21 +2007,21 @@ export default function ImportExcelDialog({
                     disabled={
                       importing ||
                       (deletedConflicts.length > 0 && !keepDeletedBlocked) ||
-                      leads.filter((l) => !l.error).length === 0
+                      previewStats.newToImport === 0
                     }
                     style={{
                       padding: '10px 18px',
                       borderRadius: UI.radius,
                       border: `1px solid ${UI.greenBorder}`,
-                      background: leads.filter((l) => !l.error).length > 0 ? UI.greenBg : UI.surface,
-                      color: leads.filter((l) => !l.error).length > 0 ? UI.greenText : UI.faint,
-                      cursor: leads.filter((l) => !l.error).length > 0 ? 'pointer' : 'not-allowed',
+                      background: previewStats.newToImport > 0 ? UI.greenBg : UI.surface,
+                      color: previewStats.newToImport > 0 ? UI.greenText : UI.faint,
+                      cursor: previewStats.newToImport > 0 ? 'pointer' : 'not-allowed',
                       fontWeight: 900,
                       fontSize: 13,
-                      opacity: leads.filter((l) => !l.error).length > 0 ? 1 : 0.5,
+                      opacity: previewStats.newToImport > 0 ? 1 : 0.5,
                     }}
                   >
-                    {importing ? 'Importando…' : `Importar novos (${leads.filter((l) => !l.error).length})`}
+                    {importing ? 'Importando…' : `Importar novos (${previewStats.newToImport})`}
                   </button>
                 </div>
               </>
