@@ -186,6 +186,9 @@ export default function PoolClient({
   const [showBulkModal, setShowBulkModal] = React.useState(false)
   const [distributeGroupLoading, setDistributeGroupLoading] = React.useState(false)
   const [creatingGroup, setCreatingGroup] = React.useState(false)
+  const [showCreateGroupModal, setShowCreateGroupModal] = React.useState(false)
+  const [newGroupName, setNewGroupName] = React.useState('')
+  const [groupSuccess, setGroupSuccess] = React.useState<string | null>(null)
 
   const [showDeleteLeadConfirm, setShowDeleteLeadConfirm] = React.useState(false)
   const [deletePassword, setDeletePassword] = React.useState('')
@@ -602,28 +605,35 @@ export default function PoolClient({
   }
 
   async function handleCreateGroupInline() {
-    const groupName = window.prompt('Nome do novo grupo:')
-  
-    if (!groupName || !groupName.trim()) return
-  
+    const groupName = newGroupName.trim()
+
+    if (!groupName) {
+      setError('Informe o nome do grupo.')
+      setGroupSuccess(null)
+      return
+    }
+
     setCreatingGroup(true)
     setError(null)
-  
+    setGroupSuccess(null)
+
     try {
       const data = await postPoolAction({
         action: 'create_group',
-        name: groupName.trim(),
+        name: groupName,
       })
-  
+
       if (!data.success || !data.id) throw new Error('Falha ao criar grupo')
-  
+
       await loadGroups()
-  
+
       setBulkGroup(data.id)
-  
-      window.alert(`Grupo "${data.name ?? groupName.trim()}" criado!`)
+      setNewGroupName('')
+      setShowCreateGroupModal(false)
+      setGroupSuccess(`Grupo "${data.name ?? groupName}" criado e selecionado.`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao criar grupo.'))
+      setGroupSuccess(null)
     } finally {
       setCreatingGroup(false)
     }
@@ -1373,7 +1383,12 @@ export default function PoolClient({
                 </select>
 
                 <button
-                  onClick={() => void handleCreateGroupInline()}
+                  type="button"
+                  onClick={() => {
+                    setNewGroupName('')
+                    setGroupSuccess(null)
+                    setShowCreateGroupModal(true)
+                  }}
                   disabled={creatingGroup}
                   style={{
                     padding: '8px 12px',
@@ -1410,6 +1425,23 @@ export default function PoolClient({
               >
                 {assigningId === 'bulk' ? 'Agrupando...' : 'Agrupar Todos'}
               </button>
+
+              {groupSuccess && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    border: `1px solid ${DS.greenBorder}`,
+                    background: DS.greenBg,
+                    color: DS.greenText,
+                    borderRadius: DS.radius,
+                    padding: '9px 10px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {groupSuccess}
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${DS.borderSubtle}` }}>
@@ -1536,6 +1568,136 @@ export default function PoolClient({
             >
               Fechar
             </button>
+          </div>
+        </div>
+      )}
+            {showCreateGroupModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+          onClick={() => {
+            if (creatingGroup) return
+            setShowCreateGroupModal(false)
+            setNewGroupName('')
+          }}
+        >
+          <div
+            style={{
+              background: DS.surfaceBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer + 3,
+              padding: 24,
+              width: '90%',
+              maxWidth: 460,
+              color: DS.textPrimary,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>
+              Criar grupo
+            </div>
+
+            <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.45, marginBottom: 16 }}>
+              O grupo será criado e ficará selecionado para a ação em massa.
+            </div>
+
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'block',
+                marginBottom: 6,
+                color: DS.textMuted,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Nome do grupo *
+            </label>
+
+            <input
+              autoFocus
+              value={newGroupName}
+              onChange={(event) => setNewGroupName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void handleCreateGroupInline()
+                }
+
+                if (event.key === 'Escape' && !creatingGroup) {
+                  setShowCreateGroupModal(false)
+                  setNewGroupName('')
+                }
+              }}
+              disabled={creatingGroup}
+              placeholder="Ex.: Renovação Abril"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.border}`,
+                background: DS.panelBg,
+                color: DS.textPrimary,
+                fontSize: 12,
+                outline: 'none',
+                opacity: creatingGroup ? 0.6 : 1,
+                marginBottom: 16,
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (creatingGroup) return
+                  setShowCreateGroupModal(false)
+                  setNewGroupName('')
+                }}
+                disabled={creatingGroup}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.border}`,
+                  background: DS.panelBg,
+                  color: DS.textSecondary,
+                  cursor: creatingGroup ? 'not-allowed' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  opacity: creatingGroup ? 0.5 : 1,
+                }}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleCreateGroupInline()}
+                disabled={creatingGroup || !newGroupName.trim()}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.greenBorder}`,
+                  background: !creatingGroup && newGroupName.trim() ? DS.greenBg : DS.panelBg,
+                  color: !creatingGroup && newGroupName.trim() ? DS.greenText : DS.textMuted,
+                  cursor: !creatingGroup && newGroupName.trim() ? 'pointer' : 'not-allowed',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  opacity: !creatingGroup && newGroupName.trim() ? 1 : 0.5,
+                }}
+              >
+                {creatingGroup ? 'Criando...' : 'Criar grupo'}
+              </button>
+            </div>
           </div>
         </div>
       )}
