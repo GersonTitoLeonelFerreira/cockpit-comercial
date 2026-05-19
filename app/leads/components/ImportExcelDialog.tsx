@@ -217,8 +217,20 @@ const cleanDate = (val: unknown): string | null => {
   return null
 }
 
+const IMPORT_CHUNK_SIZE = 500
+
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = []
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+
+  return chunks
 }
 
 export default function ImportExcelDialog({
@@ -261,6 +273,7 @@ export default function ImportExcelDialog({
   const [keepDeletedBlocked, setKeepDeletedBlocked] = useState(false)
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null)
 
@@ -553,40 +566,61 @@ export default function ImportExcelDialog({
     }
 
     setImporting(true)
+    setImportProgress(null)
     setError(null)
 
     try {
-      const response = await fetch('/api/import/leads', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          rows: leadsToImport,
-          group_id: selectedGroup || null,
-          reactivate_deleted_leads: reactivateDeletedLeads,
-        }),
-      })
+      const chunks = chunkArray(leadsToImport, IMPORT_CHUNK_SIZE)
 
-      const result = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        throw new Error(result?.error || 'Erro ao importar leads')
+      const summary: ImportSummary = {
+        created: 0,
+        updated: 0,
+        reactivated: 0,
+        errors: [],
       }
 
-      setImportSummary({
-        created: Number(result?.created || 0),
-        updated: Number(result?.updated || 0),
-        reactivated: Number(result?.reactivated || 0),
-        errors: Array.isArray(result?.errors) ? result.errors : [],
-      })
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const chunk = chunks[chunkIndex]
 
+        setImportProgress(
+          `Importando lote ${chunkIndex + 1} de ${chunks.length} (${chunk.length} leads)...`,
+        )
+
+        const response = await fetch('/api/import/leads', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            rows: chunk,
+            group_id: selectedGroup || null,
+            reactivate_deleted_leads: reactivateDeletedLeads,
+          }),
+        })
+
+        const result = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(result?.error || `Erro ao importar lote ${chunkIndex + 1}`)
+        }
+
+        summary.created += Number(result?.created || 0)
+        summary.updated += Number(result?.updated || 0)
+        summary.reactivated = Number(summary.reactivated || 0) + Number(result?.reactivated || 0)
+
+        if (Array.isArray(result?.errors)) {
+          summary.errors.push(...result.errors)
+        }
+      }
+
+      setImportSummary(summary)
       setStep('success')
       onImported()
     } catch (e: unknown) {
       setError(getErrorMessage(e, 'Erro ao importar leads'))
     } finally {
       setImporting(false)
+      setImportProgress(null)
     }
   }
 
@@ -611,6 +645,7 @@ export default function ImportExcelDialog({
     setLeads([])
     setDeletedConflicts([])
     setError(null)
+    setImportProgress(null)
     setImportSummary(null)
     setSelectedGroup('')
     setColumnMap({
@@ -743,6 +778,23 @@ export default function ImportExcelDialog({
                 }}
               >
                 {error}
+              </div>
+            )}
+
+{importProgress && (
+              <div
+                style={{
+                  background: UI.blue,
+                  color: '#ffffff',
+                  border: `1px solid ${UI.blueSoft}`,
+                  padding: 12,
+                  borderRadius: UI.radius,
+                  marginBottom: 16,
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                {importProgress}
               </div>
             )}
 
