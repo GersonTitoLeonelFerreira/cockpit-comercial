@@ -1201,21 +1201,72 @@ export default function LeadCopilotPanel({
             </div>
           )}
 
-          <div className="mt-5 flex gap-3">
+<div
+            style={{
+              marginTop: 18,
+              paddingTop: 14,
+              borderTop: `1px solid ${DS.borderSubtle}`,
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+            }}
+          >
             <button
-              onClick={handleApply}
-              disabled={applying || loading}
-              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
+              type="button"
+              onClick={handleReject}
+              disabled={applying}
+              style={{
+                minHeight: 42,
+                flex: '1 1 160px',
+                borderRadius: DS.radius,
+                border: `1px solid ${DS.border}`,
+                background: DS.panelBg,
+                color: DS.textSecondary,
+                padding: '9px 14px',
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: applying ? 'not-allowed' : 'pointer',
+                opacity: applying ? 0.65 : 1,
+              }}
             >
-              {applyButtonLabel}
+              Descartar
             </button>
 
             <button
-              onClick={handleReject}
-              disabled={applying}
-              className="rounded-md border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
+              type="button"
+              onClick={handleApply}
+              disabled={applying || loading}
+              style={{
+                minHeight: 42,
+                flex: '1.4 1 220px',
+                borderRadius: DS.radius,
+                border:
+                  editableStatus === 'ganho'
+                    ? '1px solid rgba(16,185,129,0.34)'
+                    : editableStatus === 'perdido'
+                      ? '1px solid rgba(239,68,68,0.34)'
+                      : `1px solid ${DS.blueBorder}`,
+                background:
+                  applying || loading
+                    ? DS.panelBg
+                    : editableStatus === 'ganho'
+                      ? '#1e7d4a'
+                      : editableStatus === 'perdido'
+                        ? '#b91c1c'
+                        : DS.blue,
+                color: applying || loading ? DS.textMuted : '#ffffff',
+                padding: '9px 14px',
+                fontSize: 12,
+                fontWeight: 900,
+                cursor: applying || loading ? 'not-allowed' : 'pointer',
+                opacity: applying || loading ? 0.65 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 7,
+              }}
             >
-              Descartar
+              {applyButtonLabel}
             </button>
           </div>
         </div>
