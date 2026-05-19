@@ -1509,49 +1509,150 @@ export default function LeadCopilotPanel({
                     </div>
                   )}
 
-                  {auditDiagnostics.segment_signals && (
-                    <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
-                      <div className="text-gray-400 uppercase font-bold mb-2">Sinais por segmento</div>
+{auditDiagnostics.segment_signals && (
+                    <div
+                      style={{
+                        gridColumn: '1 / -1',
+                        border: `1px solid ${DS.border}`,
+                        background: DS.panelBg,
+                        borderRadius: DS.radius,
+                        padding: '12px 14px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: DS.textLabel,
+                          fontSize: 10,
+                          fontWeight: 900,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          marginBottom: 10,
+                        }}
+                      >
+                        Sinais por segmento
+                      </div>
 
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <div className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1">
-                          <div className="text-gray-400 font-bold">Texto inteiro</div>
-                          <div className="text-white">Compromisso final: {joinSignals(auditDiagnostics.segment_signals.full.final_commitment)}</div>
-                          <div className="text-white">Agendamento final: {joinSignals(auditDiagnostics.segment_signals.full.final_schedule)}</div>
-                          <div className="text-white">Comercial: {joinSignals(auditDiagnostics.segment_signals.full.commercial)}</div>
-                          <div className="text-white">Sem resposta: {joinSignals(auditDiagnostics.segment_signals.full.no_response)}</div>
-                          <div className="text-white">Perdido: {joinSignals(auditDiagnostics.segment_signals.full.lost)}</div>
-                          <div className="text-white">Ganho: {joinSignals(auditDiagnostics.segment_signals.full.won)}</div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: compact ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                          gap: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textSecondary,
+                              fontSize: 11,
+                              fontWeight: 900,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Texto inteiro
+                          </div>
+
+                          <div style={{ display: 'grid', gap: 5, color: DS.textPrimary, fontSize: 12 }}>
+                            <div>Compromisso final: {joinSignals(auditDiagnostics.segment_signals.full.final_commitment)}</div>
+                            <div>Agendamento final: {joinSignals(auditDiagnostics.segment_signals.full.final_schedule)}</div>
+                            <div>Comercial: {joinSignals(auditDiagnostics.segment_signals.full.commercial)}</div>
+                            <div>Sem resposta: {joinSignals(auditDiagnostics.segment_signals.full.no_response)}</div>
+                            <div>Perdido: {joinSignals(auditDiagnostics.segment_signals.full.lost)}</div>
+                            <div>Ganho: {joinSignals(auditDiagnostics.segment_signals.full.won)}</div>
+                          </div>
                         </div>
 
-                        <div className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1">
-                          <div className="text-gray-400 font-bold">Trecho final</div>
-                          <div className="text-white">Compromisso final: {joinSignals(auditDiagnostics.segment_signals.tail.final_commitment)}</div>
-                          <div className="text-white">Agendamento final: {joinSignals(auditDiagnostics.segment_signals.tail.final_schedule)}</div>
-                          <div className="text-white">Comercial: {joinSignals(auditDiagnostics.segment_signals.tail.commercial)}</div>
-                          <div className="text-white">Sem resposta: {joinSignals(auditDiagnostics.segment_signals.tail.no_response)}</div>
-                          <div className="text-white">Perdido: {joinSignals(auditDiagnostics.segment_signals.tail.lost)}</div>
-                          <div className="text-white">Ganho: {joinSignals(auditDiagnostics.segment_signals.tail.won)}</div>
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textSecondary,
+                              fontSize: 11,
+                              fontWeight: 900,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Trecho final
+                          </div>
+
+                          <div style={{ display: 'grid', gap: 5, color: DS.textPrimary, fontSize: 12 }}>
+                            <div>Compromisso final: {joinSignals(auditDiagnostics.segment_signals.tail.final_commitment)}</div>
+                            <div>Agendamento final: {joinSignals(auditDiagnostics.segment_signals.tail.final_schedule)}</div>
+                            <div>Comercial: {joinSignals(auditDiagnostics.segment_signals.tail.commercial)}</div>
+                            <div>Sem resposta: {joinSignals(auditDiagnostics.segment_signals.tail.no_response)}</div>
+                            <div>Perdido: {joinSignals(auditDiagnostics.segment_signals.tail.lost)}</div>
+                            <div>Ganho: {joinSignals(auditDiagnostics.segment_signals.tail.won)}</div>
+                          </div>
                         </div>
 
-                        <div className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1">
-                          <div className="text-gray-400 font-bold">Cliente (final)</div>
-                          <div className="text-white">Compromisso final: {joinSignals(auditDiagnostics.segment_signals.client_tail.final_commitment)}</div>
-                          <div className="text-white">Agendamento final: {joinSignals(auditDiagnostics.segment_signals.client_tail.final_schedule)}</div>
-                          <div className="text-white">Comercial: {joinSignals(auditDiagnostics.segment_signals.client_tail.commercial)}</div>
-                          <div className="text-white">Sem resposta: {joinSignals(auditDiagnostics.segment_signals.client_tail.no_response)}</div>
-                          <div className="text-white">Perdido: {joinSignals(auditDiagnostics.segment_signals.client_tail.lost)}</div>
-                          <div className="text-white">Ganho: {joinSignals(auditDiagnostics.segment_signals.client_tail.won)}</div>
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textSecondary,
+                              fontSize: 11,
+                              fontWeight: 900,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Cliente final
+                          </div>
+
+                          <div style={{ display: 'grid', gap: 5, color: DS.textPrimary, fontSize: 12 }}>
+                            <div>Compromisso final: {joinSignals(auditDiagnostics.segment_signals.client_tail.final_commitment)}</div>
+                            <div>Agendamento final: {joinSignals(auditDiagnostics.segment_signals.client_tail.final_schedule)}</div>
+                            <div>Comercial: {joinSignals(auditDiagnostics.segment_signals.client_tail.commercial)}</div>
+                            <div>Sem resposta: {joinSignals(auditDiagnostics.segment_signals.client_tail.no_response)}</div>
+                            <div>Perdido: {joinSignals(auditDiagnostics.segment_signals.client_tail.lost)}</div>
+                            <div>Ganho: {joinSignals(auditDiagnostics.segment_signals.client_tail.won)}</div>
+                          </div>
                         </div>
 
-                        <div className="rounded-md border border-gray-700 bg-gray-900 px-2 py-1">
-                          <div className="text-gray-400 font-bold">Vendedor (final)</div>
-                          <div className="text-white">Compromisso final: {joinSignals(auditDiagnostics.segment_signals.seller_tail.final_commitment)}</div>
-                          <div className="text-white">Agendamento final: {joinSignals(auditDiagnostics.segment_signals.seller_tail.final_schedule)}</div>
-                          <div className="text-white">Comercial: {joinSignals(auditDiagnostics.segment_signals.seller_tail.commercial)}</div>
-                          <div className="text-white">Sem resposta: {joinSignals(auditDiagnostics.segment_signals.seller_tail.no_response)}</div>
-                          <div className="text-white">Perdido: {joinSignals(auditDiagnostics.segment_signals.seller_tail.lost)}</div>
-                          <div className="text-white">Ganho: {joinSignals(auditDiagnostics.segment_signals.seller_tail.won)}</div>
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textSecondary,
+                              fontSize: 11,
+                              fontWeight: 900,
+                              marginBottom: 8,
+                            }}
+                          >
+                            Vendedor final
+                          </div>
+
+                          <div style={{ display: 'grid', gap: 5, color: DS.textPrimary, fontSize: 12 }}>
+                            <div>Compromisso final: {joinSignals(auditDiagnostics.segment_signals.seller_tail.final_commitment)}</div>
+                            <div>Agendamento final: {joinSignals(auditDiagnostics.segment_signals.seller_tail.final_schedule)}</div>
+                            <div>Comercial: {joinSignals(auditDiagnostics.segment_signals.seller_tail.commercial)}</div>
+                            <div>Sem resposta: {joinSignals(auditDiagnostics.segment_signals.seller_tail.no_response)}</div>
+                            <div>Perdido: {joinSignals(auditDiagnostics.segment_signals.seller_tail.lost)}</div>
+                            <div>Ganho: {joinSignals(auditDiagnostics.segment_signals.seller_tail.won)}</div>
+                          </div>
                         </div>
                       </div>
                     </div>
