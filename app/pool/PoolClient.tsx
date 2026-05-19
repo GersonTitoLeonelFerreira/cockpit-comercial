@@ -728,7 +728,6 @@ export default function PoolClient({
       {showCreateLeadModal && (
         <CreateLeadModal
           companyId={companyId}
-          userId={userId}
           isAdmin={true}
           groups={groups}
           onLeadCreated={() => {

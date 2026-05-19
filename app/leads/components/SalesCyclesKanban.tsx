@@ -3083,7 +3083,6 @@ export default function SalesCyclesKanban({
       {showCreateLeadModal && (
         <CreateLeadModal
           companyId={companyId}
-          userId={userId}
           isAdmin={isAdmin}
           groups={groups}
           onLeadCreated={() => {

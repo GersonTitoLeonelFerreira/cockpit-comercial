@@ -129,14 +129,12 @@ type LeadConflictCheck = {
 
 export default function CreateLeadModal({
   companyId,
-  userId,
   isAdmin,
   groups,
   onLeadCreated,
   onClose,
 }: {
   companyId: string
-  userId: string
   isAdmin: boolean
   groups: LeadGroup[]
   onLeadCreated: () => void
