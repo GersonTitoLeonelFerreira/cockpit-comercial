@@ -955,21 +955,12 @@ export async function POST(req: Request) {
             cycle.current_group_id = groupId
             cycleByLeadId.set(resolvedLeadId, cycle)
 
-            const { error: linkErr } = await supabase
-              .from('lead_group_cycles')
-              .insert({
-                company_id: companyId,
-                group_id: groupId,
-                cycle_id: cycle.id,
-                attached_by: user.id,
-              })
-
-            if (linkErr && !isDuplicateError(linkErr.message)) {
-              errors.push({
-                row: row.rowNumber,
-                error: `Grupo: ${linkErr.message}`,
-              })
-            }
+            groupLinksToInsert.push({
+              company_id: companyId,
+              group_id: groupId,
+              cycle_id: cycle.id,
+              attached_by: user.id,
+            })
 
             cycleEventsToInsert.push({
               company_id: companyId,
