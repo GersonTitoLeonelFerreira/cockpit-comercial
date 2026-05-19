@@ -1247,28 +1247,127 @@ export default function LeadCopilotPanel({
                   </div>
 
                   {auditDiagnostics.final_resolution && (
-                    <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 px-3 py-2 md:col-span-2">
-                      <div className="text-emerald-300 uppercase font-bold mb-2">Desfecho final (Fase 5D)</div>
-                      <div className="text-white">
-                        Compromisso no final:{' '}
-                        <span className="font-semibold">
-                          {auditDiagnostics.final_resolution.final_commitment_detected ? 'Sim' : 'Não'}
-                        </span>
+                    <div
+                      style={{
+                        gridColumn: '1 / -1',
+                        border: '1px solid rgba(16,185,129,0.30)',
+                        background: 'rgba(16,185,129,0.08)',
+                        borderRadius: DS.radius,
+                        padding: '12px 14px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: '#86efac',
+                          fontSize: 10,
+                          fontWeight: 900,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          marginBottom: 10,
+                        }}
+                      >
+                        Desfecho final
                       </div>
-                      <div className="text-white">
-                        Agendamento no final:{' '}
-                        <span className="font-semibold">
-                          {auditDiagnostics.final_resolution.final_schedule_detected ? 'Sim' : 'Não'}
-                        </span>
+
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: compact ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+                          gap: 10,
+                          marginBottom: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.panelBg,
+                            borderRadius: DS.radius,
+                            padding: '9px 10px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textLabel,
+                              fontSize: 10,
+                              fontWeight: 900,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                              marginBottom: 5,
+                            }}
+                          >
+                            Compromisso final
+                          </div>
+                          <div style={{ color: DS.textPrimary, fontWeight: 900 }}>
+                            {auditDiagnostics.final_resolution.final_commitment_detected ? 'Sim' : 'Não'}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.panelBg,
+                            borderRadius: DS.radius,
+                            padding: '9px 10px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textLabel,
+                              fontSize: 10,
+                              fontWeight: 900,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                              marginBottom: 5,
+                            }}
+                          >
+                            Agendamento final
+                          </div>
+                          <div style={{ color: DS.textPrimary, fontWeight: 900 }}>
+                            {auditDiagnostics.final_resolution.final_schedule_detected ? 'Sim' : 'Não'}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.panelBg,
+                            borderRadius: DS.radius,
+                            padding: '9px 10px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textLabel,
+                              fontSize: 10,
+                              fontWeight: 900,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.06em',
+                              marginBottom: 5,
+                            }}
+                          >
+                            Superou negociação
+                          </div>
+                          <div style={{ color: DS.textPrimary, fontWeight: 900 }}>
+                            {auditDiagnostics.final_resolution.overrode_negotiation ? 'Sim' : 'Não'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-white">
-                        Desfecho superou negociação intermediária:{' '}
-                        <span className="font-semibold">
-                          {auditDiagnostics.final_resolution.overrode_negotiation ? 'Sim' : 'Não'}
+
+                      <div
+                        style={{
+                          border: `1px solid ${DS.borderSubtle}`,
+                          background: DS.inputBg,
+                          borderRadius: DS.radius,
+                          padding: '10px 12px',
+                          color: DS.textPrimary,
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <span style={{ color: DS.textSecondary, fontWeight: 800 }}>
+                          Motivo da regra:{' '}
                         </span>
-                      </div>
-                      <div className="text-white mt-1">
-                        Motivo da regra: {auditDiagnostics.final_resolution.reason}
+                        {auditDiagnostics.final_resolution.reason}
                       </div>
                     </div>
                   )}
