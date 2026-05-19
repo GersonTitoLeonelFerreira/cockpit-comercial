@@ -534,12 +534,14 @@ export default function PoolClient({
 
   async function deleteSelectedLeadsWithPassword() {
     if (selectedIds.size === 0) {
-      window.alert('Selecione pelo menos um lead.')
+      setError('Selecione pelo menos um lead.')
+      setSuccessMessage(null)
       return
     }
 
     if (!deletePassword.trim()) {
-      window.alert('Digite sua senha.')
+      setError('Digite sua senha.')
+      setSuccessMessage(null)
       return
     }
 
@@ -549,7 +551,8 @@ export default function PoolClient({
       .filter(Boolean)
 
     if (selectedLeadIds.length === 0) {
-      window.alert('Nenhum lead válido encontrado para exclusão.')
+      setError('Nenhum lead válido encontrado para exclusão.')
+      setSuccessMessage(null)
       return
     }
 
@@ -561,6 +564,7 @@ export default function PoolClient({
 
     setDeletingLeads(true)
     setError(null)
+    setSuccessMessage(null)
 
     try {
       const res = await fetch('/api/admin/leads/delete', {
@@ -580,7 +584,7 @@ export default function PoolClient({
       }
 
       if (!res.ok || !json.ok) {
-        window.alert(json.error ?? 'Erro ao excluir leads.')
+        setError(json.error ?? 'Erro ao excluir leads.')
         return
       }
 
@@ -593,13 +597,13 @@ export default function PoolClient({
       await loadPoolAndSellers()
 
       if (json.warning) {
-        window.alert(json.warning)
+        setError(json.warning)
         return
       }
 
-      window.alert(`${json.deleted_count ?? selectedLeadIds.length} lead(s) excluído(s) com sucesso!`)
+      setSuccessMessage(`${json.deleted_count ?? selectedLeadIds.length} lead(s) excluído(s) com sucesso.`)
     } catch (err: unknown) {
-      window.alert(getErrorMessage(err, 'Erro ao excluir leads.'))
+      setError(getErrorMessage(err, 'Erro ao excluir leads.'))
     } finally {
       setDeletingLeads(false)
     }
