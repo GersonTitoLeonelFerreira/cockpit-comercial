@@ -365,12 +365,13 @@ function findActiveConflicts(
 
 export async function POST(req: Request) {
   try {
-    let supabase, user
-    try {
-      ;({ supabase, user } = await getAuthedSupabase())
-    } catch {
+    const authedContext = await getAuthedSupabase().catch(() => null)
+
+    if (!authedContext) {
       return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 })
     }
+
+    const { supabase: authSupabase, user } = authedContext
 
     const body = await req.json().catch(() => ({} as Record<string, unknown>))
     const rowsInput: InputRow[] = Array.isArray(body?.rows) ? body.rows : []
@@ -389,7 +390,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Empresa ativa não selecionada.' }, { status: 400 })
     }
 
-    const { data: actorProfile, error: actorErr } = await supabase
+    const { data: actorProfile, error: actorErr } = await authSupabase
       .from('profiles')
       .select('id, is_active_global')
       .eq('id', user.id)
@@ -410,7 +411,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Usuário globalmente inativo.' }, { status: 403 })
     }
 
-    const { data: actorMembership, error: actorMembershipErr } = await supabase
+    const { data: actorMembership, error: actorMembershipErr } = await authSupabase
       .from('company_memberships')
       .select('company_id, role, is_active')
       .eq('company_id', activeCompanyId)
@@ -445,7 +446,7 @@ export async function POST(req: Request) {
       )
     }
 
-    supabase = createClient(supabaseUrl, serviceRoleKey, {
+    const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
