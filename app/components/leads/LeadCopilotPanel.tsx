@@ -659,14 +659,44 @@ export default function LeadCopilotPanel({
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: compact ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+              gap: 14,
+            }}
+          >
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Estágio sugerido</label>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Estágio sugerido
+              </label>
+
               <select
                 value={editableStatus}
-                onChange={(e) => setEditableStatus(e.target.value as LeadStatus)}
+                onChange={(event) => setEditableStatus(event.target.value as LeadStatus)}
                 disabled={applying}
-                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+                style={{
+                  width: '100%',
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  outline: 'none',
+                  opacity: applying ? 0.7 : 1,
+                  cursor: applying ? 'not-allowed' : 'pointer',
+                }}
               >
                 {OPEN_STATUSES.map((status) => (
                   <option key={status} value={status}>
@@ -677,93 +707,294 @@ export default function LeadCopilotPanel({
                 <option value="perdido">{STATUS_LABELS.perdido}</option>
               </select>
 
-              {/* Aviso quando a IA sugere algo diferente do que o vendedor tentou arrastar */}
-              {isMoveMode
-                && forcedInitialStatus
-                && editableStatus !== forcedInitialStatus && (
-                  <div className="mt-2 text-[11px] text-amber-300/90">
+              {isMoveMode &&
+                forcedInitialStatus &&
+                editableStatus !== forcedInitialStatus && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      border: '1px solid rgba(245,158,11,0.32)',
+                      background: 'rgba(245,158,11,0.10)',
+                      color: '#fcd34d',
+                      borderRadius: DS.radius,
+                      padding: '8px 10px',
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                    }}
+                  >
                     A IA sugeriu <strong>{STATUS_LABELS[editableStatus]}</strong> em vez de{' '}
-                    <strong>{STATUS_LABELS[forcedInitialStatus]}</strong>. Se você quer manter a etapa
+                    <strong>{STATUS_LABELS[forcedInitialStatus]}</strong>. Se quiser manter a etapa
                     original, altere o dropdown antes de aplicar.
                   </div>
                 )}
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Canal identificado</label>
-              <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white">
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Canal identificado
+              </label>
+
+              <div
+                style={{
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
                 {suggestion.action_channel || '—'}
               </div>
             </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Resumo da IA</label>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Resumo da IA
+              </label>
+
               <textarea
                 value={editableSummary}
-                onChange={(e) => setEditableSummary(e.target.value)}
+                onChange={(event) => setEditableSummary(event.target.value)}
                 disabled={applying}
-                className="w-full min-h-[90px] rounded-md border border-gray-700 bg-gray-800 px-3 py-3 text-sm text-white"
+                style={{
+                  width: '100%',
+                  minHeight: 92,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '12px 12px',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  outline: 'none',
+                  resize: 'vertical',
+                  opacity: applying ? 0.7 : 1,
+                }}
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Próxima ação</label>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Próxima ação
+              </label>
+
               <input
                 type="text"
                 value={editableNextAction}
-                onChange={(e) => setEditableNextAction(e.target.value)}
+                onChange={(event) => setEditableNextAction(event.target.value)}
                 disabled={applying || editableStatus === 'novo' || isTerminalStatus(editableStatus)}
-                placeholder={editableStatus === 'novo' ? 'Em novo, a próxima ação não será aplicada nesta fase' : 'Ex: Retornar negociação'}
-                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 disabled:opacity-50"
+                placeholder={
+                  editableStatus === 'novo'
+                    ? 'Em novo, a próxima ação não será aplicada nesta fase'
+                    : 'Ex.: Retornar negociação'
+                }
+                style={{
+                  width: '100%',
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  outline: 'none',
+                  opacity: applying || editableStatus === 'novo' || isTerminalStatus(editableStatus) ? 0.58 : 1,
+                }}
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Data sugerida</label>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Data sugerida
+              </label>
+
               <input
                 type="datetime-local"
                 value={editableNextActionDate}
-                onChange={(e) => setEditableNextActionDate(e.target.value)}
+                onChange={(event) => setEditableNextActionDate(event.target.value)}
                 disabled={applying || editableStatus === 'novo' || isTerminalStatus(editableStatus)}
-                className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white disabled:opacity-50"
+                style={{
+                  width: '100%',
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  outline: 'none',
+                  opacity: applying || editableStatus === 'novo' || isTerminalStatus(editableStatus) ? 0.58 : 1,
+                }}
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Resultado detectado</label>
-              <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white">
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Resultado detectado
+              </label>
+
+              <div
+                style={{
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
                 {suggestion.action_result || '—'}
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Detalhe detectado</label>
-              <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white">
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Detalhe detectado
+              </label>
+
+              <div
+                style={{
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
                 {suggestion.result_detail || '—'}
               </div>
             </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Justificativa da IA</label>
-              <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white">
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Justificativa da IA
+              </label>
+
+              <div
+                style={{
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
                 {suggestion.reason_for_recommendation}
               </div>
             </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Tags</label>
-              <div className="flex flex-wrap gap-2">
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Tags
+              </label>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {suggestion.tags.length > 0 ? (
                   suggestion.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="rounded-full border border-blue-900/60 bg-blue-950/30 px-3 py-1 text-xs text-blue-200"
+                      style={{
+                        border: `1px solid ${DS.blueBorder}`,
+                        background: DS.blueBg,
+                        color: DS.blueSoft,
+                        borderRadius: 999,
+                        padding: '5px 10px',
+                        fontSize: 11,
+                        fontWeight: 800,
+                      }}
                     >
                       {tag}
                     </span>
                   ))
                 ) : (
-                  <span className="text-sm text-gray-400">Nenhuma tag detectada</span>
+                  <span style={{ color: DS.textMuted, fontSize: 12 }}>
+                    Nenhuma tag detectada
+                  </span>
                 )}
               </div>
             </div>
