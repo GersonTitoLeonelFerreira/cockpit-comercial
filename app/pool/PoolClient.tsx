@@ -174,6 +174,7 @@ export default function PoolClient({
   const [poolLoading, setPoolLoading] = React.useState(false)
   const [assigningId, setAssigningId] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = React.useState<string | null>(null)
 
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [allPoolSelected, setAllPoolSelected] = React.useState(false)
@@ -359,7 +360,7 @@ export default function PoolClient({
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
   
-      window.alert(`${data.updated_count ?? cycleIds.length} leads redistribuídos!`)
+      setSuccessMessage(`${data.updated_count ?? cycleIds.length} leads redistribuídos.`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao redistribuir leads.'))
     } finally {
@@ -393,7 +394,7 @@ export default function PoolClient({
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
   
-      window.alert(`${data.updated_count ?? cycleIds.length} leads vinculados ao grupo!`)
+      setSuccessMessage(`${data.updated_count ?? cycleIds.length} leads vinculados ao grupo.`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao agrupar leads.'))
     } finally {
@@ -427,7 +428,7 @@ export default function PoolClient({
       setShowDeleteLeadConfirm(false)
       setDeletePassword('')
   
-      window.alert(`${data.updated_count ?? cycleIds.length} leads distribuídos automaticamente!`)
+      setSuccessMessage(`${data.updated_count ?? cycleIds.length} leads distribuídos automaticamente.`)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao distribuir leads.'))
     } finally {
@@ -454,7 +455,7 @@ export default function PoolClient({
   
       if (!data.success) throw new Error('Operação não confirmada')
   
-      window.alert('Grupo recolhido ao pool com sucesso!')
+      setSuccessMessage('Grupo recolhido ao pool com sucesso.')
       await loadPoolAndSellers()
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao recolher grupo.'))
@@ -487,11 +488,11 @@ export default function PoolClient({
       const updatedCount = data.updated_count ?? 0
   
       if (updatedCount === 0) {
-        window.alert('Nenhum lead no pool para este grupo.')
+        setSuccessMessage('Nenhum lead no pool para este grupo.')
         return
       }
   
-      window.alert(`${updatedCount} leads distribuídos do grupo com sucesso!`)
+      setSuccessMessage(`${updatedCount} leads distribuídos do grupo com sucesso.`)
   
       setSelectedGroupId(null)
       await loadPoolAndSellers()
@@ -525,7 +526,7 @@ export default function PoolClient({
   
       await Promise.all([loadGroups(), loadPoolAndSellers()])
   
-      window.alert('Grupo excluído com sucesso!')
+      setSuccessMessage('Grupo excluído com sucesso.')
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao excluir grupo.'))
     }
@@ -935,20 +936,41 @@ export default function PoolClient({
         </div>
       </div>
 
-      {error && (
+      {successMessage && (
         <div
           style={{
-            background: DS.redBg,
-            color: DS.redText,
-            border: `1px solid ${DS.redBorder}`,
+            background: DS.greenBg,
+            color: DS.greenText,
+            border: `1px solid ${DS.greenBorder}`,
             borderRadius: DS.radiusContainer,
             padding: 12,
             marginBottom: 16,
             fontSize: 12,
-            fontWeight: 600,
+            fontWeight: 700,
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            alignItems: 'center',
           }}
         >
-          {error}
+          <span>{successMessage}</span>
+
+          <button
+            type="button"
+            onClick={() => setSuccessMessage(null)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: DS.greenText,
+              cursor: 'pointer',
+              fontWeight: 900,
+              fontSize: 14,
+              lineHeight: 1,
+            }}
+            aria-label="Fechar mensagem de sucesso"
+          >
+            ×
+          </button>
         </div>
       )}
 
