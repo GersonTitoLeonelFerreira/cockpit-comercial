@@ -53,7 +53,6 @@ type ProfileRow = {
   lead_id: string
   cpf: string | null
   cnpj: string | null
-  email: string | null
 }
 
 type CycleRow = {
@@ -459,25 +458,25 @@ export async function POST(req: Request) {
     if (cpfs.length > 0) {
       const { data } = await supabase
         .from('lead_profiles')
-        .select('lead_id, cpf, cnpj, email')
+        .select('lead_id, cpf, cnpj')
         .eq('company_id', companyId)
         .in('cpf', cpfs)
 
-        for (const row of (data ?? []) as ProfileRow[]) {
-          if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
-        }
+      for (const row of (data ?? []) as ProfileRow[]) {
+        if (row.cpf) leadIdByDoc.set(row.cpf, row.lead_id)
+      }
     }
 
     if (cnpjs.length > 0) {
       const { data } = await supabase
         .from('lead_profiles')
-        .select('lead_id, cpf, cnpj, email')
+        .select('lead_id, cpf, cnpj')
         .eq('company_id', companyId)
         .in('cnpj', cnpjs)
 
-        for (const row of (data ?? []) as ProfileRow[]) {
-          if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
-        }
+      for (const row of (data ?? []) as ProfileRow[]) {
+        if (row.cnpj) leadIdByDoc.set(row.cnpj, row.lead_id)
+      }
     }
 
     const leadIdsFromProfiles = Array.from(new Set(Array.from(leadIdByDoc.values())))
