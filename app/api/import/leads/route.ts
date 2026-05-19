@@ -656,6 +656,15 @@ export async function POST(req: Request) {
       attached_by: string
     }> = []
 
+    type ImportWorkRow = {
+      row: NormalizedRow
+      leadId: string | null
+      currentLead: LeadRow | null
+      isNewLead: boolean
+    }
+
+    const workRows: ImportWorkRow[] = []
+
     for (const row of rows) {
       if (!row.name) {
         errors.push({ row: row.rowNumber, error: 'Nome é obrigatório.' })
@@ -686,106 +695,137 @@ export async function POST(req: Request) {
       if (row.email) seenEmails.add(row.email)
       if (row.phone) seenPhones.add(row.phone)
 
-      try {
-        const leadIdFromDoc = leadIdByDoc.get(row.cpf_cnpj) || null
-        const leadIdFromEmail = row.email ? leadIdByEmail.get(row.email) || null : null
-        const leadIdFromPhone = row.phone ? leadIdByPhone.get(row.phone) || null : null
+      const leadIdFromDoc = leadIdByDoc.get(row.cpf_cnpj) || null
+      const leadIdFromEmail = row.email ? leadIdByEmail.get(row.email) || null : null
+      const leadIdFromPhone = row.phone ? leadIdByPhone.get(row.phone) || null : null
 
-        const emailConflictLeadId =
-          leadIdFromEmail && leadIdFromEmail !== leadIdFromDoc ? leadIdFromEmail : null
-        const phoneConflictLeadId =
-          leadIdFromPhone && leadIdFromPhone !== leadIdFromDoc ? leadIdFromPhone : null
+      const emailConflictLeadId =
+        leadIdFromEmail && leadIdFromEmail !== leadIdFromDoc ? leadIdFromEmail : null
+      const phoneConflictLeadId =
+        leadIdFromPhone && leadIdFromPhone !== leadIdFromDoc ? leadIdFromPhone : null
 
-        const emailConflictLead = emailConflictLeadId
-          ? existingLeadById.get(emailConflictLeadId) || null
-          : null
+      const emailConflictLead = emailConflictLeadId
+        ? existingLeadById.get(emailConflictLeadId) || null
+        : null
 
-        const phoneConflictLead = phoneConflictLeadId
-          ? existingLeadById.get(phoneConflictLeadId) || null
-          : null
+      const phoneConflictLead = phoneConflictLeadId
+        ? existingLeadById.get(phoneConflictLeadId) || null
+        : null
 
-        if (emailConflictLead) {
+      if (emailConflictLead) {
+        errors.push({
+          row: row.rowNumber,
+          error: `E-mail já pertence ao lead ${emailConflictLead.name || 'Sem nome'} (${emailConflictLead.id.slice(0, 8)}).`,
+        })
+        continue
+      }
+
+      if (phoneConflictLead) {
+        errors.push({
+          row: row.rowNumber,
+          error: `Telefone já pertence ao lead ${phoneConflictLead.name || 'Sem nome'} (${phoneConflictLead.id.slice(0, 8)}).`,
+        })
+        continue
+      }
+
+      const currentLead = leadIdFromDoc ? existingLeadById.get(leadIdFromDoc) || null : null
+
+      if (leadIdFromDoc && currentLead && !currentLead.deleted_at) {
+        errors.push({
+          row: row.rowNumber,
+          error: `Lead já ativo no sistema (${currentLead.name || 'Sem nome'} - ${currentLead.id.slice(0, 8)}).`,
+        })
+        continue
+      }
+
+      workRows.push({
+        row,
+        leadId: leadIdFromDoc,
+        currentLead,
+        isNewLead: !leadIdFromDoc,
+      })
+    }
+
+    const newLeadWorkRows = workRows.filter((workRow) => workRow.isNewLead)
+
+    if (newLeadWorkRows.length > 0) {
+      const newLeadPayloads = newLeadWorkRows.map(({ row }) => ({
+        company_id: companyId,
+        name: row.name,
+        phone: row.phone,
+        email: row.email,
+        cpf_cnpj: row.cpf_cnpj,
+        address_cep: row.address_cep,
+        address_street: row.address_street,
+        address_number: row.address_number,
+        address_complement: row.address_complement,
+        address_neighborhood: row.address_neighborhood,
+        address_city: row.address_city,
+        address_state: row.address_state,
+        created_by: user.id,
+        entry_mode: 'import_excel',
+      }))
+
+      const { data: insertedLeads, error: insertLeadsError } = await supabase
+        .from('leads')
+        .insert(newLeadPayloads)
+        .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
+
+      if (insertLeadsError) {
+        for (const workRow of newLeadWorkRows) {
           errors.push({
-            row: row.rowNumber,
-            error: `E-mail já pertence ao lead ${emailConflictLead.name || 'Sem nome'} (${emailConflictLead.id.slice(0, 8)}).`,
+            row: workRow.row.rowNumber,
+            error: insertLeadsError.message || 'Falha ao criar lead.',
           })
-          continue
         }
+      } else {
+        const insertedLeadByDocument = new Map<string, LeadRow>()
 
-        if (phoneConflictLead) {
-          errors.push({
-            row: row.rowNumber,
-            error: `Telefone já pertence ao lead ${phoneConflictLead.name || 'Sem nome'} (${phoneConflictLead.id.slice(0, 8)}).`,
-          })
-          continue
-        }
-
-        let leadId = leadIdFromDoc
-
-        if (leadId) {
-          const currentLead = existingLeadById.get(leadId) || null
-
-          if (currentLead && !currentLead.deleted_at) {
-            errors.push({
-              row: row.rowNumber,
-              error: `Lead já ativo no sistema (${currentLead.name || 'Sem nome'} - ${currentLead.id.slice(0, 8)}).`,
-            })
-            continue
+        for (const lead of (insertedLeads ?? []) as LeadRow[]) {
+          if (lead.cpf_cnpj) {
+            insertedLeadByDocument.set(lead.cpf_cnpj, lead)
           }
-        }
-
-        if (!leadId) {
-          const insertLeadPayload = {
-            company_id: companyId,
-            name: row.name,
-            phone: row.phone,
-            email: row.email,
-            cpf_cnpj: row.cpf_cnpj,
-            address_cep: row.address_cep,
-            address_street: row.address_street,
-            address_number: row.address_number,
-            address_complement: row.address_complement,
-            address_neighborhood: row.address_neighborhood,
-            address_city: row.address_city,
-            address_state: row.address_state,
-            created_by: user.id,
-            entry_mode: 'import_excel',
-          }
-
-          const { data: newLead, error: leadErr } = await supabase
-            .from('leads')
-            .insert(insertLeadPayload)
-            .select('id, name, phone, email, cpf_cnpj, deleted_at, deleted_by')
-            .single()
-
-          if (leadErr || !newLead?.id) {
-            errors.push({
-              row: row.rowNumber,
-              error: leadErr?.message || 'Falha ao criar lead.',
-            })
-            continue
-          }
-
-          leadId = newLead.id
-          created++
 
           registerLeadMaps(
-            {
-              id: newLead.id,
-              name: newLead.name ?? row.name,
-              phone: newLead.phone,
-              email: newLead.email,
-              cpf_cnpj: newLead.cpf_cnpj,
-              deleted_at: newLead.deleted_at,
-              deleted_by: newLead.deleted_by,
-            },
+            lead,
             existingLeadById,
             leadIdByDoc,
             leadIdByEmail,
             leadIdByPhone,
           )
-        } else {
-          const currentLead = existingLeadById.get(leadId) || null
+        }
+
+        for (const workRow of newLeadWorkRows) {
+          const insertedLead = workRow.row.cpf_cnpj
+            ? insertedLeadByDocument.get(workRow.row.cpf_cnpj) || null
+            : null
+
+          if (!insertedLead?.id) {
+            errors.push({
+              row: workRow.row.rowNumber,
+              error: 'Lead criado em lote não retornou identificador.',
+            })
+            continue
+          }
+
+          workRow.leadId = insertedLead.id
+          workRow.currentLead = insertedLead
+          created++
+        }
+      }
+    }
+
+    for (const workRow of workRows) {
+      const { row } = workRow
+      const leadId = workRow.leadId
+
+      if (!leadId) {
+        continue
+      }
+
+      try {
+        if (!workRow.isNewLead) {
+          const currentLead = workRow.currentLead
           const patch = buildLeadPatch(row)
 
           if (currentLead?.deleted_at) {
@@ -816,6 +856,7 @@ export async function POST(req: Request) {
             }
 
             if (updatedLead) {
+              workRow.currentLead = updatedLead as LeadRow
               existingLeadById.set(leadId, updatedLead as LeadRow)
             }
           }
@@ -860,14 +901,6 @@ export async function POST(req: Request) {
             leadIdByEmail,
             leadIdByPhone,
           )
-        }
-
-        if (!leadId) {
-          errors.push({
-            row: row.rowNumber,
-            error: 'Falha interna: leadId não definido após processar a linha.',
-          })
-          continue
         }
 
         const resolvedLeadId = leadId
