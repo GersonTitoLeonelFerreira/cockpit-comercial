@@ -69,12 +69,6 @@ function toDatetimeLocalValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function excerpt(text: string, max = 400): string {
-  const trimmed = text.trim()
-  if (trimmed.length <= max) return trimmed
-  return `${trimmed.slice(0, max)}...`
-}
-
 function joinSignals(list: string[] | undefined): string {
   if (!list || list.length === 0) return '—'
   return list.join(', ')
