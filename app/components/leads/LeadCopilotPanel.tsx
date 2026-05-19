@@ -1658,45 +1658,215 @@ export default function LeadCopilotPanel({
                     </div>
                   )}
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
-                    <div className="text-gray-400 uppercase font-bold mb-2">Provider</div>
-                    <div className="text-white">Tentou usar provider: {auditDiagnostics.provider.attempted ? 'Sim' : 'Não'}</div>
-                    <div className="text-white">Modelo: {auditDiagnostics.provider.model || '—'}</div>
-                    <div className="text-white">Sucesso: {auditDiagnostics.provider.success ? 'Sim' : 'Não'}</div>
-                    <div className="text-white">Falha: {auditDiagnostics.provider.failure_reason || '—'}</div>
+<div
+                    style={{
+                      gridColumn: '1 / -1',
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '12px 14px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Provider
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: compact ? '1fr' : 'repeat(4, minmax(0, 1fr))',
+                        gap: 10,
+                      }}
+                    >
+                      <div
+                        style={{
+                          border: `1px solid ${DS.borderSubtle}`,
+                          background: DS.inputBg,
+                          borderRadius: DS.radius,
+                          padding: '9px 10px',
+                        }}
+                      >
+                        <div style={{ color: DS.textLabel, fontSize: 10, fontWeight: 900, marginBottom: 5 }}>
+                          Tentou usar
+                        </div>
+                        <div style={{ color: DS.textPrimary, fontSize: 12, fontWeight: 900 }}>
+                          {auditDiagnostics.provider.attempted ? 'Sim' : 'Não'}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: `1px solid ${DS.borderSubtle}`,
+                          background: DS.inputBg,
+                          borderRadius: DS.radius,
+                          padding: '9px 10px',
+                        }}
+                      >
+                        <div style={{ color: DS.textLabel, fontSize: 10, fontWeight: 900, marginBottom: 5 }}>
+                          Modelo
+                        </div>
+                        <div style={{ color: DS.textPrimary, fontSize: 12, fontWeight: 900 }}>
+                          {auditDiagnostics.provider.model || '—'}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: `1px solid ${DS.borderSubtle}`,
+                          background: DS.inputBg,
+                          borderRadius: DS.radius,
+                          padding: '9px 10px',
+                        }}
+                      >
+                        <div style={{ color: DS.textLabel, fontSize: 10, fontWeight: 900, marginBottom: 5 }}>
+                          Sucesso
+                        </div>
+                        <div style={{ color: DS.textPrimary, fontSize: 12, fontWeight: 900 }}>
+                          {auditDiagnostics.provider.success ? 'Sim' : 'Não'}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: `1px solid ${DS.borderSubtle}`,
+                          background: DS.inputBg,
+                          borderRadius: DS.radius,
+                          padding: '9px 10px',
+                        }}
+                      >
+                        <div style={{ color: DS.textLabel, fontSize: 10, fontWeight: 900, marginBottom: 5 }}>
+                          Falha
+                        </div>
+                        <div style={{ color: DS.textPrimary, fontSize: 12, fontWeight: 900 }}>
+                          {auditDiagnostics.provider.failure_reason || '—'}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
-                    <div className="text-gray-400 uppercase font-bold mb-2">Sinais de texto</div>
-                    <div className="text-white">Perdido: {joinSignals(auditDiagnostics.text_signals.lost)}</div>
-                    <div className="text-white">Ganho: {joinSignals(auditDiagnostics.text_signals.won)}</div>
-                    <div className="text-white">Negociação: {joinSignals(auditDiagnostics.text_signals.negotiation)}</div>
-                    <div className="text-white">Contato sem resposta: {joinSignals(auditDiagnostics.text_signals.no_response)}</div>
-                    <div className="text-white">Agenda: {joinSignals(auditDiagnostics.text_signals.agenda)}</div>
+                  <div
+                    style={{
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '12px 14px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Sinais de texto
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 6, color: DS.textPrimary, fontSize: 12 }}>
+                      <div>Perdido: {joinSignals(auditDiagnostics.text_signals.lost)}</div>
+                      <div>Ganho: {joinSignals(auditDiagnostics.text_signals.won)}</div>
+                      <div>Negociação: {joinSignals(auditDiagnostics.text_signals.negotiation)}</div>
+                      <div>Contato sem resposta: {joinSignals(auditDiagnostics.text_signals.no_response)}</div>
+                      <div>Agenda: {joinSignals(auditDiagnostics.text_signals.agenda)}</div>
+                    </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
-                    <div className="text-gray-400 uppercase font-bold mb-2">
-                      Sinais do histórico{' '}
-                      <span className="text-gray-500 text-[10px]">(apenas leitura — não é usado pelo fallback)</span>
+                  <div
+                    style={{
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '12px 14px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Sinais do histórico
                     </div>
-                    <div className="text-white whitespace-pre-wrap">
-                      Negociação:{' '}
-                      {auditDiagnostics.history_signals.negotiation.length > 0
-                        ? auditDiagnostics.history_signals.negotiation.join('\n')
-                        : '—'}
+
+                    <div style={{ color: DS.textMuted, fontSize: 10, marginBottom: 8 }}>
+                      Apenas leitura — não é usado pelo fallback.
                     </div>
-                    <div className="text-white whitespace-pre-wrap mt-2">
-                      Agenda:{' '}
-                      {auditDiagnostics.history_signals.agenda.length > 0
-                        ? auditDiagnostics.history_signals.agenda.join('\n')
-                        : '—'}
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gap: 8,
+                        color: DS.textPrimary,
+                        fontSize: 12,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      <div>
+                        <span style={{ color: DS.textSecondary, fontWeight: 800 }}>Negociação: </span>
+                        {auditDiagnostics.history_signals.negotiation.length > 0
+                          ? auditDiagnostics.history_signals.negotiation.join('\n')
+                          : '—'}
+                      </div>
+
+                      <div>
+                        <span style={{ color: DS.textSecondary, fontWeight: 800 }}>Agenda: </span>
+                        {auditDiagnostics.history_signals.agenda.length > 0
+                          ? auditDiagnostics.history_signals.agenda.join('\n')
+                          : '—'}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
-                    <div className="text-gray-400 uppercase font-bold mb-2">Notas</div>
-                    <div className="text-white whitespace-pre-wrap">
+                  <div
+                    style={{
+                      gridColumn: '1 / -1',
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '12px 14px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Notas
+                    </div>
+
+                    <div
+                      style={{
+                        border: `1px solid ${DS.borderSubtle}`,
+                        background: DS.inputBg,
+                        borderRadius: DS.radius,
+                        padding: '10px 12px',
+                        color: DS.textPrimary,
+                        fontSize: 12,
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.5,
+                      }}
+                    >
                       {auditDiagnostics.notes.length > 0 ? auditDiagnostics.notes.join('\n') : '—'}
                     </div>
                   </div>
