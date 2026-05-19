@@ -392,45 +392,160 @@ export default function LeadCopilotPanel({
         </div>
       )}
 
-      <div className="grid gap-4">
-        <div>
-          <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Origem</label>
-          <select
-            value={source}
-            onChange={(e) => setSource(e.target.value as ConversationSource)}
-            disabled={loading || applying}
-            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+<div
+        style={{
+          display: 'grid',
+          gap: 14,
+        }}
+      >
+        <div
+          style={{
+            border: `1px solid ${DS.border}`,
+            background: DS.panelBg,
+            borderRadius: DS.radiusContainer,
+            padding: 14,
+          }}
+        >
+          <div
+            style={{
+              color: DS.textPrimary,
+              fontSize: 12,
+              fontWeight: 900,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              marginBottom: 12,
+            }}
           >
-            <option value="whatsapp">WhatsApp</option>
-            <option value="phone_summary">Resumo de ligação</option>
-            <option value="notes">Anotação livre</option>
-          </select>
-        </div>
+            Entrada da análise
+          </div>
 
-        <div>
-          <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Conversa / resumo</label>
-          <textarea
-            value={conversationText}
-            onChange={(e) => setConversationText(e.target.value)}
-            disabled={loading || applying}
-            placeholder="Cole aqui a conversa ou escreva com suas palavras o que aconteceu com o cliente..."
-            className={`w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-3 text-sm text-white placeholder-gray-500 ${compact ? 'min-h-[140px]' : 'min-h-[180px]'}`}
-          />
-          <div className="mt-2 text-xs text-gray-500">
-            {conversationText.trim().length} caracteres
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: compact ? '1fr' : '180px 1fr',
+              gap: 12,
+              alignItems: 'start',
+            }}
+          >
+            <div>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Origem
+              </label>
+
+              <select
+                value={source}
+                onChange={(event) => setSource(event.target.value as ConversationSource)}
+                disabled={loading || applying}
+                style={{
+                  width: '100%',
+                  minHeight: 42,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  outline: 'none',
+                  opacity: loading || applying ? 0.7 : 1,
+                  cursor: loading || applying ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <option value="whatsapp">WhatsApp</option>
+                <option value="phone_summary">Resumo de ligação</option>
+                <option value="notes">Anotação livre</option>
+              </select>
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: 'block',
+                  color: DS.textSecondary,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  marginBottom: 7,
+                }}
+              >
+                Conversa ou resumo
+              </label>
+
+              <textarea
+                value={conversationText}
+                onChange={(event) => setConversationText(event.target.value)}
+                disabled={loading || applying}
+                placeholder="Cole aqui a conversa ou escreva com suas palavras o que aconteceu com o cliente..."
+                style={{
+                  width: '100%',
+                  minHeight: compact ? 140 : 180,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  background: DS.inputBg,
+                  color: DS.textPrimary,
+                  padding: '12px 12px',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  outline: 'none',
+                  resize: 'vertical',
+                  opacity: loading || applying ? 0.7 : 1,
+                }}
+              />
+
+              <div
+                style={{
+                  marginTop: 8,
+                  color: DS.textMuted,
+                  fontSize: 11,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                }}
+              >
+                <span>Mínimo recomendado: 15 caracteres.</span>
+                <span>{conversationText.trim().length} caracteres</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
+        >
           <button
+            type="button"
             onClick={handleAnalyze}
             disabled={!canAnalyze || loading || applying}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-50"
+            style={{
+              minHeight: 40,
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.blueBorder}`,
+              background: !canAnalyze || loading || applying ? DS.panelBg : DS.blue,
+              color: !canAnalyze || loading || applying ? DS.textMuted : '#ffffff',
+              padding: '9px 14px',
+              fontSize: 12,
+              fontWeight: 900,
+              cursor: !canAnalyze || loading || applying ? 'not-allowed' : 'pointer',
+              opacity: !canAnalyze || loading || applying ? 0.65 : 1,
+            }}
           >
             {loading ? 'Analisando...' : 'Analisar com IA'}
           </button>
 
           <button
+            type="button"
             onClick={() => {
               setConversationText('')
               setSuggestion(null)
@@ -441,7 +556,18 @@ export default function LeadCopilotPanel({
               setError(null)
             }}
             disabled={loading || applying}
-            className="rounded-md border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 disabled:opacity-50"
+            style={{
+              minHeight: 40,
+              borderRadius: DS.radius,
+              border: `1px solid ${DS.border}`,
+              background: DS.panelBg,
+              color: DS.textSecondary,
+              padding: '9px 14px',
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: loading || applying ? 'not-allowed' : 'pointer',
+              opacity: loading || applying ? 0.65 : 1,
+            }}
           >
             Limpar
           </button>
