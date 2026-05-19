@@ -919,7 +919,7 @@ export async function POST(req: Request) {
         const profilePayload = buildProfilePayload(companyId, resolvedLeadId, row)
         profilesToUpsert.push(profilePayload)
 
-        let cycle = cycleByLeadId.get(resolvedLeadId) || null
+        const cycle = cycleByLeadId.get(resolvedLeadId) || null
 
         if (!cycle) {
           cyclesToInsert.push({
@@ -967,80 +967,182 @@ export async function POST(req: Request) {
     }
 
     if (cyclesToInsert.length > 0) {
-      const { data: insertedCycles, error: cyclesInsertError } = await supabase
-        .from('sales_cycles')
-        .insert(
-          cyclesToInsert.map((cycleToInsert) => ({
-            company_id: companyId,
-            lead_id: cycleToInsert.leadId,
-            owner_user_id: cycleToInsert.ownerUserId,
-            status: 'novo',
-            current_group_id: cycleToInsert.currentGroupId,
-            stage_entered_at: cycleToInsert.stageEnteredAt,
-          })),
-        )
-        .select('id, lead_id, current_group_id')
+      const cycleLeadIds = Array.from(
+        new Set(cyclesToInsert.map((cycleToInsert) => cycleToInsert.leadId)),
+      )
 
-      if (cyclesInsertError) {
-        console.error('Erro ao criar ciclos da importação em lote:', cyclesInsertError)
+      const { data: existingCyclesBeforeInsert, error: existingCyclesBeforeInsertError } =
+        await supabase
+          .from('sales_cycles')
+          .select('id, lead_id, current_group_id')
+          .eq('company_id', companyId)
+          .in('lead_id', cycleLeadIds)
+
+      if (existingCyclesBeforeInsertError) {
+        console.error(
+          'Erro ao validar ciclos existentes antes da criação em lote:',
+          existingCyclesBeforeInsertError,
+        )
 
         for (const cycleToInsert of cyclesToInsert) {
           errors.push({
             row: cycleToInsert.rowNumber,
-            error: cyclesInsertError.message || 'Falha ao criar ciclo.',
+            error: existingCyclesBeforeInsertError.message || 'Falha ao validar ciclo existente.',
           })
         }
       } else {
-        const insertedCycleByLeadId = new Map<string, CycleRow>()
+        const existingCycleByLeadIdBeforeInsert = new Map<string, CycleRow>()
 
-        for (const cycle of (insertedCycles ?? []) as CycleRow[]) {
-          insertedCycleByLeadId.set(cycle.lead_id, cycle)
+        for (const cycle of (existingCyclesBeforeInsert ?? []) as CycleRow[]) {
+          existingCycleByLeadIdBeforeInsert.set(cycle.lead_id, cycle)
           cycleByLeadId.set(cycle.lead_id, cycle)
         }
 
-        for (const cycleToInsert of cyclesToInsert) {
-          const cycle = insertedCycleByLeadId.get(cycleToInsert.leadId) || null
+        const existingCycleGroupUpdateById = new Map<
+          string,
+          {
+            cycle: CycleRow
+            currentGroupId: string
+          }
+        >()
 
-          if (!cycle?.id) {
-            errors.push({
-              row: cycleToInsert.rowNumber,
-              error: 'Ciclo criado em lote não retornou identificador.',
+        const cyclesSafeToInsert = cyclesToInsert.filter((cycleToInsert) => {
+          const existingCycle = existingCycleByLeadIdBeforeInsert.get(cycleToInsert.leadId) || null
+
+          if (!existingCycle) return true
+
+          if (cycleToInsert.currentGroupId && !existingCycle.current_group_id) {
+            existingCycleGroupUpdateById.set(existingCycle.id, {
+              cycle: existingCycle,
+              currentGroupId: cycleToInsert.currentGroupId,
             })
-            continue
           }
 
-          createdCycles++
+          return false
+        })
 
-          cycleEventsToInsert.push({
-            company_id: companyId,
-            cycle_id: cycle.id,
-            event_type: 'cycle_created',
-            created_by: user.id,
-            metadata: {
-              lead_name: cycleToInsert.leadName,
-              owner_user_id: cycleToInsert.ownerUserId,
-              group_id: cycleToInsert.currentGroupId,
-              source: EVENT_SOURCES.cycle_create,
-            },
-            occurred_at: new Date().toISOString(),
-          })
+        const existingCycleGroupUpdates = Array.from(existingCycleGroupUpdateById.values())
 
-          if (groupId) {
-            groupLinksToInsert.push({
-              company_id: companyId,
-              group_id: groupId,
-              cycle_id: cycle.id,
-              attached_by: user.id,
-            })
+        if (existingCycleGroupUpdates.length > 0) {
+          const groupIdToApply = existingCycleGroupUpdates[0]?.currentGroupId ?? null
 
-            cycleEventsToInsert.push({
-              company_id: companyId,
-              cycle_id: cycle.id,
-              event_type: 'group_attached',
-              created_by: user.id,
-              metadata: { group_id: groupId },
-              occurred_at: new Date().toISOString(),
-            })
+          if (groupIdToApply) {
+            const { error: existingCycleGroupUpdateError } = await supabase
+              .from('sales_cycles')
+              .update({ current_group_id: groupIdToApply })
+              .eq('company_id', companyId)
+              .in(
+                'id',
+                existingCycleGroupUpdates.map((item) => item.cycle.id),
+              )
+
+            if (existingCycleGroupUpdateError) {
+              console.error(
+                'Erro ao atualizar grupo de ciclos existentes na importação:',
+                existingCycleGroupUpdateError,
+              )
+            } else {
+              for (const item of existingCycleGroupUpdates) {
+                item.cycle.current_group_id = item.currentGroupId
+                cycleByLeadId.set(item.cycle.lead_id, item.cycle)
+
+                groupLinksToInsert.push({
+                  company_id: companyId,
+                  group_id: item.currentGroupId,
+                  cycle_id: item.cycle.id,
+                  attached_by: user.id,
+                })
+
+                cycleEventsToInsert.push({
+                  company_id: companyId,
+                  cycle_id: item.cycle.id,
+                  event_type: 'group_attached',
+                  created_by: user.id,
+                  metadata: { group_id: item.currentGroupId },
+                  occurred_at: new Date().toISOString(),
+                })
+              }
+            }
+          }
+        }
+
+        if (cyclesSafeToInsert.length > 0) {
+          const { data: insertedCycles, error: cyclesInsertError } = await supabase
+            .from('sales_cycles')
+            .insert(
+              cyclesSafeToInsert.map((cycleToInsert) => ({
+                company_id: companyId,
+                lead_id: cycleToInsert.leadId,
+                owner_user_id: cycleToInsert.ownerUserId,
+                status: 'novo',
+                current_group_id: cycleToInsert.currentGroupId,
+                stage_entered_at: cycleToInsert.stageEnteredAt,
+              })),
+            )
+            .select('id, lead_id, current_group_id')
+
+          if (cyclesInsertError) {
+            console.error('Erro ao criar ciclos da importação em lote:', cyclesInsertError)
+
+            for (const cycleToInsert of cyclesSafeToInsert) {
+              errors.push({
+                row: cycleToInsert.rowNumber,
+                error: cyclesInsertError.message || 'Falha ao criar ciclo.',
+              })
+            }
+          } else {
+            const insertedCycleByLeadId = new Map<string, CycleRow>()
+
+            for (const cycle of (insertedCycles ?? []) as CycleRow[]) {
+              insertedCycleByLeadId.set(cycle.lead_id, cycle)
+              cycleByLeadId.set(cycle.lead_id, cycle)
+            }
+
+            for (const cycleToInsert of cyclesSafeToInsert) {
+              const cycle = insertedCycleByLeadId.get(cycleToInsert.leadId) || null
+
+              if (!cycle?.id) {
+                errors.push({
+                  row: cycleToInsert.rowNumber,
+                  error: 'Ciclo criado em lote não retornou identificador.',
+                })
+                continue
+              }
+
+              createdCycles++
+
+              cycleEventsToInsert.push({
+                company_id: companyId,
+                cycle_id: cycle.id,
+                event_type: 'cycle_created',
+                created_by: user.id,
+                metadata: {
+                  lead_name: cycleToInsert.leadName,
+                  owner_user_id: cycleToInsert.ownerUserId,
+                  group_id: cycleToInsert.currentGroupId,
+                  source: EVENT_SOURCES.cycle_create,
+                },
+                occurred_at: new Date().toISOString(),
+              })
+
+              if (cycleToInsert.currentGroupId) {
+                groupLinksToInsert.push({
+                  company_id: companyId,
+                  group_id: cycleToInsert.currentGroupId,
+                  cycle_id: cycle.id,
+                  attached_by: user.id,
+                })
+
+                cycleEventsToInsert.push({
+                  company_id: companyId,
+                  cycle_id: cycle.id,
+                  event_type: 'group_attached',
+                  created_by: user.id,
+                  metadata: { group_id: cycleToInsert.currentGroupId },
+                  occurred_at: new Date().toISOString(),
+                })
+              }
+            }
           }
         }
       }
