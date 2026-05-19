@@ -649,6 +649,13 @@ export async function POST(req: Request) {
       occurred_at: string
     }> = []
 
+    const groupLinksToInsert: Array<{
+      company_id: string
+      group_id: string
+      cycle_id: string
+      attached_by: string
+    }> = []
+
     for (const row of rows) {
       if (!row.name) {
         errors.push({ row: row.rowNumber, error: 'Nome é obrigatório.' })
@@ -921,21 +928,12 @@ export async function POST(req: Request) {
           })
 
           if (groupId) {
-            const { error: linkErr } = await supabase
-              .from('lead_group_cycles')
-              .insert({
-                company_id: companyId,
-                group_id: groupId,
-                cycle_id: cycle.id,
-                attached_by: user.id,
-              })
-
-            if (linkErr && !isDuplicateError(linkErr.message)) {
-              errors.push({
-                row: row.rowNumber,
-                error: `Grupo: ${linkErr.message}`,
-              })
-            }
+            groupLinksToInsert.push({
+              company_id: companyId,
+              group_id: groupId,
+              cycle_id: cycle.id,
+              attached_by: user.id,
+            })
 
             cycleEventsToInsert.push({
               company_id: companyId,
@@ -991,6 +989,16 @@ export async function POST(req: Request) {
       }
     }
 
+    if (groupLinksToInsert.length > 0) {
+      const { error: groupLinksError } = await supabase
+        .from('lead_group_cycles')
+        .insert(groupLinksToInsert)
+
+      if (groupLinksError && !isDuplicateError(groupLinksError.message)) {
+        console.error('Erro ao vincular grupos da importação em lote:', groupLinksError)
+      }
+    }
+
     if (cycleEventsToInsert.length > 0) {
       const { error: cycleEventsError } = await supabase
         .from('cycle_events')
@@ -1008,6 +1016,7 @@ export async function POST(req: Request) {
       reactivated,
       created_cycles: createdCycles,
       events_created: cycleEventsToInsert.length,
+      group_links_created: groupLinksToInsert.length,
       errors,
     })
   } catch (e: unknown) {
