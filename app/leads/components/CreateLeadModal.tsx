@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo, useRef } from 'react'
+import { adminListSellersStats } from '@/app/lib/services/admin-sellers'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
 
 type LeadGroup = {
@@ -160,6 +161,8 @@ export default function CreateLeadModal({
   })
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [createdGroups, setCreatedGroups] = useState<LeadGroup[]>([])
+  const [groupSuccess, setGroupSuccess] = useState<string | null>(null)
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null)
   const [sellers, setSellers] = useState<{ id: string; full_name: string }[]>([])
   const [loading, setLoading] = useState(false)
@@ -176,6 +179,25 @@ export default function CreateLeadModal({
   const [errorConflictLead, setErrorConflictLead] = useState<ConflictLeadRef | null>(null)
   const cpfTimerRef = useRef<number | null>(null)
 
+  const availableGroups = useMemo(() => {
+    const groupMap = new Map<string, LeadGroup>()
+
+    for (const group of groups) {
+      groupMap.set(group.id, group)
+    }
+
+    for (const group of createdGroups) {
+      groupMap.set(group.id, group)
+    }
+
+    return Array.from(groupMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'pt-BR'),
+    )
+  }, [groups, createdGroups])
+
+  const visibleGroups = availableGroups.slice(0, 50)
+  const hasManyGroups = availableGroups.length > visibleGroups.length
+
   React.useEffect(() => {
     return () => {
       if (cpfTimerRef.current) clearTimeout(cpfTimerRef.current)
@@ -187,50 +209,88 @@ export default function CreateLeadModal({
 
     const loadSellers = async () => {
       try {
-        const { data, error: err } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .eq('company_id', companyId)
-          .in('role', ['member', 'seller', 'consultor'])
-          .order('full_name', { ascending: true })
+        const sellersData = await adminListSellersStats({
+          companyId,
+          days: 30,
+        })
 
-        if (err) throw err
-        setSellers((data ?? []) as { id: string; full_name: string }[])
+        const activeSellers = sellersData
+          .filter((seller) => seller.is_active)
+          .map((seller) => ({
+            id: seller.seller_id,
+            full_name: seller.full_name || seller.email || seller.seller_id,
+          }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name, 'pt-BR'))
+
+        setSellers(activeSellers)
       } catch (e: unknown) {
         console.error('Erro ao carregar vendedores:', e)
       }
     }
 
     void loadSellers()
-  }, [isAdmin, companyId, supabase])
+  }, [isAdmin, companyId])
 
   const createNewGroup = async () => {
-    if (!newGroupName.trim()) {
+    const groupName = newGroupName.trim()
+
+    if (!groupName) {
       setError('Nome do grupo é obrigatório')
+      setGroupSuccess(null)
       return
     }
 
     setCreatingGroup(true)
     setError(null)
+    setGroupSuccess(null)
 
     try {
-      const { data, error: err } = await supabase
-        .from('lead_groups')
-        .insert({
-          company_id: companyId,
-          name: newGroupName.trim(),
-          created_by: userId,
-        })
-        .select('id, name')
-        .single()
+      const response = await fetch('/api/leads/kanban/actions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          action: 'create_group',
+          name: groupName,
+        }),
+      })
 
-      if (err) throw err
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        success?: boolean
+        id?: string
+        name?: string
+        error?: string
+      } | null
 
-      setSelectedGroupId(data.id)
+      if (!response.ok || !result?.success || !result.id) {
+        throw new Error(result?.error || 'Erro ao criar grupo')
+      }
+
+      const createdGroup = {
+        id: result.id,
+        name: result.name ?? groupName,
+      }
+
+      setCreatedGroups((currentGroups) => {
+        const alreadyExists = currentGroups.some((group) => group.id === createdGroup.id)
+
+        if (alreadyExists) {
+          return currentGroups
+        }
+
+        return [...currentGroups, createdGroup]
+      })
+
+      setSelectedGroupId(createdGroup.id)
       setNewGroupName('')
+      setGroupSuccess(`Grupo "${createdGroup.name}" criado e selecionado.`)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Erro ao criar grupo'
       setError(message)
+      setGroupSuccess(null)
     } finally {
       setCreatingGroup(false)
     }
@@ -309,39 +369,48 @@ export default function CreateLeadModal({
   }
 
   const fetchAddressFromCEP = async (cep: string) => {
-    if (!cep || cep.length < 8) return
+    const cleanCEP = onlyDigits(cep)
+
+    if (!cleanCEP) {
+      setError(null)
+      return
+    }
+
+    if (cleanCEP.length < 8) {
+      return
+    }
+
+    if (cleanCEP.length !== 8) {
+      setError('CEP deve ter 8 dígitos')
+      return
+    }
+
+    setFetchingCEP(true)
+    setError(null)
 
     try {
-      setFetchingCEP(true)
-      setError(null)
-
-      const cleanCEP = cep.replace(/\D/g, '')
-      if (cleanCEP.length !== 8) {
-        setError('CEP deve ter 8 dígitos')
-        return
-      }
-
       const response = await fetch(`https://viacep.com.br/ws/${cleanCEP}/json/`)
       const data = await response.json()
 
       if (data.erro) {
         setError('CEP não encontrado')
-        setFetchingCEP(false)
         return
       }
 
       setFormData((prev) => ({
         ...prev,
+        address_cep: cleanCEP,
         address_street: data.logradouro || '',
         address_neighborhood: data.bairro || '',
         address_city: data.localidade || '',
         address_state: data.uf || '',
       }))
+
       setError(null)
-      setFetchingCEP(false)
     } catch (e: unknown) {
       setError('Erro ao buscar CEP')
       console.error(e)
+    } finally {
       setFetchingCEP(false)
     }
   }
@@ -1389,7 +1458,10 @@ export default function CreateLeadModal({
               </label>
               <select
                 value={selectedGroupId || ''}
-                onChange={(e) => setSelectedGroupId(e.target.value || null)}
+                onChange={(e) => {
+                  setSelectedGroupId(e.target.value || null)
+                  setGroupSuccess(null)
+                }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -1398,16 +1470,28 @@ export default function CreateLeadModal({
                   background: '#222',
                   color: 'white',
                   fontSize: 13,
-                  marginBottom: 12,
+                  marginBottom: 8,
                 }}
               >
                 <option value="">Sem grupo</option>
-                {groups.map((g) => (
+                {visibleGroups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
                   </option>
                 ))}
               </select>
+
+              {hasManyGroups && (
+                <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 10 }}>
+                  Mostrando os primeiros {visibleGroups.length} grupos de {availableGroups.length}. Use um nome mais específico ou crie um novo grupo.
+                </div>
+              )}
+
+              {groupSuccess && (
+                <div style={{ fontSize: 11, color: '#86efac', marginBottom: 10 }}>
+                  {groupSuccess}
+                </div>
+              )}
 
               {isAdmin && (
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -1415,7 +1499,10 @@ export default function CreateLeadModal({
                     type="text"
                     placeholder="Novo grupo..."
                     value={newGroupName}
-                    onChange={(e) => setNewGroupName(e.target.value)}
+                    onChange={(e) => {
+                      setNewGroupName(e.target.value)
+                      setGroupSuccess(null)
+                    }}
                     style={{
                       flex: 1,
                       padding: '10px 12px',
@@ -1435,12 +1522,13 @@ export default function CreateLeadModal({
                       border: 'none',
                       background: '#3b82f6',
                       color: 'white',
-                      cursor: 'pointer',
+                      cursor: creatingGroup ? 'not-allowed' : 'pointer',
                       fontWeight: 900,
                       fontSize: 12,
+                      opacity: creatingGroup ? 0.6 : 1,
                     }}
                   >
-                    +
+                    {creatingGroup ? '...' : '+'}
                   </button>
                 </div>
               )}
