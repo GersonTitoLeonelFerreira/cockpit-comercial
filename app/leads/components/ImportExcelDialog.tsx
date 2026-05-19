@@ -218,6 +218,7 @@ const cleanDate = (val: unknown): string | null => {
 }
 
 const IMPORT_CHUNK_SIZE = 500
+const CONFLICT_CHECK_CHUNK_SIZE = 100
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
@@ -371,7 +372,7 @@ export default function ImportExcelDialog({
       }
     }
 
-    const chunks = chunkArray(rowsToCheck, IMPORT_CHUNK_SIZE)
+    const chunks = chunkArray(rowsToCheck, CONFLICT_CHECK_CHUNK_SIZE)
     const deletedByRow = new Map<number, DeletedLeadConflict>()
     const activeByRow = new Map<number, ActiveLeadConflict>()
 
@@ -646,11 +647,102 @@ export default function ImportExcelDialog({
     setError(null)
 
     try {
+      setImportProgress('Validação final antes da importação...')
+
+      const latestConflicts = await checkImportConflicts(leadsToImport)
+
+      if (latestConflicts.deleted.length > 0 || latestConflicts.active.length > 0) {
+        const deletedByRow = new Map(
+          latestConflicts.deleted.map((conflict) => [conflict.row, conflict]),
+        )
+
+        const activeByRow = new Map(
+          latestConflicts.active.map((conflict) => [conflict.row, conflict]),
+        )
+
+        setDeletedConflicts((currentConflicts) => {
+          const mergedByRow = new Map(
+            currentConflicts.map((conflict) => [conflict.row, conflict]),
+          )
+
+          for (const conflict of latestConflicts.deleted) {
+            mergedByRow.set(conflict.row, conflict)
+          }
+
+          return Array.from(mergedByRow.values())
+        })
+
+        setKeepDeletedBlocked(false)
+
+        setLeads((currentLeads) =>
+          currentLeads.map((lead) => {
+            const activeConflict = activeByRow.get(lead.rowNumber)
+
+            if (activeConflict) {
+              return {
+                ...lead,
+                activeConflict,
+                deletedConflict: null,
+                error: 'Lead já ativo no sistema. Importação duplicada bloqueada.',
+              }
+            }
+
+            const deletedConflict = deletedByRow.get(lead.rowNumber)
+
+            if (deletedConflict) {
+              return {
+                ...lead,
+                activeConflict: null,
+                deletedConflict,
+                error: 'Lead excluído encontrado. Escolha se deseja reativar.',
+              }
+            }
+
+            return lead
+          }),
+        )
+
+        setError(
+          'A importação foi bloqueada. A validação final encontrou conflitos que não estavam marcados no preview. Revise os bloqueados antes de importar.',
+        )
+
+        return
+      }
+
       const summary = await importRowsInChunks({
         rowsToImport: leadsToImport,
         reactivateDeletedLeads: false,
         progressLabel: 'Importando lote',
       })
+
+      const totalImported =
+        Number(summary.created || 0) +
+        Number(summary.updated || 0) +
+        Number(summary.reactivated || 0)
+
+      if (totalImported === 0 && summary.errors.length > 0) {
+        const errorByRow = new Map(summary.errors.map((item) => [item.row, item.error]))
+
+        setLeads((currentLeads) =>
+          currentLeads.map((lead) => {
+            const rowError = errorByRow.get(lead.rowNumber)
+
+            if (!rowError) return lead
+
+            return {
+              ...lead,
+              error: rowError,
+            }
+          }),
+        )
+
+        setImportSummary(summary)
+        setError(
+          'Nenhum lead foi importado. As linhas foram devolvidas ao preview com os erros retornados pela API.',
+        )
+
+        return
+      }
 
       setImportSummary(summary)
       setStep('success')
