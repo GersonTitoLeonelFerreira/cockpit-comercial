@@ -548,12 +548,6 @@ export default function PoolClient({
       return
     }
 
-    const confirmDelete = window.confirm(
-      `Tem certeza que deseja excluir ${selectedLeadIds.length} lead(s)? Esta ação não pode ser desfeita.`
-    )
-
-    if (!confirmDelete) return
-
     setDeletingLeads(true)
     setError(null)
     setSuccessMessage(null)
