@@ -74,6 +74,28 @@ function joinSignals(list: string[] | undefined): string {
   return list.join(', ')
 }
 
+const DS = {
+  surfaceBg: '#111318',
+  panelBg: '#0d0f14',
+  cardBg: '#141722',
+  inputBg: '#090b0f',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  blueBg: 'rgba(59,130,246,0.10)',
+  blueBorder: 'rgba(59,130,246,0.32)',
+  redBg: 'rgba(127,29,29,0.50)',
+  redText: '#fecaca',
+  redBorder: 'rgba(248,113,113,0.35)',
+  radius: 8,
+  radiusContainer: 14,
+} as const
+
 export default function LeadCopilotPanel({
   cycle,
   variant = 'full',
@@ -231,40 +253,141 @@ export default function LeadCopilotPanel({
         ? 'Confirmar Perdido...'
         : 'Aplicar sugestão'
 
-  return (
-    <div className={`bg-gray-900 border border-gray-700 rounded-lg ${compact ? 'p-4' : 'p-6'} text-white`}>
-      {/* Cabeçalho padrão */}
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div>
-          <h3 className="text-sm font-bold text-gray-400 uppercase">Copiloto Comercial</h3>
-          <p className={`text-gray-300 mt-2 ${compact ? 'text-xs' : 'text-sm'}`}>
-            Cole a conversa do WhatsApp ou resuma a ligação. A IA interpreta e sugere a atualização do ciclo.
-          </p>
-        </div>
-        <div className="text-right text-xs text-gray-500">
-          Lead: <span className="text-gray-300 font-semibold">{currentLeadName}</span>
-        </div>
-      </div>
+        return (
+          <div
+            style={{
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer,
+              background: DS.surfaceBg,
+              color: DS.textPrimary,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Cabeçalho padrão */}
+            <div
+              style={{
+                padding: compact ? 14 : 18,
+                borderBottom: `1px solid ${DS.border}`,
+                background: 'linear-gradient(135deg, rgba(59,130,246,0.14), rgba(17,19,24,0.98))',
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: 16,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: DS.blueSoft,
+                    fontSize: 11,
+                    fontWeight: 900,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  Copiloto Comercial
+                </div>
+      
+                <div
+                  style={{
+                    color: DS.textPrimary,
+                    fontSize: compact ? 12 : 14,
+                    fontWeight: 800,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Cole a conversa do WhatsApp ou resuma a ligação. A IA interpreta e sugere a atualização do ciclo.
+                </div>
+              </div>
+      
+              <div
+                style={{
+                  border: `1px solid ${DS.borderSubtle}`,
+                  background: DS.panelBg,
+                  borderRadius: DS.radius,
+                  padding: '8px 10px',
+                  minWidth: 130,
+                  textAlign: 'right',
+                }}
+              >
+                <div
+                  style={{
+                    color: DS.textLabel,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    marginBottom: 4,
+                  }}
+                >
+                  Lead
+                </div>
+                <div
+                  style={{
+                    color: DS.textSecondary,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: 180,
+                  }}
+                >
+                  {currentLeadName}
+                </div>
+              </div>
+            </div>
+      
+            <div style={{ padding: compact ? 14 : 18 }}>
 
       {/* Cabeçalho extra — modo movimentação (só aparece quando veio de arrasto/botão) */}
       {isMoveMode && forcedInitialStatus && (
-        <div className="mb-4 rounded-lg border border-blue-800 bg-blue-950/30 px-4 py-3">
-          <div className="text-xs font-bold text-blue-300 uppercase mb-1">
+        <div
+          style={{
+            marginBottom: 14,
+            border: `1px solid ${DS.blueBorder}`,
+            background: DS.blueBg,
+            borderRadius: DS.radiusContainer,
+            padding: '12px 14px',
+          }}
+        >
+          <div
+            style={{
+              color: DS.blueSoft,
+              fontSize: 10,
+              fontWeight: 900,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 5,
+            }}
+          >
             Movendo lead para
           </div>
-          <div className="text-lg font-bold text-blue-100">
+
+          <div style={{ color: DS.textPrimary, fontSize: 16, fontWeight: 900 }}>
             {STATUS_LABELS[forcedInitialStatus]}
           </div>
-          <div className="text-xs text-blue-200/80 mt-2">
-            Cole a conversa ou descreva o que aconteceu. A IA vai validar essa movimentação
-            — se ela discordar, o estágio sugerido abaixo é ajustado automaticamente.
-            Você pode alterar o estágio manualmente antes de aplicar.
+
+          <div style={{ color: DS.textSecondary, fontSize: 12, lineHeight: 1.45, marginTop: 8 }}>
+            Cole a conversa ou descreva o que aconteceu. A IA valida a movimentação e permite ajustar o estágio antes de aplicar.
           </div>
         </div>
       )}
 
       {error && (
-        <div className="mb-4 rounded-md border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+        <div
+          style={{
+            marginBottom: 14,
+            border: `1px solid ${DS.redBorder}`,
+            background: DS.redBg,
+            color: DS.redText,
+            borderRadius: DS.radius,
+            padding: '10px 12px',
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
           {error}
         </div>
       )}
@@ -669,6 +792,7 @@ export default function LeadCopilotPanel({
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
