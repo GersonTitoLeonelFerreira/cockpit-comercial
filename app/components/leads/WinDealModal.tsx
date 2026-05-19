@@ -100,9 +100,12 @@ export function WinDealModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Carregar opções de receita (mantido para compatibilidade)
+  // Carregar opções de receita da empresa ativa (mantido para compatibilidade)
   useEffect(() => {
-    if (!isOpen || !ownerUserId) return
+    if (!isOpen || !ownerUserId || !companyId) {
+      setRevenueOptions([])
+      return
+    }
 
     const loadRevenueOptions = async () => {
       try {
@@ -112,6 +115,7 @@ export function WinDealModal({
         const { data, error: err } = await supabase
           .from('v_revenue_daily_seller')
           .select('ref_date, real_value, seller_id')
+          .eq('company_id', companyId)
           .eq('seller_id', ownerUserId)
           .gt('real_value', 0)
           .order('ref_date', { ascending: false })
@@ -129,7 +133,7 @@ export function WinDealModal({
     }
 
     loadRevenueOptions()
-  }, [isOpen, ownerUserId, supabase])
+  }, [isOpen, ownerUserId, companyId, supabase])
 
   // Carregar produtos ativos da empresa
   useEffect(() => {
