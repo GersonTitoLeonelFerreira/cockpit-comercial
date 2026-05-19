@@ -657,6 +657,8 @@ export async function POST(req: Request) {
       attached_by: string
     }> = []
 
+    const profilesToUpsert: Array<Record<string, unknown>> = []
+
     type ImportWorkRow = {
       row: NormalizedRow
       leadId: string | null
@@ -906,18 +908,7 @@ export async function POST(req: Request) {
 
         const resolvedLeadId = leadId
         const profilePayload = buildProfilePayload(companyId, resolvedLeadId, row)
-
-        const { error: profileErr } = await supabase
-          .from('lead_profiles')
-          .upsert(profilePayload, { onConflict: 'lead_id' })
-
-        if (profileErr) {
-          errors.push({
-            row: row.rowNumber,
-            error: `Perfil: ${profileErr.message}`,
-          })
-          continue
-        }
+        profilesToUpsert.push(profilePayload)
 
         let cycle = cycleByLeadId.get(resolvedLeadId) || null
 
@@ -1014,6 +1005,21 @@ export async function POST(req: Request) {
       }
     }
 
+    if (profilesToUpsert.length > 0) {
+      const { error: profilesError } = await supabase
+        .from('lead_profiles')
+        .upsert(profilesToUpsert, { onConflict: 'lead_id' })
+
+      if (profilesError) {
+        console.error('Erro ao upsert profiles da importação em lote:', profilesError)
+
+        errors.push({
+          row: 0,
+          error: `Perfis: ${profilesError.message}`,
+        })
+      }
+    }
+
     if (groupLinksToInsert.length > 0) {
       const { error: groupLinksError } = await supabase
         .from('lead_group_cycles')
@@ -1042,6 +1048,7 @@ export async function POST(req: Request) {
       created_cycles: createdCycles,
       events_created: cycleEventsToInsert.length,
       group_links_created: groupLinksToInsert.length,
+      profiles_upserted: profilesToUpsert.length,
       errors,
     })
   } catch (e: unknown) {
