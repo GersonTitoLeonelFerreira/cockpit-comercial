@@ -640,6 +640,15 @@ export async function POST(req: Request) {
     let reactivated = 0
     let createdCycles = 0
 
+    const cycleEventsToInsert: Array<{
+      company_id: string
+      cycle_id: string
+      event_type: string
+      created_by: string
+      metadata: Record<string, unknown>
+      occurred_at: string
+    }> = []
+
     for (const row of rows) {
       if (!row.name) {
         errors.push({ row: row.rowNumber, error: 'Nome é obrigatório.' })
@@ -807,11 +816,12 @@ export async function POST(req: Request) {
           if (currentLead?.deleted_at && reactivateDeletedLeads) {
             reactivated++
 
-            const { error: reactivationEventErr } = await supabase
-              .from('cycle_events')
-              .insert({
+            const existingCycleId = cycleByLeadId.get(leadId)?.id ?? null
+
+            if (existingCycleId) {
+              cycleEventsToInsert.push({
                 company_id: companyId,
-                cycle_id: cycleByLeadId.get(leadId)?.id ?? null,
+                cycle_id: existingCycleId,
                 event_type: 'lead_reactivated_from_import',
                 created_by: user.id,
                 metadata: {
@@ -821,8 +831,7 @@ export async function POST(req: Request) {
                 },
                 occurred_at: new Date().toISOString(),
               })
-
-            void reactivationEventErr
+            }
           } else {
             updated++
           }
@@ -897,23 +906,19 @@ export async function POST(req: Request) {
           cycleByLeadId.set(leadId, cycle)
           createdCycles++
 
-          const { error: cycleCreatedEventErr } = await supabase
-            .from('cycle_events')
-            .insert({
-              company_id: companyId,
-              cycle_id: cycle.id,
-              event_type: 'cycle_created',
-              created_by: user.id,
-              metadata: {
-                lead_name: row.name,
-                owner_user_id: defaultOwnerUserId,
-                group_id: groupId || null,
-                source: EVENT_SOURCES.cycle_create,
-              },
-              occurred_at: new Date().toISOString(),
-            })
-
-          void cycleCreatedEventErr
+          cycleEventsToInsert.push({
+            company_id: companyId,
+            cycle_id: cycle.id,
+            event_type: 'cycle_created',
+            created_by: user.id,
+            metadata: {
+              lead_name: row.name,
+              owner_user_id: defaultOwnerUserId,
+              group_id: groupId || null,
+              source: EVENT_SOURCES.cycle_create,
+            },
+            occurred_at: new Date().toISOString(),
+          })
 
           if (groupId) {
             const { error: linkErr } = await supabase
@@ -932,18 +937,14 @@ export async function POST(req: Request) {
               })
             }
 
-            const { error: groupEventErr } = await supabase
-              .from('cycle_events')
-              .insert({
-                company_id: companyId,
-                cycle_id: cycle.id,
-                event_type: 'group_attached',
-                created_by: user.id,
-                metadata: { group_id: groupId },
-                occurred_at: new Date().toISOString(),
-              })
-
-            void groupEventErr
+            cycleEventsToInsert.push({
+              company_id: companyId,
+              cycle_id: cycle.id,
+              event_type: 'group_attached',
+              created_by: user.id,
+              metadata: { group_id: groupId },
+              occurred_at: new Date().toISOString(),
+            })
           }
         } else if (groupId && !cycle.current_group_id) {
           const { error: cycleUpdateErr } = await supabase
@@ -994,12 +995,23 @@ export async function POST(req: Request) {
       }
     }
 
+    if (cycleEventsToInsert.length > 0) {
+      const { error: cycleEventsError } = await supabase
+        .from('cycle_events')
+        .insert(cycleEventsToInsert)
+
+      if (cycleEventsError) {
+        console.error('Erro ao registrar eventos da importação em lote:', cycleEventsError)
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       created,
       updated,
       reactivated,
       created_cycles: createdCycles,
+      events_created: cycleEventsToInsert.length,
       errors,
     })
   } catch (e: unknown) {
