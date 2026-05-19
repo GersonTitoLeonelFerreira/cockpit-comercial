@@ -1105,30 +1105,145 @@ export default function LeadCopilotPanel({
               </button>
 
               {showAudit && (
-                <div className="mt-3 grid gap-3 md:grid-cols-2 text-xs">
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
-                    <div className="text-gray-400 uppercase font-bold mb-1">Motor final</div>
-                    <div className="text-white">{auditDiagnostics.engine}</div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: 'grid',
+                    gridTemplateColumns: compact ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+                    gap: 12,
+                    fontSize: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 5,
+                      }}
+                    >
+                      Motor final
+                    </div>
+                    <div style={{ color: DS.textPrimary, fontWeight: 800 }}>
+                      {auditDiagnostics.engine}
+                    </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
-                    <div className="text-gray-400 uppercase font-bold mb-1">Regra escolhida</div>
-                    <div className="text-white">{auditDiagnostics.selected_rule}</div>
+                  <div
+                    style={{
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 5,
+                      }}
+                    >
+                      Regra escolhida
+                    </div>
+                    <div style={{ color: DS.textPrimary, fontWeight: 800 }}>
+                      {auditDiagnostics.selected_rule}
+                    </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
-                    <div className="text-gray-400 uppercase font-bold mb-1">Usou histórico</div>
-                    <div className="text-white">{auditDiagnostics.used_history ? 'Sim' : 'Não'}</div>
+                  <div
+                    style={{
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 5,
+                      }}
+                    >
+                      Usou histórico
+                    </div>
+                    <div style={{ color: DS.textPrimary, fontWeight: 800 }}>
+                      {auditDiagnostics.used_history ? 'Sim' : 'Não'}
+                    </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2">
-                    <div className="text-gray-400 uppercase font-bold mb-1">Múltiplos sinais no texto</div>
-                    <div className="text-white">{auditDiagnostics.multiple_text_signals ? 'Sim' : 'Não'}</div>
+                  <div
+                    style={{
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 5,
+                      }}
+                    >
+                      Múltiplos sinais no texto
+                    </div>
+                    <div style={{ color: DS.textPrimary, fontWeight: 800 }}>
+                      {auditDiagnostics.multiple_text_signals ? 'Sim' : 'Não'}
+                    </div>
                   </div>
 
-                  <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
-                    <div className="text-gray-400 uppercase font-bold mb-1">Preview do texto auditado</div>
-                    <div className="text-white whitespace-pre-wrap">{auditDiagnostics.text_preview}</div>
+                  <div
+                    style={{
+                      gridColumn: '1 / -1',
+                      border: `1px solid ${DS.border}`,
+                      background: DS.panelBg,
+                      borderRadius: DS.radius,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: DS.textLabel,
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        marginBottom: 7,
+                      }}
+                    >
+                      Preview do texto auditado
+                    </div>
+                    <div
+                      style={{
+                        color: DS.textPrimary,
+                        whiteSpace: 'pre-wrap',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {auditDiagnostics.text_preview}
+                    </div>
                   </div>
 
                   {auditDiagnostics.final_resolution && (
