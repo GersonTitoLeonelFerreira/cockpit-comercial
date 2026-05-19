@@ -547,21 +547,71 @@ export default function ImportExcelDialog({
     }
   }
 
-  const submitImport = async (reactivateDeletedLeads: boolean) => {
-    const conflictRows = new Set(deletedConflicts.map((conflict) => conflict.row))
+  const importRowsInChunks = async ({
+    rowsToImport,
+    reactivateDeletedLeads,
+    progressLabel,
+  }: {
+    rowsToImport: LeadData[]
+    reactivateDeletedLeads: boolean
+    progressLabel: string
+  }) => {
+    const chunks = chunkArray(rowsToImport, IMPORT_CHUNK_SIZE)
 
-    const leadsToImport = leads.filter((lead) => {
-      if (!lead.error) return true
-      return reactivateDeletedLeads && conflictRows.has(lead.rowNumber)
-    })
+    const summary: ImportSummary = {
+      created: 0,
+      updated: 0,
+      reactivated: 0,
+      errors: [],
+    }
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex]
+
+      setImportProgress(
+        `${progressLabel} ${chunkIndex + 1} de ${chunks.length} (${chunk.length} leads)...`,
+      )
+
+      const response = await fetch('/api/import/leads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          rows: chunk,
+          group_id: selectedGroup || null,
+          reactivate_deleted_leads: reactivateDeletedLeads,
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(result?.error || `Erro no lote ${chunkIndex + 1}`)
+      }
+
+      summary.created += Number(result?.created || 0)
+      summary.updated += Number(result?.updated || 0)
+      summary.reactivated = Number(summary.reactivated || 0) + Number(result?.reactivated || 0)
+
+      if (Array.isArray(result?.errors)) {
+        summary.errors.push(...result.errors)
+      }
+    }
+
+    return summary
+  }
+
+  const submitImport = async () => {
+    const leadsToImport = leads.filter((lead) => !lead.error)
 
     if (leadsToImport.length === 0) {
       setError('Nenhum lead válido para importar.')
       return
     }
 
-    if (deletedConflicts.length > 0 && !reactivateDeletedLeads && !keepDeletedBlocked) {
-      setError('Escolha se deseja reativar ou manter bloqueados os leads excluídos antes de importar.')
+    if (deletedConflicts.length > 0 && !keepDeletedBlocked) {
+      setError('Reative ou mantenha bloqueados os leads excluídos antes de importar os novos.')
       return
     }
 
@@ -570,48 +620,11 @@ export default function ImportExcelDialog({
     setError(null)
 
     try {
-      const chunks = chunkArray(leadsToImport, IMPORT_CHUNK_SIZE)
-
-      const summary: ImportSummary = {
-        created: 0,
-        updated: 0,
-        reactivated: 0,
-        errors: [],
-      }
-
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        const chunk = chunks[chunkIndex]
-
-        setImportProgress(
-          `Importando lote ${chunkIndex + 1} de ${chunks.length} (${chunk.length} leads)...`,
-        )
-
-        const response = await fetch('/api/import/leads', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            rows: chunk,
-            group_id: selectedGroup || null,
-            reactivate_deleted_leads: reactivateDeletedLeads,
-          }),
-        })
-
-        const result = await response.json().catch(() => ({}))
-
-        if (!response.ok) {
-          throw new Error(result?.error || `Erro ao importar lote ${chunkIndex + 1}`)
-        }
-
-        summary.created += Number(result?.created || 0)
-        summary.updated += Number(result?.updated || 0)
-        summary.reactivated = Number(summary.reactivated || 0) + Number(result?.reactivated || 0)
-
-        if (Array.isArray(result?.errors)) {
-          summary.errors.push(...result.errors)
-        }
-      }
+      const summary = await importRowsInChunks({
+        rowsToImport: leadsToImport,
+        reactivateDeletedLeads: false,
+        progressLabel: 'Importando lote',
+      })
 
       setImportSummary(summary)
       setStep('success')
@@ -624,12 +637,56 @@ export default function ImportExcelDialog({
     }
   }
 
-  const createAllLeads = async () => {
-    await submitImport(false)
+  const reactivateDeletedLeadsOnly = async () => {
+    const conflictRows = new Set(deletedConflicts.map((conflict) => conflict.row))
+    const deletedRowsToReactivate = leads.filter((lead) => conflictRows.has(lead.rowNumber))
+
+    if (deletedRowsToReactivate.length === 0) {
+      setError('Nenhum lead excluído encontrado para reativar.')
+      return
+    }
+
+    setImporting(true)
+    setImportProgress(null)
+    setError(null)
+
+    try {
+      const summary = await importRowsInChunks({
+        rowsToImport: deletedRowsToReactivate,
+        reactivateDeletedLeads: true,
+        progressLabel: 'Reativando lote',
+      })
+
+      setDeletedConflicts([])
+      setKeepDeletedBlocked(true)
+
+      setLeads((currentLeads) =>
+        currentLeads.map((lead) => {
+          if (!conflictRows.has(lead.rowNumber)) return lead
+
+          return {
+            ...lead,
+            deletedConflict: null,
+            error: 'Lead reativado. Não será importado novamente nesta etapa.',
+          }
+        }),
+      )
+
+      setError(
+        `Reativação concluída. Reativados: ${summary.reactivated ?? 0}. Agora escolha/crie o grupo e importe os novos leads.`,
+      )
+
+      onImported()
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Erro ao reativar leads excluídos'))
+    } finally {
+      setImporting(false)
+      setImportProgress(null)
+    }
   }
 
-  const reactivateAndImportDeletedLeads = async () => {
-    await submitImport(true)
+  const createAllLeads = async () => {
+    await submitImport()
   }
 
   const keepDeletedLeadsBlocked = () => {
@@ -1421,7 +1478,7 @@ export default function ImportExcelDialog({
                       </button>
 
                       <button
-                        onClick={reactivateAndImportDeletedLeads}
+                        onClick={reactivateDeletedLeadsOnly}
                         disabled={importing}
                         style={{
                           padding: '9px 14px',
@@ -1435,7 +1492,7 @@ export default function ImportExcelDialog({
                           opacity: importing ? 0.5 : 1,
                         }}
                       >
-                        {importing ? 'Reativando...' : 'Reativar e importar'}
+                        {importing ? 'Reativando...' : 'Reativar bloqueados'}
                       </button>
                     </div>
                   </div>
