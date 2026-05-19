@@ -372,8 +372,8 @@ export default function ImportExcelDialog({
     }
 
     const chunks = chunkArray(rowsToCheck, IMPORT_CHUNK_SIZE)
-    const deletedByLeadId = new Map<string, DeletedLeadConflict>()
-    const activeByLeadId = new Map<string, ActiveLeadConflict>()
+    const deletedByRow = new Map<number, DeletedLeadConflict>()
+    const activeByRow = new Map<number, ActiveLeadConflict>()
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       const chunk = chunks[chunkIndex]
@@ -408,20 +408,20 @@ export default function ImportExcelDialog({
         ? (result.active_conflicts as ActiveLeadConflict[])
         : []
 
-      for (const conflict of deletedConflicts) {
-        deletedByLeadId.set(conflict.lead_id, conflict)
-      }
-
-      for (const conflict of activeConflicts) {
-        activeByLeadId.set(conflict.lead_id, conflict)
-      }
+        for (const conflict of deletedConflicts) {
+          deletedByRow.set(conflict.row, conflict)
+        }
+  
+        for (const conflict of activeConflicts) {
+          activeByRow.set(conflict.row, conflict)
+        }
     }
 
     setImportProgress(null)
 
     return {
-      deleted: Array.from(deletedByLeadId.values()),
-      active: Array.from(activeByLeadId.values()),
+      deleted: Array.from(deletedByRow.values()),
+      active: Array.from(activeByRow.values()),
     }
   }
 
