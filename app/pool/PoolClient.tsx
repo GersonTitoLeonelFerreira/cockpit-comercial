@@ -57,6 +57,8 @@ type LeadGroup = {
   name: string
 }
 
+type GroupConfirmAction = 'recall' | 'distribute' | 'delete'
+
 type LeadGroupRelation = {
   name?: string | null
 }
@@ -190,6 +192,7 @@ export default function PoolClient({
   const [showCreateGroupModal, setShowCreateGroupModal] = React.useState(false)
   const [newGroupName, setNewGroupName] = React.useState('')
   const [groupSuccess, setGroupSuccess] = React.useState<string | null>(null)
+  const [groupConfirmAction, setGroupConfirmAction] = React.useState<GroupConfirmAction | null>(null)
 
   const [showDeleteLeadConfirm, setShowDeleteLeadConfirm] = React.useState(false)
   const [deletePassword, setDeletePassword] = React.useState('')
@@ -438,23 +441,19 @@ export default function PoolClient({
 
   async function recallGroupToPool() {
     if (!selectedGroupId) return
-  
-    const confirmRecall = window.confirm(
-      'Tem certeza? Isso vai recolher todos os leads do grupo de volta para o pool.'
-    )
-  
-    if (!confirmRecall) return
-  
+
     setError(null)
-  
+    setSuccessMessage(null)
+
     try {
       const data = await postPoolAction({
         action: 'recall_group_to_pool',
         group_id: selectedGroupId,
       })
-  
+
       if (!data.success) throw new Error('Operação não confirmada')
-  
+
+      setGroupConfirmAction(null)
       setSuccessMessage('Grupo recolhido ao pool com sucesso.')
       await loadPoolAndSellers()
     } catch (err: unknown) {
@@ -464,36 +463,33 @@ export default function PoolClient({
 
   async function distributeGroupPoolRoundRobin() {
     if (!selectedGroupId || sellers.length === 0) return
-  
-    const confirmDistribute = window.confirm(
-      'Distribuir TODOS os leads do grupo entre os vendedores em round-robin?'
-    )
-  
-    if (!confirmDistribute) return
-  
+
     setDistributeGroupLoading(true)
     setError(null)
-  
+    setSuccessMessage(null)
+
     try {
       const sellerIds = sellers.map((seller) => seller.id)
-  
+
       const data = await postPoolAction({
         action: 'round_robin_group_pool',
         group_id: selectedGroupId,
         owner_ids: sellerIds,
       })
-  
+
       if (!data.success) throw new Error('Operação não confirmada')
-  
+
       const updatedCount = data.updated_count ?? 0
-  
+
       if (updatedCount === 0) {
+        setGroupConfirmAction(null)
         setSuccessMessage('Nenhum lead no pool para este grupo.')
         return
       }
-  
+
       setSuccessMessage(`${updatedCount} leads distribuídos do grupo com sucesso.`)
-  
+
+      setGroupConfirmAction(null)
       setSelectedGroupId(null)
       await loadPoolAndSellers()
     } catch (err: unknown) {
@@ -505,27 +501,23 @@ export default function PoolClient({
 
   async function deleteSelectedGroup() {
     if (!selectedGroupId) return
-  
-    const confirmDelete = window.confirm(
-      'Tem certeza que deseja excluir este grupo? Os leads serão desvinculados do grupo e o grupo será arquivado.'
-    )
-  
-    if (!confirmDelete) return
-  
+
     setError(null)
-  
+    setSuccessMessage(null)
+
     try {
       const data = await postPoolAction({
         action: 'archive_group',
         group_id: selectedGroupId,
       })
-  
+
       if (!data.success) throw new Error('Falha ao arquivar grupo')
-  
+
+      setGroupConfirmAction(null)
       setSelectedGroupId(null)
-  
+
       await Promise.all([loadGroups(), loadPoolAndSellers()])
-  
+
       setSuccessMessage('Grupo excluído com sucesso.')
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao excluir grupo.'))
@@ -643,6 +635,9 @@ export default function PoolClient({
       setCreatingGroup(false)
     }
   }
+
+  const selectedGroupName =
+    groups.find((group) => group.id === selectedGroupId)?.name ?? 'grupo selecionado'
 
   const totalPages = Math.ceil(poolTotal / PAGE_SIZE)
 
@@ -849,58 +844,58 @@ export default function PoolClient({
 
         {selectedGroupId && (
           <button
-            onClick={() => void recallGroupToPool()}
-            style={{
-              padding: '9px 12px',
-              borderRadius: DS.radius,
-              border: `1px solid ${DS.redBorder}`,
-              background: DS.redBg,
-              color: DS.redText,
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            Recolher Grupo
-          </button>
+          onClick={() => setGroupConfirmAction('recall')}
+          style={{
+            padding: '9px 12px',
+            borderRadius: DS.radius,
+            border: `1px solid ${DS.redBorder}`,
+            background: DS.redBg,
+            color: DS.redText,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          Recolher Grupo
+        </button>
         )}
 
         {selectedGroupId && sellers.length > 0 && (
           <button
-            onClick={() => void distributeGroupPoolRoundRobin()}
-            disabled={distributeGroupLoading}
-            style={{
-              padding: '9px 12px',
-              borderRadius: DS.radius,
-              border: `1px solid ${DS.greenBorder}`,
-              background: DS.greenBg,
-              color: DS.greenText,
-              cursor: distributeGroupLoading ? 'not-allowed' : 'pointer',
-              fontSize: 12,
-              fontWeight: 700,
-              opacity: distributeGroupLoading ? 0.5 : 1,
-            }}
-          >
-            {distributeGroupLoading ? 'Distribuindo...' : 'Distribuir Grupo'}
-          </button>
+          onClick={() => setGroupConfirmAction('distribute')}
+          disabled={distributeGroupLoading}
+          style={{
+            padding: '9px 12px',
+            borderRadius: DS.radius,
+            border: `1px solid ${DS.greenBorder}`,
+            background: DS.greenBg,
+            color: DS.greenText,
+            cursor: distributeGroupLoading ? 'not-allowed' : 'pointer',
+            fontSize: 12,
+            fontWeight: 700,
+            opacity: distributeGroupLoading ? 0.5 : 1,
+          }}
+        >
+          {distributeGroupLoading ? 'Distribuindo...' : 'Distribuir Grupo'}
+        </button>
         )}
 
         {selectedGroupId && (
           <button
-            onClick={() => void deleteSelectedGroup()}
-            style={{
-              padding: '9px 12px',
-              borderRadius: DS.radius,
-              border: `1px solid ${DS.redBorder}`,
-              background: DS.redBg,
-              color: DS.redText,
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            Excluir Grupo
-          </button>
+          onClick={() => setGroupConfirmAction('delete')}
+          style={{
+            padding: '9px 12px',
+            borderRadius: DS.radius,
+            border: `1px solid ${DS.redBorder}`,
+            background: DS.redBg,
+            color: DS.redText,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          Excluir Grupo
+        </button>
         )}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
@@ -1635,7 +1630,122 @@ export default function PoolClient({
           </div>
         </div>
       )}
-            {showCreateGroupModal && (
+
+      {groupConfirmAction && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+          onClick={() => setGroupConfirmAction(null)}
+        >
+          <div
+            style={{
+              background: DS.surfaceBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer + 3,
+              padding: 24,
+              width: '90%',
+              maxWidth: 500,
+              color: DS.textPrimary,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>
+              {groupConfirmAction === 'recall'
+                ? 'Recolher grupo para o Pool'
+                : groupConfirmAction === 'distribute'
+                  ? 'Distribuir grupo'
+                  : 'Excluir grupo'}
+            </div>
+
+            <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.45, marginBottom: 16 }}>
+              {groupConfirmAction === 'recall'
+                ? `Todos os leads do grupo "${selectedGroupName}" serão recolhidos de volta para o Pool.`
+                : groupConfirmAction === 'distribute'
+                  ? `Todos os leads do grupo "${selectedGroupName}" que estão no Pool serão distribuídos entre os vendedores ativos.`
+                  : `O grupo "${selectedGroupName}" será arquivado e os leads serão desvinculados desse grupo.`}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setGroupConfirmAction(null)}
+                disabled={distributeGroupLoading}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: DS.radius,
+                  border: `1px solid ${DS.border}`,
+                  background: DS.panelBg,
+                  color: DS.textSecondary,
+                  cursor: distributeGroupLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  opacity: distributeGroupLoading ? 0.5 : 1,
+                }}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (groupConfirmAction === 'recall') {
+                    void recallGroupToPool()
+                    return
+                  }
+
+                  if (groupConfirmAction === 'distribute') {
+                    void distributeGroupPoolRoundRobin()
+                    return
+                  }
+
+                  void deleteSelectedGroup()
+                }}
+                disabled={distributeGroupLoading}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: DS.radius,
+                  border:
+                    groupConfirmAction === 'distribute'
+                      ? `1px solid ${DS.greenBorder}`
+                      : `1px solid ${DS.redBorder}`,
+                  background:
+                    groupConfirmAction === 'distribute'
+                      ? DS.greenBg
+                      : DS.redBg,
+                  color:
+                    groupConfirmAction === 'distribute'
+                      ? DS.greenText
+                      : DS.redText,
+                  cursor: distributeGroupLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 800,
+                  fontSize: 12,
+                  opacity: distributeGroupLoading ? 0.5 : 1,
+                }}
+              >
+                {groupConfirmAction === 'recall'
+                  ? 'Recolher grupo'
+                  : groupConfirmAction === 'distribute'
+                    ? distributeGroupLoading
+                      ? 'Distribuindo...'
+                      : 'Distribuir grupo'
+                    : 'Excluir grupo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateGroupModal && (
         <div
           style={{
             position: 'fixed',
