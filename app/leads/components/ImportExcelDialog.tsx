@@ -791,7 +791,18 @@ export default function ImportExcelDialog({
     setError('Leads excluídos mantidos bloqueados. Você pode importar apenas os leads válidos da planilha.')
   }
 
-  const resetDialog = () => {
+  const canCloseDialog = !loading && !importing
+
+  const closeDialog = () => {
+    if (!canCloseDialog) return
+    setIsOpen(false)
+  }
+
+  const ignoreBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+  }
+
+  const resetDialog = () => { 
     setStep('select')
     setSelectedFile(null)
     setHeaders([])
@@ -890,8 +901,8 @@ export default function ImportExcelDialog({
           zIndex: 9999,
           padding: 20,
         }}
-          onClick={() => setIsOpen(false)}
-        >
+        onClick={ignoreBackdropClick}
+      >
           <div
             style={{
               background: `linear-gradient(180deg, ${UI.surface} 0%, ${UI.modalBg} 100%)`,
@@ -948,7 +959,8 @@ export default function ImportExcelDialog({
                 </div>
               </div>
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={closeDialog}
+                disabled={!canCloseDialog}
                 style={{
                   width: 34,
                   height: 34,
@@ -956,10 +968,11 @@ export default function ImportExcelDialog({
                   border: `1px solid ${UI.border}`,
                   background: UI.modalBg,
                   color: UI.muted,
-                  cursor: 'pointer',
+                  cursor: canCloseDialog ? 'pointer' : 'not-allowed',
                   fontSize: 20,
                   display: 'grid',
                   placeItems: 'center',
+                  opacity: canCloseDialog ? 1 : 0.45,
                 }}
               >
                 ×
@@ -1036,17 +1049,19 @@ export default function ImportExcelDialog({
                 </div>
 
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button
-                    onClick={() => setIsOpen(false)}
+                <button
+                    onClick={closeDialog}
+                    disabled={!canCloseDialog}
                     style={{
                       padding: '10px 20px',
                       borderRadius: 8,
                       border: '1px solid #2a2a2a',
                       background: 'transparent',
                       color: 'white',
-                      cursor: 'pointer',
+                      cursor: canCloseDialog ? 'pointer' : 'not-allowed',
                       fontWeight: 900,
                       fontSize: 13,
+                      opacity: canCloseDialog ? 1 : 0.45,
                     }}
                   >
                     Cancelar
