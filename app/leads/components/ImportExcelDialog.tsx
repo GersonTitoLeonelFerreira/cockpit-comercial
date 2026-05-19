@@ -439,29 +439,12 @@ export default function ImportExcelDialog({
     try {
       const docsInSheet = new Set<string>()
       const duplicateDocs = new Set<string>()
-      const phonesInSheet = new Set<string>()
-      const duplicatePhones = new Set<string>()
-      const emailsInSheet = new Set<string>()
-      const duplicateEmails = new Set<string>()
-
       for (const row of rawRows) {
         const doc = normalizeDocumentInput(row[columnMap.cpf])
-        const phone = columnMap.phone ? onlyDigits(row[columnMap.phone]) : ''
-        const email = columnMap.email ? normalizeEmail(row[columnMap.email]) : null
 
         if (doc && validators.isDocument(doc)) {
           if (docsInSheet.has(doc)) duplicateDocs.add(doc)
           else docsInSheet.add(doc)
-        }
-
-        if (phone && validators.isPhone(phone)) {
-          if (phonesInSheet.has(phone)) duplicatePhones.add(phone)
-          else phonesInSheet.add(phone)
-        }
-
-        if (email && validators.isEmail(email)) {
-          if (emailsInSheet.has(email)) duplicateEmails.add(email)
-          else emailsInSheet.add(email)
         }
       }
 
@@ -487,10 +470,6 @@ export default function ImportExcelDialog({
           rowError = 'CPF/CNPJ inválido'
         } else if (duplicateDocs.has(rawDoc)) {
           rowError = 'CPF/CNPJ duplicado na planilha'
-        } else if (validEmail && duplicateEmails.has(validEmail)) {
-          rowError = 'E-mail duplicado na planilha'
-        } else if (validPhone && duplicatePhones.has(validPhone)) {
-          rowError = 'Telefone duplicado na planilha'
         }
 
         const birth_date = columnMap.birth_date ? cleanDate(row[columnMap.birth_date]) : null

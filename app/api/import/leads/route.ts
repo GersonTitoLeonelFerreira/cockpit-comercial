@@ -284,38 +284,30 @@ function findDeletedConflicts(
   rows: NormalizedRow[],
   existingLeadById: Map<string, LeadRow>,
   leadIdByDoc: Map<string, string>,
-  leadIdByEmail: Map<string, string>,
-  leadIdByPhone: Map<string, string>,
+  _leadIdByEmail: Map<string, string>,
+  _leadIdByPhone: Map<string, string>,
 ) {
   const conflictsByRow = new Map<number, DeletedLeadConflict>()
 
   for (const row of rows) {
     if (!row.cpf_cnpj || !isValidDocument(row.cpf_cnpj)) continue
 
-    const candidates: Array<{ leadId: string | null; matchedBy: DeletedLeadConflict['matched_by'] }> = [
-      { leadId: leadIdByDoc.get(row.cpf_cnpj) || null, matchedBy: 'document' },
-      { leadId: row.phone ? leadIdByPhone.get(row.phone) || null : null, matchedBy: 'phone' },
-      { leadId: row.email ? leadIdByEmail.get(row.email) || null : null, matchedBy: 'email' },
-    ]
+    const leadId = leadIdByDoc.get(row.cpf_cnpj) || null
+    if (!leadId) continue
 
-    for (const candidate of candidates) {
-      if (!candidate.leadId) continue
-      if (conflictsByRow.has(row.rowNumber)) break
+    const lead = existingLeadById.get(leadId)
+    if (!lead?.deleted_at) continue
 
-      const lead = existingLeadById.get(candidate.leadId)
-      if (!lead?.deleted_at) continue
-
-      conflictsByRow.set(row.rowNumber, {
-        row: row.rowNumber,
-        lead_id: lead.id,
-        name: lead.name,
-        document: lead.cpf_cnpj,
-        phone: lead.phone,
-        email: lead.email,
-        matched_by: candidate.matchedBy,
-        deleted_at: lead.deleted_at,
-      })
-    }
+    conflictsByRow.set(row.rowNumber, {
+      row: row.rowNumber,
+      lead_id: lead.id,
+      name: lead.name,
+      document: lead.cpf_cnpj,
+      phone: lead.phone,
+      email: lead.email,
+      matched_by: 'document',
+      deleted_at: lead.deleted_at,
+    })
   }
 
   return Array.from(conflictsByRow.values())
@@ -325,37 +317,29 @@ function findActiveConflicts(
   rows: NormalizedRow[],
   existingLeadById: Map<string, LeadRow>,
   leadIdByDoc: Map<string, string>,
-  leadIdByEmail: Map<string, string>,
-  leadIdByPhone: Map<string, string>,
+  _leadIdByEmail: Map<string, string>,
+  _leadIdByPhone: Map<string, string>,
 ) {
   const conflictsByRow = new Map<number, ActiveLeadConflict>()
 
   for (const row of rows) {
     if (!row.cpf_cnpj || !isValidDocument(row.cpf_cnpj)) continue
 
-    const candidates: Array<{ leadId: string | null; matchedBy: ActiveLeadConflict['matched_by'] }> = [
-      { leadId: leadIdByDoc.get(row.cpf_cnpj) || null, matchedBy: 'document' },
-      { leadId: row.phone ? leadIdByPhone.get(row.phone) || null : null, matchedBy: 'phone' },
-      { leadId: row.email ? leadIdByEmail.get(row.email) || null : null, matchedBy: 'email' },
-    ]
+    const leadId = leadIdByDoc.get(row.cpf_cnpj) || null
+    if (!leadId) continue
 
-    for (const candidate of candidates) {
-      if (!candidate.leadId) continue
-      if (conflictsByRow.has(row.rowNumber)) break
+    const lead = existingLeadById.get(leadId)
+    if (!lead || lead.deleted_at) continue
 
-      const lead = existingLeadById.get(candidate.leadId)
-      if (!lead || lead.deleted_at) continue
-
-      conflictsByRow.set(row.rowNumber, {
-        row: row.rowNumber,
-        lead_id: lead.id,
-        name: lead.name,
-        document: lead.cpf_cnpj,
-        phone: lead.phone,
-        email: lead.email,
-        matched_by: candidate.matchedBy,
-      })
-    }
+    conflictsByRow.set(row.rowNumber, {
+      row: row.rowNumber,
+      lead_id: lead.id,
+      name: lead.name,
+      document: lead.cpf_cnpj,
+      phone: lead.phone,
+      email: lead.email,
+      matched_by: 'document',
+    })
   }
 
   return Array.from(conflictsByRow.values())
@@ -686,15 +670,6 @@ export async function POST(req: Request) {
         continue
       }
 
-      if (row.email && seenEmails.has(row.email)) {
-        errors.push({ row: row.rowNumber, error: 'E-mail duplicado no payload.' })
-        continue
-      }
-
-      if (row.phone && seenPhones.has(row.phone)) {
-        errors.push({ row: row.rowNumber, error: 'Telefone duplicado no payload.' })
-        continue
-      }
 
       if (seenDocs.has(row.cpf_cnpj)) {
         errors.push({ row: row.rowNumber, error: 'CPF/CNPJ duplicado no payload.' })
@@ -702,41 +677,8 @@ export async function POST(req: Request) {
       }
 
       seenDocs.add(row.cpf_cnpj)
-      if (row.email) seenEmails.add(row.email)
-      if (row.phone) seenPhones.add(row.phone)
 
       const leadIdFromDoc = leadIdByDoc.get(row.cpf_cnpj) || null
-      const leadIdFromEmail = row.email ? leadIdByEmail.get(row.email) || null : null
-      const leadIdFromPhone = row.phone ? leadIdByPhone.get(row.phone) || null : null
-
-      const emailConflictLeadId =
-        leadIdFromEmail && leadIdFromEmail !== leadIdFromDoc ? leadIdFromEmail : null
-      const phoneConflictLeadId =
-        leadIdFromPhone && leadIdFromPhone !== leadIdFromDoc ? leadIdFromPhone : null
-
-      const emailConflictLead = emailConflictLeadId
-        ? existingLeadById.get(emailConflictLeadId) || null
-        : null
-
-      const phoneConflictLead = phoneConflictLeadId
-        ? existingLeadById.get(phoneConflictLeadId) || null
-        : null
-
-      if (emailConflictLead) {
-        errors.push({
-          row: row.rowNumber,
-          error: `E-mail já pertence ao lead ${emailConflictLead.name || 'Sem nome'} (${emailConflictLead.id.slice(0, 8)}).`,
-        })
-        continue
-      }
-
-      if (phoneConflictLead) {
-        errors.push({
-          row: row.rowNumber,
-          error: `Telefone já pertence ao lead ${phoneConflictLead.name || 'Sem nome'} (${phoneConflictLead.id.slice(0, 8)}).`,
-        })
-        continue
-      }
 
       const currentLead = leadIdFromDoc ? existingLeadById.get(leadIdFromDoc) || null : null
 
