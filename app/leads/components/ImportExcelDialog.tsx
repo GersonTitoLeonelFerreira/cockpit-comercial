@@ -371,31 +371,57 @@ export default function ImportExcelDialog({
       }
     }
 
-    const response = await fetch('/api/import/leads', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        rows: rowsToCheck,
-        group_id: selectedGroup || null,
-        check_deleted_conflicts_only: true,
-      }),
-    })
+    const chunks = chunkArray(rowsToCheck, IMPORT_CHUNK_SIZE)
+    const deletedByLeadId = new Map<string, DeletedLeadConflict>()
+    const activeByLeadId = new Map<string, ActiveLeadConflict>()
 
-    const result = await response.json().catch(() => ({}))
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex]
 
-    if (!response.ok) {
-      throw new Error(result?.error || 'Erro ao verificar conflitos de importação.')
+      setImportProgress(
+        `Verificando conflitos ${chunkIndex + 1} de ${chunks.length} (${chunk.length} leads)...`,
+      )
+
+      const response = await fetch('/api/import/leads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          rows: chunk,
+          group_id: selectedGroup || null,
+          check_deleted_conflicts_only: true,
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(result?.error || `Erro ao verificar conflitos no lote ${chunkIndex + 1}.`)
+      }
+
+      const deletedConflicts = Array.isArray(result?.deleted_conflicts)
+        ? (result.deleted_conflicts as DeletedLeadConflict[])
+        : []
+
+      const activeConflicts = Array.isArray(result?.active_conflicts)
+        ? (result.active_conflicts as ActiveLeadConflict[])
+        : []
+
+      for (const conflict of deletedConflicts) {
+        deletedByLeadId.set(conflict.lead_id, conflict)
+      }
+
+      for (const conflict of activeConflicts) {
+        activeByLeadId.set(conflict.lead_id, conflict)
+      }
     }
 
+    setImportProgress(null)
+
     return {
-      deleted: Array.isArray(result?.deleted_conflicts)
-        ? (result.deleted_conflicts as DeletedLeadConflict[])
-        : [],
-      active: Array.isArray(result?.active_conflicts)
-        ? (result.active_conflicts as ActiveLeadConflict[])
-        : [],
+      deleted: Array.from(deletedByLeadId.values()),
+      active: Array.from(activeByLeadId.values()),
     }
   }
 
