@@ -199,115 +199,105 @@ export async function GET(req: Request) {
       },
     })
 
-    if (scope === 'company') {
-      const { data: companyGroups, error: companyGroupsError } = await admin
-        .from('lead_groups')
-        .select('id, name')
-        .eq('company_id', activeCompanyId)
-        .is('archived_at', null)
-        .order('name', { ascending: true })
+    let companyScopeOwnerIds: string[] | null = null
 
-      if (companyGroupsError) {
+    if (scope === 'seller' && effectiveOwnerId) {
+      await validateActiveOwner({
+        admin,
+        companyId: activeCompanyId,
+        ownerUserId: effectiveOwnerId,
+      })
+    }
+
+    if (scope === 'company') {
+      const { data: activeOwners, error: activeOwnersError } = await admin
+        .from('company_memberships')
+        .select('user_id')
+        .eq('company_id', activeCompanyId)
+        .eq('is_active', true)
+
+      if (activeOwnersError) {
         return NextResponse.json(
-          { ok: false, error: companyGroupsError.message },
+          { ok: false, error: activeOwnersError.message },
           { status: 400 },
         )
       }
 
-      return NextResponse.json({
-        ok: true,
-        groups: (companyGroups ?? []) as LeadGroupRow[],
-      })
+      companyScopeOwnerIds = ((activeOwners ?? []) as Array<{ user_id: string }>)
+        .map((owner) => owner.user_id)
+        .filter(Boolean)
+
+      if (companyScopeOwnerIds.length === 0) {
+        return NextResponse.json({
+          ok: true,
+          groups: [],
+        })
+      }
     }
 
-    if (!effectiveOwnerId) {
+    if (scope !== 'company' && !effectiveOwnerId) {
       return NextResponse.json({
         ok: true,
         groups: [],
       })
     }
 
-    await validateActiveOwner({
-      admin,
-      companyId: activeCompanyId,
-      ownerUserId: effectiveOwnerId,
-    })
-
-    const { data: ownerCycles, error: ownerCyclesError } = await admin
-      .from('sales_cycles')
-      .select('current_group_id')
+    let groupIdQuery = admin
+      .from('v_pipeline_items')
+      .select('group_id')
       .eq('company_id', activeCompanyId)
-      .eq('owner_user_id', effectiveOwnerId)
-      .not('current_group_id', 'is', null)
+      .not('group_id', 'is', null)
 
-    if (ownerCyclesError) {
+    if (scope === 'company') {
+      groupIdQuery = groupIdQuery
+        .not('owner_id', 'is', null)
+        .in('owner_id', companyScopeOwnerIds ?? [])
+    } else {
+      groupIdQuery = groupIdQuery.eq('owner_id', effectiveOwnerId)
+    }
+
+    const { data: groupIdRows, error: groupIdError } = await groupIdQuery
+
+    if (groupIdError) {
       return NextResponse.json(
-        { ok: false, error: ownerCyclesError.message },
+        { ok: false, error: groupIdError.message },
         { status: 400 },
       )
     }
 
-    const groupIdsFromCycles = Array.from(
+    const groupIds = Array.from(
       new Set(
-        ((ownerCycles ?? []) as Array<{ current_group_id: string | null }>)
-          .map((cycle) => cycle.current_group_id)
+        ((groupIdRows ?? []) as Array<{ group_id: string | null }>)
+          .map((row) => row.group_id)
           .filter((id): id is string => Boolean(id)),
       ),
     )
 
-    const groupMap = new Map<string, LeadGroupRow>()
-
-    const creatorIds = Array.from(
-      new Set([effectiveOwnerId, ...(canViewTeam ? [user.id] : [])]),
-    )
-  
-      const { data: createdGroups, error: createdGroupsError } = await admin
-        .from('lead_groups')
-        .select('id, name')
-        .eq('company_id', activeCompanyId)
-        .in('created_by', creatorIds)
-        .is('archived_at', null)
-        .order('name', { ascending: true })
-  
-      if (createdGroupsError) {
-        return NextResponse.json(
-          { ok: false, error: createdGroupsError.message },
-          { status: 400 },
-        )
-      }
-  
-      for (const group of (createdGroups ?? []) as LeadGroupRow[]) {
-        groupMap.set(group.id, group)
-      }
-
-    if (groupIdsFromCycles.length > 0) {
-      const { data: cycleGroups, error: cycleGroupsError } = await admin
-        .from('lead_groups')
-        .select('id, name')
-        .eq('company_id', activeCompanyId)
-        .is('archived_at', null)
-        .in('id', groupIdsFromCycles)
-        .order('name', { ascending: true })
-
-      if (cycleGroupsError) {
-        return NextResponse.json(
-          { ok: false, error: cycleGroupsError.message },
-          { status: 400 },
-        )
-      }
-
-      for (const group of (cycleGroups ?? []) as LeadGroupRow[]) {
-        groupMap.set(group.id, group)
-      }
+    if (groupIds.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        groups: [],
+      })
     }
 
-    const groups = Array.from(groupMap.values()).sort((a, b) =>
-      a.name.localeCompare(b.name, 'pt-BR'),
-    )
+    const { data: groups, error: groupsError } = await admin
+      .from('lead_groups')
+      .select('id, name')
+      .eq('company_id', activeCompanyId)
+      .is('archived_at', null)
+      .in('id', groupIds)
+      .order('name', { ascending: true })
+
+    if (groupsError) {
+      return NextResponse.json(
+        { ok: false, error: groupsError.message },
+        { status: 400 },
+      )
+    }
 
     return NextResponse.json({
       ok: true,
-      groups,
+      groups: (groups ?? []) as LeadGroupRow[],
     })
   } catch (error: unknown) {
     return NextResponse.json(
