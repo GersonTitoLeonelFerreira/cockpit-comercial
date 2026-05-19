@@ -4,6 +4,9 @@ import { createClient } from '@supabase/supabase-js'
 import { getAuthedSupabase } from '@/app/lib/supabase/server'
 import { EVENT_SOURCES } from '@/app/config/analyticsBase'
 
+export const runtime = 'nodejs'
+export const maxDuration = 300
+
 type InputRow = {
   rowNumber?: number
   name?: string
