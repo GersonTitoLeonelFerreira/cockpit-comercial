@@ -89,6 +89,9 @@ const DS = {
   blueSoft: '#93c5fd',
   blueBg: 'rgba(59,130,246,0.10)',
   blueBorder: 'rgba(59,130,246,0.32)',
+  amberSoft: '#fcd34d',
+  amberBg: 'rgba(245,158,11,0.10)',
+  amberBorder: 'rgba(245,158,11,0.30)',
   redBg: 'rgba(127,29,29,0.50)',
   redText: '#fecaca',
   redBorder: 'rgba(248,113,113,0.35)',
@@ -1004,17 +1007,99 @@ export default function LeadCopilotPanel({
           {/* Auditoria — escondida por padrão, expande com o botão        */}
           {/* ============================================================ */}
           {auditDiagnostics && (
-            <div className="mt-5 rounded-xl border border-amber-900/60 bg-amber-950/20 p-4">
+            <div
+              style={{
+                marginTop: 18,
+                border: `1px solid ${DS.amberBorder}`,
+                borderRadius: DS.radiusContainer,
+                background: DS.amberBg,
+                padding: 14,
+              }}
+            >
               <button
                 type="button"
-                onClick={() => setShowAudit((v) => !v)}
-                className="w-full flex items-center justify-between text-sm font-bold text-amber-300 hover:text-amber-200 transition-colors"
+                onClick={() => setShowAudit((value) => !value)}
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  textAlign: 'left',
+                }}
               >
-                <span className="flex items-center gap-2">
-                  <span className="inline-block w-4 text-center">{showAudit ? '▾' : '▸'}</span>
-                  Auditoria da IA
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 7,
+                      border: `1px solid ${DS.amberBorder}`,
+                      background: DS.panelBg,
+                      color: DS.amberSoft,
+                      display: 'grid',
+                      placeItems: 'center',
+                      fontSize: 12,
+                      fontWeight: 900,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {showAudit ? '▾' : '▸'}
+                  </span>
+
+                  <span>
+                    <span
+                      style={{
+                        display: 'block',
+                        color: DS.amberSoft,
+                        fontSize: 11,
+                        fontWeight: 900,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        marginBottom: 3,
+                      }}
+                    >
+                      Auditoria da IA
+                    </span>
+
+                    <span
+                      style={{
+                        display: 'block',
+                        color: DS.textSecondary,
+                        fontSize: 11,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Diagnóstico técnico da decisão, sinais detectados e motor usado.
+                    </span>
+                  </span>
                 </span>
-                <span className="text-[10px] font-normal text-amber-200/60 uppercase">
+
+                <span
+                  style={{
+                    border: `1px solid ${DS.borderSubtle}`,
+                    borderRadius: 999,
+                    background: DS.panelBg,
+                    color: DS.textSecondary,
+                    padding: '5px 9px',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   {showAudit ? 'Ocultar' : 'Ver detalhes'}
                 </span>
               </button>
