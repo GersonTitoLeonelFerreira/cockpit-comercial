@@ -973,18 +973,14 @@ export async function POST(req: Request) {
               })
             }
 
-            const { error: groupEventErr } = await supabase
-              .from('cycle_events')
-              .insert({
-                company_id: companyId,
-                cycle_id: cycle.id,
-                event_type: 'group_attached',
-                created_by: user.id,
-                metadata: { group_id: groupId },
-                occurred_at: new Date().toISOString(),
-              })
-
-            void groupEventErr
+            cycleEventsToInsert.push({
+              company_id: companyId,
+              cycle_id: cycle.id,
+              event_type: 'group_attached',
+              created_by: user.id,
+              metadata: { group_id: groupId },
+              occurred_at: new Date().toISOString(),
+            })
           }
         }
       } catch (e: unknown) {
