@@ -1372,34 +1372,138 @@ export default function LeadCopilotPanel({
                     </div>
                   )}
 
-                  {auditDiagnostics.segment_previews && (
-                    <div className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 md:col-span-2">
-                      <div className="text-gray-400 uppercase font-bold mb-2">Segmentos usados na decisão</div>
-                      <div className="text-xs text-gray-400 mb-2">
+{auditDiagnostics.segment_previews && (
+                    <div
+                      style={{
+                        gridColumn: '1 / -1',
+                        border: `1px solid ${DS.border}`,
+                        background: DS.panelBg,
+                        borderRadius: DS.radius,
+                        padding: '12px 14px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: DS.textLabel,
+                          fontSize: 10,
+                          fontWeight: 900,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          marginBottom: 6,
+                        }}
+                      >
+                        Segmentos usados na decisão
+                      </div>
+
+                      <div
+                        style={{
+                          color: DS.textSecondary,
+                          fontSize: 11,
+                          lineHeight: 1.45,
+                          marginBottom: 12,
+                        }}
+                      >
                         Turnos detectados: {auditDiagnostics.segment_previews.turn_count} •{' '}
                         {auditDiagnostics.segment_previews.has_speaker_markers
                           ? 'Com marcadores de Cliente/Vendedor'
                           : 'Sem marcadores — usando texto bruto'}
                       </div>
 
-                      <div className="mt-2">
-                        <div className="text-gray-400 font-bold">Trecho final da conversa</div>
-                        <div className="text-white whitespace-pre-wrap">
-                          {auditDiagnostics.segment_previews.tail || '—'}
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: compact ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+                          gap: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textLabel,
+                              fontSize: 10,
+                              fontWeight: 900,
+                              marginBottom: 6,
+                            }}
+                          >
+                            Trecho final da conversa
+                          </div>
+                          <div
+                            style={{
+                              color: DS.textPrimary,
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.45,
+                              fontSize: 12,
+                            }}
+                          >
+                            {auditDiagnostics.segment_previews.tail || '—'}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="mt-2">
-                        <div className="text-gray-400 font-bold">Trecho final do cliente</div>
-                        <div className="text-white whitespace-pre-wrap">
-                          {auditDiagnostics.segment_previews.client_tail || '—'}
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textLabel,
+                              fontSize: 10,
+                              fontWeight: 900,
+                              marginBottom: 6,
+                            }}
+                          >
+                            Trecho final do cliente
+                          </div>
+                          <div
+                            style={{
+                              color: DS.textPrimary,
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.45,
+                              fontSize: 12,
+                            }}
+                          >
+                            {auditDiagnostics.segment_previews.client_tail || '—'}
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="mt-2">
-                        <div className="text-gray-400 font-bold">Trecho final do vendedor</div>
-                        <div className="text-white whitespace-pre-wrap">
-                          {auditDiagnostics.segment_previews.seller_tail || '—'}
+                        <div
+                          style={{
+                            border: `1px solid ${DS.borderSubtle}`,
+                            background: DS.inputBg,
+                            borderRadius: DS.radius,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: DS.textLabel,
+                              fontSize: 10,
+                              fontWeight: 900,
+                              marginBottom: 6,
+                            }}
+                          >
+                            Trecho final do vendedor
+                          </div>
+                          <div
+                            style={{
+                              color: DS.textPrimary,
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.45,
+                              fontSize: 12,
+                            }}
+                          >
+                            {auditDiagnostics.segment_previews.seller_tail || '—'}
+                          </div>
                         </div>
                       </div>
                     </div>
