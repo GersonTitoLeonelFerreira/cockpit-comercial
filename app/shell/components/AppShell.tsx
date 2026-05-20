@@ -550,6 +550,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = React.useState(false)
   const [userRole, setUserRole] = React.useState<string | null>(null)
   const [activeCompanyName, setActiveCompanyName] = React.useState<string | null>(null)
+  const [isPlatformAdmin, setIsPlatformAdmin] = React.useState(false)
   const [, setSessionKey] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -575,6 +576,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         if (!res.ok || !('ok' in json) || !json.ok) {
           setUserRole(null)
           setActiveCompanyName(null)
+          setIsPlatformAdmin(false)
           setSessionKey(null)
 
           if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
@@ -588,6 +590,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         setUserRole(json.active_role ?? json.role ?? null)
         setActiveCompanyName(json.active_company_name ?? null)
+        setIsPlatformAdmin(json.is_platform_admin === true)
 
         setSessionKey((previousSessionKey) => {
           if (
@@ -639,6 +642,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [])
 
   const isAdminUser = userRole === 'admin'
+  const canAccessPlatformAdmin = isPlatformAdmin
 
   const isActive = (href: string) => {
     if (!pathname) return false
@@ -651,6 +655,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
     if (href === '/admin/vendedores') {
       return pathname === '/admin/vendedores' || pathname.startsWith('/admin/vendedores/')
+    }
+    if (href === '/platform-admin') {
+      return pathname === '/platform-admin' || pathname.startsWith('/platform-admin/')
+    }
+    if (href === '/platform-admin/demo-requests') {
+      return pathname === '/platform-admin/demo-requests'
     }
     if (href === '/platform') {
       return pathname === '/platform' || pathname.startsWith('/platform/')
@@ -909,6 +919,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             submenu={RELATORIOS_SUBMENU}
             pathname={pathname}
           />
+
+          {canAccessPlatformAdmin && <NavGroup label="Plataforma" collapsed={collapsed} />}
+
+          {canAccessPlatformAdmin && (
+            <NavBtn
+              href="/platform-admin"
+              label="Cockpit da Plataforma"
+              icon="dashboard"
+              collapsed={collapsed}
+              active={isActive('/platform-admin')}
+            />
+          )}
+
+          {canAccessPlatformAdmin && (
+            <NavBtn
+              href="/platform-admin/demo-requests"
+              label="Demonstrações"
+              icon="reports"
+              collapsed={collapsed}
+              active={isActive('/platform-admin/demo-requests')}
+            />
+          )}
 
           {isAdminUser && <NavGroup label="Admin" collapsed={collapsed} />}
 
