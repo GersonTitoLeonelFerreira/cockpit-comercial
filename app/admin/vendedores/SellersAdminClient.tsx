@@ -33,7 +33,9 @@ export default function SellersAdminClient({
 
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = React.useState<string | null>(null)
   const [rows, setRows] = React.useState<AdminSellerStatsRow[]>([])
+  const [pendingSeller, setPendingSeller] = React.useState<AdminSellerStatsRow | null>(null)
 
   async function load() {
     setLoading(true)
@@ -76,7 +78,8 @@ export default function SellersAdminClient({
     const next = !r.is_active
     const label = r.full_name ?? r.email ?? r.seller_id
 
-    if (!confirm(`${next ? 'Ativar' : 'Desativar'} ${label}?`)) return
+    setError(null)
+    setSuccessMessage(null)
 
     try {
       await adminUpdateSellerAccess({
@@ -85,9 +88,13 @@ export default function SellersAdminClient({
         role: r.role ?? 'member',
         isActive: next,
       })
+
+      setPendingSeller(null)
+      setSuccessMessage(`${label} ${next ? 'ativado' : 'desativado'} com sucesso.`)
+
       await load()
     } catch (error: unknown) {
-      alert(getErrorMessage(error, 'Erro ao atualizar acesso.'))
+      setError(getErrorMessage(error, 'Erro ao atualizar acesso.'))
     }
   }
 
@@ -122,7 +129,11 @@ export default function SellersAdminClient({
         </select>
 
         <button
-          onClick={() => void load()}
+          onClick={() => {
+            setError(null)
+            setSuccessMessage(null)
+            void load()
+          }}
           disabled={loading}
           className="h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-black hover:bg-white/10 disabled:opacity-60"
         >
@@ -140,6 +151,12 @@ export default function SellersAdminClient({
       {error ? (
         <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
           {error}
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-200">
+          {successMessage}
         </div>
       ) : null}
 
@@ -203,7 +220,11 @@ export default function SellersAdminClient({
                   </a>
 
                   <button
-                    onClick={() => void toggleActive(r)}
+                    onClick={() => {
+                      setError(null)
+                      setSuccessMessage(null)
+                      setPendingSeller(r)
+                    }}
                     className={`inline-flex items-center justify-center rounded-xl border px-3 py-2 text-xs font-black whitespace-nowrap ${
                       r.is_active
                         ? 'border-red-500/20 bg-red-500/10 hover:bg-red-500/15 text-red-100'
@@ -222,6 +243,51 @@ export default function SellersAdminClient({
           </div>
         </div>
       </div>
+      {pendingSeller ? (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setPendingSeller(null)}
+        >
+          <div
+            className="w-full max-w-[460px] rounded-2xl border border-white/10 bg-[#111318] p-6 text-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="text-sm font-black">
+              {pendingSeller.is_active ? 'Desativar vendedor' : 'Ativar vendedor'}
+            </div>
+
+            <div className="mt-2 text-xs leading-5 text-white/60">
+              Confirme a alteração de acesso para{' '}
+              <span className="font-black text-white">
+                {pendingSeller.full_name ?? pendingSeller.email ?? pendingSeller.seller_id}
+              </span>
+              .
+            </div>
+
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingSeller(null)}
+                className="h-10 flex-1 rounded-xl border border-white/10 bg-white/5 text-xs font-black text-white/70 hover:bg-white/10"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void toggleActive(pendingSeller)}
+                className={`h-10 flex-1 rounded-xl border text-xs font-black ${
+                  pendingSeller.is_active
+                    ? 'border-red-500/20 bg-red-500/10 text-red-100 hover:bg-red-500/15'
+                    : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/15'
+                }`}
+              >
+                {pendingSeller.is_active ? 'Desativar' : 'Ativar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
