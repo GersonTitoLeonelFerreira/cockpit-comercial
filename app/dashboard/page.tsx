@@ -876,7 +876,14 @@ export default function DashboardPage() {
       }
     >()
 
-    for (const cycle of periodCycles) {
+    for (const cycle of state.cycles) {
+      const isOpenAssignedCycle = cycle.owner_user_id && isOpenStatus(cycle.status)
+      const isClosedInsideCompetency = isCycleInsideCompetency(cycle, state.competency) && (
+        isWonCycle(cycle) || isLostCycle(cycle)
+      )
+
+      if (!isOpenAssignedCycle && !isClosedInsideCompetency) continue
+
       let ownerId = cycle.owner_user_id
 
       if (isWonCycle(cycle)) {
@@ -902,22 +909,29 @@ export default function DashboardPage() {
 
       const current = map.get(key)!
 
-      current.worked += 1
+      if (isOpenAssignedCycle) {
+        current.worked += 1
+      }
 
-      if (isWonCycle(cycle)) {
+      if (isWonCycle(cycle) && isCycleInsideCompetency(cycle, state.competency)) {
         current.wins += 1
         current.revenue += Number(cycle.won_total || 0)
       }
 
-      if (isLostCycle(cycle)) {
+      if (isLostCycle(cycle) && isCycleInsideCompetency(cycle, state.competency)) {
         current.losses += 1
       }
     }
 
     return Array.from(map.values())
-      .sort((a, b) => b.revenue - a.revenue)
+      .sort((a, b) => {
+        const revenueDiff = b.revenue - a.revenue
+        if (revenueDiff !== 0) return revenueDiff
+
+        return b.worked - a.worked
+      })
       .slice(0, 8)
-  }, [periodCycles, state.owners])
+  }, [state.cycles, state.competency, state.owners])
 
   const lostReasons = useMemo(() => {
     const map = new Map<string, number>()
@@ -1250,12 +1264,12 @@ export default function DashboardPage() {
         >
           <Panel
             title="Performance por responsável"
-            description="Performance de oportunidades com responsável dentro da competência atual."
+            description="Carteira atual por responsável, com ganhos e perdas fechados na competência."
           >
             {loading ? (
               <Empty text="Carregando responsáveis..." />
             ) : sellerRanking.length === 0 ? (
-              <Empty text="Nenhum responsável encontrado no período." />
+              <Empty text="Nenhum responsável com carteira ativa encontrado." />
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table
