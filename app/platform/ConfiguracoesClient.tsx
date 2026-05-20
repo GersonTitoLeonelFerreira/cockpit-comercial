@@ -4,7 +4,7 @@ import * as React from 'react'
 import MyAccountTab from './components/MyAccountTab'
 import CompanyTab from './components/CompanyTab'
 
-type TabKey = 'my-account' | 'company' | 'users'
+type TabKey = 'my-account' | 'company'
 
 type ProfileData = {
   full_name?: string | null
@@ -68,10 +68,12 @@ export default function ConfiguracoesClient({
   const role = (userRole ?? profile?.role ?? '').toLowerCase()
   const isAdmin = role === 'admin'
 
-  const availableTabs: Array<{ key: TabKey; label: string }> = [
-    { key: 'my-account', label: 'Minha Conta' },
-    ...(isAdmin ? [{ key: 'company' as TabKey, label: 'Empresa' }] : []),
-  ]
+  const availableTabs = React.useMemo<Array<{ key: TabKey; label: string }>>(() => {
+    return [
+      { key: 'my-account', label: 'Minha Conta' },
+      ...(isAdmin ? [{ key: 'company' as TabKey, label: 'Empresa' }] : []),
+    ]
+  }, [isAdmin])
 
   const [activeTab, setActiveTab] = React.useState<TabKey>('my-account')
 
