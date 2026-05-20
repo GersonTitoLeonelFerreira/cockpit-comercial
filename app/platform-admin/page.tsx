@@ -34,22 +34,6 @@ function cardStyle(): React.CSSProperties {
   }
 }
 
-function disabledActionStyle(): React.CSSProperties {
-  return {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 'fit-content',
-    border: `1px solid ${C.border}`,
-    background: '#111318',
-    color: C.textMuted,
-    padding: '9px 12px',
-    borderRadius: 10,
-    fontWeight: 800,
-    fontSize: 12,
-  }
-}
-
 export default async function PlatformAdminPage() {
   const cookieStore = await cookies()
 
@@ -250,11 +234,30 @@ export default async function PlatformAdminPage() {
           <div>
             <div style={{ fontSize: 17, fontWeight: 900 }}>Admins da plataforma</div>
             <div style={{ marginTop: 8, color: C.textSoft, fontSize: 13, lineHeight: 1.6 }}>
-              Módulo futuro para controlar usuários com permissão global de administração do SaaS.
+              Controle dos usuários que podem administrar o SaaS em nível global.
             </div>
           </div>
 
-          <div style={disabledActionStyle()}>Em desenvolvimento</div>
+          <Link
+            href="/platform-admin/admins"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 'fit-content',
+              border: `1px solid ${C.blue}`,
+              background:
+                'linear-gradient(90deg, rgba(59,130,246,0.24) 0%, rgba(59,130,246,0.10) 100%)',
+              color: '#93c5fd',
+              padding: '9px 12px',
+              borderRadius: 10,
+              fontWeight: 900,
+              fontSize: 12,
+              textDecoration: 'none',
+            }}
+          >
+            Abrir admins
+          </Link>
         </div>
       </section>
 

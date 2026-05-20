@@ -656,11 +656,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (href === '/admin/vendedores') {
       return pathname === '/admin/vendedores' || pathname.startsWith('/admin/vendedores/')
     }
-    if (href === '/platform-admin') {
-      return pathname === '/platform-admin' || pathname.startsWith('/platform-admin/')
-    }
     if (href === '/platform-admin/demo-requests') {
       return pathname === '/platform-admin/demo-requests'
+    }
+    if (href === '/platform-admin/admins') {
+      return pathname === '/platform-admin/admins'
+    }
+    if (href === '/platform-admin') {
+      return pathname === '/platform-admin' || pathname.startsWith('/platform-admin/companies')
     }
     if (href === '/platform') {
       return pathname === '/platform' || pathname.startsWith('/platform/')
@@ -932,13 +935,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             />
           )}
 
-          {canAccessPlatformAdmin && (
+{canAccessPlatformAdmin && (
             <NavBtn
               href="/platform-admin/demo-requests"
               label="Demonstrações"
               icon="reports"
               collapsed={collapsed}
               active={isActive('/platform-admin/demo-requests')}
+            />
+          )}
+
+          {canAccessPlatformAdmin && (
+            <NavBtn
+              href="/platform-admin/admins"
+              label="Admins da Plataforma"
+              icon="users"
+              collapsed={collapsed}
+              active={isActive('/platform-admin/admins')}
             />
           )}
 
