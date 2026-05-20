@@ -181,9 +181,21 @@ function normalizeDocumentInput(value: unknown) {
   return digits
 }
 
+const SUPABASE_IN_FILTER_CHUNK_SIZE = 100
+
 function isDuplicateError(message: string) {
   const msg = String(message || '').toLowerCase()
   return msg.includes('duplicate') || msg.includes('unique')
+}
+
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = []
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+
+  return chunks
 }
 
 function buildLeadType(document: string | null) {
@@ -540,16 +552,25 @@ export async function POST(req: Request) {
     const allKnownLeadIds = Array.from(existingLeadById.keys())
 
     if (allKnownLeadIds.length > 0) {
-      const { data } = await supabase
-        .from('sales_cycles')
-        .select('id, lead_id, current_group_id')
-        .eq('company_id', companyId)
-        .in('lead_id', allKnownLeadIds)
-        .order('created_at', { ascending: false })
+      const leadIdChunks = chunkArray(allKnownLeadIds, SUPABASE_IN_FILTER_CHUNK_SIZE)
 
-      for (const cycle of (data ?? []) as CycleRow[]) {
-        if (!cycleByLeadId.has(cycle.lead_id)) {
-          cycleByLeadId.set(cycle.lead_id, cycle)
+      for (const leadIdChunk of leadIdChunks) {
+        const { data, error: cyclesLookupError } = await supabase
+          .from('sales_cycles')
+          .select('id, lead_id, current_group_id')
+          .eq('company_id', companyId)
+          .in('lead_id', leadIdChunk)
+          .order('created_at', { ascending: false })
+
+        if (cyclesLookupError) {
+          console.error('Erro ao buscar ciclos existentes na importação:', cyclesLookupError)
+          continue
+        }
+
+        for (const cycle of (data ?? []) as CycleRow[]) {
+          if (!cycleByLeadId.has(cycle.lead_id)) {
+            cycleByLeadId.set(cycle.lead_id, cycle)
+          }
         }
       }
     }
@@ -842,29 +863,38 @@ export async function POST(req: Request) {
         new Set(cyclesToInsert.map((cycleToInsert) => cycleToInsert.leadId)),
       )
 
-      const { data: existingCyclesBeforeInsert, error: existingCyclesBeforeInsertError } =
-        await supabase
+      const existingCyclesBeforeInsert: CycleRow[] = []
+      let existingCyclesBeforeInsertError: string | null = null
+
+      const cycleLeadIdChunks = chunkArray(cycleLeadIds, SUPABASE_IN_FILTER_CHUNK_SIZE)
+
+      for (const cycleLeadIdChunk of cycleLeadIdChunks) {
+        const { data, error } = await supabase
           .from('sales_cycles')
           .select('id, lead_id, current_group_id')
           .eq('company_id', companyId)
-          .in('lead_id', cycleLeadIds)
+          .in('lead_id', cycleLeadIdChunk)
+
+        if (error) {
+          existingCyclesBeforeInsertError = error.message
+          console.error('Erro ao validar ciclos existentes antes da criação em lote:', error)
+          break
+        }
+
+        existingCyclesBeforeInsert.push(...((data ?? []) as CycleRow[]))
+      }
 
       if (existingCyclesBeforeInsertError) {
-        console.error(
-          'Erro ao validar ciclos existentes antes da criação em lote:',
-          existingCyclesBeforeInsertError,
-        )
-
         for (const cycleToInsert of cyclesToInsert) {
           errors.push({
             row: cycleToInsert.rowNumber,
-            error: existingCyclesBeforeInsertError.message || 'Falha ao validar ciclo existente.',
+            error: existingCyclesBeforeInsertError || 'Falha ao validar ciclo existente.',
           })
         }
       } else {
         const existingCycleByLeadIdBeforeInsert = new Map<string, CycleRow>()
 
-        for (const cycle of (existingCyclesBeforeInsert ?? []) as CycleRow[]) {
+        for (const cycle of existingCyclesBeforeInsert) {
           existingCycleByLeadIdBeforeInsert.set(cycle.lead_id, cycle)
           cycleByLeadId.set(cycle.lead_id, cycle)
         }
