@@ -234,11 +234,23 @@ export default function LoginPage() {
     }
 
     try {
+      await fetch('/api/session/company', {
+        method: 'DELETE',
+        cache: 'no-store',
+      })
+
       const sessionRes = await fetch('/api/me', { method: 'GET', cache: 'no-store' })
       const sessionJson = (await sessionRes.json()) as {
         ok?: boolean
+        companies_count?: number
         requires_company_selection?: boolean
         active_company_id?: string | null
+      }
+
+      if (sessionRes.ok && sessionJson.ok && sessionJson.companies_count && sessionJson.companies_count > 1) {
+        router.replace('/select-company')
+        router.refresh()
+        return
       }
 
       if (sessionRes.ok && sessionJson.ok && sessionJson.requires_company_selection) {
