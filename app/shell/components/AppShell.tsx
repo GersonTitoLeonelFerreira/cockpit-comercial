@@ -751,11 +751,58 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </svg>
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: C.textPrimary, letterSpacing: '-0.025em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2 }}>
-                  Cockpit Comercial
+                <div
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 900,
+                    color: C.textPrimary,
+                    letterSpacing: '-0.03em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    lineHeight: 1.15,
+                  }}
+                >
+                  Yolen
                 </div>
-                <div style={{ fontSize: 10, color: '#6a7d96', letterSpacing: '0.04em', whiteSpace: 'nowrap', marginTop: 2 }}>
-                  Plataforma Comercial
+
+                <div
+                  title={activeCompanyName ? `Empresa ativa: ${activeCompanyName}` : 'Empresa ativa não selecionada'}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    maxWidth: 152,
+                    marginTop: 3,
+                    color: '#6a7d96',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.02em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 999,
+                      background: activeCompanyName ? C.activeItemBorder : C.textMuted,
+                      boxShadow: activeCompanyName ? '0 0 10px rgba(59,130,246,0.65)' : 'none',
+                      flexShrink: 0,
+                    }}
+                  />
+
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      minWidth: 0,
+                    }}
+                  >
+                    {activeCompanyName ?? 'Sem empresa ativa'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -929,76 +976,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <AuthButton />
           </div>
         </header>
-
-        {activeCompanyName ? (
-          <div
-            style={{
-              flexShrink: 0,
-              minHeight: 42,
-              display: 'flex',
-              alignItems: 'center',
-              padding: '0 36px',
-              background: 'linear-gradient(90deg, rgba(13,15,20,0.98) 0%, rgba(17,19,24,0.94) 100%)',
-              borderBottom: `1px solid ${C.border}`,
-              boxShadow: '0 1px 0 rgba(255,255,255,0.02)',
-            }}
-          >
-            <div
-              title={`Empresa ativa: ${activeCompanyName}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 10,
-                maxWidth: 520,
-                height: 28,
-                padding: '0 12px',
-                borderRadius: 999,
-                border: `1px solid ${C.border}`,
-                background: 'rgba(59,130,246,0.08)',
-                color: C.textPrimary,
-                overflow: 'hidden',
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: 999,
-                  background: C.activeItemBorder,
-                  boxShadow: '0 0 12px rgba(59,130,246,0.7)',
-                  flexShrink: 0,
-                }}
-              />
-
-              <span
-                style={{
-                  color: C.textMuted,
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  flexShrink: 0,
-                }}
-              >
-                Empresa ativa
-              </span>
-
-              <span
-                style={{
-                  color: C.textPrimary,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  minWidth: 0,
-                }}
-              >
-                {activeCompanyName}
-              </span>
-            </div>
-          </div>
-        ) : null}
 
         <div
           style={{
