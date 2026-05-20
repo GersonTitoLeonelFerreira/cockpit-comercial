@@ -3,6 +3,7 @@
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import GlobalSearch from './GlobalSearch.client'
 import AuthButton from './AuthButton.client'
@@ -758,12 +759,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 }}
                 title="Recolher menu"
               >
-                <img
+                <Image
   src="/brand/yolen-mark.png"
   alt="Yolen"
+  width={24}
+  height={24}
+  priority
   style={{
-    width: 24,
-    height: 24,
     objectFit: 'contain',
     display: 'block',
   }}
@@ -844,12 +846,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               }}
               title="Expandir menu"
             >
-              <img
+              <Image
   src="/brand/yolen-mark.png"
   alt="Yolen"
+  width={24}
+  height={24}
+  priority
   style={{
-    width: 24,
-    height: 24,
     objectFit: 'contain',
     display: 'block',
   }}
