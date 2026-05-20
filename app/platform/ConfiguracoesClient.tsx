@@ -3,7 +3,6 @@
 import * as React from 'react'
 import MyAccountTab from './components/MyAccountTab'
 import CompanyTab from './components/CompanyTab'
-import UsersPermissionsTab from './components/UsersPermissionsTab'
 
 type TabKey = 'my-account' | 'company' | 'users'
 
@@ -72,7 +71,6 @@ export default function ConfiguracoesClient({
   const availableTabs: Array<{ key: TabKey; label: string }> = [
     { key: 'my-account', label: 'Minha Conta' },
     ...(isAdmin ? [{ key: 'company' as TabKey, label: 'Empresa' }] : []),
-    ...(isAdmin ? [{ key: 'users' as TabKey, label: 'Usuários e Permissões' }] : []),
   ]
 
   const [activeTab, setActiveTab] = React.useState<TabKey>('my-account')
@@ -125,7 +123,6 @@ export default function ConfiguracoesClient({
 
         {activeTab === 'company' && isAdmin && <CompanyTab company={company} />}
 
-        {activeTab === 'users' && isAdmin && <UsersPermissionsTab />}
       </div>
     </div>
   )
