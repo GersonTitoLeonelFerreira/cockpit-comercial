@@ -216,6 +216,7 @@ export default function PoolClient({
       }
   
       setGroups(json.groups ?? [])
+      setError(null)
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao carregar grupos.'))
     }
@@ -243,13 +244,14 @@ export default function PoolClient({
           role: seller.role ?? 'member',
         }))
   
-      setSellers(activeSellers)
-      setPoolCycles(poolPage.items)
-      setPoolTotal(poolPage.total)
-      setPoolPageNum(1)
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Erro ao carregar pool.'))
-    } finally {
+        setSellers(activeSellers)
+        setPoolCycles(poolPage.items)
+        setPoolTotal(poolPage.total)
+        setPoolPageNum(1)
+        setError(null)
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Erro ao carregar pool.'))
+      } finally {
       setLoading(false)
     }
   }, [companyId, selectedGroupId])
