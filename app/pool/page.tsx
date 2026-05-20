@@ -72,7 +72,6 @@ export default async function PoolPage() {
 
   return (
     <PoolClient
-      userId={user.id}
       companyId={activeCompanyId}
       userLabel={(profile.full_name ?? user.email ?? user.id) as string}
     />

@@ -156,11 +156,9 @@ async function postPoolAction(body: Record<string, unknown>): Promise<PoolAction
 }
 
 export default function PoolClient({
-  userId,
   companyId,
   userLabel,
 }: {
-  userId: string
   companyId: string
   userLabel: string
 }) {
