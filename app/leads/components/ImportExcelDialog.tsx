@@ -276,6 +276,7 @@ export default function ImportExcelDialog({
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null)
 
   const [groups, setGroups] = useState<LeadGroup[]>([])
@@ -769,7 +770,7 @@ export default function ImportExcelDialog({
         }),
       )
 
-      setError(
+      setNotice(
         `Reativação concluída. Reativados: ${summary.reactivated ?? 0}. Agora escolha/crie o grupo e importe os novos leads.`,
       )
 
@@ -788,7 +789,8 @@ export default function ImportExcelDialog({
 
   const keepDeletedLeadsBlocked = () => {
     setKeepDeletedBlocked(true)
-    setError('Leads excluídos mantidos bloqueados. Você pode importar apenas os leads válidos da planilha.')
+    setNotice('Leads excluídos mantidos bloqueados. Você pode importar apenas os leads válidos da planilha.')
+    setError(null)
   }
 
   const canCloseDialog = !loading && !importing
@@ -811,6 +813,7 @@ export default function ImportExcelDialog({
     setLeads([])
     setDeletedConflicts([])
     setError(null)
+    setNotice(null)
     setImportProgress(null)
     setImportSummary(null)
     setSelectedGroup('')
@@ -997,7 +1000,24 @@ export default function ImportExcelDialog({
               </div>
             )}
 
-{importProgress && (
+            {notice && (
+              <div
+                style={{
+                  background: UI.greenBg,
+                  color: UI.greenText,
+                  border: `1px solid ${UI.greenBorder}`,
+                  padding: 12,
+                  borderRadius: UI.radius,
+                  marginBottom: 16,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {notice}
+              </div>
+            )}
+
+            {importProgress && (
               <div
                 style={{
                   background: UI.blue,
