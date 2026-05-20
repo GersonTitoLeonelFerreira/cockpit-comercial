@@ -646,67 +646,7 @@ export default function ImportExcelDialog({
     setError(null)
 
     try {
-      setImportProgress('Validação final antes da importação...')
-
-      const latestConflicts = await checkImportConflicts(leadsToImport)
-
-      if (latestConflicts.deleted.length > 0 || latestConflicts.active.length > 0) {
-        const deletedByRow = new Map(
-          latestConflicts.deleted.map((conflict) => [conflict.row, conflict]),
-        )
-
-        const activeByRow = new Map(
-          latestConflicts.active.map((conflict) => [conflict.row, conflict]),
-        )
-
-        setDeletedConflicts((currentConflicts) => {
-          const mergedByRow = new Map(
-            currentConflicts.map((conflict) => [conflict.row, conflict]),
-          )
-
-          for (const conflict of latestConflicts.deleted) {
-            mergedByRow.set(conflict.row, conflict)
-          }
-
-          return Array.from(mergedByRow.values())
-        })
-
-        setKeepDeletedBlocked(false)
-
-        setLeads((currentLeads) =>
-          currentLeads.map((lead) => {
-            const activeConflict = activeByRow.get(lead.rowNumber)
-
-            if (activeConflict) {
-              return {
-                ...lead,
-                activeConflict,
-                deletedConflict: null,
-                error: 'Lead já ativo no sistema. Importação duplicada bloqueada.',
-              }
-            }
-
-            const deletedConflict = deletedByRow.get(lead.rowNumber)
-
-            if (deletedConflict) {
-              return {
-                ...lead,
-                activeConflict: null,
-                deletedConflict,
-                error: 'Lead excluído encontrado. Escolha se deseja reativar.',
-              }
-            }
-
-            return lead
-          }),
-        )
-
-        setError(
-          'A importação foi bloqueada. A validação final encontrou conflitos que não estavam marcados no preview. Revise os bloqueados antes de importar.',
-        )
-
-        return
-      }
+      setImportProgress('Iniciando importação dos leads aprovados...')
 
       const summary = await importRowsInChunks({
         rowsToImport: leadsToImport,
