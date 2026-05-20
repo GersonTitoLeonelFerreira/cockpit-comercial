@@ -43,6 +43,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -60,12 +61,15 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
           : ''
       )
       setSaved(false)
+      setFeedbackError(null)
     }
   }, [item])
 
   const handleSave = useCallback(async () => {
     if (!item) return
     setSaving(true)
+    setFeedbackError(null)
+
     try {
       const { error } = await supabase
         .from('sales_cycles')
@@ -77,10 +81,12 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
         .eq('id', item.id)
 
       if (error) throw error
+
       setSaved(true)
       onSaved?.()
-    } catch (e: any) {
-      alert('Erro ao salvar: ' + (e?.message ?? String(e)))
+    } catch (e: unknown) {
+      setSaved(false)
+      setFeedbackError(e instanceof Error ? e.message : 'Erro ao salvar agenda.')
     } finally {
       setSaving(false)
     }
@@ -284,6 +290,24 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
                 marginBottom: 8,
               }}
             />
+            {feedbackError && (
+              <div
+                style={{
+                  marginBottom: 8,
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  background: 'rgba(127,29,29,0.22)',
+                  color: '#fecaca',
+                  borderRadius: 8,
+                  padding: '9px 10px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  lineHeight: 1.4,
+                }}
+              >
+                {feedbackError}
+              </div>
+            )}
+
             <button
               onClick={handleSave}
               disabled={saving}
