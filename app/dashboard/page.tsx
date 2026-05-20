@@ -77,6 +77,22 @@ type SalesCycle = {
   leads?: Lead | Lead[] | null
 }
 
+type PipelineItemRow = {
+  id: string
+  company_id: string
+  lead_id: string
+  owner_id: string | null
+  group_id: string | null
+  status: LeadStatus | null
+  stage_entered_at: string | null
+  name: string | null
+  phone: string | null
+  email: string | null
+  next_action: string | null
+  next_action_date: string | null
+  created_at: string | null
+}
+
 type DashboardStatusCounts = {
   novo: number
   contato: number
@@ -635,7 +651,72 @@ export default function DashboardPage() {
           ),
       ])
 
-      let cyclesQuery = supabase
+      let operationalQuery = supabase
+        .from('v_pipeline_items')
+        .select(`
+          id,
+          company_id,
+          lead_id,
+          owner_id,
+          group_id,
+          status,
+          stage_entered_at,
+          name,
+          phone,
+          email,
+          next_action,
+          next_action_date,
+          created_at
+        `)
+        .eq('company_id', companyId)
+        .not('owner_id', 'is', null)
+        .neq('status', 'ganho')
+        .neq('status', 'perdido')
+        .neq('status', 'cancelado')
+        .order('stage_entered_at', { ascending: false })
+        .range(0, 999)
+
+      if (!isAdmin) {
+        operationalQuery = operationalQuery.eq('owner_id', userId)
+      }
+
+      const { data: operationalData, error: operationalError } = await operationalQuery
+
+      if (operationalError) {
+        setError(`Erro ao carregar oportunidades operacionais: ${operationalError.message}`)
+      }
+
+      const operationalCycles: SalesCycle[] = ((operationalData || []) as PipelineItemRow[]).map((item) => ({
+        id: item.id,
+        company_id: item.company_id,
+        lead_id: item.lead_id,
+        owner_user_id: item.owner_id,
+        status: item.status,
+        previous_status: null,
+        stage_entered_at: item.stage_entered_at,
+        next_action: item.next_action,
+        next_action_date: item.next_action_date,
+        current_group_id: item.group_id,
+        created_at: item.created_at,
+        updated_at: null,
+        closed_at: null,
+        won_at: null,
+        lost_at: null,
+        won_owner_user_id: null,
+        lost_owner_user_id: null,
+        lost_reason: null,
+        won_total: null,
+        paused_at: null,
+        canceled_at: null,
+        leads: {
+          id: item.lead_id,
+          name: item.name,
+          phone: item.phone,
+          email: item.email,
+        },
+      }))
+
+      let closedQuery = supabase
         .from('sales_cycles')
         .select(`
           id,
@@ -658,57 +739,54 @@ export default function DashboardPage() {
           lost_reason,
           won_total,
           paused_at,
-          canceled_at,
-          leads:lead_id (
-            id,
-            name,
-            phone,
-            email
-          )
+          canceled_at
         `)
         .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
+        .in('status', ['ganho', 'perdido'])
+        .gte('closed_at', startDate)
+        .lte('closed_at', `${endDate}T23:59:59.999Z`)
+        .order('closed_at', { ascending: false })
         .range(0, 999)
 
       if (!isAdmin) {
-        cyclesQuery = cyclesQuery.eq('owner_user_id', userId)
+        closedQuery = closedQuery.or(`owner_user_id.eq.${userId},won_owner_user_id.eq.${userId},lost_owner_user_id.eq.${userId}`)
       }
 
-      let cycles: SalesCycle[] = []
+      const { data: closedData, error: closedError } = await closedQuery
+
+      if (closedError) {
+        console.warn('Erro ao carregar ciclos fechados do Dashboard:', closedError.message)
+      }
+
+      const closedCycles = (closedData || []) as SalesCycle[]
+      const cycles = [...operationalCycles, ...closedCycles]
+
+      const ownerIds = Array.from(
+        new Set(
+          cycles
+            .flatMap((cycle) => [
+              cycle.owner_user_id,
+              cycle.won_owner_user_id,
+              cycle.lost_owner_user_id,
+            ])
+            .filter(Boolean)
+        )
+      ) as string[]
+
       let owners: Record<string, Profile> = {}
 
-      const { data: cyclesData, error: cyclesError } = await cyclesQuery
+      if (ownerIds.length > 0) {
+        const { data: ownersData, error: ownersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, role')
+          .in('id', ownerIds)
 
-      if (cyclesError) {
-        setError(`Erro ao carregar ciclos reais: ${cyclesError.message}`)
-      } else {
-        cycles = (cyclesData || []) as SalesCycle[]
-
-        const ownerIds = Array.from(
-          new Set(
-            cycles
-              .flatMap((cycle) => [
-                cycle.owner_user_id,
-                cycle.won_owner_user_id,
-                cycle.lost_owner_user_id,
-              ])
-              .filter(Boolean)
+        if (ownersError) {
+          setError(`Erro ao carregar responsáveis: ${ownersError.message}`)
+        } else {
+          owners = Object.fromEntries(
+            ((ownersData || []) as Profile[]).map((owner) => [owner.id, owner])
           )
-        ) as string[]
-
-        if (ownerIds.length > 0) {
-          const { data: ownersData, error: ownersError } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, role')
-            .in('id', ownerIds)
-
-          if (ownersError) {
-            setError(`Erro ao carregar responsáveis: ${ownersError.message}`)
-          } else {
-            owners = Object.fromEntries(
-              ((ownersData || []) as Profile[]).map((owner) => [owner.id, owner])
-            )
-          }
         }
       }
 
