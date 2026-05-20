@@ -2046,26 +2046,145 @@ export default function ImportExcelDialog({
               <>
                 <div
                   style={{
-                    background: '#064e3b',
-                    color: '#a7f3d0',
+                    background: UI.greenBg,
+                    color: UI.greenText,
+                    border: `1px solid ${UI.greenBorder}`,
                     padding: 20,
-                    borderRadius: 10,
-                    textAlign: 'center',
+                    borderRadius: UI.radius,
                     marginBottom: 16,
                   }}
                 >
-                  <div style={{ fontSize: 24, marginBottom: 8 }}>✓</div>
-                  <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>
-                    Importação Concluída
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.85 }}>
-                    Criados: {importSummary?.created ?? 0} • Atualizados: {importSummary?.updated ?? 0}
-                  </div>
-                  {importSummary?.errors?.length ? (
-                    <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
-                      Linhas com erro: {importSummary.errors.length}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                    <div style={{ fontSize: 24 }}>✓</div>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 900 }}>
+                        Importação concluída
+                      </div>
+                      <div style={{ fontSize: 12, color: UI.muted, marginTop: 3 }}>
+                        Resultado consolidado dos lotes processados.
+                      </div>
                     </div>
-                  ) : null}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                      gap: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        background: UI.modalBg,
+                        border: `1px solid ${UI.greenBorder}`,
+                        borderRadius: UI.radius,
+                        padding: 12,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: UI.muted,
+                          fontWeight: 900,
+                          marginBottom: 6,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Criados
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: UI.greenText }}>
+                        {importSummary?.created ?? 0}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        background: UI.modalBg,
+                        border: `1px solid ${UI.border}`,
+                        borderRadius: UI.radius,
+                        padding: 12,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: UI.muted,
+                          fontWeight: 900,
+                          marginBottom: 6,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Atualizados
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: UI.blueSoft }}>
+                        {importSummary?.updated ?? 0}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        background: UI.modalBg,
+                        border: `1px solid ${UI.amberBorder}`,
+                        borderRadius: UI.radius,
+                        padding: 12,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: UI.muted,
+                          fontWeight: 900,
+                          marginBottom: 6,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Reativados
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 900, color: UI.amberText }}>
+                        {importSummary?.reactivated ?? 0}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        background: UI.modalBg,
+                        border: `1px solid ${
+                          importSummary?.errors?.length ? UI.redBorder : UI.border
+                        }`,
+                        borderRadius: UI.radius,
+                        padding: 12,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: UI.muted,
+                          fontWeight: 900,
+                          marginBottom: 6,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Erros
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 24,
+                          fontWeight: 900,
+                          color: importSummary?.errors?.length ? UI.redText : UI.muted,
+                        }}
+                      >
+                        {importSummary?.errors?.length ?? 0}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {importSummary?.errors?.length ? (
