@@ -745,10 +745,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 }}
                 title="Recolher menu"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-                  <path d="M9 22V12h6v10" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-                </svg>
+                <img
+  src="/brand/yolen-mark.png"
+  alt="Yolen"
+  style={{
+    width: 24,
+    height: 24,
+    objectFit: 'contain',
+    display: 'block',
+  }}
+/>
               </div>
               <div style={{ minWidth: 0 }}>
                 <div
@@ -825,10 +831,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               }}
               title="Expandir menu"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-                <path d="M9 22V12h6v10" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-              </svg>
+              <img
+  src="/brand/yolen-mark.png"
+  alt="Yolen"
+  style={{
+    width: 24,
+    height: 24,
+    objectFit: 'contain',
+    display: 'block',
+  }}
+/>
             </div>
           )}
 
