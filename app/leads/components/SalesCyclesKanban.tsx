@@ -78,6 +78,14 @@ type Profile = {
   role: string
 }
 
+function isSellerRole(role: string | null | undefined) {
+  return (role ?? '').trim().toLowerCase() === 'member'
+}
+
+function getSellerDisplayName(seller: Profile) {
+  return seller.full_name ?? seller.email ?? 'Vendedor sem nome'
+}
+
 type LeadGroup = {
   id: string
   name: string
@@ -854,7 +862,7 @@ function CardActionsMenuPortal({
               <option value="">Para outro vendedor…</option>
               {sellers.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.full_name ?? s.email} ({s.role})
+                  {getSellerDisplayName(s)}
                 </option>
               ))}
             </select>
@@ -2084,13 +2092,13 @@ export default function SalesCyclesKanban({
       })
   
       const activeSellers = sellersData
-        .filter((seller) => seller.is_active)
-        .map((seller) => ({
-          id: seller.seller_id,
-          full_name: seller.full_name,
-          email: seller.email,
-          role: seller.role ?? 'member',
-        }))
+      .filter((seller) => seller.is_active && isSellerRole(seller.role))
+      .map((seller) => ({
+        id: seller.seller_id,
+        full_name: seller.full_name,
+        email: seller.email,
+        role: seller.role ?? 'member',
+      }))
   
       setSellers(activeSellers)
     } catch (e) {
@@ -2797,10 +2805,10 @@ export default function SalesCyclesKanban({
             <option value="company">Empresa inteira</option>
             <option value="mine">Meu Cockpit</option>
             {sellers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.full_name ?? s.email} ({s.role})
-              </option>
-            ))}
+  <option key={s.id} value={s.id}>
+    {getSellerDisplayName(s)}
+  </option>
+))}
           </select>
         )}
 
@@ -3148,7 +3156,7 @@ export default function SalesCyclesKanban({
                       <option value="">Selecione vendedor…</option>
                       {validSellersForRedistribution.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.full_name} ({s.role})
+                          {getSellerDisplayName(s)}
                         </option>
                       ))}
                     </select>
