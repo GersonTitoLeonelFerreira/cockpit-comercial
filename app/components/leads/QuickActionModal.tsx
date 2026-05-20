@@ -121,15 +121,19 @@ export function QuickActionModal({
 }) {
   const [selectedAction, setSelectedAction] = useState<string | null>(null)
   const [detail, setDetail] = useState('')
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<string | null>(null)
 
   const actions = getActionsForStatus(currentStatus ?? '')
   const stageLabel = currentStatus ? (getStageLabel(currentStatus) ?? currentStatus) : null
 
   const handleSave = () => {
     if (!selectedAction) {
-      alert('Selecione uma ação')
+      setFeedback('Selecione uma ação antes de salvar.')
       return
     }
+
+    setFeedback(null)
     onSave(selectedAction, detail)
     setSelectedAction(null)
     setDetail('')
@@ -251,6 +255,40 @@ export function QuickActionModal({
             AÇÃO RÁPIDA
           </div>
 
+          {feedback && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '10px 12px',
+                borderRadius: 12,
+                border: '1px solid rgba(245,158,11,0.32)',
+                background: 'rgba(120,53,15,0.22)',
+                color: '#fbbf24',
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              {feedback}
+            </div>
+          )}  
+
+          {feedback && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '10px 12px',
+                borderRadius: 12,
+                border: '1px solid rgba(245,158,11,0.32)',
+                background: 'rgba(120,53,15,0.22)',
+                color: '#fbbf24',
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              {feedback}
+            </div>
+          )}
+
           <div
             style={{
               fontSize: 18,
@@ -337,7 +375,10 @@ export function QuickActionModal({
                 <button
                   key={action.id}
                   type="button"
-                  onClick={() => setSelectedAction(action.id)}
+                  onClick={() => {
+                    setSelectedAction(action.id)
+                    setFeedback(null)
+                  }}
                   style={getActionStyle(action, selectedAction === action.id)}
                 >
                   {action.label}
@@ -415,7 +456,7 @@ export function QuickActionModal({
             <button
               type="button"
               onClick={handleSave}
-              disabled={!selectedAction || isLoading}
+              disabled={isLoading}
               style={{
                 flex: 1,
                 minHeight: 42,
@@ -428,7 +469,7 @@ export function QuickActionModal({
                   ? 'linear-gradient(135deg, rgba(37,99,235,0.98), rgba(29,78,216,0.86))'
                   : 'rgba(30,41,59,0.55)',
                 color: selectedAction && !isLoading ? '#ffffff' : '#94a3b8',
-                cursor: selectedAction && !isLoading ? 'pointer' : 'not-allowed',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontWeight: 900,
                 fontSize: 12,
                 opacity: selectedAction && !isLoading ? 1 : 0.72,
