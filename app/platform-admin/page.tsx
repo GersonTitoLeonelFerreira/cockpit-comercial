@@ -130,8 +130,8 @@ export default async function PlatformAdminPage() {
           </div>
 
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 950, letterSpacing: '-0.04em' }}>
-            Cockpit da Plataforma
-          </h1>
+  Gestão da Plataforma
+</h1>
 
           <p style={{ margin: '10px 0 0', color: C.textSoft, fontSize: 14, lineHeight: 1.7 }}>
             Área reservada para governar empresas, solicitações de demonstração, convites do
