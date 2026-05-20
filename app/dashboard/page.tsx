@@ -668,47 +668,48 @@ export default function DashboardPage() {
         `)
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
-        .range(0, 4999)
+        .range(0, 999)
 
       if (!isAdmin) {
         cyclesQuery = cyclesQuery.eq('owner_user_id', userId)
       }
 
+      let cycles: SalesCycle[] = []
+      let owners: Record<string, Profile> = {}
+
       const { data: cyclesData, error: cyclesError } = await cyclesQuery
 
       if (cyclesError) {
-        throw new Error(`Erro ao carregar ciclos reais: ${cyclesError.message}`)
-      }
+        setError(`Erro ao carregar ciclos reais: ${cyclesError.message}`)
+      } else {
+        cycles = (cyclesData || []) as SalesCycle[]
 
-      const cycles = (cyclesData || []) as SalesCycle[]
+        const ownerIds = Array.from(
+          new Set(
+            cycles
+              .flatMap((cycle) => [
+                cycle.owner_user_id,
+                cycle.won_owner_user_id,
+                cycle.lost_owner_user_id,
+              ])
+              .filter(Boolean)
+          )
+        ) as string[]
 
-      const ownerIds = Array.from(
-        new Set(
-          cycles
-            .flatMap((cycle) => [
-              cycle.owner_user_id,
-              cycle.won_owner_user_id,
-              cycle.lost_owner_user_id,
-            ])
-            .filter(Boolean)
-        )
-      ) as string[]
+        if (ownerIds.length > 0) {
+          const { data: ownersData, error: ownersError } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, role')
+            .in('id', ownerIds)
 
-      let owners: Record<string, Profile> = {}
-
-      if (ownerIds.length > 0) {
-        const { data: ownersData, error: ownersError } = await supabase
-          .from('profiles')
-          .select('id, full_name, email, role')
-          .in('id', ownerIds)
-
-        if (ownersError) {
-          throw new Error(`Erro ao carregar responsáveis: ${ownersError.message}`)
+          if (ownersError) {
+            setError(`Erro ao carregar responsáveis: ${ownersError.message}`)
+          } else {
+            owners = Object.fromEntries(
+              ((ownersData || []) as Profile[]).map((owner) => [owner.id, owner])
+            )
+          }
         }
-
-        owners = Object.fromEntries(
-          ((ownersData || []) as Profile[]).map((owner) => [owner.id, owner])
-        )
       }
 
       setState({
