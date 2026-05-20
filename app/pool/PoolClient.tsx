@@ -688,8 +688,6 @@ export default function PoolClient({
           </button>
 
           <ImportExcelDialog
-            userId={userId}
-            companyId={companyId}
             onImported={() => {
               void Promise.all([loadGroups(), loadPoolAndSellers()])
             }}

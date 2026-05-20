@@ -2,7 +2,6 @@
 
 import React, { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { supabaseBrowser } from '../../lib/supabaseBrowser'
 
 type DeletedLeadConflict = {
   row: number
@@ -235,17 +234,12 @@ function chunkArray<T>(items: T[], chunkSize: number): T[][] {
 }
 
 export default function ImportExcelDialog({
-  userId,
-  companyId,
   onImported,
   trigger,
 }: {
-  userId: string
-  companyId: string
   onImported: () => void
   trigger: React.ReactNode
 }) {
-  const supabase = React.useMemo(() => supabaseBrowser(), [])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [isOpen, setIsOpen] = useState(false)
@@ -294,16 +288,24 @@ export default function ImportExcelDialog({
 
   const loadGroups = async () => {
     try {
-      const { data } = await supabase
-        .from('lead_groups')
-        .select('id, name')
-        .eq('company_id', companyId)
-        .is('archived_at', null)
-        .order('name', { ascending: true })
+      const response = await fetch('/api/pool/groups', {
+        method: 'GET',
+        cache: 'no-store',
+      })
 
-      setGroups(data || [])
-    } catch (e) {
-      console.error('Erro ao carregar grupos:', e)
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        error?: string
+        groups?: LeadGroup[]
+      } | null
+
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || 'Erro ao carregar grupos.')
+      }
+
+      setGroups(result.groups ?? [])
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Erro ao carregar grupos.'))
     }
   }
 
@@ -344,20 +346,37 @@ export default function ImportExcelDialog({
     try {
       setError(null)
 
-      const { data, error } = await supabase
-        .from('lead_groups')
-        .insert({
-          company_id: companyId,
+      const response = await fetch('/api/pool/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          action: 'create_group',
           name: groupName,
-          created_by: userId,
-        })
-        .select()
-        .single()
+        }),
+      })
 
-      if (error) throw error
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean
+        success?: boolean
+        error?: string
+        id?: string
+        name?: string
+      } | null
 
-      setGroups((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
-      setSelectedGroup(data.id)
+      if (!response.ok || !result?.success || !result.id) {
+        throw new Error(result?.error || 'Erro ao criar grupo.')
+      }
+
+      const createdGroup = {
+        id: result.id,
+        name: result.name ?? groupName,
+      }
+
+      setGroups((prev) =>
+        [...prev, createdGroup].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+      )
+      setSelectedGroup(createdGroup.id)
       setShowCreateGroupModal(false)
       setNewGroupName('')
     } catch (e: unknown) {
