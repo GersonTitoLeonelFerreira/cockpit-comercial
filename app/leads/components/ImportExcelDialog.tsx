@@ -217,7 +217,7 @@ const cleanDate = (val: unknown): string | null => {
 }
 
 const IMPORT_CHUNK_SIZE = 500
-const CONFLICT_CHECK_CHUNK_SIZE = 100
+const CONFLICT_CHECK_CHUNK_SIZE = 250
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
