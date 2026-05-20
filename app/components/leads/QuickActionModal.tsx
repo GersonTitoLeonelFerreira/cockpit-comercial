@@ -122,7 +122,6 @@ export function QuickActionModal({
   const [selectedAction, setSelectedAction] = useState<string | null>(null)
   const [detail, setDetail] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState<string | null>(null)
 
   const actions = getActionsForStatus(currentStatus ?? '')
   const stageLabel = currentStatus ? (getStageLabel(currentStatus) ?? currentStatus) : null
