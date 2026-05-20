@@ -39,6 +39,9 @@ type MeResponse =
       email: string | null
       role: string | null
       company_id: string | null
+      active_company_id?: string | null
+      active_company_name?: string | null
+      active_role?: string | null
       is_active: boolean
       is_platform_admin: boolean
     }
@@ -546,6 +549,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = React.useState(false)
   const [userRole, setUserRole] = React.useState<string | null>(null)
+  const [activeCompanyName, setActiveCompanyName] = React.useState<string | null>(null)
   const [, setSessionKey] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -570,6 +574,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         if (!res.ok || !('ok' in json) || !json.ok) {
           setUserRole(null)
+          setActiveCompanyName(null)
           setSessionKey(null)
 
           if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
@@ -581,7 +586,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         const nextSessionKey = buildSessionKey(json)
 
-        setUserRole(json.role ?? null)
+        setUserRole(json.active_role ?? json.role ?? null)
+        setActiveCompanyName(json.active_company_name ?? null)
 
         setSessionKey((previousSessionKey) => {
           if (
@@ -600,6 +606,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         if (!active) return
 
         setUserRole(null)
+        setActiveCompanyName(null)
         setSessionKey(null)
       }
     }
@@ -922,6 +929,76 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <AuthButton />
           </div>
         </header>
+
+        {activeCompanyName ? (
+          <div
+            style={{
+              flexShrink: 0,
+              minHeight: 42,
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 36px',
+              background: 'linear-gradient(90deg, rgba(13,15,20,0.98) 0%, rgba(17,19,24,0.94) 100%)',
+              borderBottom: `1px solid ${C.border}`,
+              boxShadow: '0 1px 0 rgba(255,255,255,0.02)',
+            }}
+          >
+            <div
+              title={`Empresa ativa: ${activeCompanyName}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 10,
+                maxWidth: 520,
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 999,
+                border: `1px solid ${C.border}`,
+                background: 'rgba(59,130,246,0.08)',
+                color: C.textPrimary,
+                overflow: 'hidden',
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 999,
+                  background: C.activeItemBorder,
+                  boxShadow: '0 0 12px rgba(59,130,246,0.7)',
+                  flexShrink: 0,
+                }}
+              />
+
+              <span
+                style={{
+                  color: C.textMuted,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  flexShrink: 0,
+                }}
+              >
+                Empresa ativa
+              </span>
+
+              <span
+                style={{
+                  color: C.textPrimary,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  minWidth: 0,
+                }}
+              >
+                {activeCompanyName}
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         <div
           style={{
