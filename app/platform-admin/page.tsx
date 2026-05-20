@@ -250,11 +250,11 @@ export default async function PlatformAdminPage() {
           <div>
             <div style={{ fontSize: 17, fontWeight: 900 }}>Admins da plataforma</div>
             <div style={{ marginTop: 8, color: C.textSoft, fontSize: 13, lineHeight: 1.6 }}>
-              Controle dos usuários que podem administrar o SaaS em nível global.
+              Módulo futuro para controlar usuários com permissão global de administração do SaaS.
             </div>
           </div>
 
-          <div style={disabledActionStyle()}>Próxima etapa</div>
+          <div style={disabledActionStyle()}>Em desenvolvimento</div>
         </div>
       </section>
 
