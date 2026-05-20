@@ -925,7 +925,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {canAccessPlatformAdmin && (
             <NavBtn
               href="/platform-admin"
-              label="Cockpit da Plataforma"
+              label="Gestão da Plataforma"
               icon="dashboard"
               collapsed={collapsed}
               active={isActive('/platform-admin')}
