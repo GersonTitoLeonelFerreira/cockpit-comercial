@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import ConfiguracoesClient from './ConfiguracoesClient'
 
@@ -71,11 +72,28 @@ export default async function ConfiguracoesPage() {
   let company = null
 
   if (membership.role === 'admin') {
-    const { data: companyData } = await supabase
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!serviceKey) {
+      throw new Error('ENV faltando: SUPABASE_SERVICE_ROLE_KEY')
+    }
+
+    const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    })
+
+    const { data: companyData, error: companyError } = await admin
       .from('companies')
       .select('id, name, legal_name, trade_name, cnpj, segment, email, phone, city, state, cep, address')
       .eq('id', membership.company_id)
       .maybeSingle()
+
+    if (companyError) {
+      throw new Error(companyError.message)
+    }
 
     company = companyData
   }
