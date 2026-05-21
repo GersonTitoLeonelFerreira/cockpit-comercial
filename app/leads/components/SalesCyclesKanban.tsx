@@ -25,6 +25,8 @@ import SellerMicroKPIs from './SellerMicroKPIs'
 import StageCheckpointModal, { CheckpointPayload } from './StageCheckpointModal'
 import { ToastContainer, useToast } from './Toast'
 import { SALES_CYCLE_VISUAL_LABELS as STATUS_LABELS } from '@/app/lib/sales-cycle-status'
+import { calculateCyclePulse } from '@/app/lib/services/sales-pulse'
+import type { SalesPulseCycleRow, SalesPulseSeverity } from '@/app/types/sales-pulse'
 
 const DS = {
   contentBg: '#090b0f',
@@ -257,6 +259,72 @@ function getAgendaBadgeLabel(state: AgendaState, dateStr: string | null): string
     default:
       return ''
   }
+}
+
+function supportsSalesPulse(status: Status) {
+  return status === 'contato' || status === 'respondeu' || status === 'negociacao'
+}
+
+const PULSE_BADGE_STYLES: Record<
+  SalesPulseSeverity,
+  { border: string; background: string; color: string }
+> = {
+  positive: {
+    border: 'rgba(34,197,94,0.30)',
+    background: 'rgba(34,197,94,0.10)',
+    color: '#86efac',
+  },
+  neutral: {
+    border: 'rgba(59,130,246,0.30)',
+    background: 'rgba(59,130,246,0.10)',
+    color: '#93c5fd',
+  },
+  warning: {
+    border: 'rgba(245,158,11,0.34)',
+    background: 'rgba(245,158,11,0.12)',
+    color: '#fcd34d',
+  },
+  danger: {
+    border: 'rgba(239,68,68,0.34)',
+    background: 'rgba(239,68,68,0.12)',
+    color: '#fca5a5',
+  },
+  dead: {
+    border: 'rgba(113,113,122,0.34)',
+    background: 'rgba(113,113,122,0.12)',
+    color: '#d4d4d8',
+  },
+}
+
+function getKanbanPulse(item: PipelineItem, nowTick: Date) {
+  if (!supportsSalesPulse(item.status)) return null
+
+  const row: SalesPulseCycleRow = {
+    id: item.id,
+    company_id: '',
+    lead_id: item.lead_id,
+    owner_user_id: item.owner_id,
+    status: item.status,
+    previous_status: null,
+    stage_entered_at: item.stage_entered_at,
+    next_action: item.next_action,
+    next_action_date: item.next_action_date,
+    current_group_id: item.group_id,
+    created_at: item.stage_entered_at,
+    updated_at: item.stage_entered_at,
+    closed_at: null,
+    won_at: null,
+    lost_at: null,
+    lost_reason: null,
+    leads: {
+      id: item.lead_id,
+      name: item.name,
+      phone: item.phone,
+      email: item.email,
+    },
+  }
+
+  return calculateCyclePulse(row, nowTick)
 }
 
 function EmptyColumnSkeleton({ status }: { status: Status }) {
@@ -1159,6 +1227,7 @@ function KanbanCard({
   const agendaBadge = getAgendaBadgeStyle(agendaState)
   const agendaLabel = getAgendaBadgeLabel(agendaState, item.next_action_date)
   const groupName = item.lead_groups?.name ?? null
+  const pulse = getKanbanPulse(item, nowTick)
 
   const handleWhatsApp = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -1271,9 +1340,33 @@ function KanbanCard({
           </div>
         )}
 
-        {groupName && <div style={{ fontSize: 10, color: DS.textLabel, marginTop: 2 }}>{groupName}</div>}
+{groupName && <div style={{ fontSize: 10, color: DS.textLabel, marginTop: 2 }}>{groupName}</div>}
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
+{pulse && (
+  <div
+    title={`${pulse.stateLabel} — ${pulse.mainReason}`}
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      width: 'fit-content',
+      marginTop: 5,
+      padding: '2px 6px',
+      borderRadius: 999,
+      border: `1px solid ${PULSE_BADGE_STYLES[pulse.severity].border}`,
+      background: PULSE_BADGE_STYLES[pulse.severity].background,
+      color: PULSE_BADGE_STYLES[pulse.severity].color,
+      fontSize: 9,
+      fontWeight: 800,
+      lineHeight: 1.15,
+      letterSpacing: '0.01em',
+      whiteSpace: 'nowrap',
+    }}
+  >
+    {pulse.stateLabel} · {pulse.score}/100
+  </div>
+)}
+
+<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
           {agendaState !== 'none' ? (
             <div
               style={{
