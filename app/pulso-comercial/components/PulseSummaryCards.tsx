@@ -2,9 +2,14 @@ import type { SalesPulseSummary } from '@/app/types/sales-pulse'
 
 const cards = [
   {
+    key: 'totalOpenCycles',
+    label: 'Ciclos no Pulso',
+    hint: 'Contato + Agenda/Respondeu + Negociação',
+  },
+  {
     key: 'averageScore',
-    label: 'Pulso médio',
-    hint: 'Média geral dos ciclos abertos',
+    label: 'Score médio',
+    hint: 'Média de saúde dos ciclos no Pulso',
   },
   {
     key: 'criticalCycles',
@@ -25,7 +30,7 @@ const cards = [
 
 export default function PulseSummaryCards({ summary }: { summary: SalesPulseSummary }) {
   return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
       {cards.map((card) => (
         <div
           key={card.key}
