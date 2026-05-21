@@ -29,18 +29,18 @@ function formatGeneratedAt(value: string) {
 export default function PulsoComercialClient({ data }: { data: SalesPulsePageData }) {
   return (
     <div className="min-h-full bg-[#090b0f] text-[#edf2f7]">
-      <div className="mb-8 rounded-3xl border border-[#1a1d2e] bg-[#0d0f14] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+      <div className="mb-6 rounded-3xl border border-[#1a1d2e] bg-[#0d0f14] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#3b82f6]">
-              Nova ferramenta
+              Ferramenta operacional
             </div>
             <h1 className="mt-2 text-3xl font-black tracking-tight text-[#edf2f7]">
               Pulso Comercial
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-[#8fa3bc]">
-              Mede a saúde das negociações abertas e mostra quais ciclos estão vivos, esfriando,
-              em risco ou sem sinal comercial suficiente para avançar.
+              Mede a saúde das negociações em andamento usando a mesma base operacional do Cockpit.
+              Entram apenas ciclos em Contato, Agenda e Negociação.
             </p>
           </div>
 
@@ -48,6 +48,38 @@ export default function PulsoComercialClient({ data }: { data: SalesPulsePageDat
             Atualizado em
             <div className="mt-1 font-bold text-[#edf2f7]">{formatGeneratedAt(data.generatedAt)}</div>
           </div>
+        </div>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm leading-6 text-blue-100">
+          <div className="text-[11px] font-black uppercase tracking-[0.14em] text-blue-300/80">
+            Fonte oficial
+          </div>
+          <div className="mt-1 font-semibold">v_pipeline_items</div>
+          <p className="mt-1 text-xs text-blue-100/70">
+            A contagem segue o mesmo escopo operacional usado pelo Cockpit Comercial.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-4 text-sm leading-6 text-[#8fa3bc]">
+          <div className="text-[11px] font-black uppercase tracking-[0.14em] text-[#546070]">
+            Entram no Pulso
+          </div>
+          <div className="mt-1 font-semibold text-[#edf2f7]">Contato · Agenda · Negociação</div>
+          <p className="mt-1 text-xs text-[#8fa3bc]">
+            Esses são os ciclos que já começaram e ainda estão vivos na operação.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-4 text-sm leading-6 text-[#8fa3bc]">
+          <div className="text-[11px] font-black uppercase tracking-[0.14em] text-[#546070]">
+            Ficam fora
+          </div>
+          <div className="mt-1 font-semibold text-[#edf2f7]">Novo · Ganho · Perdido</div>
+          <p className="mt-1 text-xs text-[#8fa3bc]">
+            Novo ainda não iniciou cadência; ganho e perdido já encerraram o ciclo.
+          </p>
         </div>
       </div>
 
@@ -61,7 +93,7 @@ export default function PulsoComercialClient({ data }: { data: SalesPulsePageDat
             <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-5">
               <h2 className="text-base font-black text-[#edf2f7]">Ações recomendadas</h2>
               <p className="mt-1 text-xs leading-5 text-[#8fa3bc]">
-                Leitura automática dos principais sinais dos ciclos abertos.
+                Leitura automática dos principais sinais dos ciclos em andamento.
               </p>
 
               <div className="mt-4 space-y-3">
