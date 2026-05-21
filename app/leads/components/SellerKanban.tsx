@@ -6,6 +6,8 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
+import { calculateCyclePulse } from '@/app/lib/services/sales-pulse'
+import type { SalesPulseCycleRow, SalesPulseSeverity } from '@/app/types/sales-pulse'
 
 type Status = 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido'
 
@@ -29,14 +31,92 @@ type PipelineItem = {
   created_at: string
   name: string
   phone: string | null
+  email?: string | null
   next_action: string | null
+  next_action_date?: string | null
 }
 
-function KanbanCard({ item, isSaving }: { item: PipelineItem; isSaving: boolean }) {
+const PULSE_BADGE_STYLES: Record<
+  SalesPulseSeverity,
+  { border: string; background: string; color: string }
+> = {
+  positive: {
+    border: 'rgba(34,197,94,0.30)',
+    background: 'rgba(34,197,94,0.10)',
+    color: '#86efac',
+  },
+  neutral: {
+    border: 'rgba(59,130,246,0.30)',
+    background: 'rgba(59,130,246,0.10)',
+    color: '#93c5fd',
+  },
+  warning: {
+    border: 'rgba(245,158,11,0.34)',
+    background: 'rgba(245,158,11,0.12)',
+    color: '#fcd34d',
+  },
+  danger: {
+    border: 'rgba(239,68,68,0.34)',
+    background: 'rgba(239,68,68,0.12)',
+    color: '#fca5a5',
+  },
+  dead: {
+    border: 'rgba(113,113,122,0.34)',
+    background: 'rgba(113,113,122,0.12)',
+    color: '#d4d4d8',
+  },
+}
+
+function supportsSalesPulse(status: Status) {
+  return status === 'contato' || status === 'respondeu' || status === 'negociacao'
+}
+
+function getSellerKanbanPulse(item: PipelineItem, nowTick: Date) {
+  if (!supportsSalesPulse(item.status)) return null
+
+  const row: SalesPulseCycleRow = {
+    id: item.id,
+    company_id: '',
+    lead_id: item.lead_id,
+    owner_user_id: item.owner_id,
+    status: item.status,
+    previous_status: null,
+    stage_entered_at: item.stage_entered_at,
+    next_action: item.next_action,
+    next_action_date: item.next_action_date ?? null,
+    current_group_id: null,
+    created_at: item.created_at,
+    updated_at: item.stage_entered_at ?? item.created_at,
+    closed_at: null,
+    won_at: null,
+    lost_at: null,
+    lost_reason: null,
+    leads: {
+      id: item.lead_id,
+      name: item.name,
+      phone: item.phone,
+      email: item.email ?? null,
+    },
+  }
+
+  return calculateCyclePulse(row, nowTick)
+}
+
+function KanbanCard({
+  item,
+  isSaving,
+  nowTick,
+}: {
+  item: PipelineItem
+  isSaving: boolean
+  nowTick: Date
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
     disabled: isSaving,
   })
+
+  const pulse = getSellerKanbanPulse(item, nowTick)
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -63,6 +143,30 @@ function KanbanCard({ item, isSaving }: { item: PipelineItem; isSaving: boolean 
     >
       <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>{item.name}</div>
       <div style={{ fontSize: 12, opacity: 0.7 }}>{item.phone || '—'}</div>
+
+      {pulse && (
+        <div
+          title={`${pulse.stateLabel} — ${pulse.mainReason}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            width: 'fit-content',
+            marginTop: 7,
+            padding: '3px 7px',
+            borderRadius: 999,
+            border: `1px solid ${PULSE_BADGE_STYLES[pulse.severity].border}`,
+            background: PULSE_BADGE_STYLES[pulse.severity].background,
+            color: PULSE_BADGE_STYLES[pulse.severity].color,
+            fontSize: 10,
+            fontWeight: 900,
+            lineHeight: 1.15,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {pulse.stateLabel} · {pulse.score}/100
+        </div>
+      )}
+
       {item.next_action && (
         <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6, fontStyle: 'italic' }}>
           Próx: {item.next_action}
@@ -94,9 +198,15 @@ export default function SellerKanban({
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [nowTick, setNowTick] = useState(new Date())
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
-  
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(new Date()), 60000)
+    return () => clearInterval(interval)
+  }, [])
+
   // ✅ Carregar ciclos via v_pipeline_items
   const loadItems = useCallback(async () => {
     if (!companyId || !userId) return
@@ -253,7 +363,12 @@ export default function SellerKanban({
                     <div style={{ opacity: 0.5, fontSize: 12 }}>Vazio</div>
                   ) : (
                     items[status].map((item) => (
-                      <KanbanCard key={item.id} item={item} isSaving={savingId === item.id} />
+                      <KanbanCard
+                        key={item.id}
+                        item={item}
+                        isSaving={savingId === item.id}
+                        nowTick={nowTick}
+                      />
                     ))
                   )}
                 </div>
