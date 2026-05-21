@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useState, useEffect, useCallback } from 'react'
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import {
   IconWhatsApp,
   IconClipboard,
@@ -9,6 +9,8 @@ import {
   IconX,
 } from '@/app/components/icons/UiIcons'
 import { toLocalDatetimeInputValue } from '@/app/lib/dateUtils'
+import { calculateCyclePulse } from '@/app/lib/services/sales-pulse'
+import type { SalesPulseCycleRow, SalesPulseSeverity } from '@/app/types/sales-pulse'
 
 export type WorklistItem = {
   id: string
@@ -37,6 +39,72 @@ const STATUS_LABELS: Record<string, string> = {
   perdido: 'Perdido',
 }
 
+const PULSE_BADGE_STYLES: Record<
+  SalesPulseSeverity,
+  { border: string; background: string; color: string }
+> = {
+  positive: {
+    border: 'rgba(34,197,94,0.30)',
+    background: 'rgba(34,197,94,0.10)',
+    color: '#86efac',
+  },
+  neutral: {
+    border: 'rgba(59,130,246,0.30)',
+    background: 'rgba(59,130,246,0.10)',
+    color: '#93c5fd',
+  },
+  warning: {
+    border: 'rgba(245,158,11,0.34)',
+    background: 'rgba(245,158,11,0.12)',
+    color: '#fcd34d',
+  },
+  danger: {
+    border: 'rgba(239,68,68,0.34)',
+    background: 'rgba(239,68,68,0.12)',
+    color: '#fca5a5',
+  },
+  dead: {
+    border: 'rgba(113,113,122,0.34)',
+    background: 'rgba(113,113,122,0.12)',
+    color: '#d4d4d8',
+  },
+}
+
+function supportsSalesPulse(status: string) {
+  return status === 'contato' || status === 'respondeu' || status === 'negociacao'
+}
+
+function getQuickDrawerPulse(item: WorklistItem | null) {
+  if (!item || !supportsSalesPulse(item.status)) return null
+
+  const row: SalesPulseCycleRow = {
+    id: item.id,
+    company_id: '',
+    lead_id: item.lead_id,
+    owner_user_id: null,
+    status: item.status as SalesPulseCycleRow['status'],
+    previous_status: null,
+    stage_entered_at: item.stage_entered_at,
+    next_action: item.next_action,
+    next_action_date: item.next_action_date,
+    current_group_id: null,
+    created_at: item.stage_entered_at,
+    updated_at: item.stage_entered_at,
+    closed_at: null,
+    won_at: null,
+    lost_at: null,
+    lost_reason: null,
+    leads: {
+      id: item.lead_id,
+      name: item.name,
+      phone: item.phone,
+      email: null,
+    },
+  }
+
+  return calculateCyclePulse(row)
+}
+
 export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: LeadQuickDrawerProps) {
   const [nextAction, setNextAction] = useState('')
   const [nextActionDate, setNextActionDate] = useState('')
@@ -45,6 +113,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
   const [copied, setCopied] = useState(false)
   const [feedbackError, setFeedbackError] = useState<string | null>(null)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pulse = useMemo(() => getQuickDrawerPulse(item), [item])
 
   useEffect(() => {
     return () => {
@@ -186,6 +255,49 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
 
         {/* Content */}
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Pulse */}
+          {pulse && (
+            <div
+              style={{
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: 10,
+                padding: '12px 14px',
+              }}
+            >
+              <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 900, marginBottom: 8 }}>
+                PULSO COMERCIAL
+              </div>
+
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  width: 'fit-content',
+                  padding: '4px 8px',
+                  borderRadius: 999,
+                  border: `1px solid ${PULSE_BADGE_STYLES[pulse.severity].border}`,
+                  background: PULSE_BADGE_STYLES[pulse.severity].background,
+                  color: PULSE_BADGE_STYLES[pulse.severity].color,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  lineHeight: 1.15,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {pulse.stateLabel} · {pulse.score}/100
+              </div>
+
+              <div style={{ marginTop: 10, color: '#d1d5db', fontSize: 12, lineHeight: 1.45 }}>
+                {pulse.mainReason}
+              </div>
+
+              <div style={{ marginTop: 10, color: '#9ca3af', fontSize: 12, lineHeight: 1.45 }}>
+                <strong style={{ color: '#e5e7eb' }}>Orientação:</strong> {pulse.recommendedAction}
+              </div>
+            </div>
+          )}
+
           {/* Phone + Actions */}
           <div>
             <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 700, marginBottom: 8 }}>
