@@ -9,7 +9,7 @@ import type {
 import type { LeadStatus } from '@/app/types/sales_cycles'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
-const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'negociacao', 'pausado']
+const PULSE_STATUSES: LeadStatus[] = ['contato', 'respondeu', 'negociacao']
 
 type BuildSalesPulseOptions = {
   now?: Date
@@ -303,7 +303,7 @@ function buildRecommendedActions(cycles: SalesPulseCyclePulse[]): SalesPulseSign
   if (actions.length === 0) {
     actions.push({
       label: 'Operação saudável',
-      detail: 'Nenhum alerta crítico foi encontrado nos ciclos abertos analisados.',
+      detail: 'Nenhum alerta crítico foi encontrado nos ciclos analisados.',
       severity: 'positive',
     })
   }
@@ -318,17 +318,18 @@ export function buildSalesPulsePageData(
   const now = options.now ?? new Date()
   const limit = options.limit ?? 50
 
-  const cycles = rows
-    .filter((row) => OPEN_STATUSES.includes(row.status))
+  const allCycles = rows
+    .filter((row) => PULSE_STATUSES.includes(row.status))
     .map((row) => calculateCyclePulse(row, now))
     .sort((a, b) => a.score - b.score)
-    .slice(0, limit)
+
+  const visibleCycles = allCycles.slice(0, limit)
 
   return {
-    summary: buildSummary(cycles),
-    cycles,
-    criticalCycles: cycles.filter((cycle) => cycle.state === 'critico' || cycle.state === 'sem_pulso'),
-    recommendedActions: buildRecommendedActions(cycles),
+    summary: buildSummary(allCycles),
+    cycles: visibleCycles,
+    criticalCycles: allCycles.filter((cycle) => cycle.state === 'critico' || cycle.state === 'sem_pulso'),
+    recommendedActions: buildRecommendedActions(allCycles),
     generatedAt: now.toISOString(),
   }
 }
