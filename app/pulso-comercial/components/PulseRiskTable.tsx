@@ -23,40 +23,54 @@ function formatDate(value: string | null) {
   }).format(date)
 }
 
+function statusLabel(status: string) {
+  if (status === 'respondeu') return 'Agenda'
+  if (status === 'negociacao') return 'Negociação'
+  if (status === 'contato') return 'Contato'
+  return status
+}
+
 export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePulse[] }) {
   if (cycles.length === 0) {
     return (
       <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-6 text-sm text-[#8fa3bc]">
-        Nenhum ciclo crítico encontrado neste momento.
+        Nenhum ciclo em andamento encontrado no Pulso Comercial.
       </div>
     )
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#1a1d2e] bg-[#0d0f14]">
+    <div className="overflow-hidden rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] shadow-[0_16px_36px_rgba(0,0,0,0.24)]">
       <div className="border-b border-[#1a1d2e] px-5 py-4">
-        <h2 className="text-base font-black text-[#edf2f7]">Ciclos que precisam de ação</h2>
-        <p className="mt-1 text-xs text-[#8fa3bc]">
-          Priorizados pelo menor score de pulso.
-        </p>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-base font-black text-[#edf2f7]">Ciclos em andamento</h2>
+            <p className="mt-1 text-xs leading-5 text-[#8fa3bc]">
+              Lista priorizada pelo menor score. Quanto menor o score, maior a urgência operacional.
+            </p>
+          </div>
+          <div className="rounded-full border border-[#1a1d2e] bg-[#111318] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#546070]">
+            Contato · Agenda · Negociação
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-[#1a1d2e] text-sm">
+        <table className="min-w-[1180px] divide-y divide-[#1a1d2e] text-sm">
           <thead className="bg-[#111318] text-left text-[11px] uppercase tracking-[0.12em] text-[#546070]">
             <tr>
               <th className="px-5 py-3 font-bold">Lead</th>
               <th className="px-5 py-3 font-bold">Pulso</th>
-              <th className="px-5 py-3 font-bold">Status</th>
+              <th className="px-5 py-3 font-bold">Etapa</th>
               <th className="px-5 py-3 font-bold">Próxima ação</th>
-              <th className="px-5 py-3 font-bold">Motivo</th>
-              <th className="px-5 py-3 font-bold">Ação</th>
+              <th className="px-5 py-3 font-bold">Sinal principal</th>
+              <th className="px-5 py-3 font-bold">Orientação</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#13162a]">
             {cycles.map((cycle) => (
               <tr key={cycle.cycleId} className="hover:bg-[#111318]/70">
-                <td className="px-5 py-4">
+                <td className="px-5 py-4 align-top">
                   <Link
                     href={`/sales-cycles/${cycle.cycleId}`}
                     className="font-bold text-[#edf2f7] hover:text-[#93c5fd]"
@@ -67,22 +81,39 @@ export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePuls
                     {cycle.leadPhone || cycle.leadEmail || 'Sem contato cadastrado'}
                   </div>
                 </td>
-                <td className="px-5 py-4">
+                <td className="px-5 py-4 align-top">
                   <span
                     className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${severityClass[cycle.severity]}`}
                   >
-                    {cycle.stateLabel} · {cycle.score}
+                    {cycle.stateLabel} · {cycle.score}/100
                   </span>
                 </td>
-                <td className="px-5 py-4 text-[#8fa3bc]">{cycle.status}</td>
-                <td className="px-5 py-4 text-[#8fa3bc]">
-                  <div>{cycle.nextAction || 'Sem próxima ação'}</div>
-                  <div className={cycle.isNextActionOverdue ? 'mt-1 text-xs text-red-300' : 'mt-1 text-xs text-[#546070]'}>
-                    {formatDate(cycle.nextActionDate)}
+                <td className="px-5 py-4 align-top text-[#8fa3bc]">
+                  <div className="font-semibold text-[#edf2f7]">{statusLabel(cycle.status)}</div>
+                  <div className="mt-1 text-xs text-[#546070]">
+                    {cycle.daysInStage == null
+                      ? 'Tempo não informado'
+                      : `${cycle.daysInStage} dia${cycle.daysInStage === 1 ? '' : 's'} na etapa`}
                   </div>
                 </td>
-                <td className="max-w-[340px] px-5 py-4 text-[#8fa3bc]">{cycle.mainReason}</td>
-                <td className="max-w-[360px] px-5 py-4 text-[#8fa3bc]">{cycle.recommendedAction}</td>
+                <td className="px-5 py-4 align-top text-[#8fa3bc]">
+                  <div className="max-w-[210px] truncate" title={cycle.nextAction || 'Sem próxima ação'}>
+                    {cycle.nextAction || 'Sem próxima ação'}
+                  </div>
+                  <div className={cycle.isNextActionOverdue ? 'mt-1 text-xs text-red-300' : 'mt-1 text-xs text-[#546070]'}>
+                    {cycle.isNextActionOverdue ? 'Vencida · ' : ''}{formatDate(cycle.nextActionDate)}
+                  </div>
+                </td>
+                <td className="max-w-[360px] px-5 py-4 align-top text-[#8fa3bc]">
+                  <div className="line-clamp-3 leading-5" title={cycle.mainReason}>
+                    {cycle.mainReason}
+                  </div>
+                </td>
+                <td className="max-w-[380px] px-5 py-4 align-top text-[#8fa3bc]">
+                  <div className="line-clamp-3 leading-5" title={cycle.recommendedAction}>
+                    {cycle.recommendedAction}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
