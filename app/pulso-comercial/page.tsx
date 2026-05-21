@@ -49,9 +49,9 @@ async function getPulsoComercialData() {
       leads:lead_id (id, name, phone, email)
     `)
     .eq('company_id', activeCompanyId)
-    .in('status', ['novo', 'contato', 'respondeu', 'negociacao', 'pausado'])
+    .in('status', ['contato', 'respondeu', 'negociacao'])
     .order('updated_at', { ascending: true })
-    .limit(250)
+    .limit(500)
 
   if (error) {
     throw new Error(`Erro ao carregar Pulso Comercial: ${error.message}`)
