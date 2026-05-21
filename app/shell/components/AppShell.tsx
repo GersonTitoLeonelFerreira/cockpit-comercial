@@ -654,6 +654,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (href === '/pool') {
       return pathname === '/pool' || pathname.startsWith('/pool/')
     }
+    if (href === '/pulso-comercial') {
+      return pathname === '/pulso-comercial' || pathname.startsWith('/pulso-comercial/')
+    }
     if (href === '/admin/vendedores') {
       return pathname === '/admin/vendedores' || pathname.startsWith('/admin/vendedores/')
     }
@@ -679,9 +682,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         ? 'Pool'
         : pathname?.startsWith('/admin')
           ? 'Admin'
-          : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
-            ? 'Cockpit Comercial'
-            : pathname?.startsWith('/relatorios')
+          : pathname?.startsWith('/pulso-comercial')
+            ? 'Pulso Comercial'
+            : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+              ? 'Cockpit Comercial'
+              : pathname?.startsWith('/relatorios')
               ? 'Relatórios'
               : pathname?.startsWith('/dashboard/simulador-meta')
                 ? 'Simulador de Meta'
@@ -696,9 +701,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       ? 'Administre, distribua e organize a entrada de leads'
                       : pathname?.startsWith('/admin')
                         ? 'Gestão e administração do sistema'
-                        : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
-                          ? 'Execução comercial da operação'
-                          : pathname?.startsWith('/relatorios')
+                        : pathname?.startsWith('/pulso-comercial')
+                          ? 'Saúde das negociações em andamento'
+                          : pathname?.startsWith('/leads') || pathname?.startsWith('/sales-cycles')
+                            ? 'Execução comercial da operação'
+                            : pathname?.startsWith('/relatorios')
                             ? 'Análise e inteligência comercial'
                             : pathname?.startsWith('/dashboard/simulador-meta')
                               ? 'Projeção e planejamento de metas'
@@ -915,6 +922,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             icon="kanban"
             collapsed={collapsed}
             active={isActive('/leads')}
+          />
+          <NavBtn
+            href="/pulso-comercial"
+            label="Pulso Comercial"
+            icon="target"
+            collapsed={collapsed}
+            active={isActive('/pulso-comercial')}
           />
           <NavBtnWithSubmenu
             href="/relatorios"
