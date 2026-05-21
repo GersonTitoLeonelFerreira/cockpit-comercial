@@ -1,8 +1,10 @@
 'use client'
 
-import type { SalesPulsePageData, SalesPulseSeverity } from '@/app/types/sales-pulse'
+import { useMemo, useState } from 'react'
+import type { SalesPulseCyclePulse, SalesPulsePageData, SalesPulseSeverity } from '@/app/types/sales-pulse'
 import PulseSummaryCards from './components/PulseSummaryCards'
 import PulseRiskTable from './components/PulseRiskTable'
+import PulseFilters, { type PulseFilterKey } from './components/PulseFilters'
 
 const severityClass: Record<SalesPulseSeverity, string> = {
   positive: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
@@ -26,7 +28,38 @@ function formatGeneratedAt(value: string) {
   }).format(date)
 }
 
+function applyPulseFilter(cycles: SalesPulseCyclePulse[], filter: PulseFilterKey) {
+  switch (filter) {
+    case 'criticos':
+      return cycles.filter((cycle) => cycle.state === 'critico')
+    case 'sem_pulso':
+      return cycles.filter((cycle) => cycle.state === 'sem_pulso')
+    case 'fracos':
+      return cycles.filter((cycle) => cycle.state === 'fraco')
+    case 'acoes_vencidas':
+      return cycles.filter((cycle) => cycle.isNextActionOverdue)
+    case 'sem_proxima_acao':
+      return cycles.filter((cycle) => !cycle.nextActionDate)
+    case 'contato':
+      return cycles.filter((cycle) => cycle.status === 'contato')
+    case 'agenda':
+      return cycles.filter((cycle) => cycle.status === 'respondeu')
+    case 'negociacao':
+      return cycles.filter((cycle) => cycle.status === 'negociacao')
+    case 'todos':
+    default:
+      return cycles
+  }
+}
+
 export default function PulsoComercialClient({ data }: { data: SalesPulsePageData }) {
+  const [activeFilter, setActiveFilter] = useState<PulseFilterKey>('todos')
+
+  const filteredCycles = useMemo(
+    () => applyPulseFilter(data.cycles, activeFilter),
+    [activeFilter, data.cycles]
+  )
+
   return (
     <div className="min-h-full bg-[#090b0f] text-[#edf2f7]">
       <div className="mb-6 rounded-3xl border border-[#1a1d2e] bg-[#0d0f14] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
@@ -85,9 +118,10 @@ export default function PulsoComercialClient({ data }: { data: SalesPulsePageDat
 
       <div className="space-y-6">
         <PulseSummaryCards summary={data.summary} />
+        <PulseFilters activeFilter={activeFilter} onChange={setActiveFilter} />
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <PulseRiskTable cycles={data.cycles} />
+          <PulseRiskTable cycles={filteredCycles} />
 
           <aside className="space-y-4">
             <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-5">
