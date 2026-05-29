@@ -24,34 +24,16 @@ const DS = {
   textSecondary: '#8fa3bc',
   textMuted: '#546070',
   blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  danger: '#fca5a5',
 } as const
 
-const severityClass: Record<SalesPulseSeverity, { border: string; background: string; color: string }> = {
-  positive: {
-    border: 'rgba(34,197,94,0.30)',
-    background: 'rgba(34,197,94,0.10)',
-    color: '#86efac',
-  },
-  neutral: {
-    border: 'rgba(59,130,246,0.30)',
-    background: 'rgba(59,130,246,0.10)',
-    color: '#93c5fd',
-  },
-  warning: {
-    border: 'rgba(245,158,11,0.34)',
-    background: 'rgba(245,158,11,0.12)',
-    color: '#fcd34d',
-  },
-  danger: {
-    border: 'rgba(239,68,68,0.34)',
-    background: 'rgba(239,68,68,0.12)',
-    color: '#fca5a5',
-  },
-  dead: {
-    border: 'rgba(113,113,122,0.34)',
-    background: 'rgba(113,113,122,0.12)',
-    color: '#d4d4d8',
-  },
+const severityText: Record<SalesPulseSeverity, string> = {
+  positive: '#86efac',
+  neutral: DS.blueSoft,
+  warning: '#fcd34d',
+  danger: DS.danger,
+  dead: '#d4d4d8',
 }
 
 function supportsSalesPulse(status: SalesCycle['status']) {
@@ -59,15 +41,13 @@ function supportsSalesPulse(status: SalesCycle['status']) {
 }
 
 function formatNextActionDate(value: string | null) {
-  if (!value) return 'Sem data definida'
-
+  if (!value) return 'Sem data'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Data inválida'
 
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: '2-digit',
-    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
@@ -100,26 +80,60 @@ function buildPulseRow(cycle: SalesCycle, lead: CyclePulseLead | null): SalesPul
   }
 }
 
-function SmallMetric({ label, value, detail, danger }: { label: string; value: string; detail?: string; danger?: boolean }) {
+function MetricPill({
+  label,
+  value,
+  danger,
+}: {
+  label: string
+  value: string
+  danger?: boolean
+}) {
   return (
-    <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 12 }}>
-      <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+    <div
+      style={{
+        border: `1px solid ${DS.borderSubtle}`,
+        background: DS.surfaceBg,
+        borderRadius: 10,
+        padding: '8px 10px',
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          color: DS.textMuted,
+          fontSize: 9,
+          fontWeight: 900,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          marginBottom: 4,
+        }}
+      >
         {label}
       </div>
-      <div style={{ marginTop: 7, color: danger ? '#fca5a5' : DS.textPrimary, fontSize: 13, fontWeight: 800, lineHeight: 1.35 }}>
+      <div
+        style={{
+          color: danger ? DS.danger : DS.textPrimary,
+          fontSize: 12,
+          fontWeight: 800,
+          lineHeight: 1.3,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+        title={value}
+      >
         {value}
       </div>
-      {detail && <div style={{ marginTop: 5, color: DS.textSecondary, fontSize: 11, lineHeight: 1.4 }}>{detail}</div>}
     </div>
   )
 }
 
-export default function CyclePulsePanel({ cycle, lead, variant = 'wide' }: CyclePulsePanelProps) {
+export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
   if (!supportsSalesPulse(cycle.status)) return null
 
-  const compact = variant === 'compact'
   const pulse = calculateCyclePulse(buildPulseRow(cycle, lead))
-  const styles = severityClass[pulse.severity]
+  const color = severityText[pulse.severity]
 
   return (
     <div
@@ -127,11 +141,17 @@ export default function CyclePulsePanel({ cycle, lead, variant = 'wide' }: Cycle
         background: DS.panelBg,
         border: `1px solid ${DS.border}`,
         borderRadius: 16,
-        padding: compact ? 16 : 18,
-        marginBottom: compact ? 0 : 18,
+        padding: 16,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '220px minmax(0, 1fr) 280px',
+          gap: 14,
+          alignItems: 'start',
+        }}
+      >
         <div style={{ minWidth: 0 }}>
           <div
             style={{
@@ -145,103 +165,148 @@ export default function CyclePulsePanel({ cycle, lead, variant = 'wide' }: Cycle
           >
             Pulso Comercial
           </div>
-          <h2 style={{ margin: 0, fontSize: compact ? 15 : 18, lineHeight: 1.2, color: DS.textPrimary }}>
-            Saúde da negociação
-          </h2>
-          {!compact && (
-            <p style={{ margin: '8px 0 0', color: DS.textSecondary, fontSize: 13, lineHeight: 1.6 }}>
-              Leitura operacional do ciclo atual com base em etapa, tempo parado e próxima ação.
-            </p>
-          )}
+
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              border: `1px solid ${DS.border}`,
+              background: DS.surfaceBg,
+              color,
+              borderRadius: 999,
+              padding: '6px 10px',
+              fontSize: 12,
+              fontWeight: 900,
+              lineHeight: 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {pulse.stateLabel} · {pulse.score}/100
+          </div>
         </div>
 
         <div
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            alignSelf: 'flex-start',
-            width: 'fit-content',
-            padding: compact ? '6px 10px' : '8px 12px',
-            borderRadius: 999,
-            border: `1px solid ${styles.border}`,
-            background: styles.background,
-            color: styles.color,
-            fontSize: compact ? 12 : 13,
-            fontWeight: 900,
-            lineHeight: 1.15,
-            whiteSpace: 'nowrap',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+            gap: 10,
+            minWidth: 0,
           }}
         >
-          {pulse.stateLabel} · {pulse.score}/100
+          <div>
+            <div
+              style={{
+                color: DS.textMuted,
+                fontSize: 9,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 5,
+              }}
+            >
+              Sinal principal
+            </div>
+            <div
+              style={{
+                color: DS.textPrimary,
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              {pulse.mainReason}
+            </div>
+          </div>
+
+          <div>
+            <div
+              style={{
+                color: DS.textMuted,
+                fontSize: 9,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 5,
+              }}
+            >
+              Orientação
+            </div>
+            <div
+              style={{
+                color: DS.textPrimary,
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              {pulse.recommendedAction}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 8,
+          }}
+        >
+          <MetricPill
+            label="Etapa"
+            value={
+              pulse.daysInStage == null
+                ? '—'
+                : `${pulse.daysInStage}d`
+            }
+          />
+          <MetricPill
+            label="Ação"
+            value={
+              pulse.isNextActionOverdue
+                ? 'Vencida'
+                : pulse.nextActionDate
+                  ? 'Em dia'
+                  : 'Sem data'
+            }
+            danger={pulse.isNextActionOverdue}
+          />
+          <MetricPill
+            label="Data"
+            value={formatNextActionDate(pulse.nextActionDate)}
+            danger={pulse.isNextActionOverdue}
+          />
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 14 }}>
-        <SmallMetric
-          label="Tempo na etapa"
-          value={pulse.daysInStage == null ? '—' : `${pulse.daysInStage} dia${pulse.daysInStage === 1 ? '' : 's'}`}
-        />
-        <SmallMetric
-          label="Próxima ação"
-          value={pulse.isNextActionOverdue ? 'Vencida' : pulse.nextActionDate ? 'Em dia' : 'Não definida'}
-          detail={formatNextActionDate(pulse.nextActionDate)}
-          danger={pulse.isNextActionOverdue}
-        />
-        <SmallMetric
-          label="Última atualização"
-          value={pulse.daysSinceUpdate == null ? '—' : `${pulse.daysSinceUpdate} dia${pulse.daysSinceUpdate === 1 ? '' : 's'}`}
-        />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, marginTop: 10 }}>
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 12 }}>
-          <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Sinal principal
-          </div>
-          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 12.5, lineHeight: 1.55 }}>
-            {pulse.mainReason}
-          </div>
+      {pulse.signals.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: `1px solid ${DS.borderSubtle}`,
+          }}
+        >
+          {pulse.signals.slice(0, 4).map((signal) => (
+            <span
+              key={`${signal.label}-${signal.detail}`}
+              title={signal.detail}
+              style={{
+                border: `1px solid ${DS.borderSubtle}`,
+                background: DS.surfaceBg,
+                color: severityText[signal.severity],
+                borderRadius: 999,
+                padding: '4px 8px',
+                fontSize: 10,
+                fontWeight: 800,
+                lineHeight: 1,
+              }}
+            >
+              {signal.label}
+            </span>
+          ))}
         </div>
-
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 12 }}>
-          <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Orientação
-          </div>
-          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 12.5, lineHeight: 1.55 }}>
-            {pulse.recommendedAction}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 10 }}>
-        <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-          Sinais detectados
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {pulse.signals.map((signal) => {
-            const signalStyle = severityClass[signal.severity]
-
-            return (
-              <div
-                key={`${signal.label}-${signal.detail}`}
-                title={signal.detail}
-                style={{
-                  border: `1px solid ${signalStyle.border}`,
-                  background: signalStyle.background,
-                  color: signalStyle.color,
-                  borderRadius: 999,
-                  padding: '4px 8px',
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  maxWidth: '100%',
-                }}
-              >
-                {signal.label}
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      )}
     </div>
   )
 }
