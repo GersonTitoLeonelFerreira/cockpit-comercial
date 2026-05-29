@@ -16,6 +16,7 @@ import {
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import LeadCopilotPanel from '@/app/components/leads/LeadCopilotPanel'
+import LeadQuickDrawer, { type WorklistItem } from './LeadQuickDrawer'
 import { QuickActionModal, logQuickAction, QuickActionType } from '@/app/components/leads/QuickActionModal'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { adminListSellersStats } from '@/app/lib/services/admin-sellers'
@@ -110,6 +111,26 @@ type PipelineItem = {
   next_action: string | null
   next_action_date: string | null
   lead_groups?: { name: string } | null
+}
+
+function QuickViewIcon({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path d="M4 12s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
 }
 
 const STATUSES: Status[] = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
@@ -1190,6 +1211,7 @@ function KanbanCard({
   isSelected,
   onToggleSelect,
   onOpenMenu,
+  onOpenQuickDrawer,
   onMoveItem,
   onCopilotSaved,
   supabase,
@@ -1203,6 +1225,7 @@ function KanbanCard({
   isSelected: boolean
   onToggleSelect: (cycleId: string) => void
   onOpenMenu: (item: PipelineItem, anchorRect: DOMRect) => void
+  onOpenQuickDrawer: (item: PipelineItem) => void
   onMoveItem: (cycleId: string, toStatus: Status) => void
   onCopilotSaved: () => void | Promise<void>
   supabase: any
@@ -1389,12 +1412,14 @@ function KanbanCard({
             <div />
           )}
 
-          <div
+<div
             style={{
               display: 'flex',
-              gap: 2,
+              gap: 1,
               alignItems: 'center',
               justifyContent: 'flex-end',
+              flexShrink: 0,
+              minWidth: 0,
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1477,6 +1502,38 @@ function KanbanCard({
             </button>
 
             <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenQuickDrawer(item)
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              title="Abrir visão rápida"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 4,
+                padding: '3px 5px',
+                cursor: 'pointer',
+                fontSize: 12,
+                color: DS.iconNeutral,
+                fontWeight: 800,
+                lineHeight: 1,
+                width: 22,
+                minWidth: 22,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = DS.blueSoft }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = DS.iconNeutral }}
+              >
+              <QuickViewIcon size={13} />
+            </button>
+
+            <button
               ref={menuButtonRef}
               onClick={(e) => {
                 e.stopPropagation()
@@ -1492,12 +1549,17 @@ function KanbanCard({
                 background: 'transparent',
                 border: 'none',
                 borderRadius: 4,
-                padding: '2px 6px',
+                padding: '2px 5px',
                 cursor: 'pointer',
                 fontSize: 16,
                 color: DS.iconNeutral,
-                fontWeight: 700,
+                fontWeight: 800,
                 lineHeight: 1,
+                width: 22,
+                minWidth: 22,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.color = DS.iconHover }}
               onMouseLeave={(e) => { e.currentTarget.style.color = DS.iconNeutral }}
@@ -1663,6 +1725,7 @@ type VirtualizedStatusColumnProps = {
   slaFilter: 'all' | 'ok' | 'warn' | 'danger'
   agendaFilter: 'all' | 'today' | 'overdue' | 'next7'
   onReturnToPool: (cycleId: string, cycleName: string) => void
+  onOpenQuickDrawer: (item: PipelineItem) => void
   onReassign: (cycleId: string, newOwnerId: string) => void
   onSetGroup: (cycleId: string, groupId: string | null) => void
   onCreateGroup: (target: 'bulk' | 'card', cycleId?: string) => void
@@ -1689,6 +1752,7 @@ function VirtualizedStatusColumn({
   slaFilter,
   agendaFilter,
   onReturnToPool,
+  onOpenQuickDrawer,
   onReassign,
   onSetGroup,
   onCreateGroup,
@@ -1956,6 +2020,7 @@ function VirtualizedStatusColumn({
                   isSelected={selectedIds.has(item.id)}
                   onToggleSelect={onToggleSelect}
                   onOpenMenu={(menuItem, rect) => setMenuState({ item: menuItem, anchorRect: rect })}
+                  onOpenQuickDrawer={onOpenQuickDrawer}
                   onMoveItem={onMoveItem}
                   onCopilotSaved={onCopilotSaved}
                   supabase={supabase}
@@ -2080,6 +2145,8 @@ export default function SalesCyclesKanban({
   const [lostDealOpen, setLostDealOpen] = useState(false)
   const [lostDealCycleId, setLostDealCycleId] = useState<string | null>(null)
   const [lostDealName, setLostDealName] = useState('')
+
+  const [quickDrawerItem, setQuickDrawerItem] = useState<WorklistItem | null>(null)
 
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
 
@@ -2733,6 +2800,19 @@ export default function SalesCyclesKanban({
     })
   }, [])
 
+  const openQuickDrawer = useCallback((item: PipelineItem) => {
+    setQuickDrawerItem({
+      id: item.id,
+      lead_id: item.lead_id,
+      name: item.name,
+      phone: item.phone,
+      status: item.status,
+      next_action: item.next_action,
+      next_action_date: item.next_action_date,
+      stage_entered_at: item.stage_entered_at,
+    })
+  }, [])
+
   const visibleKanbanItems = useMemo(() => {
     return Object.values(items).flat().filter((item) => {
       if (slaFilter !== 'all') {
@@ -3170,6 +3250,7 @@ export default function SalesCyclesKanban({
       setReturnCycleName(cycleName)
       setReturnReasonModalOpen(true)
     }}
+    onOpenQuickDrawer={openQuickDrawer}
     onReassign={reassignCycle}
     onSetGroup={setGroupForCycle}
     onCreateGroup={handleCreateGroupInline}
@@ -3187,6 +3268,16 @@ export default function SalesCyclesKanban({
           )}
         </div>
       </div>
+
+      <LeadQuickDrawer
+        item={quickDrawerItem}
+        onClose={() => setQuickDrawerItem(null)}
+        supabase={supabase}
+        onSaved={() => {
+          void loadItems(searchTerm)
+          setKpiRefreshKey((v) => v + 1)
+        }}
+      />
 
       {showCreateLeadModal && (
         <CreateLeadModal
