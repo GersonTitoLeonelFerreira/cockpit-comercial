@@ -306,104 +306,26 @@ export default async function SalesCycleDetailPage({
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) 360px',
-          gap: 14,
-          alignItems: 'start',
-        }}
-      >
-        <main style={{ minWidth: 0 }}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <CyclePulsePanel cycle={cycle} lead={lead} variant="compact" />
+
         <CopilotTogglePanel cycle={copilotCycle} />
 
-          <div
-            style={{
-              background: DS.panelBg,
-              border: `1px solid ${DS.border}`,
-              borderRadius: 16,
-              padding: 16,
-            }}
-          >
-            <CyclePageTabs
-              cycle={cycle}
-              events={events}
-              leadProfile={leadProfile}
-              companyId={cycle.company_id as string}
-            />
-          </div>
-        </main>
-
-        <aside
+        <div
           style={{
-            minWidth: 0,
-            position: 'sticky',
-            top: 96,
-            display: 'grid',
-            gap: 12,
+            background: DS.panelBg,
+            border: `1px solid ${DS.border}`,
+            borderRadius: 16,
+            padding: 16,
           }}
         >
-          <CyclePulsePanel cycle={cycle} lead={lead} variant="compact" />
-
-          <div
-            style={{
-              background: DS.panelBg,
-              border: `1px solid ${DS.border}`,
-              borderRadius: 16,
-              padding: 16,
-            }}
-          >
-            <div
-              style={{
-                color: DS.blue,
-                fontSize: 10,
-                fontWeight: 900,
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                marginBottom: 12,
-              }}
-            >
-              Resumo operacional
-            </div>
-
-            <div style={{ display: 'grid', gap: 10 }}>
-              {cards.map((card) => (
-                <div
-                  key={card.label}
-                  style={{
-                    background: DS.surfaceBg,
-                    border: `1px solid ${DS.borderSubtle}`,
-                    borderRadius: 12,
-                    padding: 12,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: DS.textMuted,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      marginBottom: 7,
-                      fontWeight: 800,
-                    }}
-                  >
-                    {card.label}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: card.tone === 'danger' ? '#fca5a5' : DS.textPrimary,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {card.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
+          <CyclePageTabs
+            cycle={cycle}
+            events={events}
+            leadProfile={leadProfile}
+            companyId={cycle.company_id as string}
+          />
+        </div>
       </div>
     </div>
   )
