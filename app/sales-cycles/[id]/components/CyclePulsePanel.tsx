@@ -12,6 +12,7 @@ type CyclePulseLead = {
 type CyclePulsePanelProps = {
   cycle: SalesCycle
   lead: CyclePulseLead | null
+  variant?: 'wide' | 'compact'
 }
 
 const DS = {
@@ -99,9 +100,24 @@ function buildPulseRow(cycle: SalesCycle, lead: CyclePulseLead | null): SalesPul
   }
 }
 
-export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
+function SmallMetric({ label, value, detail, danger }: { label: string; value: string; detail?: string; danger?: boolean }) {
+  return (
+    <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 12 }}>
+      <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 7, color: danger ? '#fca5a5' : DS.textPrimary, fontSize: 13, fontWeight: 800, lineHeight: 1.35 }}>
+        {value}
+      </div>
+      {detail && <div style={{ marginTop: 5, color: DS.textSecondary, fontSize: 11, lineHeight: 1.4 }}>{detail}</div>}
+    </div>
+  )
+}
+
+export default function CyclePulsePanel({ cycle, lead, variant = 'wide' }: CyclePulsePanelProps) {
   if (!supportsSalesPulse(cycle.status)) return null
 
+  const compact = variant === 'compact'
   const pulse = calculateCyclePulse(buildPulseRow(cycle, lead))
   const styles = severityClass[pulse.severity]
 
@@ -111,12 +127,12 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
         background: DS.panelBg,
         border: `1px solid ${DS.border}`,
         borderRadius: 16,
-        padding: 18,
-        marginBottom: 18,
+        padding: compact ? 16 : 18,
+        marginBottom: compact ? 0 : 18,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               color: DS.blue,
@@ -129,12 +145,14 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
           >
             Pulso Comercial
           </div>
-          <h2 style={{ margin: 0, fontSize: 18, lineHeight: 1.2, color: DS.textPrimary }}>
+          <h2 style={{ margin: 0, fontSize: compact ? 15 : 18, lineHeight: 1.2, color: DS.textPrimary }}>
             Saúde da negociação
           </h2>
-          <p style={{ margin: '8px 0 0', color: DS.textSecondary, fontSize: 13, lineHeight: 1.6 }}>
-            Leitura operacional do ciclo atual com base em etapa, tempo parado e próxima ação.
-          </p>
+          {!compact && (
+            <p style={{ margin: '8px 0 0', color: DS.textSecondary, fontSize: 13, lineHeight: 1.6 }}>
+              Leitura operacional do ciclo atual com base em etapa, tempo parado e próxima ação.
+            </p>
+          )}
         </div>
 
         <div
@@ -143,12 +161,12 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
             alignItems: 'center',
             alignSelf: 'flex-start',
             width: 'fit-content',
-            padding: '8px 12px',
+            padding: compact ? '6px 10px' : '8px 12px',
             borderRadius: 999,
             border: `1px solid ${styles.border}`,
             background: styles.background,
             color: styles.color,
-            fontSize: 13,
+            fontSize: compact ? 12 : 13,
             fontWeight: 900,
             lineHeight: 1.15,
             whiteSpace: 'nowrap',
@@ -158,72 +176,48 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 12,
-          marginTop: 16,
-        }}
-      >
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 14 }}>
-          <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Tempo na etapa
-          </div>
-          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 14, fontWeight: 800 }}>
-            {pulse.daysInStage == null ? '—' : `${pulse.daysInStage} dia${pulse.daysInStage === 1 ? '' : 's'}`}
-          </div>
-        </div>
-
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 14 }}>
-          <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Próxima ação
-          </div>
-          <div style={{ marginTop: 8, color: pulse.isNextActionOverdue ? '#fca5a5' : DS.textPrimary, fontSize: 14, fontWeight: 800 }}>
-            {pulse.isNextActionOverdue ? 'Vencida' : pulse.nextActionDate ? 'Em dia' : 'Não definida'}
-          </div>
-          <div style={{ marginTop: 5, color: DS.textSecondary, fontSize: 12, lineHeight: 1.4 }}>
-            {formatNextActionDate(pulse.nextActionDate)}
-          </div>
-        </div>
-
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 14 }}>
-          <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Última atualização
-          </div>
-          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 14, fontWeight: 800 }}>
-            {pulse.daysSinceUpdate == null
-              ? '—'
-              : `${pulse.daysSinceUpdate} dia${pulse.daysSinceUpdate === 1 ? '' : 's'}`}
-          </div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 14 }}>
+        <SmallMetric
+          label="Tempo na etapa"
+          value={pulse.daysInStage == null ? '—' : `${pulse.daysInStage} dia${pulse.daysInStage === 1 ? '' : 's'}`}
+        />
+        <SmallMetric
+          label="Próxima ação"
+          value={pulse.isNextActionOverdue ? 'Vencida' : pulse.nextActionDate ? 'Em dia' : 'Não definida'}
+          detail={formatNextActionDate(pulse.nextActionDate)}
+          danger={pulse.isNextActionOverdue}
+        />
+        <SmallMetric
+          label="Última atualização"
+          value={pulse.daysSinceUpdate == null ? '—' : `${pulse.daysSinceUpdate} dia${pulse.daysSinceUpdate === 1 ? '' : 's'}`}
+        />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12, marginTop: 12 }}>
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, marginTop: 10 }}>
+        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 12 }}>
           <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Sinal principal
           </div>
-          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 12.5, lineHeight: 1.55 }}>
             {pulse.mainReason}
           </div>
         </div>
 
-        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 14 }}>
+        <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.borderSubtle}`, borderRadius: 12, padding: 12 }}>
           <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Orientação recomendada
+            Orientação
           </div>
-          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ marginTop: 8, color: DS.textPrimary, fontSize: 12.5, lineHeight: 1.55 }}>
             {pulse.recommendedAction}
           </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 10 }}>
         <div style={{ color: DS.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
           Sinais detectados
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {pulse.signals.map((signal) => {
             const signalStyle = severityClass[signal.severity]
 
@@ -236,8 +230,8 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
                   background: signalStyle.background,
                   color: signalStyle.color,
                   borderRadius: 999,
-                  padding: '5px 9px',
-                  fontSize: 11,
+                  padding: '4px 8px',
+                  fontSize: 10.5,
                   fontWeight: 800,
                   maxWidth: '100%',
                 }}
