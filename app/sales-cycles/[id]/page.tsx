@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { redirect } from 'next/navigation'
 import CyclePageTabs from './CyclePageTabs'
 import ConversationCopilot from './components/ConversationCopilot'
+import CyclePulsePanel from './components/CyclePulsePanel'
 import {
   type CycleEvent,
   statusLabel,
@@ -347,6 +348,8 @@ export default async function SalesCycleDetailPage({
           </div>
         ))}
       </div>
+
+      <CyclePulsePanel cycle={cycle} lead={lead} />
 
       <div
         style={{
