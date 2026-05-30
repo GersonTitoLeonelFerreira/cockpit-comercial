@@ -11,6 +11,77 @@ interface EditLeadProfileModalProps {
   onSave: () => void
 }
 
+const DS = {
+  overlay: 'rgba(0,0,0,0.72)',
+  panel: '#0d0f14',
+  surface: '#111318',
+  field: '#090b0f',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+  text: '#edf2f7',
+  muted: '#8fa3bc',
+  weak: '#546070',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  danger: '#fca5a5',
+  success: '#86efac',
+} as const
+
+function Field({
+  label,
+  value,
+  onChange,
+  disabled,
+  type = 'text',
+  maxLength,
+  onBlur,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  disabled: boolean
+  type?: string
+  maxLength?: number
+  onBlur?: () => void
+}) {
+  return (
+    <div>
+      <label
+        style={{
+          display: 'block',
+          fontSize: 11,
+          color: DS.muted,
+          marginBottom: 6,
+          fontWeight: 700,
+        }}
+      >
+        {label}
+      </label>
+
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        maxLength={maxLength}
+        disabled={disabled}
+        style={{
+          width: '100%',
+          padding: '10px 11px',
+          background: DS.field,
+          border: `1px solid ${DS.border}`,
+          borderRadius: 10,
+          color: DS.text,
+          fontSize: 13,
+          outline: 'none',
+          boxSizing: 'border-box',
+          opacity: disabled ? 0.6 : 1,
+        }}
+      />
+    </div>
+  )
+}
+
 export default function EditLeadProfileModal({
   leadId,
   companyId,
@@ -21,6 +92,7 @@ export default function EditLeadProfileModal({
   const supabase = supabaseBrowser()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const [cpf, setCpf] = useState(profile?.cpf || '')
   const [email, setEmail] = useState(profile?.email || '')
@@ -34,44 +106,49 @@ export default function EditLeadProfileModal({
   const [country, setCountry] = useState(profile?.address_country || 'Brasil')
 
   const handleCepBlur = async () => {
-    if (!cep || cep.length !== 8) return
+    const cleanCep = cep.replace(/\D/g, '')
+
+    if (!cleanCep || cleanCep.length !== 8) return
 
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
+      const response = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`)
       const data = await response.json()
 
       if (data.erro) {
-        setError('CEP não encontrado')
+        setError('CEP não encontrado.')
         return
       }
 
+      setCep(cleanCep)
       setStreet(data.logradouro || '')
       setNeighborhood(data.bairro || '')
       setCity(data.localidade || '')
       setState(data.uf || '')
+      setError(null)
     } catch (err) {
       console.error('Erro ao buscar CEP:', err)
-      setError('Erro ao buscar CEP')
+      setError('Erro ao buscar CEP.')
     }
   }
 
   const handleSave = async () => {
     setError(null)
+    setSuccess(null)
     setLoading(true)
 
     try {
       const { error: updateErr } = await supabase
         .from('lead_profiles')
         .update({
-          cpf: cpf.trim() || null,
+          cpf: cpf.replace(/\D/g, '').trim() || null,
           email: email.trim() || null,
-          cep: cep.trim() || null,
+          cep: cep.replace(/\D/g, '').trim() || null,
           address_street: street.trim() || null,
           address_number: number.trim() || null,
           address_complement: complement.trim() || null,
           address_neighborhood: neighborhood.trim() || null,
           address_city: city.trim() || null,
-          address_state: state.trim() || null,
+          address_state: state.trim().toUpperCase() || null,
           address_country: country.trim() || null,
         })
         .eq('lead_id', leadId)
@@ -79,11 +156,14 @@ export default function EditLeadProfileModal({
 
       if (updateErr) throw updateErr
 
-      alert('Dados atualizados com sucesso!')
+      setSuccess('Dados atualizados com sucesso.')
       onSave()
-      onClose()
+
+      setTimeout(() => {
+        onClose()
+      }, 450)
     } catch (err: any) {
-      setError(err?.message || 'Erro ao salvar')
+      setError(err?.message || 'Erro ao salvar dados.')
       console.error('Error:', err)
     } finally {
       setLoading(false)
@@ -95,255 +175,266 @@ export default function EditLeadProfileModal({
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        background: DS.overlay,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 1000,
+        padding: 18,
       }}
       onClick={onClose}
     >
       <div
         style={{
-          backgroundColor: '#1a1a1a',
-          borderRadius: 12,
-          border: '1px solid #2a2a2a',
-          maxWidth: '600px',
-          width: '90%',
+          background: DS.panel,
+          borderRadius: 18,
+          border: `1px solid ${DS.border}`,
+          maxWidth: 720,
+          width: '100%',
           maxHeight: '90vh',
           overflowY: 'auto',
-          padding: 24,
+          boxShadow: '0 28px 90px rgba(0,0,0,0.62)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 style={{ marginTop: 0, color: 'white', marginBottom: 20 }}>Editar Dados</h2>
-
-        {error && (
-          <div style={{ padding: 12, backgroundColor: '#8B0000', borderRadius: 8, color: '#FFB6C6', marginBottom: 16 }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+        <div
+          style={{
+            padding: '18px 20px',
+            borderBottom: `1px solid ${DS.border}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 16,
+          }}
+        >
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>CPF</label>
-            <input
-              type="text"
-              value={cpf}
-              onChange={(e) => setCpf(e.target.value.replace(/\D/g, ''))}
-              disabled={loading}
+            <div
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
+                color: DS.blue,
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                marginBottom: 7,
               }}
-            />
+            >
+              Cadastro completo
+            </div>
+
+            <h2
+              style={{
+                margin: 0,
+                color: DS.text,
+                fontSize: 18,
+                fontWeight: 900,
+                lineHeight: 1.2,
+              }}
+            >
+              Editar dados do lead
+            </h2>
+
+            <p
+              style={{
+                margin: '7px 0 0',
+                color: DS.muted,
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              Atualize documentos, contato e endereço vinculados ao lead.
+            </p>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>CEP</label>
-            <input
-              type="text"
-              value={cep}
-              onChange={(e) => setCep(e.target.value.replace(/\D/g, ''))}
-              onBlur={handleCepBlur}
-              maxLength={8}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Rua</label>
-            <input
-              type="text"
-              value={street}
-              onChange={(e) => setStreet(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Número</label>
-            <input
-              type="text"
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Complemento</label>
-            <input
-              type="text"
-              value={complement}
-              onChange={(e) => setComplement(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Bairro</label>
-            <input
-              type="text"
-              value={neighborhood}
-              onChange={(e) => setNeighborhood(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Cidade</label>
-            <input
-              type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>Estado</label>
-            <input
-              type="text"
-              value={state}
-              onChange={(e) => setState(e.target.value.toUpperCase())}
-              maxLength={2}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#999', marginBottom: 6 }}>País</label>
-            <input
-              type="text"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                backgroundColor: '#2a2a2a',
-                border: '1px solid #3a3a3a',
-                borderRadius: 6,
-                color: 'white',
-              }}
-            />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 12 }}>
           <button
+            type="button"
             onClick={onClose}
             disabled={loading}
+            aria-label="Fechar"
             style={{
-              flex: 1,
-              padding: '12px 16px',
-              backgroundColor: '#333',
-              color: 'white',
-              border: 'none',
-              borderRadius: 8,
-              cursor: 'pointer',
-              opacity: loading ? 0.5 : 1,
+              border: `1px solid ${DS.border}`,
+              background: DS.surface,
+              color: DS.muted,
+              borderRadius: 10,
+              width: 34,
+              height: 34,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: 18,
+              lineHeight: 1,
             }}
           >
-            Cancelar
+            ×
           </button>
-          <button
-            onClick={handleSave}
-            disabled={loading}
+        </div>
+
+        <div style={{ padding: 20 }}>
+          {error && (
+            <div
+              style={{
+                padding: '11px 12px',
+                background: 'rgba(239,68,68,0.10)',
+                border: '1px solid rgba(239,68,68,0.28)',
+                borderRadius: 12,
+                color: DS.danger,
+                marginBottom: 14,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div
+              style={{
+                padding: '11px 12px',
+                background: 'rgba(34,197,94,0.10)',
+                border: '1px solid rgba(34,197,94,0.28)',
+                borderRadius: 12,
+                color: DS.success,
+                marginBottom: 14,
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {success}
+            </div>
+          )}
+
+          <div
             style={{
-              flex: 1,
-              padding: '12px 16px',
-              backgroundColor: '#0066cc',
-              color: 'white',
-              border: 'none',
-              borderRadius: 8,
-              cursor: 'pointer',
-              opacity: loading ? 0.5 : 1,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 14,
+              marginBottom: 18,
             }}
           >
-            {loading ? 'Salvando...' : 'Salvar'}
-          </button>
+            <Field
+              label="CPF"
+              value={cpf}
+              disabled={loading}
+              onChange={(value) => setCpf(value.replace(/\D/g, ''))}
+            />
+
+            <Field
+              label="Email"
+              value={email}
+              disabled={loading}
+              type="email"
+              onChange={setEmail}
+            />
+
+            <Field
+              label="CEP"
+              value={cep}
+              disabled={loading}
+              maxLength={9}
+              onBlur={handleCepBlur}
+              onChange={(value) => setCep(value)}
+            />
+
+            <Field
+              label="Rua"
+              value={street}
+              disabled={loading}
+              onChange={setStreet}
+            />
+
+            <Field
+              label="Número"
+              value={number}
+              disabled={loading}
+              onChange={setNumber}
+            />
+
+            <Field
+              label="Complemento"
+              value={complement}
+              disabled={loading}
+              onChange={setComplement}
+            />
+
+            <Field
+              label="Bairro"
+              value={neighborhood}
+              disabled={loading}
+              onChange={setNeighborhood}
+            />
+
+            <Field
+              label="Cidade"
+              value={city}
+              disabled={loading}
+              onChange={setCity}
+            />
+
+            <Field
+              label="Estado"
+              value={state}
+              disabled={loading}
+              maxLength={2}
+              onChange={(value) => setState(value.toUpperCase())}
+            />
+
+            <Field
+              label="País"
+              value={country}
+              disabled={loading}
+              onChange={setCountry}
+            />
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              justifyContent: 'flex-end',
+              borderTop: `1px solid ${DS.border}`,
+              paddingTop: 16,
+            }}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              style={{
+                padding: '10px 16px',
+                background: DS.surface,
+                color: DS.muted,
+                border: `1px solid ${DS.border}`,
+                borderRadius: 10,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.6 : 1,
+                fontSize: 13,
+                fontWeight: 800,
+                minWidth: 130,
+              }}
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={loading}
+              style={{
+                padding: '10px 16px',
+                background: '#2563eb',
+                color: 'white',
+                border: '1px solid rgba(147,197,253,0.18)',
+                borderRadius: 10,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.65 : 1,
+                fontSize: 13,
+                fontWeight: 900,
+                minWidth: 130,
+              }}
+            >
+              {loading ? 'Salvando...' : 'Salvar dados'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   )
-}   
+}
