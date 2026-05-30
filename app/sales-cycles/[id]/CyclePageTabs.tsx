@@ -14,15 +14,12 @@ import CycleContextAlerts from './CycleContextAlerts'
 import CycleResumeContext from './CycleResumeContext'
 import CycleSuggestedAction from './CycleSuggestedAction'
 import EditLeadProfileModal from '@/app/leads/components/EditLeadProfileModal'
-import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
+import LeadCopilotPanel from '@/app/components/leads/LeadCopilotPanel'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import { QuickActionModal, logQuickAction } from '@/app/components/leads/QuickActionModal'
 import { resolveActionId, getActionLabel } from '@/app/config/stageActions'
-import {
-  moveCycleStage,
-  setNextAction,
-} from '@/app/lib/services/sales-cycles'
+import { setNextAction } from '@/app/lib/services/sales-cycles'
 import type { LeadStatus } from '@/app/types/sales_cycles'
 import {
   IconWhatsApp,
@@ -135,9 +132,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   const [showWinModal, setShowWinModal] = useState(false)
   const [showLostModal, setShowLostModal] = useState(false)
   const [showActionModal, setShowActionModal] = useState(false)
-  const [checkpointOpen, setCheckpointOpen] = useState(false)
-  const [checkpointToStatus, setCheckpointToStatus] = useState<LeadStatus>('contato')
-  const [checkpointLoading, setCheckpointLoading] = useState(false)
+  const [aiMoveStatus, setAiMoveStatus] = useState<LeadStatus | null>(null)
 
   // Form state
   const [action, setAction] = useState('')
@@ -194,18 +189,9 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // Handlers
   // --------------------------------------------------------------------------
 
-  const openCheckpoint = (toStatus: LeadStatus) => {
+  const openAIMove = (toStatus: LeadStatus) => {
     if (toStatus === cycle.status) return
-    if (toStatus === 'ganho') {
-      setShowWinModal(true)
-      return
-    }
-    if (toStatus === 'perdido') {
-      setShowLostModal(true)
-      return
-    }
-    setCheckpointToStatus(toStatus)
-    setCheckpointOpen(true)
+    setAiMoveStatus(toStatus)
   }
 
   const handleSaveAction = async () => {
@@ -803,7 +789,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             return (
               <button
                 key={status}
-                onClick={() => openCheckpoint(status)}
+                onClick={() => openAIMove(status)}
                 disabled={loading || isClosed || isActive}
                 style={{
                   padding: '10px 14px',
@@ -967,7 +953,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               onClick={() => {
                 const target = suggestedStatus as LeadStatus
                 setSuggestedStatus(null)
-                openCheckpoint(target)
+                openAIMove(target)
               }}
               style={{
                 background: '#2563eb', border: 'none', borderRadius: 6,
@@ -1000,37 +986,86 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
 
-      {/* StageCheckpointModal */}
-      <StageCheckpointModal
-        open={checkpointOpen}
-        fromStatus={cycle.status as any}
-        toStatus={checkpointToStatus as any}
-        loading={checkpointLoading}
-        onCancel={() => { if (!checkpointLoading) setCheckpointOpen(false) }}
-        onConfirm={async (payload) => {
-          setCheckpointLoading(true)
-          try {
-            await moveCycleStage({
-              cycle_id: cycle.id,
-              to_status: checkpointToStatus,
-              metadata: payload as any,
-            })
-            if (payload?.next_action && payload?.next_action_date) {
-              await setNextAction({
-                cycle_id: cycle.id,
-                next_action: payload.next_action,
-                next_action_date: payload.next_action_date,
-              })
-            }
-            setCheckpointOpen(false)
-            router.refresh()
-          } catch (err: any) {
-            setToastError(`Erro: ${err?.message ?? String(err)}`)
-          } finally {
-            setCheckpointLoading(false)
-          }
-        }}
-      />
+      {/* Movimento com IA — mesmo fluxo do Kanban */}
+      {aiMoveStatus && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.16)',
+            zIndex: 10000,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              width: 'min(560px, 100vw)',
+              height: '100vh',
+              background: '#0f1117',
+              borderLeft: '1px solid #1a1d2e',
+              boxShadow: '-12px 0 36px rgba(0,0,0,0.52)',
+              overflowY: 'auto',
+              padding: 16,
+              pointerEvents: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#edf2f7' }}>
+                Confirmar movimentação com IA
+              </div>
+
+              <button
+                onClick={() => setAiMoveStatus(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#8fa3bc',
+                  cursor: 'pointer',
+                  fontSize: 20,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <LeadCopilotPanel
+              variant="compact"
+              forcedInitialStatus={aiMoveStatus}
+              cycle={cycle as any}
+              onApplied={async () => {
+                setAiMoveStatus(null)
+                router.refresh()
+              }}
+              onRejected={async () => {
+                setAiMoveStatus(null)
+              }}
+              onCancel={async () => {
+                setAiMoveStatus(null)
+              }}
+              onTerminalApply={(status) => {
+                setAiMoveStatus(null)
+
+                if (status === 'ganho') {
+                  setShowWinModal(true)
+                  return
+                }
+
+                setShowLostModal(true)
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* WinDealModal */}
       <WinDealModal
