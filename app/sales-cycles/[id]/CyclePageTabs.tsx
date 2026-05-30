@@ -827,16 +827,16 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       background: '#111318',
       border: '1px solid #1a1d2e',
       borderRadius: 16,
-      padding: 20,
+      padding: 16,
     }
   
     const titleStyle: React.CSSProperties = {
       color: '#edf2f7',
-      fontWeight: 700,
-      fontSize: 14,
+      fontWeight: 900,
+      fontSize: 12,
       margin: 0,
       textTransform: 'uppercase',
-      letterSpacing: 0.8,
+      letterSpacing: '0.08em',
     }
   
     const birthDateLabel = leadProfile?.birth_date
@@ -850,7 +850,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             background: '#111318',
             border: '1px solid #1a1d2e',
             borderRadius: 16,
-            padding: 18,
+            padding: 16,
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -859,50 +859,64 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           }}
         >
           <div>
-            <div style={{ color: '#edf2f7', fontSize: 16, fontWeight: 800 }}>Dados do Lead</div>
+            <div
+              style={{
+                color: '#3b82f6',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                marginBottom: 6,
+              }}
+            >
+              Cadastro do lead
+            </div>
+            <div style={{ color: '#edf2f7', fontSize: 16, fontWeight: 900 }}>
+              Dados operacionais e cadastrais
+            </div>
             <div style={{ color: '#8fa3bc', fontSize: 12, marginTop: 4 }}>
-              Visualização completa do cadastro operacional e cadastral
+              Informações usadas para contato, identificação e atendimento.
             </div>
           </div>
-  
+
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               onClick={() => setEditingLead(!editingLead)}
               style={{
-                padding: '8px 12px',
-                background: '#1f2937',
-                border: '1px solid #374151',
-                borderRadius: 8,
-                color: '#93c5fd',
+                padding: '8px 11px',
+                background: editingLead ? 'rgba(239,68,68,0.10)' : 'rgba(59,130,246,0.10)',
+                border: editingLead ? '1px solid rgba(239,68,68,0.28)' : '1px solid rgba(59,130,246,0.28)',
+                borderRadius: 10,
+                color: editingLead ? '#fca5a5' : '#93c5fd',
                 fontSize: 12,
-                fontWeight: 700,
+                fontWeight: 800,
                 cursor: 'pointer',
               }}
             >
-              {editingLead ? 'Cancelar edição básica' : 'Editar informações básicas'}
+              {editingLead ? 'Cancelar edição' : 'Editar básicos'}
             </button>
-  
+
             <button
               onClick={() => setShowEditProfile(true)}
               style={{
-                padding: '8px 12px',
-                background: '#1f2937',
-                border: '1px solid #374151',
-                borderRadius: 8,
-                color: '#93c5fd',
+                padding: '8px 11px',
+                background: '#0d0f14',
+                border: '1px solid #1a1d2e',
+                borderRadius: 10,
+                color: '#8fa3bc',
                 fontSize: 12,
-                fontWeight: 700,
+                fontWeight: 800,
                 cursor: 'pointer',
               }}
             >
-              Editar cadastro completo
+              Cadastro completo
             </button>
           </div>
         </div>
   
         {editingLead ? (
           <div style={sectionStyle}>
-            <h3 style={{ ...titleStyle, marginBottom: 16 }}>Dados básicos</h3>
+            <h3 style={{ ...titleStyle, marginBottom: 12 }}>Dados básicos</h3>
   
             <div style={{ display: 'grid', gap: 12 }}>
               <div>
@@ -985,10 +999,10 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             </div>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
             <div style={sectionStyle}>
-              <h3 style={{ ...titleStyle, marginBottom: 16 }}>Dados básicos</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <h3 style={{ ...titleStyle, marginBottom: 12 }}>Dados básicos</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <DataRow label="Nome" value={lead?.name} />
                 <DataRow label="Tipo" value={leadProfile?.lead_type} />
                 <DataRow label="Telefone principal" value={lead?.phone} />
@@ -1002,7 +1016,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   
             <div style={sectionStyle}>
               <h3 style={{ ...titleStyle, marginBottom: 16 }}>Documentos e perfil</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <DataRow label="CPF" value={leadProfile?.cpf} />
                 <DataRow label="CNPJ" value={leadProfile?.cnpj} />
                 <DataRow label="RG" value={leadProfile?.rg} />
@@ -1018,7 +1032,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   
             <div style={sectionStyle}>
               <h3 style={{ ...titleStyle, marginBottom: 16 }}>Endereço</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <DataRow label="CEP" value={leadProfile?.cep} />
                 <DataRow label="Rua" value={leadProfile?.address_street} />
                 <DataRow label="Número" value={leadProfile?.address_number} />
@@ -1032,7 +1046,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   
             <div style={sectionStyle}>
               <h3 style={{ ...titleStyle, marginBottom: 16 }}>Contato de emergência</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <DataRow label="Nome" value={leadProfile?.emergency_contact_name} />
                 <DataRow label="Telefone" value={leadProfile?.emergency_contact_phone} />
               </div>
@@ -1095,8 +1109,8 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Definir Próxima Ação
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div>
+          
+            <div><div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Ação</label>
               <input
                 type="text"
@@ -1148,7 +1162,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Ações Rápidas
           </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {waLink && (
               <button
                 onClick={() => {
