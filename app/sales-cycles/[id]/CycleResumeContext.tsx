@@ -308,34 +308,6 @@ function buildResumeItems(
   // Derivado: perda existe + status atual ≠ perdido
   // (já coberto pela Faceta 3 com texto "Já foi perdido antes")
 
-  // ── Faceta 6: Última próxima ação ─────────────────────────────────────────
-  const nextActionEvent =
-    events.find(ev => ev.event_type === 'next_action_set') ??
-    events.find(ev => {
-      const cp = getCheckpoint(ev)
-      return !!str(cp.next_action)
-    })
-  if (nextActionEvent) {
-    const cp = getCheckpoint(nextActionEvent)
-    const action = str(cp.next_action)
-    const actionDate = str(cp.next_action_date)
-    if (action) {
-      items.push({
-        icon: <IconPin size={11} color="#fde68a" />,
-        label: 'Última próxima ação registrada',
-        content: (
-          <span>
-            <span style={{ color: '#fde68a' }}>{action}</span>
-            {actionDate && (
-              <span style={{ opacity: 0.55 }}> — {fmtDateShort(actionDate)}</span>
-            )}
-          </span>
-        ),
-        date: nextActionEvent.occurred_at,
-      })
-    }
-  }
-
   // ── Faceta 7: Último contato (canal + resultado) ──────────────────────────
   const contactEvent = events.find(ev => {
     const cp = getCheckpoint(ev)
@@ -387,66 +359,75 @@ export default function CycleResumeContext({ events, cycle }: Props) {
   return (
     <div
       style={{
-        padding: '14px 16px',
-        border: '1px solid #3d2f6e',
-        borderLeft: '4px solid #a78bfa',
-        borderRadius: 10,
-        background: '#1a1a2e',
+        padding: 14,
+        border: '1px solid #1a1d2e',
+        borderRadius: 16,
+        background: '#111318',
       }}
     >
       <div
         style={{
-          fontSize: 11,
-          color: '#a78bfa',
+          fontSize: 10,
+          color: '#3b82f6',
           textTransform: 'uppercase',
-          letterSpacing: 1,
+          letterSpacing: '0.14em',
           marginBottom: 12,
-          fontWeight: 600,
+          fontWeight: 900,
           display: 'flex',
           alignItems: 'center',
           gap: 6,
         }}
       >
-        <IconBrain size={12} color="#a78bfa" />
+        <IconBrain size={12} color="#3b82f6" />
         Antes de falar com este lead
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map((item) => (
+
+      <div style={{ display: 'grid', gap: 8 }}>
+        {items.slice(0, 5).map((item) => (
           <div
             key={item.label}
             style={{
-              padding: '8px 10px',
-              borderRadius: 7,
-              background: '#23232b',
-              border: '1px solid #2e2e42',
+              padding: '10px 11px',
+              borderRadius: 12,
+              background: '#0d0f14',
+              border: '1px solid #1a1d2e',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                alignItems: 'start',
+                gap: 10,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
                 <span
                   style={{
                     fontSize: 10,
-                    opacity: 0.45,
+                    color: '#546070',
                     textTransform: 'uppercase',
                     letterSpacing: 0.8,
                     display: 'flex',
                     alignItems: 'center',
                     gap: 5,
-                    marginBottom: 3,
+                    marginBottom: 4,
+                    fontWeight: 800,
                   }}
                 >
-                  <span style={{ opacity: 1, display: 'inline-flex', alignItems: 'center' }}>{item.icon}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>{item.icon}</span>
                   {item.label}
                 </span>
-                <div style={{ fontSize: 13, color: '#e5e7eb', lineHeight: 1.45 }}>
+                <div style={{ fontSize: 12.5, color: '#edf2f7', lineHeight: 1.45 }}>
                   {item.content}
                 </div>
               </div>
+
               {item.date && (
                 <span
                   style={{
                     fontSize: 10,
-                    opacity: 0.35,
+                    color: '#546070',
                     flexShrink: 0,
                     paddingTop: 2,
                     whiteSpace: 'nowrap',

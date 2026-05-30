@@ -265,49 +265,52 @@ export default function CycleContextAlerts({ events, lead }: Props) {
   return (
     <div
       style={{
-        marginTop: 12,
-        padding: '14px 16px',
-        border: '1px solid #313145',
-        borderRadius: 10,
-        background: '#1a1a2e',
+        padding: 14,
+        border: '1px solid #1a1d2e',
+        borderRadius: 16,
+        background: '#111318',
       }}
     >
       <div
         style={{
-          fontSize: 11,
-          opacity: 0.5,
+          fontSize: 10,
+          color: '#3b82f6',
           textTransform: 'uppercase',
-          letterSpacing: 1,
-          marginBottom: 10,
+          letterSpacing: '0.14em',
+          marginBottom: 12,
+          fontWeight: 900,
         }}
       >
         Alertas
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+
+      <div style={{ display: 'grid', gap: 8 }}>
         {alerts.map((alert, i) => (
           <div
             key={i}
             style={{
-              display: 'inline-flex',
+              display: 'grid',
+              gridTemplateColumns: '8px minmax(0, 1fr)',
               alignItems: 'center',
-              gap: 8,
-              padding: '6px 10px',
-              borderRadius: 20,
-              background: LEVEL_BG[alert.level],
-              border: `1px solid ${LEVEL_BORDER[alert.level]}`,
-              width: 'fit-content',
+              gap: 9,
+              padding: '9px 10px',
+              borderRadius: 12,
+              background: '#0d0f14',
+              border: '1px solid #1a1d2e',
             }}
           >
             <div
               style={{
-                width: 8,
-                height: 8,
+                width: 7,
+                height: 7,
                 borderRadius: '50%',
                 backgroundColor: LEVEL_COLORS[alert.level],
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 12, color: '#e5e7eb' }}>{alert.text}</span>
+            <span style={{ fontSize: 12, color: '#edf2f7', lineHeight: 1.35 }}>
+              {alert.text}
+            </span>
           </div>
         ))}
       </div>

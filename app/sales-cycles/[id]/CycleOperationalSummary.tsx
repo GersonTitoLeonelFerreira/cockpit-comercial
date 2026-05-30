@@ -120,39 +120,7 @@ function buildSummary(events: CycleEvent[], ciclo?: CycleSummary | null): Summar
     })
   }
 
-  // ── 2. Última próxima ação definida ──────────────────────────────────────
-  const lastNextAction =
-    events.find(ev => ev.event_type === 'next_action_set') ??
-    events.find(ev => {
-      const cp = getCheckpoint(ev)
-      return !!str(cp.next_action)
-    })
-  if (lastNextAction) {
-    const cp = getCheckpoint(lastNextAction)
-    const action = str(cp.next_action)
-    const actionDate = str(cp.next_action_date)
-    const formattedDate = fmtDate(actionDate)
-    if (action || lastNextAction.event_type === 'next_action_set') {
-      items.push({
-        label: 'Próxima ação',
-        content: (
-          <span>
-            {action ? (
-              <>
-                <span style={{ color: '#fde68a' }}>{action}</span>
-                {formattedDate !== '—' && (
-                  <span style={{ opacity: 0.55 }}> — {formattedDate}</span>
-                )}
-              </>
-            ) : (
-              <span style={{ opacity: 0.6 }}>Definida (sem detalhe registrado)</span>
-            )}
-          </span>
-        ),
-        date: lastNextAction.occurred_at,
-      })
-    }
-  }
+
 
   // ── 3. Última objeção / detalhe relevante ────────────────────────────────
   const lastDetail = events.find(ev => {
@@ -289,40 +257,55 @@ export default function CycleOperationalSummary({ events, ciclo }: Props) {
   return (
     <div
       style={{
-        marginTop: 20,
-        padding: '14px 16px',
-        border: '1px solid #313145',
-        borderRadius: 10,
-        background: '#1a1a2e',
+        padding: 0,
+        border: 'none',
+        background: 'transparent',
       }}
     >
-      <div style={{ fontSize: 11, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
-        Resumo Operacional
-      </div>
       <div style={{ display: 'grid', gap: 8 }}>
         {items.map((item) => (
           <div
             key={item.label}
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
               gap: 12,
-              flexWrap: 'wrap',
-              padding: '6px 10px',
-              borderRadius: 7,
-              background: '#23232b',
-              border: '1px solid #313145',
+              alignItems: 'start',
+              padding: '10px 12px',
+              borderRadius: 12,
+              background: '#0d0f14',
+              border: '1px solid #1a1d2e',
             }}
           >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 10, opacity: 0.45, textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', marginBottom: 2 }}>
+            <div style={{ minWidth: 0 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: '#546070',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.8,
+                  display: 'block',
+                  marginBottom: 4,
+                  fontWeight: 800,
+                }}
+              >
                 {item.label}
               </span>
-              <div style={{ fontSize: 13, color: '#e5e7eb', lineHeight: 1.45 }}>{item.content}</div>
+              <div style={{ fontSize: 12.5, color: '#edf2f7', lineHeight: 1.45 }}>
+                {item.content}
+              </div>
             </div>
+
             {item.date && (
-              <span style={{ fontSize: 11, opacity: 0.4, flexShrink: 0, paddingTop: 2, whiteSpace: 'nowrap' }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: '#546070',
+                  flexShrink: 0,
+                  paddingTop: 2,
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {fmtDate(item.date)}
               </span>
             )}

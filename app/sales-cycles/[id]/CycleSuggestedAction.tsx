@@ -406,9 +406,8 @@ export default function CycleSuggestedAction({
   if (!suggestion) return null
 
   const isUrgent = suggestion.urgency === 'high'
-  const borderColor = isUrgent ? '#f59e0b' : '#3b82f6'
-  const iconColor = isUrgent ? '#f59e0b' : '#60a5fa'
-  const primaryBg = isUrgent ? '#d97706' : '#2563eb'
+  const iconColor = isUrgent ? '#f59e0b' : '#93c5fd'
+  const primaryBg = '#2563eb'
 
   const invokeAction = (action: CtaAction) => {
     switch (action) {
@@ -425,11 +424,10 @@ export default function CycleSuggestedAction({
   return (
     <div
       style={{
-        padding: '14px 16px',
-        background: '#1e1e2e',
-        border: `1px solid ${borderColor}40`,
-        borderLeft: `4px solid ${borderColor}`,
-        borderRadius: 10,
+        padding: 14,
+        background: '#111318',
+        border: '1px solid #1a1d2e',
+        borderRadius: 16,
       }}
     >
       {/* Header */}
@@ -439,7 +437,7 @@ export default function CycleSuggestedAction({
           alignItems: 'center',
           gap: 6,
           fontSize: 10,
-          color: '#8b8fa2',
+          color: '#546070',
           textTransform: 'uppercase',
           letterSpacing: 1,
           fontWeight: 600,
@@ -494,7 +492,7 @@ export default function CycleSuggestedAction({
           style={{
             fontSize: 12,
             color: '#d1d5db',
-            background: '#181824',
+            background: '#0d0f14',
             borderRadius: 6,
             padding: '6px 10px',
             marginLeft: 26,
@@ -545,10 +543,10 @@ export default function CycleSuggestedAction({
                 padding: '8px 12px',
                 fontSize: 12,
                 fontWeight: 500,
-                background: 'transparent',
-                border: '1px solid #3a3a52',
+                background: '#0d0f14',
+                border: '1px solid #1a1d2e',
                 borderRadius: 8,
-                color: '#9ca3af',
+                color: '#8fa3bc',
                 cursor: 'pointer',
                 flexShrink: 0,
               }}
