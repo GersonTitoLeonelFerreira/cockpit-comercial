@@ -619,71 +619,200 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // --------------------------------------------------------------------------
 
   const renderHistory = () => (
-    <div style={{
-      background: '#1e1e2e',
-      border: '1px solid #2a2a3e',
-      borderRadius: 16,
-      padding: 24,
-    }}>
-      <h2 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 16, margin: 0, marginBottom: 20, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-        Histórico
-      </h2>
-
-      {/* Última movimentação */}
-      {events.length > 0 && (
-        <div style={{
-          marginBottom: 20, background: '#181824', border: '1px solid #2a2a3e',
-          borderRadius: 10, padding: '10px 14px',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-        }}>
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div
+        style={{
+          background: '#111318',
+          border: '1px solid #1a1d2e',
+          borderRadius: 16,
+          padding: 16,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: events.length > 0 ? 14 : 0,
+          }}
+        >
           <div>
-            <span style={{ fontSize: 10, color: '#8b8fa2', textTransform: 'uppercase', letterSpacing: 1 }}>Última movimentação</span>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb', marginTop: 2 }}>{getEventTitle(events[0])}</div>
+            <div
+              style={{
+                color: '#3b82f6',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                marginBottom: 5,
+              }}
+            >
+              Histórico
+            </div>
+            <div style={{ color: '#8fa3bc', fontSize: 12, lineHeight: 1.5 }}>
+              Linha do tempo completa das movimentações, contatos e registros do ciclo.
+            </div>
           </div>
-          <span style={{ fontSize: 12, color: '#8b8fa2' }}>{fmtDate(events[0].occurred_at)}</span>
-        </div>
-      )}
 
-      {/* Ganho no topo se ciclo ganho */}
+          <div
+            style={{
+              border: '1px solid #1a1d2e',
+              background: '#0d0f14',
+              borderRadius: 12,
+              padding: '8px 10px',
+              color: '#8fa3bc',
+              fontSize: 12,
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {events.length} registro{events.length === 1 ? '' : 's'}
+          </div>
+        </div>
+
+        {events.length > 0 && (
+          <div
+            style={{
+              background: '#0d0f14',
+              border: '1px solid #1a1d2e',
+              borderRadius: 14,
+              padding: '11px 12px',
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  color: '#546070',
+                  fontSize: 10,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  marginBottom: 4,
+                }}
+              >
+                Última movimentação
+              </div>
+              <div
+                style={{
+                  color: '#edf2f7',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  lineHeight: 1.35,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={getEventTitle(events[0])}
+              >
+                {getEventTitle(events[0])}
+              </div>
+            </div>
+
+            <span style={{ color: '#546070', fontSize: 11, whiteSpace: 'nowrap' }}>
+              {fmtDate(events[0].occurred_at)}
+            </span>
+          </div>
+        )}
+      </div>
+
       {cycle.status === 'ganho' && cycle.won_at && (
-        <div style={{
-          marginBottom: 20, background: '#181824',
-          borderLeft: '4px solid #34d399', borderRadius: 8, padding: '14px 16px',
-        }}>
+        <div
+          style={{
+            background: '#111318',
+            border: '1px solid #1a1d2e',
+            borderRadius: 16,
+            padding: 16,
+          }}
+        >
           <WonCard cycle={cycle as Record<string, unknown>} />
         </div>
       )}
 
       {events.length === 0 && cycle.status !== 'ganho' ? (
-        <div style={{ textAlign: 'center', padding: '48px 0', color: '#6b7280' }}>
-          <div style={{ marginBottom: 12, opacity: 0.4, display: 'flex', justifyContent: 'center' }}>
+        <div
+          style={{
+            background: '#111318',
+            border: '1px dashed #1a1d2e',
+            borderRadius: 16,
+            padding: '42px 20px',
+            textAlign: 'center',
+            color: '#546070',
+          }}
+        >
+          <div style={{ marginBottom: 12, opacity: 0.7, display: 'flex', justifyContent: 'center' }}>
             <IconHistory size={28} />
           </div>
-          <p style={{ fontSize: 13, fontStyle: 'italic', margin: 0, lineHeight: 1.6 }}>
-            Nenhum evento registrado ainda — registre o primeiro contato para iniciar o acompanhamento
+          <p style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+            Nenhum evento registrado ainda.
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {events.map((event) => {
-            const cls = classifyEvent(event)
-            const dotColor = EVENT_CLASS_DOT_COLOR[cls]
-            return (
-              <div key={event.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{
-                  width: 10, height: 10, borderRadius: '50%', marginTop: 7, flexShrink: 0,
-                  background: dotColor,
-                }} />
-                <div style={{ flex: 1, background: '#181824', borderRadius: 10, border: '1px solid #2a2a3e', padding: '14px 16px' }}>
-                  {cls === 'perda' ? <LostCard event={event} /> :
-                   cls === 'movimentacao' || cls === 'ganho' ? <CheckpointCard event={event} /> :
-                   cls === 'atividade' ? <ActivityCard event={event} /> :
-                   cls === 'proxima_acao' ? <NextActionCard event={event} /> :
-                   <AdminCard event={event} />}
+        <div
+          style={{
+            background: '#111318',
+            border: '1px solid #1a1d2e',
+            borderRadius: 16,
+            padding: 16,
+          }}
+        >
+          <div style={{ display: 'grid', gap: 10 }}>
+            {events.map((event) => {
+              const cls = classifyEvent(event)
+              const dotColor = EVENT_CLASS_DOT_COLOR[cls]
+
+              return (
+                <div
+                  key={event.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '14px minmax(0, 1fr)',
+                    gap: 10,
+                    alignItems: 'start',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      paddingTop: 13,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: dotColor,
+                        opacity: 0.9,
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      background: '#0d0f14',
+                      borderRadius: 12,
+                      border: '1px solid #1a1d2e',
+                      padding: '12px 13px',
+                      minWidth: 0,
+                    }}
+                  >
+                    {cls === 'perda' ? <LostCard event={event} /> :
+                     cls === 'movimentacao' || cls === 'ganho' ? <CheckpointCard event={event} /> :
+                     cls === 'atividade' ? <ActivityCard event={event} /> :
+                     cls === 'proxima_acao' ? <NextActionCard event={event} /> :
+                     <AdminCard event={event} />}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
