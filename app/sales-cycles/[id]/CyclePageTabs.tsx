@@ -258,29 +258,42 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // --------------------------------------------------------------------------
 
   const renderTabBar = () => (
-    <div style={{ borderBottom: '1px solid #2a2a3e', marginBottom: 24, display: 'flex', gap: 0, overflowX: 'auto' }}>
-      {TABS.map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => setActiveTab(tab.id)}
-          style={{
-            padding: '10px 22px',
-            fontSize: 13,
-            fontWeight: 600,
-            border: 'none',
-            borderBottom: activeTab === tab.id ? '2px solid #60a5fa' : '2px solid transparent',
-            cursor: 'pointer',
-            transition: 'color 0.15s',
-            background: activeTab === tab.id ? '#2a2a3e' : 'transparent',
-            color: activeTab === tab.id ? 'white' : '#8b8fa2',
-            borderRadius: '8px 8px 0 0',
-            flexShrink: 0,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {tab.label}
-        </button>
-      ))}
+    <div
+      style={{
+        borderBottom: '1px solid #1a1d2e',
+        marginBottom: 18,
+        display: 'flex',
+        gap: 6,
+        overflowX: 'auto',
+        paddingBottom: 1,
+      }}
+    >
+      {TABS.map((tab) => {
+        const active = activeTab === tab.id
+
+        return (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: '9px 14px',
+              fontSize: 12,
+              fontWeight: 800,
+              border: `1px solid ${active ? 'rgba(59,130,246,0.36)' : 'transparent'}`,
+              borderBottom: active ? '1px solid rgba(59,130,246,0.50)' : '1px solid transparent',
+              cursor: 'pointer',
+              transition: 'background 150ms ease, color 150ms ease, border 150ms ease',
+              background: active ? 'rgba(59,130,246,0.12)' : 'transparent',
+              color: active ? '#bfdbfe' : '#8fa3bc',
+              borderRadius: 10,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
     </div>
   )
 
@@ -289,183 +302,318 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // --------------------------------------------------------------------------
 
   const renderOverview = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24 }}>
-      {/* Coluna esquerda */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {/* Resumo Operacional */}
-        <CycleOperationalSummary events={events} ciclo={cycle} />
-
-        {/* Card de ganho condicional */}
-        {cycle.status === 'ganho' && cycle.won_at && (
-          <div style={{
-            background: '#1e1e2e',
-            border: '1px solid #2a2a3e',
-            borderLeft: '4px solid #34d399',
-            borderRadius: 12,
-            padding: '16px 18px',
-          }}>
-            <WonCard cycle={cycle as Record<string, unknown>} />
-          </div>
-        )}
-
-        {/* Histórico recente */}
-        <div style={{
-          background: '#1e1e2e',
-          border: '1px solid #2a2a3e',
-          borderRadius: 16,
-          padding: 20,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Histórico recente
-            </h3>
-            <button
-              onClick={() => setActiveTab('history')}
-              style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.15fr) minmax(320px, 0.85fr)',
+          gap: 14,
+          alignItems: 'start',
+        }}
+      >
+        <div style={{ display: 'grid', gap: 14, minWidth: 0 }}>
+          <div
+            style={{
+              background: '#111318',
+              border: '1px solid #1a1d2e',
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <div
+              style={{
+                color: '#3b82f6',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                marginBottom: 12,
+              }}
             >
-              Ver histórico completo →
-            </button>
-          </div>
-          {events.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: '#6b7280' }}>
-              <div style={{ marginBottom: 8, opacity: 0.5, display: 'flex', justifyContent: 'center' }}>
-                <IconHistory size={22} />
-              </div>
-              <p style={{ fontSize: 13, fontStyle: 'italic', margin: 0, lineHeight: 1.5 }}>
-                Nenhum evento registrado ainda — registre o primeiro contato para iniciar o acompanhamento
-              </p>
+              Contexto do ciclo
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {events.slice(0, 5).map((event) => {
-                const cls = classifyEvent(event)
-                const dotColor = EVENT_CLASS_DOT_COLOR[cls]
-                return (
-                  <div key={event.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{
-                      width: 8, height: 8, borderRadius: '50%', marginTop: 7, flexShrink: 0,
-                      background: dotColor,
-                    }} />
-                    <div style={{ flex: 1, background: '#181824', borderRadius: 8, border: '1px solid #2a2a3e', padding: '10px 14px' }}>
-                      {cls === 'perda' ? <LostCard event={event} /> :
-                       cls === 'movimentacao' || cls === 'ganho' ? <CheckpointCard event={event} /> :
-                       cls === 'atividade' ? <ActivityCard event={event} /> :
-                       cls === 'proxima_acao' ? <NextActionCard event={event} /> :
-                       <AdminCard event={event} />}
-                    </div>
-                  </div>
-                )
-              })}
+
+            <CycleOperationalSummary events={events} ciclo={cycle} />
+          </div>
+
+          {cycle.status === 'ganho' && cycle.won_at && (
+            <div
+              style={{
+                background: '#111318',
+                border: '1px solid #1a1d2e',
+                borderRadius: 16,
+                padding: 16,
+              }}
+            >
+              <WonCard cycle={cycle as Record<string, unknown>} />
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Coluna direita */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Próximo passo sugerido */}
-        <CycleSuggestedAction
-          events={events}
-          cycle={cycle}
-          onOpenWhatsApp={waLink ? () => {
-            window.open(waLink, '_blank', 'noopener,noreferrer')
-            setContactBannerChannel('whatsapp')
-            setShowContactBanner(true)
-          } : undefined}
-          onRegisterContact={() => setShowQuickActionModal(true)}
-          onUpdateNextAction={() => setShowActionModal(true)}
-          onMoveStage={() => setActiveTab('actions')}
-        />
+          <div
+            style={{
+              background: '#111318',
+              border: '1px solid #1a1d2e',
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: '#3b82f6',
+                    fontSize: 10,
+                    fontWeight: 900,
+                    letterSpacing: '0.14em',
+                    textTransform: 'uppercase',
+                    marginBottom: 5,
+                  }}
+                >
+                  Histórico recente
+                </div>
+                <div style={{ color: '#8fa3bc', fontSize: 12 }}>
+                  Últimos registros relevantes do ciclo.
+                </div>
+              </div>
 
-        {/* Alertas */}
-        <CycleContextAlerts
-          events={events}
-          lead={{
-            status: cycle.status as string,
-            next_action: cycle.next_action as string | null,
-            next_action_date: cycle.next_action_date as string | null,
-          }}
-        />
+              <button
+                onClick={() => setActiveTab('history')}
+                style={{
+                  background: 'rgba(59,130,246,0.10)',
+                  border: '1px solid rgba(59,130,246,0.30)',
+                  color: '#93c5fd',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                  borderRadius: 10,
+                  padding: '8px 10px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Ver completo
+              </button>
+            </div>
 
-        {/* Retomada inteligente */}
-        <CycleResumeContext events={events} cycle={cycle} />
+            {events.length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '22px 0',
+                  color: '#546070',
+                  border: '1px dashed #1a1d2e',
+                  borderRadius: 14,
+                  background: '#0d0f14',
+                }}
+              >
+                <div style={{ marginBottom: 8, opacity: 0.6, display: 'flex', justifyContent: 'center' }}>
+                  <IconHistory size={22} />
+                </div>
+                <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+                  Nenhum evento registrado ainda.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {events.slice(0, 4).map((event) => {
+                  const cls = classifyEvent(event)
+                  const dotColor = EVENT_CLASS_DOT_COLOR[cls]
 
-        {/* Ações rápidas */}
-        <div style={{
-          background: '#1e1e2e',
-          border: '1px solid #2a2a3e',
-          borderRadius: 12,
-          padding: '16px 18px',
-        }}>
-          <div style={{ fontSize: 10, color: '#8b8fa2', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
-            Ações Rápidas
+                  return (
+                    <div
+                      key={event.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '10px minmax(0, 1fr)',
+                        gap: 10,
+                        alignItems: 'start',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          marginTop: 9,
+                          background: dotColor,
+                          opacity: 0.85,
+                        }}
+                      />
+
+                      <div
+                        style={{
+                          background: '#0d0f14',
+                          borderRadius: 12,
+                          border: '1px solid #1a1d2e',
+                          padding: '11px 12px',
+                          minWidth: 0,
+                        }}
+                      >
+                        {cls === 'perda' ? <LostCard event={event} /> :
+                         cls === 'movimentacao' || cls === 'ganho' ? <CheckpointCard event={event} /> :
+                         cls === 'atividade' ? <ActivityCard event={event} /> :
+                         cls === 'proxima_acao' ? <NextActionCard event={event} /> :
+                         <AdminCard event={event} />}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {waLink && (
-              <button
-                onClick={() => {
-                  window.open(waLink, '_blank', 'noopener,noreferrer')
-                  setContactBannerChannel('whatsapp')
-                  setShowContactBanner(true)
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  width: '100%', padding: '8px 12px',
-                  background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
-                  borderRadius: 8, color: '#34d399', fontSize: 12, fontWeight: 600,
-                  textDecoration: 'none', textAlign: 'center', cursor: 'pointer',
-                }}
-              >
-                <IconWhatsApp size={14} /> WhatsApp
-              </button>
-            )}
-            {lead?.phone && (
-              <button
-                onClick={copyPhone}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '8px 12px',
-                  background: copiedPhone ? 'rgba(52,211,153,0.12)' : '#2a2a3e',
-                  border: copiedPhone ? '1px solid rgba(52,211,153,0.4)' : '1px solid #3a3a4e',
-                  borderRadius: 8,
-                  color: copiedPhone ? '#34d399' : '#f1f5f9',
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                {copiedPhone
-                  ? <><IconCircleCheck size={14} /> Copiado!</>
-                  : <><IconClipboard size={14} /> Copiar telefone</>}
-              </button>
-            )}
-            <button
-              onClick={() => setActiveTab('lead-data')}
+        </div>
+
+        <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+          <CycleSuggestedAction
+            events={events}
+            cycle={cycle}
+            onOpenWhatsApp={waLink ? () => {
+              window.open(waLink, '_blank', 'noopener,noreferrer')
+              setContactBannerChannel('whatsapp')
+              setShowContactBanner(true)
+            } : undefined}
+            onRegisterContact={() => setShowQuickActionModal(true)}
+            onUpdateNextAction={() => setShowActionModal(true)}
+            onMoveStage={() => setActiveTab('actions')}
+          />
+
+          <CycleContextAlerts
+            events={events}
+            lead={{
+              status: cycle.status as string,
+              next_action: cycle.next_action as string | null,
+              next_action_date: cycle.next_action_date as string | null,
+            }}
+          />
+
+          <CycleResumeContext events={events} cycle={cycle} />
+
+          <div
+            style={{
+              background: '#111318',
+              border: '1px solid #1a1d2e',
+              borderRadius: 16,
+              padding: 14,
+            }}
+          >
+            <div
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '8px 12px', background: '#2a2a3e',
-                border: '1px solid #3a3a4e', borderRadius: 8,
-                color: '#f1f5f9', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                color: '#3b82f6',
+                fontSize: 10,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.14em',
+                marginBottom: 12,
               }}
             >
-              <IconPencil size={14} /> Editar dados
-            </button>
-            <button
-              onClick={() => setActiveTab('actions')}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '8px 12px', background: '#2a2a3e',
-                border: '1px solid #3a3a4e', borderRadius: 8,
-                color: '#f1f5f9', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              <IconArrowRightCircle size={14} /> Mover etapa
-            </button>
+              Ações rápidas
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {waLink && (
+                <button
+                  onClick={() => {
+                    window.open(waLink, '_blank', 'noopener,noreferrer')
+                    setContactBannerChannel('whatsapp')
+                    setShowContactBanner(true)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 7,
+                    width: '100%',
+                    padding: '9px 12px',
+                    background: 'rgba(34,197,94,0.09)',
+                    border: '1px solid rgba(34,197,94,0.24)',
+                    borderRadius: 10,
+                    color: '#86efac',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <IconWhatsApp size={14} /> WhatsApp
+                </button>
+              )}
+
+              {lead?.phone && (
+                <button
+                  onClick={copyPhone}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 7,
+                    padding: '9px 12px',
+                    background: copiedPhone ? 'rgba(34,197,94,0.10)' : '#0d0f14',
+                    border: copiedPhone ? '1px solid rgba(34,197,94,0.28)' : '1px solid #1a1d2e',
+                    borderRadius: 10,
+                    color: copiedPhone ? '#86efac' : '#8fa3bc',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    transition: 'background 150ms ease, color 150ms ease, border 150ms ease',
+                  }}
+                >
+                  {copiedPhone
+                    ? <><IconCircleCheck size={14} /> Copiado</>
+                    : <><IconClipboard size={14} /> Copiar telefone</>}
+                </button>
+              )}
+
+              <button
+                onClick={() => setActiveTab('lead-data')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 7,
+                  padding: '9px 12px',
+                  background: '#0d0f14',
+                  border: '1px solid #1a1d2e',
+                  borderRadius: 10,
+                  color: '#8fa3bc',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                <IconPencil size={14} /> Editar dados
+              </button>
+
+              <button
+                onClick={() => setActiveTab('actions')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 7,
+                  padding: '9px 12px',
+                  background: '#0d0f14',
+                  border: '1px solid #1a1d2e',
+                  borderRadius: 10,
+                  color: '#8fa3bc',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                <IconArrowRightCircle size={14} /> Mover etapa
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
   )
-
   // --------------------------------------------------------------------------
   // ABA 2 — Histórico
   // --------------------------------------------------------------------------
