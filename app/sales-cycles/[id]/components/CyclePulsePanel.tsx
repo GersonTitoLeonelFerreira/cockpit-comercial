@@ -245,12 +245,12 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
             gap: 8,
           }}
         >
           <MetricPill
-            label="Etapa"
+            label="Tempo na etapa"
             value={
               pulse.daysInStage == null
                 ? '—'
@@ -258,20 +258,12 @@ export default function CyclePulsePanel({ cycle, lead }: CyclePulsePanelProps) {
             }
           />
           <MetricPill
-            label="Ação"
+            label="Sem atualização"
             value={
-              pulse.isNextActionOverdue
-                ? 'Vencida'
-                : pulse.nextActionDate
-                  ? 'Em dia'
-                  : 'Sem data'
+              pulse.daysSinceUpdate == null
+                ? '—'
+                : `${pulse.daysSinceUpdate}d`
             }
-            danger={pulse.isNextActionOverdue}
-          />
-          <MetricPill
-            label="Data"
-            value={formatNextActionDate(pulse.nextActionDate)}
-            danger={pulse.isNextActionOverdue}
           />
         </div>
       </div>
