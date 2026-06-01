@@ -191,6 +191,17 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
 
   const openAIMove = (toStatus: LeadStatus) => {
     if (toStatus === cycle.status) return
+
+    if (toStatus === 'ganho') {
+      setShowWinModal(true)
+      return
+    }
+
+    if (toStatus === 'perdido') {
+      setShowLostModal(true)
+      return
+    }
+
     setAiMoveStatus(toStatus)
   }
 
@@ -1171,16 +1182,31 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             </div>
           )}
 
-          <div
+<div
             style={{
+              position: 'relative',
               display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 8,
+              gap: 10,
+              paddingLeft: 18,
             }}
           >
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                left: 7,
+                top: 12,
+                bottom: 12,
+                width: 1,
+                background: '#1a1d2e',
+              }}
+            />
+
             {STATUS_OPTIONS.map((status, index) => {
               const isActive = status === cycle.status
+              const statusColor = STATUS_COLOR_MAP[status]
               const disabled = loading || isClosed || isActive
+              const isTerminal = status === 'ganho' || status === 'perdido'
 
               return (
                 <button
@@ -1188,15 +1214,17 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   onClick={() => openAIMove(status)}
                   disabled={disabled}
                   style={{
-                    display: 'flex',
+                    position: 'relative',
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1fr) auto',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                    padding: '10px 12px',
-                    background: isActive ? 'rgba(59,130,246,0.12)' : '#0d0f14',
-                    border: isActive ? '1px solid rgba(59,130,246,0.38)' : '1px solid #1a1d2e',
+                    gap: 12,
+                    padding: '11px 12px',
+                    background: isActive ? `${statusColor}14` : '#0d0f14',
+                    border: isActive ? `1px solid ${statusColor}` : '1px solid #1a1d2e',
+                    borderLeft: `3px solid ${statusColor}`,
                     borderRadius: 12,
-                    color: isActive ? '#bfdbfe' : '#edf2f7',
+                    color: isActive ? '#edf2f7' : '#cbd5e1',
                     fontSize: 12,
                     fontWeight: 900,
                     cursor: disabled ? 'not-allowed' : 'pointer',
@@ -1205,10 +1233,26 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                     transition: 'background 150ms ease, border 150ms ease, color 150ms ease',
                   }}
                 >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      left: -22,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 9,
+                      height: 9,
+                      borderRadius: '50%',
+                      background: isActive ? statusColor : '#0d0f14',
+                      border: `2px solid ${statusColor}`,
+                      boxShadow: isActive ? `0 0 0 4px ${statusColor}20` : 'none',
+                    }}
+                  />
+
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                     <span
                       style={{
-                        color: isActive ? '#93c5fd' : '#546070',
+                        color: statusColor,
                         fontSize: 10,
                         fontWeight: 900,
                         fontVariantNumeric: 'tabular-nums',
@@ -1228,19 +1272,18 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                     </span>
                   </span>
 
-                  {isActive && (
-                    <span
-                      style={{
-                        color: '#93c5fd',
-                        fontSize: 10,
-                        fontWeight: 900,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.06em',
-                      }}
-                    >
-                      Atual
-                    </span>
-                  )}
+                  <span
+                    style={{
+                      color: isActive ? statusColor : isTerminal ? '#8fa3bc' : '#546070',
+                      fontSize: 10,
+                      fontWeight: 900,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {isActive ? 'Atual' : isTerminal ? 'Modal próprio' : 'IA'}
+                  </span>
                 </button>
               )
             })}
