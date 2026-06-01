@@ -1062,155 +1062,409 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   // --------------------------------------------------------------------------
 
   const renderActions = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-      {/* Mover etapa */}
-      <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 16, padding: 20 }}>
-        <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-          Mover Etapa
-        </h3>
-        {isClosed && (
-          <div style={{ fontSize: 12, color: '#8b8fa2', marginBottom: 12, padding: '8px 10px', background: '#181824', borderRadius: 8 }}>
-            Ciclo fechado — movimentação desabilitada.
-          </div>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {STATUS_OPTIONS.map((status) => {
-            const isActive = status === cycle.status
-            const color = STATUS_COLOR_MAP[status]
-            return (
-              <button
-                key={status}
-                onClick={() => openAIMove(status)}
-                disabled={loading || isClosed || isActive}
-                style={{
-                  padding: '10px 14px',
-                  background: isActive ? `${color}22` : '#181824',
-                  border: `1px solid ${isActive ? color : color + '44'}`,
-                  borderRadius: 10, color: isActive ? color : '#e5e7eb',
-                  fontSize: 13, fontWeight: 600,
-                  cursor: (loading || isClosed || isActive) ? 'not-allowed' : 'pointer',
-                  opacity: (loading || (isClosed && !isActive)) ? 0.5 : 1,
-                  textAlign: 'left',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {statusLabel(status)}
-                {isActive && <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 8 }}>(atual)</span>}
-              </button>
-            )
-          })}
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div
+        style={{
+          background: '#111318',
+          border: '1px solid #1a1d2e',
+          borderRadius: 16,
+          padding: 16,
+        }}
+      >
+        <div
+          style={{
+            color: '#3b82f6',
+            fontSize: 10,
+            fontWeight: 900,
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            marginBottom: 6,
+          }}
+        >
+          Ações do ciclo
+        </div>
+
+        <div style={{ color: '#edf2f7', fontSize: 16, fontWeight: 900 }}>
+          Controle operacional
+        </div>
+
+        <div style={{ color: '#8fa3bc', fontSize: 12, lineHeight: 1.5, marginTop: 4 }}>
+          Movimente a etapa com IA, defina a próxima ação e execute contatos rápidos.
         </div>
       </div>
 
-      {/* Ações operacionais */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Próxima ação inline */}
-        <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 16, padding: 20 }}>
-          <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Definir Próxima Ação
-          </h3>
-          
-            <div><div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Ação</label>
-              <input
-                type="text"
-                value={action}
-                onChange={(e) => setAction(e.target.value)}
-                placeholder="Ex: Ligar para cliente"
-                disabled={loading || isClosed}
-                style={{
-                  width: '100%', padding: '8px 12px',
-                  background: '#181824', border: '1px solid #3a3a4e',
-                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(340px, 0.8fr)',
+          gap: 14,
+          alignItems: 'start',
+        }}
+      >
+        <div
+          style={{
+            background: '#111318',
+            border: '1px solid #1a1d2e',
+            borderRadius: 16,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 12,
+              marginBottom: 14,
+              flexWrap: 'wrap',
+            }}
+          >
             <div>
-              <label style={{ display: 'block', fontSize: 12, color: '#8b8fa2', marginBottom: 4 }}>Data e Hora</label>
-              <input
-                type="datetime-local"
-                value={actionDate}
-                onChange={(e) => setActionDate(e.target.value)}
-                disabled={loading || isClosed}
+              <div
                 style={{
-                  width: '100%', padding: '8px 12px',
-                  background: '#181824', border: '1px solid #3a3a4e',
-                  borderRadius: 8, color: '#f1f5f9', fontSize: 13,
-                  boxSizing: 'border-box',
+                  color: '#546070',
+                  fontSize: 10,
+                  fontWeight: 900,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  marginBottom: 5,
                 }}
-              />
+              >
+                Mover etapa
+              </div>
+
+              <div style={{ color: '#edf2f7', fontSize: 14, fontWeight: 900 }}>
+                Atualizar estágio do ciclo
+              </div>
             </div>
-            <button
-              onClick={handleSaveAction}
-              disabled={loading || isClosed}
+
+            <div
               style={{
-                padding: '10px 16px', background: '#1d4ed8',
-                border: 'none', borderRadius: 8,
-                color: 'white', fontSize: 13, fontWeight: 600,
-                cursor: (loading || isClosed) ? 'not-allowed' : 'pointer',
-                opacity: (loading || isClosed) ? 0.5 : 1,
+                border: '1px solid #1a1d2e',
+                background: '#0d0f14',
+                color: '#8fa3bc',
+                borderRadius: 999,
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
               }}
             >
-              {loading ? 'Salvando...' : 'Salvar ação'}
-            </button>
+              Atual: {statusLabel(cycle.status as LeadStatus)}
+            </div>
+          </div>
+
+          {isClosed && (
+            <div
+              style={{
+                fontSize: 12,
+                color: '#8fa3bc',
+                marginBottom: 12,
+                padding: '10px 12px',
+                background: '#0d0f14',
+                border: '1px solid #1a1d2e',
+                borderRadius: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              Ciclo fechado. A movimentação de etapa está desabilitada.
+            </div>
+          )}
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 8,
+            }}
+          >
+            {STATUS_OPTIONS.map((status, index) => {
+              const isActive = status === cycle.status
+              const disabled = loading || isClosed || isActive
+
+              return (
+                <button
+                  key={status}
+                  onClick={() => openAIMove(status)}
+                  disabled={disabled}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    padding: '10px 12px',
+                    background: isActive ? 'rgba(59,130,246,0.12)' : '#0d0f14',
+                    border: isActive ? '1px solid rgba(59,130,246,0.38)' : '1px solid #1a1d2e',
+                    borderRadius: 12,
+                    color: isActive ? '#bfdbfe' : '#edf2f7',
+                    fontSize: 12,
+                    fontWeight: 900,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    opacity: loading || (isClosed && !isActive) ? 0.55 : 1,
+                    textAlign: 'left',
+                    transition: 'background 150ms ease, border 150ms ease, color 150ms ease',
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <span
+                      style={{
+                        color: isActive ? '#93c5fd' : '#546070',
+                        fontSize: 10,
+                        fontWeight: 900,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {statusLabel(status)}
+                    </span>
+                  </span>
+
+                  {isActive && (
+                    <span
+                      style={{
+                        color: '#93c5fd',
+                        fontSize: 10,
+                        fontWeight: 900,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                      }}
+                    >
+                      Atual
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              padding: '10px 12px',
+              border: '1px solid #1a1d2e',
+              borderRadius: 12,
+              background: '#0d0f14',
+              color: '#8fa3bc',
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}
+          >
+            Toda movimentação abre o mesmo fluxo de IA usado no Kanban.
           </div>
         </div>
 
-        {/* Ações Rápidas */}
-        <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 16, padding: 20 }}>
-          <h3 style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14, margin: 0, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-            Ações Rápidas
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {waLink && (
-              <button
-                onClick={() => {
-                  window.open(waLink, '_blank', 'noopener,noreferrer')
-                  setContactBannerChannel('whatsapp')
-                  setShowContactBanner(true)
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '10px 16px',
-                  background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
-                  borderRadius: 8, color: '#34d399', fontSize: 13, fontWeight: 600,
-                  cursor: 'pointer', textAlign: 'center',
-                }}
-              >
-                <IconWhatsApp size={14} /> WhatsApp
-              </button>
-            )}
-            {lead?.phone && (
-              <button
-                onClick={copyPhone}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '10px 16px',
-                  background: copiedPhone ? 'rgba(52,211,153,0.12)' : '#2a2a3e',
-                  border: copiedPhone ? '1px solid rgba(52,211,153,0.4)' : '1px solid #3a3a4e',
-                  borderRadius: 8,
-                  color: copiedPhone ? '#34d399' : '#f1f5f9',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                {copiedPhone
-                  ? <><IconCircleCheck size={14} /> Copiado!</>
-                  : <><IconClipboard size={14} /> Copiar telefone</>}
-              </button>
-            )}
-            <button
-              onClick={() => setActiveTab('lead-data')}
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div
+            style={{
+              background: '#111318',
+              border: '1px solid #1a1d2e',
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <div
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '10px 16px', background: '#2a2a3e',
-                border: '1px solid #3a3a4e', borderRadius: 8,
-                color: '#f1f5f9', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                color: '#546070',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                marginBottom: 12,
               }}
             >
-              <IconPencil size={14} /> Editar dados
-            </button>
+              Definir próxima ação
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: 11,
+                    color: '#8fa3bc',
+                    marginBottom: 6,
+                    fontWeight: 700,
+                  }}
+                >
+                  Ação
+                </label>
+
+                <input
+                  type="text"
+                  value={action}
+                  onChange={(e) => setAction(e.target.value)}
+                  placeholder="Ex: ligar para cliente"
+                  disabled={loading || isClosed}
+                  style={{
+                    width: '100%',
+                    padding: '10px 11px',
+                    background: '#090b0f',
+                    border: '1px solid #1a1d2e',
+                    borderRadius: 10,
+                    color: '#edf2f7',
+                    fontSize: 13,
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                    opacity: loading || isClosed ? 0.6 : 1,
+                  }}
+                />
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: 11,
+                    color: '#8fa3bc',
+                    marginBottom: 6,
+                    fontWeight: 700,
+                  }}
+                >
+                  Data e hora
+                </label>
+
+                <input
+                  type="datetime-local"
+                  value={actionDate}
+                  onChange={(e) => setActionDate(e.target.value)}
+                  disabled={loading || isClosed}
+                  style={{
+                    width: '100%',
+                    padding: '10px 11px',
+                    background: '#090b0f',
+                    border: '1px solid #1a1d2e',
+                    borderRadius: 10,
+                    color: '#edf2f7',
+                    fontSize: 13,
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                    opacity: loading || isClosed ? 0.6 : 1,
+                  }}
+                />
+              </div>
+
+              <button
+                onClick={handleSaveAction}
+                disabled={loading || isClosed}
+                style={{
+                  padding: '10px 14px',
+                  background: '#2563eb',
+                  border: '1px solid rgba(147,197,253,0.18)',
+                  borderRadius: 10,
+                  color: 'white',
+                  fontSize: 13,
+                  fontWeight: 900,
+                  cursor: loading || isClosed ? 'not-allowed' : 'pointer',
+                  opacity: loading || isClosed ? 0.6 : 1,
+                }}
+              >
+                {loading ? 'Salvando...' : 'Salvar ação'}
+              </button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: '#111318',
+              border: '1px solid #1a1d2e',
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <div
+              style={{
+                color: '#546070',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                marginBottom: 12,
+              }}
+            >
+              Ações rápidas
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {waLink && (
+                <button
+                  onClick={() => {
+                    window.open(waLink, '_blank', 'noopener,noreferrer')
+                    setContactBannerChannel('whatsapp')
+                    setShowContactBanner(true)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 7,
+                    padding: '10px 12px',
+                    background: 'rgba(34,197,94,0.09)',
+                    border: '1px solid rgba(34,197,94,0.24)',
+                    borderRadius: 10,
+                    color: '#86efac',
+                    fontSize: 12,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <IconWhatsApp size={14} /> WhatsApp
+                </button>
+              )}
+
+              {lead?.phone && (
+                <button
+                  onClick={copyPhone}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 7,
+                    padding: '10px 12px',
+                    background: copiedPhone ? 'rgba(34,197,94,0.10)' : '#0d0f14',
+                    border: copiedPhone ? '1px solid rgba(34,197,94,0.28)' : '1px solid #1a1d2e',
+                    borderRadius: 10,
+                    color: copiedPhone ? '#86efac' : '#8fa3bc',
+                    fontSize: 12,
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    transition: 'background 150ms ease, border 150ms ease, color 150ms ease',
+                  }}
+                >
+                  {copiedPhone
+                    ? <><IconCircleCheck size={14} /> Copiado</>
+                    : <><IconClipboard size={14} /> Copiar telefone</>}
+                </button>
+              )}
+
+              <button
+                onClick={() => setActiveTab('lead-data')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 7,
+                  padding: '10px 12px',
+                  background: '#0d0f14',
+                  border: '1px solid #1a1d2e',
+                  borderRadius: 10,
+                  color: '#8fa3bc',
+                  fontSize: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                <IconPencil size={14} /> Editar dados
+              </button>
+            </div>
           </div>
         </div>
       </div>
