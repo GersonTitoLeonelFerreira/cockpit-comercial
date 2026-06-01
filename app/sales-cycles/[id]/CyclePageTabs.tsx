@@ -74,14 +74,28 @@ const STATUS_OPTIONS: LeadStatus[] = [
 ]
 
 const STATUS_COLOR_MAP: Record<LeadStatus, string> = {
-  novo: '#60a5fa',
-  contato: '#a855f7',
-  respondeu: '#e879f9',
-  negociacao: '#fb923c',
-  pausado: '#facc15',
+  novo: '#1685ff',
+  contato: '#06d6e8',
+  respondeu: '#f5c400',
+  negociacao: '#a855f7',
+  pausado: '#f5c400',
   cancelado: '#6b7280',
-  ganho: '#34d399',
-  perdido: '#f87171',
+  ganho: '#00e889',
+  perdido: '#ff4d5e',
+}
+
+const STATUS_STAGE_ACTION_META: Record<
+  LeadStatus,
+  { index: string; label: string; actionLabel: string }
+> = {
+  novo: { index: '01', label: 'Novo', actionLabel: 'IA' },
+  contato: { index: '02', label: 'Contato', actionLabel: 'IA' },
+  respondeu: { index: '03', label: 'Agenda', actionLabel: 'IA' },
+  negociacao: { index: '04', label: 'Negociação', actionLabel: 'IA' },
+  pausado: { index: '--', label: 'Pausado', actionLabel: 'IA' },
+  cancelado: { index: '--', label: 'Cancelado', actionLabel: 'Bloqueado' },
+  ganho: { index: '05', label: 'Ganho', actionLabel: 'Venda ganha' },
+  perdido: { index: '06', label: 'Perdido', actionLabel: 'Venda perdida' },
 }
 
 interface CyclePageTabsProps {
@@ -1161,7 +1175,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 whiteSpace: 'nowrap',
               }}
             >
-              Atual: {statusLabel(cycle.status as LeadStatus)}
+              Atual: {STATUS_STAGE_ACTION_META[cycle.status as LeadStatus]?.label ?? statusLabel(cycle.status as LeadStatus)}
             </div>
           </div>
 
@@ -1202,11 +1216,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               }}
             />
 
-            {STATUS_OPTIONS.map((status, index) => {
+{STATUS_OPTIONS.map((status) => {
               const isActive = status === cycle.status
               const statusColor = STATUS_COLOR_MAP[status]
+              const stageMeta = STATUS_STAGE_ACTION_META[status]
               const disabled = loading || isClosed || isActive
-              const isTerminal = status === 'ganho' || status === 'perdido'
 
               return (
                 <button
@@ -1258,7 +1272,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {String(index + 1).padStart(2, '0')}
+                      {stageMeta.index}
                     </span>
 
                     <span
@@ -1268,13 +1282,13 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {statusLabel(status)}
+                      {stageMeta.label}
                     </span>
                   </span>
 
                   <span
                     style={{
-                      color: isActive ? statusColor : isTerminal ? '#8fa3bc' : '#546070',
+                      color: isActive ? statusColor : '#8fa3bc',
                       fontSize: 10,
                       fontWeight: 900,
                       textTransform: 'uppercase',
@@ -1282,7 +1296,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {isActive ? 'Atual' : isTerminal ? 'Modal próprio' : 'IA'}
+                    {isActive ? 'Atual' : stageMeta.actionLabel}
                   </span>
                 </button>
               )
@@ -1301,7 +1315,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               lineHeight: 1.45,
             }}
           >
-            Toda movimentação abre o mesmo fluxo de IA usado no Kanban.
+            Etapas abertas usam IA. Ganho e Perdido seguem os mesmos fluxos próprios do Kanban.
           </div>
         </div>
 
