@@ -56,7 +56,7 @@ export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePuls
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-[1180px] divide-y divide-[#1a1d2e] text-sm">
+      <table className="min-w-[1320px] divide-y divide-[#1a1d2e] text-sm">
           <thead className="bg-[#111318] text-left text-[11px] uppercase tracking-[0.12em] text-[#546070]">
             <tr>
               <th className="px-5 py-3 font-bold">Lead</th>
@@ -65,6 +65,7 @@ export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePuls
               <th className="px-5 py-3 font-bold">Próxima ação</th>
               <th className="px-5 py-3 font-bold">Sinal principal</th>
               <th className="px-5 py-3 font-bold">Orientação</th>
+              <th className="px-5 py-3 font-bold">Ação</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#13162a]">
@@ -112,6 +113,30 @@ export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePuls
                 <td className="max-w-[380px] px-5 py-4 align-top text-[#8fa3bc]">
                   <div className="line-clamp-3 leading-5" title={cycle.recommendedAction}>
                     {cycle.recommendedAction}
+                  </div>
+                </td>
+
+                <td className="px-5 py-4 align-top">
+                  <div className="flex min-w-[150px] flex-col gap-2">
+                    <Link
+                      href={`/sales-cycles/${cycle.cycleId}`}
+                      className="inline-flex items-center justify-center rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-black text-blue-200 transition hover:bg-blue-500/15"
+                    >
+                      Abrir ciclo
+                    </Link>
+
+                    {cycle.leadPhone && (
+                      <a
+                        href={`https://wa.me/${cycle.leadPhone.replace(/\D/g, '').startsWith('55')
+                          ? cycle.leadPhone.replace(/\D/g, '')
+                          : `55${cycle.leadPhone.replace(/\D/g, '')}`}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-200 transition hover:bg-emerald-500/15"
+                      >
+                        WhatsApp
+                      </a>
+                    )}
                   </div>
                 </td>
               </tr>
