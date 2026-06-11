@@ -35,8 +35,8 @@ export default function PulseFilters({
 }) {
   return (
     <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] px-4 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="mr-2 text-[10px] font-black uppercase tracking-[0.14em] text-[#546070]">
+      <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap pb-1">
+        <div className="shrink-0 text-[10px] font-black uppercase tracking-[0.14em] text-[#546070]">
           Filtrar
         </div>
 
@@ -49,7 +49,7 @@ export default function PulseFilters({
               type="button"
               onClick={() => onChange(filter.key)}
               className={[
-                'rounded-full border px-3 py-1.5 text-xs font-black transition-all',
+                'shrink-0 rounded-full border px-3 py-1.5 text-xs font-black transition-all',
                 active
                   ? 'border-blue-500/60 bg-blue-500/15 text-blue-100 shadow-[0_0_0_1px_rgba(59,130,246,0.20)]'
                   : 'border-[#1a1d2e] bg-[#111318] text-[#8fa3bc] hover:border-[#2a3350] hover:text-[#edf2f7]',
