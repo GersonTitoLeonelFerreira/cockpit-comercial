@@ -36,10 +36,6 @@ export default function PulseFilters({
   return (
     <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] px-4 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
       <div className="flex items-center gap-3 overflow-x-auto whitespace-nowrap pb-1">
-        <div className="shrink-0 text-[10px] font-black uppercase tracking-[0.14em] text-[#546070]">
-          Filtrar
-        </div>
-
         {filters.map((filter) => {
           const active = activeFilter === filter.key
 
