@@ -72,10 +72,18 @@ export interface SalesPulseSummary {
   averageScore: number
 }
 
+export interface SalesPulseSellerOption {
+  id: string
+  name: string
+  email: string | null
+}
+
 export interface SalesPulsePageData {
   summary: SalesPulseSummary
   cycles: SalesPulseCyclePulse[]
   criticalCycles: SalesPulseCyclePulse[]
   recommendedActions: SalesPulseSignal[]
   generatedAt: string
+  canFilterBySeller: boolean
+  sellerOptions: SalesPulseSellerOption[]
 }

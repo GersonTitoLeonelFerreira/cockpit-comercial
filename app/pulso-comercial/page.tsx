@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import PulsoComercialClient from './PulsoComercialClient'
 import { buildSalesPulsePageData } from '@/app/lib/services/sales-pulse'
-import type { SalesPulseCycleRow } from '@/app/types/sales-pulse'
+import type { SalesPulseCycleRow, SalesPulseSellerOption } from '@/app/types/sales-pulse'
 import type { LeadStatus } from '@/app/types/sales_cycles'
 
 type MembershipRow = {
@@ -25,6 +25,12 @@ type PipelinePulseRow = {
   created_at: string
   name: string | null
   phone: string | null
+  email: string | null
+}
+
+type SellerProfileRow = {
+  id: string
+  full_name: string | null
   email: string | null
 }
 
@@ -127,15 +133,8 @@ async function getPulsoComercialData() {
 
   const canViewCompany = membership.role === 'admin' || membership.role === 'manager'
 
-  let query = admin
-    .from('v_pipeline_items')
-    .select(
-      'id, company_id, lead_id, owner_id, status, stage_entered_at, next_action, next_action_date, created_at, name, phone, email'
-    )
-    .eq('company_id', activeCompanyId)
-    .in('status', ['contato', 'respondeu', 'negociacao'])
-    .order('stage_entered_at', { ascending: true, nullsFirst: false })
-    .limit(500)
+  let sellerOptions: SalesPulseSellerOption[] = []
+  let allowedOwnerIds: string[] | null = null
 
   if (canViewCompany) {
     const { data: activeOwners, error: activeOwnersError } = await admin
@@ -148,15 +147,48 @@ async function getPulsoComercialData() {
       throw new Error(`Erro ao carregar vendedores ativos: ${activeOwnersError.message}`)
     }
 
-    const ownerIds = ((activeOwners ?? []) as Array<{ user_id: string }>)
+    allowedOwnerIds = ((activeOwners ?? []) as Array<{ user_id: string }>)
       .map((owner) => owner.user_id)
       .filter(Boolean)
 
-    if (ownerIds.length === 0) {
-      return buildSalesPulsePageData([], { limit: 80 })
+    if (allowedOwnerIds.length === 0) {
+      return {
+        ...buildSalesPulsePageData([], { limit: 0 }),
+        canFilterBySeller: true,
+        sellerOptions: [],
+      }
     }
 
-    query = query.not('owner_id', 'is', null).in('owner_id', ownerIds)
+    const { data: sellerProfiles, error: sellerProfilesError } = await admin
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', allowedOwnerIds)
+
+    if (sellerProfilesError) {
+      throw new Error(`Erro ao carregar vendedores do Pulso: ${sellerProfilesError.message}`)
+    }
+
+    sellerOptions = ((sellerProfiles ?? []) as SellerProfileRow[])
+      .map((seller) => ({
+        id: seller.id,
+        name: seller.full_name || seller.email || 'Vendedor sem nome',
+        email: seller.email,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  }
+
+  let query = admin
+    .from('v_pipeline_items')
+    .select(
+      'id, company_id, lead_id, owner_id, status, stage_entered_at, next_action, next_action_date, created_at, name, phone, email'
+    )
+    .eq('company_id', activeCompanyId)
+    .in('status', ['contato', 'respondeu', 'negociacao'])
+    .order('stage_entered_at', { ascending: true, nullsFirst: false })
+    .limit(500)
+
+  if (canViewCompany) {
+    query = query.not('owner_id', 'is', null).in('owner_id', allowedOwnerIds ?? [])
   } else {
     query = query.eq('owner_id', user.id)
   }
@@ -169,7 +201,11 @@ async function getPulsoComercialData() {
 
   const rows = ((data ?? []) as PipelinePulseRow[]).map(mapPipelineRowToPulseRow)
 
-  return buildSalesPulsePageData(rows, { limit: 80 })
+  return {
+    ...buildSalesPulsePageData(rows, { limit: rows.length }),
+    canFilterBySeller: canViewCompany,
+    sellerOptions,
+  }
 }
 
 export default async function PulsoComercialPage() {

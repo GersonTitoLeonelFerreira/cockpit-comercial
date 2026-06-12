@@ -1,10 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import type { SalesPulseCyclePulse, SalesPulsePageData } from '@/app/types/sales-pulse'
+import { useEffect, useMemo, useState } from 'react'
+import type { SalesPulseCyclePulse, SalesPulsePageData, SalesPulseSummary } from '@/app/types/sales-pulse'
 import PulseSummaryCards from './components/PulseSummaryCards'
 import PulseRiskTable from './components/PulseRiskTable'
 import PulseFilters, { type PulseFilterKey } from './components/PulseFilters'
+
+const PAGE_SIZE = 30
 
 function formatGeneratedAt(value: string) {
   const date = new Date(value)
@@ -44,13 +46,61 @@ function applyPulseFilter(cycles: SalesPulseCyclePulse[], filter: PulseFilterKey
   }
 }
 
+function buildSummaryFromCycles(cycles: SalesPulseCyclePulse[]): SalesPulseSummary {
+  const totalOpenCycles = cycles.length
+  const scoreSum = cycles.reduce((sum, cycle) => sum + cycle.score, 0)
+
+  return {
+    totalOpenCycles,
+    strongCycles: cycles.filter((cycle) => cycle.state === 'forte').length,
+    activeCycles: cycles.filter((cycle) => cycle.state === 'ativo').length,
+    weakCycles: cycles.filter((cycle) => cycle.state === 'fraco').length,
+    criticalCycles: cycles.filter((cycle) => cycle.state === 'critico').length,
+    deadCycles: cycles.filter((cycle) => cycle.state === 'sem_pulso').length,
+    overdueNextActions: cycles.filter((cycle) => cycle.isNextActionOverdue).length,
+    cyclesWithoutNextAction: cycles.filter((cycle) => !cycle.nextActionDate).length,
+    averageScore: totalOpenCycles === 0 ? 0 : Math.round(scoreSum / totalOpenCycles),
+  }
+}
+
 export default function PulsoComercialClient({ data }: { data: SalesPulsePageData }) {
   const [activeFilter, setActiveFilter] = useState<PulseFilterKey>('todos')
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string>('company')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const ownerScopedCycles = useMemo(() => {
+    if (!data.canFilterBySeller || selectedOwnerId === 'company') {
+      return data.cycles
+    }
+
+    return data.cycles.filter((cycle) => cycle.ownerUserId === selectedOwnerId)
+  }, [data.canFilterBySeller, data.cycles, selectedOwnerId])
+
+  const summary = useMemo(() => buildSummaryFromCycles(ownerScopedCycles), [ownerScopedCycles])
 
   const filteredCycles = useMemo(
-    () => applyPulseFilter(data.cycles, activeFilter),
-    [activeFilter, data.cycles]
+    () => applyPulseFilter(ownerScopedCycles, activeFilter),
+    [activeFilter, ownerScopedCycles]
   )
+
+  const totalPages = Math.max(1, Math.ceil(filteredCycles.length / PAGE_SIZE))
+
+  const paginatedCycles = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages)
+    const start = (safePage - 1) * PAGE_SIZE
+
+    return filteredCycles.slice(start, start + PAGE_SIZE)
+  }, [currentPage, filteredCycles, totalPages])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeFilter, selectedOwnerId])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
 
   return (
     <div className="min-h-full bg-[#090b0f] text-[#edf2f7]">
@@ -78,11 +128,46 @@ export default function PulsoComercialClient({ data }: { data: SalesPulsePageDat
       </div>
 
       <div className="space-y-4">
-        <PulseSummaryCards summary={data.summary} />
+        {data.canFilterBySeller && (
+          <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] px-4 py-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.14em] text-[#546070]">
+                  Visão do Pulso
+                </div>
+                <div className="mt-1 text-xs text-[#8fa3bc]">
+                  Alterne entre a empresa inteira e um vendedor específico.
+                </div>
+              </div>
+
+              <select
+                value={selectedOwnerId}
+                onChange={(event) => setSelectedOwnerId(event.target.value)}
+                className="min-h-[40px] rounded-xl border border-[#1a1d2e] bg-[#111318] px-3 text-sm font-bold text-[#edf2f7] outline-none transition focus:border-blue-500/60"
+              >
+                <option value="company">Empresa inteira</option>
+                {data.sellerOptions.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        <PulseSummaryCards summary={summary} />
 
         <PulseFilters activeFilter={activeFilter} onChange={setActiveFilter} />
 
-        <PulseRiskTable cycles={filteredCycles} />
+        <PulseRiskTable
+          cycles={paginatedCycles}
+          totalCycles={filteredCycles.length}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pageSize={PAGE_SIZE}
+          onPageChange={setCurrentPage}
+        />
       </div>
     </div>
   )

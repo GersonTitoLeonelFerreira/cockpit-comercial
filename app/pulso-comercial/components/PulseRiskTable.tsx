@@ -36,14 +36,47 @@ function whatsappHref(phone: string) {
   return `https://wa.me/${withCountry}`
 }
 
-export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePulse[] }) {
-  if (cycles.length === 0) {
+function getPageNumbers(currentPage: number, totalPages: number) {
+  const pages = new Set<number>()
+
+  pages.add(1)
+  pages.add(totalPages)
+
+  for (let page = currentPage - 1; page <= currentPage + 1; page += 1) {
+    if (page >= 1 && page <= totalPages) {
+      pages.add(page)
+    }
+  }
+
+  return Array.from(pages).sort((a, b) => a - b)
+}
+
+export default function PulseRiskTable({
+  cycles,
+  totalCycles,
+  currentPage,
+  totalPages,
+  pageSize,
+  onPageChange,
+}: {
+  cycles: SalesPulseCyclePulse[]
+  totalCycles: number
+  currentPage: number
+  totalPages: number
+  pageSize: number
+  onPageChange: (page: number) => void
+}) {
+  if (totalCycles === 0) {
     return (
       <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-6 text-sm text-[#8fa3bc]">
         Nenhum ciclo em andamento encontrado no Pulso Comercial.
       </div>
     )
   }
+
+  const firstItem = (currentPage - 1) * pageSize + 1
+  const lastItem = Math.min(currentPage * pageSize, totalCycles)
+  const pageNumbers = getPageNumbers(currentPage, totalPages)
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] shadow-[0_16px_36px_rgba(0,0,0,0.24)]">
@@ -57,7 +90,7 @@ export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePuls
           </div>
 
           <div className="rounded-full border border-[#1a1d2e] bg-[#111318] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#546070]">
-            {cycles.length} ciclo{cycles.length === 1 ? '' : 's'}
+            {firstItem}-{lastItem} de {totalCycles}
           </div>
         </div>
       </div>
@@ -145,6 +178,56 @@ export default function PulseRiskTable({ cycles }: { cycles: SalesPulseCyclePuls
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-[#1a1d2e] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-semibold text-[#8fa3bc]">
+          Página {currentPage} de {totalPages} · máximo {pageSize} ciclos por página
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="rounded-xl border border-[#1a1d2e] bg-[#111318] px-3 py-2 text-xs font-black text-[#8fa3bc] transition hover:border-[#2a3350] hover:text-[#edf2f7] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Anterior
+          </button>
+
+          {pageNumbers.map((page, index) => {
+            const previousPage = pageNumbers[index - 1]
+            const showGap = previousPage && page - previousPage > 1
+
+            return (
+              <span key={page} className="flex items-center gap-2">
+                {showGap && <span className="text-xs text-[#546070]">...</span>}
+
+                <button
+                  type="button"
+                  onClick={() => onPageChange(page)}
+                  className={[
+                    'rounded-xl border px-3 py-2 text-xs font-black transition',
+                    currentPage === page
+                      ? 'border-blue-500/60 bg-blue-500/15 text-blue-100'
+                      : 'border-[#1a1d2e] bg-[#111318] text-[#8fa3bc] hover:border-[#2a3350] hover:text-[#edf2f7]',
+                  ].join(' ')}
+                >
+                  {page}
+                </button>
+              </span>
+            )
+          })}
+
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="rounded-xl border border-[#1a1d2e] bg-[#111318] px-3 py-2 text-xs font-black text-[#8fa3bc] transition hover:border-[#2a3350] hover:text-[#edf2f7] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Próxima
+          </button>
+        </div>
       </div>
     </div>
   )
