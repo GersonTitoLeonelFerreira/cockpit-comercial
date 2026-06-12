@@ -331,5 +331,7 @@ export function buildSalesPulsePageData(
     criticalCycles: allCycles.filter((cycle) => cycle.state === 'critico' || cycle.state === 'sem_pulso'),
     recommendedActions: buildRecommendedActions(allCycles),
     generatedAt: now.toISOString(),
+    canFilterBySeller: false,
+    sellerOptions: [],
   }
 }
