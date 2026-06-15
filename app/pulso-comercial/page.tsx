@@ -23,6 +23,7 @@ type PipelinePulseRow = {
   next_action: string | null
   next_action_date: string | null
   created_at: string
+  updated_at: string | null
   name: string | null
   phone: string | null
   email: string | null
@@ -47,7 +48,7 @@ function mapPipelineRowToPulseRow(row: PipelinePulseRow): SalesPulseCycleRow {
     next_action_date: row.next_action_date,
     current_group_id: null,
     created_at: row.created_at,
-    updated_at: row.stage_entered_at ?? row.created_at,
+    updated_at: row.updated_at ?? row.stage_entered_at ?? row.created_at,
     closed_at: null,
     won_at: null,
     lost_at: null,
@@ -180,7 +181,7 @@ async function getPulsoComercialData() {
   let query = admin
     .from('v_pipeline_items')
     .select(
-      'id, company_id, lead_id, owner_id, status, stage_entered_at, next_action, next_action_date, created_at, name, phone, email'
+      'id, company_id, lead_id, owner_id, status, stage_entered_at, next_action, next_action_date, created_at, updated_at, name, phone, email'
     )
     .eq('company_id', activeCompanyId)
     .in('status', ['contato', 'respondeu', 'negociacao'])

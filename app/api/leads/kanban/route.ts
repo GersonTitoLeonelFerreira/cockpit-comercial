@@ -29,6 +29,7 @@ type KanbanRow = {
   next_action: string | null
   next_action_date: string | null
   created_at: string
+  updated_at: string | null
 }
 
 const STATUSES: Status[] = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
@@ -373,7 +374,7 @@ export async function GET(req: Request) {
       let itemQuery = admin
         .from('v_pipeline_items')
         .select(
-          'id, lead_id, owner_id, group_id, status, stage_entered_at, name, phone, email, cpf, document, phone_digits, document_digits, next_action, next_action_date, created_at',
+          'id, lead_id, owner_id, group_id, status, stage_entered_at, name, phone, email, cpf, document, phone_digits, document_digits, next_action, next_action_date, created_at, updated_at',
         )
         .eq('company_id', activeCompanyId)
         .eq('status', status)

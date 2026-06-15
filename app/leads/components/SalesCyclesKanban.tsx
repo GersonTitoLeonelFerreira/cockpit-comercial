@@ -110,6 +110,7 @@ type PipelineItem = {
   document_digits?: string | null
   next_action: string | null
   next_action_date: string | null
+  updated_at?: string | null
   lead_groups?: { name: string } | null
 }
 
@@ -332,7 +333,7 @@ function getKanbanPulse(item: PipelineItem, nowTick: Date) {
     next_action_date: item.next_action_date,
     current_group_id: item.group_id,
     created_at: item.stage_entered_at,
-    updated_at: item.stage_entered_at,
+    updated_at: item.updated_at ?? item.stage_entered_at,
     closed_at: null,
     won_at: null,
     lost_at: null,
