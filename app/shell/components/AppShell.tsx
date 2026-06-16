@@ -629,7 +629,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     const interval = window.setInterval(() => {
       void validateSession('refresh')
-    }, 15000)
+    }, 60000)
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
