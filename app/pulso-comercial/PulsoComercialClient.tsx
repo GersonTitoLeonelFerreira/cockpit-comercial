@@ -63,6 +63,19 @@ function buildSummaryFromCycles(cycles: SalesPulseCyclePulse[]): SalesPulseSumma
   }
 }
 
+function getFilterLabel(filter: PulseFilterKey) {
+  if (filter === 'criticos') return 'Críticos'
+  if (filter === 'sem_pulso') return 'Sem pulso'
+  if (filter === 'fracos') return 'Pulso fraco'
+  if (filter === 'acoes_vencidas') return 'Atrasados'
+  if (filter === 'sem_proxima_acao') return 'Sem próxima ação'
+  if (filter === 'contato') return 'Contato'
+  if (filter === 'agenda') return 'Agenda'
+  if (filter === 'negociacao') return 'Negociação'
+
+  return 'Todos'
+}
+
 export default function PulsoComercialClient({ data }: { data: SalesPulsePageData }) {
   const [activeFilter, setActiveFilter] = useState<PulseFilterKey>('todos')
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>('company')
@@ -82,6 +95,23 @@ export default function PulsoComercialClient({ data }: { data: SalesPulsePageDat
     () => applyPulseFilter(ownerScopedCycles, activeFilter),
     [activeFilter, ownerScopedCycles]
   )
+
+  const selectedSellerName = useMemo(() => {
+    if (!data.canFilterBySeller || selectedOwnerId === 'company') return null
+
+    return data.sellerOptions.find((seller) => seller.id === selectedOwnerId)?.name ?? 'vendedor selecionado'
+  }, [data.canFilterBySeller, data.sellerOptions, selectedOwnerId])
+
+  const emptyTitle = selectedSellerName
+    ? `Nenhum ciclo encontrado para ${selectedSellerName}`
+    : 'Nenhum ciclo encontrado'
+
+  const emptyDescription =
+    activeFilter === 'todos'
+      ? selectedSellerName
+        ? 'Este vendedor não possui ciclos em andamento no momento.'
+        : 'Não existem ciclos em andamento para esta visão do Pulso Comercial.'
+      : `Não existem ciclos no filtro ${getFilterLabel(activeFilter)} para esta visão.`
 
   const totalPages = Math.max(1, Math.ceil(filteredCycles.length / PAGE_SIZE))
 
@@ -167,6 +197,8 @@ export default function PulsoComercialClient({ data }: { data: SalesPulsePageDat
           totalPages={totalPages}
           pageSize={PAGE_SIZE}
           onPageChange={setCurrentPage}
+          emptyTitle={emptyTitle}
+          emptyDescription={emptyDescription}
         />
       </div>
     </div>

@@ -58,6 +58,8 @@ export default function PulseRiskTable({
   totalPages,
   pageSize,
   onPageChange,
+  emptyTitle = 'Nenhum ciclo encontrado',
+  emptyDescription = 'Não existem ciclos em andamento para esta visão do Pulso Comercial.',
 }: {
   cycles: SalesPulseCyclePulse[]
   totalCycles: number
@@ -65,11 +67,14 @@ export default function PulseRiskTable({
   totalPages: number
   pageSize: number
   onPageChange: (page: number) => void
+  emptyTitle?: string
+  emptyDescription?: string
 }) {
   if (totalCycles === 0) {
     return (
-      <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-6 text-sm text-[#8fa3bc]">
-        Nenhum ciclo em andamento encontrado no Pulso Comercial.
+      <div className="rounded-2xl border border-[#1a1d2e] bg-[#0d0f14] p-6 shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
+        <div className="text-sm font-black text-[#edf2f7]">{emptyTitle}</div>
+        <div className="mt-2 max-w-2xl text-sm leading-6 text-[#8fa3bc]">{emptyDescription}</div>
       </div>
     )
   }
