@@ -60,6 +60,7 @@ export const config = {
     '/perfil/:path*',
     '/platform/:path*',
     '/pool/:path*',
+    '/pulso-comercial/:path*',
     '/relatorios/:path*',
     '/sales-cycles/:path*',
   ],
