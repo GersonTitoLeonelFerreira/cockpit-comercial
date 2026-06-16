@@ -21,6 +21,7 @@ export type WorklistItem = {
   next_action: string | null
   next_action_date: string | null
   stage_entered_at: string
+  updated_at?: string | null
 }
 
 type LeadQuickDrawerProps = {
@@ -33,7 +34,7 @@ type LeadQuickDrawerProps = {
 const STATUS_LABELS: Record<string, string> = {
   novo: 'Novo',
   contato: 'Contato',
-  respondeu: 'Respondeu',
+  respondeu: 'Agenda',
   negociacao: 'Negociação',
   ganho: 'Ganho',
   perdido: 'Perdido',
@@ -89,7 +90,7 @@ function getQuickDrawerPulse(item: WorklistItem | null) {
     next_action_date: item.next_action_date,
     current_group_id: null,
     created_at: item.stage_entered_at,
-    updated_at: item.stage_entered_at,
+    updated_at: item.updated_at ?? item.stage_entered_at,
     closed_at: null,
     won_at: null,
     lost_at: null,
@@ -173,7 +174,8 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
   const handleWhatsApp = useCallback(() => {
     if (!item?.phone) return
     const digits = item.phone.replace(/\D/g, '')
-    window.open(`https://wa.me/55${digits}`, '_blank')
+    const phone = digits.startsWith('55') ? digits : `55${digits}`
+    window.open(`https://wa.me/${phone}`, '_blank')
   }, [item])
 
   if (!item) return null
