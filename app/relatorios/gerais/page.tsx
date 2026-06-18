@@ -728,7 +728,7 @@ export default async function RelatoriosGeraisPage() {
     .slice()
     .sort((a, b) => a.conversion - b.conversion)[0]
 
-    const conversionLeakText = conversionLeak
+  const conversionLeakText = conversionLeak
     ? `Maior vazamento da competência em ${getHistoricalStageLabel(conversionLeak.from_stage)} → ${getHistoricalStageLabel(conversionLeak.to_stage)}, com ${conversionLeak.conversion.toFixed(0)}% de conversão.`
     : 'Ainda não há volume suficiente para apontar um vazamento confiável na competência.'
 
