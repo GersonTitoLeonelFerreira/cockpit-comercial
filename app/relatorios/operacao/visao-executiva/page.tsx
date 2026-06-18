@@ -675,7 +675,7 @@ export default function VisaoExecutivaPage() {
         const me = (await response.json()) as {
           user_id?: string
           active_company_id?: string | null
-          active_company_role?: string | null
+          active_role?: string | null
         }
 
         if (!me.user_id) {
@@ -691,7 +691,7 @@ export default function VisaoExecutivaPage() {
           me.active_company_id,
         )
 
-        const membershipRole = String(me.active_company_role ?? '').toLowerCase()
+        const membershipRole = String(me.active_role ?? '').toLowerCase()
         const adminUser = ['admin', 'owner', 'manager'].includes(membershipRole)
 
         setCurrentUserId(me.user_id)
