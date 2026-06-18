@@ -1658,7 +1658,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-                                          <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
+              <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
                 Perdas registradas dentro da competência atual, após a oportunidade iniciar atendimento.
               </p>
 
