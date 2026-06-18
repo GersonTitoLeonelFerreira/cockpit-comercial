@@ -2,18 +2,7 @@
 
 import React from 'react'
 
-const ACTIVE_COMPANY_COOKIE = 'cockpit_active_company_id'
 
-function getCookieValue(name: string) {
-  if (typeof document === 'undefined') return null
-
-  const value = document.cookie
-    .split('; ')
-    .find((row) => row.startsWith(`${name}=`))
-    ?.split('=')[1]
-
-  return value ? decodeURIComponent(value) : null
-}
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
@@ -946,29 +935,35 @@ export default function VisaoExecutivaPage() {
     async function init() {
       setLoading(true)
       setError(null)
+
       try {
-        const { data: userData } = await supabase.auth.getUser()
-        if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
+        const response = await fetch('/api/me', {
+          cache: 'no-store',
+        })
 
-        const uid = userData.user.id
-        setCurrentUserId(uid)
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', uid)
-          .maybeSingle()
-
-        if (!profile) throw new Error('Perfil não encontrado.')
-
-        const activeCompanyId = getCookieValue(ACTIVE_COMPANY_COOKIE)
-        const resolvedCompanyId = activeCompanyId || profile.company_id
-
-        if (!resolvedCompanyId) {
-          throw new Error('Usuário sem empresa ativa vinculada.')
+        if (!response.ok) {
+          throw new Error('Não foi possível identificar a empresa ativa.')
         }
 
-        const adminUser = profile.role === 'admin'
+        const me = (await response.json()) as {
+          user_id?: string
+          active_company_id?: string | null
+          active_company_role?: string | null
+        }
+
+        const uid = me.user_id ?? null
+        const resolvedCompanyId = me.active_company_id ?? null
+        const adminUser = me.active_company_role === 'admin'
+
+        if (!uid) {
+          throw new Error('Sessão expirada. Faça login novamente.')
+        }
+
+        if (!resolvedCompanyId) {
+          throw new Error('Nenhuma empresa ativa foi encontrada.')
+        }
+
+        setCurrentUserId(uid)
         setIsAdmin(adminUser)
         setCompanyId(resolvedCompanyId)
 
@@ -988,6 +983,7 @@ export default function VisaoExecutivaPage() {
         setLoading(false)
       }
     }
+
     init()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
