@@ -6,7 +6,10 @@ import React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
-import { classifyEvent } from '@/app/config/eventClassification'
+import {
+  classifyEvent,
+  isCommercialEvent,
+} from '@/app/config/eventClassification'
 import {
   CHANNEL_LABELS,
   extractChannelFromEvent,
@@ -224,6 +227,17 @@ function buildExecutiveData(
   // Objections
   const objectionMap = new Map<string, number>()
 
+  // Mantém somente a última próxima ação conhecida por ciclo.
+  // Isso impede que reagendamentos antigos inflem disciplina e atrasos.
+  const latestNextActionByCycle = new Map<
+    string,
+    {
+      occurredAt: string
+      dueDate: string
+      sellerId: string
+    }
+  >()
+
   for (const ev of events) {
     if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
 
@@ -234,6 +248,8 @@ function buildExecutiveData(
       if (ev.created_by !== currentUserId) continue
     }
 
+    if (!isCommercialEvent(ev)) continue
+
     const meta = (ev.metadata ?? {}) as Record<string, unknown>
     const kind = classifyEvent(ev)
     const sellerId = ev.created_by ?? ''
@@ -243,17 +259,43 @@ function buildExecutiveData(
       const evStage = String(
         meta.from_status ?? meta.from_stage ?? meta.stage ?? meta.to_status ?? ''
       ).toLowerCase()
+
       if (evStage && evStage !== stageFilter) continue
     }
 
-    // Track unique cycles
-    if (ev.cycle_id) cycleSet.add(ev.cycle_id)
+    // Um ciclo conta como trabalhado quando há interação comercial,
+    // avanço real, fechamento ou próxima ação válida.
+    if (ev.cycle_id) {
+      cycleSet.add(ev.cycle_id)
+    }
+
+    // stage_changed pode carregar uma próxima ação junto da movimentação.
+    const dueDate = String(
+      meta.due_date ?? meta.scheduled_at ?? meta.next_action_date ?? ''
+    ).trim()
+
+    const hasNextAction = kind === 'next_action' || dueDate.length > 0
+
+    if (hasNextAction) {
+      const nextActionKey = ev.cycle_id ?? ev.id
+      const current = latestNextActionByCycle.get(nextActionKey)
+
+      if (!current || ev.occurred_at > current.occurredAt) {
+        latestNextActionByCycle.set(nextActionKey, {
+          occurredAt: ev.occurred_at,
+          dueDate,
+          sellerId,
+        })
+      }
+    }
 
     if (kind === 'won') {
       totalWon++
+
       if (sellerId) {
         consultantWonMap.set(sellerId, (consultantWonMap.get(sellerId) ?? 0) + 1)
       }
+
       const channel = extractChannelFromEvent(meta) ?? 'Outro'
       channelWonMap.set(channel, (channelWonMap.get(channel) ?? 0) + 1)
       continue
@@ -261,70 +303,121 @@ function buildExecutiveData(
 
     if (kind === 'lost') {
       totalLost++
+
       if (sellerId) {
         consultantLostMap.set(sellerId, (consultantLostMap.get(sellerId) ?? 0) + 1)
       }
+
       const channel = extractChannelFromEvent(meta) ?? 'Outro'
       channelLostMap.set(channel, (channelLostMap.get(channel) ?? 0) + 1)
       continue
     }
 
     if (kind === 'next_action') {
-      totalNextActions++
-      if (sellerId) {
-        consultantNextActionsMap.set(sellerId, (consultantNextActionsMap.get(sellerId) ?? 0) + 1)
-      }
-      // Check if overdue
-      const dueDate = String(meta.due_date ?? meta.scheduled_at ?? meta.next_action_date ?? '').trim()
-      if (dueDate && dueDate.slice(0, 10) < todayStr) {
-        overdueNextActions++
-      }
       continue
     }
 
     if (kind === 'stage_move') {
       totalAdvances++
+
       const toStage = String(
         meta.to_status ?? meta.to_stage ?? meta.stage ?? ''
       ).toLowerCase()
+
       const fromStage = String(
         meta.from_status ?? meta.from_stage ?? ''
       ).toLowerCase()
+
       const trackStage = fromStage || toStage || 'novo'
-      stageAdvanceMap.set(trackStage, (stageAdvanceMap.get(trackStage) ?? 0) + 1)
+
+      stageAdvanceMap.set(
+        trackStage,
+        (stageAdvanceMap.get(trackStage) ?? 0) + 1,
+      )
+
       if (sellerId) {
-        consultantAdvancesMap.set(sellerId, (consultantAdvancesMap.get(sellerId) ?? 0) + 1)
+        consultantAdvancesMap.set(
+          sellerId,
+          (consultantAdvancesMap.get(sellerId) ?? 0) + 1,
+        )
       }
+
       continue
     }
 
-    // Activity
+    // Atividade comercial real.
     totalActivities++
+
     if (sellerId) {
-      consultantActivitiesMap.set(sellerId, (consultantActivitiesMap.get(sellerId) ?? 0) + 1)
+      consultantActivitiesMap.set(
+        sellerId,
+        (consultantActivitiesMap.get(sellerId) ?? 0) + 1,
+      )
     }
 
     const evStageKey = String(
       meta.from_status ?? meta.from_stage ?? meta.stage ?? meta.to_status ?? ''
     ).toLowerCase() || 'novo'
-    stageActivityMap.set(evStageKey, (stageActivityMap.get(evStageKey) ?? 0) + 1)
 
-    // Channel
+    stageActivityMap.set(
+      evStageKey,
+      (stageActivityMap.get(evStageKey) ?? 0) + 1,
+    )
+
     const channel = extractChannelFromEvent(meta) ?? 'Outro'
-    channelTotalMap.set(channel, (channelTotalMap.get(channel) ?? 0) + 1)
 
-    // Objection detection (same logic as objecoes-e-perdas)
+    channelTotalMap.set(
+      channel,
+      (channelTotalMap.get(channel) ?? 0) + 1,
+    )
+
     const cp = resolveCheckpointData(meta)
-    const rawId = String(meta.action_id ?? meta.quick_action ?? ev.event_type ?? '').trim()
-    const resolvedId = rawId ? resolveActionId(rawId) : ''
-    const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
-    const hasCheckpointObjection = cp.action_result === 'Objeção identificada'
+    const rawId = String(
+      meta.action_id ?? meta.quick_action ?? ev.event_type ?? ''
+    ).trim()
 
-    if (resolvedId === OBJECTION_ACTION_ID || hasObjectionField || hasCheckpointObjection) {
+    const resolvedId = rawId ? resolveActionId(rawId) : ''
+
+    const hasObjectionField =
+      typeof meta.objection === 'string' &&
+      meta.objection.trim().length > 0
+
+    const hasCheckpointObjection =
+      cp.action_result === 'Objeção identificada'
+
+    if (
+      resolvedId === OBJECTION_ACTION_ID ||
+      hasObjectionField ||
+      hasCheckpointObjection
+    ) {
       const text = String(
-        cp.result_detail ?? meta.result_detail ?? meta.objection ?? meta.detail ?? meta.details ?? ''
+        cp.result_detail ??
+          meta.result_detail ??
+          meta.objection ??
+          meta.detail ??
+          meta.details ??
+          ''
       ).trim() || 'Sem detalhe registrado'
+
       objectionMap.set(text, (objectionMap.get(text) ?? 0) + 1)
+    }
+  }
+
+  for (const nextAction of latestNextActionByCycle.values()) {
+    totalNextActions++
+
+    if (nextAction.sellerId) {
+      consultantNextActionsMap.set(
+        nextAction.sellerId,
+        (consultantNextActionsMap.get(nextAction.sellerId) ?? 0) + 1,
+      )
+    }
+
+    if (
+      nextAction.dueDate &&
+      nextAction.dueDate.slice(0, 10) < todayStr
+    ) {
+      overdueNextActions++
     }
   }
 
@@ -342,6 +435,16 @@ function buildExecutiveData(
     if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
     if (isAdmin && selectedSellerId && ev.created_by !== selectedSellerId) continue
     if (!isAdmin && currentUserId && ev.created_by !== currentUserId) continue
+    if (!isCommercialEvent(ev)) continue
+
+    if (stageFilter) {
+      const meta = (ev.metadata ?? {}) as Record<string, unknown>
+      const evStage = String(
+        meta.from_status ?? meta.from_stage ?? meta.stage ?? meta.to_status ?? ''
+      ).toLowerCase()
+
+      if (evStage && evStage !== stageFilter) continue
+    }
 
     const kind = classifyEvent(ev)
     if (kind === 'stage_move') {
@@ -504,7 +607,7 @@ function buildExecutiveData(
   const totalRevenue = Array.from(revenueMap.values()).reduce((s, v) => s + v, 0)
   const overallAdvanceRate = safePct(totalAdvances, totalActivities + totalAdvances)
   const winRate = safePct(totalWon, totalWon + totalLost)
-  const disciplineRate = safePct(totalNextActions, totalActivities)
+  const disciplineRate = safePct(totalNextActions, cycleSet.size)
 
   return {
     totalCycles: cycleSet.size,
@@ -1415,9 +1518,9 @@ export default function VisaoExecutivaPage() {
                 }}
               >
                 <KpiCard
-                  label="Leads trabalhados"
+                  label="Ciclos trabalhados"
                   value={d.totalCycles}
-                  sub="ciclos únicos"
+                  sub="com interação comercial ou avanço"
                   accent={ACCENT}
                   icon={<IconUsers />}
                 />
@@ -1453,9 +1556,9 @@ export default function VisaoExecutivaPage() {
                 )}
                 {d.totalActivities > 0 && (
                   <KpiCard
-                    label="Disciplina geral"
-                    value={fmtPct(d.disciplineRate)}
-                    sub="próx. ações / atividades"
+                  label="Disciplina geral"
+                  value={fmtPct(d.disciplineRate)}
+                  sub="ciclos com próxima ação definida"
                     accent={d.disciplineRate >= 50 ? '#34d399' : d.disciplineRate >= 25 ? '#fbbf24' : '#f87171'}
                     icon={<IconListCheck />}
                   />

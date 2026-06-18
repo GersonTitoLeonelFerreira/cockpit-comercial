@@ -51,6 +51,46 @@ function normalize(v: unknown): string {
   return String(v).toLowerCase().trim()
 }
 
+const SYSTEM_EVENT_TYPES = new Set([
+  'cycle_created',
+  'lead_created',
+  'assigned',
+  'reassigned',
+  'owner_assigned',
+  'owner_reassigned',
+  'returned_to_pool',
+  'group_attached',
+  'group_changed',
+  'group_assigned',
+  'group_detached',
+  'lead_reactivated_from_import',
+  'lead_reactivated_from_manual_create',
+  'lead_reactivated_by_admin',
+])
+
+/**
+ * Retorna true apenas quando o evento representa interação comercial,
+ * avanço real, fechamento ou definição de próxima ação.
+ *
+ * Eventos automáticos de criação, distribuição, grupos e IA não devem
+ * compor indicadores de produtividade comercial.
+ */
+export function isCommercialEvent(event: ClassifiableEvent): boolean {
+  const eventType = normalize(event.event_type)
+
+  if (SYSTEM_EVENT_TYPES.has(eventType)) return false
+
+  if (
+    eventType === 'ai_analysis_generated' ||
+    eventType === 'ai_suggestion_applied' ||
+    eventType === 'ai_suggestion_rejected'
+  ) {
+    return false
+  }
+
+  return true
+}
+
 function extractStages(event: ClassifiableEvent): { from: string; to: string } {
   const m = event.metadata ?? {}
   const from = normalize(event.from_stage) ||
