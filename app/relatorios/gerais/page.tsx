@@ -733,11 +733,11 @@ export default async function RelatoriosGeraisPage() {
     : 'Ainda não há volume suficiente para apontar um vazamento confiável na competência.'
 
   const lossText = worstLoss
-  ? `Maior perda da competência em ${getHistoricalStageLabel(worstLoss.stage)}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
-  : 'Ainda não há perda suficiente para formar diagnóstico confiável na competência.'
+    ? `Maior perda da competência em ${getHistoricalStageLabel(worstLoss.stage)}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
+    : 'Ainda não há perda suficiente para formar diagnóstico confiável na competência.'
 
   const timeBottleneckText = slowestStage
-    ? `Etapa historicamente mais lenta: ${getHistoricalStageLabel(slowestStage.from_stage)}, com tempo médio de ${formatSeconds(slowestStage.avg_seconds)} e mediana de ${formatSeconds(slowestStage.median_seconds)}.`
+    ? `Etapa mais lenta da competência: ${getHistoricalStageLabel(slowestStage.from_stage)}, com tempo médio de ${formatSeconds(slowestStage.avg_seconds)} e mediana de ${formatSeconds(slowestStage.median_seconds)}.`
     : 'Ainda não há dados suficientes para identificar gargalo de tempo na competência.'
 
   return (
