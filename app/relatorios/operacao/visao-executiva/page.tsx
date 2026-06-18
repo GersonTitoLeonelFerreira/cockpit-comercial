@@ -1,6 +1,19 @@
 'use client'
 
-import * as React from 'react'
+import React from 'react'
+
+const ACTIVE_COMPANY_COOKIE = 'cockpit_active_company_id'
+
+function getCookieValue(name: string) {
+  if (typeof document === 'undefined') return null
+
+  const value = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(`${name}=`))
+    ?.split('=')[1]
+
+  return value ? decodeURIComponent(value) : null
+}
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
@@ -946,17 +959,24 @@ export default function VisaoExecutivaPage() {
           .eq('id', uid)
           .maybeSingle()
 
-        if (!profile?.company_id) throw new Error('Perfil não encontrado.')
+        if (!profile) throw new Error('Perfil não encontrado.')
+
+        const activeCompanyId = getCookieValue(ACTIVE_COMPANY_COOKIE)
+        const resolvedCompanyId = activeCompanyId || profile.company_id
+
+        if (!resolvedCompanyId) {
+          throw new Error('Usuário sem empresa ativa vinculada.')
+        }
 
         const adminUser = profile.role === 'admin'
         setIsAdmin(adminUser)
-        setCompanyId(profile.company_id)
+        setCompanyId(resolvedCompanyId)
 
         if (adminUser) {
           const { data: sellersData } = await supabase
             .from('profiles')
             .select('id, full_name')
-            .eq('company_id', profile.company_id)
+            .eq('company_id', resolvedCompanyId)
             .eq('role', 'member')
             .order('full_name')
 
