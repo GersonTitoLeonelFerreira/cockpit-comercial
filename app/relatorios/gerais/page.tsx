@@ -1539,7 +1539,7 @@ export default async function RelatoriosGeraisPage() {
               Detalhamento: conversão entre etapas
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary }}>
-              Conversão histórica final (Negociação → Ganho): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
+            Conversão final da competência (Negociação → Ganho): <b style={{ color: DS.textPrimary }}>{finalConv.toFixed(2)}%</b>
             </div>
           </div>
 
@@ -1560,7 +1560,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-                            <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
+              <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
                 Progressão entre etapas dentro da competência atual, após a oportunidade iniciar atendimento.
               </p>
 
@@ -1570,9 +1570,9 @@ export default async function RelatoriosGeraisPage() {
                     <tr>
                       <th style={thStyle}>De</th>
                       <th style={thStyle}>Para</th>
-                      <th style={thStyle}>Base histórica</th>
+                      <th style={thStyle}>Base do período</th>
                       <th style={thStyle}>Avançaram</th>
-                      <th style={thStyle}>Conversão histórica</th>
+                      <th style={thStyle}>Conversão do período</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1658,7 +1658,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-                            <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
+                                          <p style={{ color: DS.textSecondary, marginTop: 8, fontSize: 12, lineHeight: 1.5 }}>
                 Perdas registradas dentro da competência atual, após a oportunidade iniciar atendimento.
               </p>
 
@@ -1667,9 +1667,9 @@ export default async function RelatoriosGeraisPage() {
                   <thead>
                     <tr>
                       <th style={thStyle}>Etapa</th>
-                      <th style={thStyle}>Base histórica</th>
+                      <th style={thStyle}>Base do período</th>
                       <th style={thStyle}>Foram perdidos</th>
-                      <th style={thStyle}>Taxa histórica</th>
+                      <th style={thStyle}>Taxa do período</th>
                     </tr>
                   </thead>
                   <tbody>
