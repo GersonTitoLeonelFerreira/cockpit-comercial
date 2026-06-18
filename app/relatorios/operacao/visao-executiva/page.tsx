@@ -141,8 +141,38 @@ interface ExecutiveData {
 // Constants
 // ============================================================================
 
+const DS = {
+  contentBg: '#090b0f',
+  panelBg: '#0d0f14',
+  cardBg: '#141722',
+  surfaceBg: '#111318',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  blueLight: '#60a5fa',
+  green: '#22c55e',
+  greenSoft: '#86efac',
+  yellow: '#f59e0b',
+  yellowSoft: '#fef3c7',
+  red: '#ef4444',
+  redSoft: '#fca5a5',
+  pink: '#f472b6',
+  purple: '#a78bfa',
+  orange: '#fb923c',
+  selectBg: '#0d0f14',
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
+  shadowHover: '0 4px 16px rgba(0,0,0,0.45)',
+  radius: 7,
+  radiusContainer: 9,
+} as const
+
 const STAGE_ORDER = ['novo', 'contato', 'respondeu', 'negociacao'] as const
-const ACCENT = '#38bdf8'
+const ACCENT = DS.blueLight
 const OBJECTION_ACTION_ID = 'negociacao_objecao_registrada'
 
 // ============================================================================
@@ -524,8 +554,8 @@ function IconChevronLeft() {
 function IconLoader() {
   return (
     <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-      <path d="M12 3a9 9 0 0 1 9 9" stroke="#888" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+      <path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }
@@ -669,8 +699,11 @@ function KpiCard({
   return (
     <div
       style={{
-        padding: '20px 24px',
-        background: '#0f0f0f',
+        padding: 18,
+        background: DS.panelBg,
+        border: `1px solid ${DS.border}`,
+        borderRadius: DS.radiusContainer,
+        boxShadow: DS.shadowCard,
         display: 'flex',
         flexDirection: 'column',
         minWidth: 0,
@@ -678,25 +711,27 @@ function KpiCard({
     >
       <div
         style={{
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: '0.08em',
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.06em',
           textTransform: 'uppercase',
-          color: '#555',
-          marginBottom: 12,
+          color: DS.textLabel,
+          marginBottom: 10,
           display: 'flex',
-          alignItems: 'flex-start',
-          gap: 5,
-          minHeight: 36,
+          alignItems: 'center',
+          gap: 7,
+          minHeight: 26,
         }}
       >
-        {icon && <span style={{ color: accent ?? '#555', opacity: 0.75, flexShrink: 0, marginTop: 1 }}>{icon}</span>}
+        {icon && <span style={{ color: accent ?? DS.blueLight, opacity: 0.9, flexShrink: 0 }}>{icon}</span>}
         {label}
       </div>
-      <div style={{ fontSize: 32, fontWeight: 700, color: accent ?? 'white', lineHeight: 1, marginBottom: 4 }}>
+
+      <div style={{ fontSize: 28, fontWeight: 900, color: accent ?? DS.textPrimary, lineHeight: 1, marginBottom: 6 }}>
         {value}
       </div>
-      <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4, minHeight: 16 }}>
+
+      <div style={{ fontSize: 11, color: DS.textSecondary, lineHeight: 1.35, minHeight: 16 }}>
         {sub ?? ''}
       </div>
     </div>
@@ -723,13 +758,17 @@ function DiagRow({
         alignItems: 'flex-start',
         gap: 12,
         padding: '13px 0',
-        borderBottom: isLast ? 'none' : '1px solid #161616',
+        borderBottom: isLast ? 'none' : `1px solid ${DS.borderSubtle}`,
       }}
     >
-      <span style={{ color: accent, flexShrink: 0, marginTop: 2, opacity: 0.85 }}>{icon}</span>
+      <span style={{ color: accent, flexShrink: 0, marginTop: 2, opacity: 0.9 }}>{icon}</span>
       <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0', marginBottom: 3, lineHeight: 1.3 }}>{title}</div>
-        <div style={{ fontSize: 12, color: '#555', lineHeight: 1.5 }}>{detail}</div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary, marginBottom: 4, lineHeight: 1.3 }}>
+          {title}
+        </div>
+        <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
+          {detail}
+        </div>
       </div>
     </div>
   )
@@ -750,7 +789,8 @@ function HealthRow({
   status: HealthStatus
   isLast?: boolean
 }) {
-  const dotColor = status === 'green' ? '#34d399' : status === 'yellow' ? '#fbbf24' : '#f87171'
+  const dotColor = status === 'green' ? DS.greenSoft : status === 'yellow' ? DS.yellowSoft : DS.redSoft
+
   return (
     <div
       style={{
@@ -758,13 +798,19 @@ function HealthRow({
         alignItems: 'center',
         gap: 16,
         padding: '13px 0',
-        borderBottom: isLast ? 'none' : '1px solid #161616',
+        borderBottom: isLast ? 'none' : `1px solid ${DS.borderSubtle}`,
       }}
     >
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-      <div style={{ flex: '0 0 190px', fontSize: 12, fontWeight: 600, color: '#666' }}>{label}</div>
-      <div style={{ flex: '0 0 90px', fontSize: 18, fontWeight: 700, color: dotColor }}>{value}</div>
-      <div style={{ fontSize: 12, color: '#444', lineHeight: 1.5 }}>{detail}</div>
+      <div style={{ flex: '0 0 190px', fontSize: 12, fontWeight: 800, color: DS.textSecondary }}>
+        {label}
+      </div>
+      <div style={{ flex: '0 0 90px', fontSize: 18, fontWeight: 900, color: dotColor }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
+        {detail}
+      </div>
     </div>
   )
 }
@@ -786,32 +832,36 @@ function FocoCard({
     <div
       style={{
         flex: '1 1 0',
-        minWidth: 200,
-        padding: '22px 24px',
-        background: `${tagColor}0a`,
-        border: `1px solid ${tagColor}22`,
-        borderRadius: 10,
+        minWidth: 220,
+        padding: '20px 22px',
+        background: `${tagColor}0f`,
+        border: `1px solid ${tagColor}33`,
+        borderRadius: DS.radiusContainer,
+        boxShadow: DS.shadowCard,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <span style={{ color: tagColor, opacity: 0.85 }}>{icon}</span>
+        <span style={{ color: tagColor, opacity: 0.9 }}>{icon}</span>
         <span
           style={{
             fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.1em',
+            fontWeight: 900,
+            letterSpacing: '0.08em',
             textTransform: 'uppercase',
             color: tagColor,
-            opacity: 0.85,
           }}
         >
           {tag}
         </span>
       </div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: 'white', marginBottom: 8, lineHeight: 1.3 }}>
+
+      <div style={{ fontSize: 14, fontWeight: 900, color: DS.textPrimary, marginBottom: 8, lineHeight: 1.3 }}>
         {title}
       </div>
-      <div style={{ fontSize: 12, color: '#555', lineHeight: 1.6 }}>{description}</div>
+
+      <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
+        {description}
+      </div>
     </div>
   )
 }
@@ -825,24 +875,27 @@ function NavLink({ href, label, icon }: { href: string; label: string; icon: Rea
         alignItems: 'center',
         gap: 7,
         padding: '8px 14px',
-        border: '1px solid #1e1e1e',
-        borderRadius: 7,
+        border: `1px solid ${DS.border}`,
+        borderRadius: DS.radius,
         fontSize: 12,
-        fontWeight: 500,
-        color: '#777',
+        fontWeight: 700,
+        color: DS.textSecondary,
         textDecoration: 'none',
-        transition: 'border-color 0.15s, color 0.15s',
+        background: DS.panelBg,
+        transition: 'border-color 0.15s, color 0.15s, background 0.15s',
       }}
       onMouseOver={(e) => {
-        e.currentTarget.style.borderColor = '#2e2e2e'
-        e.currentTarget.style.color = '#bbb'
+        e.currentTarget.style.borderColor = DS.blue
+        e.currentTarget.style.color = DS.blueSoft
+        e.currentTarget.style.background = DS.surfaceBg
       }}
       onMouseOut={(e) => {
-        e.currentTarget.style.borderColor = '#1e1e1e'
-        e.currentTarget.style.color = '#777'
+        e.currentTarget.style.borderColor = DS.border
+        e.currentTarget.style.color = DS.textSecondary
+        e.currentTarget.style.background = DS.panelBg
       }}
     >
-      <span style={{ color: '#444', flexShrink: 0 }}>{icon}</span>
+      <span style={{ color: 'inherit', flexShrink: 0 }}>{icon}</span>
       {label}
     </a>
   )
@@ -1053,8 +1106,8 @@ export default function VisaoExecutivaPage() {
   // ==========================================================================
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#666', fontSize: 14 }}>
+      <div style={{ minHeight: '100vh', background: DS.contentBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: DS.textMuted, fontSize: 14 }}>
           <IconLoader />
           Carregando...
         </div>
@@ -1064,10 +1117,10 @@ export default function VisaoExecutivaPage() {
 
   if (error) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: 12, padding: '24px 32px', maxWidth: 420, textAlign: 'center' }}>
-          <p style={{ color: '#ef4444', fontSize: 14, margin: 0 }}>{error}</p>
-          <a href="/login" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: '#60a5fa', textDecoration: 'none' }}>
+      <div style={{ minHeight: '100vh', background: DS.contentBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: DS.cardBg, border: `1px solid ${DS.border}`, borderRadius: DS.radiusContainer, padding: '24px 32px', maxWidth: 420, textAlign: 'center' }}>
+          <p style={{ color: DS.red, fontSize: 14, margin: 0 }}>{error}</p>
+          <a href="/login" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: DS.blueLight, textDecoration: 'none' }}>
             Ir para o login
           </a>
         </div>
@@ -1086,9 +1139,9 @@ export default function VisaoExecutivaPage() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#0c0c0c',
-        color: 'white',
-        padding: '40px 24px 80px',
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        padding: '32px 24px 80px',
         overflowY: 'auto',
       }}
     >
@@ -1103,11 +1156,11 @@ export default function VisaoExecutivaPage() {
               alignItems: 'center',
               gap: 4,
               fontSize: 13,
-              color: '#555',
+              color: DS.textSecondary,
               textDecoration: 'none',
             }}
-            onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-            onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
+            onMouseOver={(e) => (e.currentTarget.style.color = DS.blueSoft)}
+            onMouseOut={(e) => (e.currentTarget.style.color = DS.textSecondary)}
           >
             <IconChevronLeft />
             Voltar para Relatórios
@@ -1124,7 +1177,7 @@ export default function VisaoExecutivaPage() {
               Visão Executiva
             </h1>
           </div>
-          <p style={{ fontSize: 13, color: '#555', margin: 0 }}>
+          <p style={{ fontSize: 13, color: DS.textSecondary, margin: 0 }}>
             Síntese gerencial da operação — sinais, gargalos, alavancas e prioridades do período
           </p>
         </div>
@@ -1136,7 +1189,7 @@ export default function VisaoExecutivaPage() {
             gap: 4,
             flexWrap: 'wrap',
             marginBottom: 32,
-            borderBottom: '1px solid #1a1a1a',
+            borderBottom: `1px solid ${DS.border}`,
             paddingBottom: 0,
           }}
         >
@@ -1174,13 +1227,13 @@ export default function VisaoExecutivaPage() {
                   padding: '8px 14px',
                   fontSize: 13,
                   fontWeight: 400,
-                  color: '#555',
+                  color: DS.textSecondary,
                   textDecoration: 'none',
                   marginBottom: -1,
                   transition: 'color 0.15s',
                 }}
-                onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-                onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
+                onMouseOver={(e) => (e.currentTarget.style.color = DS.blueSoft)}
+                onMouseOut={(e) => (e.currentTarget.style.color = DS.textSecondary)}
               >
                 {tab.label}
               </a>
@@ -1197,13 +1250,13 @@ export default function VisaoExecutivaPage() {
             flexWrap: 'wrap',
             marginBottom: 40,
             padding: '16px 20px',
-            background: '#0f0f0f',
-            border: '1px solid #1a1a1a',
-            borderRadius: 12,
+            background: DS.cardBg,
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
               De
             </label>
             <input
@@ -1211,10 +1264,10 @@ export default function VisaoExecutivaPage() {
               value={dateStart}
               onChange={(e) => setDateStart(e.target.value)}
               style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
+                background: DS.selectBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius,
+                color: DS.textPrimary,
                 fontSize: 13,
                 padding: '6px 10px',
                 outline: 'none',
@@ -1224,7 +1277,7 @@ export default function VisaoExecutivaPage() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
               Até
             </label>
             <input
@@ -1232,10 +1285,10 @@ export default function VisaoExecutivaPage() {
               value={dateEnd}
               onChange={(e) => setDateEnd(e.target.value)}
               style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
+                background: DS.selectBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius,
+                color: DS.textPrimary,
                 fontSize: 13,
                 padding: '6px 10px',
                 outline: 'none',
@@ -1246,17 +1299,17 @@ export default function VisaoExecutivaPage() {
 
           {isAdmin && sellers.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
+              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
                 Consultor
               </label>
               <select
                 value={selectedSellerId ?? ''}
                 onChange={(e) => setSelectedSellerId(e.target.value || null)}
                 style={{
-                  background: '#151515',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: 8,
-                  color: 'white',
+                  background: DS.selectBg,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  color: DS.textPrimary,
                   fontSize: 13,
                   padding: '6px 10px',
                   outline: 'none',
@@ -1274,17 +1327,17 @@ export default function VisaoExecutivaPage() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
+            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
               Etapa
             </label>
             <select
               value={selectedStage}
               onChange={(e) => setSelectedStage(e.target.value)}
               style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
+                background: DS.selectBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius,
+                color: DS.textPrimary,
                 fontSize: 13,
                 padding: '6px 10px',
                 outline: 'none',
@@ -1301,7 +1354,7 @@ export default function VisaoExecutivaPage() {
           </div>
 
           {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#555', fontSize: 12, paddingBottom: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: DS.textSecondary, fontSize: 12, paddingBottom: 2 }}>
               <IconLoader />
               Atualizando...
             </div>
@@ -1312,12 +1365,12 @@ export default function VisaoExecutivaPage() {
         {!hasData && !dataLoading && (
           <div
             style={{
-              background: '#0f0f0f',
-              border: '1px solid #1a1a1a',
-              borderRadius: 12,
+              background: DS.cardBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer,
               padding: '48px 32px',
               textAlign: 'center',
-              color: '#555',
+              color: DS.textSecondary,
             }}
           >
             <div style={{ fontSize: 14, marginBottom: 6 }}>Nenhum evento encontrado no período selecionado.</div>
@@ -1331,17 +1384,17 @@ export default function VisaoExecutivaPage() {
                 BLOCO 1 — PANORAMA DO PERÍODO
             ================================================================ */}
             <div style={{ marginBottom: 40 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
                 Panorama do Período
               </div>
               <div
                 style={{
-                  border: '1px solid #1a1a1a',
-                  borderRadius: 12,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radiusContainer,
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fit, minmax(0, 1fr))',
                   gap: '0 1px',
-                  background: '#1a1a1a',
+                  background: DS.border,
                   overflow: 'hidden',
                 }}
               >
@@ -1356,21 +1409,21 @@ export default function VisaoExecutivaPage() {
                   label="Avanços"
                   value={d.totalAdvances}
                   sub="movimentações de etapa"
-                  accent="#60a5fa"
+                  accent={DS.blueLight}
                   icon={<IconTrendUp />}
                 />
                 <KpiCard
                   label="Ganhos"
                   value={d.totalWon}
                   sub={totalClosed > 0 ? `${fmtPct(d.winRate)} de conversão` : 'sem fechamentos'}
-                  accent="#34d399"
+                  accent={DS.greenSoft}
                   icon={<IconCircleCheck />}
                 />
                 <KpiCard
                   label="Perdas"
                   value={d.totalLost}
                   sub={totalClosed > 0 ? `${fmtPct(100 - d.winRate)} de perda` : 'sem fechamentos'}
-                  accent="#f87171"
+                  accent={DS.redSoft}
                   icon={<IconCircleX />}
                 />
                 {d.totalRevenue > 0 && (
@@ -1378,7 +1431,7 @@ export default function VisaoExecutivaPage() {
                     label="Faturamento"
                     value={fmtCurrency(d.totalRevenue)}
                     sub="ciclos ganhos"
-                    accent="#fbbf24"
+                    accent={DS.yellowSoft}
                     icon={<IconDollarSign />}
                   />
                 )}
@@ -1398,25 +1451,25 @@ export default function VisaoExecutivaPage() {
                 BLOCO 2 — DIAGNÓSTICO EXECUTIVO
             ================================================================ */}
             <div style={{ marginBottom: 40 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
                 Diagnóstico Executivo
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
 
                 {/* Coluna esquerda: Gargalos */}
                 <div
                   style={{
-                    background: '#0f0f0f',
-                    border: '1px solid #1a1a1a',
-                    borderRadius: 12,
+                    background: DS.cardBg,
+                    border: `1px solid ${DS.border}`,
+                    borderRadius: DS.radiusContainer,
                     padding: '20px 24px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                    <span style={{ color: '#f87171', opacity: 0.8 }}><IconAlertTriangle /></span>
+                    <span style={{ color: DS.redSoft, opacity: 0.8 }}><IconAlertTriangle /></span>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ccc' }}>Maiores Gargalos</div>
-                      <div style={{ fontSize: 11, color: '#444', marginTop: 1 }}>Pontos críticos identificados no período</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: DS.textPrimary }}>Maiores Gargalos</div>
+                      <div style={{ fontSize: 11, color: DS.textLabel, marginTop: 1 }}>Pontos críticos identificados no período</div>
                     </div>
                   </div>
                   {d.stageBottleneck && (
@@ -1424,7 +1477,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconLayers />}
                       title={`Travamento em ${d.stageBottleneck.stageLabel}`}
                       detail={`${d.stageBottleneck.activities} atividades, apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço`}
-                      accent="#f87171"
+                      accent={DS.redSoft}
                     />
                   )}
                   {d.overdueNextActions > 0 && d.totalNextActions > 0 && (
@@ -1432,7 +1485,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconAlertTriangle />}
                       title={`${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
                       detail={`${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das próximas ações estão atrasadas`}
-                      accent="#fb923c"
+                      accent={DS.orange}
                     />
                   )}
                   {d.topObjection && (
@@ -1440,7 +1493,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconCircleX />}
                       title="Objeção mais frequente"
                       detail={`"${d.topObjection.text.length > 50 ? `${d.topObjection.text.slice(0, 50)}…` : d.topObjection.text}" — ${d.topObjection.total} ocorrência${d.topObjection.total === 1 ? '' : 's'}`}
-                      accent="#fbbf24"
+                      accent={DS.yellowSoft}
                     />
                   )}
                   {d.channelWithMostLoss && (d.channelWithMostLoss.won + d.channelWithMostLoss.lost) >= 2 && (
@@ -1448,7 +1501,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconShare2 />}
                       title={`Canal com mais perda: ${d.channelWithMostLoss.channelLabel}`}
                       detail={`${fmtPct(d.channelWithMostLoss.lossRate)} de perda · ${d.channelWithMostLoss.lost} de ${d.channelWithMostLoss.won + d.channelWithMostLoss.lost} fechamentos`}
-                      accent="#f87171"
+                      accent={DS.redSoft}
                     />
                   )}
                   {d.consultantLeastDiscipline && (
@@ -1456,12 +1509,12 @@ export default function VisaoExecutivaPage() {
                       icon={<IconUsers />}
                       title={`Menor disciplina: ${d.consultantLeastDiscipline.sellerName}`}
                       detail={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina · ${d.consultantLeastDiscipline.activities} atividades`}
-                      accent="#f472b6"
+                      accent={DS.pink}
                       isLast
                     />
                   )}
                   {!(d.stageBottleneck || d.overdueNextActions > 0 || d.topObjection || d.channelWithMostLoss || d.consultantLeastDiscipline) && (
-                    <div style={{ fontSize: 13, color: '#333', padding: '12px 0' }}>
+                    <div style={{ fontSize: 13, color: DS.textMuted, padding: '12px 0' }}>
                       Nenhum gargalo crítico identificado.
                     </div>
                   )}
@@ -1470,17 +1523,17 @@ export default function VisaoExecutivaPage() {
                 {/* Coluna direita: Alavancas */}
                 <div
                   style={{
-                    background: '#0f0f0f',
-                    border: '1px solid #1a1a1a',
-                    borderRadius: 12,
+                    background: DS.cardBg,
+                    border: `1px solid ${DS.border}`,
+                    borderRadius: DS.radiusContainer,
                     padding: '20px 24px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                    <span style={{ color: '#34d399', opacity: 0.8 }}><IconZap /></span>
+                    <span style={{ color: DS.greenSoft, opacity: 0.8 }}><IconZap /></span>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#ccc' }}>Maiores Alavancas</div>
-                      <div style={{ fontSize: 11, color: '#444', marginTop: 1 }}>O que está funcionando bem no período</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: DS.textPrimary }}>Maiores Alavancas</div>
+                      <div style={{ fontSize: 11, color: DS.textLabel, marginTop: 1 }}>O que está funcionando bem no período</div>
                     </div>
                   </div>
                   {d.topActionByAdvance && (
@@ -1488,7 +1541,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconZap />}
                       title={`Ação com maior avanço: ${d.topActionByAdvance.actionLabel}`}
                       detail={`${fmtPct(d.topActionByAdvance.advanceRate)} de avanço · ${d.topActionByAdvance.total} ciclo${d.topActionByAdvance.total === 1 ? '' : 's'}`}
-                      accent="#34d399"
+                      accent={DS.greenSoft}
                     />
                   )}
                   {d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2 && (
@@ -1496,7 +1549,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconShare2 />}
                       title={`Canal que mais fecha: ${d.topChannelByWin.channelLabel}`}
                       detail={`${fmtPct(d.topChannelByWin.winRate)} de conversão · ${d.topChannelByWin.won} ganho${d.topChannelByWin.won === 1 ? '' : 's'}`}
-                      accent="#60a5fa"
+                      accent={DS.blueLight}
                     />
                   )}
                   {d.topConsultantByEfficiency && (
@@ -1504,7 +1557,7 @@ export default function VisaoExecutivaPage() {
                       icon={<IconUsers />}
                       title={`Consultor mais eficiente: ${d.topConsultantByEfficiency.sellerName}`}
                       detail={`${fmtCurrency(Math.round(d.topConsultantByEfficiency.revenue / d.topConsultantByEfficiency.activities))} por atividade · ${d.topConsultantByEfficiency.won} ganho${d.topConsultantByEfficiency.won === 1 ? '' : 's'}`}
-                      accent="#fbbf24"
+                      accent={DS.yellowSoft}
                     />
                   )}
                   {d.totalRevenue > 0 && totalClosed > 0 && (
@@ -1512,12 +1565,12 @@ export default function VisaoExecutivaPage() {
                       icon={<IconDollarSign />}
                       title={`Faturamento total: ${fmtCurrency(d.totalRevenue)}`}
                       detail={`${d.totalWon} fechamento${d.totalWon === 1 ? '' : 's'} · média ${fmtCurrency(Math.round(d.totalRevenue / d.totalWon))} por ganho`}
-                      accent="#a78bfa"
+                      accent={DS.purple}
                       isLast
                     />
                   )}
                   {!(d.topActionByAdvance || (d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2) || d.topConsultantByEfficiency) && (
-                    <div style={{ fontSize: 13, color: '#333', padding: '12px 0' }}>
+                    <div style={{ fontSize: 13, color: DS.textMuted, padding: '12px 0' }}>
                       Volume insuficiente para identificar alavancas.
                     </div>
                   )}
@@ -1531,14 +1584,14 @@ export default function VisaoExecutivaPage() {
             ================================================================ */}
             {(d.totalActivities > 0 || d.totalNextActions > 0 || totalClosed > 0) && (
               <div style={{ marginBottom: 40 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
                   Saúde da Operação
                 </div>
                 <div
                   style={{
-                    background: '#0f0f0f',
-                    border: '1px solid #1a1a1a',
-                    borderRadius: 12,
+                    background: DS.cardBg,
+                    border: `1px solid ${DS.border}`,
+                    borderRadius: DS.radiusContainer,
                     padding: '20px 24px',
                   }}
                 >
@@ -1609,7 +1662,7 @@ export default function VisaoExecutivaPage() {
             ================================================================ */}
             {(d.stageBottleneck || d.topActionByAdvance || d.overdueNextActions > 0 || d.topChannelByWin) && (
               <div style={{ marginBottom: 40 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
                   Foco do Gestor
                 </div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -1633,7 +1686,7 @@ export default function VisaoExecutivaPage() {
                           ? `${d.stageBottleneck.activities} atividades com apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço. Revisar ações utilizadas nessa etapa.`
                           : `${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'} — priorizar atendimento.`
                       }
-                      tagColor="#f87171"
+                      tagColor={DS.redSoft}
                     />
                   )}
 
@@ -1652,7 +1705,7 @@ export default function VisaoExecutivaPage() {
                           ? `${fmtPct(d.topActionByAdvance.advanceRate)} dos ciclos que usaram essa ação avançaram. Incentivar o time a aplicar mais essa abordagem.`
                           : `${fmtPct(d.topChannelByWin?.winRate ?? 0)} de conversão — melhor canal de fechamento no período.`
                       }
-                      tagColor="#34d399"
+                      tagColor={DS.greenSoft}
                     />
                   )}
 
@@ -1663,7 +1716,7 @@ export default function VisaoExecutivaPage() {
                       tag="Onde atacar primeiro"
                       title={`Coaching com ${d.consultantLeastDiscipline.sellerName}`}
                       description={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina. Referência: ${d.topConsultantByEfficiency.sellerName} com maior eficiência por atividade.`}
-                      tagColor="#fbbf24"
+                      tagColor={DS.yellowSoft}
                     />
                   )}
 
@@ -1675,7 +1728,7 @@ export default function VisaoExecutivaPage() {
                 BLOCO 5 — APROFUNDAR ANÁLISE
             ================================================================ */}
             <div style={{ marginBottom: 40 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#333', marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: DS.textMuted, marginBottom: 14 }}>
                 Aprofundar Análise
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
