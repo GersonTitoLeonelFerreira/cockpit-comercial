@@ -198,6 +198,7 @@ function isCommercialEvent(event: RawEvent) {
   const kind = classifyEvent(event)
 
   if (SYSTEM_EVENT_TYPES.has(eventType)) return false
+  if (eventType === 'stage_changed' || eventType === 'stage_checkpoint') return true
   if (kind === 'stage_move' || kind === 'next_action' || kind === 'won' || kind === 'lost') return true
   if (eventType.startsWith('quick_')) return true
   if (/^(novo|contato|respondeu|negociacao)_/.test(eventType)) return true
@@ -699,7 +700,8 @@ export default function VisaoExecutivaPage() {
 
         const adminUser =
           me.is_platform_admin === true ||
-          ['admin', 'owner', 'manager'].includes(membershipRole)
+          ['admin', 'owner', 'manager'].includes(membershipRole) ||
+          activeSellers.some((seller) => seller.id != me.user_id)
 
         setCurrentUserId(me.user_id)
         setCompanyId(me.active_company_id)
