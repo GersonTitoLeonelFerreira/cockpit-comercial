@@ -100,45 +100,50 @@ export async function GET() {
     const requiresCompanySelection =
       companies.length > 1 && !activeCompany
 
-      const response = NextResponse.json({
-        ok: true,
-  
-        user_id: auth.user.id,
-        profile_id: profile.id,
-        full_name: profile.full_name ?? null,
-        email: profile.email ?? auth.user.email ?? null,
-  
-        is_active_global: profile.is_active_global !== false,
-        is_platform_admin: profile.is_platform_admin === true,
-  
-        companies,
-        companies_count: companies.length,
-  
-        active_company_id: activeCompany?.company_id ?? null,
-        active_company_name: activeCompany?.display_name ?? null,
-        active_role: activeCompany?.role ?? null,
-  
-        requires_company_selection: requiresCompanySelection,
-  
-        // Campos temporários de compatibilidade com consumidores ainda não migrados.
-        // Serão removidos depois que AppShell, Pool, Kanban, relatórios e APIs
-        // passarem a usar active_company_id/active_role/company_memberships.
-        company_id: activeCompany?.company_id ?? null,
-        role: activeCompany?.role ?? null,
-        is_active: profile.is_active_global !== false && (activeCompany?.is_active ?? true),
+    const activeRole =
+      profile.is_platform_admin === true
+        ? 'admin'
+        : activeCompany?.role ?? null
+
+    const response = NextResponse.json({
+      ok: true,
+
+      user_id: auth.user.id,
+      profile_id: profile.id,
+      full_name: profile.full_name ?? null,
+      email: profile.email ?? auth.user.email ?? null,
+
+      is_active_global: profile.is_active_global !== false,
+      is_platform_admin: profile.is_platform_admin === true,
+
+      companies,
+      companies_count: companies.length,
+
+      active_company_id: activeCompany?.company_id ?? null,
+      active_company_name: activeCompany?.display_name ?? null,
+      active_role: activeRole,
+
+      requires_company_selection: requiresCompanySelection,
+
+      // Campos temporários de compatibilidade com consumidores ainda não migrados.
+      // Serão removidos depois que AppShell, Pool, Kanban, relatórios e APIs
+      // passarem a usar active_company_id/active_role/company_memberships.
+      company_id: activeCompany?.company_id ?? null,
+      role: activeRole,
+      is_active: profile.is_active_global !== false && (activeCompany?.is_active ?? true),
+    })
+
+    if (activeCompany?.company_id && activeCompanyCookie !== activeCompany.company_id) {
+      response.cookies.set('cockpit_active_company_id', activeCompany.company_id, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30,
       })
-  
-      if (activeCompany?.company_id && activeCompanyCookie !== activeCompany.company_id) {
-        response.cookies.set('cockpit_active_company_id', activeCompany.company_id, {
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === 'production',
-          path: '/',
-          maxAge: 60 * 60 * 24 * 30,
-        })
-      }
-  
-      return response
+    }
+
+    return response
   } catch (error: unknown) {
     return NextResponse.json(
       {
