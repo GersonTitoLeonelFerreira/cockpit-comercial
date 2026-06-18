@@ -691,9 +691,12 @@ export default function VisaoExecutivaPage() {
           me.active_company_id,
         )
 
+        const membershipRole = String(me.active_company_role ?? '').toLowerCase()
+        const adminUser = ['admin', 'owner', 'manager'].includes(membershipRole)
+
         setCurrentUserId(me.user_id)
         setCompanyId(me.active_company_id)
-        setIsAdmin(me.active_company_role === 'admin')
+        setIsAdmin(adminUser)
         setSellers(activeSellers as SellerOption[])
       } catch (cause: unknown) {
         setError(cause instanceof Error ? cause.message : 'Erro ao carregar a página.')
@@ -706,27 +709,35 @@ export default function VisaoExecutivaPage() {
   }, [supabase])
 
   React.useEffect(() => {
-    if (!companyId || !currentUserId) return
+    const resolvedCompanyId = companyId
+    const resolvedCurrentUserId = currentUserId
+
+    if (!resolvedCompanyId || !resolvedCurrentUserId) return
 
     async function loadReport() {
       setRefreshing(true)
       setError(null)
 
       try {
+        const revenueSellerId = isAdmin
+          ? selectedSellerId ?? undefined
+          : resolvedCurrentUserId
+
         const [events, sellerRevenueRows, extraRevenueRows] = await Promise.all([
           fetchAllCycleEvents(supabase, {
-            companyId,
+            companyId: resolvedCompanyId,
             dateStart,
             dateEnd,
+            sellerId: isAdmin ? selectedSellerId : resolvedCurrentUserId,
             columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
           }),
           faturamentoService.getRevenueDailySellers(
             supabase,
-            companyId,
-            isAdmin ? selectedSellerId ?? undefined : currentUserId,
+            resolvedCompanyId,
+            revenueSellerId,
           ),
           isAdmin && !selectedSellerId
-            ? faturamentoService.getRevenueDailyExtras(supabase, companyId)
+            ? faturamentoService.getRevenueDailyExtras(supabase, resolvedCompanyId)
             : Promise.resolve([]),
         ])
 
@@ -763,7 +774,7 @@ export default function VisaoExecutivaPage() {
             dateEnd,
             selectedSellerId,
             isAdmin,
-            currentUserId,
+            resolvedCurrentUserId,
             selectedStage,
             sellers,
             revenueBySeller,
