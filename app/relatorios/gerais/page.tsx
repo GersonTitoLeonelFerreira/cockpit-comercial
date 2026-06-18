@@ -872,13 +872,13 @@ export default async function RelatoriosGeraisPage() {
 
             <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${DS.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                SLA e risco
+                Carteira em atendimento
               </div>
-              <div style={{ fontSize: 22, color: slaCount > 0 ? DS.yellow : DS.green, fontWeight: 900 }}>
-                {slaCount}
+              <div style={{ fontSize: 22, color: DS.textPrimary, fontWeight: 900 }}>
+                {openFunnelCount}
               </div>
               <div style={{ marginTop: 4, fontSize: 11, color: DS.textSecondary }}>
-                oportunidades acima do SLA
+                oportunidades ativas no funil
               </div>
             </div>
 
