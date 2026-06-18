@@ -1393,7 +1393,7 @@ export default async function RelatoriosGeraisPage() {
                   <>
                     {' '}
                     | Etapa mais crítica:{' '}
-                    <b style={{ textTransform: 'capitalize', color: DS.red }}>{worstStageByCount}</b>
+                    <b style={{ color: DS.red }}>{getReportStageLabel(worstStageByCount)}</b>
                   </>
                 ) : null}
               </div>
@@ -1442,7 +1442,7 @@ export default async function RelatoriosGeraisPage() {
           ) : (
             <>
               <p style={{ color: DS.textSecondary, marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
-                Aqui aparecem oportunidades em etapas ativas cujo tempo na etapa ultrapassou o SLA padrão.
+                Aqui aparecem oportunidades em etapas ativas cujo tempo na etapa ultrapassou o SLA configurado para a empresa.
               </p>
 
               {slaRows.length === 0 ? (
