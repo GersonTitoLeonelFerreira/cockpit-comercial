@@ -941,7 +941,7 @@ export default function VisaoExecutivaPage() {
       })
 
       // 2. Fetch revenue from sales_cycles
-      const { data: wonCycles } = await supabase
+      let revenueQuery = supabase
         .from('sales_cycles')
         .select('won_total, won_owner_user_id')
         .eq('company_id', companyId)
@@ -949,6 +949,16 @@ export default function VisaoExecutivaPage() {
         .gt('won_total', 0)
         .gte('won_at', `${dateStart}T00:00:00`)
         .lte('won_at', `${dateEnd}T23:59:59`)
+
+      if (isAdmin && selectedSellerId) {
+        revenueQuery = revenueQuery.eq('won_owner_user_id', selectedSellerId)
+      }
+
+      if (!isAdmin && currentUserId) {
+        revenueQuery = revenueQuery.eq('won_owner_user_id', currentUserId)
+      }
+
+      const { data: wonCycles } = await revenueQuery
 
       const revenueMap = new Map<string, number>()
       for (const cycle of (wonCycles ?? []) as Array<{ won_total: number; won_owner_user_id: string | null }>) {
