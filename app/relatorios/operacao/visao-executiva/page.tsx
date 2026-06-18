@@ -1,65 +1,25 @@
 'use client'
 
 import React from 'react'
-
-
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
+import { extractActionFromEvent } from '@/app/config/stageActions'
 import {
   CHANNEL_LABELS,
   extractChannelFromEvent,
 } from '@/app/config/channelNormalization'
-import {
-  extractActionFromEvent,
-  resolveCheckpointData,
-  resolveActionId,
-  findActionById,
-  getActionLabel,
-} from '@/app/config/stageActions'
+import * as faturamentoService from '@/app/lib/services/faturamento'
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function getThirtyDaysAgo(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 30)
-  return d.toISOString().slice(0, 10)
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function safePct(num: number, den: number): number {
-  return den > 0 ? Math.round((num / den) * 100) : 0
-}
-
-function fmtPct(n: number): string {
-  return `${n}%`
-}
-
-function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(n)
-}
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface SellerOption {
+type SellerOption = {
   id: string
   full_name: string | null
+  email: string | null
+  role: string
 }
 
-interface RawEvent {
+type RawEvent = {
   id: string
   cycle_id: string | null
   event_type: string
@@ -68,80 +28,68 @@ interface RawEvent {
   created_by: string | null
 }
 
-interface StageBottleneck {
+type StageStat = {
   stage: string
-  stageLabel: string
+  label: string
   activities: number
   advances: number
   advanceRate: number
 }
 
-interface ActionLever {
+type ActionStat = {
   actionId: string
-  actionLabel: string
-  total: number
-  advances: number
+  label: string
+  cycles: number
+  advancedCycles: number
   advanceRate: number
 }
 
-interface ChannelStat {
+type ChannelStat = {
   channel: string
-  channelLabel: string
-  total: number
+  label: string
+  activities: number
   won: number
   lost: number
   winRate: number
   lossRate: number
 }
 
-interface ConsultantStat {
+type SellerStat = {
   sellerId: string
   sellerName: string
   activities: number
+  cycles: number
+  advances: number
   nextActions: number
-  disciplineRate: number
   won: number
   lost: number
-  advances: number
   revenue: number
+  disciplineRate: number
 }
 
-interface ObjectionStat {
-  text: string
-  total: number
-}
-
-interface ExecutiveData {
-  // Panorama
-  totalCycles: number
-  totalActivities: number
-  totalAdvances: number
-  totalWon: number
-  totalLost: number
-  totalNextActions: number
-  totalRevenue: number
+type ExecutiveData = {
+  cyclesWithCommercialActivity: number
+  commercialActivities: number
+  advances: number
+  won: number
+  lost: number
+  nextActions: number
+  overdueNextActions: number
+  revenue: number
+  revenueSource: 'conciliado'
   advanceRate: number
   winRate: number
   disciplineRate: number
-  overdueNextActions: number
-  // Bottlenecks
-  stageBottleneck: StageBottleneck | null
-  topObjection: ObjectionStat | null
-  channelWithMostLoss: ChannelStat | null
-  consultantLeastDiscipline: ConsultantStat | null
-  // Levers
-  topActionByAdvance: ActionLever | null
-  topChannelByWin: ChannelStat | null
-  topConsultantByEfficiency: ConsultantStat | null
-  // Raw arrays for shortcuts
-  stageStats: StageBottleneck[]
+  stageStats: StageStat[]
+  actionStats: ActionStat[]
   channelStats: ChannelStat[]
-  consultantStats: ConsultantStat[]
+  sellerStats: SellerStat[]
+  mainBottleneck: StageStat | null
+  topAction: ActionStat | null
+  topChannel: ChannelStat | null
+  mainRiskSeller: SellerStat | null
+  topSeller: SellerStat | null
 }
-
-// ============================================================================
-// Constants
-// ============================================================================
 
 const DS = {
   contentBg: '#090b0f',
@@ -166,20 +114,114 @@ const DS = {
   pink: '#f472b6',
   purple: '#a78bfa',
   orange: '#fb923c',
-  selectBg: '#0d0f14',
-  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
-  shadowHover: '0 4px 16px rgba(0,0,0,0.45)',
   radius: 7,
   radiusContainer: 9,
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
 } as const
 
-const STAGE_ORDER = ['novo', 'contato', 'respondeu', 'negociacao'] as const
-const ACCENT = DS.blueLight
-const OBJECTION_ACTION_ID = 'negociacao_objecao_registrada'
+const STAGES = ['novo', 'contato', 'respondeu', 'negociacao'] as const
 
-// ============================================================================
-// Core analytics
-// ============================================================================
+const SYSTEM_EVENT_TYPES = new Set([
+  'cycle_created',
+  'lead_created',
+  'assigned',
+  'reassigned',
+  'owner_assigned',
+  'owner_reassigned',
+  'returned_to_pool',
+  'group_attached',
+  'group_changed',
+  'group_assigned',
+  'group_detached',
+  'lead_reactivated_from_import',
+  'lead_reactivated_from_manual_create',
+  'lead_reactivated_by_admin',
+  'ai_analysis_generated',
+  'ai_suggestion_applied',
+  'ai_suggestion_rejected',
+])
+
+function toDateKey(value: string) {
+  return value.slice(0, 10)
+}
+
+function getThirtyDaysAgo() {
+  const date = new Date()
+  date.setDate(date.getDate() - 30)
+  return date.toISOString().slice(0, 10)
+}
+
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function safePct(numerator: number, denominator: number) {
+  return denominator > 0 ? Math.round((numerator / denominator) * 100) : 0
+}
+
+function fmtPct(value: number) {
+  return `${value}%`
+}
+
+function fmtCurrency(value: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+function getStage(meta: Record<string, unknown>) {
+  return String(
+    meta.from_status ??
+      meta.from_stage ??
+      meta.stage ??
+      meta.to_status ??
+      meta.to_stage ??
+      '',
+  ).toLowerCase()
+}
+
+function getDueDate(meta: Record<string, unknown>) {
+  return String(
+    meta.due_date ??
+      meta.scheduled_at ??
+      meta.next_action_date ??
+      '',
+  ).trim()
+}
+
+function isCommercialEvent(event: RawEvent) {
+  const eventType = event.event_type.toLowerCase().trim()
+  const metadata = event.metadata ?? {}
+  const kind = classifyEvent(event)
+
+  if (SYSTEM_EVENT_TYPES.has(eventType)) return false
+  if (kind === 'stage_move' || kind === 'next_action' || kind === 'won' || kind === 'lost') return true
+  if (eventType.startsWith('quick_')) return true
+  if (/^(novo|contato|respondeu|negociacao)_/.test(eventType)) return true
+
+  return Boolean(
+    metadata.action_id ||
+      metadata.quick_action ||
+      metadata.action_channel ||
+      metadata.action_result ||
+      metadata.next_action ||
+      metadata.objection ||
+      eventType === 'contacted' ||
+      eventType === 'replied' ||
+      eventType === 'note_added',
+  )
+}
+
+function filterRevenueByPeriod<T extends { ref_date: string }>(
+  rows: T[],
+  dateStart: string,
+  dateEnd: string,
+) {
+  return rows.filter((row) => row.ref_date >= dateStart && row.ref_date <= dateEnd)
+}
 
 function buildExecutiveData(
   events: RawEvent[],
@@ -188,491 +230,411 @@ function buildExecutiveData(
   selectedSellerId: string | null,
   isAdmin: boolean,
   currentUserId: string | null,
-  stageFilter: string,
-  sellerMap: Map<string, string>,
-  revenueMap: Map<string, number>,
-  todayStr: string,
+  selectedStage: string,
+  sellers: SellerOption[],
+  revenueBySeller: Map<string, number>,
+  extraRevenue: number,
+  today: string,
 ): ExecutiveData {
-  const rangeStart = `${dateStart}T00:00:00`
-  const rangeEnd = `${dateEnd}T23:59:59`
-
-  // Panorama accumulators
   const cycleSet = new Set<string>()
-  let totalActivities = 0
-  let totalAdvances = 0
-  let totalWon = 0
-  let totalLost = 0
-  let totalNextActions = 0
-  let overdueNextActions = 0
+  const cycleActions = new Map<string, Set<string>>()
+  const cycleHasAdvance = new Set<string>()
+  const latestNextActionByCycle = new Map<
+    string,
+    { sellerId: string; dueDate: string; occurredAt: string }
+  >()
 
-  // Per-stage: activities and advances
-  const stageActivityMap = new Map<string, number>()
-  const stageAdvanceMap = new Map<string, number>()
+  const stageActivities = new Map<string, number>()
+  const stageAdvances = new Map<string, number>()
+  const channelActivities = new Map<string, number>()
+  const channelWon = new Map<string, number>()
+  const channelLost = new Map<string, number>()
+  const sellerActivities = new Map<string, number>()
+  const sellerCycles = new Map<string, Set<string>>()
+  const sellerAdvances = new Map<string, number>()
+  const sellerWon = new Map<string, number>()
+  const sellerLost = new Map<string, number>()
 
-  // Per-channel: total, won, lost
-  const channelTotalMap = new Map<string, number>()
-  const channelWonMap = new Map<string, number>()
-  const channelLostMap = new Map<string, number>()
+  let commercialActivities = 0
+  let advances = 0
+  let won = 0
+  let lost = 0
 
-  // Per-consultant: activities, next_actions, won, lost, advances
-  const consultantActivitiesMap = new Map<string, number>()
-  const consultantNextActionsMap = new Map<string, number>()
-  const consultantWonMap = new Map<string, number>()
-  const consultantLostMap = new Map<string, number>()
-  const consultantAdvancesMap = new Map<string, number>()
+  for (const event of events) {
+    const eventDate = toDateKey(event.occurred_at)
 
-  // Objections
-  const objectionMap = new Map<string, number>()
+    if (eventDate < dateStart || eventDate > dateEnd) continue
+    if (isAdmin && selectedSellerId && event.created_by !== selectedSellerId) continue
+    if (!isAdmin && currentUserId && event.created_by !== currentUserId) continue
+    if (!isCommercialEvent(event)) continue
 
-  for (const ev of events) {
-    if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
+    const meta = event.metadata ?? {}
+    const stage = getStage(meta)
 
-    // Seller filter (in-memory)
-    if (isAdmin && selectedSellerId) {
-      if (ev.created_by !== selectedSellerId) continue
-    } else if (!isAdmin && currentUserId) {
-      if (ev.created_by !== currentUserId) continue
+    if (selectedStage && stage && stage !== selectedStage) continue
+
+    const sellerId = event.created_by ?? ''
+    const kind = classifyEvent(event)
+    const channel = extractChannelFromEvent(meta) ?? 'Outro'
+
+    if (event.cycle_id) {
+      cycleSet.add(event.cycle_id)
+
+      if (sellerId) {
+        if (!sellerCycles.has(sellerId)) sellerCycles.set(sellerId, new Set())
+        sellerCycles.get(sellerId)!.add(event.cycle_id)
+      }
     }
 
-    const meta = (ev.metadata ?? {}) as Record<string, unknown>
-    const kind = classifyEvent(ev)
-    const sellerId = ev.created_by ?? ''
+    const dueDate = getDueDate(meta)
 
-    // Stage filter
-    if (stageFilter) {
-      const evStage = String(
-        meta.from_status ?? meta.from_stage ?? meta.stage ?? meta.to_status ?? ''
-      ).toLowerCase()
-      if (evStage && evStage !== stageFilter) continue
+    if (kind === 'next_action' || dueDate) {
+      const key = event.cycle_id ?? event.id
+      const previous = latestNextActionByCycle.get(key)
+
+      if (!previous || event.occurred_at > previous.occurredAt) {
+        latestNextActionByCycle.set(key, {
+          sellerId,
+          dueDate,
+          occurredAt: event.occurred_at,
+        })
+      }
     }
-
-    // Track unique cycles
-    if (ev.cycle_id) cycleSet.add(ev.cycle_id)
 
     if (kind === 'won') {
-      totalWon++
+      won++
+      channelWon.set(channel, (channelWon.get(channel) ?? 0) + 1)
+
       if (sellerId) {
-        consultantWonMap.set(sellerId, (consultantWonMap.get(sellerId) ?? 0) + 1)
+        sellerWon.set(sellerId, (sellerWon.get(sellerId) ?? 0) + 1)
       }
-      const channel = extractChannelFromEvent(meta) ?? 'Outro'
-      channelWonMap.set(channel, (channelWonMap.get(channel) ?? 0) + 1)
+
       continue
     }
 
     if (kind === 'lost') {
-      totalLost++
-      if (sellerId) {
-        consultantLostMap.set(sellerId, (consultantLostMap.get(sellerId) ?? 0) + 1)
-      }
-      const channel = extractChannelFromEvent(meta) ?? 'Outro'
-      channelLostMap.set(channel, (channelLostMap.get(channel) ?? 0) + 1)
-      continue
-    }
+      lost++
+      channelLost.set(channel, (channelLost.get(channel) ?? 0) + 1)
 
-    if (kind === 'next_action') {
-      totalNextActions++
       if (sellerId) {
-        consultantNextActionsMap.set(sellerId, (consultantNextActionsMap.get(sellerId) ?? 0) + 1)
+        sellerLost.set(sellerId, (sellerLost.get(sellerId) ?? 0) + 1)
       }
-      // Check if overdue
-      const dueDate = String(meta.due_date ?? meta.scheduled_at ?? meta.next_action_date ?? '').trim()
-      if (dueDate && dueDate.slice(0, 10) < todayStr) {
-        overdueNextActions++
-      }
+
       continue
     }
 
     if (kind === 'stage_move') {
-      totalAdvances++
-      const toStage = String(
-        meta.to_status ?? meta.to_stage ?? meta.stage ?? ''
-      ).toLowerCase()
-      const fromStage = String(
-        meta.from_status ?? meta.from_stage ?? ''
-      ).toLowerCase()
-      const trackStage = fromStage || toStage || 'novo'
-      stageAdvanceMap.set(trackStage, (stageAdvanceMap.get(trackStage) ?? 0) + 1)
+      advances++
+
+      const fromStage = String(meta.from_status ?? meta.from_stage ?? '').toLowerCase()
+      const trackStage = fromStage || stage || 'novo'
+
+      stageAdvances.set(trackStage, (stageAdvances.get(trackStage) ?? 0) + 1)
+      cycleHasAdvance.add(event.cycle_id ?? event.id)
+
       if (sellerId) {
-        consultantAdvancesMap.set(sellerId, (consultantAdvancesMap.get(sellerId) ?? 0) + 1)
+        sellerAdvances.set(sellerId, (sellerAdvances.get(sellerId) ?? 0) + 1)
       }
+
       continue
     }
 
-    // Activity
-    totalActivities++
+    if (kind === 'next_action') continue
+
+    commercialActivities++
+
+    const trackStage = stage || 'novo'
+    stageActivities.set(trackStage, (stageActivities.get(trackStage) ?? 0) + 1)
+    channelActivities.set(channel, (channelActivities.get(channel) ?? 0) + 1)
+
     if (sellerId) {
-      consultantActivitiesMap.set(sellerId, (consultantActivitiesMap.get(sellerId) ?? 0) + 1)
+      sellerActivities.set(sellerId, (sellerActivities.get(sellerId) ?? 0) + 1)
     }
 
-    const evStageKey = String(
-      meta.from_status ?? meta.from_stage ?? meta.stage ?? meta.to_status ?? ''
-    ).toLowerCase() || 'novo'
-    stageActivityMap.set(evStageKey, (stageActivityMap.get(evStageKey) ?? 0) + 1)
+    if (event.cycle_id) {
+      const actionId = extractActionFromEvent(event)
 
-    // Channel
-    const channel = extractChannelFromEvent(meta) ?? 'Outro'
-    channelTotalMap.set(channel, (channelTotalMap.get(channel) ?? 0) + 1)
-
-    // Objection detection (same logic as objecoes-e-perdas)
-    const cp = resolveCheckpointData(meta)
-    const rawId = String(meta.action_id ?? meta.quick_action ?? ev.event_type ?? '').trim()
-    const resolvedId = rawId ? resolveActionId(rawId) : ''
-    const hasObjectionField = typeof meta.objection === 'string' && meta.objection.trim().length > 0
-    const hasCheckpointObjection = cp.action_result === 'Objeção identificada'
-
-    if (resolvedId === OBJECTION_ACTION_ID || hasObjectionField || hasCheckpointObjection) {
-      const text = String(
-        cp.result_detail ?? meta.result_detail ?? meta.objection ?? meta.detail ?? meta.details ?? ''
-      ).trim() || 'Sem detalhe registrado'
-      objectionMap.set(text, (objectionMap.get(text) ?? 0) + 1)
-    }
-  }
-
-  // For action advance rate: track unique cycles where the action was registered
-  // and whether those cycles also had a stage_move in the period.
-  const actionCyclesWithAdvance = new Map<string, Set<string>>()
-  const actionCyclesTotal = new Map<string, Set<string>>()
-
-  // Single-pass per-cycle action tracking
-  const cycleActions = new Map<string, Set<string>>()
-  const cycleHasAdvance = new Set<string>()
-
-  for (const ev of events) {
-    if (!ev.cycle_id) continue
-    if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
-    if (isAdmin && selectedSellerId && ev.created_by !== selectedSellerId) continue
-    if (!isAdmin && currentUserId && ev.created_by !== currentUserId) continue
-
-    const kind = classifyEvent(ev)
-    if (kind === 'stage_move') {
-      cycleHasAdvance.add(ev.cycle_id)
-    } else if (kind === 'activity') {
-      const actionId = extractActionFromEvent(ev)
       if (actionId) {
-        if (!cycleActions.has(ev.cycle_id)) cycleActions.set(ev.cycle_id, new Set())
-        cycleActions.get(ev.cycle_id)!.add(actionId)
+        if (!cycleActions.has(event.cycle_id)) cycleActions.set(event.cycle_id, new Set())
+        cycleActions.get(event.cycle_id)!.add(actionId)
       }
     }
   }
 
-  // Build action advance tracking
-  for (const [cycleId, actions] of cycleActions.entries()) {
-    const hasAdvance = cycleHasAdvance.has(cycleId)
-    for (const actionId of actions) {
-      if (!actionCyclesTotal.has(actionId)) actionCyclesTotal.set(actionId, new Set())
-      actionCyclesTotal.get(actionId)!.add(cycleId)
-      if (hasAdvance) {
-        if (!actionCyclesWithAdvance.has(actionId)) actionCyclesWithAdvance.set(actionId, new Set())
-        actionCyclesWithAdvance.get(actionId)!.add(cycleId)
-      }
+  const nextActionsBySeller = new Map<string, number>()
+  let nextActions = 0
+  let overdueNextActions = 0
+
+  for (const action of latestNextActionByCycle.values()) {
+    nextActions++
+
+    if (action.sellerId) {
+      nextActionsBySeller.set(
+        action.sellerId,
+        (nextActionsBySeller.get(action.sellerId) ?? 0) + 1,
+      )
+    }
+
+    if (action.dueDate && action.dueDate.slice(0, 10) < today) {
+      overdueNextActions++
     }
   }
 
-  // Build stage bottleneck stats
-  const stageStats: StageBottleneck[] = STAGE_ORDER.map((stage) => {
-    const activities = stageActivityMap.get(stage) ?? 0
-    const advances = stageAdvanceMap.get(stage) ?? 0
+  const stageStats = STAGES.map((stage) => {
+    const activities = stageActivities.get(stage) ?? 0
+    const stageAdvancesCount = stageAdvances.get(stage) ?? 0
+
     return {
       stage,
-      stageLabel: STAGE_LABELS[stage] ?? stage,
+      label: STAGE_LABELS[stage] ?? stage,
       activities,
-      advances,
-      advanceRate: safePct(advances, activities),
+      advances: stageAdvancesCount,
+      advanceRate: safePct(stageAdvancesCount, activities + stageAdvancesCount),
     }
-  }).filter(s => s.activities > 0)
+  }).filter((stat) => stat.activities > 0 || stat.advances > 0)
 
-  const stageBottleneck = stageStats.length > 0
-    ? stageStats.reduce((worst, s) =>
-        s.advanceRate < worst.advanceRate ? s : worst, stageStats[0])
-    : null
+  const mainBottleneck =
+    stageStats
+      .filter((stat) => stat.activities + stat.advances >= 3)
+      .sort((a, b) => a.advanceRate - b.advanceRate)[0] ?? null
 
-  // Build action levers (min 3 cycles)
-  const actionLevers: ActionLever[] = []
-  for (const [actionId, cycleSet2] of actionCyclesTotal.entries()) {
-    if (cycleSet2.size < 3) continue
-    const advancedCycles = actionCyclesWithAdvance.get(actionId)?.size ?? 0
-    const advanceRate = safePct(advancedCycles, cycleSet2.size)
-    const label = findActionById(actionId) ? getActionLabel(actionId) : actionId.replace(/_/g, ' ')
-    actionLevers.push({
+  const actionStats = Array.from(cycleActions.entries())
+    .flatMap(([cycleId, actionIds]) =>
+      Array.from(actionIds).map((actionId) => ({ cycleId, actionId })),
+    )
+    .reduce<Map<string, { cycles: Set<string>; advancedCycles: Set<string> }>>(
+      (map, item) => {
+        const value = map.get(item.actionId) ?? {
+          cycles: new Set<string>(),
+          advancedCycles: new Set<string>(),
+        }
+
+        value.cycles.add(item.cycleId)
+
+        if (cycleHasAdvance.has(item.cycleId)) {
+          value.advancedCycles.add(item.cycleId)
+        }
+
+        map.set(item.actionId, value)
+        return map
+      },
+      new Map(),
+    )
+
+  const actionRows = Array.from(actionStats.entries())
+    .map(([actionId, value]) => ({
       actionId,
-      actionLabel: label,
-      total: cycleSet2.size,
-      advances: advancedCycles,
-      advanceRate,
-    })
-  }
-  actionLevers.sort((a, b) => b.advanceRate - a.advanceRate)
-  const topActionByAdvance = actionLevers.length > 0 ? actionLevers[0] : null
+      label: actionId.replace(/_/g, ' '),
+      cycles: value.cycles.size,
+      advancedCycles: value.advancedCycles.size,
+      advanceRate: safePct(value.advancedCycles.size, value.cycles.size),
+    }))
+    .filter((row) => row.cycles >= 3)
+    .sort((a, b) => b.advanceRate - a.advanceRate)
 
-  // Build channel stats (include channels from won/lost events)
   const allChannels = new Set([
-    ...channelTotalMap.keys(),
-    ...channelWonMap.keys(),
-    ...channelLostMap.keys(),
+    ...channelActivities.keys(),
+    ...channelWon.keys(),
+    ...channelLost.keys(),
   ])
-  const channelStats: ChannelStat[] = []
-  for (const channel of allChannels) {
-    const total = (channelTotalMap.get(channel) ?? 0) +
-      (channelWonMap.get(channel) ?? 0) +
-      (channelLostMap.get(channel) ?? 0)
-    const won = channelWonMap.get(channel) ?? 0
-    const lost = channelLostMap.get(channel) ?? 0
-    const closedTotal = won + lost
-    channelStats.push({
-      channel,
-      channelLabel: CHANNEL_LABELS[channel] ?? channel,
-      total,
-      won,
-      lost,
-      winRate: safePct(won, closedTotal),
-      lossRate: safePct(lost, closedTotal),
+
+  const channelStats = Array.from(allChannels)
+    .map((channel) => {
+      const activities = channelActivities.get(channel) ?? 0
+      const channelWonCount = channelWon.get(channel) ?? 0
+      const channelLostCount = channelLost.get(channel) ?? 0
+      const closed = channelWonCount + channelLostCount
+
+      return {
+        channel,
+        label: CHANNEL_LABELS[channel] ?? channel,
+        activities,
+        won: channelWonCount,
+        lost: channelLostCount,
+        winRate: safePct(channelWonCount, closed),
+        lossRate: safePct(channelLostCount, closed),
+      }
     })
-  }
-  channelStats.sort((a, b) => b.total - a.total)
+    .sort((a, b) => b.activities + b.won + b.lost - (a.activities + a.won + a.lost))
 
-  // Channel with most loss (min 2 closures)
-  const eligibleChannelsForLoss = channelStats.filter(c => (c.won + c.lost) >= 2)
-  const channelWithMostLoss = eligibleChannelsForLoss.length > 0
-    ? eligibleChannelsForLoss.reduce((worst, c) =>
-        c.lossRate > worst.lossRate ? c : worst, eligibleChannelsForLoss[0])
-    : null
+  const sellerNames = new Map(
+    sellers.map((seller) => [seller.id, seller.full_name || seller.email || seller.id]),
+  )
 
-  // Channel with best win rate (min 2 closures)
-  const eligibleChannelsForWin = channelStats.filter(c => (c.won + c.lost) >= 2)
-  const topChannelByWin = eligibleChannelsForWin.length > 0
-    ? eligibleChannelsForWin.reduce((best, c) =>
-        c.winRate > best.winRate ? c : best, eligibleChannelsForWin[0])
-    : null
-
-  // Build consultant stats
-  const allConsultantIds = new Set([
-    ...consultantActivitiesMap.keys(),
-    ...consultantNextActionsMap.keys(),
-    ...consultantWonMap.keys(),
-    ...consultantLostMap.keys(),
-    ...consultantAdvancesMap.keys(),
+  const sellerIds = new Set([
+    ...sellerActivities.keys(),
+    ...sellerCycles.keys(),
+    ...sellerAdvances.keys(),
+    ...nextActionsBySeller.keys(),
+    ...sellerWon.keys(),
+    ...sellerLost.keys(),
+    ...revenueBySeller.keys(),
   ])
-  const consultantStats: ConsultantStat[] = []
-  for (const sellerId of allConsultantIds) {
-    const activities = consultantActivitiesMap.get(sellerId) ?? 0
-    const nextActions = consultantNextActionsMap.get(sellerId) ?? 0
-    const won = consultantWonMap.get(sellerId) ?? 0
-    const lost = consultantLostMap.get(sellerId) ?? 0
-    const advances = consultantAdvancesMap.get(sellerId) ?? 0
-    const revenue = revenueMap.get(sellerId) ?? 0
-    const disciplineRate = safePct(nextActions, activities)
-    const sellerName = sellerMap.get(sellerId) ?? sellerId.slice(0, 8)
-    consultantStats.push({
-      sellerId,
-      sellerName,
-      activities,
-      nextActions,
-      disciplineRate,
-      won,
-      lost,
-      advances,
-      revenue,
+
+  const sellerStats = Array.from(sellerIds)
+    .map((sellerId) => {
+      const cycles = sellerCycles.get(sellerId)?.size ?? 0
+      const sellerNextActions = nextActionsBySeller.get(sellerId) ?? 0
+
+      return {
+        sellerId,
+        sellerName: sellerNames.get(sellerId) ?? sellerId.slice(0, 8),
+        activities: sellerActivities.get(sellerId) ?? 0,
+        cycles,
+        advances: sellerAdvances.get(sellerId) ?? 0,
+        nextActions: sellerNextActions,
+        won: sellerWon.get(sellerId) ?? 0,
+        lost: sellerLost.get(sellerId) ?? 0,
+        revenue: revenueBySeller.get(sellerId) ?? 0,
+        disciplineRate: safePct(sellerNextActions, cycles),
+      }
     })
-  }
-  consultantStats.sort((a, b) => b.activities - a.activities)
+    .sort((a, b) => b.activities + b.advances - (a.activities + a.advances))
 
-  // Consultant with least discipline (min 3 activities)
-  const eligibleForDiscipline = consultantStats.filter(c => c.activities >= 3)
-  const consultantLeastDiscipline = eligibleForDiscipline.length > 0
-    ? eligibleForDiscipline.reduce((worst, c) =>
-        c.disciplineRate < worst.disciplineRate ? c : worst, eligibleForDiscipline[0])
-    : null
+  const riskCandidates = sellerStats
+    .filter((seller) => seller.cycles >= 3)
+    .sort((a, b) => a.disciplineRate - b.disciplineRate)
 
-  // Consultant with best efficiency (revenue per activity, min 5 activities + 1 won)
-  const eligibleForEfficiency = consultantStats.filter(c => c.activities >= 5 && c.won >= 1 && c.revenue > 0)
-  const topConsultantByEfficiency = eligibleForEfficiency.length > 0
-    ? eligibleForEfficiency.reduce((best, c) => {
-        const effBest = best.activities > 0 ? best.revenue / best.activities : 0
-        const effC = c.activities > 0 ? c.revenue / c.activities : 0
-        return effC > effBest ? c : best
-      }, eligibleForEfficiency[0])
-    : null
+  const topSellerCandidates = sellerStats
+    .filter((seller) => seller.revenue > 0 || seller.won > 0)
+    .sort((a, b) => b.revenue - a.revenue || b.won - a.won)
 
-  // Top objection
-  const topObjection = objectionMap.size > 0
-    ? Array.from(objectionMap.entries())
-        .map(([text, total]) => ({ text, total }))
-        .sort((a, b) => b.total - a.total)[0]
-    : null
-
-  // Panorama
-  const totalRevenue = Array.from(revenueMap.values()).reduce((s, v) => s + v, 0)
-  const overallAdvanceRate = safePct(totalAdvances, totalActivities + totalAdvances)
-  const winRate = safePct(totalWon, totalWon + totalLost)
-  const disciplineRate = safePct(totalNextActions, totalActivities)
+  const revenue = Array.from(revenueBySeller.values()).reduce((sum, value) => sum + value, 0) + extraRevenue
 
   return {
-    totalCycles: cycleSet.size,
-    totalActivities,
-    totalAdvances,
-    totalWon,
-    totalLost,
-    totalNextActions,
-    totalRevenue,
-    advanceRate: overallAdvanceRate,
-    winRate,
-    disciplineRate,
+    cyclesWithCommercialActivity: cycleSet.size,
+    commercialActivities,
+    advances,
+    won,
+    lost,
+    nextActions,
     overdueNextActions,
-    stageBottleneck,
-    topObjection,
-    channelWithMostLoss,
-    consultantLeastDiscipline,
-    topActionByAdvance,
-    topChannelByWin,
-    topConsultantByEfficiency,
+    revenue,
+    revenueSource: 'conciliado',
+    advanceRate: safePct(advances, commercialActivities + advances),
+    winRate: safePct(won, won + lost),
+    disciplineRate: safePct(nextActions, cycleSet.size),
     stageStats,
+    actionStats: actionRows,
     channelStats,
-    consultantStats,
+    sellerStats,
+    mainBottleneck,
+    topAction: actionRows[0] ?? null,
+    topChannel:
+      channelStats
+        .filter((channel) => channel.won + channel.lost >= 2)
+        .sort((a, b) => b.winRate - a.winRate)[0] ?? null,
+    mainRiskSeller: riskCandidates[0] ?? null,
+    topSeller: topSellerCandidates[0] ?? null,
   }
 }
 
-// ============================================================================
-// SVG Icons
-// ============================================================================
-
-function IconGauge() {
+function KpiCard({
+  label,
+  value,
+  detail,
+  accent,
+}: {
+  label: string
+  value: React.ReactNode
+  detail: string
+  accent: string
+}) {
   return (
-    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2a10 10 0 1 0 10 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M12 12l4.5-4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-    </svg>
+    <div
+      style={{
+        minWidth: 0,
+        padding: 18,
+        background: DS.panelBg,
+        border: `1px solid ${DS.border}`,
+        borderRadius: DS.radiusContainer,
+        boxShadow: DS.shadowCard,
+      }}
+    >
+      <div
+        style={{
+          color: DS.textLabel,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.07em',
+          marginBottom: 10,
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ color: accent, fontSize: 28, fontWeight: 900, lineHeight: 1, marginBottom: 8 }}>
+        {value}
+      </div>
+      <div style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.4 }}>
+        {detail}
+      </div>
+    </div>
   )
 }
 
-function IconChevronLeft() {
+function InsightCard({
+  title,
+  body,
+  accent,
+}: {
+  title: string
+  body: string
+  accent: string
+}) {
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div
+      style={{
+        background: DS.cardBg,
+        border: `1px solid ${DS.border}`,
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: DS.radiusContainer,
+        padding: '16px 18px',
+      }}
+    >
+      <div style={{ color: DS.textPrimary, fontSize: 13, fontWeight: 800, marginBottom: 6 }}>
+        {title}
+      </div>
+      <div style={{ color: DS.textSecondary, fontSize: 12, lineHeight: 1.55 }}>
+        {body}
+      </div>
+    </div>
   )
 }
 
-function IconLoader() {
+function MetricRow({
+  label,
+  value,
+  description,
+  accent,
+  isLast,
+}: {
+  label: string
+  value: string
+  description: string
+  accent: string
+  isLast?: boolean
+}) {
   return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-      <path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
+    <div
+      style={{
+        alignItems: 'center',
+        borderBottom: isLast ? 'none' : `1px solid ${DS.borderSubtle}`,
+        display: 'grid',
+        gap: 14,
+        gridTemplateColumns: '180px 96px 1fr',
+        padding: '14px 0',
+      }}
+    >
+      <div style={{ color: DS.textSecondary, fontSize: 12, fontWeight: 800 }}>{label}</div>
+      <div style={{ color: accent, fontSize: 18, fontWeight: 900 }}>{value}</div>
+      <div style={{ color: DS.textSecondary, fontSize: 12, lineHeight: 1.5 }}>{description}</div>
+    </div>
   )
 }
 
-function IconTrendUp() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="17 6 23 6 23 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconCircleCheck() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconCircleX() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconAlertTriangle() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconZap() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconDollarSign() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconTarget() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="12" cy="12" r="6" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="12" cy="12" r="2" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  )
-}
-
-function IconUsers() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconShare2() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconLayers() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2 2 7l10 5 10-5-10-5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M2 17l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconListCheck() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 6H21M10 12H21M10 18H21" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// ============================================================================
-// Sub-navigation (shared across operational reports)
-// ============================================================================
-
-const SUBNAV_TABS = [
-  { label: 'Visão Executiva', href: null }, // active page
+const SUBNAV = [
+  { label: 'Visão Executiva', href: null },
   { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa' },
   { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' },
   { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas' },
@@ -681,265 +643,30 @@ const SUBNAV_TABS = [
   { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor' },
 ]
 
-// ============================================================================
-// Sub-components — redesigned
-// ============================================================================
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  accent,
-  icon,
-}: {
-  label: string
-  value: React.ReactNode
-  sub?: string
-  accent?: string
-  icon?: React.ReactNode
-}) {
-  return (
-    <div
-      style={{
-        padding: 18,
-        background: DS.panelBg,
-        border: `1px solid ${DS.border}`,
-        borderRadius: DS.radiusContainer,
-        boxShadow: DS.shadowCard,
-        display: 'flex',
-        flexDirection: 'column',
-        minWidth: 0,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 800,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          color: DS.textLabel,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 7,
-          minHeight: 26,
-        }}
-      >
-        {icon && <span style={{ color: accent ?? DS.blueLight, opacity: 0.9, flexShrink: 0 }}>{icon}</span>}
-        {label}
-      </div>
-
-      <div style={{ fontSize: 28, fontWeight: 900, color: accent ?? DS.textPrimary, lineHeight: 1, marginBottom: 6 }}>
-        {value}
-      </div>
-
-      <div style={{ fontSize: 11, color: DS.textSecondary, lineHeight: 1.35, minHeight: 16 }}>
-        {sub ?? ''}
-      </div>
-    </div>
-  )
-}
-
-function DiagRow({
-  icon,
-  title,
-  detail,
-  accent,
-  isLast,
-}: {
-  icon: React.ReactNode
-  title: string
-  detail: string
-  accent: string
-  isLast?: boolean
-}) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 12,
-        padding: '13px 0',
-        borderBottom: isLast ? 'none' : `1px solid ${DS.borderSubtle}`,
-      }}
-    >
-      <span style={{ color: accent, flexShrink: 0, marginTop: 2, opacity: 0.9 }}>{icon}</span>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 800, color: DS.textPrimary, marginBottom: 4, lineHeight: 1.3 }}>
-          {title}
-        </div>
-        <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
-          {detail}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-type HealthStatus = 'green' | 'yellow' | 'red'
-
-function HealthRow({
-  label,
-  value,
-  detail,
-  status,
-  isLast,
-}: {
-  label: string
-  value: string
-  detail: string
-  status: HealthStatus
-  isLast?: boolean
-}) {
-  const dotColor = status === 'green' ? DS.greenSoft : status === 'yellow' ? DS.yellowSoft : DS.redSoft
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-        padding: '13px 0',
-        borderBottom: isLast ? 'none' : `1px solid ${DS.borderSubtle}`,
-      }}
-    >
-      <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-      <div style={{ flex: '0 0 190px', fontSize: 12, fontWeight: 800, color: DS.textSecondary }}>
-        {label}
-      </div>
-      <div style={{ flex: '0 0 90px', fontSize: 18, fontWeight: 900, color: dotColor }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
-        {detail}
-      </div>
-    </div>
-  )
-}
-
-function FocoCard({
-  icon,
-  tag,
-  title,
-  description,
-  tagColor,
-}: {
-  icon: React.ReactNode
-  tag: string
-  title: string
-  description: string
-  tagColor: string
-}) {
-  return (
-    <div
-      style={{
-        flex: '1 1 0',
-        minWidth: 220,
-        padding: '20px 22px',
-        background: `${tagColor}0f`,
-        border: `1px solid ${tagColor}33`,
-        borderRadius: DS.radiusContainer,
-        boxShadow: DS.shadowCard,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <span style={{ color: tagColor, opacity: 0.9 }}>{icon}</span>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 900,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: tagColor,
-          }}
-        >
-          {tag}
-        </span>
-      </div>
-
-      <div style={{ fontSize: 14, fontWeight: 900, color: DS.textPrimary, marginBottom: 8, lineHeight: 1.3 }}>
-        {title}
-      </div>
-
-      <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.6 }}>
-        {description}
-      </div>
-    </div>
-  )
-}
-
-function NavLink({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
-  return (
-    <a
-      href={href}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 7,
-        padding: '8px 14px',
-        border: `1px solid ${DS.border}`,
-        borderRadius: DS.radius,
-        fontSize: 12,
-        fontWeight: 700,
-        color: DS.textSecondary,
-        textDecoration: 'none',
-        background: DS.panelBg,
-        transition: 'border-color 0.15s, color 0.15s, background 0.15s',
-      }}
-      onMouseOver={(e) => {
-        e.currentTarget.style.borderColor = DS.blue
-        e.currentTarget.style.color = DS.blueSoft
-        e.currentTarget.style.background = DS.surfaceBg
-      }}
-      onMouseOut={(e) => {
-        e.currentTarget.style.borderColor = DS.border
-        e.currentTarget.style.color = DS.textSecondary
-        e.currentTarget.style.background = DS.panelBg
-      }}
-    >
-      <span style={{ color: 'inherit', flexShrink: 0 }}>{icon}</span>
-      {label}
-    </a>
-  )
-}
-
-// ============================================================================
-// Main Page
-// ============================================================================
-
 export default function VisaoExecutivaPage() {
-  const supabase = supabaseBrowser()
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
 
-  // Auth/profile state
   const [loading, setLoading] = React.useState(true)
+  const [refreshing, setRefreshing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = React.useState(false)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
+  const [data, setData] = React.useState<ExecutiveData | null>(null)
 
-  // Filters
   const [dateStart, setDateStart] = React.useState(getThirtyDaysAgo())
   const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
   const [selectedStage, setSelectedStage] = React.useState('')
 
-  // Data
-  const [execData, setExecData] = React.useState<ExecutiveData | null>(null)
-  const [dataLoading, setDataLoading] = React.useState(false)
-
-  // ==========================================================================
-  // Init — auth + profile
-  // ==========================================================================
   React.useEffect(() => {
-    async function init() {
+    async function initialize() {
       setLoading(true)
       setError(null)
 
       try {
-        const response = await fetch('/api/me', {
-          cache: 'no-store',
-        })
+        const response = await fetch('/api/me', { cache: 'no-store' })
 
         if (!response.ok) {
           throw new Error('Não foi possível identificar a empresa ativa.')
@@ -951,815 +678,669 @@ export default function VisaoExecutivaPage() {
           active_company_role?: string | null
         }
 
-        const uid = me.user_id ?? null
-        const resolvedCompanyId = me.active_company_id ?? null
-        const adminUser = me.active_company_role === 'admin'
-
-        if (!uid) {
+        if (!me.user_id) {
           throw new Error('Sessão expirada. Faça login novamente.')
         }
 
-        if (!resolvedCompanyId) {
+        if (!me.active_company_id) {
           throw new Error('Nenhuma empresa ativa foi encontrada.')
         }
 
-        setCurrentUserId(uid)
-        setIsAdmin(adminUser)
-        setCompanyId(resolvedCompanyId)
+        const activeSellers = await faturamentoService.getSellers(
+          supabase,
+          me.active_company_id,
+        )
 
-        if (adminUser) {
-          const { data: sellersData } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('company_id', resolvedCompanyId)
-            .eq('role', 'member')
-            .order('full_name')
-
-          setSellers((sellersData ?? []) as SellerOption[])
-        }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Erro ao carregar.')
+        setCurrentUserId(me.user_id)
+        setCompanyId(me.active_company_id)
+        setIsAdmin(me.active_company_role === 'admin')
+        setSellers(activeSellers as SellerOption[])
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar a página.')
       } finally {
         setLoading(false)
       }
     }
 
-    init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void initialize()
+  }, [supabase])
 
-  // ==========================================================================
-  // Load data
-  // ==========================================================================
   React.useEffect(() => {
-    if (!companyId) return
-    loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, dateStart, dateEnd, selectedSellerId, selectedStage, isAdmin, currentUserId])
+    if (!companyId || !currentUserId) return
 
-  async function loadData() {
-    if (!companyId) return
-    setDataLoading(true)
-    try {
-      // 1. Fetch all cycle events (paginated)
-      const data = await fetchAllCycleEvents(supabase, {
-        companyId,
-        dateStart,
-        dateEnd,
-        columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-      })
+    async function loadReport() {
+      setRefreshing(true)
+      setError(null)
 
-      // 2. Fetch revenue from sales_cycles
-      let revenueQuery = supabase
-        .from('sales_cycles')
-        .select('won_total, won_owner_user_id')
-        .eq('company_id', companyId)
-        .eq('status', 'ganho')
-        .gt('won_total', 0)
-        .gte('won_at', `${dateStart}T00:00:00`)
-        .lte('won_at', `${dateEnd}T23:59:59`)
+      try {
+        const [events, sellerRevenueRows, extraRevenueRows] = await Promise.all([
+          fetchAllCycleEvents(supabase, {
+            companyId,
+            dateStart,
+            dateEnd,
+            columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
+          }),
+          faturamentoService.getRevenueDailySellers(
+            supabase,
+            companyId,
+            isAdmin ? selectedSellerId ?? undefined : currentUserId,
+          ),
+          isAdmin && !selectedSellerId
+            ? faturamentoService.getRevenueDailyExtras(supabase, companyId)
+            : Promise.resolve([]),
+        ])
 
-      if (isAdmin && selectedSellerId) {
-        revenueQuery = revenueQuery.eq('won_owner_user_id', selectedSellerId)
-      }
-
-      if (!isAdmin && currentUserId) {
-        revenueQuery = revenueQuery.eq('won_owner_user_id', currentUserId)
-      }
-
-      const { data: wonCycles } = await revenueQuery
-
-      const revenueMap = new Map<string, number>()
-      for (const cycle of (wonCycles ?? []) as Array<{ won_total: number; won_owner_user_id: string | null }>) {
-        if (!cycle.won_owner_user_id) continue
-        revenueMap.set(
-          cycle.won_owner_user_id,
-          (revenueMap.get(cycle.won_owner_user_id) ?? 0) + Number(cycle.won_total),
+        const sellerRevenueRowsInPeriod = filterRevenueByPeriod(
+          sellerRevenueRows,
+          dateStart,
+          dateEnd,
         )
-      }
 
-      // 3. Build seller name map
-      const sellerMap = new Map<string, string>()
-      for (const s of sellers) {
-        if (s.full_name) sellerMap.set(s.id, s.full_name)
-      }
+        const extraRevenueRowsInPeriod = filterRevenueByPeriod(
+          extraRevenueRows,
+          dateStart,
+          dateEnd,
+        )
 
-      // If non-admin, also map current user
-      if (!isAdmin && currentUserId) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .eq('id', currentUserId)
-          .maybeSingle()
-        if (profileData?.full_name) sellerMap.set(currentUserId, profileData.full_name)
-      }
+        const revenueBySeller = new Map<string, number>()
 
-      // Enrich seller map with any revenue owners not yet in sellers list
-      const revenueOwnerIds = Array.from(revenueMap.keys()).filter(id => !sellerMap.has(id))
-      if (revenueOwnerIds.length > 0) {
-        const { data: extraProfiles } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', revenueOwnerIds)
-        for (const p of (extraProfiles ?? []) as SellerOption[]) {
-          if (p.full_name) sellerMap.set(p.id, p.full_name)
+        for (const row of sellerRevenueRowsInPeriod) {
+          revenueBySeller.set(
+            row.seller_id,
+            (revenueBySeller.get(row.seller_id) ?? 0) + Number(row.real_value ?? 0),
+          )
         }
+
+        const extraRevenue = extraRevenueRowsInPeriod.reduce(
+          (sum, row) => sum + Number(row.real_value ?? 0),
+          0,
+        )
+
+        setData(
+          buildExecutiveData(
+            (events ?? []) as RawEvent[],
+            dateStart,
+            dateEnd,
+            selectedSellerId,
+            isAdmin,
+            currentUserId,
+            selectedStage,
+            sellers,
+            revenueBySeller,
+            extraRevenue,
+            getTodayDate(),
+          ),
+        )
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar os dados.')
+      } finally {
+        setRefreshing(false)
       }
-
-      const todayStr = getTodayDate()
-
-      const result = buildExecutiveData(
-        (data ?? []) as RawEvent[],
-        dateStart,
-        dateEnd,
-        selectedSellerId,
-        isAdmin,
-        currentUserId,
-        selectedStage,
-        sellerMap,
-        revenueMap,
-        todayStr,
-      )
-      setExecData(result)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar dados.')
-    } finally {
-      setDataLoading(false)
     }
-  }
 
-  // ==========================================================================
-  // Health diagnoses (derived from data)
-  // ==========================================================================
-  function getAdvanceRateStatus(rate: number): HealthStatus {
-    if (rate >= 30) return 'green'
-    if (rate >= 15) return 'yellow'
-    return 'red'
-  }
+    void loadReport()
+  }, [
+    companyId,
+    currentUserId,
+    dateStart,
+    dateEnd,
+    selectedSellerId,
+    selectedStage,
+    isAdmin,
+    sellers,
+    supabase,
+  ])
 
-  function getDisciplineStatus(rate: number): HealthStatus {
-    if (rate >= 50) return 'green'
-    if (rate >= 25) return 'yellow'
-    return 'red'
-  }
-
-  function getOverdueStatus(overdue: number, total: number): HealthStatus {
-    const pct = safePct(overdue, total)
-    if (pct <= 20) return 'green'
-    if (pct <= 50) return 'yellow'
-    return 'red'
-  }
-
-  function getWinRateStatus(rate: number, totalClosed: number): HealthStatus {
-    if (totalClosed === 0) return 'yellow'
-    if (rate >= 30) return 'green'
-    if (rate >= 15) return 'yellow'
-    return 'red'
-  }
-
-  // ==========================================================================
-  // Loading / Error states
-  // ==========================================================================
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: DS.contentBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: DS.textMuted, fontSize: 14 }}>
-          <IconLoader />
-          Carregando...
-        </div>
+      <div
+        style={{
+          alignItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100vh',
+        }}
+      >
+        Carregando Visão Executiva...
       </div>
     )
   }
 
-  if (error) {
+  if (error && !data) {
     return (
-      <div style={{ minHeight: '100vh', background: DS.contentBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: DS.cardBg, border: `1px solid ${DS.border}`, borderRadius: DS.radiusContainer, padding: '24px 32px', maxWidth: 420, textAlign: 'center' }}>
-          <p style={{ color: DS.red, fontSize: 14, margin: 0 }}>{error}</p>
-          <a href="/login" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: DS.blueLight, textDecoration: 'none' }}>
-            Ir para o login
-          </a>
-        </div>
-      </div>
-    )
-  }
-
-  const d = execData
-  const totalClosed = d ? d.totalWon + d.totalLost : 0
-  const hasData = d && (d.totalActivities + d.totalAdvances + d.totalWon + d.totalLost) > 0
-
-  // ==========================================================================
-  // Render
-  // ==========================================================================
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: DS.contentBg,
-        color: DS.textPrimary,
-        padding: '32px 24px 80px',
-        overflowY: 'auto',
-      }}
-    >
-      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-
-        {/* Breadcrumb */}
-        <div style={{ marginBottom: 28 }}>
-          <a
-            href="/relatorios"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 13,
-              color: DS.textSecondary,
-              textDecoration: 'none',
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.color = DS.blueSoft)}
-            onMouseOut={(e) => (e.currentTarget.style.color = DS.textSecondary)}
-          >
-            <IconChevronLeft />
-            Voltar para Relatórios
-          </a>
-        </div>
-
-        {/* Page header */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <span style={{ color: ACCENT }}>
-              <IconGauge />
-            </span>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
-              Visão Executiva
-            </h1>
-          </div>
-          <p style={{ fontSize: 13, color: DS.textSecondary, margin: 0 }}>
-            Síntese gerencial da operação — sinais, gargalos, alavancas e prioridades do período
-          </p>
-        </div>
-
-        {/* Sub-navigation */}
+      <div
+        style={{
+          alignItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: 24,
+        }}
+      >
         <div
           style={{
-            display: 'flex',
-            gap: 4,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            borderBottom: `1px solid ${DS.border}`,
-            paddingBottom: 0,
-          }}
-        >
-          {SUBNAV_TABS.map((tab) => {
-            const isActive = tab.href === null
-            if (isActive) {
-              return (
-                <button
-                  key={tab.label}
-                  disabled
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: `2px solid ${ACCENT}`,
-                    cursor: 'default',
-                    padding: '8px 14px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: ACCENT,
-                    marginBottom: -1,
-                  }}
-                >
-                  {tab.label}
-                </button>
-              )
-            }
-            return (
-              <a
-                key={tab.label}
-                href={tab.href!}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  borderBottom: '2px solid transparent',
-                  padding: '8px 14px',
-                  fontSize: 13,
-                  fontWeight: 400,
-                  color: DS.textSecondary,
-                  textDecoration: 'none',
-                  marginBottom: -1,
-                  transition: 'color 0.15s',
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.color = DS.blueSoft)}
-                onMouseOut={(e) => (e.currentTarget.style.color = DS.textSecondary)}
-              >
-                {tab.label}
-              </a>
-            )
-          })}
-        </div>
-
-        {/* Filters */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 12,
-            flexWrap: 'wrap',
-            marginBottom: 40,
-            padding: '16px 20px',
             background: DS.cardBg,
             border: `1px solid ${DS.border}`,
             borderRadius: DS.radiusContainer,
+            maxWidth: 460,
+            padding: 24,
+            textAlign: 'center',
           }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
-              De
-            </label>
-            <input
-              type="date"
-              value={dateStart}
-              onChange={(e) => setDateStart(e.target.value)}
-              style={{
-                background: DS.selectBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: DS.radius,
-                color: DS.textPrimary,
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+          <strong style={{ color: DS.redSoft }}>Não foi possível carregar o relatório.</strong>
+          <div style={{ marginTop: 8, fontSize: 13 }}>{error}</div>
+        </div>
+      </div>
+    )
+  }
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
-              Até
-            </label>
-            <input
-              type="date"
-              value={dateEnd}
-              onChange={(e) => setDateEnd(e.target.value)}
-              style={{
-                background: DS.selectBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: DS.radius,
-                color: DS.textPrimary,
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+  const totalClosed = (data?.won ?? 0) + (data?.lost ?? 0)
+  const hasOperationalData =
+    (data?.cyclesWithCommercialActivity ?? 0) > 0 ||
+    (data?.revenue ?? 0) > 0
 
-          {isAdmin && sellers.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
-                Consultor
-              </label>
-              <select
-                value={selectedSellerId ?? ''}
-                onChange={(e) => setSelectedSellerId(e.target.value || null)}
+  return (
+    <div
+      style={{
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        minHeight: '100vh',
+        overflowY: 'auto',
+        padding: '32px 24px 80px',
+      }}
+    >
+      <div style={{ margin: '0 auto', maxWidth: 1200 }}>
+        <a
+          href="/relatorios"
+          style={{
+            color: DS.textSecondary,
+            display: 'inline-flex',
+            fontSize: 13,
+            marginBottom: 28,
+            textDecoration: 'none',
+          }}
+        >
+          ← Voltar para Relatórios
+        </a>
+
+        <div style={{ marginBottom: 30 }}>
+          <div style={{ alignItems: 'center', display: 'flex', gap: 10, marginBottom: 6 }}>
+            <span style={{ color: DS.blueLight, fontSize: 22 }}>◔</span>
+            <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.01em', margin: 0 }}>
+              Visão Executiva
+            </h1>
+          </div>
+          <p style={{ color: DS.textSecondary, fontSize: 13, margin: 0 }}>
+            Leitura operacional do período com faturamento conciliado na mesma base da Gestão de Faturamento.
+          </p>
+        </div>
+
+        <div
+          style={{
+            borderBottom: `1px solid ${DS.border}`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            marginBottom: 28,
+          }}
+        >
+          {SUBNAV.map((tab) =>
+            tab.href === null ? (
+              <span
+                key={tab.label}
                 style={{
-                  background: DS.selectBg,
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radius,
-                  color: DS.textPrimary,
+                  borderBottom: `2px solid ${DS.blueLight}`,
+                  color: DS.blueLight,
                   fontSize: 13,
-                  padding: '6px 10px',
-                  outline: 'none',
-                  minWidth: 180,
+                  fontWeight: 800,
+                  marginBottom: -1,
+                  padding: '9px 14px',
                 }}
               >
-                <option value="">Todos os consultores</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name ?? s.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: DS.textSecondary }}>
-              Etapa
-            </label>
-            <select
-              value={selectedStage}
-              onChange={(e) => setSelectedStage(e.target.value)}
-              style={{
-                background: DS.selectBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: DS.radius,
-                color: DS.textPrimary,
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                minWidth: 160,
-              }}
-            >
-              <option value="">Todas as etapas</option>
-              {STAGE_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {STAGE_LABELS[s] ?? s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: DS.textSecondary, fontSize: 12, paddingBottom: 2 }}>
-              <IconLoader />
-              Atualizando...
-            </div>
+                {tab.label}
+              </span>
+            ) : (
+              <a
+                key={tab.label}
+                href={tab.href}
+                style={{
+                  borderBottom: '2px solid transparent',
+                  color: DS.textSecondary,
+                  fontSize: 13,
+                  marginBottom: -1,
+                  padding: '9px 14px',
+                  textDecoration: 'none',
+                }}
+              >
+                {tab.label}
+              </a>
+            ),
           )}
         </div>
 
-        {/* Empty state */}
-        {!hasData && !dataLoading && (
+        <div
+          style={{
+            alignItems: 'flex-end',
+            background: DS.cardBg,
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 24,
+            padding: '16px 20px',
+          }}
+        >
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={{ color: DS.textLabel, fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              De
+            </span>
+            <input
+              type="date"
+              value={dateStart}
+              onChange={(event) => setDateStart(event.target.value)}
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={{ color: DS.textLabel, fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              Até
+            </span>
+            <input
+              type="date"
+              value={dateEnd}
+              onChange={(event) => setDateEnd(event.target.value)}
+              style={inputStyle}
+            />
+          </label>
+
+          {isAdmin && (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={{ color: DS.textLabel, fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                Consultor
+              </span>
+              <select
+                value={selectedSellerId ?? ''}
+                onChange={(event) => setSelectedSellerId(event.target.value || null)}
+                style={{ ...inputStyle, minWidth: 190 }}
+              >
+                <option value="">Todos os consultores</option>
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.full_name || seller.email || seller.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={{ color: DS.textLabel, fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              Etapa
+            </span>
+            <select
+              value={selectedStage}
+              onChange={(event) => setSelectedStage(event.target.value)}
+              style={{ ...inputStyle, minWidth: 160 }}
+            >
+              <option value="">Todas as etapas</option>
+              {STAGES.map((stage) => (
+                <option key={stage} value={stage}>
+                  {STAGE_LABELS[stage] ?? stage}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {refreshing && (
+            <span style={{ color: DS.textSecondary, fontSize: 12, paddingBottom: 8 }}>
+              Atualizando...
+            </span>
+          )}
+        </div>
+
+        {error && (
+          <div
+            style={{
+              background: `${DS.red}12`,
+              border: `1px solid ${DS.red}40`,
+              borderRadius: DS.radius,
+              color: DS.redSoft,
+              fontSize: 13,
+              marginBottom: 20,
+              padding: '10px 14px',
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {!hasOperationalData && !refreshing && (
           <div
             style={{
               background: DS.cardBg,
               border: `1px solid ${DS.border}`,
               borderRadius: DS.radiusContainer,
-              padding: '48px 32px',
-              textAlign: 'center',
               color: DS.textSecondary,
+              padding: '48px 24px',
+              textAlign: 'center',
             }}
           >
-            <div style={{ fontSize: 14, marginBottom: 6 }}>Nenhum evento encontrado no período selecionado.</div>
-            <div style={{ fontSize: 12 }}>Ajuste o intervalo de datas ou os filtros.</div>
+            <div style={{ color: DS.textPrimary, fontWeight: 800, marginBottom: 6 }}>
+              Nenhum dado operacional encontrado nesse período.
+            </div>
+            <div style={{ fontSize: 12 }}>
+              O faturamento e a operação são consultados pela empresa ativa e pelos filtros acima.
+            </div>
           </div>
         )}
 
-        {d && hasData && (
+        {data && hasOperationalData && (
           <>
-            {/* ================================================================
-                BLOCO 1 — PANORAMA DO PERÍODO
-            ================================================================ */}
-            <div style={{ marginBottom: 40 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
-                Panorama do Período
-              </div>
+            <section style={{ marginBottom: 36 }}>
+              <SectionTitle title="Panorama do período" detail="Financeiro conciliado + atividade operacional registrada" />
               <div
                 style={{
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radiusContainer,
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(0, 1fr))',
-                  gap: '0 1px',
-                  background: DS.border,
-                  overflow: 'hidden',
+                  gap: 12,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
                 }}
               >
                 <KpiCard
-                  label="Leads trabalhados"
-                  value={d.totalCycles}
-                  sub="ciclos únicos"
-                  accent={ACCENT}
-                  icon={<IconUsers />}
+                  label="Ciclos com atividade"
+                  value={data.cyclesWithCommercialActivity}
+                  detail="ciclos com ação, avanço, agenda ou fechamento"
+                  accent={DS.blueLight}
+                />
+                <KpiCard
+                  label="Atividades registradas"
+                  value={data.commercialActivities}
+                  detail="interações comerciais identificadas"
+                  accent={DS.purple}
                 />
                 <KpiCard
                   label="Avanços"
-                  value={d.totalAdvances}
-                  sub="movimentações de etapa"
-                  accent={DS.blueLight}
-                  icon={<IconTrendUp />}
+                  value={data.advances}
+                  detail={`${fmtPct(data.advanceRate)} de fluidez no funil`}
+                  accent={DS.blueSoft}
                 />
                 <KpiCard
                   label="Ganhos"
-                  value={d.totalWon}
-                  sub={totalClosed > 0 ? `${fmtPct(d.winRate)} de conversão` : 'sem fechamentos'}
+                  value={data.won}
+                  detail={totalClosed > 0 ? `${fmtPct(data.winRate)} dos fechamentos` : 'sem fechamentos registrados'}
                   accent={DS.greenSoft}
-                  icon={<IconCircleCheck />}
                 />
                 <KpiCard
                   label="Perdas"
-                  value={d.totalLost}
-                  sub={totalClosed > 0 ? `${fmtPct(100 - d.winRate)} de perda` : 'sem fechamentos'}
+                  value={data.lost}
+                  detail={totalClosed > 0 ? `${fmtPct(100 - data.winRate)} dos fechamentos` : 'sem fechamentos registrados'}
                   accent={DS.redSoft}
-                  icon={<IconCircleX />}
                 />
-                {d.totalRevenue > 0 && (
-                  <KpiCard
-                    label="Faturamento"
-                    value={fmtCurrency(d.totalRevenue)}
-                    sub="ciclos ganhos"
-                    accent={DS.yellowSoft}
-                    icon={<IconDollarSign />}
-                  />
-                )}
-                {d.totalActivities > 0 && (
-                  <KpiCard
-                    label="Disciplina geral"
-                    value={fmtPct(d.disciplineRate)}
-                    sub="próx. ações / atividades"
-                    accent={d.disciplineRate >= 50 ? '#34d399' : d.disciplineRate >= 25 ? '#fbbf24' : '#f87171'}
-                    icon={<IconListCheck />}
-                  />
-                )}
+                <KpiCard
+                  label="Faturamento real"
+                  value={fmtCurrency(data.revenue)}
+                  detail="mesma base da Gestão de Faturamento"
+                  accent={DS.yellowSoft}
+                />
               </div>
-            </div>
+            </section>
 
-            {/* ================================================================
-                BLOCO 2 — DIAGNÓSTICO EXECUTIVO
-            ================================================================ */}
-            <div style={{ marginBottom: 40 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
-                Diagnóstico Executivo
+            <section style={{ marginBottom: 36 }}>
+              <SectionTitle title="Saúde da operação" detail="Indicadores que exigem atenção do gestor" />
+              <div
+                style={{
+                  background: DS.cardBg,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radiusContainer,
+                  padding: '8px 22px',
+                }}
+              >
+                <MetricRow
+                  label="Fluidez do funil"
+                  value={fmtPct(data.advanceRate)}
+                  description={
+                    data.advanceRate >= 30
+                      ? 'Avanços consistentes em relação às atividades e movimentações.'
+                      : data.advanceRate >= 15
+                      ? 'Parte relevante das ações ainda não está se convertendo em avanço.'
+                      : 'Baixa progressão: revisar abordagem, etapa e qualidade da carteira.'
+                  }
+                  accent={data.advanceRate >= 30 ? DS.greenSoft : data.advanceRate >= 15 ? DS.yellowSoft : DS.redSoft}
+                />
+                <MetricRow
+                  label="Disciplina de agenda"
+                  value={fmtPct(data.disciplineRate)}
+                  description="Percentual de ciclos com próxima ação definida no período."
+                  accent={data.disciplineRate >= 50 ? DS.greenSoft : data.disciplineRate >= 25 ? DS.yellowSoft : DS.redSoft}
+                />
+                <MetricRow
+                  label="Ações vencidas"
+                  value={String(data.overdueNextActions)}
+                  description={
+                    data.nextActions > 0
+                      ? `${fmtPct(safePct(data.overdueNextActions, data.nextActions))} das próximas ações identificadas estão atrasadas.`
+                      : 'Não há próximas ações registradas no período.'
+                  }
+                  accent={data.overdueNextActions === 0 ? DS.greenSoft : data.overdueNextActions <= 3 ? DS.yellowSoft : DS.redSoft}
+                />
+                <MetricRow
+                  label="Eficácia em fechamento"
+                  value={totalClosed > 0 ? fmtPct(data.winRate) : '—'}
+                  description={
+                    totalClosed > 0
+                      ? `${data.won} ganho(s) e ${data.lost} perda(s) registrados no período.`
+                      : 'Ainda não existem fechamentos registrados para calcular a taxa.'
+                  }
+                  accent={data.winRate >= 30 ? DS.greenSoft : data.winRate >= 15 ? DS.yellowSoft : DS.redSoft}
+                  isLast
+                />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+            </section>
 
-                {/* Coluna esquerda: Gargalos */}
+            <section style={{ marginBottom: 36 }}>
+              <SectionTitle title="Diagnóstico executivo" detail="Onde está o problema e o que vale repetir" />
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 14,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                }}
+              >
                 <div
                   style={{
                     background: DS.cardBg,
                     border: `1px solid ${DS.border}`,
                     borderRadius: DS.radiusContainer,
-                    padding: '20px 24px',
+                    padding: 20,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                    <span style={{ color: DS.redSoft, opacity: 0.8 }}><IconAlertTriangle /></span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: DS.textPrimary }}>Maiores Gargalos</div>
-                      <div style={{ fontSize: 11, color: DS.textLabel, marginTop: 1 }}>Pontos críticos identificados no período</div>
-                    </div>
-                  </div>
-                  {d.stageBottleneck && (
-                    <DiagRow
-                      icon={<IconLayers />}
-                      title={`Travamento em ${d.stageBottleneck.stageLabel}`}
-                      detail={`${d.stageBottleneck.activities} atividades, apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço`}
+                  <h2 style={cardTitleStyle}>Principal atenção</h2>
+                  {data.mainBottleneck ? (
+                    <InsightCard
                       accent={DS.redSoft}
+                      title={`Travamento em ${data.mainBottleneck.label}`}
+                      body={`${data.mainBottleneck.activities} atividade(s) e ${data.mainBottleneck.advances} avanço(s), com ${fmtPct(data.mainBottleneck.advanceRate)} de progressão.`}
                     />
+                  ) : (
+                    <EmptyInsight text="Ainda não há volume suficiente para apontar uma etapa crítica." />
                   )}
-                  {d.overdueNextActions > 0 && d.totalNextActions > 0 && (
-                    <DiagRow
-                      icon={<IconAlertTriangle />}
-                      title={`${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
-                      detail={`${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das próximas ações estão atrasadas`}
-                      accent={DS.orange}
-                    />
-                  )}
-                  {d.topObjection && (
-                    <DiagRow
-                      icon={<IconCircleX />}
-                      title="Objeção mais frequente"
-                      detail={`"${d.topObjection.text.length > 50 ? `${d.topObjection.text.slice(0, 50)}…` : d.topObjection.text}" — ${d.topObjection.total} ocorrência${d.topObjection.total === 1 ? '' : 's'}`}
-                      accent={DS.yellowSoft}
-                    />
-                  )}
-                  {d.channelWithMostLoss && (d.channelWithMostLoss.won + d.channelWithMostLoss.lost) >= 2 && (
-                    <DiagRow
-                      icon={<IconShare2 />}
-                      title={`Canal com mais perda: ${d.channelWithMostLoss.channelLabel}`}
-                      detail={`${fmtPct(d.channelWithMostLoss.lossRate)} de perda · ${d.channelWithMostLoss.lost} de ${d.channelWithMostLoss.won + d.channelWithMostLoss.lost} fechamentos`}
-                      accent={DS.redSoft}
-                    />
-                  )}
-                  {d.consultantLeastDiscipline && (
-                    <DiagRow
-                      icon={<IconUsers />}
-                      title={`Menor disciplina: ${d.consultantLeastDiscipline.sellerName}`}
-                      detail={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina · ${d.consultantLeastDiscipline.activities} atividades`}
-                      accent={DS.pink}
-                      isLast
-                    />
-                  )}
-                  {!(d.stageBottleneck || d.overdueNextActions > 0 || d.topObjection || d.channelWithMostLoss || d.consultantLeastDiscipline) && (
-                    <div style={{ fontSize: 13, color: DS.textMuted, padding: '12px 0' }}>
-                      Nenhum gargalo crítico identificado.
-                    </div>
+
+                  <div style={{ height: 12 }} />
+
+                  <InsightCard
+                    accent={data.overdueNextActions > 0 ? DS.yellowSoft : DS.greenSoft}
+                    title={
+                      data.overdueNextActions > 0
+                        ? `${data.overdueNextActions} próxima(s) ação(ões) vencida(s)`
+                        : 'Agenda sem atrasos identificados'
+                    }
+                    body={
+                      data.overdueNextActions > 0
+                        ? 'Priorize essas carteiras antes de aumentar a entrada de novos leads.'
+                        : 'Nenhuma próxima ação vencida foi identificada entre os eventos analisados.'
+                    }
+                  />
+
+                  {data.mainRiskSeller && (
+                    <>
+                      <div style={{ height: 12 }} />
+                      <InsightCard
+                        accent={DS.pink}
+                        title={`Disciplina mais baixa: ${data.mainRiskSeller.sellerName}`}
+                        body={`${fmtPct(data.mainRiskSeller.disciplineRate)} de ciclos com próxima ação definida em ${data.mainRiskSeller.cycles} ciclo(s) trabalhado(s).`}
+                      />
+                    </>
                   )}
                 </div>
 
-                {/* Coluna direita: Alavancas */}
                 <div
                   style={{
                     background: DS.cardBg,
                     border: `1px solid ${DS.border}`,
                     borderRadius: DS.radiusContainer,
-                    padding: '20px 24px',
+                    padding: 20,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                    <span style={{ color: DS.greenSoft, opacity: 0.8 }}><IconZap /></span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: DS.textPrimary }}>Maiores Alavancas</div>
-                      <div style={{ fontSize: 11, color: DS.textLabel, marginTop: 1 }}>O que está funcionando bem no período</div>
-                    </div>
-                  </div>
-                  {d.topActionByAdvance && (
-                    <DiagRow
-                      icon={<IconZap />}
-                      title={`Ação com maior avanço: ${d.topActionByAdvance.actionLabel}`}
-                      detail={`${fmtPct(d.topActionByAdvance.advanceRate)} de avanço · ${d.topActionByAdvance.total} ciclo${d.topActionByAdvance.total === 1 ? '' : 's'}`}
+                  <h2 style={cardTitleStyle}>Melhores alavancas</h2>
+
+                  {data.topAction ? (
+                    <InsightCard
                       accent={DS.greenSoft}
+                      title={`Ação com maior avanço: ${data.topAction.label}`}
+                      body={`${fmtPct(data.topAction.advanceRate)} dos ciclos com essa ação avançaram. Base: ${data.topAction.cycles} ciclo(s).`}
                     />
+                  ) : (
+                    <EmptyInsight text="Ainda não há base suficiente para avaliar qual ação mais gera avanço." />
                   )}
-                  {d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2 && (
-                    <DiagRow
-                      icon={<IconShare2 />}
-                      title={`Canal que mais fecha: ${d.topChannelByWin.channelLabel}`}
-                      detail={`${fmtPct(d.topChannelByWin.winRate)} de conversão · ${d.topChannelByWin.won} ganho${d.topChannelByWin.won === 1 ? '' : 's'}`}
-                      accent={DS.blueLight}
-                    />
-                  )}
-                  {d.topConsultantByEfficiency && (
-                    <DiagRow
-                      icon={<IconUsers />}
-                      title={`Consultor mais eficiente: ${d.topConsultantByEfficiency.sellerName}`}
-                      detail={`${fmtCurrency(Math.round(d.topConsultantByEfficiency.revenue / d.topConsultantByEfficiency.activities))} por atividade · ${d.topConsultantByEfficiency.won} ganho${d.topConsultantByEfficiency.won === 1 ? '' : 's'}`}
-                      accent={DS.yellowSoft}
-                    />
-                  )}
-                  {d.totalRevenue > 0 && totalClosed > 0 && (
-                    <DiagRow
-                      icon={<IconDollarSign />}
-                      title={`Faturamento total: ${fmtCurrency(d.totalRevenue)}`}
-                      detail={`${d.totalWon} fechamento${d.totalWon === 1 ? '' : 's'} · média ${fmtCurrency(Math.round(d.totalRevenue / d.totalWon))} por ganho`}
-                      accent={DS.purple}
-                      isLast
-                    />
-                  )}
-                  {!(d.topActionByAdvance || (d.topChannelByWin && (d.topChannelByWin.won + d.topChannelByWin.lost) >= 2) || d.topConsultantByEfficiency) && (
-                    <div style={{ fontSize: 13, color: DS.textMuted, padding: '12px 0' }}>
-                      Volume insuficiente para identificar alavancas.
-                    </div>
-                  )}
-                </div>
 
-              </div>
-            </div>
+                  <div style={{ height: 12 }} />
 
-            {/* ================================================================
-                BLOCO 3 — SAÚDE DA OPERAÇÃO
-            ================================================================ */}
-            {(d.totalActivities > 0 || d.totalNextActions > 0 || totalClosed > 0) && (
-              <div style={{ marginBottom: 40 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
-                  Saúde da Operação
-                </div>
-                <div
-                  style={{
-                    background: DS.cardBg,
-                    border: `1px solid ${DS.border}`,
-                    borderRadius: DS.radiusContainer,
-                    padding: '20px 24px',
-                  }}
-                >
-                  {d.totalActivities > 0 && (
-                    <HealthRow
-                      label="Fluidez do funil"
-                      value={fmtPct(d.advanceRate)}
-                      detail={
-                        d.advanceRate >= 30
-                          ? 'Boa fluidez — avanços consistentes'
-                          : d.advanceRate >= 15
-                          ? 'Fluidez moderada — parte das atividades não converte'
-                          : 'Baixa fluidez — leads travando no funil'
-                      }
-                      status={getAdvanceRateStatus(d.advanceRate)}
+                  {data.topChannel ? (
+                    <InsightCard
+                      accent={DS.blueSoft}
+                      title={`Canal com melhor fechamento: ${data.topChannel.label}`}
+                      body={`${fmtPct(data.topChannel.winRate)} de conversão em ${data.topChannel.won + data.topChannel.lost} fechamento(s) atribuídos ao canal.`}
                     />
+                  ) : (
+                    <EmptyInsight text="Ainda não há fechamentos suficientes por canal para apontar um vencedor." />
                   )}
-                  {d.totalActivities > 0 && (
-                    <HealthRow
-                      label="Disciplina operacional"
-                      value={fmtPct(d.disciplineRate)}
-                      detail={
-                        d.disciplineRate >= 50
-                          ? 'Time registra próxima ação com regularidade'
-                          : d.disciplineRate >= 25
-                          ? 'Disciplina parcial — metade sem próxima ação'
-                          : 'Baixa disciplina — operação sem agenda definida'
-                      }
-                      status={getDisciplineStatus(d.disciplineRate)}
-                    />
-                  )}
-                  {d.totalNextActions > 0 && (
-                    <HealthRow
-                      label="Controle da agenda"
-                      value={`${d.overdueNextActions} vencida${d.overdueNextActions === 1 ? '' : 's'}`}
-                      detail={
-                        safePct(d.overdueNextActions, d.totalNextActions) <= 20
-                          ? `Agenda controlada — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} de atraso`
-                          : safePct(d.overdueNextActions, d.totalNextActions) <= 50
-                          ? `Atenção — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das ações estão vencidas`
-                          : `Agenda crítica — ${fmtPct(safePct(d.overdueNextActions, d.totalNextActions))} das ações estão vencidas`
-                      }
-                      status={getOverdueStatus(d.overdueNextActions, d.totalNextActions)}
-                      isLast={totalClosed === 0}
-                    />
-                  )}
-                  {totalClosed > 0 && (
-                    <HealthRow
-                      label="Eficácia em fechamento"
-                      value={fmtPct(d.winRate)}
-                      detail={
-                        d.winRate >= 30
-                          ? `${d.totalWon} de ${totalClosed} ganhos — boa conversão`
-                          : d.winRate >= 15
-                          ? `${d.totalWon} de ${totalClosed} ganhos — conversão moderada`
-                          : `${d.totalWon} de ${totalClosed} ganhos — baixa conversão`
-                      }
-                      status={getWinRateStatus(d.winRate, totalClosed)}
-                      isLast
-                    />
+
+                  {data.topSeller && (
+                    <>
+                      <div style={{ height: 12 }} />
+                      <InsightCard
+                        accent={DS.yellowSoft}
+                        title={`Maior faturamento: ${data.topSeller.sellerName}`}
+                        body={`${fmtCurrency(data.topSeller.revenue)} no período, usando a mesma receita conciliada da Gestão de Faturamento.`}
+                      />
+                    </>
                   )}
                 </div>
               </div>
-            )}
+            </section>
 
-            {/* ================================================================
-                BLOCO 4 — FOCO DO GESTOR
-            ================================================================ */}
-            {(d.stageBottleneck || d.topActionByAdvance || d.overdueNextActions > 0 || d.topChannelByWin) && (
-              <div style={{ marginBottom: 40 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: DS.blueSoft, marginBottom: 14 }}>
-                  Foco do Gestor
-                </div>
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-
-                  {/* Principal problema */}
-                  {(d.stageBottleneck || d.overdueNextActions > 0) && (
-                    <FocoCard
-                      icon={<IconAlertTriangle />}
-                      tag="Principal problema agora"
-                      title={
-                        d.overdueNextActions > 3
-                          ? 'Agenda vencida sem ação'
-                          : d.stageBottleneck
-                          ? `Travamento na etapa ${d.stageBottleneck.stageLabel}`
-                          : 'Agenda com atrasos'
-                      }
-                      description={
-                        d.overdueNextActions > 3
-                          ? `${d.overdueNextActions} próxima${d.overdueNextActions === 1 ? ' ação vencida' : 's ações vencidas'} — leads esperando sem seguimento ativo.`
-                          : d.stageBottleneck
-                          ? `${d.stageBottleneck.activities} atividades com apenas ${fmtPct(d.stageBottleneck.advanceRate)} de avanço. Revisar ações utilizadas nessa etapa.`
-                          : `${d.overdueNextActions} ação${d.overdueNextActions === 1 ? '' : 'ões'} vencida${d.overdueNextActions === 1 ? '' : 's'} — priorizar atendimento.`
-                      }
-                      tagColor={DS.redSoft}
-                    />
-                  )}
-
-                  {/* Principal oportunidade */}
-                  {(d.topActionByAdvance || d.topChannelByWin) && (
-                    <FocoCard
-                      icon={<IconZap />}
-                      tag="Principal oportunidade agora"
-                      title={
-                        d.topActionByAdvance
-                          ? `Replicar: ${d.topActionByAdvance.actionLabel}`
-                          : `Priorizar canal: ${d.topChannelByWin?.channelLabel ?? ''}`
-                      }
-                      description={
-                        d.topActionByAdvance
-                          ? `${fmtPct(d.topActionByAdvance.advanceRate)} dos ciclos que usaram essa ação avançaram. Incentivar o time a aplicar mais essa abordagem.`
-                          : `${fmtPct(d.topChannelByWin?.winRate ?? 0)} de conversão — melhor canal de fechamento no período.`
-                      }
-                      tagColor={DS.greenSoft}
-                    />
-                  )}
-
-                  {/* Onde atacar */}
-                  {d.consultantLeastDiscipline && d.topConsultantByEfficiency && (
-                    <FocoCard
-                      icon={<IconTarget />}
-                      tag="Onde atacar primeiro"
-                      title={`Coaching com ${d.consultantLeastDiscipline.sellerName}`}
-                      description={`${fmtPct(d.consultantLeastDiscipline.disciplineRate)} de disciplina. Referência: ${d.topConsultantByEfficiency.sellerName} com maior eficiência por atividade.`}
-                      tagColor={DS.yellowSoft}
-                    />
-                  )}
-
-                </div>
+            <section style={{ marginBottom: 36 }}>
+              <SectionTitle title="Aprofundar análise" detail="Abra o relatório específico para investigar cada indicador." />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {SUBNAV.filter((item) => item.href).map((item) => (
+                  <a key={item.label} href={item.href!} style={navButtonStyle}>
+                    {item.label}
+                  </a>
+                ))}
               </div>
-            )}
+            </section>
 
-            {/* ================================================================
-                BLOCO 5 — APROFUNDAR ANÁLISE
-            ================================================================ */}
-            <div style={{ marginBottom: 40 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: DS.textMuted, marginBottom: 14 }}>
-                Aprofundar Análise
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <NavLink href="/relatorios/operacao/acoes-por-etapa" icon={<IconLayers />} label="Ações por Etapa" />
-                <NavLink href="/relatorios/operacao/avanco-por-acao" icon={<IconTrendUp />} label="Avanço por Ação" />
-                <NavLink href="/relatorios/operacao/objecoes-e-perdas" icon={<IconAlertTriangle />} label="Objeções e Perdas" />
-                <NavLink href="/relatorios/operacao/proximas-acoes" icon={<IconListCheck />} label="Próximas Ações" />
-                <NavLink href="/relatorios/operacao/canais" icon={<IconShare2 />} label="Canais" />
-                <NavLink href="/relatorios/operacao/desempenho-por-consultor" icon={<IconUsers />} label="Desempenho por Consultor" />
-              </div>
-            </div>
-
+            <section
+              style={{
+                background: DS.surfaceBg,
+                border: `1px solid ${DS.borderSubtle}`,
+                borderRadius: DS.radius,
+                color: DS.textMuted,
+                fontSize: 11,
+                lineHeight: 1.55,
+                padding: '12px 14px',
+              }}
+            >
+              <strong style={{ color: DS.textSecondary }}>Como esta página calcula os números:</strong>{' '}
+              faturamento usa o valor real conciliado da Gestão de Faturamento; os demais indicadores usam eventos
+              operacionais registrados no período. Eventos automáticos de criação, distribuição, grupo e IA não
+              entram como atividade comercial.
+            </section>
           </>
         )}
       </div>
     </div>
   )
 }
+
+function SectionTitle({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        style={{
+          color: DS.blueSoft,
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ color: DS.textSecondary, fontSize: 12, marginTop: 4 }}>{detail}</div>
+    </div>
+  )
+}
+
+function EmptyInsight({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        background: DS.panelBg,
+        border: `1px solid ${DS.borderSubtle}`,
+        borderRadius: DS.radius,
+        color: DS.textMuted,
+        fontSize: 12,
+        lineHeight: 1.5,
+        padding: '12px 14px',
+      }}
+    >
+      {text}
+    </div>
+  )
+}
+
+const inputStyle: React.CSSProperties = {
+  background: DS.panelBg,
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius,
+  color: DS.textPrimary,
+  colorScheme: 'dark',
+  fontSize: 13,
+  outline: 'none',
+  padding: '7px 10px',
+}
+
+const cardTitleStyle: React.CSSProperties = {
+  color: DS.textPrimary,
+  fontSize: 14,
+  fontWeight: 900,
+  margin: '0 0 14px',
+}
+
+const navButtonStyle: React.CSSProperties = {
+  background: DS.panelBg,
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius,
+  color: DS.textSecondary,
+  fontSize: 12,
+  fontWeight: 700,
+  padding: '8px 12px',
+  textDecoration: 'none',
+}
+
