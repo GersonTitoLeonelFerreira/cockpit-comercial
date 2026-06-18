@@ -729,16 +729,16 @@ export default async function RelatoriosGeraisPage() {
     .sort((a, b) => a.conversion - b.conversion)[0]
 
     const conversionLeakText = conversionLeak
-    ? `Maior vazamento histórico em ${getHistoricalStageLabel(conversionLeak.from_stage)} → ${getHistoricalStageLabel(conversionLeak.to_stage)}, com ${conversionLeak.conversion.toFixed(0)}% de conversão.`
-    : 'Ainda não há volume suficiente para apontar um vazamento histórico confiável.'
+    ? `Maior vazamento da competência em ${getHistoricalStageLabel(conversionLeak.from_stage)} → ${getHistoricalStageLabel(conversionLeak.to_stage)}, com ${conversionLeak.conversion.toFixed(0)}% de conversão.`
+    : 'Ainda não há volume suficiente para apontar um vazamento confiável na competência.'
 
   const lossText = worstLoss
-    ? `Maior perda histórica em ${getHistoricalStageLabel(worstLoss.stage)}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
-    : 'Ainda não há perda suficiente para formar diagnóstico histórico confiável.'
+  ? `Maior perda da competência em ${getHistoricalStageLabel(worstLoss.stage)}, com ${worstLoss.loss_rate.toFixed(0)}% de perda registrada.`
+  : 'Ainda não há perda suficiente para formar diagnóstico confiável na competência.'
 
   const timeBottleneckText = slowestStage
     ? `Etapa historicamente mais lenta: ${getHistoricalStageLabel(slowestStage.from_stage)}, com tempo médio de ${formatSeconds(slowestStage.avg_seconds)} e mediana de ${formatSeconds(slowestStage.median_seconds)}.`
-    : 'Ainda não há dados suficientes para identificar gargalo histórico de tempo.'
+    : 'Ainda não há dados suficientes para identificar gargalo de tempo na competência.'
 
   return (
     <div
@@ -1094,10 +1094,10 @@ export default async function RelatoriosGeraisPage() {
         >
           <div>
             <h3 style={{ margin: '0 0 4px 0', fontSize: 15, fontWeight: 900, color: DS.textPrimary }}>
-              Sinais operacionais e histórico do funil
+            Sinais operacionais da competência
             </h3>
             <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5, maxWidth: 720 }}>
-              SLA mostra risco atual de atendimento. Conversão, perdas e tempo por etapa são históricos e não representam o estoque atual do Kanban.
+            SLA mostra risco atual de atendimento. Conversão, perdas e tempo por etapa são calculados pela competência atual e não representam o estoque atual do Kanban.
             </div>
           </div>
 
@@ -1141,7 +1141,7 @@ export default async function RelatoriosGeraisPage() {
 
             <div style={{ padding: 14, borderRadius: DS.radius, background: DS.panelBg, border: `1px solid ${slowestStage ? `${DS.blue}35` : DS.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: DS.textLabel, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-              Tempo histórico por etapa
+              Tempo por etapa
               </div>
               <div style={{ fontSize: 13, color: DS.textPrimary, fontWeight: 800, lineHeight: 1.5 }}>
                 {timeBottleneckText}
