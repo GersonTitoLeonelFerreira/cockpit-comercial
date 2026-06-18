@@ -1718,7 +1718,7 @@ export default async function RelatoriosGeraisPage() {
               letterSpacing: '0.06em',
             }}
           >
-            Detalhamento histórico: tempo por etapa
+            Detalhamento: tempo por etapa
           </h3>
 
           {timeErr ? (
@@ -1738,7 +1738,7 @@ export default async function RelatoriosGeraisPage() {
             </div>
           ) : (
             <>
-                            <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
+              <p style={{ color: DS.textSecondary, marginTop: 6, fontSize: 12, lineHeight: 1.5 }}>
                 Tempo por etapa calculado a partir dos movimentos registrados dentro da competência atual.
               </p>
 
