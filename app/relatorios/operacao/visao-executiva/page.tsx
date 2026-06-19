@@ -718,10 +718,10 @@ export default function VisaoExecutivaPage() {
   }, [supabase])
 
   React.useEffect(() => {
-    const resolvedCompanyId = companyId
-    const resolvedCurrentUserId = currentUserId
+    if (companyId === null || currentUserId === null) return
 
-    if (!resolvedCompanyId || !resolvedCurrentUserId) return
+    const resolvedCompanyId: string = companyId
+    const resolvedCurrentUserId: string = currentUserId
 
     async function loadReport() {
       setRefreshing(true)
