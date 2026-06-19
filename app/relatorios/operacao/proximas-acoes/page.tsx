@@ -4,35 +4,16 @@ import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS, resolveCheckpointData } from '@/app/config/stageActions'
+import * as faturamentoService from '@/app/lib/services/faturamento'
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function getThirtyDaysAgo(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 30)
-  return d.toISOString().slice(0, 10)
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function safePct(num: number, den: number): number {
-  return den > 0 ? Math.round((num / den) * 100) : 0
-}
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface SellerOption {
+type SellerOption = {
   id: string
   full_name: string | null
+  email: string | null
+  role: string
 }
 
-interface RawEvent {
+type RawEvent = {
   id: string
   cycle_id: string | null
   event_type: string
@@ -41,24 +22,20 @@ interface RawEvent {
   created_by: string | null
 }
 
-interface NextActionStat {
-  label: string        // display text (first occurrence, original casing)
+type NextActionStat = {
+  label: string
   total: number
   byStage: Record<string, number>
   withDate: number
   withoutDate: number
 }
 
-interface ReportData {
+type ReportData = {
   actions: NextActionStat[]
   totalEvents: number
   totalWithDate: number
   totalWithoutDate: number
 }
-
-// ============================================================================
-// Constants
-// ============================================================================
 
 const STAGE_ORDER = ['novo', 'contato', 'respondeu', 'negociacao'] as const
 
@@ -69,12 +46,56 @@ const STAGE_COLORS: Record<string, string> = {
   negociacao: '#fbbf24',
 }
 
-const ACCENT = '#fde68a'
-const DOT_COLOR = '#f59e0b'
+const SUBNAV = [
+  { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva' },
+  { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa' },
+  { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' },
+  { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas' },
+  { label: 'Próximas Ações', href: null },
+  { label: 'Canais', href: '/relatorios/operacao/canais' },
+  { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor' },
+]
 
-// ============================================================================
-// Core analytics
-// ============================================================================
+const fieldLabelStyle: React.CSSProperties = {
+  color: '#4a5569',
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: '#0d0f14',
+  border: '1px solid #1a1d2e',
+  borderRadius: 7,
+  color: '#edf2f7',
+  colorScheme: 'dark',
+  fontSize: 13,
+  outline: 'none',
+  padding: '7px 10px',
+}
+
+function getThirtyDaysAgo() {
+  const date = new Date()
+  date.setDate(date.getDate() - 30)
+  return date.toISOString().slice(0, 10)
+}
+
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function safePct(numerator: number, denominator: number) {
+  return denominator > 0 ? Math.round((numerator / denominator) * 100) : 0
+}
+
+function cardStyle(): React.CSSProperties {
+  return {
+    background: '#141722',
+    border: '1px solid #1a1d2e',
+    borderRadius: 9,
+  }
+}
 
 function buildReportData(
   events: RawEvent[],
@@ -82,975 +103,422 @@ function buildReportData(
   dateEnd: string,
   selectedSellerId: string | null,
   isAdmin: boolean,
-  currentUserId: string | null,
+  currentUserId: string,
   stageFilter: string,
 ): ReportData {
   const rangeStart = `${dateStart}T00:00:00`
   const rangeEnd = `${dateEnd}T23:59:59`
+  const actionMap = new Map<string, NextActionStat>()
 
-  // normalized key → stat accumulator
-  const actionMap = new Map<string, {
-    label: string
-    total: number
-    byStage: Record<string, number>
-    withDate: number
-    withoutDate: number
-  }>()
+  for (const event of events) {
+    if (event.occurred_at < rangeStart || event.occurred_at > rangeEnd) continue
+    if (isAdmin && selectedSellerId && event.created_by !== selectedSellerId) continue
+    if (!isAdmin && event.created_by !== currentUserId) continue
 
-  for (const ev of events) {
-    if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
+    const metadata = event.metadata ?? {}
+    const checkpoint = resolveCheckpointData(metadata)
 
-    // Seller filter (in-memory)
-    if (isAdmin && selectedSellerId) {
-      if (ev.created_by !== selectedSellerId) continue
-    } else if (!isAdmin && currentUserId) {
-      if (ev.created_by !== currentUserId) continue
-    }
-
-    const meta = (ev.metadata ?? {}) as Record<string, unknown>
-    const cp = resolveCheckpointData(meta)
-
-    // Extract next_action text — prefer event-level, fallback to checkpoint
     const rawAction = String(
-      meta.next_action ?? cp.next_action ?? ''
+      metadata.next_action ?? checkpoint.next_action ?? '',
     ).trim()
 
     if (!rawAction) continue
 
-    // Extract next_action_date
     const rawDate = String(
-      meta.next_action_date ?? cp.next_action_date ?? ''
+      metadata.next_action_date ??
+        metadata.next_contact_at ??
+        checkpoint.next_action_date ??
+        checkpoint.next_contact_at ??
+        '',
     ).trim()
 
-    // Determine stage
-    const stage = String(
-      meta.to_status ?? meta.from_status ?? meta.from_stage ?? meta.stage ?? ''
-    ).toLowerCase() || 'desconhecida'
+    const stage =
+      String(
+        metadata.to_status ??
+          metadata.from_status ??
+          metadata.from_stage ??
+          metadata.stage ??
+          '',
+      ).toLowerCase() || 'desconhecida'
 
-    // Apply stage filter BEFORE counting
     if (stageFilter && stage !== stageFilter) continue
 
-    // Normalize for grouping: trim + lowercase only (no aggressive fusion)
-    const key = rawAction.toLowerCase()
-
-    const existing = actionMap.get(key)
-    if (existing) {
-      existing.total++
-      existing.byStage[stage] = (existing.byStage[stage] ?? 0) + 1
-      if (rawDate) existing.withDate++
-      else existing.withoutDate++
-    } else {
-      actionMap.set(key, {
-        label: rawAction,  // preserve original casing from first occurrence
-        total: 1,
-        byStage: { [stage]: 1 },
-        withDate: rawDate ? 1 : 0,
-        withoutDate: rawDate ? 0 : 1,
-      })
+    const key = rawAction.toLocaleLowerCase('pt-BR')
+    const current = actionMap.get(key) ?? {
+      label: rawAction,
+      total: 0,
+      byStage: {},
+      withDate: 0,
+      withoutDate: 0,
     }
+
+    current.total += 1
+    current.byStage[stage] = (current.byStage[stage] ?? 0) + 1
+
+    if (rawDate) current.withDate += 1
+    else current.withoutDate += 1
+
+    actionMap.set(key, current)
   }
 
-  const actions: NextActionStat[] = []
-  for (const [, val] of actionMap.entries()) {
-    actions.push({
-      label: val.label,
-      total: val.total,
-      byStage: val.byStage,
-      withDate: val.withDate,
-      withoutDate: val.withoutDate,
-    })
-  }
-  actions.sort((a, b) => b.total - a.total)
-
-  const totalEvents = actions.reduce((s, a) => s + a.total, 0)
-  const totalWithDate = actions.reduce((s, a) => s + a.withDate, 0)
-  const totalWithoutDate = actions.reduce((s, a) => s + a.withoutDate, 0)
+  const actions = Array.from(actionMap.values()).sort((a, b) => b.total - a.total)
+  const totalEvents = actions.reduce((sum, action) => sum + action.total, 0)
+  const totalWithDate = actions.reduce((sum, action) => sum + action.withDate, 0)
+  const totalWithoutDate = actions.reduce((sum, action) => sum + action.withoutDate, 0)
 
   return { actions, totalEvents, totalWithDate, totalWithoutDate }
 }
 
-// ============================================================================
-// SVG Icons
-// ============================================================================
-
-function IconListCheck() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <rect x="9" y="3" width="6" height="4" rx="1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconCalendar() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconLayers() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2 2 7l10 5 10-5-10-5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M2 17l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconHash() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconChevronLeft() {
-  return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconLoader() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-      <path d="M12 3a9 9 0 0 1 9 9" stroke="#888" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-// ============================================================================
-// Sub-components
-// ============================================================================
-
-function SummaryCard({
+function KpiCard({
   label,
   value,
-  sub,
-  accent,
-  icon,
+  detail,
+  accent = '#edf2f7',
 }: {
   label: string
   value: React.ReactNode
-  sub?: string
+  detail: string
   accent?: string
-  icon?: React.ReactNode
 }) {
   return (
-    <div
-      style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 12,
-        padding: '18px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        flex: '1 1 180px',
-        minWidth: 0,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#555' }}>
-          {label}
-        </span>
-        {icon && <span style={{ color: accent ?? '#444' }}>{icon}</span>}
-      </div>
-      <span
+    <div style={{ ...cardStyle(), minWidth: 0, padding: 18 }}>
+      <div style={fieldLabelStyle}>{label}</div>
+      <div
         style={{
-          fontSize: 18,
-          fontWeight: 700,
-          color: accent ?? 'white',
-          lineHeight: 1.2,
+          color: accent,
+          fontSize: 25,
+          fontWeight: 900,
+          lineHeight: 1.1,
+          marginTop: 10,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
         }}
       >
         {value}
-      </span>
-      {sub && <span style={{ fontSize: 12, color: '#555', lineHeight: 1.4 }}>{sub}</span>}
+      </div>
+      <div style={{ color: '#8fa3bc', fontSize: 11, lineHeight: 1.45, marginTop: 8 }}>
+        {detail}
+      </div>
     </div>
   )
 }
 
-function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const fill = max > 0 ? (value / max) * 100 : 0
-  return (
-    <div
-      style={{
-        flex: '1 1 0',
-        height: 4,
-        background: '#1e1e1e',
-        borderRadius: 2,
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          width: `${fill}%`,
-          height: '100%',
-          background: color,
-          borderRadius: 2,
-          transition: 'width 0.3s ease',
-        }}
-      />
-    </div>
-  )
-}
+function StageBadges({ byStage }: { byStage: Record<string, number> }) {
+  const stages = STAGE_ORDER.filter((stage) => (byStage[stage] ?? 0) > 0)
 
-function StageDots({ byStage }: { byStage: Record<string, number> }) {
-  const entries = STAGE_ORDER.filter(s => byStage[s] > 0)
-  if (entries.length === 0) return null
+  if (stages.length === 0) return null
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-      {entries.map((stage) => (
-        <div
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+      {stages.map((stage) => (
+        <span
           key={stage}
-          title={`${STAGE_LABELS[stage] ?? stage}: ${byStage[stage]}`}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 3,
+            background: `${STAGE_COLORS[stage]}16`,
+            border: `1px solid ${STAGE_COLORS[stage]}33`,
+            borderRadius: 4,
+            color: STAGE_COLORS[stage],
+            fontSize: 10,
+            fontWeight: 800,
+            padding: '3px 6px',
           }}
         >
-          <div
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background: STAGE_COLORS[stage] ?? '#555',
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontSize: 10, color: '#555' }}>{byStage[stage]}</span>
-        </div>
+          {STAGE_LABELS[stage] ?? stage}: {byStage[stage]}
+        </span>
       ))}
     </div>
   )
 }
 
-function ActionRow({ stat, maxTotal }: { stat: NextActionStat; maxTotal: number }) {
+function ActionRow({
+  action,
+  maxTotal,
+}: {
+  action: NextActionStat
+  maxTotal: number
+}) {
+  const plannedRate = safePct(action.withDate, action.total)
+  const barWidth = maxTotal > 0 ? (action.total / maxTotal) * 100 : 0
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 0',
-        borderBottom: '1px solid #181818',
-      }}
-    >
-      <div style={{ flex: '1 1 0', minWidth: 0 }}>
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: 'white',
-            display: 'block',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {stat.label}
-        </span>
+    <div style={{ borderBottom: '1px solid #13162a', padding: '14px 0' }}>
+      <div style={{ alignItems: 'flex-start', display: 'grid', gap: 14, gridTemplateColumns: 'minmax(0, 1fr) 64px 92px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: '#edf2f7', fontSize: 13, lineHeight: 1.45 }}>
+            {action.label}
+          </div>
+          <StageBadges byStage={action.byStage} />
+        </div>
+
+        <div style={{ color: '#edf2f7', fontSize: 14, fontWeight: 900, textAlign: 'right' }}>
+          {action.total}
+          <div style={{ color: '#546070', fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: 'uppercase' }}>
+            registros
+          </div>
+        </div>
+
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ color: plannedRate >= 70 ? '#86efac' : plannedRate >= 40 ? '#fde68a' : '#fca5a5', fontSize: 14, fontWeight: 900 }}>
+            {plannedRate}%
+          </div>
+          <div style={{ color: '#546070', fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: 'uppercase' }}>
+            com data
+          </div>
+        </div>
       </div>
-      <StageDots byStage={stat.byStage} />
-      <ProgressBar value={stat.total} max={maxTotal} color={DOT_COLOR} />
-      <span
-        style={{
-          fontSize: 12,
-          color: '#555',
-          flexShrink: 0,
-          minWidth: 28,
-          textAlign: 'right',
-        }}
-      >
-        {stat.withDate}
-      </span>
-      <span
-        style={{
-          fontSize: 12,
-          color: '#555',
-          flexShrink: 0,
-          minWidth: 28,
-          textAlign: 'right',
-        }}
-      >
-        {stat.withoutDate}
-      </span>
-      <span
-        style={{
-          fontSize: 13,
-          fontWeight: 700,
-          color: ACCENT,
-          flexShrink: 0,
-          minWidth: 24,
-          textAlign: 'right',
-        }}
-      >
-        {stat.total}
-      </span>
+
+      <div style={{ background: '#1a1d2e', borderRadius: 99, height: 5, marginTop: 11, overflow: 'hidden' }}>
+        <div style={{ background: '#f59e0b', borderRadius: 99, height: '100%', width: `${barWidth}%` }} />
+      </div>
     </div>
   )
 }
-
-function EmptyState() {
-  return (
-    <div
-      style={{
-        padding: '28px 20px',
-        textAlign: 'center',
-      }}
-    >
-      <p style={{ color: '#555', fontSize: 13, margin: 0 }}>Nenhuma próxima ação registrada no período.</p>
-      <p style={{ color: '#444', fontSize: 12, margin: '6px 0 0' }}>
-        Tente ampliar o intervalo de datas ou remover filtros.
-      </p>
-    </div>
-  )
-}
-
-// ============================================================================
-// Main Page
-// ============================================================================
 
 export default function ProximasAcoesPage() {
-  const supabase = supabaseBrowser()
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
 
-  // Auth/profile
   const [loading, setLoading] = React.useState(true)
+  const [loadingData, setLoadingData] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = React.useState(false)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
+  const [data, setData] = React.useState<ReportData | null>(null)
 
-  // Filters
   const [dateStart, setDateStart] = React.useState(getThirtyDaysAgo())
   const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
   const [selectedStage, setSelectedStage] = React.useState('')
 
-  // Data
-  const [reportData, setReportData] = React.useState<ReportData>({
-    actions: [],
-    totalEvents: 0,
-    totalWithDate: 0,
-    totalWithoutDate: 0,
-  })
-  const [dataLoading, setDataLoading] = React.useState(false)
-
-  // ==========================================================================
-  // Init — auth + profile
-  // ==========================================================================
   React.useEffect(() => {
-    async function init() {
+    async function initialize() {
       setLoading(true)
       setError(null)
+
       try {
-        const { data: userData } = await supabase.auth.getUser()
-        if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
+        const response = await fetch('/api/me', { cache: 'no-store' })
 
-        const uid = userData.user.id
-        setCurrentUserId(uid)
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', uid)
-          .maybeSingle()
-
-        if (!profile?.company_id) throw new Error('Perfil não encontrado.')
-
-        const adminUser = profile.role === 'admin'
-        setIsAdmin(adminUser)
-        setCompanyId(profile.company_id)
-
-        if (adminUser) {
-          const { data: sellersData } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('company_id', profile.company_id)
-            .eq('role', 'member')
-            .order('full_name')
-
-          setSellers((sellersData ?? []) as SellerOption[])
+        if (!response.ok) {
+          throw new Error('Não foi possível identificar a empresa ativa.')
         }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Erro ao carregar.')
+
+        const me = (await response.json()) as {
+          user_id?: string
+          active_company_id?: string | null
+          active_role?: string | null
+          active_company_role?: string | null
+          is_platform_admin?: boolean
+        }
+
+        if (!me.user_id) throw new Error('Sessão expirada. Faça login novamente.')
+        if (!me.active_company_id) throw new Error('Nenhuma empresa ativa foi encontrada.')
+
+        const activeSellers = await faturamentoService.getSellers(
+          supabase,
+          me.active_company_id,
+        )
+
+        const role = String(
+          me.active_role ?? me.active_company_role ?? '',
+        ).toLowerCase()
+
+        const adminUser =
+          me.is_platform_admin === true ||
+          ['admin', 'owner', 'manager'].includes(role)
+
+        setCurrentUserId(me.user_id)
+        setCompanyId(me.active_company_id)
+        setIsAdmin(adminUser)
+        setSellers(activeSellers as SellerOption[])
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar a página.')
       } finally {
         setLoading(false)
       }
     }
-    init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // ==========================================================================
-  // Load data
-  // ==========================================================================
+    void initialize()
+  }, [supabase])
+
   React.useEffect(() => {
-    if (!companyId) return
-    loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, dateStart, dateEnd, selectedSellerId, selectedStage, isAdmin, currentUserId])
+    if (companyId === null || currentUserId === null) return
 
-  async function loadData() {
-    if (!companyId) return
-    setDataLoading(true)
-    try {
-      const data = await fetchAllCycleEvents(supabase, {
-        companyId,
-        dateStart,
-        dateEnd,
-        columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-      })
+    const resolvedCompanyId: string = companyId
+    const resolvedCurrentUserId: string = currentUserId
 
-      const result = buildReportData(
-        (data ?? []) as RawEvent[],
-        dateStart,
-        dateEnd,
-        selectedSellerId,
-        isAdmin,
-        currentUserId,
-        selectedStage,
-      )
-      setReportData(result)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar dados.')
-    } finally {
-      setDataLoading(false)
+    async function loadReport() {
+      setLoadingData(true)
+      setError(null)
+
+      try {
+        const events = await fetchAllCycleEvents(supabase, {
+          companyId: resolvedCompanyId,
+          dateStart,
+          dateEnd,
+          columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
+        })
+
+        setData(
+          buildReportData(
+            events as RawEvent[],
+            dateStart,
+            dateEnd,
+            selectedSellerId,
+            isAdmin,
+            resolvedCurrentUserId,
+            selectedStage,
+          ),
+        )
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar dados.')
+      } finally {
+        setLoadingData(false)
+      }
     }
-  }
 
-  // ==========================================================================
-  // Derived values
-  // ==========================================================================
+    void loadReport()
+  }, [
+    companyId,
+    currentUserId,
+    dateStart,
+    dateEnd,
+    selectedSellerId,
+    selectedStage,
+    isAdmin,
+    supabase,
+  ])
 
-  const { actions, totalEvents, totalWithDate, totalWithoutDate } = reportData
-
-  const topAction = actions.length > 0 ? actions[0] : null
-  const pctWithDate = safePct(totalWithDate, totalEvents)
-  const pctWithoutDate = safePct(totalWithoutDate, totalEvents)
-
-  // Stage with most next actions
-  const stageTotals: Record<string, number> = {}
-  for (const a of actions) {
-    for (const [stage, count] of Object.entries(a.byStage)) {
-      stageTotals[stage] = (stageTotals[stage] ?? 0) + count
-    }
-  }
-  const topStage = Object.keys(stageTotals).length > 0
-    ? Object.entries(stageTotals).reduce<{ stage: string; count: number }>(
-        (best, [stage, count]) => count > best.count ? { stage, count } : best,
-        { stage: '', count: 0 }
-      )
-    : null
-
-  const maxTotal = actions.length > 0 ? actions[0].total : 1
-
-  // ==========================================================================
-  // Loading / Error states
-  // ==========================================================================
   if (loading) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: '#0c0c0c',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#666', fontSize: 14 }}>
-          <IconLoader />
-          Carregando...
-        </div>
+      <div style={{ alignItems: 'center', background: '#090b0f', color: '#8fa3bc', display: 'flex', justifyContent: 'center', minHeight: '100vh' }}>
+        Carregando Próximas Ações...
       </div>
     )
   }
 
-  if (error) {
+  if (error && data === null) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: '#0c0c0c',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div
-          style={{
-            background: '#0f0f0f',
-            border: '1px solid #333',
-            borderRadius: 12,
-            padding: '24px 32px',
-            maxWidth: 420,
-            textAlign: 'center',
-          }}
-        >
-          <p style={{ color: '#ef4444', fontSize: 14, margin: 0 }}>{error}</p>
-          <a
-            href="/login"
-            style={{
-              display: 'inline-block',
-              marginTop: 16,
-              fontSize: 13,
-              color: '#60a5fa',
-              textDecoration: 'none',
-            }}
-          >
-            Ir para o login
-          </a>
+      <div style={{ alignItems: 'center', background: '#090b0f', color: '#8fa3bc', display: 'flex', justifyContent: 'center', minHeight: '100vh', padding: 24 }}>
+        <div style={{ ...cardStyle(), maxWidth: 480, padding: 24, textAlign: 'center' }}>
+          <strong style={{ color: '#fca5a5' }}>Não foi possível carregar o relatório.</strong>
+          <div style={{ fontSize: 13, marginTop: 8 }}>{error}</div>
         </div>
       </div>
     )
   }
 
-  // ==========================================================================
-  // Render
-  // ==========================================================================
+  const actions = data?.actions ?? []
+  const maxTotal = actions[0]?.total ?? 1
+  const topAction = actions[0] ?? null
+  const plannedRate = safePct(data?.totalWithDate ?? 0, data?.totalEvents ?? 0)
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#0c0c0c',
-        color: 'white',
-        padding: '40px 24px 80px',
-        overflowY: 'auto',
-      }}
-    >
-      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+    <div style={{ background: '#090b0f', color: '#edf2f7', minHeight: '100vh', padding: '32px 24px 80px' }}>
+      <div style={{ margin: '0 auto', maxWidth: 1200 }}>
+        <a href="/relatorios" style={{ color: '#8fa3bc', display: 'inline-flex', fontSize: 13, marginBottom: 28, textDecoration: 'none' }}>
+          ← Voltar para Relatórios
+        </a>
 
-        {/* Breadcrumb */}
-        <div style={{ marginBottom: 28 }}>
-          <a
-            href="/relatorios"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 13,
-              color: '#555',
-              textDecoration: 'none',
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-            onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
-          >
-            <IconChevronLeft />
-            Voltar para Relatórios
-          </a>
-        </div>
-
-        {/* Page header */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <span style={{ color: ACCENT }}>
-              <IconListCheck />
-            </span>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
-              Próximas Ações
-            </h1>
-          </div>
-          <p style={{ fontSize: 13, color: '#555', margin: 0 }}>
-            Visão consolidada das próximas ações registradas no período — frequência, distribuição por etapa e agendamento
+        <header style={{ marginBottom: 28 }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>Próximas Ações</h1>
+          <p style={{ color: '#8fa3bc', fontSize: 13, margin: '7px 0 0' }}>
+            Leitura das próximas ações registradas e do nível de compromisso com uma data definida.
           </p>
-        </div>
+        </header>
 
-        {/* Sub-navigation */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            borderBottom: '1px solid #1a1a1a',
-            paddingBottom: 0,
-          }}
-        >
-          {[
-            { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva', active: false, comingSoon: false },
-            { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa', active: false, comingSoon: false },
-            { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
-            { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas', active: false, comingSoon: false },
-            { label: 'Próximas Ações', href: null, active: true, comingSoon: false },
-            { label: 'Canais', href: '/relatorios/operacao/canais', active: false, comingSoon: false },
-            { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor', active: false, comingSoon: false },
-          ].map((tab) => {
-            if (tab.active) {
-              return (
-                <button
-                  key={tab.label}
-                  disabled
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: `2px solid ${ACCENT}`,
-                    cursor: 'default',
-                    padding: '8px 14px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: ACCENT,
-                    marginBottom: -1,
-                  }}
-                >
-                  {tab.label}
-                </button>
-              )
-            }
-            if (tab.href) {
-              return (
-                <a
-                  key={tab.label}
-                  href={tab.href}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    borderBottom: '2px solid transparent',
-                    padding: '8px 14px',
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: '#555',
-                    textDecoration: 'none',
-                    marginBottom: -1,
-                    transition: 'color 0.15s',
-                  }}
-                  onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-                  onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
-                >
-                  {tab.label}
-                </a>
-              )
-            }
-            return (
-              <button
-                key={tab.label}
-                disabled
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: '2px solid transparent',
-                  cursor: 'not-allowed',
-                  padding: '8px 14px',
-                  fontSize: 13,
-                  fontWeight: 400,
-                  color: '#444',
-                  marginBottom: -1,
-                }}
-              >
+        <nav style={{ borderBottom: '1px solid #1a1d2e', display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 26 }}>
+          {SUBNAV.map((tab) =>
+            tab.href === null ? (
+              <span key={tab.label} style={{ borderBottom: '2px solid #fde68a', color: '#fde68a', fontSize: 13, fontWeight: 800, marginBottom: -1, padding: '9px 14px' }}>
                 {tab.label}
-                <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    color: '#333',
-                    background: '#151515',
-                    border: '1px solid #222',
-                    borderRadius: 3,
-                    padding: '1px 5px',
-                  }}
-                >
-                  em breve
-                </span>
-              </button>
-            )
-          })}
-        </div>
+              </span>
+            ) : (
+              <a key={tab.label} href={tab.href} style={{ borderBottom: '2px solid transparent', color: '#8fa3bc', fontSize: 13, marginBottom: -1, padding: '9px 14px', textDecoration: 'none' }}>
+                {tab.label}
+              </a>
+            ),
+          )}
+        </nav>
 
-        {/* Filters */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 12,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            padding: '16px 20px',
-            background: '#0f0f0f',
-            border: '1px solid #1e1e1e',
-            borderRadius: 12,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              De
-            </label>
-            <input
-              type="date"
-              value={dateStart}
-              onChange={(e) => setDateStart(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+        <section style={{ ...cardStyle(), alignItems: 'end', display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24, padding: '16px 20px' }}>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>De</span>
+            <input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} style={inputStyle} />
+          </label>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              Até
-            </label>
-            <input
-              type="date"
-              value={dateEnd}
-              onChange={(e) => setDateEnd(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Até</span>
+            <input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} style={inputStyle} />
+          </label>
 
-          {isAdmin && sellers.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-                Consultor
-              </label>
-              <select
-                value={selectedSellerId ?? ''}
-                onChange={(e) => setSelectedSellerId(e.target.value || null)}
-                style={{
-                  background: '#151515',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: 8,
-                  color: 'white',
-                  fontSize: 13,
-                  padding: '6px 10px',
-                  outline: 'none',
-                  minWidth: 180,
-                }}
-              >
+          {isAdmin && (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={fieldLabelStyle}>Consultor</span>
+              <select value={selectedSellerId ?? ''} onChange={(event) => setSelectedSellerId(event.target.value || null)} style={{ ...inputStyle, minWidth: 215 }}>
                 <option value="">Todos os consultores</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name ?? s.id}
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.full_name || seller.email || seller.id}
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              Etapa
-            </label>
-            <select
-              value={selectedStage}
-              onChange={(e) => setSelectedStage(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                minWidth: 150,
-              }}
-            >
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Etapa</span>
+            <select value={selectedStage} onChange={(event) => setSelectedStage(event.target.value)} style={{ ...inputStyle, minWidth: 160 }}>
               <option value="">Todas as etapas</option>
-              {STAGE_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {STAGE_LABELS[s]}
+              {STAGE_ORDER.map((stage) => (
+                <option key={stage} value={stage}>
+                  {STAGE_LABELS[stage] ?? stage}
                 </option>
               ))}
             </select>
+          </label>
+
+          {loadingData && <span style={{ color: '#8fa3bc', fontSize: 12, paddingBottom: 8 }}>Atualizando...</span>}
+        </section>
+
+        {error && (
+          <div style={{ background: '#ef444414', border: '1px solid #ef444440', borderRadius: 7, color: '#fca5a5', fontSize: 13, marginBottom: 20, padding: '10px 14px' }}>
+            {error}
           </div>
+        )}
 
-          {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#555', fontSize: 12 }}>
-              <IconLoader />
-              Atualizando...
-            </div>
-          )}
-        </div>
-
-        {/* Executive Summary — 5 cards */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
-          <SummaryCard
-            label="Próxima ação mais frequente"
-            value={topAction ? topAction.label : '—'}
-            sub={topAction ? `${topAction.total}× registrada` : 'sem dados'}
-            accent={ACCENT}
-            icon={<IconListCheck />}
-          />
-          <SummaryCard
-            label="Total com data agendada"
-            value={totalWithDate > 0 ? `${totalWithDate}` : '—'}
-            sub={totalWithDate > 0 ? `${pctWithDate}% dos registros` : 'sem dados'}
-            accent="#34d399"
-            icon={<IconCalendar />}
-          />
-          <SummaryCard
-            label="Total sem data"
-            value={totalWithoutDate > 0 ? `${totalWithoutDate}` : '—'}
-            sub={totalWithoutDate > 0 ? `${pctWithoutDate}% dos registros` : 'sem dados'}
-            accent="#f87171"
-            icon={<IconCalendar />}
-          />
-          <SummaryCard
-            label="Etapa com mais agendamentos"
-            value={topStage ? (STAGE_LABELS[topStage.stage] ?? topStage.stage) : '—'}
-            sub={topStage ? `${topStage.count} ocorrência(s)` : 'sem dados'}
-            accent={topStage ? (STAGE_COLORS[topStage.stage] ?? '#555') : undefined}
-            icon={<IconLayers />}
-          />
-          <SummaryCard
-            label="Total de registros"
-            value={totalEvents > 0 ? `${totalEvents}` : '—'}
-            sub={totalEvents > 0 ? `no período selecionado` : 'sem dados'}
-            accent="#aaa"
-            icon={<IconHash />}
-          />
-        </div>
-
-        {/* Main table section */}
-        <div
-          style={{
-            background: '#0f0f0f',
-            border: '1px solid #1e1e1e',
-            borderRadius: 14,
-            padding: '20px 24px',
-            marginBottom: 20,
-          }}
-        >
-          {/* Section header */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 16,
-              paddingBottom: 14,
-              borderBottom: '1px solid #1a1a1a',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: ACCENT }}>
-                <IconListCheck />
-              </span>
-              <div>
-                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'white' }}>
-                  Próximas Ações Registradas
-                </h2>
-                <p style={{ fontSize: 12, color: '#555', margin: '2px 0 0' }}>
-                  Todas as próximas ações definidas no período, agrupadas por texto
-                </p>
-              </div>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>
-              {totalEvents}{' '}
-              <span style={{ fontSize: 11, fontWeight: 400, color: '#555' }}>registro(s)</span>
-            </span>
+        <section style={{ marginBottom: 28 }}>
+          <div style={{ color: '#fde68a', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', marginBottom: 12, textTransform: 'uppercase' }}>
+            Organização da agenda
           </div>
-
-          {/* Column headers */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '0 0 6px',
-              borderBottom: '1px solid #161616',
-              marginBottom: 2,
-            }}
-          >
-            <span style={{ flex: '1 1 0', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
-              Ação
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 60 }}>
-              Etapas
-            </span>
-            <span style={{ flex: '1 1 0', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
-              Volume
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
-              C/ data
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
-              S/ data
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 24, textAlign: 'right' }}>
-              Qtd
-            </span>
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+            <KpiCard label="Próximas ações" value={data?.totalEvents ?? 0} detail="registros de ação futura identificados" accent="#fde68a" />
+            <KpiCard label="Com data definida" value={data?.totalWithDate ?? 0} detail={`${plannedRate}% das ações têm compromisso de data`} accent="#86efac" />
+            <KpiCard label="Sem data definida" value={data?.totalWithoutDate ?? 0} detail="ações que não permitem acompanhar cobrança e atraso" accent="#fca5a5" />
+            <KpiCard label="Ação mais planejada" value={topAction?.label ?? '—'} detail={topAction ? `${topAction.total} registro(s) no período` : 'sem dados no período'} accent="#fde68a" />
           </div>
+        </section>
 
-          {actions.length > 0 ? (
-            actions.map((stat) => (
-              <ActionRow key={stat.label} stat={stat} maxTotal={maxTotal} />
-            ))
-          ) : (
-            <EmptyState />
-          )}
-        </div>
-
-        {/* Legend */}
-        <div
-          style={{
-            marginTop: 8,
-            padding: '14px 20px',
-            background: '#0a0a0a',
-            border: '1px solid #161616',
-            borderRadius: 10,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 24,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 11, color: '#444', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-            Legenda de etapas
-          </span>
-          {STAGE_ORDER.map((stage) => (
-            <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: STAGE_COLORS[stage],
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ fontSize: 11, color: '#555' }}>{STAGE_LABELS[stage]}</span>
+        {actions.length === 0 && !loadingData ? (
+          <section style={{ ...cardStyle(), color: '#8fa3bc', padding: '48px 24px', textAlign: 'center' }}>
+            <strong style={{ color: '#edf2f7' }}>Nenhuma próxima ação registrada no período.</strong>
+            <div style={{ fontSize: 12, marginTop: 7 }}>
+              Ajuste o período, o consultor ou a etapa selecionada.
             </div>
-          ))}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 12, height: 4, borderRadius: 2, background: DOT_COLOR }} />
-              <span style={{ fontSize: 11, color: '#555' }}>Próximas Ações</span>
+          </section>
+        ) : (
+          <section style={{ ...cardStyle(), padding: '18px 20px' }}>
+            <div style={{ borderBottom: '1px solid #13162a', display: 'grid', gap: 14, gridTemplateColumns: 'minmax(0, 1fr) 64px 92px', paddingBottom: 12 }}>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Próxima ação</span>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textAlign: 'right', textTransform: 'uppercase' }}>Volume</span>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textAlign: 'right', textTransform: 'uppercase' }}>Com data</span>
             </div>
-          </div>
-        </div>
-
+            {actions.map((action) => (
+              <ActionRow key={action.label.toLowerCase()} action={action} maxTotal={maxTotal} />
+            ))}
+          </section>
+        )}
       </div>
     </div>
   )
