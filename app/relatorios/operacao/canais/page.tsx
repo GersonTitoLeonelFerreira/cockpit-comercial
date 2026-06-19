@@ -11,35 +11,16 @@ import {
   CHANNEL_LABELS,
   extractChannelFromEvent,
 } from '@/app/config/channelNormalization'
+import * as faturamentoService from '@/app/lib/services/faturamento'
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function getThirtyDaysAgo(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 30)
-  return d.toISOString().slice(0, 10)
-}
-
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function safePct(num: number, den: number): number {
-  return den > 0 ? Math.round((num / den) * 100) : 0
-}
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface SellerOption {
+type SellerOption = {
   id: string
   full_name: string | null
+  email: string | null
+  role: string
 }
 
-interface RawEvent {
+type RawEvent = {
   id: string
   cycle_id: string | null
   event_type: string
@@ -48,17 +29,13 @@ interface RawEvent {
   created_by: string | null
 }
 
-interface ChannelStat {
+type ChannelStat = {
   channel: string
   total: number
   advances: number
   advancePct: number
   byStage: Record<string, number>
 }
-
-// ============================================================================
-// Constants
-// ============================================================================
 
 const STAGE_ORDER = ['novo', 'contato', 'respondeu', 'negociacao'] as const
 
@@ -69,9 +46,68 @@ const STAGE_COLORS: Record<string, string> = {
   negociacao: '#fbbf24',
 }
 
-// ============================================================================
-// Core analytics
-// ============================================================================
+const SUBNAV = [
+  { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva' },
+  { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa' },
+  { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' },
+  { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas' },
+  { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes' },
+  { label: 'Canais', href: null },
+  { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor' },
+]
+
+const fieldLabelStyle: React.CSSProperties = {
+  color: '#4a5569',
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: '#0d0f14',
+  border: '1px solid #1a1d2e',
+  borderRadius: 7,
+  color: '#edf2f7',
+  colorScheme: 'dark',
+  fontSize: 13,
+  outline: 'none',
+  padding: '7px 10px',
+}
+
+function getThirtyDaysAgo() {
+  const date = new Date()
+  date.setDate(date.getDate() - 30)
+  return date.toISOString().slice(0, 10)
+}
+
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function safePct(numerator: number, denominator: number) {
+  return denominator > 0 ? Math.round((numerator / denominator) * 100) : 0
+}
+
+function cardStyle(): React.CSSProperties {
+  return {
+    background: '#141722',
+    border: '1px solid #1a1d2e',
+    borderRadius: 9,
+  }
+}
+
+function getStage(metadata: Record<string, unknown>) {
+  return (
+    String(
+      metadata.from_status ??
+        metadata.from_stage ??
+        metadata.stage ??
+        metadata.to_status ??
+        '',
+    ).toLowerCase() || 'desconhecido'
+  )
+}
 
 function buildChannelStats(
   events: RawEvent[],
@@ -79,169 +115,130 @@ function buildChannelStats(
   dateEnd: string,
   selectedSellerId: string | null,
   isAdmin: boolean,
-  currentUserId: string | null,
+  currentUserId: string,
   stageFilter: string,
 ): ChannelStat[] {
   const rangeStart = `${dateStart}T00:00:00`
   const rangeEnd = `${dateEnd}T23:59:59`
+  const totals = new Map<string, number>()
+  const advances = new Map<string, number>()
+  const stages = new Map<string, Record<string, number>>()
+  const cycleEvents = new Map<string, RawEvent[]>()
 
-  const totalMap = new Map<string, number>()
-  const advanceMap = new Map<string, number>()
-  const stageMap = new Map<string, Record<string, number>>()
+  for (const event of events) {
+    if (!event.cycle_id) continue
+    const list = cycleEvents.get(event.cycle_id) ?? []
+    list.push(event)
+    cycleEvents.set(event.cycle_id, list)
+  }
 
-  for (const ev of events) {
-    if (ev.occurred_at < rangeStart || ev.occurred_at > rangeEnd) continue
+  for (const list of cycleEvents.values()) {
+    list.sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+  }
 
-    // Seller filter (in-memory)
-    if (isAdmin && selectedSellerId) {
-      if (ev.created_by !== selectedSellerId) continue
-    } else if (!isAdmin && currentUserId) {
-      if (ev.created_by !== currentUserId) continue
-    }
+  for (const event of events) {
+    if (event.occurred_at < rangeStart || event.occurred_at > rangeEnd) continue
+    if (isAdmin && selectedSellerId && event.created_by !== selectedSellerId) continue
+    if (!isAdmin && event.created_by !== currentUserId) continue
 
-    const meta = (ev.metadata ?? {}) as Record<string, unknown>
-
-    // Stage filter
-    const stage = String(
-      meta.from_status ?? meta.from_stage ?? meta.stage ?? ''
-    ).toLowerCase() || 'desconhecido'
+    const metadata = event.metadata ?? {}
+    const stage = getStage(metadata)
     if (stageFilter && stage !== stageFilter) continue
 
-    // Extract channel
-    const channel = extractChannelFromEvent(meta)
+    const channel = extractChannelFromEvent(metadata)
     if (!channel) continue
 
-    // Count total
-    totalMap.set(channel, (totalMap.get(channel) ?? 0) + 1)
+    totals.set(channel, (totals.get(channel) ?? 0) + 1)
 
-    // Count by stage
-    if (!stageMap.has(channel)) stageMap.set(channel, {})
-    const stageEntry = stageMap.get(channel)!
-    stageEntry[stage] = (stageEntry[stage] ?? 0) + 1
+    const byStage = stages.get(channel) ?? {}
+    byStage[stage] = (byStage[stage] ?? 0) + 1
+    stages.set(channel, byStage)
 
-    // Count advances (stage_move)
-    const kind = classifyEvent(ev)
-    if (kind === 'stage_move') {
-      advanceMap.set(channel, (advanceMap.get(channel) ?? 0) + 1)
+    const list = event.cycle_id ? cycleEvents.get(event.cycle_id) ?? [] : []
+    const index = list.findIndex((item) => item.id === event.id)
+    const subsequent = index >= 0 ? list.slice(index + 1) : []
+
+    if (subsequent.some((item) => classifyEvent(item) === 'stage_move')) {
+      advances.set(channel, (advances.get(channel) ?? 0) + 1)
     }
   }
 
-  return CANONICAL_CHANNELS.map((channel) => {
-    const total = totalMap.get(channel) ?? 0
-    const advances = advanceMap.get(channel) ?? 0
-    return {
-      channel,
-      total,
-      advances,
-      advancePct: safePct(advances, total),
-      byStage: stageMap.get(channel) ?? {},
-    }
-  })
+  const channels = new Set([...CANONICAL_CHANNELS, ...totals.keys()])
+
+  return Array.from(channels)
+    .map((channel) => {
+      const total = totals.get(channel) ?? 0
+      const channelAdvances = advances.get(channel) ?? 0
+
+      return {
+        channel,
+        total,
+        advances: channelAdvances,
+        advancePct: safePct(channelAdvances, total),
+        byStage: stages.get(channel) ?? {},
+      }
+    })
+    .sort((a, b) => b.total - a.total)
 }
 
-// ============================================================================
-// SVG Icons
-// ============================================================================
-
-function IconShare2() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconChevronLeft() {
-  return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function IconLoader() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-      <path d="M12 3a9 9 0 0 1 9 9" stroke="#888" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function IconTrendUp() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M22 7l-8.5 8.5-5-5L2 17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 7h6v6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// ============================================================================
-// Sub-components
-// ============================================================================
-
-function SummaryCard({
+function KpiCard({
   label,
   value,
-  sub,
-  accent,
-  icon,
+  detail,
+  accent = '#edf2f7',
 }: {
   label: string
-  value: string | number
-  sub?: string
+  value: React.ReactNode
+  detail: string
   accent?: string
-  icon?: React.ReactNode
 }) {
   return (
-    <div
-      style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 12,
-        padding: '18px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        flex: '1 1 180px',
-        minWidth: 0,
-      }}
-    >
-      <span
+    <div style={{ ...cardStyle(), minWidth: 0, padding: 18 }}>
+      <div style={fieldLabelStyle}>{label}</div>
+      <div
         style={{
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: '#555',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        {icon && <span style={{ color: accent ?? '#555' }}>{icon}</span>}
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: 22,
-          fontWeight: 700,
-          color: accent ?? 'white',
+          color: accent,
+          fontSize: 25,
+          fontWeight: 900,
           lineHeight: 1.1,
-          whiteSpace: 'nowrap',
+          marginTop: 10,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
         }}
       >
         {value}
-      </span>
-      {sub && (
-        <span style={{ fontSize: 12, color: '#555' }}>{sub}</span>
-      )}
+      </div>
+      <div style={{ color: '#8fa3bc', fontSize: 11, lineHeight: 1.45, marginTop: 8 }}>
+        {detail}
+      </div>
+    </div>
+  )
+}
+
+function StageBadges({ byStage }: { byStage: Record<string, number> }) {
+  const entries = STAGE_ORDER.filter((stage) => (byStage[stage] ?? 0) > 0)
+
+  if (entries.length === 0) return null
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+      {entries.map((stage) => (
+        <span
+          key={stage}
+          style={{
+            background: `${STAGE_COLORS[stage]}16`,
+            border: `1px solid ${STAGE_COLORS[stage]}33`,
+            borderRadius: 4,
+            color: STAGE_COLORS[stage],
+            fontSize: 10,
+            fontWeight: 800,
+            padding: '3px 6px',
+          }}
+        >
+          {STAGE_LABELS[stage] ?? stage}: {byStage[stage]}
+        </span>
+      ))}
     </div>
   )
 }
@@ -253,692 +250,307 @@ function ChannelRow({
   stat: ChannelStat
   maxTotal: number
 }) {
-  const color = CHANNEL_COLORS[stat.channel] ?? '#6b7280'
+  const color = CHANNEL_COLORS[stat.channel] ?? '#94a3b8'
   const label = CHANNEL_LABELS[stat.channel] ?? stat.channel
-  const barWidth = maxTotal > 0 ? (stat.total / maxTotal) * 100 : 0
-  const stageEntries = Object.entries(stat.byStage).sort((a, b) => b[1] - a[1])
+  const width = maxTotal > 0 ? (stat.total / maxTotal) * 100 : 0
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 0',
-        borderBottom: '1px solid #161616',
-      }}
-    >
-      {/* Channel color dot + name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 120px', minWidth: 0 }}>
-        <div
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: color,
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ fontSize: 13, color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
-        </span>
-      </div>
+    <div style={{ borderBottom: '1px solid #13162a', padding: '14px 0' }}>
+      <div
+        style={{
+          alignItems: 'flex-start',
+          display: 'grid',
+          gap: 14,
+          gridTemplateColumns: 'minmax(0, 1fr) 64px 80px 80px',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ alignItems: 'center', display: 'flex', gap: 9 }}>
+            <span style={{ background: color, borderRadius: 99, height: 9, width: 9 }} />
+            <span style={{ color: '#edf2f7', fontSize: 13 }}>{label}</span>
+          </div>
+          <StageBadges byStage={stat.byStage} />
+        </div>
 
-      {/* Stage dots */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, width: 80 }}>
-        {stageEntries.slice(0, 4).map(([stage, count]) => (
-          <div
-            key={stage}
-            title={`${STAGE_LABELS[stage] ?? stage}: ${count}`}
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: STAGE_COLORS[stage] ?? '#555',
-              opacity: 0.85,
-            }}
-          />
-        ))}
-      </div>
+        <div style={{ color: '#edf2f7', fontSize: 14, fontWeight: 900, textAlign: 'right' }}>
+          {stat.total}
+          <div style={{ color: '#546070', fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: 'uppercase' }}>
+            ações
+          </div>
+        </div>
 
-      {/* Progress bar */}
-      <div style={{ flex: '2 1 80px', minWidth: 0 }}>
-        <div
-          style={{
-            height: 6,
-            background: '#1a1a1a',
-            borderRadius: 3,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              height: '100%',
-              width: `${barWidth}%`,
-              background: color,
-              borderRadius: 3,
-              transition: 'width 0.3s ease',
-            }}
-          />
+        <div style={{ color: '#86efac', fontSize: 14, fontWeight: 900, textAlign: 'right' }}>
+          {stat.advances}
+          <div style={{ color: '#546070', fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: 'uppercase' }}>
+            avanços
+          </div>
+        </div>
+
+        <div style={{ color: stat.advancePct >= 50 ? '#86efac' : stat.advancePct >= 25 ? '#fde68a' : '#fca5a5', fontSize: 14, fontWeight: 900, textAlign: 'right' }}>
+          {stat.advancePct}%
+          <div style={{ color: '#546070', fontSize: 10, fontWeight: 700, marginTop: 3, textTransform: 'uppercase' }}>
+            taxa
+          </div>
         </div>
       </div>
 
-      {/* Advances */}
-      <span style={{ fontSize: 12, color: '#34d399', flexShrink: 0, width: 56, textAlign: 'center' }}>
-        {stat.advances > 0 ? `${stat.advances} av.` : '—'}
-      </span>
-
-      {/* Advance % */}
-      <span style={{ fontSize: 12, color: stat.advancePct > 0 ? '#34d399' : '#555', flexShrink: 0, width: 42, textAlign: 'center' }}>
-        {stat.advancePct > 0 ? `${stat.advancePct}%` : '—'}
-      </span>
-
-      {/* Total */}
-      <span
-        style={{
-          fontSize: 13,
-          fontWeight: 700,
-          color: stat.total > 0 ? '#aaa' : '#333',
-          flexShrink: 0,
-          minWidth: 28,
-          textAlign: 'right',
-        }}
-      >
-        {stat.total}
-      </span>
+      <div style={{ background: '#1a1d2e', borderRadius: 99, height: 5, marginTop: 11, overflow: 'hidden' }}>
+        <div style={{ background: color, borderRadius: 99, height: '100%', width: `${width}%` }} />
+      </div>
     </div>
   )
 }
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div style={{ padding: '28px 20px', textAlign: 'center' }}>
-      <p style={{ color: '#555', fontSize: 13, margin: 0 }}>{message}</p>
-      <p style={{ color: '#444', fontSize: 12, margin: '6px 0 0' }}>
-        Tente ampliar o intervalo de datas ou remover filtros.
-      </p>
-    </div>
-  )
-}
-
-// ============================================================================
-// Main Page
-// ============================================================================
 
 export default function CanaisPage() {
-  const supabase = supabaseBrowser()
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
 
-  // Auth/profile
   const [loading, setLoading] = React.useState(true)
+  const [loadingData, setLoadingData] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = React.useState(false)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
+  const [stats, setStats] = React.useState<ChannelStat[]>([])
 
-  // Filters
   const [dateStart, setDateStart] = React.useState(getThirtyDaysAgo())
   const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
   const [selectedStage, setSelectedStage] = React.useState('')
 
-  // Data
-  const [channelStats, setChannelStats] = React.useState<ChannelStat[]>([])
-  const [dataLoading, setDataLoading] = React.useState(false)
-
-  // ==========================================================================
-  // Init — auth + profile
-  // ==========================================================================
   React.useEffect(() => {
-    async function init() {
+    async function initialize() {
       setLoading(true)
       setError(null)
+
       try {
-        const { data: userData } = await supabase.auth.getUser()
-        if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
+        const response = await fetch('/api/me', { cache: 'no-store' })
 
-        const uid = userData.user.id
-        setCurrentUserId(uid)
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', uid)
-          .maybeSingle()
-
-        if (!profile?.company_id) throw new Error('Perfil não encontrado.')
-
-        const adminUser = profile.role === 'admin'
-        setIsAdmin(adminUser)
-        setCompanyId(profile.company_id)
-
-        if (adminUser) {
-          const { data: sellersData } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('company_id', profile.company_id)
-            .eq('role', 'member')
-            .order('full_name')
-
-          setSellers((sellersData ?? []) as SellerOption[])
+        if (!response.ok) {
+          throw new Error('Não foi possível identificar a empresa ativa.')
         }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Erro ao carregar.')
+
+        const me = (await response.json()) as {
+          user_id?: string
+          active_company_id?: string | null
+          active_role?: string | null
+          active_company_role?: string | null
+          is_platform_admin?: boolean
+        }
+
+        if (!me.user_id) throw new Error('Sessão expirada. Faça login novamente.')
+        if (!me.active_company_id) throw new Error('Nenhuma empresa ativa foi encontrada.')
+
+        const activeSellers = await faturamentoService.getSellers(
+          supabase,
+          me.active_company_id,
+        )
+
+        const role = String(
+          me.active_role ?? me.active_company_role ?? '',
+        ).toLowerCase()
+
+        const adminUser =
+          me.is_platform_admin === true ||
+          ['admin', 'owner', 'manager'].includes(role)
+
+        setCurrentUserId(me.user_id)
+        setCompanyId(me.active_company_id)
+        setIsAdmin(adminUser)
+        setSellers(activeSellers as SellerOption[])
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar a página.')
       } finally {
         setLoading(false)
       }
     }
-    init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // ==========================================================================
-  // Load data
-  // ==========================================================================
+    void initialize()
+  }, [supabase])
+
   React.useEffect(() => {
-    if (!companyId) return
-    loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, dateStart, dateEnd, selectedSellerId, selectedStage, isAdmin, currentUserId])
+    if (companyId === null || currentUserId === null) return
 
-  async function loadData() {
-    if (!companyId) return
-    setDataLoading(true)
-    try {
-      const data = await fetchAllCycleEvents(supabase, {
-        companyId,
-        dateStart,
-        dateEnd,
-        columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-      })
+    const resolvedCompanyId: string = companyId
+    const resolvedCurrentUserId: string = currentUserId
 
-      const stats = buildChannelStats(
-        (data ?? []) as RawEvent[],
-        dateStart,
-        dateEnd,
-        selectedSellerId,
-        isAdmin,
-        currentUserId,
-        selectedStage,
-      )
-      setChannelStats(stats)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar dados.')
-    } finally {
-      setDataLoading(false)
+    async function loadReport() {
+      setLoadingData(true)
+      setError(null)
+
+      try {
+        const events = await fetchAllCycleEvents(supabase, {
+          companyId: resolvedCompanyId,
+          dateStart,
+          dateEnd,
+          columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
+        })
+
+        setStats(
+          buildChannelStats(
+            events as RawEvent[],
+            dateStart,
+            dateEnd,
+            selectedSellerId,
+            isAdmin,
+            resolvedCurrentUserId,
+            selectedStage,
+          ),
+        )
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar dados.')
+      } finally {
+        setLoadingData(false)
+      }
     }
-  }
 
-  // ==========================================================================
-  // Derived values
-  // ==========================================================================
-  const activeStats = channelStats.filter(s => s.total > 0)
-  const grandTotal = channelStats.reduce((s, c) => s + c.total, 0)
-  const maxTotal = Math.max(...channelStats.map(s => s.total), 1)
+    void loadReport()
+  }, [
+    companyId,
+    currentUserId,
+    dateStart,
+    dateEnd,
+    selectedSellerId,
+    selectedStage,
+    isAdmin,
+    supabase,
+  ])
 
-  const topChannel = activeStats.length > 0
-    ? activeStats.reduce((best, s) => (s.total > best.total ? s : best), activeStats[0])
-    : null
-
-  const topAdvanceChannel = activeStats.length > 0
-    ? activeStats.reduce((best, s) => (s.advances > best.advances ? s : best), activeStats[0])
-    : null
-
-  // ==========================================================================
-  // Loading / Error states
-  // ==========================================================================
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#666', fontSize: 14 }}>
-          <IconLoader />
-          Carregando...
-        </div>
+      <div style={{ alignItems: 'center', background: '#090b0f', color: '#8fa3bc', display: 'flex', justifyContent: 'center', minHeight: '100vh' }}>
+        Carregando Canais...
       </div>
     )
   }
 
-  if (error) {
+  if (error && stats.length === 0) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: 12, padding: '24px 32px', maxWidth: 420, textAlign: 'center' }}>
-          <p style={{ color: '#ef4444', fontSize: 14, margin: 0 }}>{error}</p>
-          <a href="/login" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: '#60a5fa', textDecoration: 'none' }}>
-            Ir para o login
-          </a>
+      <div style={{ alignItems: 'center', background: '#090b0f', color: '#8fa3bc', display: 'flex', justifyContent: 'center', minHeight: '100vh', padding: 24 }}>
+        <div style={{ ...cardStyle(), maxWidth: 480, padding: 24, textAlign: 'center' }}>
+          <strong style={{ color: '#fca5a5' }}>Não foi possível carregar o relatório.</strong>
+          <div style={{ fontSize: 13, marginTop: 8 }}>{error}</div>
         </div>
       </div>
     )
   }
 
-  // ==========================================================================
-  // Render
-  // ==========================================================================
+  const activeStats = stats.filter((stat) => stat.total > 0)
+  const totalActions = activeStats.reduce((sum, stat) => sum + stat.total, 0)
+  const totalAdvances = activeStats.reduce((sum, stat) => sum + stat.advances, 0)
+  const topChannel = activeStats[0] ?? null
+  const bestChannel =
+    activeStats.length > 0
+      ? [...activeStats].sort((a, b) => b.advancePct - a.advancePct)[0]
+      : null
+  const maxTotal = topChannel?.total ?? 1
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#0c0c0c',
-        color: 'white',
-        padding: '40px 24px 80px',
-        overflowY: 'auto',
-      }}
-    >
-      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+    <div style={{ background: '#090b0f', color: '#edf2f7', minHeight: '100vh', padding: '32px 24px 80px' }}>
+      <div style={{ margin: '0 auto', maxWidth: 1200 }}>
+        <a href="/relatorios" style={{ color: '#8fa3bc', display: 'inline-flex', fontSize: 13, marginBottom: 28, textDecoration: 'none' }}>
+          ← Voltar para Relatórios
+        </a>
 
-        {/* Breadcrumb */}
-        <div style={{ marginBottom: 28 }}>
-          <a
-            href="/relatorios"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 13,
-              color: '#555',
-              textDecoration: 'none',
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-            onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
-          >
-            <IconChevronLeft />
-            Voltar para Relatórios
-          </a>
-        </div>
-
-        {/* Page header */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <span style={{ color: '#f472b6' }}>
-              <IconShare2 />
-            </span>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
-              Canais
-            </h1>
-          </div>
-          <p style={{ fontSize: 13, color: '#555', margin: 0 }}>
-            Performance por canal de contato: ligação, WhatsApp, e-mail, presencial e outros
+        <header style={{ marginBottom: 28 }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>Canais</h1>
+          <p style={{ color: '#8fa3bc', fontSize: 13, margin: '7px 0 0' }}>
+            Quais canais geram atividade e ajudam os ciclos a avançar no funil.
           </p>
-        </div>
+        </header>
 
-        {/* Sub-navigation */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            borderBottom: '1px solid #1a1a1a',
-            paddingBottom: 0,
-          }}
-        >
-          {[
-            { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva', active: false, comingSoon: false },
-            { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa', active: false, comingSoon: false },
-            { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
-            { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas', active: false, comingSoon: false },
-            { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes', active: false, comingSoon: false },
-            { label: 'Canais', href: null, active: true, comingSoon: false },
-            { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor', active: false, comingSoon: false },
-          ].map((tab) => {
-            if (tab.active) {
-              return (
-                <button
-                  key={tab.label}
-                  disabled
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: '2px solid #f472b6',
-                    cursor: 'default',
-                    padding: '8px 14px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: '#f472b6',
-                    marginBottom: -1,
-                  }}
-                >
-                  {tab.label}
-                </button>
-              )
-            }
-            if (tab.href) {
-              return (
-                <a
-                  key={tab.label}
-                  href={tab.href}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    borderBottom: '2px solid transparent',
-                    padding: '8px 14px',
-                    fontSize: 13,
-                    fontWeight: 400,
-                    color: '#555',
-                    textDecoration: 'none',
-                    marginBottom: -1,
-                    transition: 'color 0.15s',
-                  }}
-                  onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-                  onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
-                >
-                  {tab.label}
-                </a>
-              )
-            }
-            return (
-              <button
-                key={tab.label}
-                disabled
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: '2px solid transparent',
-                  cursor: 'not-allowed',
-                  padding: '8px 14px',
-                  fontSize: 13,
-                  fontWeight: 400,
-                  color: '#444',
-                  marginBottom: -1,
-                }}
-              >
+        <nav style={{ borderBottom: '1px solid #1a1d2e', display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 26 }}>
+          {SUBNAV.map((tab) =>
+            tab.href === null ? (
+              <span key={tab.label} style={{ borderBottom: '2px solid #60a5fa', color: '#60a5fa', fontSize: 13, fontWeight: 800, marginBottom: -1, padding: '9px 14px' }}>
                 {tab.label}
-                <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    color: '#333',
-                    background: '#151515',
-                    border: '1px solid #222',
-                    borderRadius: 3,
-                    padding: '1px 5px',
-                  }}
-                >
-                  em breve
-                </span>
-              </button>
-            )
-          })}
-        </div>
+              </span>
+            ) : (
+              <a key={tab.label} href={tab.href} style={{ borderBottom: '2px solid transparent', color: '#8fa3bc', fontSize: 13, marginBottom: -1, padding: '9px 14px', textDecoration: 'none' }}>
+                {tab.label}
+              </a>
+            ),
+          )}
+        </nav>
 
-        {/* Filters */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 12,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            padding: '16px 20px',
-            background: '#0f0f0f',
-            border: '1px solid #1e1e1e',
-            borderRadius: 12,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              De
-            </label>
-            <input
-              type="date"
-              value={dateStart}
-              onChange={(e) => setDateStart(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+        <section style={{ ...cardStyle(), alignItems: 'end', display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24, padding: '16px 20px' }}>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>De</span>
+            <input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} style={inputStyle} />
+          </label>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              Até
-            </label>
-            <input
-              type="date"
-              value={dateEnd}
-              onChange={(e) => setDateEnd(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Até</span>
+            <input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} style={inputStyle} />
+          </label>
 
-          {isAdmin && sellers.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-                Consultor
-              </label>
-              <select
-                value={selectedSellerId ?? ''}
-                onChange={(e) => setSelectedSellerId(e.target.value || null)}
-                style={{
-                  background: '#151515',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: 8,
-                  color: 'white',
-                  fontSize: 13,
-                  padding: '6px 10px',
-                  outline: 'none',
-                  minWidth: 180,
-                }}
-              >
+          {isAdmin && (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={fieldLabelStyle}>Consultor</span>
+              <select value={selectedSellerId ?? ''} onChange={(event) => setSelectedSellerId(event.target.value || null)} style={{ ...inputStyle, minWidth: 215 }}>
                 <option value="">Todos os consultores</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name ?? s.id}
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.full_name || seller.email || seller.id}
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              Etapa
-            </label>
-            <select
-              value={selectedStage}
-              onChange={(e) => setSelectedStage(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                minWidth: 150,
-              }}
-            >
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Etapa</span>
+            <select value={selectedStage} onChange={(event) => setSelectedStage(event.target.value)} style={{ ...inputStyle, minWidth: 160 }}>
               <option value="">Todas as etapas</option>
-              {STAGE_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {STAGE_LABELS[s]}
+              {STAGE_ORDER.map((stage) => (
+                <option key={stage} value={stage}>
+                  {STAGE_LABELS[stage] ?? stage}
                 </option>
               ))}
             </select>
-          </div>
+          </label>
 
-          {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#555', fontSize: 12 }}>
-              <IconLoader />
-              Atualizando...
+          {loadingData && <span style={{ color: '#8fa3bc', fontSize: 12, paddingBottom: 8 }}>Atualizando...</span>}
+        </section>
+
+        {error && (
+          <div style={{ background: '#ef444414', border: '1px solid #ef444440', borderRadius: 7, color: '#fca5a5', fontSize: 13, marginBottom: 20, padding: '10px 14px' }}>
+            {error}
+          </div>
+        )}
+
+        <section style={{ marginBottom: 28 }}>
+          <div style={{ color: '#93c5fd', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', marginBottom: 12, textTransform: 'uppercase' }}>
+            Leitura dos canais
+          </div>
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+            <KpiCard label="Ações por canal" value={totalActions} detail="ações com canal identificado" accent="#60a5fa" />
+            <KpiCard label="Avanços posteriores" value={totalAdvances} detail="ações cujo ciclo avançou depois do contato" accent="#86efac" />
+            <KpiCard label="Canal mais usado" value={topChannel ? (CHANNEL_LABELS[topChannel.channel] ?? topChannel.channel) : '—'} detail={topChannel ? `${topChannel.total} ação(ões) registradas` : 'sem dados no período'} accent={topChannel ? CHANNEL_COLORS[topChannel.channel] : '#93c5fd'} />
+            <KpiCard label="Maior taxa de avanço" value={bestChannel ? (CHANNEL_LABELS[bestChannel.channel] ?? bestChannel.channel) : '—'} detail={bestChannel ? `${bestChannel.advancePct}% de avanço em ${bestChannel.total} ação(ões)` : 'sem dados no período'} accent="#86efac" />
+          </div>
+        </section>
+
+        {activeStats.length === 0 && !loadingData ? (
+          <section style={{ ...cardStyle(), color: '#8fa3bc', padding: '48px 24px', textAlign: 'center' }}>
+            <strong style={{ color: '#edf2f7' }}>Nenhuma ação com canal identificado no período.</strong>
+            <div style={{ fontSize: 12, marginTop: 7 }}>
+              Ajuste o período, o consultor ou a etapa selecionada.
             </div>
-          )}
-        </div>
-
-        {/* Summary cards */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
-          <SummaryCard
-            label="Canal mais usado"
-            value={topChannel ? (CHANNEL_LABELS[topChannel.channel] ?? topChannel.channel) : '—'}
-            sub={topChannel ? `${topChannel.total} contato(s) no período` : 'sem dados'}
-            accent={topChannel ? CHANNEL_COLORS[topChannel.channel] : undefined}
-            icon={<IconShare2 />}
-          />
-          <SummaryCard
-            label="Total de contatos por canal"
-            value={grandTotal > 0 ? grandTotal : '—'}
-            sub={grandTotal > 0 ? `${activeStats.length} canal(is) ativo(s)` : 'sem dados'}
-          />
-          <SummaryCard
-            label="Canal com mais avanço"
-            value={topAdvanceChannel && topAdvanceChannel.advances > 0
-              ? (CHANNEL_LABELS[topAdvanceChannel.channel] ?? topAdvanceChannel.channel)
-              : '—'}
-            sub={topAdvanceChannel && topAdvanceChannel.advances > 0
-              ? `${topAdvanceChannel.advances} avanço(s) — ${topAdvanceChannel.advancePct}% de conversão`
-              : 'sem dados'}
-            accent="#34d399"
-            icon={<IconTrendUp />}
-          />
-          {/* Distribution mini-bar card */}
-          <div
-            style={{
-              background: '#0f0f0f',
-              border: '1px solid #202020',
-              borderRadius: 12,
-              padding: '18px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              flex: '1 1 180px',
-              minWidth: 0,
-            }}
-          >
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#555' }}>
-              Distribuição
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
-              {activeStats.map((s) => (
-                <div key={s.channel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: CHANNEL_COLORS[s.channel] ?? '#6b7280', flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#666', minWidth: 70 }}>{CHANNEL_LABELS[s.channel] ?? s.channel}</span>
-                  <span style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>
-                    {grandTotal > 0 ? Math.round((s.total / grandTotal) * 100) : 0}%
-                  </span>
-                </div>
-              ))}
-              {activeStats.length === 0 && (
-                <span style={{ fontSize: 11, color: '#444' }}>sem dados</span>
-              )}
+          </section>
+        ) : (
+          <section style={{ ...cardStyle(), padding: '18px 20px' }}>
+            <div style={{ borderBottom: '1px solid #13162a', display: 'grid', gap: 14, gridTemplateColumns: 'minmax(0, 1fr) 64px 80px 80px', paddingBottom: 12 }}>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Canal</span>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textAlign: 'right', textTransform: 'uppercase' }}>Ações</span>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textAlign: 'right', textTransform: 'uppercase' }}>Avanços</span>
+              <span style={{ color: '#546070', fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textAlign: 'right', textTransform: 'uppercase' }}>Taxa</span>
             </div>
-            {/* Distribution bar */}
-            {grandTotal > 0 && (
-              <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', marginTop: 4 }}>
-                {activeStats.map((s) => (
-                  <div
-                    key={s.channel}
-                    style={{
-                      height: '100%',
-                      width: `${(s.total / grandTotal) * 100}%`,
-                      background: CHANNEL_COLORS[s.channel] ?? '#6b7280',
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Channel table */}
-        <div
-          style={{
-            background: '#0f0f0f',
-            border: '1px solid #1e1e1e',
-            borderRadius: 14,
-            padding: '20px 24px',
-          }}
-        >
-          {/* Section header */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 16,
-              paddingBottom: 14,
-              borderBottom: '1px solid #1a1a1a',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: '#f472b6' }}>
-                <IconShare2 />
-              </span>
-              <div>
-                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'white' }}>
-                  Por Canal
-                </h2>
-                <p style={{ fontSize: 12, color: '#555', margin: '2px 0 0' }}>
-                  Volume de contatos e taxa de avanço por canal de comunicação
-                </p>
-              </div>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>
-              {grandTotal}{' '}
-              <span style={{ fontSize: 11, fontWeight: 400, color: '#555' }}>contato(s)</span>
-            </span>
-          </div>
-
-          {/* Column headers */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '0 0 6px',
-              borderBottom: '1px solid #161616',
-              marginBottom: 2,
-            }}
-          >
-            <span style={{ flex: '1 1 120px', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
-              Canal
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 80 }}>
-              Etapas
-            </span>
-            <span style={{ flex: '2 1 80px', fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444' }}>
-              Volume
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 56, textAlign: 'center' }}>
-              Avanços
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, width: 42, textAlign: 'center' }}>
-              % Av.
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#444', flexShrink: 0, minWidth: 28, textAlign: 'right' }}>
-              Qtd
-            </span>
-          </div>
-
-          {activeStats.length > 0 ? (
-            channelStats
-              .filter(s => s.total > 0)
-              .map((stat) => (
-                <ChannelRow key={stat.channel} stat={stat} maxTotal={maxTotal} />
-              ))
-          ) : (
-            <EmptyState message="Nenhum evento com canal registrado no período." />
-          )}
-        </div>
-
+            {activeStats.map((stat) => (
+              <ChannelRow key={stat.channel} stat={stat} maxTotal={maxTotal} />
+            ))}
+          </section>
+        )}
       </div>
     </div>
   )
