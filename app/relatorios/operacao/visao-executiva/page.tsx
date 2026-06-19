@@ -676,6 +676,8 @@ export default function VisaoExecutivaPage() {
           user_id?: string
           active_company_id?: string | null
           active_role?: string | null
+          active_company_role?: string | null
+          is_platform_admin?: boolean
         }
 
         if (!me.user_id) {
@@ -691,8 +693,13 @@ export default function VisaoExecutivaPage() {
           me.active_company_id,
         )
 
-        const membershipRole = String(me.active_role ?? '').toLowerCase()
-        const adminUser = ['admin', 'owner', 'manager'].includes(membershipRole)
+        const membershipRole = String(
+          me.active_role ?? me.active_company_role ?? ''
+        ).toLowerCase()
+
+        const adminUser =
+          me.is_platform_admin === true ||
+          ['admin', 'owner', 'manager'].includes(membershipRole)
 
         setCurrentUserId(me.user_id)
         setCompanyId(me.active_company_id)
@@ -709,10 +716,10 @@ export default function VisaoExecutivaPage() {
   }, [supabase])
 
   React.useEffect(() => {
-    const resolvedCompanyId = companyId
-    const resolvedCurrentUserId = currentUserId
+    if (companyId === null || currentUserId === null) return
 
-    if (!resolvedCompanyId || !resolvedCurrentUserId) return
+    const resolvedCompanyId: string = companyId
+    const resolvedCurrentUserId: string = currentUserId
 
     async function loadReport() {
       setRefreshing(true)
