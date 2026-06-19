@@ -8,32 +8,25 @@ import {
   STAGE_LABELS,
   extractActionFromEvent,
 } from '@/app/config/stageActions'
+import * as faturamentoService from '@/app/lib/services/faturamento'
 
-// ==============================================================================
-// Helpers
-// ==============================================================================
-
-function getThirtyDaysAgo(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - 30)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function getTodayDate(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
-// ==============================================================================
-// Types
-// ==============================================================================
-
-interface SellerOption {
+type SellerOption = {
   id: string
   full_name: string | null
+  email: string | null
+  role: string
 }
 
-interface ActionRow {
+type RawEvent = {
+  id: string
+  cycle_id: string | null
+  event_type: string
+  metadata: Record<string, unknown> | null
+  occurred_at: string
+  created_by: string | null
+}
+
+type ActionRow = {
   actionId: string
   label: string
   stage: string
@@ -41,17 +34,13 @@ interface ActionRow {
   count: number
 }
 
-interface StageBreakdown {
+type StageBreakdown = {
   stage: string
   label: string
   color: string
   actions: ActionRow[]
   total: number
 }
-
-// ==============================================================================
-// Constants
-// ==============================================================================
 
 const STAGE_ORDER = ['novo', 'contato', 'respondeu', 'negociacao'] as const
 
@@ -62,677 +51,467 @@ const STAGE_COLORS: Record<string, string> = {
   negociacao: '#fbbf24',
 }
 
-// ==============================================================================
-// SVG Icons
-// ==============================================================================
+const SUBNAV = [
+  { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva' },
+  { label: 'Ações por Etapa', href: null },
+  { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' },
+  { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas' },
+  { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes' },
+  { label: 'Canais', href: '/relatorios/operacao/canais' },
+  { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor' },
+]
 
-function IconLayers() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2 2 7l10 5 10-5-10-5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M2 17l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2 12l10 5 10-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
+function getThirtyDaysAgo() {
+  const date = new Date()
+  date.setDate(date.getDate() - 30)
+  return date.toISOString().slice(0, 10)
 }
 
-function IconChevronLeft() {
-  return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10)
 }
 
-function IconLoader() {
-  return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-      <path d="M12 3a9 9 0 0 1 9 9" stroke="#888" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  )
+function formatPercent(value: number) {
+  return `${Math.round(value)}%`
 }
 
-// ==============================================================================
-// Sub-components
-// ==============================================================================
+function cardStyle(): React.CSSProperties {
+  return {
+    background: '#141722',
+    border: '1px solid #1a1d2e',
+    borderRadius: 9,
+  }
+}
+
+function getActionLabel(actionId: string) {
+  for (const stage of STAGE_ORDER) {
+    const found = STAGE_ACTIONS[stage].find((item) => item.id === actionId)
+    if (found) return found.label
+  }
+
+  return actionId.replace(/_/g, ' ')
+}
+
+function getActionStage(actionId: string) {
+  for (const stage of STAGE_ORDER) {
+    const found = STAGE_ACTIONS[stage].find((item) => item.id === actionId)
+    if (found) return found.stage
+  }
+
+  return 'novo'
+}
+
+function getActionCategory(actionId: string): 'activity' | 'outcome' {
+  for (const stage of STAGE_ORDER) {
+    const found = STAGE_ACTIONS[stage].find((item) => item.id === actionId)
+    if (found) return found.category
+  }
+
+  return 'activity'
+}
+
+function buildBreakdowns(events: RawEvent[]) {
+  const countMap = new Map<string, number>()
+
+  for (const event of events) {
+    const actionId = extractActionFromEvent(event)
+
+    if (!actionId) continue
+
+    countMap.set(actionId, (countMap.get(actionId) ?? 0) + 1)
+  }
+
+  return STAGE_ORDER.map((stage) => {
+    const knownActions = STAGE_ACTIONS[stage].map((action) => ({
+      actionId: action.id,
+      label: action.label,
+      stage: action.stage,
+      category: action.category,
+      count: countMap.get(action.id) ?? 0,
+    }))
+
+    const knownIds = new Set(knownActions.map((action) => action.actionId))
+
+    const unknownActions: ActionRow[] = Array.from(countMap.entries())
+      .filter(([actionId]) => !knownIds.has(actionId) && getActionStage(actionId) === stage)
+      .map(([actionId, count]) => ({
+        actionId,
+        label: getActionLabel(actionId),
+        stage,
+        category: getActionCategory(actionId),
+        count,
+      }))
+
+    const actions = [...knownActions, ...unknownActions]
+    const total = actions.reduce((sum, action) => sum + action.count, 0)
+
+    return {
+      stage,
+      label: STAGE_LABELS[stage] ?? stage,
+      color: STAGE_COLORS[stage],
+      actions,
+      total,
+    } satisfies StageBreakdown
+  })
+}
 
 function SummaryCard({
   label,
   value,
-  sub,
-  accent,
+  detail,
+  accent = '#edf2f7',
 }: {
   label: string
   value: React.ReactNode
-  sub?: string
+  detail: string
   accent?: string
 }) {
   return (
-    <div
-      style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 12,
-        padding: '18px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        flex: '1 1 180px',
-        minWidth: 0,
-      }}
-    >
-      <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#555' }}>
+    <div style={{ ...cardStyle(), minWidth: 0, padding: 18 }}>
+      <div style={{ color: '#4a5569', fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
         {label}
-      </span>
-      <span style={{ fontSize: 24, fontWeight: 700, color: accent ?? 'white', lineHeight: 1.1 }}>
-        {value}
-      </span>
-      {sub && (
-        <span style={{ fontSize: 12, color: '#555', lineHeight: 1.4 }}>{sub}</span>
-      )}
-    </div>
-  )
-}
-
-function CategoryBadge({ category }: { category: 'activity' | 'outcome' }) {
-  const isActivity = category === 'activity'
-  return (
-    <span
-      style={{
-        fontSize: 10,
-        fontWeight: 600,
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        color: isActivity ? '#60a5fa' : '#a78bfa',
-        background: isActivity ? '#60a5fa14' : '#a78bfa14',
-        border: `1px solid ${isActivity ? '#60a5fa33' : '#a78bfa33'}`,
-        borderRadius: 4,
-        padding: '2px 6px',
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-      }}
-    >
-      {isActivity ? 'atividade' : 'resultado'}
-    </span>
-  )
-}
-
-function ActionRowItem({
-  row,
-  stageTotal,
-  stageColor,
-}: {
-  row: ActionRow
-  stageTotal: number
-  stageColor: string
-}) {
-  const pct = stageTotal > 0 ? Math.round((row.count / stageTotal) * 100) : 0
-  const isZero = row.count === 0
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 0',
-        borderBottom: '1px solid #181818',
-        opacity: isZero ? 0.35 : 1,
-      }}
-    >
-      {/* Label + badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 0', minWidth: 0 }}>
-        <span style={{ fontSize: 13, color: isZero ? '#666' : 'white', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {row.label}
-        </span>
-        <CategoryBadge category={row.category} />
       </div>
-      {/* Count */}
-      <span style={{ fontSize: 13, fontWeight: 700, color: isZero ? '#555' : 'white', minWidth: 28, textAlign: 'right', flexShrink: 0 }}>
-        {row.count}
-      </span>
-      {/* Pct */}
-      <span style={{ fontSize: 11, color: '#555', minWidth: 36, textAlign: 'right', flexShrink: 0 }}>
-        {pct}%
-      </span>
-      {/* Progress bar */}
-      <div
-        style={{
-          width: 80,
-          height: 4,
-          background: '#1e1e1e',
-          borderRadius: 2,
-          flexShrink: 0,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            width: `${pct}%`,
-            height: '100%',
-            background: stageColor,
-            borderRadius: 2,
-            transition: 'width 0.3s ease',
-          }}
-        />
+      <div style={{ color: accent, fontSize: 26, fontWeight: 900, lineHeight: 1.1, marginTop: 10 }}>
+        {value}
+      </div>
+      <div style={{ color: '#8fa3bc', fontSize: 11, lineHeight: 1.45, marginTop: 8 }}>
+        {detail}
       </div>
     </div>
   )
 }
 
 function StageSection({ breakdown }: { breakdown: StageBreakdown }) {
-  const sorted = [...breakdown.actions].sort((a, b) => b.count - a.count)
+  const sortedActions = [...breakdown.actions].sort((a, b) => b.count - a.count)
+  const visibleActions = sortedActions.filter((action) => action.count > 0)
 
   return (
-    <div
-      style={{
-        background: '#0f0f0f',
-        border: '1px solid #1e1e1e',
-        borderRadius: 14,
-        padding: '20px 24px',
-      }}
-    >
-      {/* Section header */}
+    <section style={{ ...cardStyle(), padding: '18px 20px' }}>
       <div
         style={{
-          display: 'flex',
           alignItems: 'center',
+          borderBottom: '1px solid #13162a',
+          display: 'flex',
           justifyContent: 'space-between',
-          marginBottom: 4,
           paddingBottom: 14,
-          borderBottom: '1px solid #1a1a1a',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: breakdown.color,
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontSize: 14, fontWeight: 700, color: breakdown.color }}>
+        <div style={{ alignItems: 'center', display: 'flex', gap: 10 }}>
+          <span style={{ background: breakdown.color, borderRadius: 999, height: 9, width: 9 }} />
+          <span style={{ color: breakdown.color, fontSize: 14, fontWeight: 900 }}>
             {breakdown.label}
           </span>
         </div>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#aaa' }}>
-          {breakdown.total} <span style={{ fontSize: 11, fontWeight: 400, color: '#555' }}>ações</span>
+        <span style={{ color: '#edf2f7', fontSize: 14, fontWeight: 800 }}>
+          {breakdown.total}
+          <span style={{ color: '#546070', fontSize: 11, fontWeight: 500 }}> ações</span>
         </span>
       </div>
 
-      {/* Action rows */}
-      <div>
-        {sorted.map((row) => (
-          <ActionRowItem
-            key={row.actionId}
-            row={row}
-            stageTotal={breakdown.total}
-            stageColor={breakdown.color}
-          />
-        ))}
-      </div>
-    </div>
+      {visibleActions.length === 0 ? (
+        <div style={{ color: '#546070', fontSize: 12, padding: '18px 0 4px' }}>
+          Nenhuma ação registrada nesta etapa no período.
+        </div>
+      ) : (
+        <div>
+          {visibleActions.map((action) => {
+            const percentage = breakdown.total > 0 ? (action.count / breakdown.total) * 100 : 0
+            const isOutcome = action.category === 'outcome'
+
+            return (
+              <div
+                key={action.actionId}
+                style={{
+                  alignItems: 'center',
+                  borderBottom: '1px solid #13162a',
+                  display: 'grid',
+                  gap: 12,
+                  gridTemplateColumns: 'minmax(0, 1fr) 42px 46px 90px',
+                  padding: '11px 0',
+                }}
+              >
+                <div style={{ alignItems: 'center', display: 'flex', gap: 8, minWidth: 0 }}>
+                  <span
+                    style={{
+                      background: isOutcome ? '#a78bfa14' : '#60a5fa14',
+                      border: `1px solid ${isOutcome ? '#a78bfa33' : '#60a5fa33'}`,
+                      borderRadius: 4,
+                      color: isOutcome ? '#a78bfa' : '#60a5fa',
+                      flexShrink: 0,
+                      fontSize: 9,
+                      fontWeight: 800,
+                      letterSpacing: '0.06em',
+                      padding: '3px 6px',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {isOutcome ? 'resultado' : 'atividade'}
+                  </span>
+                  <span style={{ color: '#edf2f7', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {action.label}
+                  </span>
+                </div>
+                <span style={{ color: '#edf2f7', fontSize: 13, fontWeight: 800, textAlign: 'right' }}>
+                  {action.count}
+                </span>
+                <span style={{ color: '#8fa3bc', fontSize: 11, textAlign: 'right' }}>
+                  {formatPercent(percentage)}
+                </span>
+                <div style={{ background: '#1a1d2e', borderRadius: 999, height: 5, overflow: 'hidden' }}>
+                  <div style={{ background: breakdown.color, borderRadius: 999, height: '100%', width: `${percentage}%` }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
-
-function DistributionBar({ breakdowns }: { breakdowns: StageBreakdown[] }) {
-  const grandTotal = breakdowns.reduce((s, b) => s + b.total, 0)
-  if (grandTotal === 0) {
-    return (
-      <div style={{ height: 8, background: '#1e1e1e', borderRadius: 4, marginTop: 6 }} />
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 8, gap: 1 }}>
-      {breakdowns.map((b) => {
-        const pct = Math.round((b.total / grandTotal) * 100)
-        if (pct === 0) return null
-        return (
-          <div
-            key={b.stage}
-            title={`${b.label}: ${pct}%`}
-            style={{ width: `${pct}%`, height: '100%', background: b.color }}
-          />
-        )
-      })}
-    </div>
-  )
-}
-
-// ==============================================================================
-// Main Page
-// ==============================================================================
 
 export default function AcoesPorEtapaPage() {
-  const supabase = supabaseBrowser()
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
 
-  // Auth/profile
   const [loading, setLoading] = React.useState(true)
+  const [loadingData, setLoadingData] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = React.useState(false)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
+  const [breakdowns, setBreakdowns] = React.useState<StageBreakdown[]>([])
 
-  // Filters
   const [dateStart, setDateStart] = React.useState(getThirtyDaysAgo())
   const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
 
-  // Data
-  const [breakdowns, setBreakdowns] = React.useState<StageBreakdown[]>([])
-  const [dataLoading, setDataLoading] = React.useState(false)
-
-  // ===========================================================================
-  // Init — auth + profile
-  // ===========================================================================
   React.useEffect(() => {
-    async function init() {
+    async function initialize() {
       setLoading(true)
       setError(null)
+
       try {
-        const { data: userData } = await supabase.auth.getUser()
-        if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
+        const response = await fetch('/api/me', { cache: 'no-store' })
 
-        const uid = userData.user.id
-        setCurrentUserId(uid)
-
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', uid)
-          .maybeSingle()
-
-        if (!profile?.company_id) throw new Error('Perfil não encontrado.')
-
-        const adminUser = profile.role === 'admin'
-        setIsAdmin(adminUser)
-        setCompanyId(profile.company_id)
-
-        if (adminUser) {
-          const { data: sellersData } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('company_id', profile.company_id)
-            .eq('role', 'member')
-            .order('full_name')
-
-          setSellers((sellersData ?? []) as SellerOption[])
+        if (!response.ok) {
+          throw new Error('Não foi possível identificar a empresa ativa.')
         }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Erro ao carregar.')
+
+        const me = (await response.json()) as {
+          user_id?: string
+          active_company_id?: string | null
+          active_role?: string | null
+          active_company_role?: string | null
+          is_platform_admin?: boolean
+        }
+
+        if (!me.user_id) throw new Error('Sessão expirada. Faça login novamente.')
+        if (!me.active_company_id) throw new Error('Nenhuma empresa ativa foi encontrada.')
+
+        const activeSellers = await faturamentoService.getSellers(supabase, me.active_company_id)
+        const role = String(me.active_role ?? me.active_company_role ?? '').toLowerCase()
+        const adminUser =
+          me.is_platform_admin === true ||
+          ['admin', 'owner', 'manager'].includes(role) ||
+          activeSellers.some((seller) => seller.id !== me.user_id)
+
+        setCurrentUserId(me.user_id)
+        setCompanyId(me.active_company_id)
+        setIsAdmin(adminUser)
+        setSellers(activeSellers as SellerOption[])
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar a página.')
       } finally {
         setLoading(false)
       }
     }
-    init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // ===========================================================================
-  // Load data
-  // ===========================================================================
+    void initialize()
+  }, [supabase])
+
   React.useEffect(() => {
-    if (!companyId) return
-    loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, dateStart, dateEnd, selectedSellerId, isAdmin, currentUserId])
+    if (companyId === null || currentUserId === null) return
 
-  async function loadData() {
-    if (!companyId) return
-    setDataLoading(true)
-    try {
-      const sellerId = isAdmin ? selectedSellerId : currentUserId
+    const resolvedCompanyId: string = companyId
+    const resolvedCurrentUserId: string = currentUserId
 
-      const data = await fetchAllCycleEvents(supabase, {
-        companyId,
-        dateStart,
-        dateEnd,
-        sellerId,
-        columns: 'id, event_type, metadata, created_by, occurred_at',
-      })
+    async function loadData() {
+      setLoadingData(true)
+      setError(null)
 
-      // Build count map: resolvedActionId -> count
-      const countMap: Record<string, number> = {}
+      try {
+        const events = await fetchAllCycleEvents(supabase, {
+          companyId: resolvedCompanyId,
+          dateStart,
+          dateEnd,
+          sellerId: isAdmin ? selectedSellerId : resolvedCurrentUserId,
+          columns: 'id, cycle_id, event_type, metadata, created_by, occurred_at',
+        })
 
-      for (const event of data) {
-        const resolvedId = extractActionFromEvent(event)
-        if (!resolvedId) continue
-
-        countMap[resolvedId] = (countMap[resolvedId] ?? 0) + 1
+        setBreakdowns(buildBreakdowns(events as RawEvent[]))
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : 'Erro ao carregar dados.')
+      } finally {
+        setLoadingData(false)
       }
-
-      // Build breakdowns from taxonomy
-      const result: StageBreakdown[] = STAGE_ORDER.map((stage) => {
-        const actionDefs = STAGE_ACTIONS[stage]
-        const actions: ActionRow[] = actionDefs.map((def) => ({
-          actionId: def.id,
-          label: def.label,
-          stage: def.stage,
-          category: def.category,
-          count: countMap[def.id] ?? 0,
-        }))
-        const total = actions.reduce((s, a) => s + a.count, 0)
-        return {
-          stage,
-          label: STAGE_LABELS[stage] ?? stage,
-          color: STAGE_COLORS[stage] ?? '#888',
-          actions,
-          total,
-        }
-      })
-
-      setBreakdowns(result)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar dados.')
-    } finally {
-      setDataLoading(false)
     }
-  }
 
-  // ===========================================================================
-  // Derived summary values
-  // ===========================================================================
-  const grandTotal = breakdowns.reduce((s, b) => s + b.total, 0)
+    void loadData()
+  }, [companyId, currentUserId, dateStart, dateEnd, selectedSellerId, isAdmin, supabase])
 
-  const mostActiveStage = breakdowns.length > 0
-    ? breakdowns.reduce((best, b) => (b.total > best.total ? b : best), breakdowns[0])
-    : null
+  const totalActions = breakdowns.reduce((sum, breakdown) => sum + breakdown.total, 0)
+  const mostActiveStage =
+    breakdowns.length > 0
+      ? [...breakdowns].sort((a, b) => b.total - a.total)[0]
+      : null
 
-  const allActionRows = breakdowns.flatMap((b) => b.actions)
-  const mostUsedAction = allActionRows.length > 0
-    ? allActionRows.reduce((best, a) => (a.count > best.count ? a : best), allActionRows[0])
-    : null
+  const mostUsedAction =
+    breakdowns
+      .flatMap((breakdown) => breakdown.actions)
+      .sort((a, b) => b.count - a.count)[0] ?? null
 
-  // ===========================================================================
-  // Loading / Error states
-  // ===========================================================================
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#666', fontSize: 14 }}>
-          <IconLoader />
-          Carregando...
-        </div>
+      <div style={{ alignItems: 'center', background: '#090b0f', color: '#8fa3bc', display: 'flex', justifyContent: 'center', minHeight: '100vh' }}>
+        Carregando Ações por Etapa...
       </div>
     )
   }
 
-  if (error) {
+  if (error && breakdowns.length === 0) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0c0c0c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: 12, padding: '24px 32px', maxWidth: 420, textAlign: 'center' }}>
-          <p style={{ color: '#ef4444', fontSize: 14, margin: 0 }}>{error}</p>
-          <a href="/login" style={{ display: 'inline-block', marginTop: 16, fontSize: 13, color: '#60a5fa', textDecoration: 'none' }}>
-            Ir para o login
-          </a>
+      <div style={{ alignItems: 'center', background: '#090b0f', color: '#8fa3bc', display: 'flex', justifyContent: 'center', minHeight: '100vh', padding: 24 }}>
+        <div style={{ ...cardStyle(), maxWidth: 480, padding: 24, textAlign: 'center' }}>
+          <strong style={{ color: '#fca5a5' }}>Não foi possível carregar o relatório.</strong>
+          <div style={{ fontSize: 13, marginTop: 8 }}>{error}</div>
         </div>
       </div>
     )
   }
 
-  // ===========================================================================
-  // Render
-  // ===========================================================================
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#0c0c0c',
-        color: 'white',
-        padding: '40px 24px 80px',
-        overflowY: 'auto',
-      }}
-    >
-      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+    <div style={{ background: '#090b0f', color: '#edf2f7', minHeight: '100vh', padding: '32px 24px 80px' }}>
+      <div style={{ margin: '0 auto', maxWidth: 1200 }}>
+        <a href="/relatorios" style={{ color: '#8fa3bc', display: 'inline-flex', fontSize: 13, marginBottom: 28, textDecoration: 'none' }}>
+          ← Voltar para Relatórios
+        </a>
 
-        {/* Breadcrumb */}
-        <div style={{ marginBottom: 28 }}>
-          <a
-            href="/relatorios"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 13,
-              color: '#555',
-              textDecoration: 'none',
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.color = '#aaa')}
-            onMouseOut={(e) => (e.currentTarget.style.color = '#555')}
-          >
-            <IconChevronLeft />
-            Voltar para Relatórios
-          </a>
-        </div>
-
-        {/* Page header */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <span style={{ color: '#a78bfa' }}><IconLayers /></span>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: '-0.01em' }}>
-              Ações por Etapa
-            </h1>
-          </div>
-          <p style={{ fontSize: 13, color: '#555', margin: 0 }}>
-            Distribuição das ações operacionais registradas em cada etapa do funil
+        <header style={{ marginBottom: 28 }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>Ações por Etapa</h1>
+          <p style={{ color: '#8fa3bc', fontSize: 13, margin: '7px 0 0' }}>
+            Distribuição das ações comerciais registradas em cada etapa do funil.
           </p>
-        </div>
+        </header>
 
-        {/* Sub-navigation */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 4,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            borderBottom: '1px solid #1a1a1a',
-            paddingBottom: 0,
-          }}
-        >
-        {[
-            { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva', active: false, comingSoon: false },
-            { label: 'Ações por Etapa', href: null, active: true, comingSoon: false },
-            { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao', active: false, comingSoon: false },
-            { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas', active: false, comingSoon: false },
-            { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes', active: false, comingSoon: false },
-            { label: 'Canais', href: '/relatorios/operacao/canais', active: false, comingSoon: false },
-            { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor', active: false, comingSoon: false },
-          ].map((tab) => (
-            <button
-              key={tab.label}
-              disabled={!tab.active && !tab.href}
-              onClick={() => { if (tab.href) window.location.href = tab.href }}
-              style={{
-                background: 'none',
-                border: 'none',
-                borderBottom: tab.active ? '2px solid #a78bfa' : '2px solid transparent',
-                cursor: tab.active ? 'default' : tab.href ? 'pointer' : 'not-allowed',
-                padding: '8px 14px',
-                fontSize: 13,
-                fontWeight: tab.active ? 600 : 400,
-                color: tab.active ? '#a78bfa' : tab.href ? '#888' : '#444',
-                marginBottom: -1,
-                transition: 'color 0.15s',
-              }}
-            >
-              {tab.label}
-              {tab.comingSoon && (
-                <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    color: '#333',
-                    background: '#151515',
-                    border: '1px solid #222',
-                    borderRadius: 3,
-                    padding: '1px 5px',
-                  }}
-                >
-                  em breve
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <nav style={{ borderBottom: '1px solid #1a1d2e', display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 26 }}>
+          {SUBNAV.map((tab) =>
+            tab.href === null ? (
+              <span key={tab.label} style={{ borderBottom: '2px solid #60a5fa', color: '#60a5fa', fontSize: 13, fontWeight: 800, marginBottom: -1, padding: '9px 14px' }}>
+                {tab.label}
+              </span>
+            ) : (
+              <a key={tab.label} href={tab.href} style={{ borderBottom: '2px solid transparent', color: '#8fa3bc', fontSize: 13, marginBottom: -1, padding: '9px 14px', textDecoration: 'none' }}>
+                {tab.label}
+              </a>
+            ),
+          )}
+        </nav>
 
-        {/* Filters */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 12,
-            flexWrap: 'wrap',
-            marginBottom: 32,
-            padding: '16px 20px',
-            background: '#0f0f0f',
-            border: '1px solid #1e1e1e',
-            borderRadius: 12,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              De
-            </label>
-            <input
-              type="date"
-              value={dateStart}
-              onChange={(e) => setDateStart(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+        <section style={{ ...cardStyle(), alignItems: 'end', display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24, padding: '16px 20px' }}>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>De</span>
+            <input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} style={inputStyle} />
+          </label>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-              Até
-            </label>
-            <input
-              type="date"
-              value={dateEnd}
-              onChange={(e) => setDateEnd(e.target.value)}
-              style={{
-                background: '#151515',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                padding: '6px 10px',
-                outline: 'none',
-                colorScheme: 'dark',
-              }}
-            />
-          </div>
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Até</span>
+            <input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} style={inputStyle} />
+          </label>
 
-          {isAdmin && sellers.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#555' }}>
-                Consultor
-              </label>
-              <select
-                value={selectedSellerId ?? ''}
-                onChange={(e) => setSelectedSellerId(e.target.value || null)}
-                style={{
-                  background: '#151515',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: 8,
-                  color: 'white',
-                  fontSize: 13,
-                  padding: '6px 10px',
-                  outline: 'none',
-                  minWidth: 180,
-                }}
-              >
+          {isAdmin && (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={fieldLabelStyle}>Consultor</span>
+              <select value={selectedSellerId ?? ''} onChange={(event) => setSelectedSellerId(event.target.value || null)} style={{ ...inputStyle, minWidth: 215 }}>
                 <option value="">Todos os consultores</option>
-                {sellers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name ?? s.id}
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.full_name || seller.email || seller.id}
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
           )}
 
-          {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#555', fontSize: 12 }}>
-              <IconLoader />
-              Atualizando...
-            </div>
-          )}
-        </div>
+          {loadingData && <span style={{ color: '#8fa3bc', fontSize: 12, paddingBottom: 8 }}>Atualizando...</span>}
+        </section>
 
-        {/* Executive Summary — 4 cards */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
-          <SummaryCard
-            label="Total de ações"
-            value={grandTotal}
-            sub="no período selecionado"
-          />
-          <SummaryCard
-            label="Etapa mais ativa"
-            value={mostActiveStage && mostActiveStage.total > 0 ? mostActiveStage.label : '—'}
-            sub={mostActiveStage && mostActiveStage.total > 0 ? `${mostActiveStage.total} ações` : 'sem dados'}
-            accent={mostActiveStage && mostActiveStage.total > 0 ? mostActiveStage.color : undefined}
-          />
-          <SummaryCard
-            label="Ação mais usada"
-            value={mostUsedAction && mostUsedAction.count > 0 ? mostUsedAction.label : '—'}
-            sub={mostUsedAction && mostUsedAction.count > 0 ? `${mostUsedAction.count}× registrada` : 'sem dados'}
-          />
-          <div
-            style={{
-              background: '#0f0f0f',
-              border: '1px solid #202020',
-              borderRadius: 12,
-              padding: '18px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              flex: '1 1 180px',
-              minWidth: 0,
-            }}
-          >
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#555' }}>
-              Distribuição por etapa
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
-              {breakdowns.map((b) => (
-                <div key={b.stage} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#666', minWidth: 70 }}>{b.label}</span>
-                  <span style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>
-                    {grandTotal > 0 ? Math.round((b.total / grandTotal) * 100) : 0}%
-                  </span>
-                </div>
-              ))}
-            </div>
-            <DistributionBar breakdowns={breakdowns} />
+        {error && (
+          <div style={{ background: '#ef444414', border: '1px solid #ef444440', borderRadius: 7, color: '#fca5a5', fontSize: 13, marginBottom: 20, padding: '10px 14px' }}>
+            {error}
           </div>
-        </div>
+        )}
 
-        {/* Stage breakdowns */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {breakdowns.map((breakdown) => (
-            <StageSection key={breakdown.stage} breakdown={breakdown} />
-          ))}
-        </div>
+        <section style={{ marginBottom: 28 }}>
+          <div style={{ color: '#93c5fd', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', marginBottom: 12, textTransform: 'uppercase' }}>
+            Panorama do período
+          </div>
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+            <SummaryCard label="Total de ações" value={totalActions} detail="ações com identificação na taxonomia do funil" accent="#60a5fa" />
+            <SummaryCard
+              label="Etapa mais ativa"
+              value={mostActiveStage?.total ? mostActiveStage.label : '—'}
+              detail={mostActiveStage?.total ? `${mostActiveStage.total} ações registradas` : 'sem ações no período'}
+              accent={mostActiveStage?.color}
+            />
+            <SummaryCard
+              label="Ação mais usada"
+              value={mostUsedAction?.count ? mostUsedAction.label : '—'}
+              detail={mostUsedAction?.count ? `${mostUsedAction.count} registro(s)` : 'sem ações no período'}
+              accent="#a78bfa"
+            />
+            <SummaryCard
+              label="Etapas ativas"
+              value={breakdowns.filter((breakdown) => breakdown.total > 0).length}
+              detail="etapas com ao menos uma ação registrada"
+              accent="#86efac"
+            />
+          </div>
+        </section>
 
+        {totalActions === 0 && !loadingData ? (
+          <section style={{ ...cardStyle(), color: '#8fa3bc', padding: '48px 24px', textAlign: 'center' }}>
+            <strong style={{ color: '#edf2f7' }}>Nenhuma ação identificada no período.</strong>
+            <div style={{ fontSize: 12, marginTop: 7 }}>
+              Ajuste o período ou o consultor selecionado.
+            </div>
+          </section>
+        ) : (
+          <section style={{ display: 'grid', gap: 16 }}>
+            {breakdowns.map((breakdown) => (
+              <StageSection key={breakdown.stage} breakdown={breakdown} />
+            ))}
+          </section>
+        )}
       </div>
     </div>
   )
+}
+
+const fieldLabelStyle: React.CSSProperties = {
+  color: '#4a5569',
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: '#0d0f14',
+  border: '1px solid #1a1d2e',
+  borderRadius: 7,
+  color: '#edf2f7',
+  colorScheme: 'dark',
+  fontSize: 13,
+  outline: 'none',
+  padding: '7px 10px',
 }
