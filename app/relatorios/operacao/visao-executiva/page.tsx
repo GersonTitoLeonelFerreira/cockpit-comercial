@@ -198,7 +198,6 @@ function isCommercialEvent(event: RawEvent) {
   const kind = classifyEvent(event)
 
   if (SYSTEM_EVENT_TYPES.has(eventType)) return false
-  if (eventType === 'stage_changed' || eventType === 'stage_checkpoint') return true
   if (kind === 'stage_move' || kind === 'next_action' || kind === 'won' || kind === 'lost') return true
   if (eventType.startsWith('quick_')) return true
   if (/^(novo|contato|respondeu|negociacao)_/.test(eventType)) return true
@@ -677,8 +676,6 @@ export default function VisaoExecutivaPage() {
           user_id?: string
           active_company_id?: string | null
           active_role?: string | null
-          active_company_role?: string | null
-          is_platform_admin?: boolean
         }
 
         if (!me.user_id) {
@@ -694,14 +691,8 @@ export default function VisaoExecutivaPage() {
           me.active_company_id,
         )
 
-        const membershipRole = String(
-          me.active_role ?? me.active_company_role ?? ''
-        ).toLowerCase()
-
-        const adminUser =
-          me.is_platform_admin === true ||
-          ['admin', 'owner', 'manager'].includes(membershipRole) ||
-          activeSellers.some((seller) => seller.id != me.user_id)
+        const membershipRole = String(me.active_role ?? '').toLowerCase()
+        const adminUser = ['admin', 'owner', 'manager'].includes(membershipRole)
 
         setCurrentUserId(me.user_id)
         setCompanyId(me.active_company_id)
@@ -718,10 +709,10 @@ export default function VisaoExecutivaPage() {
   }, [supabase])
 
   React.useEffect(() => {
-    if (companyId === null || currentUserId === null) return
+    const resolvedCompanyId = companyId
+    const resolvedCurrentUserId = currentUserId
 
-    const resolvedCompanyId: string = companyId
-    const resolvedCurrentUserId: string = currentUserId
+    if (!resolvedCompanyId || !resolvedCurrentUserId) return
 
     async function loadReport() {
       setRefreshing(true)
@@ -1363,3 +1354,4 @@ const navButtonStyle: React.CSSProperties = {
   padding: '8px 12px',
   textDecoration: 'none',
 }
+
