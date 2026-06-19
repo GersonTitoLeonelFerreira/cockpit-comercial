@@ -8,7 +8,6 @@ import {
   AuthInlineMessage,
   AuthPrimaryButton,
   AuthScaffold,
-  AuthSecondaryLink,
   AuthSelect,
   AuthTextArea,
   AuthTextInput,
@@ -118,14 +117,8 @@ export default function CadastroLeadPage() {
       sideBadge="Diagnóstico comercial"
       heroTitle="Organize o funil, elimine gargalos e ganhe previsibilidade no comercial."
       asideSubtitle="O Yolen ajuda sua operação a enxergar travas, padronizar execução e transformar volume em resultado com leitura clara do pipeline."
-      brandVariant="logo"
-      brandLogoSrc="/branding/yolen-logo-principal.png"
-      brandLogoAlt="Yolen"
-      brandLogoWidth={280}
-      brandLogoHeight={82}
-      brandTagline="Cockpit comercial para equipes de vendas"
-      desktopSplitScroll
-      topAction={<AuthSecondaryLink href="/login">Voltar para login</AuthSecondaryLink>}
+      asideTitle="Yolen"
+      footerLinks={[{ label: 'Voltar para login', href: '/login' }]}
       stats={[
         { value: 'Pipeline executivo', label: 'visão clara por etapa' },
         { value: 'Follow-up controlado', label: 'menos lead parado' },
