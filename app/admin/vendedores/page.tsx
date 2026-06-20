@@ -4,12 +4,14 @@ import { redirect } from 'next/navigation'
 import SellersAdminClient from './SellersAdminClient'
 
 export const metadata = {
-  title: 'Gestão de Vendedores | Cockpit Comercial',
+  title: 'Gestão de Vendedores | Yolen',
 }
 
 export default async function AdminVendedoresPage() {
   const cookieStore = await cookies()
-  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  const activeCompanyId =
+    cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   if (!activeCompanyId) {
     redirect('/select-company')
@@ -46,11 +48,7 @@ export default async function AdminVendedoresPage() {
     .eq('id', data.user.id)
     .maybeSingle()
 
-  if (profileError || !profile?.id) {
-    redirect('/login')
-  }
-
-  if (profile.is_active_global === false) {
+  if (profileError || !profile?.id || profile.is_active_global === false) {
     redirect('/login')
   }
 
@@ -70,10 +68,5 @@ export default async function AdminVendedoresPage() {
     redirect('/leads')
   }
 
-  return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 lg:px-8">
-      <h1 className="mb-4 text-2xl font-bold text-white">Gestão de Vendedores</h1>
-      <SellersAdminClient activeCompanyId={activeCompanyId} />
-    </div>
-  )
+  return <SellersAdminClient activeCompanyId={membership.company_id} />
 }
