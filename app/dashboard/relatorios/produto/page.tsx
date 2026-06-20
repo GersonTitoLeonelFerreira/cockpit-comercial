@@ -15,6 +15,64 @@ import type {
 } from '@/app/types/productMix'
 
 // ==============================================================================
+// Design system
+// ==============================================================================
+
+const DS = {
+  contentBg: '#090b0f',
+  panelBg: '#0d0f14',
+  cardBg: '#141722',
+  surfaceBg: '#111318',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+
+  blue: '#3b82f6',
+  blueLight: '#60a5fa',
+  blueSoft: '#93c5fd',
+
+  green: '#22c55e',
+  greenSoft: '#86efac',
+
+  yellow: '#f59e0b',
+  yellowSoft: '#fef3c7',
+
+  red: '#ef4444',
+  redSoft: '#fca5a5',
+
+  radius: 7,
+  radiusContainer: 9,
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
+} as const
+
+const REPORT_LINKS = [
+  {
+    label: 'Performance por Produto',
+    href: '/dashboard/relatorios/produto',
+    active: true,
+  },
+  {
+    label: 'Dia da Semana',
+    href: '/dashboard/relatorios/dia-semana',
+    active: false,
+  },
+  {
+    label: 'Semana do Mês',
+    href: '/dashboard/relatorios/semana-mes',
+    active: false,
+  },
+  {
+    label: 'Sazonalidade Mensal',
+    href: '/dashboard/relatorios/sazonalidade-mensal',
+    active: false,
+  },
+]
+
+// ==============================================================================
 // Helpers
 // ==============================================================================
 
@@ -22,6 +80,8 @@ function toBRL(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(value)
 }
 
@@ -50,6 +110,34 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+function cardStyle(): React.CSSProperties {
+  return {
+    background: DS.cardBg,
+    border: `1px solid ${DS.border}`,
+    borderRadius: DS.radiusContainer,
+    boxShadow: DS.shadowCard,
+  }
+}
+
+const fieldLabelStyle: React.CSSProperties = {
+  color: DS.textLabel,
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: DS.surfaceBg,
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius,
+  color: DS.textPrimary,
+  fontSize: 13,
+  height: 38,
+  outline: 'none',
+  padding: '0 11px',
+}
+
 // ==============================================================================
 // Types
 // ==============================================================================
@@ -68,39 +156,122 @@ type MeResponse = {
 }
 
 // ==============================================================================
-// Sub-components
+// Components
 // ==============================================================================
 
-function KpiCard({
-  label,
-  name,
-  value,
-  sub,
+function SectionLabel({
+  children,
 }: {
-  label: string
-  name: string | null
-  value: string
-  sub?: string
+  children: React.ReactNode
 }) {
   return (
     <div
       style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 12,
+        color: DS.blueSoft,
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: '0.08em',
+        marginBottom: 12,
+        textTransform: 'uppercase',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  description,
+  accent = DS.blueSoft,
+}: {
+  label: string
+  value: string
+  description: string
+  accent?: string
+}) {
+  return (
+    <div
+      style={{
+        ...cardStyle(),
         display: 'flex',
         flex: '1 1 200px',
         flexDirection: 'column',
-        gap: 6,
-        minWidth: 180,
-        padding: '16px 18px',
+        minHeight: 126,
+        padding: '17px 18px',
       }}
     >
       <div
         style={{
+          color: DS.textLabel,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        style={{
+          color: accent,
+          fontSize: 24,
+          fontWeight: 900,
+          letterSpacing: '-0.025em',
+          lineHeight: 1,
+          marginTop: 12,
+        }}
+      >
+        {value}
+      </div>
+
+      <div
+        style={{
+          color: DS.textSecondary,
           fontSize: 11,
-          letterSpacing: 1,
-          opacity: 0.55,
+          lineHeight: 1.45,
+          marginTop: 'auto',
+          paddingTop: 10,
+        }}
+      >
+        {description}
+      </div>
+    </div>
+  )
+}
+
+function HighlightCard({
+  label,
+  name,
+  value,
+  description,
+  accent = DS.blueSoft,
+}: {
+  label: string
+  name: string | null
+  value: string
+  description?: string
+  accent?: string
+}) {
+  return (
+    <div
+      style={{
+        ...cardStyle(),
+        display: 'flex',
+        flex: '1 1 220px',
+        flexDirection: 'column',
+        minHeight: 136,
+        padding: '17px 18px',
+      }}
+    >
+      <div
+        style={{
+          color: DS.textLabel,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
           textTransform: 'uppercase',
         }}
       >
@@ -109,17 +280,57 @@ function KpiCard({
 
       {name ? (
         <>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{name}</div>
-          <div style={{ color: '#e8e8e8', fontSize: 18, fontWeight: 800 }}>
+          <div
+            style={{
+              color: DS.textPrimary,
+              fontSize: 14,
+              fontWeight: 800,
+              lineHeight: 1.3,
+              marginTop: 11,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+            title={name}
+          >
+            {name}
+          </div>
+
+          <div
+            style={{
+              color: accent,
+              fontSize: 21,
+              fontWeight: 900,
+              letterSpacing: '-0.02em',
+              lineHeight: 1.1,
+              marginTop: 7,
+            }}
+          >
             {value}
           </div>
 
-          {sub ? (
-            <div style={{ fontSize: 11, opacity: 0.6 }}>{sub}</div>
+          {description ? (
+            <div
+              style={{
+                color: DS.textSecondary,
+                fontSize: 11,
+                lineHeight: 1.4,
+                marginTop: 'auto',
+                paddingTop: 8,
+              }}
+            >
+              {description}
+            </div>
           ) : null}
         </>
       ) : (
-        <div style={{ fontSize: 13, marginTop: 4, opacity: 0.5 }}>
+        <div
+          style={{
+            color: DS.textMuted,
+            fontSize: 13,
+            marginTop: 16,
+          }}
+        >
           Base insuficiente
         </div>
       )}
@@ -127,48 +338,243 @@ function KpiCard({
   )
 }
 
-function SimpleKpiCard({
-  label,
-  value,
-  sub,
+function ProductRow({
+  row,
 }: {
-  label: string
-  value: string
-  sub?: string
+  row: ProductPerformanceRow
 }) {
+  const isUnlinked = row.product_id === null
+
   return (
-    <div
+    <tr
       style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 12,
-        display: 'flex',
-        flex: '1 1 200px',
-        flexDirection: 'column',
-        gap: 6,
-        minWidth: 180,
-        padding: '16px 18px',
+        background: isUnlinked ? 'rgba(245,158,11,0.025)' : 'transparent',
+        borderBottom: `1px solid ${DS.borderSubtle}`,
       }}
     >
-      <div
+      <td style={{ padding: '14px 18px' }}>
+        <div
+          style={{
+            color: isUnlinked ? DS.yellowSoft : DS.textPrimary,
+            fontSize: 13,
+            fontWeight: isUnlinked ? 600 : 800,
+          }}
+        >
+          {row.product_name}
+        </div>
+
+        {row.product_category && !isUnlinked ? (
+          <div
+            style={{
+              color: DS.textMuted,
+              fontSize: 11,
+              marginTop: 4,
+            }}
+          >
+            {row.product_category}
+          </div>
+        ) : null}
+      </td>
+
+      <td
         style={{
-          fontSize: 11,
-          letterSpacing: 1,
-          opacity: 0.55,
-          textTransform: 'uppercase',
+          color: DS.textPrimary,
+          fontSize: 13,
+          fontWeight: 700,
+          padding: '14px 12px',
+          textAlign: 'right',
         }}
       >
-        {label}
-      </div>
+        {row.total_ganhos}
+      </td>
 
-      <div style={{ color: '#e8e8e8', fontSize: 18, fontWeight: 800 }}>
-        {value}
-      </div>
+      <td
+        style={{
+          color: DS.greenSoft,
+          fontSize: 13,
+          fontWeight: 800,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toBRL(row.total_faturamento)}
+      </td>
 
-      {sub ? (
-        <div style={{ fontSize: 11, opacity: 0.6 }}>{sub}</div>
-      ) : null}
-    </div>
+      <td
+        style={{
+          color: DS.textPrimary,
+          fontSize: 13,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toBRL(row.ticket_medio)}
+      </td>
+
+      <td
+        style={{
+          color: DS.textSecondary,
+          fontSize: 13,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toPercent(row.pct_faturamento)}
+      </td>
+
+      <td
+        style={{
+          color: DS.textSecondary,
+          fontSize: 13,
+          padding: '14px 18px',
+          textAlign: 'right',
+        }}
+      >
+        {toPercent(row.pct_volume)}
+      </td>
+    </tr>
+  )
+}
+
+function MixRow({
+  row,
+}: {
+  row: ProductMixRow
+}) {
+  const isUnlinked = row.product_id === null
+  const isDominant = row.peso_mix > 0.3
+
+  return (
+    <tr
+      style={{
+        background:
+          isDominant && !isUnlinked
+            ? 'rgba(59,130,246,0.055)'
+            : isUnlinked
+              ? 'rgba(245,158,11,0.025)'
+              : 'transparent',
+        borderBottom: `1px solid ${DS.borderSubtle}`,
+      }}
+    >
+      <td style={{ padding: '14px 18px' }}>
+        <div
+          style={{
+            alignItems: 'center',
+            display: 'flex',
+            gap: 7,
+          }}
+        >
+          <span
+            style={{
+              color: isUnlinked ? DS.yellowSoft : DS.textPrimary,
+              fontSize: 13,
+              fontWeight: isUnlinked ? 600 : 800,
+            }}
+          >
+            {row.product_name}
+          </span>
+
+          {isDominant && !isUnlinked ? (
+            <span
+              style={{
+                background: 'rgba(59,130,246,0.13)',
+                border: '1px solid rgba(96,165,250,0.25)',
+                borderRadius: 4,
+                color: DS.blueSoft,
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                padding: '3px 6px',
+                textTransform: 'uppercase',
+              }}
+            >
+              dominante
+            </span>
+          ) : null}
+        </div>
+
+        {row.product_category && !isUnlinked ? (
+          <div
+            style={{
+              color: DS.textMuted,
+              fontSize: 11,
+              marginTop: 4,
+            }}
+          >
+            {row.product_category}
+          </div>
+        ) : null}
+      </td>
+
+      <td
+        style={{
+          color: DS.textPrimary,
+          fontSize: 13,
+          fontWeight: 700,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.total_ganhos}
+      </td>
+
+      <td
+        style={{
+          color: DS.greenSoft,
+          fontSize: 13,
+          fontWeight: 800,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toBRL(row.total_faturamento)}
+      </td>
+
+      <td
+        style={{
+          color: DS.textPrimary,
+          fontSize: 13,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toBRL(row.ticket_medio)}
+      </td>
+
+      <td
+        style={{
+          color: DS.textSecondary,
+          fontSize: 13,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toPercent(row.pct_faturamento)}
+      </td>
+
+      <td
+        style={{
+          color: DS.textSecondary,
+          fontSize: 13,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {toPercent(row.pct_volume)}
+      </td>
+
+      <td
+        style={{
+          color: isDominant ? DS.blueSoft : DS.textSecondary,
+          fontSize: 13,
+          fontWeight: isDominant ? 800 : 600,
+          padding: '14px 18px',
+          textAlign: 'right',
+        }}
+      >
+        {toPercent(row.peso_mix)}
+      </td>
+    </tr>
   )
 }
 
@@ -180,7 +586,7 @@ export default function ProdutoRelatorioPg() {
   const supabase = React.useMemo(() => supabaseBrowser(), [])
 
   const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
+  const [pageError, setPageError] = React.useState<string | null>(null)
 
   const [canFilterSellers, setCanFilterSellers] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
@@ -202,7 +608,7 @@ export default function ProdutoRelatorioPg() {
   React.useEffect(() => {
     async function initialize() {
       setLoading(true)
-      setError(null)
+      setPageError(null)
 
       try {
         const response = await fetch('/api/me', {
@@ -217,11 +623,14 @@ export default function ProdutoRelatorioPg() {
           )
         }
 
-        if (!me.user_id) {
+        const currentUserId = me.user_id
+        const activeCompanyId = me.active_company_id
+
+        if (!currentUserId) {
           throw new Error('Sessão expirada. Faça login novamente.')
         }
 
-        if (!me.active_company_id) {
+        if (!activeCompanyId) {
           throw new Error('Nenhuma empresa ativa foi selecionada.')
         }
 
@@ -234,10 +643,10 @@ export default function ProdutoRelatorioPg() {
 
         const sellerRows = await faturamentoService.getSellers(
           supabase,
-          me.active_company_id,
+          activeCompanyId,
         )
 
-        setCompanyId(me.active_company_id)
+        setCompanyId(activeCompanyId)
         setCanFilterSellers(canManage)
 
         setSellers(
@@ -247,12 +656,12 @@ export default function ProdutoRelatorioPg() {
           })),
         )
 
-        setSelectedSellerId(canManage ? null : me.user_id)
+        setSelectedSellerId(canManage ? null : currentUserId)
       } catch (cause: unknown) {
-        setError(
+        setPageError(
           getErrorMessage(
             cause,
-            'Erro ao carregar a empresa ativa e os vendedores.',
+            'Erro ao carregar a empresa ativa e os consultores.',
           ),
         )
       } finally {
@@ -268,6 +677,7 @@ export default function ProdutoRelatorioPg() {
       return
     }
 
+    const activeCompanyId = companyId
     let cancelled = false
 
     async function loadData() {
@@ -276,7 +686,7 @@ export default function ProdutoRelatorioPg() {
 
       try {
         const result = await getProductPerformance({
-          companyId,
+          companyId: activeCompanyId,
           ownerId: selectedSellerId,
           dateStart,
           dateEnd,
@@ -311,376 +721,493 @@ export default function ProdutoRelatorioPg() {
     }
   }, [companyId, dateEnd, dateStart, selectedSellerId])
 
-  const navLinkBase: React.CSSProperties = {
-    background: 'transparent',
-    border: '1px solid #333',
-    borderRadius: 10,
-    color: '#9aa',
-    fontSize: 13,
-    padding: '8px 12px',
-    textDecoration: 'none',
-  }
-
-  const navLinkActive: React.CSSProperties = {
-    ...navLinkBase,
-    background: '#111',
-    color: 'white',
-  }
-
   const unlinkedSales =
     summary?.rows.find((row) => row.product_id === null)?.total_ganhos ?? 0
 
   if (loading) {
     return (
-      <div style={{ color: 'white', opacity: 0.7, padding: 40 }}>
-        Carregando empresa ativa...
+      <div
+        style={{
+          alignItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100vh',
+        }}
+      >
+        Carregando Performance por Produto...
       </div>
     )
   }
 
-  if (error) {
+  if (pageError) {
     return (
-      <div style={{ color: '#ef4444', padding: 40 }}>
-        Erro: {error}
+      <div
+        style={{
+          alignItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: 24,
+        }}
+      >
+        <div
+          style={{
+            ...cardStyle(),
+            maxWidth: 460,
+            padding: 24,
+            textAlign: 'center',
+          }}
+        >
+          <strong style={{ color: DS.redSoft }}>
+            Não foi possível carregar o relatório.
+          </strong>
+
+          <div style={{ fontSize: 13, marginTop: 8 }}>
+            {pageError}
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ color: 'white', padding: 40, width: '100%' }}>
-      <h1 style={{ marginBottom: 8, textAlign: 'center' }}>
-        Performance por Produto
-      </h1>
-
-      <p
-        style={{
-          fontSize: 13,
-          lineHeight: 1.5,
-          margin: '0 auto 20px',
-          maxWidth: 680,
-          opacity: 0.55,
-          textAlign: 'center',
-        }}
-      >
-        Analisa quais produtos sustentam o faturamento, o ticket médio e o
-        volume de vendas ganhas no período.
-      </p>
-
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 12,
-          justifyContent: 'center',
-          marginBottom: 30,
-          marginTop: 10,
-        }}
-      >
-        <a href="/relatorios" style={navLinkBase}>
-          Relatórios
-        </a>
-
+    <div
+      style={{
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        minHeight: '100vh',
+        padding: '32px 24px 80px',
+      }}
+    >
+      <div style={{ margin: '0 auto', maxWidth: 1200 }}>
         <a
-          href="/dashboard/relatorios/produto"
-          style={navLinkActive}
+          href="/relatorios"
+          style={{
+            color: DS.textSecondary,
+            display: 'inline-flex',
+            fontSize: 13,
+            marginBottom: 28,
+            textDecoration: 'none',
+          }}
         >
-          Performance por Produto
+          ← Voltar para Relatórios
         </a>
-      </div>
 
-      <div
-        style={{
-          alignItems: 'flex-end',
-          background: '#0f0f0f',
-          border: '1px solid #202020',
-          borderRadius: 12,
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 16,
-          margin: '0 auto 28px',
-          maxWidth: 980,
-          padding: '14px 18px',
-        }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label
+        <header style={{ marginBottom: 28 }}>
+          <div
             style={{
-              fontSize: 11,
-              opacity: 0.6,
-              textTransform: 'uppercase',
+              alignItems: 'center',
+              display: 'flex',
+              gap: 10,
+              marginBottom: 7,
             }}
           >
-            Data Início
-          </label>
-
-          <input
-            type="date"
-            value={dateStart}
-            onChange={(event) => setDateStart(event.target.value)}
-            style={{
-              background: '#111',
-              border: '1px solid #2a2a2a',
-              borderRadius: 8,
-              color: 'white',
-              fontSize: 13,
-              padding: '8px 10px',
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label
-            style={{
-              fontSize: 11,
-              opacity: 0.6,
-              textTransform: 'uppercase',
-            }}
-          >
-            Data Fim
-          </label>
-
-          <input
-            type="date"
-            value={dateEnd}
-            onChange={(event) => setDateEnd(event.target.value)}
-            style={{
-              background: '#111',
-              border: '1px solid #2a2a2a',
-              borderRadius: 8,
-              color: 'white',
-              fontSize: 13,
-              padding: '8px 10px',
-            }}
-          />
-        </div>
-
-        {canFilterSellers ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label
+            <span
               style={{
-                fontSize: 11,
-                opacity: 0.6,
-                textTransform: 'uppercase',
+                color: DS.blueLight,
+                fontSize: 19,
+                lineHeight: 1,
               }}
             >
-              Consultor
+              ◫
+            </span>
+
+            <h1
+              style={{
+                fontSize: 23,
+                fontWeight: 850,
+                letterSpacing: '-0.015em',
+                margin: 0,
+              }}
+            >
+              Performance por Produto
+            </h1>
+          </div>
+
+          <p
+            style={{
+              color: DS.textSecondary,
+              fontSize: 13,
+              lineHeight: 1.5,
+              margin: 0,
+              maxWidth: 760,
+            }}
+          >
+            Leitura comercial dos produtos que sustentam faturamento, ticket
+            médio e volume de vendas ganhas no período.
+          </p>
+        </header>
+
+        <nav
+          style={{
+            borderBottom: `1px solid ${DS.border}`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            marginBottom: 28,
+          }}
+        >
+          {REPORT_LINKS.map((item) =>
+            item.active ? (
+              <span
+                key={item.href}
+                style={{
+                  borderBottom: `2px solid ${DS.blueLight}`,
+                  color: DS.blueLight,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  marginBottom: -1,
+                  padding: '9px 14px',
+                }}
+              >
+                {item.label}
+              </span>
+            ) : (
+              <a
+                key={item.href}
+                href={item.href}
+                style={{
+                  borderBottom: '2px solid transparent',
+                  color: DS.textSecondary,
+                  fontSize: 13,
+                  marginBottom: -1,
+                  padding: '9px 14px',
+                  textDecoration: 'none',
+                }}
+              >
+                {item.label}
+              </a>
+            ),
+          )}
+        </nav>
+
+        <section
+          style={{
+            ...cardStyle(),
+            alignItems: 'flex-end',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 24,
+            padding: '16px 20px',
+          }}
+        >
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>De</span>
+
+            <input
+              type="date"
+              value={dateStart}
+              onChange={(event) => setDateStart(event.target.value)}
+              style={{
+                ...inputStyle,
+                colorScheme: 'dark',
+              }}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Até</span>
+
+            <input
+              type="date"
+              value={dateEnd}
+              onChange={(event) => setDateEnd(event.target.value)}
+              style={{
+                ...inputStyle,
+                colorScheme: 'dark',
+              }}
+            />
+          </label>
+
+          {canFilterSellers ? (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={fieldLabelStyle}>Consultor</span>
+
+              <select
+                value={selectedSellerId ?? ''}
+                onChange={(event) =>
+                  setSelectedSellerId(event.target.value || null)
+                }
+                style={{
+                  ...inputStyle,
+                  minWidth: 225,
+                }}
+              >
+                <option value="">Empresa toda</option>
+
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.label}
+                  </option>
+                ))}
+              </select>
             </label>
+          ) : null}
 
-            <select
-              value={selectedSellerId ?? ''}
-              onChange={(event) =>
-                setSelectedSellerId(event.target.value || null)
-              }
-              style={{
-                background: '#111',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                fontSize: 13,
-                minWidth: 200,
-                padding: '8px 10px',
-              }}
-            >
-              <option value="">Empresa toda</option>
-
-              {sellers.map((seller) => (
-                <option key={seller.id} value={seller.id}>
-                  {seller.label}
-                </option>
-              ))}
-            </select>
+          <div
+            style={{
+              color: dataLoading ? DS.blueSoft : DS.textMuted,
+              fontSize: 12,
+              fontWeight: 700,
+              marginLeft: 'auto',
+              paddingBottom: 10,
+            }}
+          >
+            {dataLoading ? 'Atualizando dados...' : 'Dados atualizados automaticamente'}
           </div>
-        ) : null}
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gap: 18,
-          margin: '0 auto',
-          maxWidth: 980,
-        }}
-      >
-        {dataLoading ? (
-          <div style={{ opacity: 0.6, padding: 20 }}>
-            Atualizando dados...
-          </div>
-        ) : null}
+        </section>
 
         {dataError ? (
-          <div style={{ color: '#ef4444', padding: 20 }}>
-            Erro: {dataError}
+          <div
+            style={{
+              background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.22)',
+              borderRadius: DS.radius,
+              color: DS.redSoft,
+              fontSize: 13,
+              marginBottom: 20,
+              padding: '12px 14px',
+            }}
+          >
+            {dataError}
           </div>
         ) : null}
 
-        {!dataLoading && !dataError && summary ? (
+        {dataLoading && !summary ? (
+          <div
+            style={{
+              ...cardStyle(),
+              color: DS.textSecondary,
+              fontSize: 13,
+              padding: '40px 24px',
+              textAlign: 'center',
+            }}
+          >
+            Carregando resultado comercial...
+          </div>
+        ) : null}
+
+        {summary ? (
           <>
-            <div
+            <section style={{ marginBottom: 28 }}>
+              <SectionLabel>Resultado Consolidado</SectionLabel>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 12,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                }}
+              >
+                <MetricCard
+                  label="Faturamento das Vendas"
+                  value={toBRL(summary.totals.total_faturamento)}
+                  description="Soma das vendas ganhas no período."
+                  accent={DS.greenSoft}
+                />
+
+                <MetricCard
+                  label="Vendas Ganhas"
+                  value={String(summary.totals.total_ganhos)}
+                  description="Ciclos efetivamente fechados como ganho."
+                  accent={DS.greenSoft}
+                />
+
+                <MetricCard
+                  label="Ticket Médio"
+                  value={toBRL(summary.totals.ticket_medio_geral)}
+                  description="Faturamento das vendas dividido pelo volume ganho."
+                  accent={DS.blueSoft}
+                />
+
+                <MetricCard
+                  label="Produtos no Mix"
+                  value={String(
+                    summary.rows.filter((row) => row.product_id !== null).length,
+                  )}
+                  description={
+                    unlinkedSales > 0
+                      ? `${unlinkedSales} venda(s) ainda sem produto vinculado.`
+                      : 'Todas as vendas possuem produto vinculado.'
+                  }
+                  accent={unlinkedSales > 0 ? DS.yellowSoft : DS.blueSoft}
+                />
+              </div>
+            </section>
+
+            <section style={{ marginBottom: 28 }}>
+              <SectionLabel>Destaques por Produto</SectionLabel>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 12,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                }}
+              >
+                <HighlightCard
+                  label="Maior Faturamento"
+                  name={summary.melhor_faturamento?.product_name ?? null}
+                  value={
+                    summary.melhor_faturamento
+                      ? toBRL(summary.melhor_faturamento.total_faturamento)
+                      : '—'
+                  }
+                  description={
+                    summary.melhor_faturamento
+                      ? `${toPercent(summary.melhor_faturamento.pct_faturamento)} da receita das vendas`
+                      : undefined
+                  }
+                  accent={DS.greenSoft}
+                />
+
+                <HighlightCard
+                  label="Maior Volume"
+                  name={summary.melhor_volume?.product_name ?? null}
+                  value={
+                    summary.melhor_volume
+                      ? `${summary.melhor_volume.total_ganhos} venda(s)`
+                      : '—'
+                  }
+                  description={
+                    summary.melhor_volume
+                      ? `${toPercent(summary.melhor_volume.pct_volume)} do volume ganho`
+                      : undefined
+                  }
+                  accent={DS.blueSoft}
+                />
+
+                <HighlightCard
+                  label="Maior Ticket Médio"
+                  name={summary.melhor_ticket?.product_name ?? null}
+                  value={
+                    summary.melhor_ticket
+                      ? toBRL(summary.melhor_ticket.ticket_medio)
+                      : '—'
+                  }
+                  description={
+                    summary.melhor_ticket
+                      ? `Base de ${summary.melhor_ticket.total_ganhos} venda(s) ganha(s)`
+                      : undefined
+                  }
+                  accent={DS.blueSoft}
+                />
+              </div>
+            </section>
+
+            <section
               style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 12,
+                ...cardStyle(),
+                marginBottom: 20,
+                overflow: 'hidden',
               }}
             >
-              <KpiCard
-                label="Maior Ticket Médio"
-                name={summary.melhor_ticket?.product_name ?? null}
-                value={
-                  summary.melhor_ticket
-                    ? toBRL(summary.melhor_ticket.ticket_medio)
-                    : '—'
-                }
-                sub={
-                  summary.melhor_ticket
-                    ? `${summary.melhor_ticket.total_ganhos} venda(s) ganha(s) · base mínima de 3 vendas`
-                    : undefined
-                }
-              />
+              <div
+                style={{
+                  alignItems: 'flex-start',
+                  borderBottom: `1px solid ${DS.border}`,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 16,
+                  justifyContent: 'space-between',
+                  padding: '18px 20px',
+                }}
+              >
+                <div>
+                  <h2
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 850,
+                      margin: 0,
+                    }}
+                  >
+                    Resultado por Produto
+                  </h2>
 
-              <KpiCard
-                label="Maior Faturamento"
-                name={summary.melhor_faturamento?.product_name ?? null}
-                value={
-                  summary.melhor_faturamento
-                    ? toBRL(summary.melhor_faturamento.total_faturamento)
-                    : '—'
-                }
-                sub={
-                  summary.melhor_faturamento
-                    ? `${toPercent(
-                        summary.melhor_faturamento.pct_faturamento,
-                      )} do faturamento`
-                    : undefined
-                }
-              />
+                  <p
+                    style={{
+                      color: DS.textSecondary,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      margin: '6px 0 0',
+                    }}
+                  >
+                    Participação de cada produto no faturamento e no volume de
+                    vendas ganhas.
+                  </p>
+                </div>
 
-              <KpiCard
-                label="Maior Volume"
-                name={summary.melhor_volume?.product_name ?? null}
-                value={
-                  summary.melhor_volume
-                    ? `${summary.melhor_volume.total_ganhos} venda(s)`
-                    : '—'
-                }
-                sub={
-                  summary.melhor_volume
-                    ? `${toPercent(summary.melhor_volume.pct_volume)} do volume`
-                    : undefined
-                }
-              />
-
-              <SimpleKpiCard
-                label="Ticket Médio Geral"
-                value={toBRL(summary.totals.ticket_medio_geral)}
-                sub="Faturamento das vendas ganhas ÷ volume de vendas ganhas"
-              />
-            </div>
-
-            <div
-              style={{
-                background: '#0f0f0f',
-                border: '1px solid #202020',
-                borderRadius: 12,
-                display: 'flex',
-                flexWrap: 'wrap',
-                fontSize: 13,
-                gap: 24,
-                padding: '12px 18px',
-              }}
-            >
-              <div>
-                <span style={{ opacity: 0.55 }}>Vendas ganhas: </span>
-                <b>{summary.totals.total_ganhos}</b>
+                <div
+                  style={{
+                    background: 'rgba(34,197,94,0.08)',
+                    border: '1px solid rgba(34,197,94,0.17)',
+                    borderRadius: 6,
+                    color: DS.greenSoft,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    padding: '6px 9px',
+                  }}
+                >
+                  Base oficial de vendas
+                </div>
               </div>
-
-              <div>
-                <span style={{ opacity: 0.55 }}>Faturamento das vendas: </span>
-                <b>{toBRL(summary.totals.total_faturamento)}</b>
-              </div>
-
-              <div>
-                <span style={{ opacity: 0.55 }}>
-                  Vendas sem produto vinculado:{' '}
-                </span>
-                <b style={{ color: unlinkedSales > 0 ? '#fbbf24' : 'inherit' }}>
-                  {unlinkedSales}
-                </b>
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: '#0f0f0f',
-                border: '1px solid #202020',
-                borderRadius: 12,
-                padding: 16,
-              }}
-            >
-              <h3 style={{ margin: '0 0 14px' }}>
-                Resultado por Produto
-              </h3>
 
               {summary.rows.length === 0 ? (
-                <div style={{ fontSize: 13, opacity: 0.6 }}>
-                  Nenhuma venda ganha foi encontrada no período.
+                <div
+                  style={{
+                    color: DS.textSecondary,
+                    fontSize: 13,
+                    padding: '38px 20px',
+                    textAlign: 'center',
+                  }}
+                >
+                  Nenhuma venda ganha foi encontrada no período selecionado.
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table
                     style={{
                       borderCollapse: 'collapse',
-                      minWidth: 700,
+                      minWidth: 760,
                       width: '100%',
                     }}
                   >
                     <thead>
                       <tr
                         style={{
-                          borderBottom: '1px solid #222',
-                          fontSize: 12,
-                          opacity: 0.7,
-                          textAlign: 'left',
+                          background: '#0f1118',
+                          color: DS.textMuted,
+                          fontSize: 10,
+                          letterSpacing: '0.07em',
+                          textTransform: 'uppercase',
                         }}
                       >
-                        <th style={{ padding: '10px 8px' }}>Produto</th>
-                        <th
-                          style={{
-                            padding: '10px 8px',
-                            textAlign: 'right',
-                          }}
-                        >
+                        <th style={{ padding: '12px 18px', textAlign: 'left' }}>
+                          Produto
+                        </th>
+
+                        <th style={{ padding: '12px', textAlign: 'right' }}>
                           Vendas
                         </th>
-                        <th
-                          style={{
-                            padding: '10px 8px',
-                            textAlign: 'right',
-                          }}
-                        >
+
+                        <th style={{ padding: '12px', textAlign: 'right' }}>
                           Faturamento
                         </th>
-                        <th
-                          style={{
-                            padding: '10px 8px',
-                            textAlign: 'right',
-                          }}
-                        >
+
+                        <th style={{ padding: '12px', textAlign: 'right' }}>
                           Ticket Médio
                         </th>
-                        <th
-                          style={{
-                            padding: '10px 8px',
-                            textAlign: 'right',
-                          }}
-                        >
+
+                        <th style={{ padding: '12px', textAlign: 'right' }}>
                           % Receita
                         </th>
-                        <th
-                          style={{
-                            padding: '10px 8px',
-                            textAlign: 'right',
-                          }}
-                        >
+
+                        <th style={{ padding: '12px 18px', textAlign: 'right' }}>
                           % Volume
                         </th>
                       </tr>
@@ -697,193 +1224,225 @@ export default function ProdutoRelatorioPg() {
                   </table>
                 </div>
               )}
-            </div>
+            </section>
 
-            <div
+            <section
               style={{
-                background: '#0f0f0f',
-                border: '1px solid #2a2a2a',
-                borderRadius: 12,
-                fontSize: 13,
-                lineHeight: 1.6,
-                opacity: 0.9,
-                padding: '14px 18px',
+                background: DS.surfaceBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radiusContainer,
+                marginBottom: 34,
+                padding: '16px 18px',
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                Critério das métricas
+              <div
+                style={{
+                  color: DS.blueSoft,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  marginBottom: 7,
+                }}
+              >
+                Critério de leitura
               </div>
 
-              <div>
-                O relatório considera vendas com status <b>ganho</b>. A data
-                financeira segue a regra oficial do sistema:
-                {' '}
-                <b>revenue_seller_ref_date → won_at → closed_at</b>.
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                }}
+              >
+                O relatório considera apenas ciclos fechados como{' '}
+                <strong style={{ color: DS.textPrimary }}>ganho</strong>. A
+                referência de receita respeita a ordem oficial do sistema:{' '}
+                <strong style={{ color: DS.textPrimary }}>
+                  revenue_seller_ref_date → won_at → closed_at
+                </strong>
+                .
               </div>
 
-              <div style={{ marginTop: 6 }}>
-                Não existe conversão por produto nesta tela, porque o produto
-                costuma ser informado somente no fechamento. Exibir essa taxa
-                com ciclos abertos e perdidos sem produto seria criar uma
-                métrica artificial.
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                  marginTop: 6,
+                }}
+              >
+                Conversão por produto não é exibida porque o produto é
+                normalmente informado apenas no fechamento. Criar esse
+                percentual usando ciclos abertos e perdidos sem produto
+                vinculado seria uma métrica artificial.
               </div>
 
               {summary.has_unlinked_sales ? (
-                <div style={{ color: '#fbbf24', marginTop: 6 }}>
-                  Existem vendas ganhas sem produto vinculado. Elas entram no
-                  faturamento geral, mas reduzem a precisão da leitura de mix.
+                <div
+                  style={{
+                    color: DS.yellowSoft,
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    marginTop: 9,
+                  }}
+                >
+                  Atenção: existem vendas ganhas sem produto vinculado. Elas
+                  entram no faturamento geral, mas reduzem a precisão da leitura
+                  de mix.
                 </div>
               ) : null}
-            </div>
+            </section>
 
             {mixSummary ? (
-              <div
-                style={{
-                  borderTop: '1px solid #1e1e1e',
-                  marginTop: 20,
-                  paddingTop: 32,
-                }}
-              >
-                <h2 style={{ marginBottom: 20 }}>Mix Comercial</h2>
+              <section>
+                <SectionLabel>Mix Comercial</SectionLabel>
 
                 <div
                   style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
+                    display: 'grid',
                     gap: 12,
-                    marginBottom: 18,
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                    marginBottom: 20,
                   }}
                 >
-                  <SimpleKpiCard
+                  <MetricCard
                     label="Ticket Ponderado"
                     value={toBRL(mixSummary.ticket_medio_ponderado)}
-                    sub="Mesmo ticket médio geral das vendas ganhas"
+                    description="Mesmo ticket médio geral das vendas ganhas."
+                    accent={DS.blueSoft}
                   />
 
-                  <KpiCard
-                    label="Líder Faturamento"
-                    name={
-                      mixSummary.lider_faturamento?.product_name ?? null
-                    }
-                    value={
-                      mixSummary.lider_faturamento
-                        ? toBRL(
-                            mixSummary.lider_faturamento.total_faturamento,
-                          )
-                        : '—'
-                    }
-                    sub={
-                      mixSummary.lider_faturamento
-                        ? `${toPercent(
-                            mixSummary.lider_faturamento.pct_faturamento,
-                          )} do faturamento`
-                        : undefined
-                    }
-                  />
-
-                  <KpiCard
-                    label="Líder Volume"
-                    name={mixSummary.lider_volume?.product_name ?? null}
-                    value={
-                      mixSummary.lider_volume
-                        ? `${mixSummary.lider_volume.total_ganhos} venda(s)`
-                        : '—'
-                    }
-                    sub={
-                      mixSummary.lider_volume
-                        ? `${toPercent(
-                            mixSummary.lider_volume.pct_volume,
-                          )} do volume`
-                        : undefined
-                    }
-                  />
-
-                  <SimpleKpiCard
-                    label="Concentração"
+                  <MetricCard
+                    label="Concentração do Mix"
                     value={toPercent(mixSummary.top3_pct_faturamento)}
-                    sub={`Top 3 produtos · concentração ${mixSummary.concentracao_label.toLowerCase()}`}
+                    description={`Top 3 produtos · concentração ${mixSummary.concentracao_label.toLowerCase()}.`}
+                    accent={DS.blueSoft}
+                  />
+
+                  <MetricCard
+                    label="Produtos Distintos"
+                    value={String(mixSummary.total_produtos_distintos)}
+                    description="Produtos efetivamente vendidos no período."
+                    accent={DS.blueSoft}
+                  />
+
+                  <MetricCard
+                    label="Qualidade do Cadastro"
+                    value={
+                      mixSummary.has_unlinked_sales
+                        ? 'Atenção'
+                        : 'Completo'
+                    }
+                    description={
+                      mixSummary.has_unlinked_sales
+                        ? 'Existem vendas sem produto vinculado.'
+                        : 'Todas as vendas possuem produto vinculado.'
+                    }
+                    accent={
+                      mixSummary.has_unlinked_sales
+                        ? DS.yellowSoft
+                        : DS.greenSoft
+                    }
                   />
                 </div>
 
-                <div
+                <section
                   style={{
-                    background: '#0f0f0f',
-                    border: '1px solid #202020',
-                    borderRadius: 12,
+                    ...cardStyle(),
                     marginBottom: 18,
-                    padding: 16,
+                    overflow: 'hidden',
                   }}
                 >
-                  <h3 style={{ margin: '0 0 14px' }}>
-                    Participação no Mix
-                  </h3>
+                  <div
+                    style={{
+                      borderBottom: `1px solid ${DS.border}`,
+                      padding: '18px 20px',
+                    }}
+                  >
+                    <h2
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 850,
+                        margin: 0,
+                      }}
+                    >
+                      Participação no Mix
+                    </h2>
+
+                    <p
+                      style={{
+                        color: DS.textSecondary,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        margin: '6px 0 0',
+                      }}
+                    >
+                      Leitura da concentração de receita e volume entre os
+                      produtos vendidos.
+                    </p>
+                  </div>
 
                   {mixSummary.rows.length === 0 ? (
-                    <div style={{ fontSize: 13, opacity: 0.6 }}>
-                      Nenhuma venda ganha foi encontrada no período.
+                    <div
+                      style={{
+                        color: DS.textSecondary,
+                        fontSize: 13,
+                        padding: '38px 20px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      Nenhuma venda ganha foi encontrada no período selecionado.
                     </div>
                   ) : (
                     <div style={{ overflowX: 'auto' }}>
                       <table
                         style={{
                           borderCollapse: 'collapse',
-                          minWidth: 820,
+                          minWidth: 900,
                           width: '100%',
                         }}
                       >
                         <thead>
                           <tr
                             style={{
-                              borderBottom: '1px solid #222',
-                              fontSize: 12,
-                              opacity: 0.7,
-                              textAlign: 'left',
+                              background: '#0f1118',
+                              color: DS.textMuted,
+                              fontSize: 10,
+                              letterSpacing: '0.07em',
+                              textTransform: 'uppercase',
                             }}
                           >
-                            <th style={{ padding: '10px 8px' }}>Produto</th>
                             <th
                               style={{
-                                padding: '10px 8px',
-                                textAlign: 'right',
+                                padding: '12px 18px',
+                                textAlign: 'left',
                               }}
                             >
+                              Produto
+                            </th>
+
+                            <th style={{ padding: '12px', textAlign: 'right' }}>
                               Vendas
                             </th>
-                            <th
-                              style={{
-                                padding: '10px 8px',
-                                textAlign: 'right',
-                              }}
-                            >
+
+                            <th style={{ padding: '12px', textAlign: 'right' }}>
                               Faturamento
                             </th>
-                            <th
-                              style={{
-                                padding: '10px 8px',
-                                textAlign: 'right',
-                              }}
-                            >
+
+                            <th style={{ padding: '12px', textAlign: 'right' }}>
                               Ticket Médio
                             </th>
-                            <th
-                              style={{
-                                padding: '10px 8px',
-                                textAlign: 'right',
-                              }}
-                            >
+
+                            <th style={{ padding: '12px', textAlign: 'right' }}>
                               % Receita
                             </th>
-                            <th
-                              style={{
-                                padding: '10px 8px',
-                                textAlign: 'right',
-                              }}
-                            >
+
+                            <th style={{ padding: '12px', textAlign: 'right' }}>
                               % Volume
                             </th>
+
                             <th
                               style={{
-                                padding: '10px 8px',
+                                padding: '12px 18px',
                                 textAlign: 'right',
                               }}
                             >
@@ -895,7 +1454,7 @@ export default function ProdutoRelatorioPg() {
                         <tbody>
                           {mixSummary.rows.map((row, index) => (
                             <MixRow
-                              key={row.product_id ?? `__unlinked_${index}__`}
+                              key={row.product_id ?? `__unlinked_${index}`}
                               row={row}
                             />
                           ))}
@@ -903,266 +1462,41 @@ export default function ProdutoRelatorioPg() {
                       </table>
                     </div>
                   )}
-                </div>
+                </section>
 
-                <div
+                <section
                   style={{
-                    background: '#0f0f0f',
-                    border: '1px solid #202020',
-                    borderRadius: 12,
-                    padding: '16px 18px',
+                    ...cardStyle(),
+                    padding: '18px 20px',
                   }}
                 >
-                  <h3 style={{ fontSize: 15, margin: '0 0 12px' }}>
+                  <div
+                    style={{
+                      color: DS.textPrimary,
+                      fontSize: 15,
+                      fontWeight: 850,
+                      marginBottom: 10,
+                    }}
+                  >
                     Resumo do Mix
-                  </h3>
+                  </div>
 
                   <p
                     style={{
+                      color: DS.textSecondary,
                       fontSize: 13,
                       lineHeight: 1.7,
-                      margin: '0 0 14px',
-                      opacity: 0.9,
+                      margin: 0,
                     }}
                   >
                     {mixSummary.diagnostico}
                   </p>
-
-                  <div
-                    style={{
-                      borderTop: '1px solid #1e1e1e',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      fontSize: 13,
-                      gap: 20,
-                      marginTop: 4,
-                      paddingTop: 12,
-                    }}
-                  >
-                    <div>
-                      <span style={{ opacity: 0.55 }}>
-                        Produtos distintos:{' '}
-                      </span>
-                      <b>{mixSummary.total_produtos_distintos}</b>
-                    </div>
-
-                    <div>
-                      <span style={{ opacity: 0.55 }}>
-                        Vendas sem produto vinculado:{' '}
-                      </span>
-                      <b
-                        style={{
-                          color: mixSummary.has_unlinked_sales
-                            ? '#fbbf24'
-                            : 'inherit',
-                        }}
-                      >
-                        {mixSummary.has_unlinked_sales ? 'Sim' : 'Não'}
-                      </b>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                </section>
+              </section>
             ) : null}
           </>
         ) : null}
       </div>
     </div>
-  )
-}
-
-function ProductRow({
-  row,
-}: {
-  row: ProductPerformanceRow
-}) {
-  const isUnlinked = row.product_id === null
-
-  return (
-    <tr
-      style={{
-        borderBottom: '1px solid #1a1a1a',
-        opacity: isUnlinked ? 0.7 : 1,
-      }}
-    >
-      <td style={{ padding: '10px 8px' }}>
-        <div style={{ fontSize: 13, fontWeight: isUnlinked ? 400 : 600 }}>
-          {row.product_name}
-        </div>
-
-        {row.product_category && !isUnlinked ? (
-          <div style={{ fontSize: 11, opacity: 0.5 }}>
-            {row.product_category}
-          </div>
-        ) : null}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {row.total_ganhos}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toBRL(row.total_faturamento)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toBRL(row.ticket_medio)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toPercent(row.pct_faturamento)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toPercent(row.pct_volume)}
-      </td>
-    </tr>
-  )
-}
-
-function MixRow({
-  row,
-}: {
-  row: ProductMixRow
-}) {
-  const isUnlinked = row.product_id === null
-  const isDominant = row.peso_mix > 0.3
-
-  return (
-    <tr
-      style={{
-        background:
-          isDominant && !isUnlinked
-            ? 'rgba(255,255,255,0.03)'
-            : 'transparent',
-        borderBottom: '1px solid #1a1a1a',
-        opacity: isUnlinked ? 0.6 : 1,
-      }}
-    >
-      <td style={{ padding: '10px 8px' }}>
-        <div style={{ fontSize: 13, fontWeight: isUnlinked ? 400 : 600 }}>
-          {row.product_name}
-
-          {isDominant && !isUnlinked ? (
-            <span
-              style={{
-                background: '#1e3a1e',
-                borderRadius: 4,
-                color: '#4ade80',
-                fontSize: 10,
-                fontWeight: 500,
-                marginLeft: 6,
-                padding: '2px 6px',
-              }}
-            >
-              dominante
-            </span>
-          ) : null}
-        </div>
-
-        {row.product_category && !isUnlinked ? (
-          <div style={{ fontSize: 11, opacity: 0.5 }}>
-            {row.product_category}
-          </div>
-        ) : null}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {row.total_ganhos}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toBRL(row.total_faturamento)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toBRL(row.ticket_medio)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toPercent(row.pct_faturamento)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        {toPercent(row.pct_volume)}
-      </td>
-
-      <td
-        style={{
-          fontSize: 13,
-          padding: '10px 8px',
-          textAlign: 'right',
-        }}
-      >
-        <span
-          style={{
-            color: isDominant ? '#4ade80' : 'inherit',
-            fontWeight: isDominant ? 700 : 400,
-          }}
-        >
-          {toPercent(row.peso_mix)}
-        </span>
-      </td>
-    </tr>
   )
 }
