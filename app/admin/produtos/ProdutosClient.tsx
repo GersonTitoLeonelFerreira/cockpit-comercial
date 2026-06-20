@@ -1,37 +1,113 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import * as React from 'react'
 import type { Product } from '@/app/types/product'
 import {
-  listProducts,
   createProduct,
-  updateProduct,
+  listProducts,
   toggleProductActive,
+  updateProduct,
 } from '@/app/lib/services/products'
 
-// ------------------------------------------------------------------------------
+// ==============================================================================
+// Design system
+// ==============================================================================
+
+const DS = {
+  contentBg: '#090b0f',
+  cardBg: '#141722',
+  surfaceBg: '#111318',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+
+  blueLight: '#60a5fa',
+  blueSoft: '#93c5fd',
+
+  green: '#22c55e',
+  greenSoft: '#86efac',
+
+  yellowSoft: '#fef3c7',
+  redSoft: '#fca5a5',
+
+  radius: 7,
+  radiusContainer: 9,
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
+} as const
+
+// ==============================================================================
 // Helpers
-// ------------------------------------------------------------------------------
+// ==============================================================================
 
 function formatBRL(value: number): string {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value)
 }
 
-function parseBRL(text: string): number {
-  const cleaned = text
+function parseBRL(value: string): number {
+  const normalized = value
     .replace(/[^\d,.-]/g, '')
     .replace(/\./g, '')
     .replace(',', '.')
-  const n = parseFloat(cleaned || '0')
-  return Number.isFinite(n) ? n : 0
+
+  const parsed = Number.parseFloat(normalized || '0')
+
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
-// ------------------------------------------------------------------------------
-// Component
-// ------------------------------------------------------------------------------
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return fallback
+}
+
+function cardStyle(): React.CSSProperties {
+  return {
+    background: DS.cardBg,
+    border: `1px solid ${DS.border}`,
+    borderRadius: DS.radiusContainer,
+    boxShadow: DS.shadowCard,
+  }
+}
+
+const fieldLabelStyle: React.CSSProperties = {
+  color: DS.textLabel,
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: DS.surfaceBg,
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius,
+  color: DS.textPrimary,
+  fontSize: 13,
+  height: 38,
+  outline: 'none',
+  padding: '0 11px',
+  width: '100%',
+}
+
+const rowGrid = {
+  gridTemplateColumns:
+    'minmax(240px, 1.8fr) minmax(160px, 1fr) minmax(140px, .85fr) 110px 200px',
+} as const
+
+// ==============================================================================
+// Types
+// ==============================================================================
 
 interface Props {
   companyId: string
@@ -39,531 +115,1084 @@ interface Props {
 
 type Filter = 'all' | 'active' | 'inactive'
 
-export default function ProdutosClient({ companyId }: Props) {
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
-  const [search, setSearch] = useState('')
-  const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+// ==============================================================================
+// Components
+// ==============================================================================
 
-  // Create form state
-  const [formName, setFormName] = useState('')
-  const [formCategory, setFormCategory] = useState('')
-  const [formPrice, setFormPrice] = useState('')
-  const [saving, setSaving] = useState(false)
+function SectionLabel({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      style={{
+        color: DS.blueSoft,
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: '0.08em',
+        marginBottom: 12,
+        textTransform: 'uppercase',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
 
-  // Edit form state (keyed by product id)
-  const [editName, setEditName] = useState('')
-  const [editCategory, setEditCategory] = useState('')
-  const [editPrice, setEditPrice] = useState('')
+function MetricCard({
+  label,
+  value,
+  description,
+  accent = DS.blueSoft,
+}: {
+  label: string
+  value: string
+  description: string
+  accent?: string
+}) {
+  return (
+    <div
+      style={{
+        ...cardStyle(),
+        display: 'flex',
+        flex: '1 1 190px',
+        flexDirection: 'column',
+        minHeight: 118,
+        padding: '17px 18px',
+      }}
+    >
+      <div
+        style={{
+          color: DS.textLabel,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </div>
 
-  // ------------------------------------------------------------------------------
-  // Data loading
-  // ------------------------------------------------------------------------------
+      <div
+        style={{
+          color: accent,
+          fontSize: 24,
+          fontWeight: 900,
+          letterSpacing: '-0.025em',
+          lineHeight: 1,
+          marginTop: 12,
+        }}
+      >
+        {value}
+      </div>
+
+      <div
+        style={{
+          color: DS.textSecondary,
+          fontSize: 11,
+          lineHeight: 1.45,
+          marginTop: 'auto',
+          paddingTop: 10,
+        }}
+      >
+        {description}
+      </div>
+    </div>
+  )
+}
+
+function StatusBadge({
+  active,
+}: {
+  active: boolean
+}) {
+  const color = active ? DS.greenSoft : DS.redSoft
+
+  return (
+    <span
+      style={{
+        background: active
+          ? 'rgba(34,197,94,0.09)'
+          : 'rgba(239,68,68,0.09)',
+        border: `1px solid ${active ? 'rgba(134,239,172,0.18)' : 'rgba(252,165,165,0.18)'}`,
+        borderRadius: 999,
+        color,
+        display: 'inline-flex',
+        fontSize: 10,
+        fontWeight: 850,
+        letterSpacing: '0.04em',
+        padding: '5px 9px',
+        textTransform: 'uppercase',
+      }}
+    >
+      {active ? 'Ativo' : 'Inativo'}
+    </span>
+  )
+}
+
+function ActionButton({
+  children,
+  onClick,
+  disabled = false,
+  variant = 'secondary',
+}: {
+  children: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  variant?: 'primary' | 'secondary' | 'danger' | 'success'
+}) {
+  const styles: Record<
+    'primary' | 'secondary' | 'danger' | 'success',
+    React.CSSProperties
+  > = {
+    primary: {
+      background: '#166534',
+      border: '1px solid rgba(134,239,172,0.22)',
+      color: '#f0fdf4',
+    },
+    secondary: {
+      background: DS.surfaceBg,
+      border: `1px solid ${DS.border}`,
+      color: DS.textSecondary,
+    },
+    danger: {
+      background: 'rgba(239,68,68,0.08)',
+      border: '1px solid rgba(252,165,165,0.18)',
+      color: DS.redSoft,
+    },
+    success: {
+      background: 'rgba(34,197,94,0.08)',
+      border: '1px solid rgba(134,239,172,0.18)',
+      color: DS.greenSoft,
+    },
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        ...styles[variant],
+        borderRadius: DS.radius,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        fontSize: 12,
+        fontWeight: 800,
+        minHeight: 32,
+        opacity: disabled ? 0.55 : 1,
+        padding: '0 11px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ==============================================================================
+// Main component
+// ==============================================================================
+
+export default function ProdutosClient({
+  companyId,
+}: Props) {
+  const [products, setProducts] = React.useState<Product[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const [filter, setFilter] = React.useState<Filter>('all')
+  const [search, setSearch] = React.useState('')
+
+  const [showForm, setShowForm] = React.useState(false)
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  const [formName, setFormName] = React.useState('')
+  const [formCategory, setFormCategory] = React.useState('')
+  const [formPrice, setFormPrice] = React.useState('')
+
+  const [editName, setEditName] = React.useState('')
+  const [editCategory, setEditCategory] = React.useState('')
+  const [editPrice, setEditPrice] = React.useState('')
 
   async function loadProducts() {
     setLoading(true)
     setError(null)
+
     try {
       const data = await listProducts(companyId)
       setProducts(data)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar produtos')
+    } catch (cause: unknown) {
+      setError(getErrorMessage(cause, 'Erro ao carregar produtos.'))
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    loadProducts()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    void loadProducts()
   }, [companyId])
 
-  // ------------------------------------------------------------------------------
-  // Filtered list
-  // ------------------------------------------------------------------------------
+  const filteredProducts = React.useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase()
 
-  const filtered = products.filter((p) => {
-    if (filter === 'active' && !p.active) return false
-    if (filter === 'inactive' && p.active) return false
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      return p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
+    return products.filter((product) => {
+      if (filter === 'active' && !product.active) {
+        return false
+      }
+
+      if (filter === 'inactive' && product.active) {
+        return false
+      }
+
+      if (!normalizedSearch) {
+        return true
+      }
+
+      return (
+        product.name.toLowerCase().includes(normalizedSearch) ||
+        product.category.toLowerCase().includes(normalizedSearch)
+      )
+    })
+  }, [filter, products, search])
+
+  const totals = React.useMemo(() => {
+    const active = products.filter((product) => product.active).length
+    const inactive = products.length - active
+
+    const categories = new Set(
+      products
+        .map((product) => product.category.trim())
+        .filter(Boolean),
+    ).size
+
+    return {
+      total: products.length,
+      active,
+      inactive,
+      categories,
     }
-    return true
-  })
+  }, [products])
 
-  // ------------------------------------------------------------------------------
-  // Create
-  // ------------------------------------------------------------------------------
+  async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!formName.trim()) return
+    if (!formName.trim()) {
+      return
+    }
 
     setSaving(true)
     setError(null)
+
     try {
       await createProduct({
         company_id: companyId,
-        name: formName,
-        category: formCategory,
+        name: formName.trim(),
+        category: formCategory.trim(),
         base_price: parseBRL(formPrice),
       })
+
       setFormName('')
       setFormCategory('')
       setFormPrice('')
       setShowForm(false)
+
       await loadProducts()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao criar produto')
+    } catch (cause: unknown) {
+      setError(getErrorMessage(cause, 'Erro ao criar produto.'))
     } finally {
       setSaving(false)
     }
   }
-
-  // ------------------------------------------------------------------------------
-  // Edit
-  // ------------------------------------------------------------------------------
 
   function startEdit(product: Product) {
     setEditingId(product.id)
     setEditName(product.name)
     setEditCategory(product.category)
     setEditPrice(
-      new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
-        product.base_price,
-      ),
+      new Intl.NumberFormat('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(product.base_price),
     )
   }
 
   function cancelEdit() {
     setEditingId(null)
+    setEditName('')
+    setEditCategory('')
+    setEditPrice('')
   }
 
   async function handleSaveEdit(productId: string) {
+    if (!editName.trim()) {
+      setError('O nome do produto é obrigatório.')
+      return
+    }
+
     setSaving(true)
     setError(null)
+
     try {
       await updateProduct(productId, {
-        name: editName,
-        category: editCategory,
+        name: editName.trim(),
+        category: editCategory.trim(),
         base_price: parseBRL(editPrice),
       })
-      setEditingId(null)
+
+      cancelEdit()
       await loadProducts()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao atualizar produto')
+    } catch (cause: unknown) {
+      setError(getErrorMessage(cause, 'Erro ao atualizar produto.'))
     } finally {
       setSaving(false)
     }
   }
 
-  // ------------------------------------------------------------------------------
-  // Toggle active
-  // ------------------------------------------------------------------------------
-
   async function handleToggle(product: Product) {
     setError(null)
+
     try {
       await toggleProductActive(product.id, !product.active)
       await loadProducts()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao atualizar produto')
+    } catch (cause: unknown) {
+      setError(getErrorMessage(cause, 'Erro ao atualizar produto.'))
     }
   }
 
-  // ------------------------------------------------------------------------------
-  // Styles
-  // ------------------------------------------------------------------------------
-
-  const cardStyle: React.CSSProperties = {
-    background: '#0f0f0f',
-    border: '1px solid #2a2a2a',
-    borderRadius: 12,
-    padding: '20px 24px',
-    marginBottom: 16,
-  }
-
-  const inputStyle: React.CSSProperties = {
-    background: '#111',
-    border: '1px solid #333',
-    borderRadius: 8,
-    color: '#fff',
-    padding: '8px 12px',
-    fontSize: 14,
-    outline: 'none',
-    width: '100%',
-  }
-
-  const btnPrimary: React.CSSProperties = {
-    background: '#1a6f43',
-    border: '1px solid #1f5f3a',
-    borderRadius: 8,
-    color: '#fff',
-    padding: '8px 16px',
-    fontSize: 14,
-    cursor: 'pointer',
-    fontWeight: 600,
-  }
-
-  const btnSecondary: React.CSSProperties = {
-    background: '#1a1a1a',
-    border: '1px solid #333',
-    borderRadius: 8,
-    color: '#aaa',
-    padding: '8px 16px',
-    fontSize: 14,
-    cursor: 'pointer',
-  }
-
-  const btnDanger: React.CSSProperties = {
-    background: '#1a0a0a',
-    border: '1px solid #5f1f1f',
-    borderRadius: 8,
-    color: '#f87171',
-    padding: '6px 12px',
-    fontSize: 13,
-    cursor: 'pointer',
-  }
-
-  const btnActivate: React.CSSProperties = {
-    ...btnSecondary,
-    color: '#4ade80',
-    borderColor: '#1f5f3a',
-    padding: '6px 12px',
-    fontSize: 13,
-  }
-
-  const headerTextStyle: React.CSSProperties = {
-    color: '#666',
-    fontSize: 12,
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-  }
-
-  // ------------------------------------------------------------------------------
-  // Render
-  // ------------------------------------------------------------------------------
-
   return (
-    <div>
-      {/* Error banner */}
-      {error && (
-        <div
-          style={{
-            background: '#1a0a0a',
-            border: '1px solid #5f1f1f',
-            borderRadius: 8,
-            color: '#f87171',
-            padding: '12px 16px',
-            marginBottom: 16,
-            fontSize: 14,
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {/* Top bar: filters + new button */}
+    <div
+      style={{
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        minHeight: '100%',
+        padding: '32px 24px 80px',
+      }}
+    >
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 16,
-          flexWrap: 'wrap',
+          margin: '0 auto',
+          maxWidth: 1200,
         }}
       >
-        {/* Filter tabs */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(['all', 'active', 'inactive'] as Filter[]).map((f) => {
-            const labels: Record<Filter, string> = {
-              all: 'Todos',
-              active: 'Ativos',
-              inactive: 'Inativos',
-            }
-            const isActive = filter === f
-            return (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                style={{
-                  background: isActive ? '#1a3a2a' : '#1a1a1a',
-                  border: `1px solid ${isActive ? '#1f5f3a' : '#333'}`,
-                  borderRadius: 8,
-                  color: isActive ? '#4ade80' : '#aaa',
-                  padding: '6px 14px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  fontWeight: isActive ? 600 : 400,
-                }}
-              >
-                {labels[f]}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Search */}
-        <input
-          type="text"
-          placeholder="Buscar por nome ou categoria…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ ...inputStyle, width: 260, flex: '0 0 260px' }}
-        />
-
-        <div style={{ flex: 1 }} />
-
-        {/* New product button */}
-        <button
-          onClick={() => {
-            setShowForm((v) => !v)
-            setError(null)
+        <a
+          href="/admin/vendedores"
+          style={{
+            color: DS.textSecondary,
+            display: 'inline-flex',
+            fontSize: 13,
+            marginBottom: 28,
+            textDecoration: 'none',
           }}
-          style={btnPrimary}
         >
-          {showForm ? '✕ Cancelar' : '+ Novo Produto'}
-        </button>
-      </div>
+          ← Voltar para Administração
+        </a>
 
-      {/* Create form */}
-      {showForm && (
-        <div style={cardStyle}>
-          <p style={{ color: '#fff', fontWeight: 600, marginBottom: 14, fontSize: 15 }}>
-            Novo Produto
-          </p>
-          <form onSubmit={handleCreate}>
+        <header
+          style={{
+            alignItems: 'flex-start',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 18,
+            justifyContent: 'space-between',
+            marginBottom: 28,
+          }}
+        >
+          <div>
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 160px auto',
+                alignItems: 'center',
+                display: 'flex',
+                gap: 10,
+                marginBottom: 7,
+              }}
+            >
+              <span
+                style={{
+                  color: DS.blueLight,
+                  fontSize: 19,
+                  lineHeight: 1,
+                }}
+              >
+                ◫
+              </span>
+
+              <h1
+                style={{
+                  fontSize: 23,
+                  fontWeight: 850,
+                  letterSpacing: '-0.015em',
+                  margin: 0,
+                }}
+              >
+                Catálogo de Produtos
+              </h1>
+            </div>
+
+            <p
+              style={{
+                color: DS.textSecondary,
+                fontSize: 13,
+                lineHeight: 1.5,
+                margin: 0,
+                maxWidth: 700,
+              }}
+            >
+              Gerencie os produtos disponíveis para venda, categorias e preços
+              de referência da empresa ativa.
+            </p>
+          </div>
+
+          <ActionButton
+            variant="primary"
+            onClick={() => {
+              setShowForm((current) => !current)
+              setError(null)
+              cancelEdit()
+            }}
+          >
+            {showForm ? 'Cancelar cadastro' : '+ Novo Produto'}
+          </ActionButton>
+        </header>
+
+        <section
+          style={{
+            marginBottom: 28,
+          }}
+        >
+          <SectionLabel>Panorama do Catálogo</SectionLabel>
+
+          <div
+            style={{
+              display: 'grid',
+              gap: 12,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+            }}
+          >
+            <MetricCard
+              label="Produtos Cadastrados"
+              value={String(totals.total)}
+              description="Itens disponíveis no catálogo da empresa."
+            />
+
+            <MetricCard
+              label="Produtos Ativos"
+              value={String(totals.active)}
+              description="Produtos liberados para uso em novos fechamentos."
+              accent={DS.greenSoft}
+            />
+
+            <MetricCard
+              label="Produtos Inativos"
+              value={String(totals.inactive)}
+              description="Itens preservados no histórico, mas fora de uso."
+              accent={totals.inactive > 0 ? DS.yellowSoft : DS.textSecondary}
+            />
+
+            <MetricCard
+              label="Categorias"
+              value={String(totals.categories)}
+              description="Classificações diferentes cadastradas no catálogo."
+            />
+          </div>
+        </section>
+
+        {error ? (
+          <div
+            style={{
+              background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.22)',
+              borderRadius: DS.radius,
+              color: DS.redSoft,
+              fontSize: 13,
+              lineHeight: 1.5,
+              marginBottom: 20,
+              padding: '12px 14px',
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
+
+        {showForm ? (
+          <section
+            style={{
+              ...cardStyle(),
+              marginBottom: 20,
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                alignItems: 'flex-start',
+                display: 'flex',
+                flexWrap: 'wrap',
                 gap: 12,
-                alignItems: 'end',
+                justifyContent: 'space-between',
+                marginBottom: 18,
               }}
             >
               <div>
-                <label style={{ color: '#888', fontSize: 12, display: 'block', marginBottom: 4 }}>
-                  Nome *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Nome do produto"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  required
-                  style={inputStyle}
-                />
+                <h2
+                  style={{
+                    color: DS.textPrimary,
+                    fontSize: 16,
+                    fontWeight: 850,
+                    margin: 0,
+                  }}
+                >
+                  Novo Produto
+                </h2>
+
+                <p
+                  style={{
+                    color: DS.textSecondary,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    margin: '5px 0 0',
+                  }}
+                >
+                  O produto ficará ativo e disponível para seleção nos novos
+                  fechamentos.
+                </p>
               </div>
-              <div>
-                <label style={{ color: '#888', fontSize: 12, display: 'block', marginBottom: 4 }}>
-                  Categoria
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Software, Serviço…"
-                  value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ color: '#888', fontSize: 12, display: 'block', marginBottom: 4 }}>
-                  Preço Base (R$)
-                </label>
-                <input
-                  type="text"
-                  placeholder="0,00"
-                  value={formPrice}
-                  onChange={(e) => setFormPrice(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <button type="submit" disabled={saving} style={{ ...btnPrimary, whiteSpace: 'nowrap' }}>
-                {saving ? 'Salvando…' : 'Salvar'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
 
-      {/* Products table */}
-      <div
-        style={{
-          background: '#0f0f0f',
-          border: '1px solid #2a2a2a',
-          borderRadius: 14,
-          overflow: 'hidden',
-        }}
-      >
-        {/* Table header */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 180px 160px 100px 180px',
-            padding: '12px 20px',
-            borderBottom: '1px solid #2a2a2a',
-            background: '#111',
-          }}
-        >
-          {['Nome', 'Categoria', 'Preço Base', 'Status', 'Ações'].map((h) => (
-            <span key={h} style={headerTextStyle}>
-              {h}
-            </span>
-          ))}
-        </div>
-
-        {/* Loading state */}
-        {loading && (
-          <div style={{ padding: '40px 20px', textAlign: 'center', color: '#555', fontSize: 14 }}>
-            Carregando produtos…
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!loading && filtered.length === 0 && (
-          <div style={{ padding: '48px 20px', textAlign: 'center', color: '#555' }}>
-            <p style={{ fontSize: 16, marginBottom: 8 }}>
-              {products.length === 0 ? 'Nenhum produto cadastrado' : 'Nenhum produto encontrado'}
-            </p>
-            {products.length === 0 && (
-              <p style={{ fontSize: 13, color: '#444' }}>
-                Clique em <strong style={{ color: '#4ade80' }}>+ Novo Produto</strong> para começar.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Rows */}
-        {!loading &&
-          filtered.map((product, idx) => {
-            const isEditing = editingId === product.id
-            const rowBg = idx % 2 === 0 ? '#0f0f0f' : '#0c0c0c'
-
-            return (
-              <div
-                key={product.id}
+              <span
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 180px 160px 100px 180px',
-                  padding: '14px 20px',
-                  borderBottom: '1px solid #1e1e1e',
-                  background: rowBg,
-                  alignItems: 'center',
-                  transition: 'background 0.15s',
+                  background: 'rgba(34,197,94,0.08)',
+                  border: '1px solid rgba(134,239,172,0.18)',
+                  borderRadius: 6,
+                  color: DS.greenSoft,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  padding: '6px 8px',
                 }}
               >
-                {/* Name */}
-                <div>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      style={{ ...inputStyle, fontSize: 13 }}
-                    />
-                  ) : (
-                    <span style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>{product.name}</span>
-                  )}
-                </div>
+                CADASTRO ATIVO
+              </span>
+            </div>
 
-                {/* Category */}
-                <div>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={editCategory}
-                      onChange={(e) => setEditCategory(e.target.value)}
-                      style={{ ...inputStyle, fontSize: 13 }}
-                    />
-                  ) : (
-                    <span style={{ color: '#888', fontSize: 13 }}>
-                      {product.category || <span style={{ color: '#444' }}>—</span>}
-                    </span>
-                  )}
-                </div>
+            <form onSubmit={handleCreate}>
+              <div
+                style={{
+                  alignItems: 'end',
+                  display: 'grid',
+                  gap: 12,
+                  gridTemplateColumns:
+                    'minmax(220px, 1.4fr) minmax(190px, 1fr) minmax(150px, .7fr) auto',
+                }}
+              >
+                <label
+                  style={{
+                    display: 'grid',
+                    gap: 5,
+                  }}
+                >
+                  <span style={fieldLabelStyle}>Nome do Produto *</span>
 
-                {/* Price */}
-                <div>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={editPrice}
-                      onChange={(e) => setEditPrice(e.target.value)}
-                      style={{ ...inputStyle, fontSize: 13 }}
-                    />
-                  ) : (
-                    <span style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 500 }}>
-                      {formatBRL(product.base_price)}
-                    </span>
-                  )}
-                </div>
+                  <input
+                    type="text"
+                    placeholder="Ex.: Plano Anual Premium"
+                    value={formName}
+                    onChange={(event) => setFormName(event.target.value)}
+                    required
+                    style={inputStyle}
+                  />
+                </label>
 
-                {/* Status badge */}
-                <div>
-                  <span
+                <label
+                  style={{
+                    display: 'grid',
+                    gap: 5,
+                  }}
+                >
+                  <span style={fieldLabelStyle}>Categoria</span>
+
+                  <input
+                    type="text"
+                    placeholder="Ex.: Plano, Serviço, Upgrade"
+                    value={formCategory}
+                    onChange={(event) => setFormCategory(event.target.value)}
+                    style={inputStyle}
+                  />
+                </label>
+
+                <label
+                  style={{
+                    display: 'grid',
+                    gap: 5,
+                  }}
+                >
+                  <span style={fieldLabelStyle}>Preço Base</span>
+
+                  <input
+                    type="text"
+                    placeholder="0,00"
+                    value={formPrice}
+                    onChange={(event) => setFormPrice(event.target.value)}
+                    style={inputStyle}
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  style={{
+                    background: '#166534',
+                    border: '1px solid rgba(134,239,172,0.22)',
+                    borderRadius: DS.radius,
+                    color: '#f0fdf4',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: 12,
+                    fontWeight: 850,
+                    height: 38,
+                    opacity: saving ? 0.6 : 1,
+                    padding: '0 15px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {saving ? 'Salvando...' : 'Salvar Produto'}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+
+        <section
+          style={{
+            ...cardStyle(),
+            alignItems: 'center',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 20,
+            padding: '15px 18px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}
+          >
+            {(['all', 'active', 'inactive'] as Filter[]).map((item) => {
+              const active = filter === item
+
+              const labels: Record<Filter, string> = {
+                all: 'Todos',
+                active: 'Ativos',
+                inactive: 'Inativos',
+              }
+
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setFilter(item)}
+                  style={{
+                    background: active
+                      ? 'rgba(59,130,246,0.13)'
+                      : DS.surfaceBg,
+                    border: `1px solid ${
+                      active
+                        ? 'rgba(147,197,253,0.28)'
+                        : DS.border
+                    }`,
+                    borderRadius: DS.radius,
+                    color: active ? DS.blueSoft : DS.textSecondary,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: active ? 850 : 650,
+                    height: 36,
+                    padding: '0 13px',
+                  }}
+                >
+                  {labels[item]}
+                </button>
+              )
+            })}
+          </div>
+
+          <div
+            style={{
+              flex: '1 1 240px',
+              maxWidth: 340,
+              minWidth: 220,
+            }}
+          >
+            <input
+              type="text"
+              placeholder="Buscar por nome ou categoria..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              style={inputStyle}
+            />
+          </div>
+
+          <div
+            style={{
+              color: DS.textMuted,
+              fontSize: 12,
+              fontWeight: 700,
+              marginLeft: 'auto',
+            }}
+          >
+            {loading
+              ? 'Atualizando catálogo...'
+              : `${filteredProducts.length} de ${products.length} produto(s)`}
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...cardStyle(),
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              alignItems: 'flex-start',
+              borderBottom: `1px solid ${DS.border}`,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 16,
+              justifyContent: 'space-between',
+              padding: '18px 20px',
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  color: DS.textPrimary,
+                  fontSize: 16,
+                  fontWeight: 850,
+                  margin: 0,
+                }}
+              >
+                Produtos Cadastrados
+              </h2>
+
+              <p
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  margin: '6px 0 0',
+                }}
+              >
+                Produtos ativos ficam disponíveis para novos fechamentos. Os
+                inativos permanecem preservados no histórico comercial.
+              </p>
+            </div>
+
+            <div
+              style={{
+                background: 'rgba(59,130,246,0.09)',
+                border: '1px solid rgba(147,197,253,0.18)',
+                borderRadius: 6,
+                color: DS.blueSoft,
+                fontSize: 11,
+                fontWeight: 800,
+                padding: '6px 9px',
+              }}
+            >
+              EMPRESA ATIVA
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ minWidth: 940 }}>
+              <div
+                style={{
+                  ...rowGrid,
+                  background: '#0f1118',
+                  borderBottom: `1px solid ${DS.border}`,
+                  color: DS.textMuted,
+                  display: 'grid',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.07em',
+                  padding: '12px 18px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                <span>Produto</span>
+                <span>Categoria</span>
+                <span style={{ textAlign: 'right' }}>Preço Base</span>
+                <span style={{ textAlign: 'center' }}>Status</span>
+                <span style={{ textAlign: 'right' }}>Ações</span>
+              </div>
+
+              {loading ? (
+                <div
+                  style={{
+                    color: DS.textSecondary,
+                    fontSize: 13,
+                    padding: '42px 20px',
+                    textAlign: 'center',
+                  }}
+                >
+                  Carregando catálogo de produtos...
+                </div>
+              ) : null}
+
+              {!loading && filteredProducts.length === 0 ? (
+                <div
+                  style={{
+                    color: DS.textSecondary,
+                    padding: '48px 20px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div
                     style={{
-                      display: 'inline-block',
-                      padding: '3px 10px',
-                      borderRadius: 20,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: product.active ? '#07140c' : '#140707',
-                      border: `1px solid ${product.active ? '#1f5f3a' : '#5f1f1f'}`,
-                      color: product.active ? '#4ade80' : '#f87171',
+                      color: DS.textPrimary,
+                      fontSize: 15,
+                      fontWeight: 800,
                     }}
                   >
-                    {product.active ? 'Ativo' : 'Inativo'}
-                  </span>
-                </div>
+                    {products.length === 0
+                      ? 'Nenhum produto cadastrado'
+                      : 'Nenhum produto encontrado'}
+                  </div>
 
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  {isEditing ? (
-                    <>
-                      <button
-                        onClick={() => handleSaveEdit(product.id)}
-                        disabled={saving}
-                        style={{ ...btnPrimary, padding: '6px 12px', fontSize: 13 }}
-                      >
-                        {saving ? '…' : 'Salvar'}
-                      </button>
-                      <button onClick={cancelEdit} style={{ ...btnSecondary, padding: '6px 12px', fontSize: 13 }}>
-                        Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => startEdit(product)}
-                        style={{ ...btnSecondary, padding: '6px 12px', fontSize: 13 }}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => handleToggle(product)}
-                        style={product.active ? btnDanger : btnActivate}
-                      >
-                        {product.active ? 'Desativar' : 'Ativar'}
-                      </button>
-                    </>
-                  )}
+                  <div
+                    style={{
+                      color: DS.textMuted,
+                      fontSize: 12,
+                      marginTop: 8,
+                    }}
+                  >
+                    {products.length === 0
+                      ? 'Cadastre o primeiro produto para utilizá-lo nos novos fechamentos.'
+                      : 'Ajuste os filtros ou o campo de busca para localizar o produto.'}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              ) : null}
+
+              {!loading &&
+                filteredProducts.map((product, index) => {
+                  const isEditing = editingId === product.id
+
+                  return (
+                    <div
+                      key={product.id}
+                      style={{
+                        ...rowGrid,
+                        background:
+                          index % 2 === 0
+                            ? 'transparent'
+                            : 'rgba(17,19,24,0.36)',
+                        borderBottom: `1px solid ${DS.borderSubtle}`,
+                        display: 'grid',
+                        padding: '14px 18px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          minWidth: 0,
+                          paddingRight: 12,
+                        }}
+                      >
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(event) =>
+                              setEditName(event.target.value)
+                            }
+                            style={inputStyle}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              color: DS.textPrimary,
+                              fontSize: 13,
+                              fontWeight: 800,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={product.name}
+                          >
+                            {product.name}
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          minWidth: 0,
+                          paddingRight: 12,
+                        }}
+                      >
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editCategory}
+                            onChange={(event) =>
+                              setEditCategory(event.target.value)
+                            }
+                            style={inputStyle}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              color: product.category
+                                ? DS.textSecondary
+                                : DS.textMuted,
+                              fontSize: 13,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={product.category || 'Sem categoria'}
+                          >
+                            {product.category || 'Sem categoria'}
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          paddingRight: 12,
+                        }}
+                      >
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editPrice}
+                            onChange={(event) =>
+                              setEditPrice(event.target.value)
+                            }
+                            style={{
+                              ...inputStyle,
+                              textAlign: 'right',
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              color: DS.greenSoft,
+                              fontSize: 13,
+                              fontWeight: 800,
+                            }}
+                          >
+                            {formatBRL(product.base_price)}
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          justifyContent: 'center',
+                          paddingRight: 12,
+                        }}
+                      >
+                        <StatusBadge active={product.active} />
+                      </div>
+
+                      <div
+                        style={{
+                          alignItems: 'center',
+                          display: 'flex',
+                          gap: 7,
+                          justifyContent: 'flex-end',
+                        }}
+                      >
+                        {isEditing ? (
+                          <>
+                            <ActionButton
+                              variant="primary"
+                              disabled={saving}
+                              onClick={() => {
+                                void handleSaveEdit(product.id)
+                              }}
+                            >
+                              {saving ? 'Salvando...' : 'Salvar'}
+                            </ActionButton>
+
+                            <ActionButton
+                              variant="secondary"
+                              disabled={saving}
+                              onClick={cancelEdit}
+                            >
+                              Cancelar
+                            </ActionButton>
+                          </>
+                        ) : (
+                          <>
+                            <ActionButton
+                              variant="secondary"
+                              onClick={() => startEdit(product)}
+                            >
+                              Editar
+                            </ActionButton>
+
+                            <ActionButton
+                              variant={
+                                product.active ? 'danger' : 'success'
+                              }
+                              onClick={() => {
+                                void handleToggle(product)
+                              }}
+                            >
+                              {product.active ? 'Desativar' : 'Ativar'}
+                            </ActionButton>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            background: DS.surfaceBg,
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            marginTop: 20,
+            padding: '16px 18px',
+          }}
+        >
+          <div
+            style={{
+              color: DS.blueSoft,
+              fontSize: 12,
+              fontWeight: 850,
+              marginBottom: 7,
+            }}
+          >
+            Critério de gestão
+          </div>
+
+          <div
+            style={{
+              color: DS.textSecondary,
+              fontSize: 12,
+              lineHeight: 1.65,
+            }}
+          >
+            Produtos ativos podem ser selecionados nos novos fechamentos.
+            Desativar um produto impede o uso futuro, mas mantém os vínculos e
+            os resultados históricos já registrados no sistema.
+          </div>
+        </section>
       </div>
-
-      {/* Count */}
-      {!loading && products.length > 0 && (
-        <p style={{ color: '#555', fontSize: 12, marginTop: 12, textAlign: 'right' }}>
-          {filtered.length} de {products.length} produto{products.length !== 1 ? 's' : ''}
-        </p>
-      )}
     </div>
   )
 }

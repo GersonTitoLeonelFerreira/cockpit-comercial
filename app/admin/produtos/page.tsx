@@ -4,12 +4,14 @@ import { redirect } from 'next/navigation'
 import ProdutosClient from './ProdutosClient'
 
 export const metadata = {
-  title: 'Catálogo de Produtos | Cockpit Comercial',
+  title: 'Catálogo de Produtos | Yolen',
 }
 
 export default async function AdminProdutosPage() {
   const cookieStore = await cookies()
-  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  const activeCompanyId =
+    cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   if (!activeCompanyId) {
     redirect('/select-company')
@@ -46,11 +48,7 @@ export default async function AdminProdutosPage() {
     .eq('id', data.user.id)
     .maybeSingle()
 
-  if (profileError || !profile?.id) {
-    redirect('/login')
-  }
-
-  if (profile.is_active_global === false) {
+  if (profileError || !profile?.id || profile.is_active_global === false) {
     redirect('/login')
   }
 
@@ -70,10 +68,5 @@ export default async function AdminProdutosPage() {
     redirect('/leads')
   }
 
-  return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 lg:px-8">
-      <h1 className="mb-4 text-2xl font-bold text-white">Catálogo de Produtos</h1>
-      <ProdutosClient companyId={membership.company_id} />
-    </div>
-  )
+  return <ProdutosClient companyId={membership.company_id} />
 }
