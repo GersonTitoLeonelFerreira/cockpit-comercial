@@ -1,390 +1,561 @@
 // ==============================================================================
-// Service: Sazonalidade por Dia da Semana — Fase 6.1
+// Service: Relatório por Dia da Semana
 //
-// Analisa a operação comercial REAL por dia da semana, com base em:
-//   - leads_trabalhados: sales_cycles.first_worked_at (trigger write-once,
-//     exclui ações administrativas)
-//   - ganhos: sales_cycles.won_at + won_total > 0 + status='ganho'
-//   - perdidos: sales_cycles.lost_at (se existir) ou updated_at como proxy
-//     (limitação: updated_at pode refletir outras atualizações, não só o encerramento)
-//   - faturamento: sum(won_total) por weekday de won_at
+// Fonte oficial:
+// - Ações comerciais: cycle_events classificados como activity
+// - Avanços: cycle_events classificados como stage_move
+// - Vendas e faturamento: sales_cycles.status = ganho
+// - Data financeira: revenue_seller_ref_date -> won_at -> closed_at
+// - Perdas: sales_cycles.lost_at
 //
-// NOTA SOBRE lost_at:
-//   A coluna lost_at não está garantidamente presente em todas as instalações.
-//   O serviço tenta buscar lost_at; se não existir na resposta (coluna ausente ou
-//   null em todos os registros), usa updated_at como fallback.
-//
-// HONESTIDADE DAS MÉTRICAS:
-//   - taxa_ganho não é calculada quando leads_trabalhados < 10
-//   - ticket_medio não é exibido quando ganhos < 5 (flag base_suficiente_ganho)
-//   - semanas_com_dados fornece contexto do tamanho da amostra
+// Não existe taxa de ganho nesta página.
+// Uma ação registrada e uma venda fechada podem ocorrer em dias diferentes.
+// Comparar os dois diretamente criaria uma conversão artificial.
 // ==============================================================================
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { classifyEvent } from '@/app/config/eventClassification'
 import type {
+  WeekdayIndex,
   WeekdayPerformanceFilters,
   WeekdayPerformanceRow,
   WeekdayPerformanceSummary,
-  WeekdayIndex,
 } from '@/app/types/weekdayPerformance'
 
-const WEEKDAY_LABELS: string[] = [
+const PAGE_SIZE = 1000
+const BUSINESS_TIME_ZONE = 'America/Sao_Paulo'
+
+const WEEKDAY_LABELS = [
   'Domingo',
-  'Segunda',
-  'Terça',
-  'Quarta',
-  'Quinta',
-  'Sexta',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
   'Sábado',
 ]
 
-const WEEKDAY_SHORTS: string[] = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+const WEEKDAY_SHORTS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-function formatBRL(value: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+const SYSTEM_EVENT_TYPES = new Set([
+  'cycle_created',
+  'lead_created',
+  'assigned',
+  'reassigned',
+  'owner_assigned',
+  'owner_reassigned',
+  'returned_to_pool',
+  'group_attached',
+  'group_changed',
+  'group_assigned',
+  'group_detached',
+  'lead_reactivated_from_import',
+  'lead_reactivated_from_manual_create',
+  'lead_reactivated_by_admin',
+  'ai_analysis_generated',
+  'ai_suggestion_applied',
+  'ai_suggestion_rejected',
+])
+
+type RawCycle = {
+  id: string
+  status: string
+  owner_user_id: string | null
+  won_owner_user_id: string | null
+  lost_owner_user_id: string | null
+  won_total: number | string | null
+  won_at: string | null
+  closed_at: string | null
+  lost_at: string | null
+  revenue_seller_ref_date: string | null
 }
 
-/** Returns the ISO week number for a given date (Mon-based, ISO 8601). */
-function isoWeek(date: Date): string {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-  // Set to nearest Thursday (ISO week is defined by Thursday)
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
-  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
-  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
+type RawEvent = {
+  id: string
+  cycle_id: string | null
+  event_type: string
+  metadata: Record<string, unknown> | null
+  occurred_at: string
+  created_by: string | null
 }
 
-/** Count distinct ISO weeks in a set of date strings. */
-function countDistinctWeeks(dates: string[]): number {
-  const weeks = new Set<string>()
-  for (const d of dates) {
-    if (d) weeks.add(isoWeek(new Date(d)))
+type WeekdayAccumulator = {
+  acoes_comerciais: number
+  avancos: number
+  ganhos: number
+  perdidos: number
+  faturamento: number
+  sample_dates: Set<string>
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 0)
+
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isDateKey(value: string | null | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))
+}
+
+function toDateKey(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
   }
-  return weeks.size
+
+  if (isDateKey(value)) {
+    return value
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+
+  const values = new Map(parts.map((part) => [part.type, part.value]))
+
+  const year = values.get('year')
+  const month = values.get('month')
+  const day = values.get('day')
+
+  if (!year || !month || !day) {
+    return null
+  }
+
+  return `${year}-${month}-${day}`
 }
 
-/** Total weeks spanned by a date range. Minimum 1. */
-function weeksInRange(dateStart: string, dateEnd: string): number {
-  const start = new Date(dateStart)
-  const end = new Date(dateEnd)
-  const diffMs = end.getTime() - start.getTime()
-  if (diffMs < 0) return 1
-  return Math.max(1, Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000)))
+function addDays(dateKey: string, amount: number): string {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+
+  date.setUTCDate(date.getUTCDate() + amount)
+
+  return date.toISOString().slice(0, 10)
+}
+
+function weekdayFromDateKey(dateKey: string): WeekdayIndex {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+
+  return date.getUTCDay() as WeekdayIndex
+}
+
+function isoWeekKey(dateKey: string): string {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7))
+
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
+  const week = Math.ceil(
+    ((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+  )
+
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+function countWeeksInRange(dateStart: string, dateEnd: string): number {
+  const weeks = new Set<string>()
+  let current = dateStart
+
+  while (current <= dateEnd) {
+    weeks.add(isoWeekKey(current))
+    current = addDays(current, 1)
+  }
+
+  return Math.max(weeks.size, 1)
+}
+
+function isInRange(
+  dateKey: string | null,
+  dateStart: string,
+  dateEnd: string,
+): boolean {
+  return Boolean(dateKey && dateKey >= dateStart && dateKey <= dateEnd)
+}
+
+function getRevenueReferenceDate(cycle: RawCycle): string | null {
+  return (
+    toDateKey(cycle.revenue_seller_ref_date) ??
+    toDateKey(cycle.won_at) ??
+    toDateKey(cycle.closed_at)
+  )
+}
+
+function isCommercialActivity(event: RawEvent): boolean {
+  if (SYSTEM_EVENT_TYPES.has(event.event_type.trim().toLowerCase())) {
+    return false
+  }
+
+  return (
+    classifyEvent({
+      event_type: event.event_type,
+      metadata: event.metadata ?? {},
+    }) === 'activity'
+  )
+}
+
+function isRealStageAdvance(event: RawEvent): boolean {
+  if (SYSTEM_EVENT_TYPES.has(event.event_type.trim().toLowerCase())) {
+    return false
+  }
+
+  return (
+    classifyEvent({
+      event_type: event.event_type,
+      metadata: event.metadata ?? {},
+    }) === 'stage_move'
+  )
+}
+
+async function fetchAllCycles(companyId: string): Promise<RawCycle[]> {
+  const supabase = supabaseBrowser()
+
+  const rows: RawCycle[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_cycles')
+      .select(
+        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_total, won_at, closed_at, lost_at, revenue_seller_ref_date',
+      )
+      .eq('company_id', companyId)
+      .in('status', ['ganho', 'perdido'])
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(`Erro ao buscar ciclos encerrados: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RawCycle[]
+
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return rows
+}
+
+async function fetchAllEvents(
+  companyId: string,
+  dateStart: string,
+  dateEnd: string,
+  ownerId?: string | null,
+): Promise<RawEvent[]> {
+  const supabase = supabaseBrowser()
+
+  const rows: RawEvent[] = []
+  const nextDay = addDays(dateEnd, 1)
+
+  let from = 0
+
+  while (true) {
+    let query = supabase
+      .from('cycle_events')
+      .select('id, cycle_id, event_type, metadata, occurred_at, created_by')
+      .eq('company_id', companyId)
+      .gte('occurred_at', `${dateStart}T00:00:00-03:00`)
+      .lt('occurred_at', `${nextDay}T00:00:00-03:00`)
+      .order('occurred_at', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (ownerId) {
+      query = query.eq('created_by', ownerId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new Error(`Erro ao buscar eventos comerciais: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RawEvent[]
+
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return rows
 }
 
 function buildDiagnostico(
   rows: WeekdayPerformanceRow[],
+  totalAcoes: number,
   totalGanhos: number,
-  totalTrabalhados: number,
   totalFaturamento: number,
+  melhorAcoes: WeekdayPerformanceRow | null,
+  melhorAvancos: WeekdayPerformanceRow | null,
   melhorFaturamento: WeekdayPerformanceRow | null,
-  melhorTrabalho: WeekdayPerformanceRow | null,
   melhorTicket: WeekdayPerformanceRow | null,
-  melhorGanhos: WeekdayPerformanceRow | null
 ): string {
-  if (totalTrabalhados === 0 && totalGanhos === 0) {
-    return 'Dados insuficientes no período selecionado. Nenhum lead trabalhado ou ganho encontrado.'
+  if (totalAcoes === 0 && totalGanhos === 0) {
+    return 'Nenhuma ação comercial ou venda ganha foi encontrada no período selecionado.'
   }
 
   const parts: string[] = []
 
   if (melhorFaturamento && melhorFaturamento.faturamento > 0) {
     parts.push(
-      `${melhorFaturamento.weekday_label} lidera em faturamento com ${formatBRL(melhorFaturamento.faturamento)}.`
+      `${melhorFaturamento.weekday_label} lidera em faturamento com ${new Intl.NumberFormat(
+        'pt-BR',
+        {
+          style: 'currency',
+          currency: 'BRL',
+        },
+      ).format(melhorFaturamento.faturamento)}.`,
     )
   }
 
-  if (melhorTrabalho && melhorTrabalho.leads_trabalhados > 0) {
+  if (
+    melhorAcoes &&
+    melhorAcoes.acoes_comerciais > 0 &&
+    melhorAcoes.weekday !== melhorFaturamento?.weekday
+  ) {
     parts.push(
-      `${melhorTrabalho.weekday_label} concentra o maior volume de trabalho (${melhorTrabalho.leads_trabalhados} leads trabalhados).`
+      `${melhorAcoes.weekday_label} concentra o maior volume de execução, com ${melhorAcoes.acoes_comerciais} ação(ões) comerciais registradas.`,
     )
   }
 
-  if (melhorTicket && melhorTicket.base_suficiente_ganho) {
+  if (
+    melhorAvancos &&
+    melhorAvancos.avancos > 0 &&
+    melhorAvancos.weekday !== melhorFaturamento?.weekday
+  ) {
     parts.push(
-      `${melhorTicket.weekday_label} apresenta o maior ticket médio entre dias com base suficiente: ${formatBRL(melhorTicket.ticket_medio)}.`
+      `${melhorAvancos.weekday_label} lidera em avanços reais de etapa, com ${melhorAvancos.avancos} movimentação(ões).`,
     )
   }
 
-  if (melhorGanhos && melhorGanhos.ganhos > 0) {
-    if (!melhorFaturamento || melhorGanhos.weekday !== melhorFaturamento.weekday) {
-      parts.push(
-        `${melhorGanhos.weekday_label} lidera em volume de ganhos (${melhorGanhos.ganhos} ganhos).`
-      )
-    }
-  }
-
-  const insufficientDays = rows.filter(
-    (r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho
-  )
-  if (insufficientDays.length > 0) {
-    const names = insufficientDays.map((r) => r.weekday_short).join(', ')
+  if (melhorTicket && melhorTicket.ganhos >= 3) {
     parts.push(
-      `Os dias ${names} têm dados insuficientes para calcular taxa de ganho com confiança (menos de 10 leads trabalhados).`
+      `${melhorTicket.weekday_label} apresenta o maior ticket médio entre dias com base mínima de três vendas.`,
     )
+  }
+
+  if (parts.length === 0 && totalFaturamento > 0) {
+    return 'Há faturamento no período, mas a distribuição por dia ainda não tem volume suficiente para uma leitura comparativa mais profunda.'
   }
 
   if (parts.length === 0) {
-    return 'Período com baixo volume de dados. Amplie o intervalo de datas para análise mais precisa.'
+    return 'Há atividade registrada no período, mas ainda sem volume suficiente de resultados para destacar um padrão consistente.'
   }
 
   return parts.join(' ')
 }
 
 export async function getWeekdayPerformance(
-  filters: WeekdayPerformanceFilters
+  filters: WeekdayPerformanceFilters,
 ): Promise<WeekdayPerformanceSummary> {
-  const supabase = supabaseBrowser()
+  const [cycles, events] = await Promise.all([
+    fetchAllCycles(filters.companyId),
+    fetchAllEvents(
+      filters.companyId,
+      filters.dateStart,
+      filters.dateEnd,
+      filters.ownerId,
+    ),
+  ])
 
-  const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
-  const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
-
-  // ============================================================================
-  // 1. Leads trabalhados — sales_cycles.first_worked_at
-  // ============================================================================
-  let workedQuery = supabase
-    .from('sales_cycles')
-    .select('first_worked_at')
-    .eq('company_id', filters.companyId)
-    .not('first_worked_at', 'is', null)
-    .gte('first_worked_at', dateStartIso)
-    .lte('first_worked_at', dateEndIso)
-
-  if (filters.ownerId) {
-    workedQuery = workedQuery.eq('owner_user_id', filters.ownerId)
-  }
-
-  const { data: workedData, error: workedError } = await workedQuery
-
-  if (workedError) {
-    throw new Error(`Erro ao buscar leads trabalhados: ${workedError.message}`)
-  }
-
-  // ============================================================================
-  // 2. Ganhos — sales_cycles.won_at + won_total > 0 + status='ganho'
-  // ============================================================================
-  let wonQuery = supabase
-    .from('sales_cycles')
-    .select('won_at, won_total')
-    .eq('company_id', filters.companyId)
-    .eq('status', 'ganho')
-    .not('won_at', 'is', null)
-    .gt('won_total', 0)
-    .gte('won_at', dateStartIso)
-    .lte('won_at', dateEndIso)
-
-  if (filters.ownerId) {
-    wonQuery = wonQuery.eq('won_owner_user_id', filters.ownerId)
-  }
-
-  const { data: wonData, error: wonError } = await wonQuery
-
-  if (wonError) {
-    throw new Error(`Erro ao buscar ganhos: ${wonError.message}`)
-  }
-
-  // ============================================================================
-  // 3. Perdidos — tenta lost_at, cai em updated_at como proxy
-  //
-  // LIMITAÇÃO CONHECIDA: updated_at é o melhor proxy disponível quando lost_at
-  // não existe ou não está preenchido. Pode incluir ciclos atualizados por outros
-  // motivos. A leitura deve ser entendida como uma aproximação.
-  // ============================================================================
-  let lostQuery = supabase
-    .from('sales_cycles')
-    .select('lost_at, updated_at')
-    .eq('company_id', filters.companyId)
-    .eq('status', 'perdido')
-
-  if (filters.ownerId) {
-    lostQuery = lostQuery.eq('owner_user_id', filters.ownerId)
-  }
-
-  const { data: lostDataRaw, error: lostError } = await lostQuery
-
-  if (lostError) {
-    throw new Error(`Erro ao buscar perdidos: ${lostError.message}`)
-  }
-
-  // Determine which date field to use for perdidos
-  // Prefer lost_at if at least one non-null value exists, otherwise fallback to updated_at
-  const lostDataAll = (lostDataRaw ?? []) as Array<Record<string, unknown>>
-  const hasLostAt = lostDataAll.some((r) => r.lost_at != null)
-
-  // Parse boundaries once to avoid repeated object creation in the filter
-  const dateStartMs = new Date(dateStartIso).getTime()
-  const dateEndMs = new Date(dateEndIso).getTime()
-
-  // Filter by date range on the chosen field, client-side since we may not know which column exists
-  const lostData = lostDataAll.filter((r) => {
-    const raw = hasLostAt ? (r.lost_at as string | null) : (r.updated_at as string | null)
-    if (!raw) return false
-    const ts = new Date(raw).getTime()
-    return ts >= dateStartMs && ts <= dateEndMs
-  })
-
-  // ============================================================================
-  // 4. Aggregate by weekday (client-side)
-  // ============================================================================
-
-  interface WeekdayAgg {
-    leads_trabalhados: number
-    ganhos: number
-    perdidos: number
-    faturamento: number
-    worked_dates: string[]
-    won_dates: string[]
-    lost_dates: string[]
-  }
-
-  const agg: WeekdayAgg[] = Array.from({ length: 7 }, () => ({
-    leads_trabalhados: 0,
-    ganhos: 0,
-    perdidos: 0,
-    faturamento: 0,
-    worked_dates: [],
-    won_dates: [],
-    lost_dates: [],
-  }))
-
-  for (const row of workedData ?? []) {
-    const r = row as Record<string, unknown>
-    const ts = r.first_worked_at as string | null
-    if (!ts) continue
-    const d = new Date(ts)
-    const wd = d.getUTCDay() as WeekdayIndex
-    agg[wd].leads_trabalhados += 1
-    agg[wd].worked_dates.push(ts)
-  }
-
-  for (const row of wonData ?? []) {
-    const r = row as Record<string, unknown>
-    const ts = r.won_at as string | null
-    const total = r.won_total != null ? Number(r.won_total) : 0
-    if (!ts) continue
-    const d = new Date(ts)
-    const wd = d.getUTCDay() as WeekdayIndex
-    agg[wd].ganhos += 1
-    agg[wd].faturamento += total
-    agg[wd].won_dates.push(ts)
-  }
-
-  for (const row of lostData) {
-    const ts = hasLostAt
-      ? (row.lost_at as string | null)
-      : (row.updated_at as string | null)
-    if (!ts) continue
-    const d = new Date(ts)
-    const wd = d.getUTCDay() as WeekdayIndex
-    agg[wd].perdidos += 1
-    agg[wd].lost_dates.push(ts)
-  }
-
-  // ============================================================================
-  // 5. Build WeekdayPerformanceRow[]
-  // ============================================================================
-
-  const rows: WeekdayPerformanceRow[] = agg.map((a, i) => {
-    const weekday = i as WeekdayIndex
-    const ticket_medio = a.ganhos > 0 ? a.faturamento / a.ganhos : 0
-    const taxa_ganho = a.leads_trabalhados > 0 ? a.ganhos / a.leads_trabalhados : 0
-    const base_suficiente_trabalho = a.leads_trabalhados >= 10
-    const base_suficiente_ganho = a.ganhos >= 5
-
-    // semanas_com_dados: distinct ISO weeks across all activity on this weekday
-    const allDates = [...a.worked_dates, ...a.won_dates, ...a.lost_dates]
-    const semanas_com_dados = countDistinctWeeks(allDates)
-
-    return {
-      weekday,
-      weekday_label: WEEKDAY_LABELS[i],
-      weekday_short: WEEKDAY_SHORTS[i],
-      leads_trabalhados: a.leads_trabalhados,
-      ganhos: a.ganhos,
-      perdidos: a.perdidos,
-      faturamento: a.faturamento,
-      ticket_medio,
-      taxa_ganho,
-      base_suficiente_trabalho,
-      base_suficiente_ganho,
-      semanas_com_dados,
-    }
-  })
-
-  // ============================================================================
-  // 6. Best day KPIs
-  // ============================================================================
-
-  const nonZeroGanhos = rows.filter((r) => r.ganhos > 0)
-  const nonZeroFaturamento = rows.filter((r) => r.faturamento > 0)
-  const nonZeroTrabalho = rows.filter((r) => r.leads_trabalhados > 0)
-  const suficienteGanho = rows.filter((r) => r.base_suficiente_ganho)
-
-  const melhor_dia_ganhos =
-    nonZeroGanhos.length > 0
-      ? nonZeroGanhos.reduce((best, r) => (r.ganhos > best.ganhos ? r : best))
-      : null
-
-  const melhor_dia_faturamento =
-    nonZeroFaturamento.length > 0
-      ? nonZeroFaturamento.reduce((best, r) => (r.faturamento > best.faturamento ? r : best))
-      : null
-
-  const melhor_dia_ticket =
-    suficienteGanho.length > 0
-      ? suficienteGanho.reduce((best, r) => (r.ticket_medio > best.ticket_medio ? r : best))
-      : null
-
-  const melhor_dia_trabalho =
-    nonZeroTrabalho.length > 0
-      ? nonZeroTrabalho.reduce((best, r) =>
-          r.leads_trabalhados > best.leads_trabalhados ? r : best
-        )
-      : null
-
-  // ============================================================================
-  // 7. Totals
-  // ============================================================================
-
-  const total_leads_trabalhados = agg.reduce((s, a) => s + a.leads_trabalhados, 0)
-  const total_ganhos = agg.reduce((s, a) => s + a.ganhos, 0)
-  const total_perdidos = agg.reduce((s, a) => s + a.perdidos, 0)
-  const total_faturamento = agg.reduce((s, a) => s + a.faturamento, 0)
-
-  // ============================================================================
-  // 8. Period info
-  // ============================================================================
-
-  const semanas_no_periodo = weeksInRange(filters.dateStart, filters.dateEnd)
-
-  // ============================================================================
-  // 9. Diagnostic
-  // ============================================================================
-
-  const diagnostico = buildDiagnostico(
-    rows,
-    total_ganhos,
-    total_leads_trabalhados,
-    total_faturamento,
-    melhor_dia_faturamento,
-    melhor_dia_trabalho,
-    melhor_dia_ticket,
-    melhor_dia_ganhos
+  const accumulators: WeekdayAccumulator[] = Array.from(
+    {
+      length: 7,
+    },
+    () => ({
+      acoes_comerciais: 0,
+      avancos: 0,
+      ganhos: 0,
+      perdidos: 0,
+      faturamento: 0,
+      sample_dates: new Set<string>(),
+    }),
   )
+
+  for (const event of events) {
+    const dateKey = toDateKey(event.occurred_at)
+
+    if (!isInRange(dateKey, filters.dateStart, filters.dateEnd) || !dateKey) {
+      continue
+    }
+
+    const weekday = weekdayFromDateKey(dateKey)
+    const accumulator = accumulators[weekday]
+
+    accumulator.sample_dates.add(dateKey)
+
+    if (isCommercialActivity(event)) {
+      accumulator.acoes_comerciais += 1
+    }
+
+    if (isRealStageAdvance(event)) {
+      accumulator.avancos += 1
+    }
+  }
+
+  for (const cycle of cycles) {
+    if (cycle.status === 'ganho') {
+      const saleDate = getRevenueReferenceDate(cycle)
+      const saleOwnerId = cycle.won_owner_user_id ?? cycle.owner_user_id
+
+      if (
+        isInRange(saleDate, filters.dateStart, filters.dateEnd) &&
+        saleDate &&
+        (!filters.ownerId || saleOwnerId === filters.ownerId)
+      ) {
+        const weekday = weekdayFromDateKey(saleDate)
+        const accumulator = accumulators[weekday]
+
+        accumulator.ganhos += 1
+        accumulator.faturamento += toNumber(cycle.won_total)
+        accumulator.sample_dates.add(saleDate)
+      }
+    }
+
+    if (cycle.status === 'perdido') {
+      const lossDate = toDateKey(cycle.lost_at)
+      const lossOwnerId = cycle.lost_owner_user_id ?? cycle.owner_user_id
+
+      if (
+        isInRange(lossDate, filters.dateStart, filters.dateEnd) &&
+        lossDate &&
+        (!filters.ownerId || lossOwnerId === filters.ownerId)
+      ) {
+        const weekday = weekdayFromDateKey(lossDate)
+        const accumulator = accumulators[weekday]
+
+        accumulator.perdidos += 1
+        accumulator.sample_dates.add(lossDate)
+      }
+    }
+  }
+
+  const rows: WeekdayPerformanceRow[] = accumulators.map(
+    (accumulator, index) => {
+      const weekday = index as WeekdayIndex
+
+      return {
+        weekday,
+        weekday_label: WEEKDAY_LABELS[index],
+        weekday_short: WEEKDAY_SHORTS[index],
+        acoes_comerciais: accumulator.acoes_comerciais,
+        avancos: accumulator.avancos,
+        ganhos: accumulator.ganhos,
+        perdidos: accumulator.perdidos,
+        faturamento: accumulator.faturamento,
+        ticket_medio:
+          accumulator.ganhos > 0
+            ? accumulator.faturamento / accumulator.ganhos
+            : 0,
+        semanas_com_dados: new Set(
+          Array.from(accumulator.sample_dates).map((dateKey) =>
+            isoWeekKey(dateKey),
+          ),
+        ).size,
+      }
+    },
+  )
+
+  const totalAcoes = rows.reduce(
+    (sum, row) => sum + row.acoes_comerciais,
+    0,
+  )
+
+  const totalAvancos = rows.reduce((sum, row) => sum + row.avancos, 0)
+
+  const totalGanhos = rows.reduce((sum, row) => sum + row.ganhos, 0)
+
+  const totalPerdidos = rows.reduce((sum, row) => sum + row.perdidos, 0)
+
+  const totalFaturamento = rows.reduce(
+    (sum, row) => sum + row.faturamento,
+    0,
+  )
+
+  const rowsComAcoes = rows.filter((row) => row.acoes_comerciais > 0)
+  const rowsComAvancos = rows.filter((row) => row.avancos > 0)
+  const rowsComGanhos = rows.filter((row) => row.ganhos > 0)
+  const rowsComTicketConfiavel = rows.filter((row) => row.ganhos >= 3)
+
+  const melhorDiaAcoes =
+    rowsComAcoes.length > 0
+      ? [...rowsComAcoes].sort(
+          (a, b) => b.acoes_comerciais - a.acoes_comerciais,
+        )[0]
+      : null
+
+  const melhorDiaAvancos =
+    rowsComAvancos.length > 0
+      ? [...rowsComAvancos].sort((a, b) => b.avancos - a.avancos)[0]
+      : null
+
+  const melhorDiaGanhos =
+    rowsComGanhos.length > 0
+      ? [...rowsComGanhos].sort((a, b) => b.ganhos - a.ganhos)[0]
+      : null
+
+  const melhorDiaFaturamento =
+    rowsComGanhos.length > 0
+      ? [...rowsComGanhos].sort(
+          (a, b) => b.faturamento - a.faturamento,
+        )[0]
+      : null
+
+  const melhorDiaTicket =
+    rowsComTicketConfiavel.length > 0
+      ? [...rowsComTicketConfiavel].sort(
+          (a, b) => b.ticket_medio - a.ticket_medio,
+        )[0]
+      : null
 
   return {
     rows,
-    melhor_dia_ganhos,
-    melhor_dia_faturamento,
-    melhor_dia_ticket,
-    melhor_dia_trabalho,
-    total_leads_trabalhados,
-    total_ganhos,
-    total_perdidos,
-    total_faturamento,
-    diagnostico,
+    melhor_dia_acoes: melhorDiaAcoes,
+    melhor_dia_avancos: melhorDiaAvancos,
+    melhor_dia_ganhos: melhorDiaGanhos,
+    melhor_dia_faturamento: melhorDiaFaturamento,
+    melhor_dia_ticket: melhorDiaTicket,
+
+    total_acoes_comerciais: totalAcoes,
+    total_avancos: totalAvancos,
+    total_ganhos: totalGanhos,
+    total_perdidos: totalPerdidos,
+    total_faturamento: totalFaturamento,
+    ticket_medio_geral:
+      totalGanhos > 0 ? totalFaturamento / totalGanhos : 0,
+
+    diagnostico: buildDiagnostico(
+      rows,
+      totalAcoes,
+      totalGanhos,
+      totalFaturamento,
+      melhorDiaAcoes,
+      melhorDiaAvancos,
+      melhorDiaFaturamento,
+      melhorDiaTicket,
+    ),
+
     period_start: filters.dateStart,
     period_end: filters.dateEnd,
-    semanas_no_periodo,
+    semanas_no_periodo: countWeeksInRange(
+      filters.dateStart,
+      filters.dateEnd,
+    ),
   }
 }
