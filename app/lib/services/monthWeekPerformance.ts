@@ -1,466 +1,656 @@
 // ==============================================================================
-// Service: Sazonalidade por Semana do Mês — Fase 6.3
+// Service: Relatório por Semana do Mês
 //
-// Analisa a operação comercial por bloco semanal do mês:
-//   semana 1 = dias  1–7   (Math.ceil(day / 7) = 1)
-//   semana 2 = dias  8–14  (Math.ceil(day / 7) = 2)
-//   semana 3 = dias 15–21  (Math.ceil(day / 7) = 3)
-//   semana 4 = dias 22–28  (Math.ceil(day / 7) = 4)
-//   semana 5 = dias 29–31  (Math.ceil(day / 7) = 5)
+// Fonte oficial:
+// - Ações comerciais: cycle_events classificados como activity
+// - Avanços: cycle_events classificados como stage_move
+// - Vendas e faturamento: sales_cycles com status ganho
+// - Data financeira: revenue_seller_ref_date -> won_at -> closed_at
+// - Perdas: sales_cycles.lost_at
 //
-// Fontes:
-//   - leads_trabalhados: sales_cycles.first_worked_at
-//   - ganhos/faturamento: sales_cycles.won_at + won_total + status='ganho'
-//   - perdidos: sales_cycles.lost_at (proxy: updated_at quando lost_at indisponível)
-//
-// HONESTIDADE:
-//   - taxa_ganho não é calculada quando leads_trabalhados < 10
-//   - ticket_medio não é exibido quando ganhos < 5
-//   - 5ª semana tem janela de apenas 3 dias — quase sempre base insuficiente
-//   - meses_com_dados contextualiza o tamanho da amostra por semana
+// Não existe taxa de ganho.
+// Uma ação e uma venda podem acontecer em dias ou semanas diferentes.
 // ==============================================================================
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { classifyEvent } from '@/app/config/eventClassification'
 import type {
   MonthWeekFilters,
+  MonthWeekIndex,
   MonthWeekPerformanceRow,
   MonthWeekPerformanceSummary,
-  MonthWeekIndex,
 } from '@/app/types/monthWeekPerformance'
 
-const WEEK_LABELS: string[] = [
-  '',          // índice 0 não usado
-  '1ª semana',
-  '2ª semana',
-  '3ª semana',
-  '4ª semana',
-  '5ª semana',
-]
+const PAGE_SIZE = 1000
+const BUSINESS_TIME_ZONE = 'America/Sao_Paulo'
 
-const WEEK_SHORTS: string[] = [
-  '',
-  'Sem 1',
-  'Sem 2',
-  'Sem 3',
-  'Sem 4',
-  'Sem 5',
-]
-
-const WEEK_DESCRIPTIONS: string[] = [
-  '',
-  'Dias 1–7',
-  'Dias 8–14',
-  'Dias 15–21',
-  'Dias 22–28',
-  'Dias 29–31',
-]
-
-/**
- * Retorna o número da semana do mês (1–5) para um dado timestamp.
- * Regra: Math.ceil(dayOfMonth / 7), clamped to [1, 5].
- */
-function getMonthWeek(ts: string): MonthWeekIndex {
-  const d = new Date(ts)
-  const dayOfMonth = d.getUTCDate()
-  return Math.min(5, Math.ceil(dayOfMonth / 7)) as MonthWeekIndex
+const WEEK_LABELS: Record<MonthWeekIndex, string> = {
+  1: '1ª semana',
+  2: '2ª semana',
+  3: '3ª semana',
+  4: '4ª semana',
+  5: '5ª semana',
 }
 
-/**
- * Extrai "YYYY-MM" de um timestamp ISO para identificar meses distintos.
- */
-function toYearMonth(ts: string): string {
-  return ts.slice(0, 7)
+const WEEK_SHORTS: Record<MonthWeekIndex, string> = {
+  1: 'Sem 1',
+  2: 'Sem 2',
+  3: 'Sem 3',
+  4: 'Sem 4',
+  5: 'Sem 5',
+}
+
+const WEEK_DESCRIPTIONS: Record<MonthWeekIndex, string> = {
+  1: 'Dias 1–7',
+  2: 'Dias 8–14',
+  3: 'Dias 15–21',
+  4: 'Dias 22–28',
+  5: 'Dias 29–31',
+}
+
+const SYSTEM_EVENT_TYPES = new Set([
+  'cycle_created',
+  'lead_created',
+  'assigned',
+  'reassigned',
+  'owner_assigned',
+  'owner_reassigned',
+  'returned_to_pool',
+  'group_attached',
+  'group_changed',
+  'group_assigned',
+  'group_detached',
+  'lead_reactivated_from_import',
+  'lead_reactivated_from_manual_create',
+  'lead_reactivated_by_admin',
+  'ai_analysis_generated',
+  'ai_suggestion_applied',
+  'ai_suggestion_rejected',
+])
+
+type RawCycle = {
+  id: string
+  status: string
+  owner_user_id: string | null
+  won_owner_user_id: string | null
+  lost_owner_user_id: string | null
+  won_total: number | string | null
+  won_at: string | null
+  closed_at: string | null
+  lost_at: string | null
+  revenue_seller_ref_date: string | null
+}
+
+type RawEvent = {
+  id: string
+  cycle_id: string | null
+  event_type: string
+  metadata: Record<string, unknown> | null
+  occurred_at: string
+  created_by: string | null
+}
+
+type WeekAccumulator = {
+  acoes_comerciais: number
+  avancos: number
+  ganhos: number
+  perdidos: number
+  faturamento: number
+  sample_months: Set<string>
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 0)
+
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isDateKey(value: string | null | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))
+}
+
+function toDateKey(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  if (isDateKey(value)) {
+    return value
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+
+  const values = new Map(parts.map((part) => [part.type, part.value]))
+
+  const year = values.get('year')
+  const month = values.get('month')
+  const day = values.get('day')
+
+  if (!year || !month || !day) {
+    return null
+  }
+
+  return `${year}-${month}-${day}`
+}
+
+function addDays(dateKey: string, amount: number): string {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+
+  date.setUTCDate(date.getUTCDate() + amount)
+
+  return date.toISOString().slice(0, 10)
+}
+
+function getMonthWeek(dateKey: string): MonthWeekIndex {
+  const day = Number(dateKey.slice(8, 10))
+
+  return Math.min(5, Math.max(1, Math.ceil(day / 7))) as MonthWeekIndex
+}
+
+function getRevenueReferenceDate(cycle: RawCycle): string | null {
+  return (
+    toDateKey(cycle.revenue_seller_ref_date) ??
+    toDateKey(cycle.won_at) ??
+    toDateKey(cycle.closed_at)
+  )
+}
+
+function isInRange(
+  dateKey: string | null,
+  dateStart: string,
+  dateEnd: string,
+): boolean {
+  return Boolean(dateKey && dateKey >= dateStart && dateKey <= dateEnd)
+}
+
+function countMonthsInRange(dateStart: string, dateEnd: string): number {
+  const start = new Date(`${dateStart}T12:00:00Z`)
+  const end = new Date(`${dateEnd}T12:00:00Z`)
+
+  return Math.max(
+    1,
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+      (end.getUTCMonth() - start.getUTCMonth()) +
+      1,
+  )
+}
+
+function isCommercialActivity(event: RawEvent): boolean {
+  if (SYSTEM_EVENT_TYPES.has(event.event_type.trim().toLowerCase())) {
+    return false
+  }
+
+  return (
+    classifyEvent({
+      event_type: event.event_type,
+      metadata: event.metadata ?? {},
+    }) === 'activity'
+  )
+}
+
+function isRealStageAdvance(event: RawEvent): boolean {
+  if (SYSTEM_EVENT_TYPES.has(event.event_type.trim().toLowerCase())) {
+    return false
+  }
+
+  return (
+    classifyEvent({
+      event_type: event.event_type,
+      metadata: event.metadata ?? {},
+    }) === 'stage_move'
+  )
 }
 
 function formatBRL(value: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
 }
 
-/** Conta o número de meses distintos em um intervalo de datas. Mínimo 1. */
-function monthsInRange(dateStart: string, dateEnd: string): number {
-  const start = new Date(dateStart)
-  const end = new Date(dateEnd)
-  const months =
-    (end.getFullYear() - start.getFullYear()) * 12 +
-    (end.getMonth() - start.getMonth()) +
-    1
-  return Math.max(1, months)
+async function fetchAllCycles(companyId: string): Promise<RawCycle[]> {
+  const supabase = supabaseBrowser()
+
+  const rows: RawCycle[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_cycles')
+      .select(
+        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_total, won_at, closed_at, lost_at, revenue_seller_ref_date',
+      )
+      .eq('company_id', companyId)
+      .in('status', ['ganho', 'perdido'])
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(`Erro ao buscar ciclos encerrados: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RawCycle[]
+
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return rows
+}
+
+async function fetchAllEvents(
+  companyId: string,
+  dateStart: string,
+  dateEnd: string,
+  ownerId?: string | null,
+): Promise<RawEvent[]> {
+  const supabase = supabaseBrowser()
+
+  const rows: RawEvent[] = []
+  const nextDay = addDays(dateEnd, 1)
+
+  let from = 0
+
+  while (true) {
+    let query = supabase
+      .from('cycle_events')
+      .select('id, cycle_id, event_type, metadata, occurred_at, created_by')
+      .eq('company_id', companyId)
+      .gte('occurred_at', `${dateStart}T00:00:00-03:00`)
+      .lt('occurred_at', `${nextDay}T00:00:00-03:00`)
+      .order('occurred_at', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (ownerId) {
+      query = query.eq('created_by', ownerId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new Error(`Erro ao buscar eventos comerciais: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RawEvent[]
+
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return rows
 }
 
 function buildDiagnostico(
-  rows: MonthWeekPerformanceRow[],
+  totalAcoes: number,
   totalGanhos: number,
-  totalTrabalhados: number,
+  melhorAcoes: MonthWeekPerformanceRow | null,
+  melhorAvancos: MonthWeekPerformanceRow | null,
   melhorFaturamento: MonthWeekPerformanceRow | null,
-  melhorTrabalho: MonthWeekPerformanceRow | null,
   melhorTicket: MonthWeekPerformanceRow | null,
-  melhorGanhos: MonthWeekPerformanceRow | null
 ): string {
-  if (totalTrabalhados === 0 && totalGanhos === 0) {
-    return 'Dados insuficientes no período selecionado. Nenhum lead trabalhado ou ganho encontrado.'
+  if (totalAcoes === 0 && totalGanhos === 0) {
+    return 'Nenhuma ação comercial ou venda ganha foi encontrada no período selecionado.'
   }
 
   const parts: string[] = []
 
   if (melhorFaturamento && melhorFaturamento.faturamento > 0) {
     parts.push(
-      `A ${melhorFaturamento.week_label} lidera em faturamento com ${formatBRL(melhorFaturamento.faturamento)}.`
+      `${melhorFaturamento.week_label} lidera em faturamento com ${formatBRL(melhorFaturamento.faturamento)}.`,
     )
   }
 
-  if (melhorTrabalho && melhorTrabalho.leads_trabalhados > 0) {
+  if (
+    melhorAcoes &&
+    melhorAcoes.acoes_comerciais > 0 &&
+    melhorAcoes.week !== melhorFaturamento?.week
+  ) {
     parts.push(
-      `A ${melhorTrabalho.week_label} concentra o maior volume de trabalho (${melhorTrabalho.leads_trabalhados} leads trabalhados).`
+      `${melhorAcoes.week_label} concentra o maior volume de execução, com ${melhorAcoes.acoes_comerciais} ação(ões) registradas.`,
     )
   }
 
-  if (melhorTicket && melhorTicket.base_suficiente_ganho) {
+  if (
+    melhorAvancos &&
+    melhorAvancos.avancos > 0 &&
+    melhorAvancos.week !== melhorFaturamento?.week
+  ) {
     parts.push(
-      `A ${melhorTicket.week_label} apresenta o maior ticket médio entre semanas com base suficiente: ${formatBRL(melhorTicket.ticket_medio)}.`
+      `${melhorAvancos.week_label} lidera em avanços reais de etapa, com ${melhorAvancos.avancos} movimentação(ões).`,
     )
   }
 
-  if (melhorGanhos && melhorGanhos.ganhos > 0) {
-    if (!melhorFaturamento || melhorGanhos.week !== melhorFaturamento.week) {
-      parts.push(
-        `A ${melhorGanhos.week_label} lidera em volume de ganhos (${melhorGanhos.ganhos} ganho(s)).`
-      )
-    }
-  }
-
-  const insufficientWeeks = rows.filter(
-    (r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho
-  )
-  if (insufficientWeeks.length > 0) {
-    const names = insufficientWeeks.map((r) => r.week_short).join(', ')
+  if (melhorTicket && melhorTicket.ganhos >= 3) {
     parts.push(
-      `As semanas ${names} têm dados insuficientes para calcular taxa de ganho com confiança (menos de 10 leads trabalhados).`
+      `${melhorTicket.week_label} apresenta o maior ticket médio entre as semanas com base mínima de três vendas.`,
     )
   }
 
   if (parts.length === 0) {
-    return 'Período com baixo volume de dados. Amplie o intervalo de datas para análise mais precisa.'
+    return 'Há atividade registrada no período, mas ainda sem volume suficiente de resultados para apontar um padrão consistente.'
   }
 
   return parts.join(' ')
 }
 
 function buildLeituraResumida(
-  rows: MonthWeekPerformanceRow[],
+  melhorAcoes: MonthWeekPerformanceRow | null,
+  melhorAvancos: MonthWeekPerformanceRow | null,
   melhorFaturamento: MonthWeekPerformanceRow | null,
   melhorGanhos: MonthWeekPerformanceRow | null,
   melhorTicket: MonthWeekPerformanceRow | null,
-  melhorTrabalho: MonthWeekPerformanceRow | null
 ): string[] {
-  const frases: string[] = []
+  const lines: string[] = []
 
-  if (melhorFaturamento && melhorFaturamento.faturamento > 0) {
-    frases.push(`A ${melhorFaturamento.week_label} lidera em faturamento.`)
-  }
-
-  if (melhorGanhos && melhorGanhos.ganhos > 0) {
-    frases.push(
-      `A ${melhorGanhos.week_label} concentra o maior volume de ganhos (${melhorGanhos.ganhos} ganho(s)).`
+  if (melhorFaturamento?.faturamento) {
+    lines.push(
+      `${melhorFaturamento.week_label} é a faixa mais forte em faturamento.`,
     )
   }
 
-  if (melhorTicket && melhorTicket.base_suficiente_ganho) {
-    frases.push(
-      `A ${melhorTicket.week_label} apresenta o melhor ticket médio: ${formatBRL(melhorTicket.ticket_medio)}.`
+  if (
+    melhorGanhos &&
+    melhorGanhos.week !== melhorFaturamento?.week &&
+    melhorGanhos.ganhos > 0
+  ) {
+    lines.push(
+      `${melhorGanhos.week_label} concentra o maior volume de vendas ganhas.`,
     )
   }
 
-  if (melhorTrabalho && melhorTrabalho.leads_trabalhados > 0) {
-    frases.push(
-      `A ${melhorTrabalho.week_label} é a mais forte em volume de trabalho comercial (${melhorTrabalho.leads_trabalhados} leads trabalhados).`
+  if (
+    melhorAcoes &&
+    melhorAcoes.week !== melhorFaturamento?.week &&
+    melhorAcoes.acoes_comerciais > 0
+  ) {
+    lines.push(
+      `${melhorAcoes.week_label} é a faixa com maior volume de execução comercial.`,
     )
   }
 
-  // Sinaliza semanas com base insuficiente que têm algum dado
-  const insuficientes = rows.filter(
-    (r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho
-  )
-  if (insuficientes.length > 0) {
-    const nomes = insuficientes.map((r) => r.week_short).join(', ')
-    frases.push(
-      `${nomes} com volume insuficiente — amplie o período para leituras mais confiáveis.`
+  if (
+    melhorAvancos &&
+    melhorAvancos.week !== melhorFaturamento?.week &&
+    melhorAvancos.avancos > 0
+  ) {
+    lines.push(
+      `${melhorAvancos.week_label} apresenta mais avanços reais de etapa.`,
     )
   }
 
-  // Nota sobre 5ª semana (estruturalmente menor)
-  const sem5 = rows.find((r) => r.week === 5)
-  if (sem5 && sem5.leads_trabalhados === 0 && sem5.ganhos === 0) {
-    frases.push(
-      'A 5ª semana (dias 29–31) não apresentou atividade no período. Isso é comum em meses de 28 dias.'
+  if (melhorTicket && melhorTicket.ganhos >= 3) {
+    lines.push(
+      `${melhorTicket.week_label} tem o maior ticket médio com base suficiente.`,
     )
   }
 
-  if (frases.length === 0) {
-    frases.push('Período com volume insuficiente para gerar leitura por semana do mês.')
+  if (lines.length === 0) {
+    lines.push(
+      'Período com volume insuficiente para gerar uma leitura comparativa por semana do mês.',
+    )
   }
 
-  return frases
+  return lines
 }
 
 export async function getMonthWeekPerformance(
-  filters: MonthWeekFilters
+  filters: MonthWeekFilters,
 ): Promise<MonthWeekPerformanceSummary> {
-  const supabase = supabaseBrowser()
+  const [cycles, events] = await Promise.all([
+    fetchAllCycles(filters.companyId),
+    fetchAllEvents(
+      filters.companyId,
+      filters.dateStart,
+      filters.dateEnd,
+      filters.ownerId,
+    ),
+  ])
 
-  const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
-  const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
-
-  // ============================================================================
-  // 1. Leads trabalhados — sales_cycles.first_worked_at
-  // ============================================================================
-  let workedQuery = supabase
-    .from('sales_cycles')
-    .select('first_worked_at')
-    .eq('company_id', filters.companyId)
-    .not('first_worked_at', 'is', null)
-    .gte('first_worked_at', dateStartIso)
-    .lte('first_worked_at', dateEndIso)
-
-  if (filters.ownerId) {
-    workedQuery = workedQuery.eq('owner_user_id', filters.ownerId)
+  const accumulators: Record<MonthWeekIndex, WeekAccumulator> = {
+    1: {
+      acoes_comerciais: 0,
+      avancos: 0,
+      ganhos: 0,
+      perdidos: 0,
+      faturamento: 0,
+      sample_months: new Set<string>(),
+    },
+    2: {
+      acoes_comerciais: 0,
+      avancos: 0,
+      ganhos: 0,
+      perdidos: 0,
+      faturamento: 0,
+      sample_months: new Set<string>(),
+    },
+    3: {
+      acoes_comerciais: 0,
+      avancos: 0,
+      ganhos: 0,
+      perdidos: 0,
+      faturamento: 0,
+      sample_months: new Set<string>(),
+    },
+    4: {
+      acoes_comerciais: 0,
+      avancos: 0,
+      ganhos: 0,
+      perdidos: 0,
+      faturamento: 0,
+      sample_months: new Set<string>(),
+    },
+    5: {
+      acoes_comerciais: 0,
+      avancos: 0,
+      ganhos: 0,
+      perdidos: 0,
+      faturamento: 0,
+      sample_months: new Set<string>(),
+    },
   }
 
-  const { data: workedData, error: workedError } = await workedQuery
+  for (const event of events) {
+    const dateKey = toDateKey(event.occurred_at)
 
-  if (workedError) {
-    throw new Error(`Erro ao buscar leads trabalhados: ${workedError.message}`)
+    if (!dateKey || !isInRange(dateKey, filters.dateStart, filters.dateEnd)) {
+      continue
+    }
+
+    const activity = isCommercialActivity(event)
+    const advance = isRealStageAdvance(event)
+
+    if (!activity && !advance) {
+      continue
+    }
+
+    const week = getMonthWeek(dateKey)
+    const accumulator = accumulators[week]
+
+    accumulator.sample_months.add(dateKey.slice(0, 7))
+
+    if (activity) {
+      accumulator.acoes_comerciais += 1
+    }
+
+    if (advance) {
+      accumulator.avancos += 1
+    }
   }
 
-  // ============================================================================
-  // 2. Ganhos — sales_cycles.won_at + won_total > 0 + status='ganho'
-  // ============================================================================
-  let wonQuery = supabase
-    .from('sales_cycles')
-    .select('won_at, won_total')
-    .eq('company_id', filters.companyId)
-    .eq('status', 'ganho')
-    .not('won_at', 'is', null)
-    .gt('won_total', 0)
-    .gte('won_at', dateStartIso)
-    .lte('won_at', dateEndIso)
+  for (const cycle of cycles) {
+    if (cycle.status === 'ganho') {
+      const saleDate = getRevenueReferenceDate(cycle)
+      const saleOwnerId = cycle.won_owner_user_id ?? cycle.owner_user_id
 
-  if (filters.ownerId) {
-    wonQuery = wonQuery.eq('won_owner_user_id', filters.ownerId)
+      if (
+        saleDate &&
+        isInRange(saleDate, filters.dateStart, filters.dateEnd) &&
+        (!filters.ownerId || saleOwnerId === filters.ownerId)
+      ) {
+        const week = getMonthWeek(saleDate)
+        const accumulator = accumulators[week]
+
+        accumulator.ganhos += 1
+        accumulator.faturamento += toNumber(cycle.won_total)
+        accumulator.sample_months.add(saleDate.slice(0, 7))
+      }
+    }
+
+    if (cycle.status === 'perdido') {
+      const lossDate = toDateKey(cycle.lost_at)
+      const lossOwnerId = cycle.lost_owner_user_id ?? cycle.owner_user_id
+
+      if (
+        lossDate &&
+        isInRange(lossDate, filters.dateStart, filters.dateEnd) &&
+        (!filters.ownerId || lossOwnerId === filters.ownerId)
+      ) {
+        const week = getMonthWeek(lossDate)
+        const accumulator = accumulators[week]
+
+        accumulator.perdidos += 1
+        accumulator.sample_months.add(lossDate.slice(0, 7))
+      }
+    }
   }
 
-  const { data: wonData, error: wonError } = await wonQuery
+  const indexes: MonthWeekIndex[] = [1, 2, 3, 4, 5]
 
-  if (wonError) {
-    throw new Error(`Erro ao buscar ganhos: ${wonError.message}`)
-  }
+  const rows: MonthWeekPerformanceRow[] = indexes.map((week) => {
+    const accumulator = accumulators[week]
 
-  // ============================================================================
-  // 3. Perdidos — tenta lost_at, cai em updated_at como proxy
-  // ============================================================================
-  let lostQuery = supabase
-    .from('sales_cycles')
-    .select('lost_at, updated_at')
-    .eq('company_id', filters.companyId)
-    .eq('status', 'perdido')
-
-  if (filters.ownerId) {
-    lostQuery = lostQuery.eq('owner_user_id', filters.ownerId)
-  }
-
-  const { data: lostDataRaw, error: lostError } = await lostQuery
-
-  if (lostError) {
-    throw new Error(`Erro ao buscar perdidos: ${lostError.message}`)
-  }
-
-  const lostDataAll = (lostDataRaw ?? []) as Array<Record<string, unknown>>
-  const hasLostAtColumn = lostDataAll.some((r) => r.lost_at != null)
-
-  const dateStartMs = new Date(dateStartIso).getTime()
-  const dateEndMs = new Date(dateEndIso).getTime()
-
-  const lostData = lostDataAll.filter((r) => {
-    const raw = hasLostAtColumn ? (r.lost_at as string | null) : (r.updated_at as string | null)
-    if (!raw) return false
-    const ts = new Date(raw).getTime()
-    return ts >= dateStartMs && ts <= dateEndMs
+    return {
+      week,
+      week_label: WEEK_LABELS[week],
+      week_short: WEEK_SHORTS[week],
+      week_description: WEEK_DESCRIPTIONS[week],
+      acoes_comerciais: accumulator.acoes_comerciais,
+      avancos: accumulator.avancos,
+      ganhos: accumulator.ganhos,
+      perdidos: accumulator.perdidos,
+      faturamento: accumulator.faturamento,
+      ticket_medio:
+        accumulator.ganhos > 0
+          ? accumulator.faturamento / accumulator.ganhos
+          : 0,
+      meses_com_dados: accumulator.sample_months.size,
+    }
   })
 
-  // ============================================================================
-  // 4. Aggregate by week-of-month (client-side)
-  // ============================================================================
-
-  interface WeekAgg {
-    leads_trabalhados: number
-    ganhos: number
-    perdidos: number
-    faturamento: number
-    worked_year_months: Set<string>
-    won_year_months: Set<string>
-    lost_year_months: Set<string>
-  }
-
-  // índice 0 não usado; semanas 1–5 em posições 1–5
-  const agg: WeekAgg[] = Array.from({ length: 6 }, () => ({
-    leads_trabalhados: 0,
-    ganhos: 0,
-    perdidos: 0,
-    faturamento: 0,
-    worked_year_months: new Set<string>(),
-    won_year_months: new Set<string>(),
-    lost_year_months: new Set<string>(),
-  }))
-
-  for (const row of workedData ?? []) {
-    const r = row as Record<string, unknown>
-    const ts = r.first_worked_at as string | null
-    if (!ts) continue
-    const wk = getMonthWeek(ts)
-    agg[wk].leads_trabalhados += 1
-    agg[wk].worked_year_months.add(toYearMonth(ts))
-  }
-
-  for (const row of wonData ?? []) {
-    const r = row as Record<string, unknown>
-    const ts = r.won_at as string | null
-    const total = r.won_total != null ? Number(r.won_total) : 0
-    if (!ts) continue
-    const wk = getMonthWeek(ts)
-    agg[wk].ganhos += 1
-    agg[wk].faturamento += total
-    agg[wk].won_year_months.add(toYearMonth(ts))
-  }
-
-  for (const row of lostData) {
-    const ts = hasLostAtColumn
-      ? (row.lost_at as string | null)
-      : (row.updated_at as string | null)
-    if (!ts) continue
-    const wk = getMonthWeek(ts)
-    agg[wk].perdidos += 1
-    agg[wk].lost_year_months.add(toYearMonth(ts))
-  }
-
-  // ============================================================================
-  // 5. Build MonthWeekPerformanceRow[]
-  // ============================================================================
-
-  const rows: MonthWeekPerformanceRow[] = []
-
-  for (let i = 1; i <= 5; i++) {
-    const week = i as MonthWeekIndex
-    const a = agg[i]
-    const ticket_medio = a.ganhos > 0 ? a.faturamento / a.ganhos : 0
-    const taxa_ganho = a.leads_trabalhados > 0 ? a.ganhos / a.leads_trabalhados : 0
-    const base_suficiente_trabalho = a.leads_trabalhados >= 10
-    const base_suficiente_ganho = a.ganhos >= 5
-
-    const allMonths = new Set([
-      ...a.worked_year_months,
-      ...a.won_year_months,
-      ...a.lost_year_months,
-    ])
-    const meses_com_dados = allMonths.size
-
-    rows.push({
-      week,
-      week_label: WEEK_LABELS[i],
-      week_short: WEEK_SHORTS[i],
-      week_description: WEEK_DESCRIPTIONS[i],
-      leads_trabalhados: a.leads_trabalhados,
-      ganhos: a.ganhos,
-      perdidos: a.perdidos,
-      faturamento: a.faturamento,
-      ticket_medio,
-      taxa_ganho,
-      base_suficiente_trabalho,
-      base_suficiente_ganho,
-      meses_com_dados,
-    })
-  }
-
-  // ============================================================================
-  // 6. Best week KPIs
-  // ============================================================================
-
-  const nonZeroGanhos = rows.filter((r) => r.ganhos > 0)
-  const nonZeroFaturamento = rows.filter((r) => r.faturamento > 0)
-  const nonZeroTrabalho = rows.filter((r) => r.leads_trabalhados > 0)
-  const suficienteGanho = rows.filter((r) => r.base_suficiente_ganho)
-
-  const melhor_semana_ganhos =
-    nonZeroGanhos.length > 0
-      ? nonZeroGanhos.reduce((best, r) => (r.ganhos > best.ganhos ? r : best))
-      : null
-
-  const melhor_semana_faturamento =
-    nonZeroFaturamento.length > 0
-      ? nonZeroFaturamento.reduce((best, r) => (r.faturamento > best.faturamento ? r : best))
-      : null
-
-  const melhor_semana_ticket =
-    suficienteGanho.length > 0
-      ? suficienteGanho.reduce((best, r) => (r.ticket_medio > best.ticket_medio ? r : best))
-      : null
-
-  const melhor_semana_trabalho =
-    nonZeroTrabalho.length > 0
-      ? nonZeroTrabalho.reduce((best, r) =>
-          r.leads_trabalhados > best.leads_trabalhados ? r : best
-        )
-      : null
-
-  // ============================================================================
-  // 7. Totals
-  // ============================================================================
-
-  const total_leads_trabalhados = agg.slice(1).reduce((s, a) => s + a.leads_trabalhados, 0)
-  const total_ganhos = agg.slice(1).reduce((s, a) => s + a.ganhos, 0)
-  const total_perdidos = agg.slice(1).reduce((s, a) => s + a.perdidos, 0)
-  const total_faturamento = agg.slice(1).reduce((s, a) => s + a.faturamento, 0)
-
-  // ============================================================================
-  // 8. Period info
-  // ============================================================================
-
-  const meses_no_periodo = monthsInRange(filters.dateStart, filters.dateEnd)
-
-  // ============================================================================
-  // 9. Diagnostic + leitura resumida
-  // ============================================================================
-
-  const diagnostico = buildDiagnostico(
-    rows,
-    total_ganhos,
-    total_leads_trabalhados,
-    melhor_semana_faturamento,
-    melhor_semana_trabalho,
-    melhor_semana_ticket,
-    melhor_semana_ganhos
+  const totalAcoes = rows.reduce(
+    (sum, row) => sum + row.acoes_comerciais,
+    0,
   )
 
-  const leitura_resumida = buildLeituraResumida(
-    rows,
-    melhor_semana_faturamento,
-    melhor_semana_ganhos,
-    melhor_semana_ticket,
-    melhor_semana_trabalho
+  const totalAvancos = rows.reduce((sum, row) => sum + row.avancos, 0)
+
+  const totalGanhos = rows.reduce((sum, row) => sum + row.ganhos, 0)
+
+  const totalPerdidos = rows.reduce((sum, row) => sum + row.perdidos, 0)
+
+  const totalFaturamento = rows.reduce(
+    (sum, row) => sum + row.faturamento,
+    0,
   )
+
+  const rowsComAcoes = rows.filter((row) => row.acoes_comerciais > 0)
+  const rowsComAvancos = rows.filter((row) => row.avancos > 0)
+  const rowsComGanhos = rows.filter((row) => row.ganhos > 0)
+  const rowsComTicket = rows.filter((row) => row.ganhos >= 3)
+
+  const melhorSemanaAcoes =
+    rowsComAcoes.length > 0
+      ? [...rowsComAcoes].sort(
+          (a, b) => b.acoes_comerciais - a.acoes_comerciais,
+        )[0]
+      : null
+
+  const melhorSemanaAvancos =
+    rowsComAvancos.length > 0
+      ? [...rowsComAvancos].sort((a, b) => b.avancos - a.avancos)[0]
+      : null
+
+  const melhorSemanaGanhos =
+    rowsComGanhos.length > 0
+      ? [...rowsComGanhos].sort((a, b) => b.ganhos - a.ganhos)[0]
+      : null
+
+  const melhorSemanaFaturamento =
+    rowsComGanhos.length > 0
+      ? [...rowsComGanhos].sort(
+          (a, b) => b.faturamento - a.faturamento,
+        )[0]
+      : null
+
+  const melhorSemanaTicket =
+    rowsComTicket.length > 0
+      ? [...rowsComTicket].sort(
+          (a, b) => b.ticket_medio - a.ticket_medio,
+        )[0]
+      : null
 
   return {
     rows,
-    melhor_semana_ganhos,
-    melhor_semana_faturamento,
-    melhor_semana_ticket,
-    melhor_semana_trabalho,
-    total_leads_trabalhados,
-    total_ganhos,
-    total_perdidos,
-    total_faturamento,
-    diagnostico,
-    leitura_resumida,
+
+    melhor_semana_acoes: melhorSemanaAcoes,
+    melhor_semana_avancos: melhorSemanaAvancos,
+    melhor_semana_ganhos: melhorSemanaGanhos,
+    melhor_semana_faturamento: melhorSemanaFaturamento,
+    melhor_semana_ticket: melhorSemanaTicket,
+
+    total_acoes_comerciais: totalAcoes,
+    total_avancos: totalAvancos,
+    total_ganhos: totalGanhos,
+    total_perdidos: totalPerdidos,
+    total_faturamento: totalFaturamento,
+    ticket_medio_geral:
+      totalGanhos > 0 ? totalFaturamento / totalGanhos : 0,
+
+    diagnostico: buildDiagnostico(
+      totalAcoes,
+      totalGanhos,
+      melhorSemanaAcoes,
+      melhorSemanaAvancos,
+      melhorSemanaFaturamento,
+      melhorSemanaTicket,
+    ),
+
+    leitura_resumida: buildLeituraResumida(
+      melhorSemanaAcoes,
+      melhorSemanaAvancos,
+      melhorSemanaFaturamento,
+      melhorSemanaGanhos,
+      melhorSemanaTicket,
+    ),
+
     period_start: filters.dateStart,
     period_end: filters.dateEnd,
-    meses_no_periodo,
+    meses_no_periodo: countMonthsInRange(
+      filters.dateStart,
+      filters.dateEnd,
+    ),
   }
 }

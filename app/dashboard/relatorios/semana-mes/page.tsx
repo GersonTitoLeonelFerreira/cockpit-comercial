@@ -3,83 +3,504 @@
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getMonthWeekPerformance } from '@/app/lib/services/monthWeekPerformance'
+import * as faturamentoService from '@/app/lib/services/faturamento'
 import type {
-  MonthWeekPerformanceSummary,
   MonthWeekPerformanceRow,
+  MonthWeekPerformanceSummary,
 } from '@/app/types/monthWeekPerformance'
-import { getMonthWeekVocation } from '@/app/lib/services/monthWeekVocation'
-import type {
-  MonthWeekVocationalSummary,
-  MonthWeekVocationalRow,
-  MonthWeekVocationType,
-  MonthWeekVocationConfidence,
-} from '@/app/types/monthWeekPerformance'
+
+// ==============================================================================
+// Design system
+// ==============================================================================
+
+const DS = {
+  contentBg: '#090b0f',
+  cardBg: '#141722',
+  surfaceBg: '#111318',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+
+  blueLight: '#60a5fa',
+  blueSoft: '#93c5fd',
+
+  greenSoft: '#86efac',
+
+  yellowSoft: '#fef3c7',
+
+  redSoft: '#fca5a5',
+
+  radius: 7,
+  radiusContainer: 9,
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
+} as const
+
+const REPORT_LINKS = [
+  {
+    label: 'Performance por Produto',
+    href: '/dashboard/relatorios/produto',
+    active: false,
+  },
+  {
+    label: 'Dia da Semana',
+    href: '/dashboard/relatorios/dia-semana',
+    active: false,
+  },
+  {
+    label: 'Semana do Mês',
+    href: '/dashboard/relatorios/semana-mes',
+    active: true,
+  },
+  {
+    label: 'Sazonalidade Mensal',
+    href: '/dashboard/relatorios/sazonalidade-mensal',
+    active: false,
+  },
+]
 
 // ==============================================================================
 // Helpers
 // ==============================================================================
 
 function toBRL(value: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-}
-
-function toPercent(value: number, decimals = 1): string {
-  return (value * 100).toFixed(decimals) + '%'
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
 }
 
 function getFirstDayOfCurrentYear(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-01-01`
+  return `${new Date().getFullYear()}-01-01`
 }
 
-function getLastDayOfMonth(): string {
+function getTodayDate(): string {
   const now = new Date()
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`
+
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return fallback
+}
+
+function cardStyle(): React.CSSProperties {
+  return {
+    background: DS.cardBg,
+    border: `1px solid ${DS.border}`,
+    borderRadius: DS.radiusContainer,
+    boxShadow: DS.shadowCard,
+  }
+}
+
+const fieldLabelStyle: React.CSSProperties = {
+  color: DS.textLabel,
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: DS.surfaceBg,
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius,
+  color: DS.textPrimary,
+  fontSize: 13,
+  height: 38,
+  outline: 'none',
+  padding: '0 11px',
 }
 
 // ==============================================================================
-// Sub-components
+// Types
 // ==============================================================================
 
-function KpiCard({
-  label,
-  name,
-  value,
-  sub,
-}: {
+type SellerOption = {
+  id: string
   label: string
-  name: string | null
-  value: string
-  sub?: string
+}
+
+type MeResponse = {
+  user_id?: string
+  active_company_id?: string | null
+  active_role?: string | null
+  is_platform_admin?: boolean
+  error?: string
+}
+
+// ==============================================================================
+// Components
+// ==============================================================================
+
+function SectionLabel({
+  children,
+}: {
+  children: React.ReactNode
 }) {
   return (
     <div
       style={{
-        background: '#0f0f0f',
-        border: '1px solid #202020',
-        borderRadius: 12,
-        padding: '16px 18px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        flex: '1 1 200px',
-        minWidth: 180,
+        color: DS.blueSoft,
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: '0.08em',
+        marginBottom: 12,
+        textTransform: 'uppercase',
       }}
     >
-      <div style={{ fontSize: 11, opacity: 0.55, textTransform: 'uppercase', letterSpacing: 1 }}>
+      {children}
+    </div>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  description,
+  accent = DS.blueSoft,
+}: {
+  label: string
+  value: string
+  description: string
+  accent?: string
+}) {
+  return (
+    <div
+      style={{
+        ...cardStyle(),
+        display: 'flex',
+        flex: '1 1 200px',
+        flexDirection: 'column',
+        minHeight: 126,
+        padding: '17px 18px',
+      }}
+    >
+      <div
+        style={{
+          color: DS.textLabel,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
         {label}
       </div>
+
+      <div
+        style={{
+          color: accent,
+          fontSize: 24,
+          fontWeight: 900,
+          letterSpacing: '-0.025em',
+          lineHeight: 1,
+          marginTop: 12,
+        }}
+      >
+        {value}
+      </div>
+
+      <div
+        style={{
+          color: DS.textSecondary,
+          fontSize: 11,
+          lineHeight: 1.45,
+          marginTop: 'auto',
+          paddingTop: 10,
+        }}
+      >
+        {description}
+      </div>
+    </div>
+  )
+}
+
+function HighlightCard({
+  label,
+  name,
+  value,
+  description,
+  accent = DS.blueSoft,
+}: {
+  label: string
+  name: string | null
+  value: string
+  description?: string
+  accent?: string
+}) {
+  return (
+    <div
+      style={{
+        ...cardStyle(),
+        display: 'flex',
+        flex: '1 1 220px',
+        flexDirection: 'column',
+        minHeight: 136,
+        padding: '17px 18px',
+      }}
+    >
+      <div
+        style={{
+          color: DS.textLabel,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </div>
+
       {name ? (
         <>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>{name}</div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#e8e8e8' }}>{value}</div>
-          {sub ? <div style={{ fontSize: 11, opacity: 0.6 }}>{sub}</div> : null}
+          <div
+            style={{
+              color: DS.textPrimary,
+              fontSize: 14,
+              fontWeight: 800,
+              lineHeight: 1.3,
+              marginTop: 11,
+            }}
+          >
+            {name}
+          </div>
+
+          <div
+            style={{
+              color: accent,
+              fontSize: 21,
+              fontWeight: 900,
+              letterSpacing: '-0.02em',
+              lineHeight: 1.1,
+              marginTop: 7,
+            }}
+          >
+            {value}
+          </div>
+
+          {description ? (
+            <div
+              style={{
+                color: DS.textSecondary,
+                fontSize: 11,
+                lineHeight: 1.4,
+                marginTop: 'auto',
+                paddingTop: 8,
+              }}
+            >
+              {description}
+            </div>
+          ) : null}
         </>
       ) : (
-        <div style={{ fontSize: 13, opacity: 0.5, marginTop: 4 }}>Base insuficiente</div>
+        <div
+          style={{
+            color: DS.textMuted,
+            fontSize: 13,
+            marginTop: 16,
+          }}
+        >
+          Base insuficiente
+        </div>
       )}
     </div>
+  )
+}
+
+function WeekRow({
+  row,
+  bestRevenueWeek,
+  bestActionWeek,
+}: {
+  row: MonthWeekPerformanceRow
+  bestRevenueWeek: number | null
+  bestActionWeek: number | null
+}) {
+  const isBestRevenue =
+    bestRevenueWeek === row.week && row.faturamento > 0
+
+  const isBestAction =
+    bestActionWeek === row.week && row.acoes_comerciais > 0
+
+  const isWeekFive = row.week === 5
+
+  const isZero =
+    row.acoes_comerciais === 0 &&
+    row.avancos === 0 &&
+    row.ganhos === 0 &&
+    row.perdidos === 0
+
+  return (
+    <tr
+      style={{
+        background: isBestRevenue
+          ? 'rgba(34,197,94,0.045)'
+          : isBestAction
+            ? 'rgba(59,130,246,0.045)'
+            : 'transparent',
+        borderBottom: `1px solid ${DS.borderSubtle}`,
+        opacity: isZero ? 0.45 : 1,
+      }}
+    >
+      <td style={{ padding: '14px 18px' }}>
+        <div
+          style={{
+            alignItems: 'center',
+            display: 'flex',
+            gap: 7,
+          }}
+        >
+          <span
+            style={{
+              color: DS.textPrimary,
+              fontSize: 13,
+              fontWeight: 800,
+            }}
+          >
+            {row.week_label}
+          </span>
+
+          {isBestRevenue ? (
+            <span
+              style={{
+                background: 'rgba(34,197,94,0.1)',
+                border: '1px solid rgba(134,239,172,0.2)',
+                borderRadius: 4,
+                color: DS.greenSoft,
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                padding: '3px 6px',
+                textTransform: 'uppercase',
+              }}
+            >
+              maior receita
+            </span>
+          ) : null}
+
+          {!isBestRevenue && isBestAction ? (
+            <span
+              style={{
+                background: 'rgba(59,130,246,0.1)',
+                border: '1px solid rgba(147,197,253,0.18)',
+                borderRadius: 4,
+                color: DS.blueSoft,
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                padding: '3px 6px',
+                textTransform: 'uppercase',
+              }}
+            >
+              maior execução
+            </span>
+          ) : null}
+        </div>
+
+        <div
+          style={{
+            color: isWeekFive ? DS.yellowSoft : DS.textMuted,
+            fontSize: 11,
+            marginTop: 4,
+          }}
+        >
+          {row.week_description}
+          {isWeekFive ? ' · janela menor' : ''}
+        </div>
+      </td>
+
+      <td
+        style={{
+          color: DS.textPrimary,
+          fontSize: 13,
+          fontWeight: 700,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.acoes_comerciais}
+      </td>
+
+      <td
+        style={{
+          color: DS.blueSoft,
+          fontSize: 13,
+          fontWeight: 700,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.avancos}
+      </td>
+
+      <td
+        style={{
+          color: DS.greenSoft,
+          fontSize: 13,
+          fontWeight: 800,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.ganhos}
+      </td>
+
+      <td
+        style={{
+          color: row.perdidos > 0 ? DS.redSoft : DS.textSecondary,
+          fontSize: 13,
+          fontWeight: row.perdidos > 0 ? 700 : 400,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.perdidos}
+      </td>
+
+      <td
+        style={{
+          color: DS.greenSoft,
+          fontSize: 13,
+          fontWeight: 800,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.faturamento > 0 ? toBRL(row.faturamento) : '—'}
+      </td>
+
+      <td
+        style={{
+          color: DS.textPrimary,
+          fontSize: 13,
+          padding: '14px 12px',
+          textAlign: 'right',
+        }}
+      >
+        {row.ganhos >= 3 ? toBRL(row.ticket_medio) : '—'}
+      </td>
+
+      <td
+        style={{
+          color: DS.textSecondary,
+          fontSize: 13,
+          padding: '14px 18px',
+          textAlign: 'right',
+        }}
+      >
+        {row.meses_com_dados}
+      </td>
+    </tr>
   )
 }
 
@@ -87,1153 +508,825 @@ function KpiCard({
 // Main page
 // ==============================================================================
 
-interface SellerOption {
-  id: string
-  label: string
-}
-
-interface SellerProfileRow {
-  id: string
-  full_name: string | null
-}
-
 export default function SemanaMesRelatorioPg() {
-  const supabase = supabaseBrowser()
+  const supabase = React.useMemo(() => supabaseBrowser(), [])
 
   const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
+  const [pageError, setPageError] = React.useState<string | null>(null)
 
-  // User/profile state
-  const [isAdmin, setIsAdmin] = React.useState(false)
+  const [canFilterSellers, setCanFilterSellers] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
 
-  // Filters — default: ano corrente até hoje (para ter múltiplos meses e boa amostra)
-  const [dateStart, setDateStart] = React.useState(getFirstDayOfCurrentYear())
-  const [dateEnd, setDateEnd] = React.useState(getLastDayOfMonth())
-  const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
+  const [dateStart, setDateStart] = React.useState(
+    getFirstDayOfCurrentYear(),
+  )
 
-  // Data — Phase 6.3 performance
-  const [summary, setSummary] = React.useState<MonthWeekPerformanceSummary | null>(null)
+  const [dateEnd, setDateEnd] = React.useState(getTodayDate())
+
+  const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(
+    null,
+  )
+
+  const [summary, setSummary] =
+    React.useState<MonthWeekPerformanceSummary | null>(null)
+
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
 
-  // Data — Phase 6.3 vocation
-  const [vocation, setVocation] = React.useState<MonthWeekVocationalSummary | null>(null)
-  const [vocationLoading, setVocationLoading] = React.useState(false)
-  const [vocationError, setVocationError] = React.useState<string | null>(null)
-
-  // Init: load profile + sellers
   React.useEffect(() => {
-    async function init() {
+    async function initialize() {
       setLoading(true)
-      setError(null)
+      setPageError(null)
+
       try {
-        const { data: userData } = await supabase.auth.getUser()
-        if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
+        const response = await fetch('/api/me', {
+          cache: 'no-store',
+        })
 
-        const uid = userData.user.id
+        const me = (await response.json()) as MeResponse
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', uid)
-          .maybeSingle()
-
-        if (!profile?.company_id) throw new Error('Perfil não encontrado.')
-
-        const adminUser = profile.role === 'admin'
-        setIsAdmin(adminUser)
-        setCompanyId(profile.company_id)
-
-        if (adminUser) {
-          const { data: sellersData } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('company_id', profile.company_id)
-            .eq('role', 'member')
-            .order('full_name')
-
-          setSellers(
-            (sellersData ?? []).map((s: SellerProfileRow) => ({
-              id: s.id,
-              label: s.full_name || s.id,
-            }))
+        if (!response.ok) {
+          throw new Error(
+            me.error ?? 'Não foi possível identificar a empresa ativa.',
           )
-          setSelectedSellerId(null)
-        } else {
-          setSelectedSellerId(uid)
         }
-      } catch (e: any) {
-        setError(e?.message ?? 'Erro ao carregar perfil.')
+
+        const currentUserId = me.user_id
+        const activeCompanyId = me.active_company_id
+
+        if (!currentUserId) {
+          throw new Error('Sessão expirada. Faça login novamente.')
+        }
+
+        if (!activeCompanyId) {
+          throw new Error('Nenhuma empresa ativa foi selecionada.')
+        }
+
+        const activeRole = String(me.active_role ?? '').toLowerCase()
+
+        const canManage =
+          me.is_platform_admin === true ||
+          activeRole === 'admin' ||
+          activeRole === 'manager'
+
+        const sellerRows = await faturamentoService.getSellers(
+          supabase,
+          activeCompanyId,
+        )
+
+        setCompanyId(activeCompanyId)
+        setCanFilterSellers(canManage)
+
+        setSellers(
+          sellerRows.map((seller) => ({
+            id: seller.id,
+            label: seller.full_name || seller.email || seller.id,
+          })),
+        )
+
+        setSelectedSellerId(canManage ? null : currentUserId)
+      } catch (cause: unknown) {
+        setPageError(
+          getErrorMessage(
+            cause,
+            'Erro ao carregar a empresa ativa e os consultores.',
+          ),
+        )
       } finally {
         setLoading(false)
       }
     }
-    void init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // Load performance data
+    void initialize()
+  }, [supabase])
+
   React.useEffect(() => {
-    if (!companyId) return
+    if (!companyId) {
+      return
+    }
 
-    async function load() {
+    const activeCompanyId = companyId
+    let cancelled = false
+
+    async function loadData() {
       setDataLoading(true)
       setDataError(null)
+
       try {
         const result = await getMonthWeekPerformance({
-          companyId: companyId!,
+          companyId: activeCompanyId,
           ownerId: selectedSellerId,
           dateStart,
           dateEnd,
         })
-        setSummary(result)
-      } catch (e: any) {
-        setDataError(e?.message ?? 'Erro ao buscar dados.')
+
+        if (!cancelled) {
+          setSummary(result)
+        }
+      } catch (cause: unknown) {
+        if (!cancelled) {
+          setDataError(
+            getErrorMessage(
+              cause,
+              'Erro ao buscar os dados por semana do mês.',
+            ),
+          )
+        }
       } finally {
-        setDataLoading(false)
+        if (!cancelled) {
+          setDataLoading(false)
+        }
       }
     }
-    void load()
-  }, [companyId, selectedSellerId, dateStart, dateEnd])
 
-  // Load vocation data
-  React.useEffect(() => {
-    if (!companyId) return
+    void loadData()
 
-    async function loadVocation() {
-      setVocationLoading(true)
-      setVocationError(null)
-      try {
-        const result = await getMonthWeekVocation({
-          companyId: companyId!,
-          ownerId: selectedSellerId,
-          dateStart,
-          dateEnd,
-        })
-        setVocation(result)
-      } catch (e: any) {
-        setVocationError(e?.message ?? 'Erro ao buscar vocação operacional.')
-      } finally {
-        setVocationLoading(false)
-      }
+    return () => {
+      cancelled = true
     }
-    void loadVocation()
-  }, [companyId, selectedSellerId, dateStart, dateEnd])
-
-  // ============================================================================
-  // Render
-  // ============================================================================
-
-  const navLinkBase: React.CSSProperties = {
-    color: '#9aa',
-    textDecoration: 'none',
-    fontSize: 13,
-    padding: '8px 12px',
-    borderRadius: 10,
-    border: '1px solid #333',
-    background: 'transparent',
-  }
-
-  const navLinkActive: React.CSSProperties = {
-    ...navLinkBase,
-    color: 'white',
-    background: '#111',
-  }
+  }, [companyId, dateEnd, dateStart, selectedSellerId])
 
   if (loading) {
     return (
-      <div style={{ padding: 40, color: 'white', opacity: 0.7 }}>Carregando perfil...</div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: 40, color: '#ef4444' }}>Erro: {error}</div>
-    )
-  }
-
-  const bestFaturamentoSemana = summary?.melhor_semana_faturamento
-  const anyInsuficiente =
-    summary?.rows.some((r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho) ?? false
-
-  return (
-    <div style={{ width: '100%', padding: 40, color: 'white' }}>
-      <h1 style={{ textAlign: 'center', marginBottom: 8 }}>Sazonalidade por Semana do Mês</h1>
-      <p
-        style={{
-          textAlign: 'center',
-          fontSize: 13,
-          opacity: 0.5,
-          marginBottom: 20,
-          maxWidth: 600,
-          margin: '0 auto 20px',
-        }}
-      >
-        Leitura sazonal por bloco semanal (1ª a 5ª semana). Regra: semana calculada pelo dia do
-        mês — semana 1 = dias 1–7, semana 2 = dias 8–14, semana 3 = dias 15–21, semana 4 = dias
-        22–28, semana 5 = dias 29–31.
-      </p>
-
-      {/* Sub-navigation */}
       <div
         style={{
+          alignItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
           display: 'flex',
           justifyContent: 'center',
-          gap: 12,
-          marginTop: 10,
-          marginBottom: 30,
-          flexWrap: 'wrap',
+          minHeight: '100vh',
         }}
       >
-        <a href="/relatorios" style={navLinkBase} title="Hub de Relatórios">
-          Relatórios
-        </a>
-        <a
-          href="/dashboard/relatorios/produto"
-          style={navLinkBase}
-          title="Performance por Produto"
-        >
-          Performance por Produto
-        </a>
-        <a
-          href="/dashboard/relatorios/dia-semana"
-          style={navLinkBase}
-          title="Sazonalidade por dia da semana"
-        >
-          Dia da Semana
-        </a>
-        <a
-          href="/dashboard/relatorios/semana-mes"
-          style={navLinkActive}
-          title="Sazonalidade por semana do mês"
-        >
-          Semana do Mês
-        </a>
-        <a href="/dashboard/relatorios/sazonalidade-mensal" style={navLinkBase} title="Sazonalidade mensal">
-          Mês
-        </a>
-        <a href="/dashboard/relatorios/radar" style={navLinkBase} title="Radar do Período">
-          🎯 Radar
-        </a>
+        Carregando Semana do Mês...
       </div>
+    )
+  }
 
-      {/* Filters */}
+  if (pageError) {
+    return (
       <div
         style={{
-          maxWidth: 980,
-          margin: '0 auto 28px',
-          background: '#0f0f0f',
-          border: '1px solid #202020',
-          borderRadius: 12,
-          padding: '14px 18px',
+          alignItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
           display: 'flex',
-          flexWrap: 'wrap',
-          gap: 16,
-          alignItems: 'flex-end',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: 24,
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label style={{ fontSize: 11, opacity: 0.6, textTransform: 'uppercase' }}>
-            Data Início
-          </label>
-          <input
-            type="date"
-            value={dateStart}
-            onChange={(e) => setDateStart(e.target.value)}
-            style={{
-              background: '#111',
-              border: '1px solid #2a2a2a',
-              borderRadius: 8,
-              color: 'white',
-              padding: '8px 10px',
-              fontSize: 13,
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label style={{ fontSize: 11, opacity: 0.6, textTransform: 'uppercase' }}>
-            Data Fim
-          </label>
-          <input
-            type="date"
-            value={dateEnd}
-            onChange={(e) => setDateEnd(e.target.value)}
-            style={{
-              background: '#111',
-              border: '1px solid #2a2a2a',
-              borderRadius: 8,
-              color: 'white',
-              padding: '8px 10px',
-              fontSize: 13,
-            }}
-          />
-        </div>
-
-        {isAdmin && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 11, opacity: 0.6, textTransform: 'uppercase' }}>
-              Vendedor
-            </label>
-            <select
-              value={selectedSellerId ?? ''}
-              onChange={(e) => setSelectedSellerId(e.target.value || null)}
-              style={{
-                background: '#111',
-                border: '1px solid #2a2a2a',
-                borderRadius: 8,
-                color: 'white',
-                padding: '8px 10px',
-                fontSize: 13,
-                minWidth: 180,
-              }}
-            >
-              <option value="">Empresa toda</option>
-              {sellers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
         <div
           style={{
-            fontSize: 11,
-            opacity: 0.4,
-            alignSelf: 'center',
-            marginLeft: 4,
+            ...cardStyle(),
+            maxWidth: 460,
+            padding: 24,
+            textAlign: 'center',
           }}
         >
-          💡 Recomendado: pelo menos 3 meses para amostra representativa por semana.
+          <strong style={{ color: DS.redSoft }}>
+            Não foi possível carregar o relatório.
+          </strong>
+
+          <div style={{ fontSize: 13, marginTop: 8 }}>
+            {pageError}
+          </div>
         </div>
       </div>
+    )
+  }
 
-      <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 18 }}>
-        {dataLoading ? (
-          <div style={{ opacity: 0.6, padding: 20 }}>Carregando dados...</div>
-        ) : dataError ? (
-          <div style={{ color: '#ef4444', padding: 20 }}>Erro: {dataError}</div>
-        ) : summary ? (
-          <>
-            {/* BLOCO A — KPIs */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              <KpiCard
-                label="Semana com mais Ganhos"
-                name={summary.melhor_semana_ganhos?.week_label ?? null}
-                value={
-                  summary.melhor_semana_ganhos
-                    ? `${summary.melhor_semana_ganhos.ganhos} ganho(s)`
-                    : '—'
-                }
-                sub={summary.melhor_semana_ganhos?.week_description}
-              />
-              <KpiCard
-                label="Semana com maior Faturamento"
-                name={summary.melhor_semana_faturamento?.week_label ?? null}
-                value={
-                  summary.melhor_semana_faturamento
-                    ? toBRL(summary.melhor_semana_faturamento.faturamento)
-                    : '—'
-                }
-                sub={summary.melhor_semana_faturamento?.week_description}
-              />
-              <KpiCard
-                label="Semana com melhor Ticket Médio"
-                name={summary.melhor_semana_ticket?.week_label ?? null}
-                value={
-                  summary.melhor_semana_ticket
-                    ? toBRL(summary.melhor_semana_ticket.ticket_medio)
-                    : '—'
-                }
-                sub={
-                  summary.melhor_semana_ticket
-                    ? summary.melhor_semana_ticket.week_description
-                    : 'Base insuficiente em todas as semanas'
-                }
-              />
-              <KpiCard
-                label="Semana mais forte em Trabalho"
-                name={summary.melhor_semana_trabalho?.week_label ?? null}
-                value={
-                  summary.melhor_semana_trabalho
-                    ? `${summary.melhor_semana_trabalho.leads_trabalhados} lead(s)`
-                    : '—'
-                }
-                sub={summary.melhor_semana_trabalho?.week_description}
-              />
-            </div>
+  return (
+    <div
+      style={{
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        minHeight: '100vh',
+        padding: '32px 24px 80px',
+      }}
+    >
+      <div style={{ margin: '0 auto', maxWidth: 1200 }}>
+        <a
+          href="/relatorios"
+          style={{
+            color: DS.textSecondary,
+            display: 'inline-flex',
+            fontSize: 13,
+            marginBottom: 28,
+            textDecoration: 'none',
+          }}
+        >
+          ← Voltar para Relatórios
+        </a>
 
-            {/* BLOCO B — Tabela por Semana do Mês */}
-            <div
+        <header style={{ marginBottom: 28 }}>
+          <div
+            style={{
+              alignItems: 'center',
+              display: 'flex',
+              gap: 10,
+              marginBottom: 7,
+            }}
+          >
+            <span
               style={{
-                background: '#0f0f0f',
-                border: '1px solid #202020',
-                borderRadius: 12,
-                overflow: 'hidden',
+                color: DS.blueLight,
+                fontSize: 19,
+                lineHeight: 1,
               }}
             >
-              <div style={{ padding: '14px 18px', borderBottom: '1px solid #202020' }}>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>
-                  Desempenho por Semana do Mês
-                </span>
-                <span style={{ fontSize: 11, opacity: 0.5, marginLeft: 10 }}>
-                  leads_trabalhados via first_worked_at · ganhos via won_at
-                </span>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: 13,
-                  }}
-                >
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #202020' }}>
-                      {[
-                        { label: 'Semana do Mês', align: 'left' },
-                        { label: 'Período', align: 'left' },
-                        { label: 'Leads Trabalhados', align: 'right' },
-                        { label: 'Ganhos', align: 'right' },
-                        { label: 'Perdidos', align: 'right' },
-                        { label: 'Faturamento', align: 'right' },
-                        { label: 'Ticket Médio', align: 'right' },
-                        { label: 'Taxa de Ganho', align: 'right' },
-                        { label: 'Meses c/ Dados', align: 'right' },
-                      ].map((col) => (
-                        <th
-                          key={col.label}
-                          style={{
-                            padding: '10px 14px',
-                            textAlign: col.align as React.CSSProperties['textAlign'],
-                            fontWeight: 600,
-                            opacity: 0.6,
-                            fontSize: 11,
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.5,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {col.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.rows.map((row: MonthWeekPerformanceRow) => {
-                      const isBestFaturamento =
-                        bestFaturamentoSemana?.week === row.week && row.faturamento > 0
-                      const isZeroActivity = row.leads_trabalhados === 0 && row.ganhos === 0
-                      const isLowBase =
-                        row.leads_trabalhados > 0 && !row.base_suficiente_trabalho
+              ◫
+            </span>
 
-                      return (
-                        <tr
-                          key={row.week}
-                          style={{
-                            borderBottom: '1px solid #1a1a1a',
-                            borderLeft: isBestFaturamento
-                              ? '3px solid #22c55e'
-                              : '3px solid transparent',
-                            opacity: isZeroActivity ? 0.35 : 1,
-                          }}
-                        >
-                          <td style={{ padding: '10px 14px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            {row.week_label}
-                            {isLowBase ? (
-                              <span
-                                style={{ marginLeft: 6, fontSize: 12 }}
-                                title="Base insuficiente para taxa de ganho"
-                              >
-                                ⚠️
-                              </span>
-                            ) : null}
-                          </td>
-                          <td
-                            style={{
-                              padding: '10px 14px',
-                              fontSize: 11,
-                              opacity: 0.5,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {row.week_description}
-                          </td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                            {row.leads_trabalhados}
-                          </td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                            {row.ganhos}
-                          </td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                            {row.perdidos}
-                          </td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                            {row.faturamento > 0 ? toBRL(row.faturamento) : '—'}
-                          </td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                            {row.base_suficiente_ganho
-                              ? toBRL(row.ticket_medio)
-                              : '—'}
-                          </td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                            {row.base_suficiente_trabalho
-                              ? toPercent(row.taxa_ganho)
-                              : row.leads_trabalhados > 0
-                              ? 'Base insuf.'
-                              : '—'}
-                          </td>
-                          <td
-                            style={{
-                              padding: '10px 14px',
-                              textAlign: 'right',
-                              fontSize: 12,
-                              opacity: 0.6,
-                            }}
-                          >
-                            {row.meses_com_dados > 0 ? row.meses_com_dados : '—'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* BLOCO C — Leitura Resumida + Diagnóstico */}
-            <div
+            <h1
               style={{
-                background: '#0f0f0f',
-                border: '1px solid #202020',
-                borderRadius: 12,
-                padding: '18px 20px',
-                display: 'grid',
-                gap: 14,
+                fontSize: 23,
+                fontWeight: 850,
+                letterSpacing: '-0.015em',
+                margin: 0,
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Leitura Resumida</div>
+              Semana do Mês
+            </h1>
+          </div>
 
-              <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8 }}>
-                {summary.leitura_resumida.map((frase, idx) => (
-                  <li key={idx} style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
-                    {frase}
-                  </li>
-                ))}
-              </ul>
+          <p
+            style={{
+              color: DS.textSecondary,
+              fontSize: 13,
+              lineHeight: 1.5,
+              margin: 0,
+              maxWidth: 780,
+            }}
+          >
+            Leitura da execução comercial e dos resultados conforme a fase do
+            mês em que cada registro ocorreu.
+          </p>
+        </header>
 
-              {/* Diagnostic text */}
-              <div
+        <nav
+          style={{
+            borderBottom: `1px solid ${DS.border}`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            marginBottom: 28,
+          }}
+        >
+          {REPORT_LINKS.map((item) =>
+            item.active ? (
+              <span
+                key={item.href}
                 style={{
-                  background: '#111',
-                  border: '1px solid #1e1e1e',
-                  borderRadius: 8,
-                  padding: '12px 14px',
+                  borderBottom: `2px solid ${DS.blueLight}`,
+                  color: DS.blueLight,
                   fontSize: 13,
-                  lineHeight: 1.6,
-                  opacity: 0.85,
+                  fontWeight: 800,
+                  marginBottom: -1,
+                  padding: '9px 14px',
                 }}
               >
-                {summary.diagnostico}
-              </div>
+                {item.label}
+              </span>
+            ) : (
+              <a
+                key={item.href}
+                href={item.href}
+                style={{
+                  borderBottom: '2px solid transparent',
+                  color: DS.textSecondary,
+                  fontSize: 13,
+                  marginBottom: -1,
+                  padding: '9px 14px',
+                  textDecoration: 'none',
+                }}
+              >
+                {item.label}
+              </a>
+            ),
+          )}
+        </nav>
 
-              {/* Period info grid */}
+        <section
+          style={{
+            ...cardStyle(),
+            alignItems: 'flex-end',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            marginBottom: 24,
+            padding: '16px 20px',
+          }}
+        >
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>De</span>
+
+            <input
+              type="date"
+              value={dateStart}
+              onChange={(event) => setDateStart(event.target.value)}
+              style={{
+                ...inputStyle,
+                colorScheme: 'dark',
+              }}
+            />
+          </label>
+
+          <label style={{ display: 'grid', gap: 5 }}>
+            <span style={fieldLabelStyle}>Até</span>
+
+            <input
+              type="date"
+              value={dateEnd}
+              onChange={(event) => setDateEnd(event.target.value)}
+              style={{
+                ...inputStyle,
+                colorScheme: 'dark',
+              }}
+            />
+          </label>
+
+          {canFilterSellers ? (
+            <label style={{ display: 'grid', gap: 5 }}>
+              <span style={fieldLabelStyle}>Consultor</span>
+
+              <select
+                value={selectedSellerId ?? ''}
+                onChange={(event) =>
+                  setSelectedSellerId(event.target.value || null)
+                }
+                style={{
+                  ...inputStyle,
+                  minWidth: 225,
+                }}
+              >
+                <option value="">Empresa toda</option>
+
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          <div
+            style={{
+              color: dataLoading ? DS.blueSoft : DS.textMuted,
+              fontSize: 12,
+              fontWeight: 700,
+              marginLeft: 'auto',
+              paddingBottom: 10,
+            }}
+          >
+            {dataLoading
+              ? 'Atualizando dados...'
+              : 'Dados atualizados automaticamente'}
+          </div>
+        </section>
+
+        {dataError ? (
+          <div
+            style={{
+              background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.22)',
+              borderRadius: DS.radius,
+              color: DS.redSoft,
+              fontSize: 13,
+              marginBottom: 20,
+              padding: '12px 14px',
+            }}
+          >
+            {dataError}
+          </div>
+        ) : null}
+
+        {dataLoading && !summary ? (
+          <div
+            style={{
+              ...cardStyle(),
+              color: DS.textSecondary,
+              fontSize: 13,
+              padding: '40px 24px',
+              textAlign: 'center',
+            }}
+          >
+            Carregando resultado por semana do mês...
+          </div>
+        ) : null}
+
+        {summary ? (
+          <>
+            <section style={{ marginBottom: 28 }}>
+              <SectionLabel>Resultado Consolidado</SectionLabel>
+
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: 10,
-                  fontSize: 13,
+                  gap: 12,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
                 }}
               >
-                {[
-                  {
-                    label: 'Período analisado',
-                    value: `${summary.period_start} a ${summary.period_end}`,
-                  },
-                  { label: 'Meses no período', value: `${summary.meses_no_periodo}` },
-                  {
-                    label: 'Total de leads trabalhados',
-                    value: `${summary.total_leads_trabalhados}`,
-                  },
-                  { label: 'Total de ganhos', value: `${summary.total_ganhos}` },
-                  { label: 'Total de perdidos', value: `${summary.total_perdidos}` },
-                  {
-                    label: 'Faturamento total',
-                    value: toBRL(summary.total_faturamento),
-                  },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    style={{
-                      background: '#111',
-                      border: '1px solid #1e1e1e',
-                      borderRadius: 8,
-                      padding: '10px 12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        opacity: 0.5,
-                        textTransform: 'uppercase',
-                        marginBottom: 4,
-                      }}
-                    >
-                      {item.label}
-                    </div>
-                    <div style={{ fontWeight: 700 }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
+                <MetricCard
+                  label="Ações Comerciais"
+                  value={String(summary.total_acoes_comerciais)}
+                  description="Atividades comerciais registradas no período."
+                />
 
-              {/* Warnings */}
-              {anyInsuficiente && (
-                <div
-                  style={{
-                    background: '#1a1500',
-                    border: '1px solid #3a2e00',
-                    borderRadius: 8,
-                    padding: '10px 14px',
-                    fontSize: 12,
-                    color: '#fbbf24',
-                  }}
-                >
-                  ⚠️ Algumas semanas têm menos de 10 leads trabalhados. A taxa de ganho para
-                  essas semanas é indicada como &quot;Base insuf.&quot; e não deve ser usada como
-                  referência. Amplie o período de análise para obter leituras mais confiáveis.
-                </div>
-              )}
+                <MetricCard
+                  label="Avanços de Etapa"
+                  value={String(summary.total_avancos)}
+                  description="Movimentações reais entre etapas do funil."
+                />
+
+                <MetricCard
+                  label="Vendas Ganhas"
+                  value={String(summary.total_ganhos)}
+                  description="Ciclos encerrados como ganho no período."
+                  accent={DS.greenSoft}
+                />
+
+                <MetricCard
+                  label="Faturamento das Vendas"
+                  value={toBRL(summary.total_faturamento)}
+                  description="Receita das vendas ganhas no período."
+                  accent={DS.greenSoft}
+                />
+              </div>
+            </section>
+
+            <section style={{ marginBottom: 28 }}>
+              <SectionLabel>Destaques por Semana</SectionLabel>
 
               <div
                 style={{
-                  background: '#0d1a0d',
-                  border: '1px solid #1a3a1a',
-                  borderRadius: 8,
-                  padding: '10px 14px',
-                  fontSize: 12,
-                  color: '#86efac',
-                  lineHeight: 1.5,
+                  display: 'grid',
+                  gap: 12,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
                 }}
               >
-                📌 <strong>Sobre a 5ª semana (dias 29–31):</strong> esta janela tem no máximo 3
-                dias por mês e, na maioria dos meses de 28 dias, não existe. É esperado que a 5ª
-                semana apresente base insuficiente — isso não indica problema operacional, mas sim
-                uma limitação estrutural do calendário.
-              </div>
-
-              <div style={{ fontSize: 11, opacity: 0.35 }}>
-                Fonte leads trabalhados: <code>sales_cycles.first_worked_at</code> (somente
-                eventos de trabalho comercial real). Fonte ganhos:{' '}
-                <code>sales_cycles.won_at</code> + <code>won_total {'>'} 0</code> + status=ganho.
-                Fonte perdidos: <code>sales_cycles.lost_at</code> quando disponível,{' '}
-                <code>updated_at</code> como proxy caso contrário. Semana do mês =
-                Math.ceil(dia_do_mês / 7).
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        {/* ================================================================= */}
-        {/* Vocação Operacional por Semana do Mês                             */}
-        {/* ================================================================= */}
-
-        <div
-          style={{
-            marginTop: 28,
-            borderTop: '1px solid #202020',
-            paddingTop: 24,
-          }}
-        >
-          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>
-            Vocação Operacional por Semana
-          </h2>
-          <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 20 }}>
-            Classificação do tipo de trabalho comercial mais indicado para cada semana do mês,
-            baseada em eventos reais de prospecção, follow-up, negociação e fechamento.
-          </p>
-
-          {vocationLoading ? (
-            <div style={{ opacity: 0.6, padding: 20 }}>Carregando vocação operacional...</div>
-          ) : vocationError ? (
-            <div style={{ color: '#ef4444', padding: 20 }}>Erro: {vocationError}</div>
-          ) : vocation ? (
-            <>
-              {/* KPIs de Vocação */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
-                <VocationKpiCard
-                  label="Semana de Prospecção"
-                  color="#60a5fa"
-                  row={vocation.melhor_semana_prospeccao}
-                  vocType="prospeccao"
+                <HighlightCard
+                  label="Maior Faturamento"
+                  name={
+                    summary.melhor_semana_faturamento?.week_label ?? null
+                  }
+                  value={
+                    summary.melhor_semana_faturamento
+                      ? toBRL(summary.melhor_semana_faturamento.faturamento)
+                      : '—'
+                  }
+                  description={
+                    summary.melhor_semana_faturamento
+                      ? `${summary.melhor_semana_faturamento.ganhos} venda(s) ganha(s)`
+                      : undefined
+                  }
+                  accent={DS.greenSoft}
                 />
-                <VocationKpiCard
-                  label="Semana de Follow-up"
-                  color="#a78bfa"
-                  row={vocation.melhor_semana_followup}
-                  vocType="followup"
-                  unavailable={!vocation.has_cycle_events}
+
+                <HighlightCard
+                  label="Maior Volume de Vendas"
+                  name={summary.melhor_semana_ganhos?.week_label ?? null}
+                  value={
+                    summary.melhor_semana_ganhos
+                      ? `${summary.melhor_semana_ganhos.ganhos} venda(s)`
+                      : '—'
+                  }
+                  description="Volume de ciclos fechados como ganho."
                 />
-                <VocationKpiCard
-                  label="Semana de Negociação"
-                  color="#fbbf24"
-                  row={vocation.melhor_semana_negociacao}
-                  vocType="negociacao"
-                  unavailable={!vocation.has_cycle_events}
+
+                <HighlightCard
+                  label="Maior Execução"
+                  name={summary.melhor_semana_acoes?.week_label ?? null}
+                  value={
+                    summary.melhor_semana_acoes
+                      ? `${summary.melhor_semana_acoes.acoes_comerciais} ação(ões)`
+                      : '—'
+                  }
+                  description="Maior quantidade de atividades comerciais registradas."
                 />
-                <VocationKpiCard
-                  label="Semana de Fechamento"
-                  color="#34d399"
-                  row={vocation.melhor_semana_fechamento}
-                  vocType="fechamento"
+
+                <HighlightCard
+                  label="Maior Avanço"
+                  name={summary.melhor_semana_avancos?.week_label ?? null}
+                  value={
+                    summary.melhor_semana_avancos
+                      ? `${summary.melhor_semana_avancos.avancos} avanço(s)`
+                      : '—'
+                  }
+                  description="Movimentações reais no funil."
+                />
+
+                <HighlightCard
+                  label="Maior Ticket Médio"
+                  name={summary.melhor_semana_ticket?.week_label ?? null}
+                  value={
+                    summary.melhor_semana_ticket
+                      ? toBRL(summary.melhor_semana_ticket.ticket_medio)
+                      : '—'
+                  }
+                  description={
+                    summary.melhor_semana_ticket
+                      ? `Base de ${summary.melhor_semana_ticket.ganhos} vendas ganhas`
+                      : 'Exige no mínimo três vendas na mesma faixa.'
+                  }
                 />
               </div>
+            </section>
 
-              {/* Tabela de Vocação */}
+            <section
+              style={{
+                ...cardStyle(),
+                marginBottom: 20,
+                overflow: 'hidden',
+              }}
+            >
               <div
                 style={{
-                  background: '#0f0f0f',
-                  border: '1px solid #202020',
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                  marginBottom: 18,
-                }}
-              >
-                <div style={{ padding: '14px 18px', borderBottom: '1px solid #202020' }}>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>
-                    Tabela de Vocação Operacional por Semana
-                  </span>
-                  {!vocation.has_cycle_events && (
-                    <span
-                      style={{
-                        marginLeft: 12,
-                        fontSize: 11,
-                        color: '#fbbf24',
-                        background: '#1a1500',
-                        border: '1px solid #3a2e00',
-                        borderRadius: 6,
-                        padding: '2px 8px',
-                      }}
-                    >
-                      Follow-up e Negociação indisponíveis (sem dados de cycle_events)
-                    </span>
-                  )}
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #202020' }}>
-                        {[
-                          { label: 'Semana', align: 'left' },
-                          { label: 'Período', align: 'left' },
-                          { label: 'Vocação Dominante', align: 'left' },
-                          { label: 'Prospecção', align: 'right' },
-                          { label: 'Follow-up', align: 'right' },
-                          { label: 'Negociação', align: 'right' },
-                          { label: 'Fechamento', align: 'right' },
-                          { label: 'Confiança', align: 'center' },
-                          { label: 'Observação', align: 'left' },
-                        ].map((col) => (
-                          <th
-                            key={col.label}
-                            style={{
-                              padding: '10px 14px',
-                              textAlign: col.align as React.CSSProperties['textAlign'],
-                              fontWeight: 600,
-                              opacity: 0.6,
-                              fontSize: 11,
-                              textTransform: 'uppercase',
-                              letterSpacing: 0.5,
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {col.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vocation.rows.map((row: MonthWeekVocationalRow) => {
-                        const prosp = row.signals.find((s) => s.type === 'prospeccao')!
-                        const followup = row.signals.find((s) => s.type === 'followup')!
-                        const neg = row.signals.find((s) => s.type === 'negociacao')!
-                        const fech = row.signals.find((s) => s.type === 'fechamento')!
-
-                        return (
-                          <tr
-                            key={row.week}
-                            style={{
-                              borderBottom: '1px solid #1a1a1a',
-                            }}
-                          >
-                            <td
-                              style={{
-                                padding: '10px 14px',
-                                fontWeight: 600,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {row.week_label}
-                            </td>
-                            <td
-                              style={{
-                                padding: '10px 14px',
-                                fontSize: 11,
-                                opacity: 0.5,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {row.week_description}
-                            </td>
-                            <td style={{ padding: '10px 14px' }}>
-                              <VocationBadge
-                                vocation={row.dominant_vocation}
-                                label={row.dominant_label}
-                              />
-                            </td>
-                            <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                              <StrengthBar
-                                strength={prosp.strength}
-                                color="#60a5fa"
-                                count={prosp.count}
-                              />
-                            </td>
-                            <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                              {vocation.has_cycle_events ? (
-                                <StrengthBar
-                                  strength={followup.strength}
-                                  color="#a78bfa"
-                                  count={followup.count}
-                                />
-                              ) : (
-                                <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                              {vocation.has_cycle_events ? (
-                                <StrengthBar
-                                  strength={neg.strength}
-                                  color="#fbbf24"
-                                  count={neg.count}
-                                />
-                              ) : (
-                                <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                              <StrengthBar
-                                strength={fech.strength}
-                                color="#34d399"
-                                count={fech.count}
-                              />
-                            </td>
-                            <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                              <ConfidenceBadge confidence={row.dominant_confidence} />
-                            </td>
-                            <td
-                              style={{
-                                padding: '10px 14px',
-                                fontSize: 12,
-                                opacity: 0.75,
-                                maxWidth: 280,
-                                lineHeight: 1.4,
-                              }}
-                            >
-                              {row.observation}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Leitura Resumida de Vocação */}
-              <div
-                style={{
-                  background: '#0f0f0f',
-                  border: '1px solid #202020',
-                  borderRadius: 12,
+                  alignItems: 'flex-start',
+                  borderBottom: `1px solid ${DS.border}`,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 16,
+                  justifyContent: 'space-between',
                   padding: '18px 20px',
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
-                  Leitura Resumida — Vocação por Semana do Mês
+                <div>
+                  <h2
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 850,
+                      margin: 0,
+                    }}
+                  >
+                    Distribuição por Semana do Mês
+                  </h2>
+
+                  <p
+                    style={{
+                      color: DS.textSecondary,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      margin: '6px 0 0',
+                    }}
+                  >
+                    Comparação entre execução comercial, avanço do funil e
+                    resultado financeiro conforme a faixa do mês.
+                  </p>
                 </div>
-                <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8 }}>
-                  {vocation.leitura_resumida.map((frase, idx) => (
-                    <li key={idx} style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
-                      {frase}
-                    </li>
-                  ))}
-                </ul>
 
                 <div
                   style={{
-                    marginTop: 16,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: 10,
-                    fontSize: 13,
+                    background: 'rgba(59,130,246,0.09)',
+                    border: '1px solid rgba(147,197,253,0.18)',
+                    borderRadius: 6,
+                    color: DS.blueSoft,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    padding: '6px 9px',
                   }}
                 >
-                  {[
-                    {
-                      label: 'Total Prospecções',
-                      value: vocation.total_events_prospeccao,
-                    },
-                    {
-                      label: 'Total Follow-ups',
-                      value: vocation.has_cycle_events ? vocation.total_events_followup : null,
-                    },
-                    {
-                      label: 'Total Negociações',
-                      value: vocation.has_cycle_events ? vocation.total_events_negociacao : null,
-                    },
-                    {
-                      label: 'Total Fechamentos',
-                      value: vocation.total_events_fechamento,
-                    },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      style={{
-                        background: '#111',
-                        border: '1px solid #1e1e1e',
-                        borderRadius: 8,
-                        padding: '10px 12px',
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 10,
-                          opacity: 0.5,
-                          textTransform: 'uppercase',
-                          marginBottom: 4,
-                        }}
-                      >
-                        {item.label}
-                      </div>
-                      <div style={{ fontWeight: 700 }}>
-                        {item.value !== null ? (
-                          item.value
-                        ) : (
-                          <span style={{ opacity: 0.4, fontSize: 12 }}>indisponível</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ marginTop: 14, fontSize: 11, opacity: 0.35 }}>
-                  Prospecção: <code>sales_cycles.first_worked_at</code>. Fechamento:{' '}
-                  <code>sales_cycles.won_at</code> (status=ganho). Follow-up e Negociação:{' '}
-                  <code>cycle_events</code> (event_type=stage_changed).
+                  {summary.meses_no_periodo} mês(es) analisado(s)
                 </div>
               </div>
-            </>
-          ) : null}
-        </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table
+                  style={{
+                    borderCollapse: 'collapse',
+                    minWidth: 980,
+                    width: '100%',
+                  }}
+                >
+                  <thead>
+                    <tr
+                      style={{
+                        background: '#0f1118',
+                        color: DS.textMuted,
+                        fontSize: 10,
+                        letterSpacing: '0.07em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      <th style={{ padding: '12px 18px', textAlign: 'left' }}>
+                        Semana
+                      </th>
+
+                      <th style={{ padding: '12px', textAlign: 'right' }}>
+                        Ações
+                      </th>
+
+                      <th style={{ padding: '12px', textAlign: 'right' }}>
+                        Avanços
+                      </th>
+
+                      <th style={{ padding: '12px', textAlign: 'right' }}>
+                        Vendas
+                      </th>
+
+                      <th style={{ padding: '12px', textAlign: 'right' }}>
+                        Perdas
+                      </th>
+
+                      <th style={{ padding: '12px', textAlign: 'right' }}>
+                        Faturamento
+                      </th>
+
+                      <th style={{ padding: '12px', textAlign: 'right' }}>
+                        Ticket Médio
+                      </th>
+
+                      <th
+                        style={{
+                          padding: '12px 18px',
+                          textAlign: 'right',
+                        }}
+                      >
+                        Amostra
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {summary.rows.map((row) => (
+                      <WeekRow
+                        key={row.week}
+                        row={row}
+                        bestRevenueWeek={
+                          summary.melhor_semana_faturamento?.week ?? null
+                        }
+                        bestActionWeek={
+                          summary.melhor_semana_acoes?.week ?? null
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section
+              style={{
+                ...cardStyle(),
+                marginBottom: 20,
+                padding: '18px 20px',
+              }}
+            >
+              <div
+                style={{
+                  color: DS.textPrimary,
+                  fontSize: 15,
+                  fontWeight: 850,
+                  marginBottom: 10,
+                }}
+              >
+                Resumo do Período
+              </div>
+
+              <p
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                {summary.diagnostico}
+              </p>
+
+              <div
+                style={{
+                  borderTop: `1px solid ${DS.borderSubtle}`,
+                  display: 'grid',
+                  gap: 10,
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(180px, 1fr))',
+                  marginTop: 18,
+                  paddingTop: 14,
+                }}
+              >
+                <div>
+                  <div style={fieldLabelStyle}>Período</div>
+                  <div
+                    style={{
+                      color: DS.textPrimary,
+                      fontSize: 13,
+                      fontWeight: 800,
+                      marginTop: 5,
+                    }}
+                  >
+                    {summary.period_start} até {summary.period_end}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={fieldLabelStyle}>Perdas Registradas</div>
+                  <div
+                    style={{
+                      color:
+                        summary.total_perdidos > 0
+                          ? DS.redSoft
+                          : DS.textPrimary,
+                      fontSize: 13,
+                      fontWeight: 800,
+                      marginTop: 5,
+                    }}
+                  >
+                    {summary.total_perdidos}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={fieldLabelStyle}>Ticket Médio Geral</div>
+                  <div
+                    style={{
+                      color: DS.textPrimary,
+                      fontSize: 13,
+                      fontWeight: 800,
+                      marginTop: 5,
+                    }}
+                  >
+                    {toBRL(summary.ticket_medio_geral)}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section
+              style={{
+                background: DS.surfaceBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radiusContainer,
+                padding: '16px 18px',
+              }}
+            >
+              <div
+                style={{
+                  color: DS.blueSoft,
+                  fontSize: 12,
+                  fontWeight: 850,
+                  marginBottom: 7,
+                }}
+              >
+                Critério de leitura
+              </div>
+
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                }}
+              >
+                Ações comerciais e avanços vêm de
+                <strong style={{ color: DS.textPrimary }}>
+                  {' '}
+                  cycle_events
+                </strong>
+                . Vendas, perdas e faturamento vêm de
+                <strong style={{ color: DS.textPrimary }}>
+                  {' '}
+                  sales_cycles
+                </strong>
+                .
+              </div>
+
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                  marginTop: 6,
+                }}
+              >
+                Receita usa a data financeira oficial:
+                <strong style={{ color: DS.textPrimary }}>
+                  {' '}
+                  revenue_seller_ref_date → won_at → closed_at
+                </strong>
+                . Perdas são consideradas somente quando
+                <strong style={{ color: DS.textPrimary }}> lost_at</strong>
+                está preenchido.
+              </div>
+
+              <div
+                style={{
+                  color: DS.yellowSoft,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                  marginTop: 8,
+                }}
+              >
+                A 5ª semana tem somente os dias 29, 30 e 31. Ela naturalmente
+                possui uma janela menor e não deve ser comparada como se tivesse
+                o mesmo peso das demais semanas.
+              </div>
+            </section>
+          </>
+        ) : null}
       </div>
-    </div>
-  )
-}
-
-// ==============================================================================
-// Sub-components — Vocação Operacional
-// ==============================================================================
-
-const VOCATION_COLORS: Record<MonthWeekVocationType, string> = {
-  prospeccao: '#60a5fa',
-  followup: '#a78bfa',
-  negociacao: '#fbbf24',
-  fechamento: '#34d399',
-}
-
-const VOCATION_LABELS_MAP: Record<MonthWeekVocationType, string> = {
-  prospeccao: 'Prospecção',
-  followup: 'Follow-up',
-  negociacao: 'Negociação',
-  fechamento: 'Fechamento',
-}
-
-function VocationBadge({
-  vocation,
-  label,
-}: {
-  vocation: MonthWeekVocationType | null
-  label: string
-}) {
-  if (!vocation) {
-    return (
-      <span
-        style={{
-          fontSize: 11,
-          opacity: 0.4,
-          border: '1px solid #333',
-          borderRadius: 6,
-          padding: '2px 8px',
-        }}
-      >
-        {label}
-      </span>
-    )
-  }
-  const color = VOCATION_COLORS[vocation]
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color,
-        border: `1px solid ${color}44`,
-        background: `${color}18`,
-        borderRadius: 6,
-        padding: '2px 8px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {VOCATION_LABELS_MAP[vocation]}
-    </span>
-  )
-}
-
-function StrengthBar({
-  strength,
-  color,
-  count,
-}: {
-  strength: number
-  color: string
-  count: number
-}) {
-  const pct = Math.round(strength * 100)
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: 3,
-        minWidth: 80,
-      }}
-    >
-      <span style={{ fontSize: 11, opacity: 0.7 }}>{pct}%</span>
-      <div
-        style={{
-          width: 80,
-          height: 6,
-          background: '#1e1e1e',
-          borderRadius: 3,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            width: `${pct}%`,
-            height: '100%',
-            background: count === 0 ? '#333' : color,
-            borderRadius: 3,
-            transition: 'width 0.3s ease',
-          }}
-        />
-      </div>
-      <span style={{ fontSize: 10, opacity: 0.4 }}>{count} ev.</span>
-    </div>
-  )
-}
-
-const CONFIDENCE_STYLES: Record<
-  MonthWeekVocationConfidence,
-  { label: string; color: string; bg: string; border: string }
-> = {
-  alta: { label: 'Alta', color: '#34d399', bg: '#0d2e1e', border: '#1a5c3a' },
-  moderada: { label: 'Moderada', color: '#fbbf24', bg: '#1a1200', border: '#3a2e00' },
-  baixa: { label: 'Baixa', color: '#f97316', bg: '#1a0e00', border: '#3a2200' },
-  insuficiente: { label: 'Insuficiente', color: '#6b7280', bg: '#111', border: '#222' },
-}
-
-function ConfidenceBadge({ confidence }: { confidence: MonthWeekVocationConfidence }) {
-  const s = CONFIDENCE_STYLES[confidence]
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: s.color,
-        background: s.bg,
-        border: `1px solid ${s.border}`,
-        borderRadius: 6,
-        padding: '2px 8px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {s.label}
-    </span>
-  )
-}
-
-function VocationKpiCard({
-  label,
-  color,
-  row,
-  vocType,
-  unavailable,
-}: {
-  label: string
-  color: string
-  row: MonthWeekVocationalRow | null
-  vocType: MonthWeekVocationType
-  unavailable?: boolean
-}) {
-  const sig = row?.signals.find((s) => s.type === vocType)
-
-  return (
-    <div
-      style={{
-        background: '#0f0f0f',
-        border: `1px solid ${row ? color + '44' : '#202020'}`,
-        borderRadius: 12,
-        padding: '16px 18px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        flex: '1 1 200px',
-        minWidth: 180,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          opacity: 0.55,
-          textTransform: 'uppercase',
-          letterSpacing: 1,
-          color,
-        }}
-      >
-        {label}
-      </div>
-      {unavailable ? (
-        <div style={{ fontSize: 12, opacity: 0.4 }}>Sem dados de cycle_events</div>
-      ) : row ? (
-        <>
-          <div style={{ fontWeight: 700, fontSize: 15, color }}>{row.week_label}</div>
-          <div style={{ fontSize: 11, opacity: 0.5 }}>{row.week_description}</div>
-          {sig && (
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              {sig.count} evento(s) — {Math.round(sig.strength * 100)}% de força
-            </div>
-          )}
-          <ConfidenceBadge confidence={sig?.confidence ?? 'insuficiente'} />
-        </>
-      ) : (
-        <div style={{ fontSize: 13, opacity: 0.4, marginTop: 4 }}>Base insuficiente</div>
-      )}
     </div>
   )
 }
