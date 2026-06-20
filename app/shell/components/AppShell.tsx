@@ -201,10 +201,6 @@ const RELATORIOS_SUBMENU: SubMenuGroup[] = [
     ],
   },
   {
-    title: 'Cadastros',
-    items: [{ label: 'Cadastro de Produtos', href: '/admin/produtos' }],
-  },
-  {
     title: 'Governança',
     items: [{ label: 'Score de Aderência', href: '/relatorios/governanca/score-de-aderencia' }],
   },
@@ -990,6 +986,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               icon="users"
               collapsed={collapsed}
               active={isActive('/admin/vendedores')}
+            />
+          )}
+                    {isAdminUser && (
+            <NavBtn
+              href="/admin/produtos"
+              label="Cadastro de Produtos"
+              icon="reports"
+              collapsed={collapsed}
+              active={isActive('/admin/produtos')}
             />
           )}
           {isAdminUser && (
