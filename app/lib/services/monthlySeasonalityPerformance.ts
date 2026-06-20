@@ -1,22 +1,19 @@
 // ==============================================================================
-// Service: Sazonalidade Mensal — Performance — Fase 6.4
+// Service: Sazonalidade Mensal
 //
-// Analisa a operação comercial por mês do ano (janeiro a dezembro),
-// identificando padrões sazonais históricos de volume, faturamento e ticket.
+// Fonte oficial:
+// - Ações comerciais: cycle_events classificados como activity
+// - Avanços: cycle_events classificados como stage_move
+// - Vendas e faturamento: sales_cycles com status ganho
+// - Data financeira: revenue_seller_ref_date -> won_at -> closed_at
+// - Perdas: sales_cycles.lost_at
 //
-// Fontes:
-//   - leads_trabalhados: sales_cycles.first_worked_at
-//   - ganhos/faturamento: sales_cycles.won_at + won_total + status='ganho'
-//   - perdidos: sales_cycles.lost_at (proxy: stage_entered_at quando indisponível)
-//
-// HONESTIDADE:
-//   - taxa_ganho não é calculada quando leads_trabalhados < 10
-//   - ticket_medio não é exibido quando ganhos < 5
-//   - anos_com_dados contextualiza o tamanho da amostra por mês
-//   - meses sem atividade são incluídos (12 linhas sempre) com zeros
+// A leitura consolida o mesmo mês em anos diferentes.
+// Exemplo: todos os meses de janeiro do período são analisados juntos.
 // ==============================================================================
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { classifyEvent } from '@/app/config/eventClassification'
 import type {
   MonthlySeasonalityFilters,
   MonthlySeasonalityRow,
@@ -24,446 +21,658 @@ import type {
   MonthIndex,
 } from '@/app/types/monthlySeasonality'
 
-const MONTH_LABELS: string[] = [
-  '',           // índice 0 não usado
-  'Janeiro',
-  'Fevereiro',
-  'Março',
-  'Abril',
-  'Maio',
-  'Junho',
-  'Julho',
-  'Agosto',
-  'Setembro',
-  'Outubro',
-  'Novembro',
-  'Dezembro',
-]
+const PAGE_SIZE = 1000
+const BUSINESS_TIME_ZONE = 'America/Sao_Paulo'
 
-const MONTH_SHORTS: string[] = [
-  '',
-  'Jan',
-  'Fev',
-  'Mar',
-  'Abr',
-  'Mai',
-  'Jun',
-  'Jul',
-  'Ago',
-  'Set',
-  'Out',
-  'Nov',
-  'Dez',
-]
-
-/**
- * Extrai o número do mês (1–12) de um timestamp ISO.
- */
-function getMonth(ts: string): MonthIndex {
-  const d = new Date(ts)
-  return (d.getUTCMonth() + 1) as MonthIndex
+const MONTH_LABELS: Record<MonthIndex, string> = {
+  1: 'Janeiro',
+  2: 'Fevereiro',
+  3: 'Março',
+  4: 'Abril',
+  5: 'Maio',
+  6: 'Junho',
+  7: 'Julho',
+  8: 'Agosto',
+  9: 'Setembro',
+  10: 'Outubro',
+  11: 'Novembro',
+  12: 'Dezembro',
 }
 
-/**
- * Extrai o ano ("YYYY") de um timestamp ISO para contar anos distintos.
- */
-function toYear(ts: string): string {
-  return ts.slice(0, 4)
+const MONTH_SHORTS: Record<MonthIndex, string> = {
+  1: 'Jan',
+  2: 'Fev',
+  3: 'Mar',
+  4: 'Abr',
+  5: 'Mai',
+  6: 'Jun',
+  7: 'Jul',
+  8: 'Ago',
+  9: 'Set',
+  10: 'Out',
+  11: 'Nov',
+  12: 'Dez',
+}
+
+const SYSTEM_EVENT_TYPES = new Set([
+  'cycle_created',
+  'lead_created',
+  'assigned',
+  'reassigned',
+  'owner_assigned',
+  'owner_reassigned',
+  'returned_to_pool',
+  'group_attached',
+  'group_changed',
+  'group_assigned',
+  'group_detached',
+  'lead_reactivated_from_import',
+  'lead_reactivated_from_manual_create',
+  'lead_reactivated_by_admin',
+  'ai_analysis_generated',
+  'ai_suggestion_applied',
+  'ai_suggestion_rejected',
+])
+
+type RawCycle = {
+  id: string
+  status: string
+  owner_user_id: string | null
+  won_owner_user_id: string | null
+  lost_owner_user_id: string | null
+  won_total: number | string | null
+  won_at: string | null
+  closed_at: string | null
+  lost_at: string | null
+  revenue_seller_ref_date: string | null
+}
+
+type RawEvent = {
+  id: string
+  cycle_id: string | null
+  event_type: string
+  metadata: Record<string, unknown> | null
+  occurred_at: string
+  created_by: string | null
+}
+
+type MonthAccumulator = {
+  acoes_comerciais: number
+  avancos: number
+  ganhos: number
+  perdidos: number
+  faturamento: number
+  sample_years: Set<string>
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  const parsed = Number(value ?? 0)
+
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isDateKey(value: string | null | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))
+}
+
+function toDateKey(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  if (isDateKey(value)) {
+    return value
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+
+  const values = new Map(parts.map((part) => [part.type, part.value]))
+
+  const year = values.get('year')
+  const month = values.get('month')
+  const day = values.get('day')
+
+  if (!year || !month || !day) {
+    return null
+  }
+
+  return `${year}-${month}-${day}`
+}
+
+function addDays(dateKey: string, amount: number): string {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+
+  date.setUTCDate(date.getUTCDate() + amount)
+
+  return date.toISOString().slice(0, 10)
+}
+
+function getMonth(dateKey: string): MonthIndex {
+  return Number(dateKey.slice(5, 7)) as MonthIndex
+}
+
+function getYear(dateKey: string): string {
+  return dateKey.slice(0, 4)
+}
+
+function getRevenueReferenceDate(cycle: RawCycle): string | null {
+  return (
+    toDateKey(cycle.revenue_seller_ref_date) ??
+    toDateKey(cycle.won_at) ??
+    toDateKey(cycle.closed_at)
+  )
+}
+
+function isInRange(
+  dateKey: string | null,
+  dateStart: string,
+  dateEnd: string,
+): boolean {
+  return Boolean(dateKey && dateKey >= dateStart && dateKey <= dateEnd)
+}
+
+function countMonthsInRange(dateStart: string, dateEnd: string): number {
+  const start = new Date(`${dateStart}T12:00:00Z`)
+  const end = new Date(`${dateEnd}T12:00:00Z`)
+
+  return Math.max(
+    1,
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+      (end.getUTCMonth() - start.getUTCMonth()) +
+      1,
+  )
+}
+
+function countYearsInRange(dateStart: string, dateEnd: string): number {
+  const startYear = Number(dateStart.slice(0, 4))
+  const endYear = Number(dateEnd.slice(0, 4))
+
+  return Math.max(1, endYear - startYear + 1)
 }
 
 function formatBRL(value: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
 }
 
-/** Conta o número de meses distintos em um intervalo de datas. Mínimo 1. */
-function monthsInRange(dateStart: string, dateEnd: string): number {
-  const start = new Date(dateStart)
-  const end = new Date(dateEnd)
-  const months =
-    (end.getFullYear() - start.getFullYear()) * 12 +
-    (end.getMonth() - start.getMonth()) +
-    1
-  return Math.max(1, months)
+function isCommercialActivity(event: RawEvent): boolean {
+  if (SYSTEM_EVENT_TYPES.has(event.event_type.trim().toLowerCase())) {
+    return false
+  }
+
+  return (
+    classifyEvent({
+      event_type: event.event_type,
+      metadata: event.metadata ?? {},
+    }) === 'activity'
+  )
+}
+
+function isRealStageAdvance(event: RawEvent): boolean {
+  if (SYSTEM_EVENT_TYPES.has(event.event_type.trim().toLowerCase())) {
+    return false
+  }
+
+  return (
+    classifyEvent({
+      event_type: event.event_type,
+      metadata: event.metadata ?? {},
+    }) === 'stage_move'
+  )
+}
+
+async function fetchAllCycles(companyId: string): Promise<RawCycle[]> {
+  const supabase = supabaseBrowser()
+
+  const rows: RawCycle[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_cycles')
+      .select(
+        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_total, won_at, closed_at, lost_at, revenue_seller_ref_date',
+      )
+      .eq('company_id', companyId)
+      .in('status', ['ganho', 'perdido'])
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(`Erro ao buscar ciclos encerrados: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RawCycle[]
+
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return rows
+}
+
+async function fetchAllEvents(
+  companyId: string,
+  dateStart: string,
+  dateEnd: string,
+  ownerId?: string | null,
+): Promise<RawEvent[]> {
+  const supabase = supabaseBrowser()
+
+  const rows: RawEvent[] = []
+  const nextDay = addDays(dateEnd, 1)
+
+  let from = 0
+
+  while (true) {
+    let query = supabase
+      .from('cycle_events')
+      .select('id, cycle_id, event_type, metadata, occurred_at, created_by')
+      .eq('company_id', companyId)
+      .gte('occurred_at', `${dateStart}T00:00:00-03:00`)
+      .lt('occurred_at', `${nextDay}T00:00:00-03:00`)
+      .order('occurred_at', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (ownerId) {
+      query = query.eq('created_by', ownerId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new Error(`Erro ao buscar eventos comerciais: ${error.message}`)
+    }
+
+    const page = (data ?? []) as RawEvent[]
+
+    rows.push(...page)
+
+    if (page.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return rows
 }
 
 function buildDiagnostico(
-  rows: MonthlySeasonalityRow[],
+  totalAcoes: number,
   totalGanhos: number,
-  totalTrabalhados: number,
+  melhorAcoes: MonthlySeasonalityRow | null,
+  melhorAvancos: MonthlySeasonalityRow | null,
   melhorFaturamento: MonthlySeasonalityRow | null,
-  melhorTrabalho: MonthlySeasonalityRow | null,
   melhorTicket: MonthlySeasonalityRow | null,
-  melhorGanhos: MonthlySeasonalityRow | null
+  anosNoPeriodo: number,
 ): string {
-  if (totalTrabalhados === 0 && totalGanhos === 0) {
-    return 'Dados insuficientes no período selecionado. Nenhum lead trabalhado ou ganho encontrado.'
+  if (totalAcoes === 0 && totalGanhos === 0) {
+    return 'Nenhuma ação comercial ou venda ganha foi encontrada no período selecionado.'
   }
 
   const parts: string[] = []
 
   if (melhorFaturamento && melhorFaturamento.faturamento > 0) {
     parts.push(
-      `${melhorFaturamento.month_label} lidera historicamente em faturamento com ${formatBRL(melhorFaturamento.faturamento)}.`
+      `${melhorFaturamento.month_label} lidera o período em faturamento acumulado, com ${formatBRL(melhorFaturamento.faturamento)}.`,
     )
   }
 
-  if (melhorTrabalho && melhorTrabalho.leads_trabalhados > 0) {
+  if (
+    melhorAcoes &&
+    melhorAcoes.acoes_comerciais > 0 &&
+    melhorAcoes.month !== melhorFaturamento?.month
+  ) {
     parts.push(
-      `${melhorTrabalho.month_label} concentra o maior volume de trabalho comercial (${melhorTrabalho.leads_trabalhados} leads trabalhados).`
+      `${melhorAcoes.month_label} concentra o maior volume de execução, com ${melhorAcoes.acoes_comerciais} ação(ões) registradas.`,
     )
   }
 
-  if (melhorTicket && melhorTicket.base_suficiente_ganho) {
+  if (
+    melhorAvancos &&
+    melhorAvancos.avancos > 0 &&
+    melhorAvancos.month !== melhorFaturamento?.month
+  ) {
     parts.push(
-      `${melhorTicket.month_label} apresenta o maior ticket médio entre meses com base suficiente: ${formatBRL(melhorTicket.ticket_medio)}.`
+      `${melhorAvancos.month_label} lidera em avanços reais de etapa, com ${melhorAvancos.avancos} movimentação(ões).`,
     )
   }
 
-  if (melhorGanhos && melhorGanhos.ganhos > 0) {
-    if (!melhorFaturamento || melhorGanhos.month !== melhorFaturamento.month) {
-      parts.push(
-        `${melhorGanhos.month_label} lidera em volume de ganhos (${melhorGanhos.ganhos} ganho(s)).`
-      )
-    }
-  }
-
-  const insufficientMonths = rows.filter(
-    (r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho
-  )
-  if (insufficientMonths.length > 0) {
-    const names = insufficientMonths.map((r) => r.month_short).join(', ')
+  if (melhorTicket && melhorTicket.ganhos >= 3) {
     parts.push(
-      `Os meses ${names} têm dados insuficientes para calcular taxa de ganho com confiança (menos de 10 leads trabalhados).`
+      `${melhorTicket.month_label} apresenta o maior ticket médio entre os meses com base mínima de três vendas.`,
     )
   }
 
-  // Nota sobre sazonalidade com poucos anos
-  const maxAnos = Math.max(...rows.map((r) => r.anos_com_dados))
-  if (maxAnos === 1) {
+  if (anosNoPeriodo <= 1) {
     parts.push(
-      'Atenção: todos os dados vêm de apenas 1 ano. Amplie o período para uma leitura sazonal mais confiável.'
+      'A leitura ainda usa somente um ano de dados. Amplie o período para transformar o relatório em uma análise sazonal mais confiável.',
     )
   }
 
   if (parts.length === 0) {
-    return 'Período com baixo volume de dados. Amplie o intervalo de datas para análise mais precisa.'
+    return 'Há atividade registrada no período, mas ainda sem volume suficiente de resultados para apontar um padrão sazonal consistente.'
   }
 
   return parts.join(' ')
 }
 
 function buildLeituraResumida(
-  rows: MonthlySeasonalityRow[],
+  melhorAcoes: MonthlySeasonalityRow | null,
+  melhorAvancos: MonthlySeasonalityRow | null,
   melhorFaturamento: MonthlySeasonalityRow | null,
   melhorGanhos: MonthlySeasonalityRow | null,
   melhorTicket: MonthlySeasonalityRow | null,
-  melhorTrabalho: MonthlySeasonalityRow | null
 ): string[] {
-  const frases: string[] = []
+  const lines: string[] = []
 
-  if (melhorFaturamento && melhorFaturamento.faturamento > 0) {
-    frases.push(`${melhorFaturamento.month_label} historicamente lidera em faturamento.`)
-  }
-
-  if (melhorGanhos && melhorGanhos.ganhos > 0) {
-    frases.push(
-      `${melhorGanhos.month_label} concentra o maior volume de ganhos (${melhorGanhos.ganhos} ganho(s)).`
+  if (melhorFaturamento?.faturamento) {
+    lines.push(
+      `${melhorFaturamento.month_label} é o mês mais forte em faturamento acumulado.`,
     )
   }
 
-  if (melhorTicket && melhorTicket.base_suficiente_ganho) {
-    frases.push(
-      `${melhorTicket.month_label} apresenta o melhor ticket médio: ${formatBRL(melhorTicket.ticket_medio)}.`
+  if (
+    melhorGanhos &&
+    melhorGanhos.month !== melhorFaturamento?.month &&
+    melhorGanhos.ganhos > 0
+  ) {
+    lines.push(
+      `${melhorGanhos.month_label} concentra o maior volume de vendas ganhas.`,
     )
   }
 
-  if (melhorTrabalho && melhorTrabalho.leads_trabalhados > 0) {
-    frases.push(
-      `${melhorTrabalho.month_label} mostra forte ritmo de trabalho comercial (${melhorTrabalho.leads_trabalhados} leads trabalhados).`
+  if (
+    melhorAcoes &&
+    melhorAcoes.month !== melhorFaturamento?.month &&
+    melhorAcoes.acoes_comerciais > 0
+  ) {
+    lines.push(
+      `${melhorAcoes.month_label} é o mês com maior volume de execução comercial.`,
     )
   }
 
-  // Sinaliza meses com base insuficiente que têm algum dado
-  const insuficientes = rows.filter(
-    (r) => r.leads_trabalhados > 0 && !r.base_suficiente_trabalho
-  )
-  if (insuficientes.length > 0) {
-    const nomes = insuficientes.map((r) => r.month_short).join(', ')
-    frases.push(
-      `${nomes} com volume insuficiente — amplie o período para leituras mais confiáveis.`
+  if (
+    melhorAvancos &&
+    melhorAvancos.month !== melhorFaturamento?.month &&
+    melhorAvancos.avancos > 0
+  ) {
+    lines.push(
+      `${melhorAvancos.month_label} apresenta mais avanços reais de etapa.`,
     )
   }
 
-  // Nota sobre meses completamente sem atividade
-  const semAtividade = rows.filter((r) => r.leads_trabalhados === 0 && r.ganhos === 0)
-  if (semAtividade.length > 0 && semAtividade.length <= 6) {
-    const nomes = semAtividade.map((r) => r.month_short).join(', ')
-    frases.push(`${nomes} sem atividade registrada no período.`)
+  if (melhorTicket && melhorTicket.ganhos >= 3) {
+    lines.push(
+      `${melhorTicket.month_label} tem o maior ticket médio com base suficiente.`,
+    )
   }
 
-  if (frases.length === 0) {
-    frases.push('Período com volume insuficiente para gerar leitura de sazonalidade mensal.')
+  if (lines.length === 0) {
+    lines.push(
+      'Período com volume insuficiente para gerar uma leitura comparativa por mês do ano.',
+    )
   }
 
-  return frases
+  return lines
 }
 
 export async function getMonthlySeasonalityPerformance(
-  filters: MonthlySeasonalityFilters
+  filters: MonthlySeasonalityFilters,
 ): Promise<MonthlySeasonalitySummary> {
-  const supabase = supabaseBrowser()
+  const [cycles, events] = await Promise.all([
+    fetchAllCycles(filters.companyId),
+    fetchAllEvents(
+      filters.companyId,
+      filters.dateStart,
+      filters.dateEnd,
+      filters.ownerId,
+    ),
+  ])
 
-  const dateStartIso = filters.dateStart + 'T00:00:00.000Z'
-  const dateEndIso = filters.dateEnd + 'T23:59:59.999Z'
+  const indexes: MonthIndex[] = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+  ]
 
-  // ============================================================================
-  // 1. Leads trabalhados — sales_cycles.first_worked_at
-  // ============================================================================
-  let workedQuery = supabase
-    .from('sales_cycles')
-    .select('first_worked_at')
-    .eq('company_id', filters.companyId)
-    .not('first_worked_at', 'is', null)
-    .gte('first_worked_at', dateStartIso)
-    .lte('first_worked_at', dateEndIso)
+  const accumulators = indexes.reduce(
+    (result, month) => {
+      result[month] = {
+        acoes_comerciais: 0,
+        avancos: 0,
+        ganhos: 0,
+        perdidos: 0,
+        faturamento: 0,
+        sample_years: new Set<string>(),
+      }
 
-  if (filters.ownerId) {
-    workedQuery = workedQuery.eq('owner_user_id', filters.ownerId)
+      return result
+    },
+    {} as Record<MonthIndex, MonthAccumulator>,
+  )
+
+  for (const event of events) {
+    const dateKey = toDateKey(event.occurred_at)
+
+    if (!dateKey || !isInRange(dateKey, filters.dateStart, filters.dateEnd)) {
+      continue
+    }
+
+    const activity = isCommercialActivity(event)
+    const advance = isRealStageAdvance(event)
+
+    if (!activity && !advance) {
+      continue
+    }
+
+    const month = getMonth(dateKey)
+    const accumulator = accumulators[month]
+
+    accumulator.sample_years.add(getYear(dateKey))
+
+    if (activity) {
+      accumulator.acoes_comerciais += 1
+    }
+
+    if (advance) {
+      accumulator.avancos += 1
+    }
   }
 
-  const { data: workedData, error: workedError } = await workedQuery
+  for (const cycle of cycles) {
+    if (cycle.status === 'ganho') {
+      const saleDate = getRevenueReferenceDate(cycle)
+      const saleOwnerId = cycle.won_owner_user_id ?? cycle.owner_user_id
 
-  if (workedError) {
-    throw new Error(`Erro ao buscar leads trabalhados: ${workedError.message}`)
+      if (
+        saleDate &&
+        isInRange(saleDate, filters.dateStart, filters.dateEnd) &&
+        (!filters.ownerId || saleOwnerId === filters.ownerId)
+      ) {
+        const month = getMonth(saleDate)
+        const accumulator = accumulators[month]
+
+        accumulator.ganhos += 1
+        accumulator.faturamento += toNumber(cycle.won_total)
+        accumulator.sample_years.add(getYear(saleDate))
+      }
+    }
+
+    if (cycle.status === 'perdido') {
+      const lossDate = toDateKey(cycle.lost_at)
+      const lossOwnerId = cycle.lost_owner_user_id ?? cycle.owner_user_id
+
+      if (
+        lossDate &&
+        isInRange(lossDate, filters.dateStart, filters.dateEnd) &&
+        (!filters.ownerId || lossOwnerId === filters.ownerId)
+      ) {
+        const month = getMonth(lossDate)
+        const accumulator = accumulators[month]
+
+        accumulator.perdidos += 1
+        accumulator.sample_years.add(getYear(lossDate))
+      }
+    }
   }
 
-  // ============================================================================
-  // 2. Ganhos — sales_cycles.won_at + won_total > 0 + status='ganho'
-  // ============================================================================
-  let wonQuery = supabase
-    .from('sales_cycles')
-    .select('won_at, won_total')
-    .eq('company_id', filters.companyId)
-    .eq('status', 'ganho')
-    .not('won_at', 'is', null)
-    .gt('won_total', 0)
-    .gte('won_at', dateStartIso)
-    .lte('won_at', dateEndIso)
+  const rows: MonthlySeasonalityRow[] = indexes.map((month) => {
+    const accumulator = accumulators[month]
+    const ticketMedio =
+      accumulator.ganhos > 0
+        ? accumulator.faturamento / accumulator.ganhos
+        : 0
 
-  if (filters.ownerId) {
-    wonQuery = wonQuery.eq('won_owner_user_id', filters.ownerId)
-  }
+    return {
+      month,
+      month_label: MONTH_LABELS[month],
+      month_short: MONTH_SHORTS[month],
 
-  const { data: wonData, error: wonError } = await wonQuery
+      acoes_comerciais: accumulator.acoes_comerciais,
+      avancos: accumulator.avancos,
 
-  if (wonError) {
-    throw new Error(`Erro ao buscar ganhos: ${wonError.message}`)
-  }
+      ganhos: accumulator.ganhos,
+      perdidos: accumulator.perdidos,
+      faturamento: accumulator.faturamento,
+      ticket_medio: ticketMedio,
 
-  // ============================================================================
-  // 3. Perdidos — usa lost_at quando existe, caindo em stage_entered_at.
-  //    updated_at não serve como proxy porque muda em qualquer edição posterior.
-  // ============================================================================
-  let lostQuery = supabase
-    .from('sales_cycles')
-    .select('lost_at, stage_entered_at')
-    .eq('company_id', filters.companyId)
-    .eq('status', 'perdido')
+      anos_com_dados: accumulator.sample_years.size,
 
-  if (filters.ownerId) {
-    lostQuery = lostQuery.eq('owner_user_id', filters.ownerId)
-  }
-
-  const { data: lostDataRaw, error: lostError } = await lostQuery
-
-  if (lostError) {
-    throw new Error(`Erro ao buscar perdidos: ${lostError.message}`)
-  }
-
-  const lostDataAll = (lostDataRaw ?? []) as Array<Record<string, unknown>>
-
-  const dateStartMs = new Date(dateStartIso).getTime()
-  const dateEndMs = new Date(dateEndIso).getTime()
-
-  const lostData = lostDataAll.filter((r) => {
-    const raw = (r.lost_at as string | null) ?? (r.stage_entered_at as string | null)
-    if (!raw) return false
-    const ts = new Date(raw).getTime()
-    return ts >= dateStartMs && ts <= dateEndMs
+      // Compatibilidade com a rota legada.
+      leads_trabalhados: accumulator.acoes_comerciais,
+      taxa_ganho: 0,
+      base_suficiente_trabalho: false,
+      base_suficiente_ganho: accumulator.ganhos >= 3,
+    }
   })
 
-  // ============================================================================
-  // 4. Aggregate by month (client-side)
-  // ============================================================================
-
-  interface MonthAgg {
-    leads_trabalhados: number
-    ganhos: number
-    perdidos: number
-    faturamento: number
-    worked_years: Set<string>
-    won_years: Set<string>
-    lost_years: Set<string>
-  }
-
-  // índice 0 não usado; meses 1–12 em posições 1–12
-  const agg: MonthAgg[] = Array.from({ length: 13 }, () => ({
-    leads_trabalhados: 0,
-    ganhos: 0,
-    perdidos: 0,
-    faturamento: 0,
-    worked_years: new Set<string>(),
-    won_years: new Set<string>(),
-    lost_years: new Set<string>(),
-  }))
-
-  for (const row of workedData ?? []) {
-    const r = row as Record<string, unknown>
-    const ts = r.first_worked_at as string | null
-    if (!ts) continue
-    const mo = getMonth(ts)
-    agg[mo].leads_trabalhados += 1
-    agg[mo].worked_years.add(toYear(ts))
-  }
-
-  for (const row of wonData ?? []) {
-    const r = row as Record<string, unknown>
-    const ts = r.won_at as string | null
-    const total = r.won_total != null ? Number(r.won_total) : 0
-    if (!ts) continue
-    const mo = getMonth(ts)
-    agg[mo].ganhos += 1
-    agg[mo].faturamento += total
-    agg[mo].won_years.add(toYear(ts))
-  }
-
-  for (const row of lostData) {
-    const ts = (row.lost_at as string | null) ?? (row.stage_entered_at as string | null)
-    if (!ts) continue
-    const mo = getMonth(ts)
-    agg[mo].perdidos += 1
-    agg[mo].lost_years.add(toYear(ts))
-  }
-
-  // ============================================================================
-  // 5. Build MonthlySeasonalityRow[]
-  // ============================================================================
-
-  const rows: MonthlySeasonalityRow[] = []
-
-  for (let i = 1; i <= 12; i++) {
-    const month = i as MonthIndex
-    const a = agg[i]
-    const ticket_medio = a.ganhos > 0 ? a.faturamento / a.ganhos : 0
-    const taxa_ganho = a.leads_trabalhados > 0 ? a.ganhos / a.leads_trabalhados : 0
-    const base_suficiente_trabalho = a.leads_trabalhados >= 10
-    const base_suficiente_ganho = a.ganhos >= 5
-
-    const allYears = new Set([
-      ...a.worked_years,
-      ...a.won_years,
-      ...a.lost_years,
-    ])
-    const anos_com_dados = allYears.size
-
-    rows.push({
-      month,
-      month_label: MONTH_LABELS[i],
-      month_short: MONTH_SHORTS[i],
-      leads_trabalhados: a.leads_trabalhados,
-      ganhos: a.ganhos,
-      perdidos: a.perdidos,
-      faturamento: a.faturamento,
-      ticket_medio,
-      taxa_ganho,
-      base_suficiente_trabalho,
-      base_suficiente_ganho,
-      anos_com_dados,
-    })
-  }
-
-  // ============================================================================
-  // 6. Best month KPIs
-  // ============================================================================
-
-  const nonZeroGanhos = rows.filter((r) => r.ganhos > 0)
-  const nonZeroFaturamento = rows.filter((r) => r.faturamento > 0)
-  const nonZeroTrabalho = rows.filter((r) => r.leads_trabalhados > 0)
-  const suficienteGanho = rows.filter((r) => r.base_suficiente_ganho)
-
-  const melhor_mes_ganhos =
-    nonZeroGanhos.length > 0
-      ? nonZeroGanhos.reduce((best, r) => (r.ganhos > best.ganhos ? r : best))
-      : null
-
-  const melhor_mes_faturamento =
-    nonZeroFaturamento.length > 0
-      ? nonZeroFaturamento.reduce((best, r) => (r.faturamento > best.faturamento ? r : best))
-      : null
-
-  const melhor_mes_ticket =
-    suficienteGanho.length > 0
-      ? suficienteGanho.reduce((best, r) => (r.ticket_medio > best.ticket_medio ? r : best))
-      : null
-
-  const melhor_mes_trabalho =
-    nonZeroTrabalho.length > 0
-      ? nonZeroTrabalho.reduce((best, r) =>
-          r.leads_trabalhados > best.leads_trabalhados ? r : best
-        )
-      : null
-
-  // ============================================================================
-  // 7. Totals
-  // ============================================================================
-
-  const total_leads_trabalhados = agg.slice(1).reduce((s, a) => s + a.leads_trabalhados, 0)
-  const total_ganhos = agg.slice(1).reduce((s, a) => s + a.ganhos, 0)
-  const total_perdidos = agg.slice(1).reduce((s, a) => s + a.perdidos, 0)
-  const total_faturamento = agg.slice(1).reduce((s, a) => s + a.faturamento, 0)
-
-  // ============================================================================
-  // 8. Period info
-  // ============================================================================
-
-  const meses_no_periodo = monthsInRange(filters.dateStart, filters.dateEnd)
-
-  // ============================================================================
-  // 9. Diagnostic + leitura resumida
-  // ============================================================================
-
-  const diagnostico = buildDiagnostico(
-    rows,
-    total_ganhos,
-    total_leads_trabalhados,
-    melhor_mes_faturamento,
-    melhor_mes_trabalho,
-    melhor_mes_ticket,
-    melhor_mes_ganhos
+  const totalAcoes = rows.reduce(
+    (sum, row) => sum + row.acoes_comerciais,
+    0,
   )
 
-  const leitura_resumida = buildLeituraResumida(
-    rows,
-    melhor_mes_faturamento,
-    melhor_mes_ganhos,
-    melhor_mes_ticket,
-    melhor_mes_trabalho
+  const totalAvancos = rows.reduce((sum, row) => sum + row.avancos, 0)
+
+  const totalGanhos = rows.reduce((sum, row) => sum + row.ganhos, 0)
+
+  const totalPerdidos = rows.reduce((sum, row) => sum + row.perdidos, 0)
+
+  const totalFaturamento = rows.reduce(
+    (sum, row) => sum + row.faturamento,
+    0,
   )
+
+  const rowsComAcoes = rows.filter((row) => row.acoes_comerciais > 0)
+  const rowsComAvancos = rows.filter((row) => row.avancos > 0)
+  const rowsComGanhos = rows.filter((row) => row.ganhos > 0)
+  const rowsComTicket = rows.filter((row) => row.ganhos >= 3)
+
+  const melhorMesAcoes =
+    rowsComAcoes.length > 0
+      ? [...rowsComAcoes].sort(
+          (a, b) => b.acoes_comerciais - a.acoes_comerciais,
+        )[0]
+      : null
+
+  const melhorMesAvancos =
+    rowsComAvancos.length > 0
+      ? [...rowsComAvancos].sort((a, b) => b.avancos - a.avancos)[0]
+      : null
+
+  const melhorMesGanhos =
+    rowsComGanhos.length > 0
+      ? [...rowsComGanhos].sort((a, b) => b.ganhos - a.ganhos)[0]
+      : null
+
+  const melhorMesFaturamento =
+    rowsComGanhos.length > 0
+      ? [...rowsComGanhos].sort(
+          (a, b) => b.faturamento - a.faturamento,
+        )[0]
+      : null
+
+  const melhorMesTicket =
+    rowsComTicket.length > 0
+      ? [...rowsComTicket].sort(
+          (a, b) => b.ticket_medio - a.ticket_medio,
+        )[0]
+      : null
+
+  const anosNoPeriodo = countYearsInRange(filters.dateStart, filters.dateEnd)
 
   return {
     rows,
-    melhor_mes_ganhos,
-    melhor_mes_faturamento,
-    melhor_mes_ticket,
-    melhor_mes_trabalho,
-    total_leads_trabalhados,
-    total_ganhos,
-    total_perdidos,
-    total_faturamento,
-    diagnostico,
-    leitura_resumida,
+
+    melhor_mes_acoes: melhorMesAcoes,
+    melhor_mes_avancos: melhorMesAvancos,
+    melhor_mes_ganhos: melhorMesGanhos,
+    melhor_mes_faturamento: melhorMesFaturamento,
+    melhor_mes_ticket: melhorMesTicket,
+
+    total_acoes_comerciais: totalAcoes,
+    total_avancos: totalAvancos,
+    total_ganhos: totalGanhos,
+    total_perdidos: totalPerdidos,
+    total_faturamento: totalFaturamento,
+    ticket_medio_geral:
+      totalGanhos > 0 ? totalFaturamento / totalGanhos : 0,
+
+    diagnostico: buildDiagnostico(
+      totalAcoes,
+      totalGanhos,
+      melhorMesAcoes,
+      melhorMesAvancos,
+      melhorMesFaturamento,
+      melhorMesTicket,
+      anosNoPeriodo,
+    ),
+
+    leitura_resumida: buildLeituraResumida(
+      melhorMesAcoes,
+      melhorMesAvancos,
+      melhorMesFaturamento,
+      melhorMesGanhos,
+      melhorMesTicket,
+    ),
+
     period_start: filters.dateStart,
     period_end: filters.dateEnd,
-    meses_no_periodo,
+    meses_no_periodo: countMonthsInRange(filters.dateStart, filters.dateEnd),
+    anos_no_periodo: anosNoPeriodo,
+
+    // Compatibilidade com a rota legada.
+    total_leads_trabalhados: totalAcoes,
+    melhor_mes_trabalho: melhorMesAcoes,
   }
 }
