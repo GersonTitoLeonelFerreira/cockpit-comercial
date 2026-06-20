@@ -4,12 +4,18 @@ import { redirect } from 'next/navigation'
 import SellerEditClient from './ui/SellerEditClient'
 
 export const metadata = {
-  title: 'Editar vendedor | Cockpit Comercial',
+  title: 'Editar Vendedor | Yolen',
 }
 
-export default async function AdminVendedorPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminVendedorPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
   const cookieStore = await cookies()
-  const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+
+  const activeCompanyId =
+    cookieStore.get('cockpit_active_company_id')?.value ?? null
 
   if (!activeCompanyId) {
     redirect('/select-company')
@@ -46,11 +52,7 @@ export default async function AdminVendedorPage({ params }: { params: Promise<{ 
     .eq('id', data.user.id)
     .maybeSingle()
 
-  if (profileError || !profile?.id) {
-    redirect('/login')
-  }
-
-  if (profile.is_active_global === false) {
+  if (profileError || !profile?.id || profile.is_active_global === false) {
     redirect('/login')
   }
 
@@ -72,9 +74,5 @@ export default async function AdminVendedorPage({ params }: { params: Promise<{ 
 
   const { id } = await params
 
-  return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-8">
-      <SellerEditClient sellerId={id} />
-    </div>
-  )
+  return <SellerEditClient sellerId={id} />
 }

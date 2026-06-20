@@ -1,10 +1,83 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 type Role = 'member' | 'manager' | 'admin'
 type PessoaTipo = 'fisica' | 'juridica' | 'estrangeiro'
 type ToastType = 'success' | 'error' | 'info'
+
+const DS = {
+  contentBg: '#090b0f',
+  cardBg: '#141722',
+  surfaceBg: '#111318',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+
+  textPrimary: '#edf2f7',
+  textSecondary: '#8fa3bc',
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+
+  blueLight: '#60a5fa',
+  blueSoft: '#93c5fd',
+
+  greenSoft: '#86efac',
+  yellowSoft: '#fef3c7',
+  redSoft: '#fca5a5',
+
+  radius: 7,
+  radiusContainer: 9,
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
+} as const
+
+type InviteResponse = {
+  user_id?: string
+  warning?: string
+  error?: string
+}
+
+function cardStyle(): React.CSSProperties {
+  return {
+    background: DS.cardBg,
+    border: `1px solid ${DS.border}`,
+    borderRadius: DS.radiusContainer,
+    boxShadow: DS.shadowCard,
+  }
+}
+
+const fieldLabelStyle: React.CSSProperties = {
+  color: DS.textLabel,
+  fontSize: 10,
+  fontWeight: 800,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+}
+
+const inputStyle: React.CSSProperties = {
+  background: DS.surfaceBg,
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius,
+  color: DS.textPrimary,
+  fontSize: 13,
+  height: 40,
+  outline: 'none',
+  padding: '0 11px',
+  width: '100%',
+}
+
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, '')
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return fallback
+}
 
 function Toast({
   open,
@@ -17,56 +90,108 @@ function Toast({
   message: string
   onClose: () => void
 }) {
-  useEffect(() => {
-    if (!open) return
-    const t = setTimeout(onClose, 3500)
-    return () => clearTimeout(t)
-  }, [open, onClose])
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
 
-  if (!open) return null
+    const timeout = window.setTimeout(onClose, 3500)
 
-  const bg = type === 'success' ? '#065f46' : type === 'error' ? '#7f1d1d' : '#1f2937'
-  const border = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#374151'
+    return () => window.clearTimeout(timeout)
+  }, [onClose, open])
+
+  if (!open) {
+    return null
+  }
+
+  const colors = {
+    success: {
+      background: 'rgba(34,197,94,0.14)',
+      border: 'rgba(134,239,172,0.28)',
+      color: DS.greenSoft,
+      label: 'Sucesso',
+    },
+    error: {
+      background: 'rgba(239,68,68,0.14)',
+      border: 'rgba(252,165,165,0.28)',
+      color: DS.redSoft,
+      label: 'Erro',
+    },
+    info: {
+      background: 'rgba(59,130,246,0.14)',
+      border: 'rgba(147,197,253,0.28)',
+      color: DS.blueSoft,
+      label: 'Aviso',
+    },
+  } as const
+
+  const style = colors[type]
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        right: 20,
-        bottom: 20,
-        zIndex: 9999,
-        background: bg,
-        border: `1px solid ${border}`,
-        color: 'white',
-        padding: '12px 14px',
-        borderRadius: 12,
-        minWidth: 280,
-        maxWidth: 420,
-        boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
-      }}
       role="status"
       aria-live="polite"
+      style={{
+        background: style.background,
+        border: `1px solid ${style.border}`,
+        borderRadius: DS.radiusContainer,
+        bottom: 22,
+        boxShadow: '0 12px 35px rgba(0,0,0,0.45)',
+        color: DS.textPrimary,
+        maxWidth: 440,
+        padding: '13px 14px',
+        position: 'fixed',
+        right: 22,
+        width: 'calc(100% - 44px)',
+        zIndex: 9999,
+      }}
     >
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: 12, opacity: 0.9 }}>
-          {type}
+      <div
+        style={{
+          alignItems: 'flex-start',
+          display: 'flex',
+          gap: 10,
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <div
+            style={{
+              color: style.color,
+              fontSize: 10,
+              fontWeight: 850,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {style.label}
+          </div>
+
+          <div
+            style={{
+              color: DS.textPrimary,
+              fontSize: 13,
+              lineHeight: 1.5,
+              marginTop: 5,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {message}
+          </div>
         </div>
 
-        <div style={{ flex: 1, whiteSpace: 'pre-wrap', fontSize: 14 }}>{message}</div>
-
         <button
+          type="button"
           onClick={onClose}
+          aria-label="Fechar"
           style={{
             background: 'transparent',
             border: 'none',
-            color: 'white',
+            color: DS.textSecondary,
             cursor: 'pointer',
-            fontSize: 16,
+            fontSize: 18,
             lineHeight: 1,
-            opacity: 0.9,
+            padding: 0,
           }}
-          aria-label="Fechar"
-          type="button"
         >
           ×
         </button>
@@ -75,43 +200,69 @@ function Toast({
   )
 }
 
-function onlyDigits(s: string) {
-  return (s ?? '').replace(/\D/g, '')
+function Field({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <label
+      style={{
+        display: 'grid',
+        gap: 5,
+      }}
+    >
+      <span style={fieldLabelStyle}>{label}</span>
+      {children}
+    </label>
+  )
 }
 
 export default function NovoVendedorClient() {
-  const [tipoPessoa, setTipoPessoa] = useState<PessoaTipo>('fisica')
+  const router = useRouter()
 
-  // obrigatórios (*)
-  const [fullName, setFullName] = useState('') // Nome (uso interno)
-  const [legalName, setLegalName] = useState('') // Nome Registro
-  const [birthDate, setBirthDate] = useState('') // yyyy-mm-dd
-  const [cpf, setCpf] = useState('')
+  const [tipoPessoa, setTipoPessoa] =
+    React.useState<PessoaTipo>('fisica')
 
-  // login
-  const [email, setEmail] = useState('')
+  const [fullName, setFullName] = React.useState('')
+  const [legalName, setLegalName] = React.useState('')
+  const [birthDate, setBirthDate] = React.useState('')
+  const [cpf, setCpf] = React.useState('')
 
-  // outros
-  const [phone, setPhone] = useState('')
+  const [email, setEmail] = React.useState('')
+  const [phone, setPhone] = React.useState('')
+  const [role, setRole] = React.useState<Role>('member')
+  const [password, setPassword] = React.useState('')
 
-  // acesso
-  const [role, setRole] = useState<Role>('member')
-  const [password, setPassword] = useState('')
+  const [loading, setLoading] = React.useState(false)
 
-  const [loading, setLoading] = useState(false)
+  const [toastOpen, setToastOpen] = React.useState(false)
+  const [toastType, setToastType] =
+    React.useState<ToastType>('info')
 
-  const [toastOpen, setToastOpen] = useState(false)
-  const [toastType, setToastType] = useState<ToastType>('info')
-  const [toastMessage, setToastMessage] = useState('')
+  const [toastMessage, setToastMessage] = React.useState('')
 
-  const showToast = (type: ToastType, message: string) => {
-    setToastType(type)
-    setToastMessage(message)
-    setToastOpen(true)
-  }
+  const closeToast = React.useCallback(() => {
+    setToastOpen(false)
+  }, [])
 
-  const enviarConvite = async () => {
-    if (loading) return
+  const showToast = React.useCallback(
+    (type: ToastType, message: string) => {
+      setToastType(type)
+      setToastMessage(message)
+      setToastOpen(true)
+    },
+    [],
+  )
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (loading) {
+      return
+    }
 
     const emailNorm = email.trim().toLowerCase()
     const fullNameNorm = fullName.trim()
@@ -119,26 +270,52 @@ export default function NovoVendedorClient() {
     const cpfNorm = onlyDigits(cpf)
     const phoneNorm = phone.trim()
 
-    if (!emailNorm) return showToast('error', 'Informe o email.')
-    if (!fullNameNorm) return showToast('error', 'Informe o Nome.')
-    if (!legalNameNorm) return showToast('error', 'Informe o Nome Registro.')
-    if (!birthDate) return showToast('error', 'Informe a Data de nascimento.')
-    if (!cpfNorm) return showToast('error', 'Informe o CPF.')
-    if (!password || password.length < 6) return showToast('error', 'Senha temporária deve ter no mínimo 6 caracteres.')
+    if (!emailNorm) {
+      showToast('error', 'Informe o e-mail de acesso.')
+      return
+    }
+
+    if (!fullNameNorm) {
+      showToast('error', 'Informe o nome do vendedor.')
+      return
+    }
+
+    if (!legalNameNorm) {
+      showToast('error', 'Informe o nome de registro.')
+      return
+    }
+
+    if (!birthDate) {
+      showToast('error', 'Informe a data de nascimento.')
+      return
+    }
+
+    if (!cpfNorm) {
+      showToast('error', 'Informe o CPF.')
+      return
+    }
+
+    if (!password || password.length < 6) {
+      showToast(
+        'error',
+        'A senha temporária deve ter no mínimo 6 caracteres.',
+      )
+      return
+    }
 
     setLoading(true)
 
     try {
-      const res = await fetch('/api/admin/sellers/invite', {
+      const response = await fetch('/api/admin/sellers/invite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           email: emailNorm,
           full_name: fullNameNorm,
           role,
           password,
-
-          // details
           details: {
             tipo_pessoa: tipoPessoa,
             legal_name: legalNameNorm,
@@ -149,125 +326,411 @@ export default function NovoVendedorClient() {
         }),
       })
 
-      const json = await res.json().catch(() => ({}))
+      const json = (await response
+        .json()
+        .catch(() => ({}))) as InviteResponse
 
-      if (!res.ok) {
-        setLoading(false)
-        showToast('error', json?.error || `Erro ao enviar (HTTP ${res.status})`)
-        return
+      if (!response.ok) {
+        throw new Error(
+          json.error || `Erro ao cadastrar vendedor. HTTP ${response.status}`,
+        )
       }
 
-      setLoading(false)
-
-      if (json?.warning) {
-        showToast('info', `Criado com aviso:\n${json.warning}`)
-      } else {
-        showToast('success', 'Vendedor criado com sucesso! Informe a senha temporária ao vendedor para que ele possa acessar o sistema.')
+      if (!json.user_id) {
+        throw new Error(
+          'O vendedor foi criado, mas o sistema não retornou o identificador para abrir o cadastro.',
+        )
       }
 
-      setTimeout(() => {
-        window.location.href = `/admin/vendedores/${json.user_id}`
+      showToast(
+        json.warning ? 'info' : 'success',
+        json.warning
+          ? `Vendedor criado com aviso:\n${json.warning}`
+          : 'Vendedor criado com sucesso. Informe a senha temporária para o primeiro acesso.',
+      )
+
+      window.setTimeout(() => {
+        router.replace(`/admin/vendedores/${json.user_id}`)
       }, 900)
-    } catch (e: any) {
+    } catch (error: unknown) {
+      showToast(
+        'error',
+        getErrorMessage(error, 'Falha inesperada ao cadastrar vendedor.'),
+      )
+    } finally {
       setLoading(false)
-      showToast('error', e?.message || 'Falha inesperada ao chamar a API.')
     }
   }
 
-  const inputStyle = {
-    width: '100%',
-    padding: 10,
-    borderRadius: 10,
-    border: '1px solid #2a2a2a',
-    background: '#111',
-    color: 'white',
-  } as const
-
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <Toast open={toastOpen} type={toastType} message={toastMessage} onClose={() => setToastOpen(false)} />
+    <div
+      style={{
+        background: DS.contentBg,
+        color: DS.textPrimary,
+        minHeight: '100%',
+        padding: '32px 24px 80px',
+      }}
+    >
+      <Toast
+        open={toastOpen}
+        type={toastType}
+        message={toastMessage}
+        onClose={closeToast}
+      />
 
-      <div style={{ fontWeight: 900, opacity: 0.9 }}>Dados obrigatórios (*)</div>
-
-      <label>
-        Tipo de pessoa *
-        <select value={tipoPessoa} onChange={(e) => setTipoPessoa(e.target.value as any)} style={inputStyle}>
-          <option value="fisica">Física</option>
-          <option value="juridica">Jurídica</option>
-          <option value="estrangeiro">Estrangeiro</option>
-        </select>
-      </label>
-
-      <label>
-        Nome *
-        <input value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
-      </label>
-
-      <label>
-        Nome Registro *
-        <input value={legalName} onChange={(e) => setLegalName(e.target.value)} style={inputStyle} />
-      </label>
-
-      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: '1fr 1fr' }}>
-        <label>
-          Data de nascimento *
-          <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} style={inputStyle} />
-        </label>
-
-        <label>
-          CPF *
-          <input value={cpf} onChange={(e) => setCpf(e.target.value)} style={inputStyle} />
-        </label>
-      </div>
-
-      <div style={{ marginTop: 8, fontWeight: 900, opacity: 0.9 }}>Acesso</div>
-
-      <label>
-        Email (login) *
-        <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
-      </label>
-
-      <label>
-        Senha temporária *
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Mín. 6 caracteres"
-          style={inputStyle}
-        />
-      </label>
-
-      <label>
-        Telefone
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
-      </label>
-
-      <label>
-        Permissão (role)
-        <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={inputStyle}>
-          <option value="member">member (vendedor)</option>
-          <option value="manager">manager (gestor)</option>
-          <option value="admin">admin</option>
-        </select>
-      </label>
-
-      <button
-        onClick={enviarConvite}
-        disabled={loading}
+      <div
         style={{
-          padding: 12,
-          borderRadius: 10,
-          border: 'none',
-          background: '#10b981',
-          color: 'white',
-          fontWeight: 900,
-          cursor: loading ? 'not-allowed' : 'pointer',
-          opacity: loading ? 0.7 : 1,
+          margin: '0 auto',
+          maxWidth: 1040,
         }}
       >
-        {loading ? 'Enviando…' : 'Cadastrar vendedor'}
-      </button>
+        <Link
+          href="/admin/vendedores"
+          style={{
+            color: DS.textSecondary,
+            display: 'inline-flex',
+            fontSize: 13,
+            marginBottom: 28,
+            textDecoration: 'none',
+          }}
+        >
+          ← Voltar para Gestão de Vendedores
+        </Link>
+
+        <header style={{ marginBottom: 28 }}>
+          <div
+            style={{
+              alignItems: 'center',
+              display: 'flex',
+              gap: 10,
+              marginBottom: 7,
+            }}
+          >
+            <span
+              style={{
+                color: DS.blueLight,
+                fontSize: 19,
+                lineHeight: 1,
+              }}
+            >
+              ◫
+            </span>
+
+            <h1
+              style={{
+                fontSize: 23,
+                fontWeight: 850,
+                letterSpacing: '-0.015em',
+                margin: 0,
+              }}
+            >
+              Cadastrar Vendedor
+            </h1>
+          </div>
+
+          <p
+            style={{
+              color: DS.textSecondary,
+              fontSize: 13,
+              lineHeight: 1.5,
+              margin: 0,
+              maxWidth: 720,
+            }}
+          >
+            Crie o acesso do vendedor, registre os dados obrigatórios e defina
+            o nível de permissão dentro da empresa ativa.
+          </p>
+        </header>
+
+        <form onSubmit={handleSubmit}>
+          <section
+            style={{
+              ...cardStyle(),
+              marginBottom: 20,
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                alignItems: 'flex-start',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 14,
+                justifyContent: 'space-between',
+                marginBottom: 20,
+              }}
+            >
+              <div>
+                <h2
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 850,
+                    margin: 0,
+                  }}
+                >
+                  Dados de Identificação
+                </h2>
+
+                <p
+                  style={{
+                    color: DS.textSecondary,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    margin: '6px 0 0',
+                  }}
+                >
+                  Informações obrigatórias para criar o cadastro individual.
+                </p>
+              </div>
+
+              <span
+                style={{
+                  background: 'rgba(59,130,246,0.09)',
+                  border: '1px solid rgba(147,197,253,0.18)',
+                  borderRadius: 6,
+                  color: DS.blueSoft,
+                  fontSize: 10,
+                  fontWeight: 850,
+                  padding: '6px 9px',
+                }}
+              >
+                CAMPOS COM * SÃO OBRIGATÓRIOS
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gap: 14,
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(260px, 1fr))',
+              }}
+            >
+              <Field label="Tipo de Pessoa *">
+                <select
+                  value={tipoPessoa}
+                  onChange={(event) =>
+                    setTipoPessoa(event.target.value as PessoaTipo)
+                  }
+                  style={inputStyle}
+                >
+                  <option value="fisica">Pessoa física</option>
+                  <option value="juridica">Pessoa jurídica</option>
+                  <option value="estrangeiro">Estrangeiro</option>
+                </select>
+              </Field>
+
+              <Field label="CPF *">
+                <input
+                  value={cpf}
+                  onChange={(event) => setCpf(event.target.value)}
+                  inputMode="numeric"
+                  placeholder="Somente números"
+                  style={inputStyle}
+                />
+              </Field>
+
+              <Field label="Nome de Uso *">
+                <input
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  placeholder="Ex.: Ana Maria Teixeira"
+                  style={inputStyle}
+                />
+              </Field>
+
+              <Field label="Nome de Registro *">
+                <input
+                  value={legalName}
+                  onChange={(event) => setLegalName(event.target.value)}
+                  placeholder="Nome completo do documento"
+                  style={inputStyle}
+                />
+              </Field>
+
+              <Field label="Data de Nascimento *">
+                <input
+                  type="date"
+                  value={birthDate}
+                  onChange={(event) => setBirthDate(event.target.value)}
+                  style={{
+                    ...inputStyle,
+                    colorScheme: 'dark',
+                  }}
+                />
+              </Field>
+
+              <Field label="Telefone">
+                <input
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="Ex.: 47999999999"
+                  inputMode="tel"
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+          </section>
+
+          <section
+            style={{
+              ...cardStyle(),
+              marginBottom: 20,
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                alignItems: 'flex-start',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 14,
+                justifyContent: 'space-between',
+                marginBottom: 20,
+              }}
+            >
+              <div>
+                <h2
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 850,
+                    margin: 0,
+                  }}
+                >
+                  Acesso ao Sistema
+                </h2>
+
+                <p
+                  style={{
+                    color: DS.textSecondary,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    margin: '6px 0 0',
+                  }}
+                >
+                  Defina o login inicial, a senha temporária e a permissão
+                  operacional do novo usuário.
+                </p>
+              </div>
+
+              <span
+                style={{
+                  background: 'rgba(34,197,94,0.08)',
+                  border: '1px solid rgba(134,239,172,0.18)',
+                  borderRadius: 6,
+                  color: DS.greenSoft,
+                  fontSize: 10,
+                  fontWeight: 850,
+                  padding: '6px 9px',
+                }}
+              >
+                ACESSO SERÁ CRIADO ATIVO
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gap: 14,
+                gridTemplateColumns:
+                  'repeat(auto-fit, minmax(260px, 1fr))',
+              }}
+            >
+              <Field label="E-mail de Login *">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="nome@empresa.com"
+                  style={inputStyle}
+                />
+              </Field>
+
+              <Field label="Senha Temporária *">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Mínimo de 6 caracteres"
+                  style={inputStyle}
+                />
+              </Field>
+
+              <Field label="Permissão">
+                <select
+                  value={role}
+                  onChange={(event) =>
+                    setRole(event.target.value as Role)
+                  }
+                  style={inputStyle}
+                >
+                  <option value="member">Vendedor</option>
+                  <option value="manager">Gerente</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </Field>
+            </div>
+          </section>
+
+          <section
+            style={{
+              background: DS.surfaceBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer,
+              padding: '16px 18px',
+            }}
+          >
+            <div
+              style={{
+                color: DS.blueSoft,
+                fontSize: 12,
+                fontWeight: 850,
+                marginBottom: 7,
+              }}
+            >
+              Critério de acesso
+            </div>
+
+            <div
+              style={{
+                color: DS.textSecondary,
+                fontSize: 12,
+                lineHeight: 1.65,
+              }}
+            >
+              O vendedor será vinculado à empresa ativa. A senha temporária deve
+              ser entregue ao usuário para o primeiro acesso ao sistema.
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: 16,
+              }}
+            >
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  background: '#166534',
+                  border: '1px solid rgba(134,239,172,0.22)',
+                  borderRadius: DS.radius,
+                  color: '#f0fdf4',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontSize: 12,
+                  fontWeight: 850,
+                  height: 40,
+                  opacity: loading ? 0.6 : 1,
+                  padding: '0 17px',
+                }}
+              >
+                {loading ? 'Criando vendedor...' : 'Cadastrar vendedor'}
+              </button>
+            </div>
+          </section>
+        </form>
+      </div>
     </div>
   )
 }
