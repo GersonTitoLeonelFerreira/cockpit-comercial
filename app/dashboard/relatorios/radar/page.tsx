@@ -16,13 +16,10 @@ const DS = {
   contentBg: '#090b0f',
   panelBg: '#0d0f14',
   cardBg: '#141722',
-  surfaceBg: '#111318',
   border: '#1a1d2e',
-  borderSubtle: '#13162a',
   textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
   textMuted: '#546070',
-  textLabel: '#4a5569',
   blue: '#3b82f6',
   blueSoft: '#93c5fd',
   green: '#22c55e',
@@ -31,9 +28,8 @@ const DS = {
   amberSoft: '#fef3c7',
   red: '#ef4444',
   redSoft: '#fca5a5',
-  radius: 7,
+  radius: 8,
   radiusContainer: 10,
-  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
 } as const
 
 type SellerOption = {
@@ -41,308 +37,224 @@ type SellerOption = {
   label: string
 }
 
-type MeResponse =
-  | {
-      ok: true
-      user_id: string
-      active_company_id: string | null
-      active_company_name: string | null
-      active_role: 'admin' | 'manager' | 'member' | null
-    }
-  | {
-      ok?: false
-      error?: string
-    }
-
-const SIGNAL_HELP: Record<string, { what: string; why: string }> = {
-  weekday_vocation: {
-    what: 'Compara o comportamento histórico do dia da semana de hoje com a média dos demais dias.',
-    why: 'Mostra se este dia costuma concentrar mais ou menos ciclos trabalhados e ganhos.',
-  },
-  month_week: {
-    what: 'Compara a semana atual do mês com as outras semanas do histórico selecionado.',
-    why: 'Mostra se este trecho do mês costuma favorecer ou pressionar a operação.',
-  },
-  month_seasonality: {
-    what: 'Compara o mês atual com a média dos meses da própria empresa.',
-    why: 'Só entra na leitura quando existe ao menos 12 meses de referência, para não inventar sazonalidade.',
-  },
-  recent_work_rhythm: {
-    what: 'Compara os ciclos que receberam o primeiro trabalho nos últimos 7 dias com o ritmo diário histórico.',
-    why: 'Mostra se a operação acelerou, manteve ou reduziu o ritmo de trabalho.',
-  },
-  recent_win_rhythm: {
-    what: 'Compara os ganhos dos últimos 14 dias com a média histórica do mesmo intervalo.',
-    why: 'Mostra se o ritmo recente de fechamentos está acima, dentro ou abaixo do padrão.',
-  },
-  active_pipeline: {
-    what: 'Mostra quantos ciclos estão abertos agora.',
-    why: 'É contexto operacional. Ainda não pesa no status porque o sistema não possui snapshots históricos do pipeline para comparar estoque com estoque.',
-  },
+type MeResponse = {
+  ok?: boolean
+  error?: string
+  user_id?: string
+  active_company_id?: string | null
+  active_role?: string | null
 }
 
-const STATUS_PRESENTATION: Record<
+const STATUS_COPY: Record<
   PeriodRadarStatus,
   {
-    eyebrow: string
-    title: string
-    definition: string
+    label: string
+    summary: string
     action: string
     color: string
-    bg: string
+    background: string
+    border: string
   }
 > = {
   favoravel: {
-    eyebrow: 'Cenário favorável',
-    title: 'As condições atuais ajudam a gerar resultado',
-    definition:
-      'Os sinais históricos e o ritmo recente apontam mais fatores a favor do que contra a execução comercial agora.',
-    action:
-      'Aproveite o momento para concentrar energia em negociações abertas, retornos de leads quentes e avanço de oportunidades.',
+    label: 'Favorável',
+    summary: 'O momento ajuda a gerar resultado.',
+    action: 'Acelere as negociações abertas.',
     color: DS.green,
-    bg: 'rgba(22,163,74,0.10)',
+    background: 'rgba(22,163,74,0.10)',
+    border: 'rgba(22,163,74,0.34)',
   },
   neutro: {
-    eyebrow: 'Cenário estável',
-    title: 'Não há vantagem nem pressão clara agora',
-    definition:
-      'Os sinais estão equilibrados, mistos ou ainda sem base suficiente para indicar uma direção confiável.',
-    action:
-      'Mantenha a cadência comercial, trabalhe oportunidades em estágio avançado e continue abastecendo o pipeline.',
+    label: 'Neutro',
+    summary: 'Sem tendência clara para ajudar ou pressionar o resultado.',
+    action: 'Mantenha o ritmo e avance as negociações.',
     color: DS.amber,
-    bg: 'rgba(245,158,11,0.10)',
+    background: 'rgba(245,158,11,0.10)',
+    border: 'rgba(245,158,11,0.34)',
   },
   arriscado: {
-    eyebrow: 'Cenário pressionado',
-    title: 'As condições atuais dificultam a geração de resultado',
-    definition:
-      'Há mais sinais desfavoráveis do que favoráveis no histórico e no ritmo recente da operação.',
-    action:
-      'Aumente o volume de trabalho, recupere negociações paradas e reduza a dependência de poucas oportunidades.',
+    label: 'Pressionado',
+    summary: 'O momento exige mais execução para proteger o resultado.',
+    action: 'Aumente a cadência e recupere ciclos parados.',
     color: DS.red,
-    bg: 'rgba(239,68,68,0.10)',
+    background: 'rgba(239,68,68,0.10)',
+    border: 'rgba(239,68,68,0.34)',
   },
+}
+
+const SIGNAL_TITLES: Record<string, string> = {
+  weekday_vocation: 'Hoje',
+  month_week: 'Semana atual',
+  month_seasonality: 'Mês atual',
+  recent_work_rhythm: 'Ritmo de trabalho',
+  recent_win_rhythm: 'Ritmo de ganhos',
+  active_pipeline: 'Pipeline em aberto',
 }
 
 function toDateInputValue(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
+
   return `${year}-${month}-${day}`
 }
 
-function getTwelveMonthsAgo() {
+function getHistoryStart() {
   const now = new Date()
-  return toDateInputValue(new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()))
+
+  return toDateInputValue(
+    new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()),
+  )
 }
 
 function getTodayDate() {
   return toDateInputValue(new Date())
 }
 
-function formatDateBR(value: string) {
-  const [year, month, day] = value.split('-')
-  return year && month && day ? `${day}/${month}/${year}` : value
+function getDirectionStyle(direction: SignalDirection) {
+  if (direction === 'positivo') {
+    return {
+      label: 'A favor',
+      color: DS.greenSoft,
+      background: 'rgba(22,163,74,0.12)',
+      border: 'rgba(22,163,74,0.30)',
+      accent: DS.green,
+    }
+  }
+
+  if (direction === 'negativo') {
+    return {
+      label: 'Pressiona',
+      color: DS.redSoft,
+      background: 'rgba(239,68,68,0.12)',
+      border: 'rgba(239,68,68,0.30)',
+      accent: DS.red,
+    }
+  }
+
+  return {
+    label: 'Neutro',
+    color: DS.amberSoft,
+    background: 'rgba(245,158,11,0.12)',
+    border: 'rgba(245,158,11,0.30)',
+    accent: DS.amber,
+  }
 }
 
-function DirectionBadge({
-  direction,
-  available,
-  isContext,
-}: {
-  direction: SignalDirection
-  available: boolean
-  isContext: boolean
-}) {
-  if (isContext) {
-    return (
-      <span
-        style={{
-          color: DS.blueSoft,
-          background: 'rgba(59,130,246,0.12)',
-          border: '1px solid rgba(59,130,246,0.28)',
-          borderRadius: 999,
-          padding: '3px 8px',
-          fontSize: 10,
-          fontWeight: 800,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-        }}
-      >
-        Apenas contexto
-      </span>
-    )
-  }
+function getFirstSentence(value: string) {
+  const index = value.indexOf('. ')
 
-  if (!available) {
-    return (
-      <span
-        style={{
-          color: DS.textMuted,
-          background: DS.surfaceBg,
-          border: `1px solid ${DS.border}`,
-          borderRadius: 999,
-          padding: '3px 8px',
-          fontSize: 10,
-          fontWeight: 800,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-        }}
-      >
-        Sem base suficiente
-      </span>
-    )
-  }
+  if (index === -1) return value
 
-  const config =
-    direction === 'positivo'
-      ? { label: 'Contribui a favor', color: DS.greenSoft, bg: 'rgba(22,163,74,0.12)' }
-      : direction === 'negativo'
-        ? { label: 'Pressiona o cenário', color: DS.redSoft, bg: 'rgba(239,68,68,0.12)' }
-        : { label: 'Sem impacto relevante', color: DS.amberSoft, bg: 'rgba(245,158,11,0.12)' }
-
-  return (
-    <span
-      style={{
-        color: config.color,
-        background: config.bg,
-        border: `1px solid ${config.color}35`,
-        borderRadius: 999,
-        padding: '3px 8px',
-        fontSize: 10,
-        fontWeight: 800,
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-      }}
-    >
-      {config.label}
-    </span>
-  )
+  return value.slice(0, index + 1)
 }
 
 function SignalCard({ signal }: { signal: PeriodRadarSignal }) {
-  const isContext = signal.id === 'active_pipeline'
-  const help = SIGNAL_HELP[signal.id]
+  const title = SIGNAL_TITLES[signal.id] ?? signal.label
+  const direction = getDirectionStyle(signal.direction)
 
-  const weightLabel = isContext
-    ? 'Não altera o status'
-    : `${Math.round(signal.weight * 100)}% da classificação`
+  const detail = signal.available
+    ? getFirstSentence(signal.description)
+    : 'Ainda não há histórico suficiente para esta leitura.'
 
   return (
     <article
       style={{
         background: DS.cardBg,
-        border: `1px solid ${signal.available ? DS.border : DS.borderSubtle}`,
-        borderRadius: DS.radiusContainer,
-        padding: 18,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        opacity: signal.available || isContext ? 1 : 0.62,
-        boxShadow: DS.shadowCard,
+        border: `1px solid ${DS.border}`,
+        borderLeft: `3px solid ${signal.available ? direction.accent : DS.textMuted}`,
+        borderRadius: DS.radius,
+        padding: '15px',
+        minHeight: 128,
+        opacity: signal.available ? 1 : 0.62,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <h3 style={{ margin: 0, color: DS.textPrimary, fontSize: 14, fontWeight: 800 }}>
-            {signal.label}
-          </h3>
-          <p style={{ margin: '5px 0 0', color: DS.textMuted, fontSize: 11, lineHeight: 1.5 }}>
-            {help?.what ?? 'Indicador analisado pelo radar comercial.'}
+          <h2
+            style={{
+              color: DS.textPrimary,
+              fontSize: 14,
+              fontWeight: 800,
+              lineHeight: 1.3,
+              margin: 0,
+            }}
+          >
+            {title}
+          </h2>
+
+          <p
+            style={{
+              color: DS.textSecondary,
+              fontSize: 12,
+              lineHeight: 1.5,
+              margin: '8px 0 0',
+            }}
+          >
+            {detail}
           </p>
         </div>
 
-        <DirectionBadge
-          direction={signal.direction}
-          available={signal.available}
-          isContext={isContext}
-        />
-      </div>
-
-      <div
-        style={{
-          borderLeft: `3px solid ${
-            isContext
-              ? DS.blue
-              : signal.direction === 'positivo'
-                ? DS.green
-                : signal.direction === 'negativo'
-                  ? DS.red
-                  : DS.amber
-          }`,
-          paddingLeft: 10,
-          color: DS.textSecondary,
-          fontSize: 12,
-          lineHeight: 1.55,
-        }}
-      >
-        {signal.available || isContext ? signal.description : signal.fallback_reason}
-      </div>
-
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 10,
-          borderTop: `1px solid ${DS.border}`,
-          paddingTop: 10,
-          flexWrap: 'wrap',
-        }}
-      >
-        <span style={{ color: DS.textMuted, fontSize: 10 }}>
-          {help?.why ?? 'Sinal usado na leitura do cenário.'}
-        </span>
-        <span style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap' }}>
-          {weightLabel}
+        <span
+          style={{
+            color: signal.available ? direction.color : DS.textMuted,
+            background: signal.available ? direction.background : DS.panelBg,
+            border: `1px solid ${signal.available ? direction.border : DS.border}`,
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.05em',
+            padding: '4px 8px',
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {signal.available ? direction.label : 'Sem base'}
         </span>
       </div>
-
-      <details>
-        <summary style={{ color: DS.textMuted, cursor: 'pointer', fontSize: 10 }}>
-          Ver origem do dado
-        </summary>
-        <div style={{ color: DS.textMuted, fontSize: 10, marginTop: 7, lineHeight: 1.5 }}>
-          Fonte: {signal.source}
-          <br />
-          Confiança da leitura: {signal.confidence}
-        </div>
-      </details>
     </article>
   )
 }
 
-function Metric({
+function Counter({
   label,
   value,
   color,
 }: {
   label: string
   value: string | number
-  color?: string
+  color: string
 }) {
   return (
     <div
       style={{
-        minWidth: 130,
         background: DS.cardBg,
         border: `1px solid ${DS.border}`,
         borderRadius: DS.radius,
-        padding: '10px 12px',
+        minWidth: 112,
+        padding: '9px 11px',
       }}
     >
       <div
         style={{
           color: DS.textMuted,
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: 800,
-          letterSpacing: '0.05em',
+          letterSpacing: '0.07em',
           textTransform: 'uppercase',
         }}
       >
         {label}
       </div>
-      <div style={{ color: color ?? DS.textPrimary, fontSize: 20, fontWeight: 900, marginTop: 3 }}>
+
+      <div
+        style={{
+          color,
+          fontSize: 22,
+          fontWeight: 900,
+          marginTop: 4,
+        }}
+      >
         {value}
       </div>
     </div>
@@ -352,50 +264,42 @@ function Metric({
 export default function RadarRelatorioPg() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-
   const [companyId, setCompanyId] = React.useState<string | null>(null)
-  const [companyName, setCompanyName] = React.useState<string | null>(null)
-  const [canChooseOwner, setCanChooseOwner] = React.useState(false)
+  const [canChooseSeller, setCanChooseSeller] = React.useState(false)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
-
-  const [dateStart, setDateStart] = React.useState(getTwelveMonthsAgo())
-  const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
-
   const [radar, setRadar] = React.useState<PeriodRadarSummary | null>(null)
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
 
+  const historyStart = React.useMemo(() => getHistoryStart(), [])
+  const historyEnd = React.useMemo(() => getTodayDate(), [])
+
   React.useEffect(() => {
-    async function init() {
+    async function loadUserContext() {
       setLoading(true)
       setError(null)
 
       try {
         const response = await fetch('/api/me', { cache: 'no-store' })
         const me = (await response.json()) as MeResponse
+        const activeCompanyId = me.active_company_id ?? null
 
-        if (!response.ok) {
-          throw new Error('Não foi possível identificar a sessão atual.')
+        if (!response.ok || !me.ok || !activeCompanyId) {
+          throw new Error(me.error ?? 'Não foi possível identificar a empresa ativa.')
         }
 
-        if (me.ok !== true) {
-          throw new Error(me.error ?? 'Não foi possível identificar a sessão atual.')
-        }
-
-        if (!me.active_company_id) {
-          throw new Error('Selecione uma empresa antes de abrir o Radar Comercial.')
-        }
-
-        const canFilterByOwner =
+        const canFilter =
           me.active_role === 'admin' || me.active_role === 'manager'
 
-        setCompanyId(me.active_company_id)
-        setCompanyName(me.active_company_name)
-        setCanChooseOwner(canFilterByOwner)
+        setCompanyId(activeCompanyId)
+        setCanChooseSeller(canFilter)
 
-        if (canFilterByOwner) {
-          const sellersData = await getSellers(supabaseBrowser(), me.active_company_id)
+        if (canFilter) {
+          const sellersData = await getSellers(
+            supabaseBrowser(),
+            activeCompanyId,
+          )
 
           setSellers(
             sellersData.map((seller) => ({
@@ -403,23 +307,23 @@ export default function RadarRelatorioPg() {
               label: seller.full_name || seller.email || seller.id,
             })),
           )
+
           setSelectedSellerId(null)
         } else {
-          setSellers([])
-          setSelectedSellerId(me.user_id)
+          setSelectedSellerId(me.user_id ?? null)
         }
       } catch (caught: unknown) {
         setError(
           caught instanceof Error
             ? caught.message
-            : 'Erro ao preparar o Radar Comercial.',
+            : 'Não foi possível carregar o radar.',
         )
       } finally {
         setLoading(false)
       }
     }
 
-    void init()
+    void loadUserContext()
   }, [])
 
   React.useEffect(() => {
@@ -433,8 +337,8 @@ export default function RadarRelatorioPg() {
         const result = await getPeriodRadar({
           companyId: companyId!,
           ownerId: selectedSellerId,
-          dateStart,
-          dateEnd,
+          dateStart: historyStart,
+          dateEnd: historyEnd,
         })
 
         setRadar(result)
@@ -442,7 +346,7 @@ export default function RadarRelatorioPg() {
         setDataError(
           caught instanceof Error
             ? caught.message
-            : 'Erro ao calcular o Radar Comercial.',
+            : 'Não foi possível atualizar o radar.',
         )
       } finally {
         setDataLoading(false)
@@ -450,21 +354,21 @@ export default function RadarRelatorioPg() {
     }
 
     void loadRadar()
-  }, [companyId, dateEnd, dateStart, selectedSellerId])
+  }, [companyId, historyEnd, historyStart, selectedSellerId])
 
   if (loading) {
     return (
       <main
         style={{
-          minHeight: '100vh',
-          display: 'grid',
-          placeItems: 'center',
+          alignItems: 'center',
           background: DS.contentBg,
           color: DS.textSecondary,
-          fontSize: 13,
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100vh',
         }}
       >
-        Carregando contexto da empresa...
+        Carregando radar...
       </main>
     )
   }
@@ -473,23 +377,23 @@ export default function RadarRelatorioPg() {
     return (
       <main
         style={{
-          minHeight: '100vh',
-          display: 'grid',
-          placeItems: 'center',
+          alignItems: 'center',
           background: DS.contentBg,
+          display: 'flex',
+          justifyContent: 'center',
+          minHeight: '100vh',
           padding: 24,
         }}
       >
         <div
           style={{
-            maxWidth: 520,
-            color: DS.redSoft,
             background: 'rgba(239,68,68,0.10)',
             border: '1px solid rgba(239,68,68,0.30)',
-            borderRadius: DS.radiusContainer,
-            padding: 18,
+            borderRadius: DS.radius,
+            color: DS.redSoft,
             fontSize: 13,
-            lineHeight: 1.6,
+            maxWidth: 520,
+            padding: 16,
           }}
         >
           {error}
@@ -498,43 +402,37 @@ export default function RadarRelatorioPg() {
     )
   }
 
-  const status = radar ? STATUS_PRESENTATION[radar.status] : null
+  const status = radar ? STATUS_COPY[radar.status] : null
+  const hasLowConfidence = radar?.confidence === 'baixa'
 
   return (
     <main
       style={{
-        minHeight: '100vh',
         background: DS.contentBg,
         color: DS.textPrimary,
+        minHeight: '100vh',
       }}
     >
       <header
         style={{
-          background: `linear-gradient(135deg, ${DS.blue}1c 0%, ${DS.contentBg} 58%)`,
+          background: `linear-gradient(135deg, ${DS.blue}16 0%, ${DS.contentBg} 62%)`,
           borderBottom: `1px solid ${DS.border}`,
-          padding: '30px 24px 26px',
+          padding: '28px 24px 24px',
         }}
       >
-        <div style={{ maxWidth: 1120, margin: '0 auto', textAlign: 'center' }}>
-          <div
-            style={{
-              color: DS.blueSoft,
-              fontSize: 11,
-              fontWeight: 900,
-              textTransform: 'uppercase',
-              letterSpacing: '0.12em',
-              marginBottom: 8,
-            }}
-          >
-            Leitura de cenário comercial
-          </div>
-
+        <div
+          style={{
+            margin: '0 auto',
+            maxWidth: 980,
+            textAlign: 'center',
+          }}
+        >
           <h1
             style={{
-              margin: 0,
-              fontSize: 28,
-              letterSpacing: '-0.03em',
+              fontSize: 24,
               fontWeight: 900,
+              letterSpacing: '-0.02em',
+              margin: 0,
             }}
           >
             Radar Comercial Atual
@@ -542,227 +440,100 @@ export default function RadarRelatorioPg() {
 
           <p
             style={{
-              maxWidth: 760,
-              margin: '10px auto 20px',
               color: DS.textSecondary,
-              fontSize: 14,
-              lineHeight: 1.6,
+              fontSize: 13,
+              margin: '7px 0 16px',
             }}
           >
-            Mostra se as condições comerciais de agora ajudam, mantêm estáveis ou
-            pressionam a geração de resultados — usando o ritmo recente da operação e
-            os padrões da própria empresa.
+            Leitura do cenário comercial de hoje.
           </p>
 
           <ReportNavDropdown currentPath="/dashboard/relatorios/radar" />
         </div>
       </header>
 
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 24px 80px' }}>
-        <section
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1.4fr) minmax(260px, 0.6fr)',
-            gap: 14,
-            marginBottom: 20,
-          }}
-        >
+      <div
+        style={{
+          margin: '0 auto',
+          maxWidth: 980,
+          padding: '20px 24px 64px',
+        }}
+      >
+        {canChooseSeller && (
           <div
             style={{
-              background: DS.surfaceBg,
+              alignItems: 'center',
+              background: DS.cardBg,
               border: `1px solid ${DS.border}`,
-              borderRadius: DS.radiusContainer,
-              padding: 18,
+              borderRadius: DS.radius,
+              display: 'flex',
+              gap: 10,
+              marginBottom: 16,
+              padding: '11px 13px',
             }}
           >
-            <div
-              style={{
-                color: DS.blueSoft,
-                fontSize: 11,
-                fontWeight: 900,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                marginBottom: 8,
-              }}
-            >
-              O que esta tela responde
-            </div>
-            <div style={{ color: DS.textPrimary, fontSize: 16, fontWeight: 800, lineHeight: 1.45 }}>
-              O cenário comercial atual está ajudando, neutro ou pressionando a
-              capacidade de gerar resultado agora?
-            </div>
-            <p style={{ margin: '9px 0 0', color: DS.textSecondary, fontSize: 12, lineHeight: 1.6 }}>
-              O radar não calcula meta, previsão de faturamento nem nota do vendedor.
-              Ele lê condições do momento para orientar a execução comercial.
-            </p>
-          </div>
-
-          <div
-            style={{
-              background: 'rgba(59,130,246,0.08)',
-              border: '1px solid rgba(59,130,246,0.24)',
-              borderRadius: DS.radiusContainer,
-              padding: 18,
-            }}
-          >
-            <div
-              style={{
-                color: DS.blueSoft,
-                fontSize: 11,
-                fontWeight: 900,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                marginBottom: 8,
-              }}
-            >
-              Empresa analisada
-            </div>
-            <div style={{ color: DS.textPrimary, fontSize: 15, fontWeight: 800, lineHeight: 1.4 }}>
-              {companyName ?? 'Empresa ativa'}
-            </div>
-            <p style={{ margin: '8px 0 0', color: DS.textSecondary, fontSize: 12, lineHeight: 1.55 }}>
-              A leitura sempre respeita a empresa ativa e o responsável comercial
-              escolhido abaixo.
-            </p>
-          </div>
-        </section>
-
-        <section
-          style={{
-            background: DS.cardBg,
-            border: `1px solid ${DS.border}`,
-            borderRadius: DS.radiusContainer,
-            padding: '14px 18px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 14,
-            alignItems: 'flex-end',
-            marginBottom: 22,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <label
+              htmlFor="radar-seller"
               style={{
-                color: DS.textLabel,
-                fontSize: 10,
-                fontWeight: 900,
+                color: DS.textMuted,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: '0.05em',
                 textTransform: 'uppercase',
-                letterSpacing: '0.06em',
               }}
             >
-              Base histórica — início
+              Vendedor
             </label>
-            <input
-              type="date"
-              value={dateStart}
-              max={dateEnd}
-              onChange={(event) => setDateStart(event.target.value)}
+
+            <select
+              id="radar-seller"
+              value={selectedSellerId ?? ''}
+              onChange={(event) => setSelectedSellerId(event.target.value || null)}
               style={{
-                color: DS.textPrimary,
                 background: DS.panelBg,
                 border: `1px solid ${DS.border}`,
-                borderRadius: DS.radius,
-                padding: '8px 10px',
+                borderRadius: 6,
+                color: DS.textPrimary,
                 fontSize: 13,
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label
-              style={{
-                color: DS.textLabel,
-                fontSize: 10,
-                fontWeight: 900,
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
+                marginLeft: 'auto',
+                maxWidth: 260,
+                padding: '8px 10px',
+                width: '100%',
               }}
             >
-              Base histórica — fim
-            </label>
-            <input
-              type="date"
-              value={dateEnd}
-              min={dateStart}
-              max={getTodayDate()}
-              onChange={(event) => setDateEnd(event.target.value)}
-              style={{
-                color: DS.textPrimary,
-                background: DS.panelBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: DS.radius,
-                padding: '8px 10px',
-                fontSize: 13,
-              }}
-            />
-          </div>
+              <option value="">Toda a operação</option>
 
-          {canChooseOwner && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <label
-                style={{
-                  color: DS.textLabel,
-                  fontSize: 10,
-                  fontWeight: 900,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                }}
-              >
-                Responsável comercial
-              </label>
-              <select
-                value={selectedSellerId ?? ''}
-                onChange={(event) => setSelectedSellerId(event.target.value || null)}
-                style={{
-                  color: DS.textPrimary,
-                  background: DS.panelBg,
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radius,
-                  padding: '8px 10px',
-                  fontSize: 13,
-                  minWidth: 210,
-                }}
-              >
-                <option value="">Toda a operação</option>
-                {sellers.map((seller) => (
-                  <option key={seller.id} value={seller.id}>
-                    {seller.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div
-            style={{
-              flex: '1 1 260px',
-              color: DS.textMuted,
-              fontSize: 11,
-              lineHeight: 1.55,
-              paddingBottom: 2,
-            }}
-          >
-            O período acima é apenas a base de comparação. A data avaliada pelo radar
-            é sempre o momento atual.
+              {sellers.map((seller) => (
+                <option key={seller.id} value={seller.id}>
+                  {seller.label}
+                </option>
+              ))}
+            </select>
           </div>
-        </section>
+        )}
 
         {dataLoading && (
-          <div style={{ color: DS.textSecondary, textAlign: 'center', padding: 34, fontSize: 13 }}>
-            Atualizando a leitura do cenário comercial...
+          <div
+            style={{
+              color: DS.textSecondary,
+              fontSize: 13,
+              padding: '28px 0',
+              textAlign: 'center',
+            }}
+          >
+            Atualizando...
           </div>
         )}
 
         {dataError && (
           <div
             style={{
-              color: DS.redSoft,
               background: 'rgba(239,68,68,0.10)',
               border: '1px solid rgba(239,68,68,0.30)',
               borderRadius: DS.radius,
-              padding: 14,
+              color: DS.redSoft,
               fontSize: 13,
-              marginBottom: 20,
+              padding: 14,
             }}
           >
             {dataError}
@@ -770,123 +541,131 @@ export default function RadarRelatorioPg() {
         )}
 
         {!dataLoading && radar && status && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 18,
+            }}
+          >
             <section
               style={{
-                background: status.bg,
-                border: `1px solid ${status.color}45`,
+                background: status.background,
+                border: `1px solid ${status.border}`,
                 borderLeft: `4px solid ${status.color}`,
                 borderRadius: DS.radiusContainer,
-                padding: '24px 26px',
+                padding: '21px 22px',
               }}
             >
               <div
                 style={{
-                  color: status.color,
-                  fontSize: 11,
-                  fontWeight: 900,
+                  color: DS.textMuted,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.07em',
                   textTransform: 'uppercase',
-                  letterSpacing: '0.1em',
-                  marginBottom: 8,
                 }}
               >
-                {status.eyebrow}
+                Cenário de hoje
               </div>
-
-              <h2
-                style={{
-                  color: DS.textPrimary,
-                  fontSize: 26,
-                  letterSpacing: '-0.03em',
-                  margin: 0,
-                  fontWeight: 900,
-                }}
-              >
-                {status.title}
-              </h2>
-
-              <p
-                style={{
-                  margin: '10px 0 0',
-                  color: DS.textSecondary,
-                  lineHeight: 1.65,
-                  fontSize: 14,
-                  maxWidth: 820,
-                }}
-              >
-                {status.definition}
-              </p>
 
               <div
                 style={{
-                  marginTop: 16,
-                  borderTop: `1px solid ${status.color}30`,
-                  paddingTop: 14,
-                  color: DS.textPrimary,
-                  fontSize: 13,
-                  lineHeight: 1.6,
+                  color: status.color,
+                  fontSize: 34,
+                  fontWeight: 900,
+                  letterSpacing: '-0.04em',
+                  lineHeight: 1,
+                  marginTop: 7,
+                  textTransform: 'uppercase',
                 }}
               >
-                <strong style={{ color: status.color }}>Direcionamento:</strong> {status.action}
+                {hasLowConfidence ? 'Sem base suficiente' : status.label}
               </div>
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
-                <Metric label="Referência" value={formatDateBR(radar.reference_date)} />
-                <Metric label="Confiança" value={radar.confidence_label} color={status.color} />
-                <Metric label="Dia atual" value={radar.current_weekday} />
-                <Metric label="Semana atual" value={`${radar.current_month_week}ª`} />
+              <div
+                style={{
+                  color: DS.textPrimary,
+                  fontSize: 15,
+                  fontWeight: 800,
+                  lineHeight: 1.4,
+                  marginTop: 9,
+                }}
+              >
+                {hasLowConfidence
+                  ? 'Ainda não há histórico suficiente para classificar o momento.'
+                  : status.summary}
+              </div>
+
+              <div
+                style={{
+                  color: DS.textSecondary,
+                  fontSize: 12,
+                  marginTop: 9,
+                }}
+              >
+                Foco agora:{' '}
+                <strong style={{ color: DS.textPrimary }}>
+                  {hasLowConfidence
+                    ? 'registre o trabalho e os ganhos da operação.'
+                    : status.action}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 9,
+                  marginTop: 17,
+                }}
+              >
+                <Counter
+                  label="A favor"
+                  value={radar.signals_positive}
+                  color={DS.green}
+                />
+
+                <Counter
+                  label="Pressionam"
+                  value={radar.signals_negative}
+                  color={DS.red}
+                />
+
+                <Counter
+                  label="Neutros"
+                  value={radar.signals_neutral}
+                  color={DS.amber}
+                />
+
+                <Counter
+                  label="Base"
+                  value={radar.confidence_label}
+                  color={hasLowConfidence ? DS.amber : DS.blueSoft}
+                />
               </div>
             </section>
 
             <section>
-              <div style={{ marginBottom: 12 }}>
-                <div
-                  style={{
-                    color: DS.blueSoft,
-                    fontSize: 11,
-                    fontWeight: 900,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                  }}
-                >
-                  Por que o cenário está assim
-                </div>
-                <p style={{ margin: '6px 0 0', color: DS.textSecondary, fontSize: 13, lineHeight: 1.55 }}>
-                  A classificação usa somente os sinais abaixo que têm base histórica
-                  suficiente. Cada card mostra exatamente o que foi comparado e quanto
-                  ele influenciou na leitura.
-                </p>
-              </div>
-
-              <div
+              <h2
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                  gap: 10,
-                  marginBottom: 16,
+                  color: DS.blueSoft,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  letterSpacing: '0.08em',
+                  margin: '0 0 10px',
+                  textTransform: 'uppercase',
                 }}
               >
-                <Metric
-                  label="Sinais que classificam"
-                  value={radar.signals_available}
-                  color={DS.textPrimary}
-                />
-                <Metric label="A favor" value={radar.signals_positive} color={DS.green} />
-                <Metric label="Pressionando" value={radar.signals_negative} color={DS.red} />
-                <Metric label="Sem direção" value={radar.signals_neutral} color={DS.amber} />
-                <Metric label="Sem base" value={radar.signals_unavailable} color={DS.textMuted} />
-                <Metric
-                  label="Apenas contexto"
-                  value={radar.signals.filter((signal) => signal.id === 'active_pipeline').length}
-                  color={DS.blueSoft}
-                />
-              </div>
+                O que está influenciando o momento
+              </h2>
 
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-                  gap: 12,
+                  gap: 11,
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(250px, 1fr))',
                 }}
               >
                 {radar.signals.map((signal) => (
@@ -894,131 +673,6 @@ export default function RadarRelatorioPg() {
                 ))}
               </div>
             </section>
-
-            <section
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: 14,
-              }}
-            >
-              <div
-                style={{
-                  background: DS.cardBg,
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radiusContainer,
-                  padding: 18,
-                }}
-              >
-                <div
-                  style={{
-                    color: DS.blueSoft,
-                    fontSize: 11,
-                    fontWeight: 900,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    marginBottom: 8,
-                  }}
-                >
-                  Como usar este radar
-                </div>
-                <ol
-                  style={{
-                    margin: 0,
-                    paddingLeft: 18,
-                    color: DS.textSecondary,
-                    fontSize: 12,
-                    lineHeight: 1.75,
-                  }}
-                >
-                  <li>Leia primeiro o status e o direcionamento.</li>
-                  <li>Veja os sinais que estão ajudando ou pressionando.</li>
-                  <li>Transforme a leitura em execução no Kanban, agenda e follow-up.</li>
-                </ol>
-              </div>
-
-              <div
-                style={{
-                  background: DS.cardBg,
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radiusContainer,
-                  padding: 18,
-                }}
-              >
-                <div
-                  style={{
-                    color: DS.blueSoft,
-                    fontSize: 11,
-                    fontWeight: 900,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    marginBottom: 8,
-                  }}
-                >
-                  O que ele não mede
-                </div>
-                <p style={{ margin: 0, color: DS.textSecondary, fontSize: 12, lineHeight: 1.65 }}>
-                  Não substitui o Simulador de Meta, o Faturamento nem os relatórios de
-                  conversão. Ele não prevê um valor de venda e não avalia sozinho a
-                  qualidade de um vendedor.
-                </p>
-              </div>
-            </section>
-
-            <section
-              style={{
-                background: DS.cardBg,
-                border: `1px solid ${DS.border}`,
-                borderRadius: DS.radiusContainer,
-                padding: '16px 18px',
-              }}
-            >
-              <details>
-                <summary
-                  style={{
-                    cursor: 'pointer',
-                    color: DS.textPrimary,
-                    fontSize: 13,
-                    fontWeight: 800,
-                  }}
-                >
-                  Ver detalhamento técnico e rastreabilidade
-                </summary>
-
-                <div
-                  style={{
-                    marginTop: 14,
-                    borderTop: `1px solid ${DS.border}`,
-                    paddingTop: 14,
-                    color: DS.textSecondary,
-                    fontSize: 12,
-                    lineHeight: 1.65,
-                  }}
-                >
-                  <div style={{ marginBottom: 10 }}>
-                    Base histórica analisada: {formatDateBR(radar.period_start)} até{' '}
-                    {formatDateBR(radar.period_end)}.
-                  </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      font: 'inherit',
-                      color: DS.textMuted,
-                    }}
-                  >
-                    {radar.diagnostico}
-                  </pre>
-                </div>
-              </details>
-            </section>
-          </div>
-        )}
-
-        {!dataLoading && !radar && !dataError && (
-          <div style={{ color: DS.textMuted, textAlign: 'center', padding: 40, fontSize: 13 }}>
-            Escolha uma base histórica para gerar a leitura do cenário comercial.
           </div>
         )}
       </div>
