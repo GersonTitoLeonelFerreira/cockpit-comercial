@@ -224,8 +224,8 @@ const sections: Section[] = [
     items: [
       {
         icon: <IconRadar />,
-        title: 'Radar do Período',
-        desc: 'Classificação do cenário atual: favorável, neutro ou arriscado — com base real e explicável',
+        title: 'Radar Comercial Atual',
+desc: 'Leitura rápida do cenário comercial de hoje.',
         href: '/dashboard/relatorios/radar',
       },
       {

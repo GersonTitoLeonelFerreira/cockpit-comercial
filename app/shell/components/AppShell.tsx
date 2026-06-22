@@ -172,7 +172,7 @@ const RELATORIOS_SUBMENU: SubMenuGroup[] = [
   {
     title: 'Visão Executiva',
     items: [
-      { label: 'Radar do Período', href: '/dashboard/relatorios/radar' },
+      { label: 'Radar Comercial Atual', href: '/dashboard/relatorios/radar' },
       { label: 'Relatórios Gerais', href: '/relatorios/gerais' },
     ],
   },

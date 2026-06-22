@@ -21,7 +21,7 @@ const REPORT_NAV_GROUPS = [
     title: 'Visão Executiva',
     accent: '#3b82f6',
     items: [
-      { label: 'Radar do Período', href: '/dashboard/relatorios/radar' },
+      { label: 'Radar Comercial Atual', href: '/dashboard/relatorios/radar' },
       { label: 'Relatórios Gerais', href: '/relatorios/gerais' },
     ],
   },
