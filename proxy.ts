@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-const PLATFORM_ADMIN_ROUTES = ['/platform-admin', '/platform']
+
+const PLATFORM_ADMIN_ROUTES = ['/platform-admin']
+
 const COMPANY_ROUTES = [
   '/dashboard',
   '/leads',
@@ -13,7 +15,9 @@ const COMPANY_ROUTES = [
   '/pulso-comercial',
   '/relatorios',
   '/sales-cycles',
+  '/platform',
 ]
+
 const COMPANY_ADMIN_ROUTES = ['/pool', '/admin']
 
 function startsWithAny(pathname: string, routes: string[]) {
