@@ -1,492 +1,434 @@
 'use client'
 
 import * as React from 'react'
+import ReportNavDropdown from '@/app/relatorios/components/ReportNavDropdown'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
+import { getSellers } from '@/app/lib/services/faturamento'
 import { getPeriodRadar } from '@/app/lib/services/periodRadar'
 import type {
-  PeriodRadarSummary,
   PeriodRadarSignal,
-  PeriodRadarReason,
+  PeriodRadarStatus,
+  PeriodRadarSummary,
   SignalDirection,
 } from '@/app/types/periodRadar'
 
-// ============================================================================
-// DESIGN TOKENS — mesmos do shell/kanban
-// ============================================================================
 const DS = {
-  contentBg:     '#090b0f',
-  panelBg:       '#0d0f14',
-  cardBg:        '#141722',
-  surfaceBg:     '#111318',
-  border:        '#1a1d2e',
-  borderSubtle:  '#13162a',
-  textPrimary:   '#edf2f7',
+  contentBg: '#090b0f',
+  panelBg: '#0d0f14',
+  cardBg: '#141722',
+  surfaceBg: '#111318',
+  border: '#1a1d2e',
+  borderSubtle: '#13162a',
+  textPrimary: '#edf2f7',
   textSecondary: '#8fa3bc',
-  textMuted:     '#546070',
-  textLabel:     '#4a5569',
-  blue:          '#3b82f6',
-  blueSoft:      '#93c5fd',
-  blueLight:     '#60a5fa',
-  greenBg:       'rgba(22,163,74,0.10)',
-  greenBorder:   'rgba(34,197,94,0.25)',
-  greenText:     '#86efac',
-  amberBg:       'rgba(245,158,11,0.12)',
-  amberBorder:   'rgba(245,158,11,0.3)',
-  amberText:     '#fef3c7',
-  redBg:         'rgba(239,68,68,0.10)',
-  redBorder:     'rgba(239,68,68,0.3)',
-  redText:       '#fca5a5',
-  selectBg:      '#0d0f14',
-  shadowCard:    '0 1px 4px rgba(0,0,0,0.4)',
-  radius:        7,
-  radiusContainer: 9,
+  textMuted: '#546070',
+  textLabel: '#4a5569',
+  blue: '#3b82f6',
+  blueSoft: '#93c5fd',
+  green: '#22c55e',
+  greenSoft: '#86efac',
+  amber: '#f59e0b',
+  amberSoft: '#fef3c7',
+  red: '#ef4444',
+  redSoft: '#fca5a5',
+  radius: 7,
+  radiusContainer: 10,
+  shadowCard: '0 1px 4px rgba(0,0,0,0.4)',
 } as const
 
-// ==============================================================================
-// Helpers
-// ==============================================================================
-
-function getSixMonthsAgo(): string {
-  const now = new Date()
-  const d = new Date(now.getFullYear(), now.getMonth() - 6, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-}
-
-function getTodayDate(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
-// ==============================================================================
-// Sub-components
-// ==============================================================================
-
-interface SellerOption {
+type SellerOption = {
   id: string
   label: string
 }
 
-interface SellerProfileRow {
-  id: string
-  full_name: string | null
+type MeResponse =
+  | {
+      ok: true
+      user_id: string
+      active_company_id: string | null
+      active_company_name: string | null
+      active_role: 'admin' | 'manager' | 'member' | null
+    }
+  | {
+      ok?: false
+      error?: string
+    }
+
+const SIGNAL_HELP: Record<string, { what: string; why: string }> = {
+  weekday_vocation: {
+    what: 'Compara o comportamento histórico do dia da semana de hoje com a média dos demais dias.',
+    why: 'Mostra se este dia costuma concentrar mais ou menos ciclos trabalhados e ganhos.',
+  },
+  month_week: {
+    what: 'Compara a semana atual do mês com as outras semanas do histórico selecionado.',
+    why: 'Mostra se este trecho do mês costuma favorecer ou pressionar a operação.',
+  },
+  month_seasonality: {
+    what: 'Compara o mês atual com a média dos meses da própria empresa.',
+    why: 'Só entra na leitura quando existe ao menos 12 meses de referência, para não inventar sazonalidade.',
+  },
+  recent_work_rhythm: {
+    what: 'Compara os ciclos que receberam o primeiro trabalho nos últimos 7 dias com o ritmo diário histórico.',
+    why: 'Mostra se a operação acelerou, manteve ou reduziu o ritmo de trabalho.',
+  },
+  recent_win_rhythm: {
+    what: 'Compara os ganhos dos últimos 14 dias com a média histórica do mesmo intervalo.',
+    why: 'Mostra se o ritmo recente de fechamentos está acima, dentro ou abaixo do padrão.',
+  },
+  active_pipeline: {
+    what: 'Mostra quantos ciclos estão abertos agora.',
+    why: 'É contexto operacional. Ainda não pesa no status porque o sistema não possui snapshots históricos do pipeline para comparar estoque com estoque.',
+  },
 }
 
-function DirectionIcon({ direction }: { direction: SignalDirection }) {
-  if (direction === 'positivo') {
-    return <span style={{ color: '#22c55e', fontSize: 18, fontWeight: 700 }}>↑</span>
+const STATUS_PRESENTATION: Record<
+  PeriodRadarStatus,
+  {
+    eyebrow: string
+    title: string
+    definition: string
+    action: string
+    color: string
+    bg: string
   }
-  if (direction === 'negativo') {
-    return <span style={{ color: '#ef4444', fontSize: 18, fontWeight: 700 }}>↓</span>
+> = {
+  favoravel: {
+    eyebrow: 'Cenário favorável',
+    title: 'As condições atuais ajudam a gerar resultado',
+    definition:
+      'Os sinais históricos e o ritmo recente apontam mais fatores a favor do que contra a execução comercial agora.',
+    action:
+      'Aproveite o momento para concentrar energia em negociações abertas, retornos de leads quentes e avanço de oportunidades.',
+    color: DS.green,
+    bg: 'rgba(22,163,74,0.10)',
+  },
+  neutro: {
+    eyebrow: 'Cenário estável',
+    title: 'Não há vantagem nem pressão clara agora',
+    definition:
+      'Os sinais estão equilibrados, mistos ou ainda sem base suficiente para indicar uma direção confiável.',
+    action:
+      'Mantenha a cadência comercial, trabalhe oportunidades em estágio avançado e continue abastecendo o pipeline.',
+    color: DS.amber,
+    bg: 'rgba(245,158,11,0.10)',
+  },
+  arriscado: {
+    eyebrow: 'Cenário pressionado',
+    title: 'As condições atuais dificultam a geração de resultado',
+    definition:
+      'Há mais sinais desfavoráveis do que favoráveis no histórico e no ritmo recente da operação.',
+    action:
+      'Aumente o volume de trabalho, recupere negociações paradas e reduza a dependência de poucas oportunidades.',
+    color: DS.red,
+    bg: 'rgba(239,68,68,0.10)',
+  },
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getTwelveMonthsAgo() {
+  const now = new Date()
+  return toDateInputValue(new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()))
+}
+
+function getTodayDate() {
+  return toDateInputValue(new Date())
+}
+
+function formatDateBR(value: string) {
+  const [year, month, day] = value.split('-')
+  return year && month && day ? `${day}/${month}/${year}` : value
+}
+
+function DirectionBadge({
+  direction,
+  available,
+  isContext,
+}: {
+  direction: SignalDirection
+  available: boolean
+  isContext: boolean
+}) {
+  if (isContext) {
+    return (
+      <span
+        style={{
+          color: DS.blueSoft,
+          background: 'rgba(59,130,246,0.12)',
+          border: '1px solid rgba(59,130,246,0.28)',
+          borderRadius: 999,
+          padding: '3px 8px',
+          fontSize: 10,
+          fontWeight: 800,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}
+      >
+        Apenas contexto
+      </span>
+    )
   }
-  return <span style={{ color: '#fbbf24', fontSize: 18, fontWeight: 700 }}>→</span>
+
+  if (!available) {
+    return (
+      <span
+        style={{
+          color: DS.textMuted,
+          background: DS.surfaceBg,
+          border: `1px solid ${DS.border}`,
+          borderRadius: 999,
+          padding: '3px 8px',
+          fontSize: 10,
+          fontWeight: 800,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}
+      >
+        Sem base suficiente
+      </span>
+    )
+  }
+
+  const config =
+    direction === 'positivo'
+      ? { label: 'Contribui a favor', color: DS.greenSoft, bg: 'rgba(22,163,74,0.12)' }
+      : direction === 'negativo'
+        ? { label: 'Pressiona o cenário', color: DS.redSoft, bg: 'rgba(239,68,68,0.12)' }
+        : { label: 'Sem impacto relevante', color: DS.amberSoft, bg: 'rgba(245,158,11,0.12)' }
+
+  return (
+    <span
+      style={{
+        color: config.color,
+        background: config.bg,
+        border: `1px solid ${config.color}35`,
+        borderRadius: 999,
+        padding: '3px 8px',
+        fontSize: 10,
+        fontWeight: 800,
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}
+    >
+      {config.label}
+    </span>
+  )
 }
 
 function SignalCard({ signal }: { signal: PeriodRadarSignal }) {
-  const [hovered, setHovered] = React.useState(false)
-  const dirColor =
-    signal.direction === 'positivo' ? '#22c55e'
-    : signal.direction === 'negativo' ? '#ef4444'
-    : '#fbbf24'
+  const isContext = signal.id === 'active_pipeline'
+  const help = SIGNAL_HELP[signal.id]
 
-  const borderColor = signal.available ? (hovered ? `${dirColor}70` : `${dirColor}35`) : DS.border
+  const weightLabel = isContext
+    ? 'Não altera o status'
+    : `${Math.round(signal.weight * 100)}% da classificação`
 
   return (
-    <div
+    <article
       style={{
-        background: hovered
-          ? `linear-gradient(135deg, ${dirColor}08, ${dirColor}14)`
-          : DS.cardBg,
-        border: `1px solid ${borderColor}`,
+        background: DS.cardBg,
+        border: `1px solid ${signal.available ? DS.border : DS.borderSubtle}`,
         borderRadius: DS.radiusContainer,
-        padding: '14px 16px',
+        padding: 18,
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
-        opacity: signal.available ? 1 : 0.5,
-        transition: 'all 200ms ease',
-        transform: hovered && signal.available ? 'translateY(-2px)' : 'none',
-        boxShadow: hovered && signal.available
-          ? `0 4px 16px rgba(0,0,0,0.4), 0 0 8px ${dirColor}18`
-          : DS.shadowCard,
+        gap: 12,
+        opacity: signal.available || isContext ? 1 : 0.62,
+        boxShadow: DS.shadowCard,
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {signal.available ? (
-          <DirectionIcon direction={signal.direction} />
-        ) : (
-          <span style={{ color: DS.textMuted, fontSize: 18 }}>–</span>
-        )}
-        <span style={{ fontWeight: 700, fontSize: 14, color: signal.available ? DS.textPrimary : DS.textMuted }}>
-          {signal.label}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ margin: 0, color: DS.textPrimary, fontSize: 14, fontWeight: 800 }}>
+            {signal.label}
+          </h3>
+          <p style={{ margin: '5px 0 0', color: DS.textMuted, fontSize: 11, lineHeight: 1.5 }}>
+            {help?.what ?? 'Indicador analisado pelo radar comercial.'}
+          </p>
+        </div>
+
+        <DirectionBadge
+          direction={signal.direction}
+          available={signal.available}
+          isContext={isContext}
+        />
+      </div>
+
+      <div
+        style={{
+          borderLeft: `3px solid ${
+            isContext
+              ? DS.blue
+              : signal.direction === 'positivo'
+                ? DS.green
+                : signal.direction === 'negativo'
+                  ? DS.red
+                  : DS.amber
+          }`,
+          paddingLeft: 10,
+          color: DS.textSecondary,
+          fontSize: 12,
+          lineHeight: 1.55,
+        }}
+      >
+        {signal.available || isContext ? signal.description : signal.fallback_reason}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 10,
+          borderTop: `1px solid ${DS.border}`,
+          paddingTop: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ color: DS.textMuted, fontSize: 10 }}>
+          {help?.why ?? 'Sinal usado na leitura do cenário.'}
         </span>
-        <span
-          style={{
-            marginLeft: 'auto',
-            fontSize: 10,
-            padding: '2px 7px',
-            borderRadius: 20,
-            background:
-              signal.confidence === 'alta' ? 'rgba(22,163,74,0.15)'
-              : signal.confidence === 'moderada' ? 'rgba(217,119,6,0.15)'
-              : 'rgba(102,102,102,0.15)',
-            color:
-              signal.confidence === 'alta' ? '#4ade80'
-              : signal.confidence === 'moderada' ? '#fb923c'
-              : '#999',
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-            fontWeight: 700,
-          }}
-        >
-          {signal.confidence}
+        <span style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap' }}>
+          {weightLabel}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: DS.textSecondary, lineHeight: 1.5 }}>
-        {signal.available ? signal.description : signal.fallback_reason}
-      </div>
-      <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 2 }}>
-        Fonte: {signal.source}
-      </div>
-    </div>
+
+      <details>
+        <summary style={{ color: DS.textMuted, cursor: 'pointer', fontSize: 10 }}>
+          Ver origem do dado
+        </summary>
+        <div style={{ color: DS.textMuted, fontSize: 10, marginTop: 7, lineHeight: 1.5 }}>
+          Fonte: {signal.source}
+          <br />
+          Confiança da leitura: {signal.confidence}
+        </div>
+      </details>
+    </article>
   )
 }
 
-function ReasonItem({ reason, index }: { reason: PeriodRadarReason; index: number }) {
-  const dirColor =
-    reason.direction === 'positivo' ? '#22c55e'
-    : reason.direction === 'negativo' ? '#ef4444'
-    : '#fbbf24'
-
+function Metric({
+  label,
+  value,
+  color,
+}: {
+  label: string
+  value: string | number
+  color?: string
+}) {
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 10,
-        padding: '10px 14px',
+        minWidth: 130,
         background: DS.cardBg,
         border: `1px solid ${DS.border}`,
         borderRadius: DS.radius,
-        transition: 'background 200ms ease',
+        padding: '10px 12px',
       }}
     >
-      <span
+      <div
         style={{
-          minWidth: 22,
-          height: 22,
-          borderRadius: '50%',
-          background: DS.surfaceBg,
-          border: `1px solid ${DS.border}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 11,
           color: DS.textMuted,
-          fontWeight: 700,
-          flexShrink: 0,
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: '0.05em',
+          textTransform: 'uppercase',
         }}
       >
-        {index + 1}
-      </span>
-      <DirectionIcon direction={reason.direction} />
-      <span style={{ fontSize: 13, lineHeight: 1.5, color: DS.textSecondary }}>{reason.text}</span>
-    </div>
-  )
-}
-// ==============================================================================
-// ReportNavDropdown — navegação compacta com dropdown agrupado
-// ==============================================================================
-
-const REPORT_NAV_GROUPS = [
-  {
-    title: 'Visão Executiva',
-    accent: '#3b82f6',
-    items: [
-      { label: 'Radar do Período', href: '/dashboard/relatorios/radar' },
-      { label: 'Relatórios Gerais', href: '/relatorios/gerais' },
-    ],
-  },
-  {
-    title: 'Operação',
-    accent: '#06b6d4',
-    items: [
-      { label: 'Visão Executiva', href: '/relatorios/operacao/visao-executiva' },
-      { label: 'Ações por Etapa', href: '/relatorios/operacao/acoes-por-etapa' },
-      { label: 'Avanço por Ação', href: '/relatorios/operacao/avanco-por-acao' },
-      { label: 'Objeções e Perdas', href: '/relatorios/operacao/objecoes-e-perdas' },
-      { label: 'Próximas Ações', href: '/relatorios/operacao/proximas-acoes' },
-      { label: 'Canais', href: '/relatorios/operacao/canais' },
-      { label: 'Desempenho por Consultor', href: '/relatorios/operacao/desempenho-por-consultor' },
-    ],
-  },
-  {
-    title: 'Comercial',
-    accent: '#8b5cf6',
-    items: [
-      { label: 'Performance por Produto', href: '/dashboard/relatorios/produto' },
-    ],
-  },
-  {
-    title: 'Sazonalidade',
-    accent: '#f59e0b',
-    items: [
-      { label: 'Dia da Semana', href: '/dashboard/relatorios/dia-semana' },
-      { label: 'Semana do Mês', href: '/dashboard/relatorios/semana-mes' },
-      { label: 'Sazonalidade Mensal', href: '/dashboard/relatorios/sazonalidade-mensal' },
-    ],
-  },
-  {
-    title: 'Cadastros',
-    accent: '#22c55e',
-    items: [
-      { label: 'Cadastro de Produtos', href: '/admin/produtos' },
-    ],
-  },
-  {
-    title: 'Governança',
-    accent: '#ef4444',
-    items: [
-      { label: 'Score de Aderência', href: '/relatorios/governanca/score-de-aderencia' },
-    ],
-  },
-]
-
-function ReportNavDropdown({ currentPath }: { currentPath: string }) {
-  const [open, setOpen] = React.useState(false)
-  const ref = React.useRef<HTMLDivElement>(null)
-
-  // Encontrar nome da página atual
-  const currentLabel = REPORT_NAV_GROUPS
-    .flatMap((g) => g.items)
-    .find((item) => item.href === currentPath)?.label ?? 'Relatórios'
-
-  // Fechar ao clicar fora
-  React.useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClick)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [])
-
-  return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-flex', justifyContent: 'center' }}>
-      {/* Botão principal */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <a
-          href="/relatorios"
-          style={{
-            color: DS.textSecondary,
-            textDecoration: 'none',
-            fontSize: 12,
-            fontWeight: 600,
-            padding: '7px 12px',
-            borderRadius: DS.radius,
-            border: `1px solid ${DS.border}`,
-            background: DS.panelBg,
-            transition: 'all 200ms ease',
-          }}
-        >
-          Hub
-        </a>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '7px 14px',
-            borderRadius: DS.radius,
-            border: `1px solid ${open ? 'rgba(59,130,246,0.4)' : DS.border}`,
-            background: open ? 'rgba(59,130,246,0.14)' : DS.panelBg,
-            color: open ? DS.blueSoft : DS.textSecondary,
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: 'pointer',
-            transition: 'all 200ms ease',
-            outline: 'none',
-          }}
-        >
-          <span>{currentLabel}</span>
-          <span style={{ fontSize: 10, transition: 'transform 200ms ease', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
-        </button>
+        {label}
       </div>
-
-      {/* Dropdown panel */}
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 8px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: DS.surfaceBg,
-            border: `1px solid ${DS.border}`,
-            borderRadius: DS.radiusContainer + 3,
-            padding: '12px 0',
-            zIndex: 9000,
-            minWidth: 560,
-            boxShadow: '0 12px 48px rgba(0,0,0,0.6)',
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 0,
-          }}
-        >
-          {REPORT_NAV_GROUPS.map((group) => (
-            <div key={group.title} style={{ padding: '8px 16px' }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  color: group.accent,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                  marginBottom: 6,
-                  paddingBottom: 4,
-                  borderBottom: `1px solid ${group.accent}20`,
-                }}
-              >
-                {group.title}
-              </div>
-              {group.items.map((item) => {
-                const isActive = item.href === currentPath
-                return (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setOpen(false)}
-                    style={{
-                      display: 'block',
-                      padding: '6px 10px',
-                      borderRadius: DS.radius - 1,
-                      fontSize: 12,
-                      fontWeight: isActive ? 700 : 500,
-                      color: isActive ? DS.blueSoft : DS.textSecondary,
-                      background: isActive ? 'rgba(59,130,246,0.10)' : 'transparent',
-                      textDecoration: 'none',
-                      transition: 'all 150ms ease',
-                      cursor: 'pointer',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        (e.currentTarget as HTMLElement).style.background = `${DS.border}`
-                        ;(e.currentTarget as HTMLElement).style.color = DS.textPrimary
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        (e.currentTarget as HTMLElement).style.background = 'transparent'
-                        ;(e.currentTarget as HTMLElement).style.color = DS.textSecondary
-                      }
-                    }}
-                  >
-                    {item.label}
-                  </a>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ color: color ?? DS.textPrimary, fontSize: 20, fontWeight: 900, marginTop: 3 }}>
+        {value}
+      </div>
     </div>
   )
 }
-  
-// ==============================================================================
-// Main page
-// ==============================================================================
 
 export default function RadarRelatorioPg() {
-  const supabase = supabaseBrowser()
-
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
-  // User/profile state
-  const [isAdmin, setIsAdmin] = React.useState(false)
   const [companyId, setCompanyId] = React.useState<string | null>(null)
+  const [companyName, setCompanyName] = React.useState<string | null>(null)
+  const [canChooseOwner, setCanChooseOwner] = React.useState(false)
   const [sellers, setSellers] = React.useState<SellerOption[]>([])
 
-  // Filters — default: 6 months back to today
-  const [dateStart, setDateStart] = React.useState(getSixMonthsAgo())
+  const [dateStart, setDateStart] = React.useState(getTwelveMonthsAgo())
   const [dateEnd, setDateEnd] = React.useState(getTodayDate())
   const [selectedSellerId, setSelectedSellerId] = React.useState<string | null>(null)
 
-  // Radar data
   const [radar, setRadar] = React.useState<PeriodRadarSummary | null>(null)
   const [dataLoading, setDataLoading] = React.useState(false)
   const [dataError, setDataError] = React.useState<string | null>(null)
 
-  // Init: load profile + sellers
   React.useEffect(() => {
     async function init() {
       setLoading(true)
       setError(null)
+
       try {
-        const { data: userData } = await supabase.auth.getUser()
-        if (!userData.user) throw new Error('Sessão expirada. Faça login novamente.')
+        const response = await fetch('/api/me', { cache: 'no-store' })
+        const me = (await response.json()) as MeResponse
 
-        const uid = userData.user.id
+        if (!response.ok) {
+          throw new Error('Não foi possível identificar a sessão atual.')
+        }
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role, company_id')
-          .eq('id', uid)
-          .maybeSingle()
+        if (me.ok !== true) {
+          throw new Error(me.error ?? 'Não foi possível identificar a sessão atual.')
+        }
 
-        if (!profile?.company_id) throw new Error('Perfil não encontrado.')
+        if (!me.active_company_id) {
+          throw new Error('Selecione uma empresa antes de abrir o Radar Comercial.')
+        }
 
-        const adminUser = profile.role === 'admin'
-        setIsAdmin(adminUser)
-        setCompanyId(profile.company_id)
+        const canFilterByOwner =
+          me.active_role === 'admin' || me.active_role === 'manager'
 
-        if (adminUser) {
-          const { data: sellersData } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .eq('company_id', profile.company_id)
-            .eq('role', 'member')
-            .order('full_name')
+        setCompanyId(me.active_company_id)
+        setCompanyName(me.active_company_name)
+        setCanChooseOwner(canFilterByOwner)
+
+        if (canFilterByOwner) {
+          const sellersData = await getSellers(supabaseBrowser(), me.active_company_id)
 
           setSellers(
-            (sellersData ?? []).map((s: SellerProfileRow) => ({
-              id: s.id,
-              label: s.full_name || s.id,
-            }))
+            sellersData.map((seller) => ({
+              id: seller.id,
+              label: seller.full_name || seller.email || seller.id,
+            })),
           )
           setSelectedSellerId(null)
         } else {
-          setSelectedSellerId(uid)
+          setSellers([])
+          setSelectedSellerId(me.user_id)
         }
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Erro ao carregar perfil.'
-        setError(msg)
+      } catch (caught: unknown) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'Erro ao preparar o Radar Comercial.',
+        )
       } finally {
         setLoading(false)
       }
     }
+
     void init()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load radar data
   React.useEffect(() => {
     if (!companyId) return
 
-    async function load() {
+    async function loadRadar() {
       setDataLoading(true)
       setDataError(null)
+
       try {
         const result = await getPeriodRadar({
           companyId: companyId!,
@@ -494,487 +436,592 @@ export default function RadarRelatorioPg() {
           dateStart,
           dateEnd,
         })
+
         setRadar(result)
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Erro ao buscar dados do radar.'
-        setDataError(msg)
+      } catch (caught: unknown) {
+        setDataError(
+          caught instanceof Error
+            ? caught.message
+            : 'Erro ao calcular o Radar Comercial.',
+        )
       } finally {
         setDataLoading(false)
       }
     }
-    void load()
-  }, [companyId, selectedSellerId, dateStart, dateEnd])
 
-  // ============================================================================
-  // Render
-  // ============================================================================
+    void loadRadar()
+  }, [companyId, dateEnd, dateStart, selectedSellerId])
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: DS.contentBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: DS.textSecondary, fontSize: 13 }}>Carregando perfil...</div>
-      </div>
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'grid',
+          placeItems: 'center',
+          background: DS.contentBg,
+          color: DS.textSecondary,
+          fontSize: 13,
+        }}
+      >
+        Carregando contexto da empresa...
+      </main>
     )
   }
 
   if (error) {
     return (
-      <div style={{ minHeight: '100vh', background: DS.contentBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: DS.redText, fontSize: 13 }}>Erro: {error}</div>
-      </div>
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'grid',
+          placeItems: 'center',
+          background: DS.contentBg,
+          padding: 24,
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 520,
+            color: DS.redSoft,
+            background: 'rgba(239,68,68,0.10)',
+            border: '1px solid rgba(239,68,68,0.30)',
+            borderRadius: DS.radiusContainer,
+            padding: 18,
+            fontSize: 13,
+            lineHeight: 1.6,
+          }}
+        >
+          {error}
+        </div>
+      </main>
     )
   }
 
-  const statusColor =
-    radar?.status === 'favoravel' ? '#22c55e'
-    : radar?.status === 'arriscado' ? '#ef4444'
-    : '#fbbf24'
-
-  const statusBg =
-    radar?.status === 'favoravel' ? 'rgba(22,163,74,0.08)'
-    : radar?.status === 'arriscado' ? 'rgba(239,68,68,0.08)'
-    : 'rgba(245,158,11,0.08)'
+  const status = radar ? STATUS_PRESENTATION[radar.status] : null
 
   return (
-    <div
+    <main
       style={{
         minHeight: '100vh',
         background: DS.contentBg,
         color: DS.textPrimary,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
       }}
     >
-      {/* HEADER com degradê azul */}
-      <div
+      <header
         style={{
-          background: `linear-gradient(135deg, ${DS.blue}18 0%, ${DS.contentBg} 60%)`,
+          background: `linear-gradient(135deg, ${DS.blue}1c 0%, ${DS.contentBg} 58%)`,
           borderBottom: `1px solid ${DS.border}`,
-          padding: '28px 24px 24px',
+          padding: '30px 24px 26px',
         }}
       >
-        <div style={{ maxWidth: 1080, margin: '0 auto', textAlign: 'center' }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 6px', letterSpacing: '-0.01em' }}>
-            Radar do Período
-          </h1>
-          <p style={{ fontSize: 13, color: DS.textSecondary, margin: '0 auto 20px', maxWidth: 600 }}>
-            Classificação do cenário atual como favorável, neutro ou arriscado — com base real, auditável e explicável.
-          </p>
-
-                              {/* Navegação de relatórios — dropdown agrupado */}
-          <ReportNavDropdown currentPath="/dashboard/relatorios/radar" />
-        </div>
-      </div>
-
-      {/* CONTEÚDO */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 80px' }}>
-        <div style={{ maxWidth: 1080, margin: '0 auto' }}>
-
-          {/* Filters */}
+        <div style={{ maxWidth: 1120, margin: '0 auto', textAlign: 'center' }}>
           <div
             style={{
-              background: DS.cardBg,
-              border: `1px solid ${DS.border}`,
-              borderRadius: DS.radiusContainer,
-              padding: '14px 18px',
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 16,
-              alignItems: 'flex-end',
-              marginBottom: 28,
+              color: DS.blueSoft,
+              fontSize: 11,
+              fontWeight: 900,
+              textTransform: 'uppercase',
+              letterSpacing: '0.12em',
+              marginBottom: 8,
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11, color: DS.textLabel, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-                Data Início
-              </label>
-              <input
-                type="date"
-                value={dateStart}
-                onChange={(e) => setDateStart(e.target.value)}
-                style={{
-                  background: DS.selectBg,
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radius,
-                  color: DS.textPrimary,
-                  padding: '8px 10px',
-                  fontSize: 13,
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 11, color: DS.textLabel, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-                Data Fim
-              </label>
-              <input
-                type="date"
-                value={dateEnd}
-                onChange={(e) => setDateEnd(e.target.value)}
-                style={{
-                  background: DS.selectBg,
-                  border: `1px solid ${DS.border}`,
-                  borderRadius: DS.radius,
-                  color: DS.textPrimary,
-                  padding: '8px 10px',
-                  fontSize: 13,
-                  outline: 'none',
-                }}
-              />
-            </div>
-
-            {isAdmin && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 11, color: DS.textLabel, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-                  Vendedor
-                </label>
-                <select
-                  value={selectedSellerId ?? ''}
-                  onChange={(e) => setSelectedSellerId(e.target.value || null)}
-                  style={{
-                    background: DS.selectBg,
-                    border: `1px solid ${DS.border}`,
-                    borderRadius: DS.radius,
-                    color: DS.textPrimary,
-                    padding: '8px 10px',
-                    fontSize: 13,
-                    outline: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <option value="">Empresa toda</option>
-                  {sellers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div style={{ fontSize: 11, color: DS.textMuted, alignSelf: 'center' }}>
-              Período histórico para comparação. O radar sempre avalia o momento atual (hoje).
-            </div>
+            Leitura de cenário comercial
           </div>
 
-          {/* Loading / Error */}
-          {dataLoading && (
-            <div style={{ textAlign: 'center', color: DS.textSecondary, padding: 20, fontSize: 13 }}>
-              Calculando radar do período...
-            </div>
-          )}
-          {dataError && (
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 28,
+              letterSpacing: '-0.03em',
+              fontWeight: 900,
+            }}
+          >
+            Radar Comercial Atual
+          </h1>
+
+          <p
+            style={{
+              maxWidth: 760,
+              margin: '10px auto 20px',
+              color: DS.textSecondary,
+              fontSize: 14,
+              lineHeight: 1.6,
+            }}
+          >
+            Mostra se as condições comerciais de agora ajudam, mantêm estáveis ou
+            pressionam a geração de resultados — usando o ritmo recente da operação e
+            os padrões da própria empresa.
+          </p>
+
+          <ReportNavDropdown currentPath="/dashboard/relatorios/radar" />
+        </div>
+      </header>
+
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '24px 24px 80px' }}>
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1.4fr) minmax(260px, 0.6fr)',
+            gap: 14,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              background: DS.surfaceBg,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radiusContainer,
+              padding: 18,
+            }}
+          >
             <div
               style={{
-                background: DS.redBg,
-                border: `1px solid ${DS.redBorder}`,
-                borderLeft: '3px solid #ef4444',
-                borderRadius: DS.radius,
-                padding: 14,
-                color: DS.redText,
-                fontSize: 13,
-                marginBottom: 20,
+                color: DS.blueSoft,
+                fontSize: 11,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 8,
               }}
             >
-              Erro: {dataError}
+              O que esta tela responde
+            </div>
+            <div style={{ color: DS.textPrimary, fontSize: 16, fontWeight: 800, lineHeight: 1.45 }}>
+              O cenário comercial atual está ajudando, neutro ou pressionando a
+              capacidade de gerar resultado agora?
+            </div>
+            <p style={{ margin: '9px 0 0', color: DS.textSecondary, fontSize: 12, lineHeight: 1.6 }}>
+              O radar não calcula meta, previsão de faturamento nem nota do vendedor.
+              Ele lê condições do momento para orientar a execução comercial.
+            </p>
+          </div>
+
+          <div
+            style={{
+              background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.24)',
+              borderRadius: DS.radiusContainer,
+              padding: 18,
+            }}
+          >
+            <div
+              style={{
+                color: DS.blueSoft,
+                fontSize: 11,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 8,
+              }}
+            >
+              Empresa analisada
+            </div>
+            <div style={{ color: DS.textPrimary, fontSize: 15, fontWeight: 800, lineHeight: 1.4 }}>
+              {companyName ?? 'Empresa ativa'}
+            </div>
+            <p style={{ margin: '8px 0 0', color: DS.textSecondary, fontSize: 12, lineHeight: 1.55 }}>
+              A leitura sempre respeita a empresa ativa e o responsável comercial
+              escolhido abaixo.
+            </p>
+          </div>
+        </section>
+
+        <section
+          style={{
+            background: DS.cardBg,
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radiusContainer,
+            padding: '14px 18px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 14,
+            alignItems: 'flex-end',
+            marginBottom: 22,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label
+              style={{
+                color: DS.textLabel,
+                fontSize: 10,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
+              Base histórica — início
+            </label>
+            <input
+              type="date"
+              value={dateStart}
+              max={dateEnd}
+              onChange={(event) => setDateStart(event.target.value)}
+              style={{
+                color: DS.textPrimary,
+                background: DS.panelBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius,
+                padding: '8px 10px',
+                fontSize: 13,
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label
+              style={{
+                color: DS.textLabel,
+                fontSize: 10,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+              }}
+            >
+              Base histórica — fim
+            </label>
+            <input
+              type="date"
+              value={dateEnd}
+              min={dateStart}
+              max={getTodayDate()}
+              onChange={(event) => setDateEnd(event.target.value)}
+              style={{
+                color: DS.textPrimary,
+                background: DS.panelBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius,
+                padding: '8px 10px',
+                fontSize: 13,
+              }}
+            />
+          </div>
+
+          {canChooseOwner && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <label
+                style={{
+                  color: DS.textLabel,
+                  fontSize: 10,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                Responsável comercial
+              </label>
+              <select
+                value={selectedSellerId ?? ''}
+                onChange={(event) => setSelectedSellerId(event.target.value || null)}
+                style={{
+                  color: DS.textPrimary,
+                  background: DS.panelBg,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius,
+                  padding: '8px 10px',
+                  fontSize: 13,
+                  minWidth: 210,
+                }}
+              >
+                <option value="">Toda a operação</option>
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.label}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
-          {!dataLoading && radar && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          <div
+            style={{
+              flex: '1 1 260px',
+              color: DS.textMuted,
+              fontSize: 11,
+              lineHeight: 1.55,
+              paddingBottom: 2,
+            }}
+          >
+            O período acima é apenas a base de comparação. A data avaliada pelo radar
+            é sempre o momento atual.
+          </div>
+        </section>
 
-              {/* ================================================================ */}
-              {/* BLOCO A — Status do Radar                                         */}
-              {/* ================================================================ */}
-              <section>
+        {dataLoading && (
+          <div style={{ color: DS.textSecondary, textAlign: 'center', padding: 34, fontSize: 13 }}>
+            Atualizando a leitura do cenário comercial...
+          </div>
+        )}
+
+        {dataError && (
+          <div
+            style={{
+              color: DS.redSoft,
+              background: 'rgba(239,68,68,0.10)',
+              border: '1px solid rgba(239,68,68,0.30)',
+              borderRadius: DS.radius,
+              padding: 14,
+              fontSize: 13,
+              marginBottom: 20,
+            }}
+          >
+            {dataError}
+          </div>
+        )}
+
+        {!dataLoading && radar && status && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <section
+              style={{
+                background: status.bg,
+                border: `1px solid ${status.color}45`,
+                borderLeft: `4px solid ${status.color}`,
+                borderRadius: DS.radiusContainer,
+                padding: '24px 26px',
+              }}
+            >
+              <div
+                style={{
+                  color: status.color,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  marginBottom: 8,
+                }}
+              >
+                {status.eyebrow}
+              </div>
+
+              <h2
+                style={{
+                  color: DS.textPrimary,
+                  fontSize: 26,
+                  letterSpacing: '-0.03em',
+                  margin: 0,
+                  fontWeight: 900,
+                }}
+              >
+                {status.title}
+              </h2>
+
+              <p
+                style={{
+                  margin: '10px 0 0',
+                  color: DS.textSecondary,
+                  lineHeight: 1.65,
+                  fontSize: 14,
+                  maxWidth: 820,
+                }}
+              >
+                {status.definition}
+              </p>
+
+              <div
+                style={{
+                  marginTop: 16,
+                  borderTop: `1px solid ${status.color}30`,
+                  paddingTop: 14,
+                  color: DS.textPrimary,
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                }}
+              >
+                <strong style={{ color: status.color }}>Direcionamento:</strong> {status.action}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+                <Metric label="Referência" value={formatDateBR(radar.reference_date)} />
+                <Metric label="Confiança" value={radar.confidence_label} color={status.color} />
+                <Metric label="Dia atual" value={radar.current_weekday} />
+                <Metric label="Semana atual" value={`${radar.current_month_week}ª`} />
+              </div>
+            </section>
+
+            <section>
+              <div style={{ marginBottom: 12 }}>
                 <div
                   style={{
-                    background: statusBg,
-                    border: `1px solid ${statusColor}30`,
-                    borderLeft: `4px solid ${statusColor}`,
-                    borderRadius: DS.radiusContainer + 3,
-                    padding: '28px 32px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 16,
-                  }}
-                >
-                  {/* Status principal */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                    <div
-                      style={{
-                        fontSize: 40,
-                        fontWeight: 900,
-                        color: statusColor,
-                        letterSpacing: -1,
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {radar.status_label}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontSize: 12,
-                          padding: '3px 10px',
-                          borderRadius: 20,
-                          fontWeight: 700,
-                          background:
-                            radar.confidence === 'alta' ? 'rgba(22,163,74,0.15)'
-                            : radar.confidence === 'moderada' ? 'rgba(217,119,6,0.15)'
-                            : 'rgba(102,102,102,0.15)',
-                          color:
-                            radar.confidence === 'alta' ? '#4ade80'
-                            : radar.confidence === 'moderada' ? '#fb923c'
-                            : '#999',
-                        }}
-                      >
-                        Confiança: {radar.confidence_label}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Síntese operacional */}
-                  <div
-                    style={{
-                      fontSize: 15,
-                      lineHeight: 1.6,
-                      color: DS.textSecondary,
-                      maxWidth: 700,
-                      borderLeft: `3px solid ${statusColor}50`,
-                      paddingLeft: 16,
-                    }}
-                  >
-                    {radar.sintese_operacional}
-                  </div>
-
-                  {/* Metadados contextuais */}
-                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 4 }}>
-                    {[
-                      { label: 'Data de referência', value: radar.reference_date },
-                      { label: 'Dia da semana', value: radar.current_weekday },
-                      { label: 'Semana do mês', value: `${radar.current_month_week}ª semana` },
-                      { label: 'Mês atual', value: radar.current_month },
-                    ].map((item) => (
-                      <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontSize: 10, color: DS.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>
-                          {item.label}
-                        </span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: DS.textPrimary }}>
-                          {item.value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Aviso confiança baixa */}
-                  {radar.confidence === 'baixa' && (
-                    <div
-                      style={{
-                        background: DS.amberBg,
-                        border: `1px solid ${DS.amberBorder}`,
-                        borderRadius: DS.radius,
-                        padding: '10px 14px',
-                        fontSize: 12,
-                        color: DS.amberText,
-                        marginTop: 4,
-                      }}
-                    >
-                      ⚠️ Confiança baixa — menos de 2 sinais com base histórica suficiente. A
-                      classificação foi conservadoramente definida como Neutro para evitar leituras
-                      artificiais. Amplie o período de análise para melhorar a precisão.
-                    </div>
-                  )}
-                </div>
-
-                {/* Contadores de sinais */}
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
-                  {[
-                    { label: 'Sinais disponíveis', value: radar.signals_available, color: DS.textPrimary },
-                    { label: 'Positivos', value: radar.signals_positive, color: '#22c55e' },
-                    { label: 'Negativos', value: radar.signals_negative, color: '#ef4444' },
-                    { label: 'Neutros', value: radar.signals_neutral, color: '#fbbf24' },
-                    { label: 'Indisponíveis', value: radar.signals_unavailable, color: DS.textMuted },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      style={{
-                        background: DS.cardBg,
-                        border: `1px solid ${DS.border}`,
-                        borderRadius: DS.radius,
-                        padding: '8px 14px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 3,
-                        minWidth: 100,
-                      }}
-                    >
-                      <span style={{ fontSize: 10, color: DS.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>
-                        {item.label}
-                      </span>
-                      <span style={{ fontSize: 22, fontWeight: 800, color: item.color }}>
-                        {item.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              {/* ================================================================ */}
-              {/* BLOCO B — Sinais do Radar                                         */}
-              {/* ================================================================ */}
-              <section>
-                <h2
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 800,
                     color: DS.blueSoft,
+                    fontSize: 11,
+                    fontWeight: 900,
                     textTransform: 'uppercase',
                     letterSpacing: '0.1em',
-                    marginBottom: 14,
                   }}
                 >
-                  Sinais do Radar
-                </h2>
+                  Por que o cenário está assim
+                </div>
+                <p style={{ margin: '6px 0 0', color: DS.textSecondary, fontSize: 13, lineHeight: 1.55 }}>
+                  A classificação usa somente os sinais abaixo que têm base histórica
+                  suficiente. Cada card mostra exatamente o que foi comparado e quanto
+                  ele influenciou na leitura.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: 10,
+                  marginBottom: 16,
+                }}
+              >
+                <Metric
+                  label="Sinais que classificam"
+                  value={radar.signals_available}
+                  color={DS.textPrimary}
+                />
+                <Metric label="A favor" value={radar.signals_positive} color={DS.green} />
+                <Metric label="Pressionando" value={radar.signals_negative} color={DS.red} />
+                <Metric label="Sem direção" value={radar.signals_neutral} color={DS.amber} />
+                <Metric label="Sem base" value={radar.signals_unavailable} color={DS.textMuted} />
+                <Metric
+                  label="Apenas contexto"
+                  value={radar.signals.filter((signal) => signal.id === 'active_pipeline').length}
+                  color={DS.blueSoft}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {radar.signals.map((signal) => (
+                  <SignalCard key={signal.id} signal={signal} />
+                ))}
+              </div>
+            </section>
+
+            <section
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: 14,
+              }}
+            >
+              <div
+                style={{
+                  background: DS.cardBg,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radiusContainer,
+                  padding: 18,
+                }}
+              >
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                    gap: 12,
-                  }}
-                >
-                  {radar.signals.map((signal) => (
-                    <SignalCard key={signal.id} signal={signal} />
-                  ))}
-                </div>
-              </section>
-
-              {/* ================================================================ */}
-              {/* BLOCO C — Motivos Principais                                       */}
-              {/* ================================================================ */}
-              {radar.reasons.length > 0 && (
-                <section>
-                  <h2
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: DS.blueSoft,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.1em',
-                      marginBottom: 14,
-                    }}
-                  >
-                    Motivos Principais
-                  </h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {radar.reasons.map((reason, i) => (
-                      <ReasonItem key={reason.signal_id} reason={reason} index={i} />
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {/* ================================================================ */}
-              {/* BLOCO D — Diagnóstico Completo                                    */}
-              {/* ================================================================ */}
-              <section>
-                <h2
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 800,
                     color: DS.blueSoft,
+                    fontSize: 11,
+                    fontWeight: 900,
                     textTransform: 'uppercase',
                     letterSpacing: '0.1em',
-                    marginBottom: 14,
+                    marginBottom: 8,
                   }}
                 >
-                  Diagnóstico Completo
-                </h2>
+                  Como usar este radar
+                </div>
+                <ol
+                  style={{
+                    margin: 0,
+                    paddingLeft: 18,
+                    color: DS.textSecondary,
+                    fontSize: 12,
+                    lineHeight: 1.75,
+                  }}
+                >
+                  <li>Leia primeiro o status e o direcionamento.</li>
+                  <li>Veja os sinais que estão ajudando ou pressionando.</li>
+                  <li>Transforme a leitura em execução no Kanban, agenda e follow-up.</li>
+                </ol>
+              </div>
+
+              <div
+                style={{
+                  background: DS.cardBg,
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radiusContainer,
+                  padding: 18,
+                }}
+              >
                 <div
                   style={{
-                    background: DS.cardBg,
-                    border: `1px solid ${DS.border}`,
-                    borderRadius: DS.radiusContainer,
-                    padding: '20px 22px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 16,
+                    color: DS.blueSoft,
+                    fontSize: 11,
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                    marginBottom: 8,
                   }}
                 >
-                  {/* Diagnóstico textual */}
+                  O que ele não mede
+                </div>
+                <p style={{ margin: 0, color: DS.textSecondary, fontSize: 12, lineHeight: 1.65 }}>
+                  Não substitui o Simulador de Meta, o Faturamento nem os relatórios de
+                  conversão. Ele não prevê um valor de venda e não avalia sozinho a
+                  qualidade de um vendedor.
+                </p>
+              </div>
+            </section>
+
+            <section
+              style={{
+                background: DS.cardBg,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radiusContainer,
+                padding: '16px 18px',
+              }}
+            >
+              <details>
+                <summary
+                  style={{
+                    cursor: 'pointer',
+                    color: DS.textPrimary,
+                    fontSize: 13,
+                    fontWeight: 800,
+                  }}
+                >
+                  Ver detalhamento técnico e rastreabilidade
+                </summary>
+
+                <div
+                  style={{
+                    marginTop: 14,
+                    borderTop: `1px solid ${DS.border}`,
+                    paddingTop: 14,
+                    color: DS.textSecondary,
+                    fontSize: 12,
+                    lineHeight: 1.65,
+                  }}
+                >
+                  <div style={{ marginBottom: 10 }}>
+                    Base histórica analisada: {formatDateBR(radar.period_start)} até{' '}
+                    {formatDateBR(radar.period_end)}.
+                  </div>
                   <pre
                     style={{
-                      fontFamily: 'inherit',
-                      fontSize: 12,
-                      lineHeight: 1.7,
-                      color: DS.textSecondary,
+                      margin: 0,
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
-                      margin: 0,
+                      font: 'inherit',
+                      color: DS.textMuted,
                     }}
                   >
                     {radar.diagnostico}
                   </pre>
-
-                  {/* Grid de metadados */}
-                  <div
-                    style={{
-                      borderTop: `1px solid ${DS.border}`,
-                      paddingTop: 14,
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-                      gap: 10,
-                    }}
-                  >
-                    {[
-                      { label: 'Período analisado', value: `${radar.period_start} a ${radar.period_end}` },
-                      { label: 'Sinais disponíveis', value: `${radar.signals_available} de ${radar.signals.length}` },
-                      { label: 'Sinais positivos', value: String(radar.signals_positive) },
-                      { label: 'Sinais negativos', value: String(radar.signals_negative) },
-                      { label: 'Confiança geral', value: radar.confidence_label },
-                      { label: 'Status classificado', value: radar.status_label },
-                    ].map((item) => (
-                      <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span style={{ fontSize: 10, color: DS.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>
-                          {item.label}
-                        </span>
-                        <span style={{ fontSize: 13, color: DS.textSecondary, fontWeight: 600 }}>{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Nota de fonte */}
-                  <div
-                    style={{
-                      borderTop: `1px solid ${DS.border}`,
-                      paddingTop: 12,
-                      fontSize: 11,
-                      color: DS.textMuted,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    Fontes: sales_cycles.first_worked_at (prospecção/trabalho), sales_cycles.won_at +
-                    won_total (ganhos/faturamento), sales_cycles.status (pipeline ativo). Dados
-                    agregados no client-side. O score interno é usado apenas para classificação e não é
-                    exibido ao usuário.
-                  </div>
                 </div>
-              </section>
-            </div>
-          )}
+              </details>
+            </section>
+          </div>
+        )}
 
-          {!dataLoading && !radar && !dataError && (
-            <div style={{ textAlign: 'center', color: DS.textMuted, padding: 40, fontSize: 13 }}>
-              Selecione um período para calcular o radar.
-            </div>
-          )}
-        </div>
+        {!dataLoading && !radar && !dataError && (
+          <div style={{ color: DS.textMuted, textAlign: 'center', padding: 40, fontSize: 13 }}>
+            Escolha uma base histórica para gerar a leitura do cenário comercial.
+          </div>
+        )}
       </div>
-    </div>
+    </main>
   )
 }
