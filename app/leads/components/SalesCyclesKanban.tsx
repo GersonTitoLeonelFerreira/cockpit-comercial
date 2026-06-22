@@ -2172,6 +2172,96 @@ export default function SalesCyclesKanban({
   const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const kanbanAbortRef = useRef<AbortController | null>(null)
   const kanbanRequestSeqRef = useRef(0)
+  const kanbanScrollRef = useRef<HTMLDivElement>(null)
+  const kanbanAutoScrollFrameRef = useRef<number | null>(null)
+  const kanbanAutoScrollDirectionRef = useRef<-1 | 0 | 1>(0)
+  const kanbanAutoScrollSpeedRef = useRef(0)
+
+  const stopKanbanAutoScroll = useCallback(() => {
+    kanbanAutoScrollDirectionRef.current = 0
+    kanbanAutoScrollSpeedRef.current = 0
+
+    if (kanbanAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(kanbanAutoScrollFrameRef.current)
+      kanbanAutoScrollFrameRef.current = null
+    }
+  }, [])
+
+  const startKanbanAutoScroll = useCallback((direction: -1 | 1, speed: number) => {
+    kanbanAutoScrollDirectionRef.current = direction
+    kanbanAutoScrollSpeedRef.current = speed
+
+    if (kanbanAutoScrollFrameRef.current !== null) {
+      return
+    }
+
+    const scroll = () => {
+      const container = kanbanScrollRef.current
+      const currentDirection = kanbanAutoScrollDirectionRef.current
+      const currentSpeed = kanbanAutoScrollSpeedRef.current
+
+      if (!container || currentDirection === 0 || currentSpeed <= 0) {
+        kanbanAutoScrollFrameRef.current = null
+        return
+      }
+
+      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth)
+      const previousScrollLeft = container.scrollLeft
+      const nextScrollLeft = Math.max(
+        0,
+        Math.min(maxScrollLeft, previousScrollLeft + currentDirection * currentSpeed),
+      )
+
+      if (nextScrollLeft === previousScrollLeft) {
+        kanbanAutoScrollFrameRef.current = null
+        return
+      }
+
+      container.scrollLeft = nextScrollLeft
+      kanbanAutoScrollFrameRef.current = window.requestAnimationFrame(scroll)
+    }
+
+    kanbanAutoScrollFrameRef.current = window.requestAnimationFrame(scroll)
+  }, [])
+
+  const handleKanbanDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+
+      const container = kanbanScrollRef.current
+
+      if (!container) {
+        return
+      }
+
+      const rect = container.getBoundingClientRect()
+      const edgeSize = 88
+      const leftDistance = event.clientX - rect.left
+      const rightDistance = rect.right - event.clientX
+
+      if (leftDistance <= edgeSize) {
+        const proximity = 1 - Math.max(leftDistance, 0) / edgeSize
+        startKanbanAutoScroll(-1, Math.max(8, Math.round(20 * proximity)))
+        return
+      }
+
+      if (rightDistance <= edgeSize) {
+        const proximity = 1 - Math.max(rightDistance, 0) / edgeSize
+        startKanbanAutoScroll(1, Math.max(8, Math.round(20 * proximity)))
+        return
+      }
+
+      stopKanbanAutoScroll()
+    },
+    [startKanbanAutoScroll, stopKanbanAutoScroll],
+  )
+
+  useEffect(() => {
+    return () => {
+      stopKanbanAutoScroll()
+    }
+  }, [stopKanbanAutoScroll])
 
   const scopedOwnerId =
   selectedScope === 'mine'
@@ -3221,7 +3311,20 @@ export default function SalesCyclesKanban({
             <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
           ) : (
             <div
+              ref={kanbanScrollRef}
               className="kanban-column-scroll"
+              onDragOver={handleKanbanDragOver}
+              onDragEnd={stopKanbanAutoScroll}
+              onDrop={stopKanbanAutoScroll}
+              onDragLeave={(event) => {
+                const nextTarget = event.relatedTarget
+
+                if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+                  return
+                }
+
+                stopKanbanAutoScroll()
+              }}
               style={{
                 flex: 1,
                 overflowX: 'auto',
