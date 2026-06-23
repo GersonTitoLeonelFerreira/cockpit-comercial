@@ -153,17 +153,41 @@ export function resolveActionLabel(actionId: string): string {
 // ---------------------------------------------------------------------------
 
 export const ACTION_RESULT_MAP: Record<string, string> = {
-  'Objeção identificada':                    'negociacao_objecao_registrada',
-  'Proposta enviada':                        'respondeu_proposta_apresentada',
-  'Proposta final enviada':                  'negociacao_proposta_final_enviada',
-  'Cliente demonstrou intenção de fechar':   'negociacao_fechamento_agendado',
-  'Cliente pediu condição comercial':        'negociacao_condicao_comercial',
-  'Pediu mais informações':                  'contato_pediu_informacoes',
-  'Demonstrou interesse':                    'contato_demonstrou_interesse',
-  'Agendamento realizado':                   'contato_agendamento_realizado',
-  'Tentativa de contato (sem resposta)':     'novo_abordagem_realizada',
-  'Mensagem enviada - aguardando retorno':   'novo_whatsapp_enviado',
-  'Ação realizada':                          'novo_abordagem_realizada',
+  'Tentativa de contato (sem resposta)': 'novo_abordagem_realizada',
+  'Mensagem enviada - aguardando retorno': 'novo_whatsapp_enviado',
+  'Ligação feita': 'novo_ligacao_feita',
+  'Email enviado': 'novo_email_enviado',
+  'Conheceu o produto': 'novo_abordagem_realizada',
+  'Testou o produto': 'contato_demonstrou_interesse',
+  'Agendou um teste': 'contato_agendamento_realizado',
+  'Proposta realizada presencialmente': 'respondeu_proposta_apresentada',
+  'Visitou a empresa': 'respondeu_visita_agendada',
+  'Recebeu demonstração presencial': 'respondeu_qualificacao_realizada',
+
+  'Agendou reunião': 'contato_agendamento_realizado',
+  'Reunião agendada': 'contato_agendamento_realizado',
+  'Agendou visita': 'respondeu_visita_agendada',
+  'Visita agendada': 'respondeu_visita_agendada',
+  'Agendou demonstração': 'contato_agendamento_realizado',
+  'Demonstração agendada': 'contato_agendamento_realizado',
+  'Agendou aula experimental': 'contato_agendamento_realizado',
+  'Aula experimental agendada': 'contato_agendamento_realizado',
+  'Experimental agendada': 'contato_agendamento_realizado',
+  'Retorno agendado': 'contato_agendamento_realizado',
+
+  'Qualificou direto - avançou para negociação': 'respondeu_qualificacao_realizada',
+  'Qualificação feita': 'respondeu_qualificacao_realizada',
+  'Proposta solicitada': 'contato_pediu_proposta',
+  'Reunião marcada': 'contato_agendamento_realizado',
+  'Proposta apresentada': 'respondeu_proposta_apresentada',
+  'Proposta enviada': 'respondeu_proposta_apresentada',
+  'Proposta final enviada': 'negociacao_proposta_final_enviada',
+  'Cliente pediu condição comercial': 'negociacao_condicao_comercial',
+  'Objeção identificada': 'negociacao_objecao_registrada',
+  'Objeção ou discussão comercial identificada': 'negociacao_objecao_registrada',
+  'Cliente demonstrou intenção de fechar': 'negociacao_fechamento_agendado',
+  'Negociação iniciada': 'respondeu_negociacao_iniciada',
+  'Ação realizada': 'novo_abordagem_realizada',
 }
 
 /**
@@ -173,9 +197,15 @@ export const ACTION_RESULT_MAP: Record<string, string> = {
  * Returns the checkpoint object, or an empty object if none is found.
  */
 export function resolveCheckpointData(meta: Record<string, unknown>): Record<string, unknown> {
-  if (meta.checkpoint && typeof meta.checkpoint === 'object') return meta.checkpoint as Record<string, unknown>
-  if (meta.metadata && typeof meta.metadata === 'object') return meta.metadata as Record<string, unknown>
-  return {}
+  if (meta.checkpoint && typeof meta.checkpoint === 'object') {
+    return meta.checkpoint as Record<string, unknown>
+  }
+
+  if (meta.metadata && typeof meta.metadata === 'object') {
+    return meta.metadata as Record<string, unknown>
+  }
+
+  return meta
 }
 
 /**
