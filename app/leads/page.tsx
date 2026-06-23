@@ -83,8 +83,8 @@ export default async function LeadsPage(props: {
 
   const effectiveDefaultOwnerId =
     role === 'admin'
-      ? (ownerParam ?? user.id)
-      : (ownerParam ?? null)
+      ? ownerParam
+      : null
 
   return (
     <LeadsClient
