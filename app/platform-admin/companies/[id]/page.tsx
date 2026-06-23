@@ -5,6 +5,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import type { CSSProperties } from 'react'
 import AdminInvitationForm from './AdminInvitationForm'
+import CompanyStatusControl from './CompanyStatusControl'
 
 export const metadata = {
   title: 'Detalhe da Empresa | Administração da Plataforma',
@@ -109,7 +110,7 @@ function empty(value: string | null | undefined) {
 
 function platformStatusLabel(status: string | null) {
   if (status === 'active') return 'Ativa'
-  if (status === 'blocked') return 'Bloqueada'
+  if (status === 'blocked') return 'Inativa'
   if (status === 'cancelled') return 'Cancelada'
   if (status === 'archived') return 'Arquivada'
 
@@ -356,8 +357,8 @@ export default async function PlatformAdminCompanyDetailPage({
             </h1>
 
             <p style={{ margin: '10px 0 0', color: C.textSoft, fontSize: 14, lineHeight: 1.7 }}>
-              Detalhe administrativo da empresa cliente dentro da plataforma. Esta tela ainda é
-              somente leitura e prepara o fluxo de convite do primeiro administrador.
+              Detalhe administrativo da empresa cliente, com cadastro, usuários, onboarding e
+              controle de acesso operacional.
             </p>
           </div>
 
@@ -369,12 +370,18 @@ export default async function PlatformAdminCompanyDetailPage({
             )}
           </div>
         </div>
-      </section>
+        </section>
 
-      <section
-        style={{
-          marginTop: 18,
-          display: 'grid',
+<CompanyStatusControl
+  companyId={company.id}
+  companyName={companyDisplayName}
+  platformStatus={company.platform_status ?? 'active'}
+/>
+
+<section
+  style={{
+    marginTop: 18,
+    display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: 14,
         }}

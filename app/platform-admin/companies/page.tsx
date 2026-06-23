@@ -21,6 +21,7 @@ type CompanyRow = {
   phone: string | null
   city: string | null
   state: string | null
+  platform_status: string | null
   created_at: string | null
 }
 
@@ -116,6 +117,39 @@ function statusLabel(company: CompanyView) {
   return 'Sem admin ativo'
 }
 
+function platformStatusLabel(status: string | null) {
+  if (status === 'active') return 'Ativa'
+  if (status === 'blocked') return 'Inativa'
+  if (status === 'cancelled') return 'Cancelada'
+  if (status === 'archived') return 'Arquivada'
+
+  return status || '—'
+}
+
+function platformStatusStyle(status: string | null): CSSProperties {
+  if (status === 'active') {
+    return {
+      border: '1px solid rgba(34,197,94,0.35)',
+      background: 'rgba(34,197,94,0.12)',
+      color: '#86efac',
+    }
+  }
+
+  if (status === 'blocked' || status === 'cancelled') {
+    return {
+      border: '1px solid rgba(239,68,68,0.35)',
+      background: 'rgba(239,68,68,0.12)',
+      color: '#fecaca',
+    }
+  }
+
+  return {
+    border: `1px solid ${C.border}`,
+    background: C.panelSoft,
+    color: C.textSoft,
+  }
+}
+
 function metricCard(label: string, value: number, hint: string) {
   return (
     <div
@@ -197,7 +231,7 @@ export default async function PlatformAdminCompaniesPage() {
   const { data: companiesData, error: companiesError } = await admin
     .from('companies')
     .select(
-      'id, name, legal_name, trade_name, cnpj, plan, segment, email, phone, city, state, created_at',
+      'id, name, legal_name, trade_name, cnpj, plan, segment, email, phone, city, state, platform_status, created_at',
     )
     .order('created_at', { ascending: false })
     .limit(100)
@@ -427,6 +461,19 @@ export default async function PlatformAdminCompaniesPage() {
                       flexWrap: 'wrap',
                     }}
                   >
+                    <div
+                      style={{
+                        ...platformStatusStyle(company.platform_status),
+                        borderRadius: 999,
+                        padding: '6px 10px',
+                        fontSize: 12,
+                        fontWeight: 900,
+                        height: 'fit-content',
+                      }}
+                    >
+                      {platformStatusLabel(company.platform_status)}
+                    </div>
+
                     <div
                       style={{
                         ...statusStyle(company),
