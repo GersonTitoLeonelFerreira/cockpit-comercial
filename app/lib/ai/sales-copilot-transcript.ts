@@ -407,6 +407,94 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
 
   if (!text || !compare) return null
 
+  const BUSINESS_TIME_ZONE = 'America/Sao_Paulo'
+
+  function getBusinessDateParts(date: Date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: BUSINESS_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date)
+
+    const valueOf = (part: string) =>
+      Number(parts.find((item) => item.type === part)?.value ?? '0')
+
+    return {
+      year: valueOf('year'),
+      month: valueOf('month'),
+      day: valueOf('day'),
+      hour: valueOf('hour'),
+      minute: valueOf('minute'),
+      second: valueOf('second'),
+    }
+  }
+
+  function getBusinessTimeZoneOffsetMs(date: Date): number {
+    const parts = getBusinessDateParts(date)
+
+    const asUtc = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+    )
+
+    return asUtc - date.getTime()
+  }
+
+  function buildBusinessDate(
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    minute: number,
+  ): string | null {
+    const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0)
+
+    let timestamp = targetAsUtc
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      timestamp = targetAsUtc - getBusinessTimeZoneOffsetMs(new Date(timestamp))
+    }
+
+    const date = new Date(timestamp)
+    const parts = getBusinessDateParts(date)
+
+    if (
+      parts.year !== year ||
+      parts.month !== month ||
+      parts.day !== day ||
+      parts.hour !== hour ||
+      parts.minute !== minute
+    ) {
+      return null
+    }
+
+    return date.toISOString()
+  }
+
+  function addBusinessCalendarDays(
+    year: number,
+    month: number,
+    day: number,
+    days: number,
+  ) {
+    const calendarDate = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0))
+
+    return {
+      year: calendarDate.getUTCFullYear(),
+      month: calendarDate.getUTCMonth() + 1,
+      day: calendarDate.getUTCDate(),
+    }
+  }
+
   function readTime(): { hour: number; minute: number } | null {
     const patterns = [
       /\bas\s*(\d{1,2})(?:(?:h|:)\s*(\d{2}))?\b/,
@@ -437,31 +525,17 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
     return null
   }
 
-  function buildDate(year: number, month: number, day: number, hour: number, minute: number): string | null {
-    const date = new Date(year, month - 1, day, hour, minute, 0, 0)
-
-    if (
-      date.getFullYear() !== year ||
-      date.getMonth() !== month - 1 ||
-      date.getDate() !== day
-    ) {
-      return null
-    }
-
-    return date.toISOString()
-  }
-
   const explicitDateMatch = text.match(/\b(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/)
   const time = readTime()
+  const businessNow = getBusinessDateParts(new Date())
 
   if (explicitDateMatch) {
     const day = Number(explicitDateMatch[1])
     const month = Number(explicitDateMatch[2])
-    const now = new Date()
 
     let year = explicitDateMatch[3]
       ? Number(explicitDateMatch[3])
-      : now.getFullYear()
+      : businessNow.year
 
     if (year < 100) {
       year += 2000
@@ -474,14 +548,12 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
     const hour = time?.hour ?? 9
     const minute = time?.minute ?? 0
 
-    const explicitIso = buildDate(year, month, day, hour, minute)
+    const explicitIso = buildBusinessDate(year, month, day, hour, minute)
 
     if (!explicitIso) return null
 
-    const explicitDate = new Date(explicitIso)
-
-    if (!explicitDateMatch[3] && explicitDate.getTime() < now.getTime()) {
-      return buildDate(year + 1, month, day, hour, minute)
+    if (!explicitDateMatch[3] && new Date(explicitIso).getTime() < Date.now()) {
+      return buildBusinessDate(year + 1, month, day, hour, minute)
     }
 
     return explicitIso
@@ -494,30 +566,48 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
 
     if (!Number.isFinite(days) || days < 0) return null
 
-    const date = new Date()
-    date.setDate(date.getDate() + days)
-    date.setHours(time?.hour ?? 9, time?.minute ?? 0, 0, 0)
+    const target = addBusinessCalendarDays(
+      businessNow.year,
+      businessNow.month,
+      businessNow.day,
+      days,
+    )
 
-    return date.toISOString()
+    return buildBusinessDate(
+      target.year,
+      target.month,
+      target.day,
+      time?.hour ?? 9,
+      time?.minute ?? 0,
+    )
   }
 
   if (!time) return null
 
-  const date = new Date()
+  let daysToAdd = 0
 
   if (compare.includes('depois de amanha')) {
-    date.setDate(date.getDate() + 2)
+    daysToAdd = 2
   } else if (compare.includes('amanha')) {
-    date.setDate(date.getDate() + 1)
-  } else if (compare.includes('hoje')) {
-    // mantém hoje
-  } else {
+    daysToAdd = 1
+  } else if (!compare.includes('hoje')) {
     return null
   }
 
-  date.setHours(time.hour, time.minute, 0, 0)
+  const target = addBusinessCalendarDays(
+    businessNow.year,
+    businessNow.month,
+    businessNow.day,
+    daysToAdd,
+  )
 
-  return date.toISOString()
+  return buildBusinessDate(
+    target.year,
+    target.month,
+    target.day,
+    time.hour,
+    time.minute,
+  )
 }
 
 function normalizeLines(text: string): string {
