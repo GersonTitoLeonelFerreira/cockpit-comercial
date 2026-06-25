@@ -30,6 +30,10 @@ type KanbanRow = {
   next_action_date: string | null
   created_at: string
   updated_at: string | null
+  terminal_closed_on: string | null
+  terminal_won_total: number | null
+  terminal_lost_reason: string | null
+  terminal_product_name: string | null
 }
 
 const STATUSES: Status[] = ['novo', 'contato', 'respondeu', 'negociacao', 'ganho', 'perdido']
@@ -453,14 +457,19 @@ export async function GET(req: Request) {
 
     for (const status of STATUSES) {
       let itemQuery = admin
-      .from('v_kanban_items')
-        .select(
-          'id, lead_id, owner_id, group_id, status, stage_entered_at, name, phone, email, cpf, document, phone_digits, document_digits, next_action, next_action_date, created_at, updated_at',
-        )
-        .eq('company_id', activeCompanyId)
-        .eq('status', status)
-        .order('stage_entered_at', { ascending: false, nullsFirst: false })
-        .limit(limit)
+  .from('v_kanban_items')
+  .select(
+    'id, lead_id, owner_id, group_id, status, stage_entered_at, name, phone, email, cpf, document, phone_digits, document_digits, next_action, next_action_date, created_at, updated_at, terminal_closed_on, terminal_won_total, terminal_lost_reason, terminal_product_name',
+  )
+  .eq('company_id', activeCompanyId)
+  .eq('status', status)
+  .order(
+    status === 'ganho' || status === 'perdido'
+      ? 'terminal_closed_on'
+      : 'stage_entered_at',
+    { ascending: false, nullsFirst: false },
+  )
+  .limit(limit)
 
       if (scope === 'company') {
         itemQuery = itemQuery
