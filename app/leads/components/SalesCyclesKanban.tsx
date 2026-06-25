@@ -111,6 +111,10 @@ type PipelineItem = {
   next_action: string | null
   next_action_date: string | null
   updated_at?: string | null
+  terminal_closed_on?: string | null
+  terminal_won_total?: number | null
+  terminal_lost_reason?: string | null
+  terminal_product_name?: string | null
   lead_groups?: { name: string } | null
 }
 
@@ -1206,6 +1210,179 @@ function CopilotDrawerPortal({
   )
 }
 
+function isTerminalStatus(status: Status) {
+  return status === 'ganho' || status === 'perdido'
+}
+
+function formatTerminalDate(value: string | null | undefined) {
+  if (!value) return 'Data não informada'
+
+  const [year, month, day] = value.split('-')
+
+  if (!year || !month || !day) {
+    return 'Data não informada'
+  }
+
+  return `${day}/${month}/${year}`
+}
+
+function formatTerminalCurrency(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return 'Valor não informado'
+  }
+
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return 'Valor não informado'
+  }
+
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(numericValue)
+}
+
+function TerminalKanbanCard({ item }: { item: PipelineItem }) {
+  const isWon = item.status === 'ganho'
+  const color = isWon ? STATUS_COLORS.ganho : STATUS_COLORS.perdido
+  const rgb = isWon ? STATUS_RGB.ganho : STATUS_RGB.perdido
+  const productName = item.terminal_product_name?.trim() || 'Produto não informado'
+  const secondaryText = isWon
+    ? productName
+    : item.terminal_lost_reason?.trim() || 'Motivo não informado'
+
+  const openLead = () => {
+    window.location.href = `/sales-cycles/${item.id}`
+  }
+
+  return (
+    <article
+      style={{
+        border: `1px solid rgba(${rgb},0.14)`,
+        borderLeft: `2px solid rgba(${rgb},0.65)`,
+        borderRadius: DS.radius,
+        padding: 8,
+        background: 'rgba(16,18,27,0.92)',
+        boxShadow: 'none',
+        display: 'grid',
+        gap: 6,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '1px 6px',
+            borderRadius: 999,
+            border: `1px solid rgba(${rgb},0.14)`,
+            color,
+            background: `rgba(${rgb},0.05)`,
+            fontSize: 7.5,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            flexShrink: 0,
+          }}
+        >
+          {isWon ? 'CONCLUÍDO' : 'ENCERRADO'}
+        </div>
+
+        <div
+          style={{
+            color: DS.textMuted,
+            fontSize: 9,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          {formatTerminalDate(item.terminal_closed_on)}
+        </div>
+      </div>
+
+      <div
+        title={item.name}
+        style={{
+          color: DS.textPrimary,
+          fontSize: 12,
+          fontWeight: 700,
+          lineHeight: 1.2,
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+          minHeight: 28,
+        }}
+      >
+        {item.name}
+      </div>
+
+      <div
+        style={{
+          color: isWon ? DS.textPrimary : DS.textSecondary,
+          fontSize: isWon ? 13 : 10.5,
+          fontWeight: isWon ? 700 : 500,
+          lineHeight: 1.2,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+        title={isWon ? formatTerminalCurrency(item.terminal_won_total) : secondaryText}
+      >
+        {isWon ? formatTerminalCurrency(item.terminal_won_total) : secondaryText}
+      </div>
+
+      <div
+        title={isWon ? productName : productName}
+        style={{
+          color: DS.textMuted,
+          fontSize: 9.5,
+          lineHeight: 1.2,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {productName}
+      </div>
+
+      <button
+        type="button"
+        onClick={openLead}
+        style={{
+          width: '100%',
+          padding: '5px 8px',
+          borderRadius: DS.radius,
+          border: `1px solid rgba(${rgb},0.14)`,
+          background: 'transparent',
+          color: DS.textSecondary,
+          cursor: 'pointer',
+          fontSize: 10,
+          fontWeight: 700,
+          marginTop: 2,
+        }}
+        onMouseEnter={(event) => {
+          event.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+          event.currentTarget.style.color = DS.textPrimary
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.background = 'transparent'
+          event.currentTarget.style.color = DS.textSecondary
+        }}
+      >
+        Abrir lead
+      </button>
+    </article>
+  )
+}
+
 function KanbanCard({
   item,
   isSaving,
@@ -1828,6 +2005,16 @@ function VirtualizedStatusColumn({
       return true
     })
     .sort((a, b) => {
+      if (isTerminalStatus(status)) {
+        const terminalDateComparison = (b.terminal_closed_on ?? '').localeCompare(
+          a.terminal_closed_on ?? '',
+        )
+
+        if (terminalDateComparison !== 0) {
+          return terminalDateComparison
+        }
+      }
+
       const rankDiff = getOperationalSortRank(a) - getOperationalSortRank(b)
 
       if (rankDiff !== 0) return rankDiff
@@ -2013,24 +2200,28 @@ function VirtualizedStatusColumn({
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 6 }}>
-              {filteredCycles.map((item) => (
-                <KanbanCard
-                  key={item.id}
-                  item={item}
-                  isSaving={savingId === item.id}
-                  isSelected={selectedIds.has(item.id)}
-                  onToggleSelect={onToggleSelect}
-                  onOpenMenu={(menuItem, rect) => setMenuState({ item: menuItem, anchorRect: rect })}
-                  onOpenQuickDrawer={onOpenQuickDrawer}
-                  onMoveItem={onMoveItem}
-                  onCopilotSaved={onCopilotSaved}
-                  supabase={supabase}
-                  companyId={companyId}
-                  currentUserId={currentUserId}
-                  slaRules={slaRules}
-                  nowTick={nowTick}
-                />
-              ))}
+              {filteredCycles.map((item) =>
+  isTerminalStatus(item.status) ? (
+    <TerminalKanbanCard key={item.id} item={item} />
+  ) : (
+    <KanbanCard
+      key={item.id}
+      item={item}
+      isSaving={savingId === item.id}
+      isSelected={selectedIds.has(item.id)}
+      onToggleSelect={onToggleSelect}
+      onOpenMenu={(menuItem, rect) => setMenuState({ item: menuItem, anchorRect: rect })}
+      onOpenQuickDrawer={onOpenQuickDrawer}
+      onMoveItem={onMoveItem}
+      onCopilotSaved={onCopilotSaved}
+      supabase={supabase}
+      companyId={companyId}
+      currentUserId={currentUserId}
+      slaRules={slaRules}
+      nowTick={nowTick}
+    />
+  ),
+)}
             </div>
           )}
         </div>
@@ -2335,13 +2526,13 @@ export default function SalesCyclesKanban({
 
   const loadSellers = useCallback(async () => {
     if (!companyId || !isAdmin) return
-  
+
     try {
       const sellersData = await adminListSellersStats({
         companyId,
         days: 30,
       })
-  
+
       const activeSellers = sellersData
       .filter((seller) => seller.is_active && isSellerRole(seller.role))
       .map((seller) => ({
@@ -2350,7 +2541,7 @@ export default function SalesCyclesKanban({
         email: seller.email,
         role: seller.role ?? 'member',
       }))
-  
+
       setSellers(activeSellers)
     } catch (e) {
       console.error('Erro ao carregar vendedores:', e)
@@ -2369,21 +2560,21 @@ export default function SalesCyclesKanban({
 
     const controller = new AbortController()
     kanbanAbortRef.current = controller
-  
+
     setLoading(true)
     setError(null)
-  
+
     try {
       const scopeToLoad: KanbanScope = isAdmin ? selectedScope : 'mine'
       const ownerToFilter = isAdmin ? scopedOwnerId : userId
-  
+
       if (scopeToLoad !== 'company' && !ownerToFilter) {
         setItems(emptyKanbanItems())
         setTotals(emptyKanbanTotals())
         setSearchCount(null)
         return
       }
-  
+
       const {
         data,
         totals: nextTotals,
@@ -2400,7 +2591,7 @@ export default function SalesCyclesKanban({
       if (controller.signal.aborted || requestSeq !== kanbanRequestSeqRef.current) {
         return
       }
-  
+
       setItems(data)
       setTotals(nextTotals)
       setSearchCount(searchTermParam.trim() ? exactCount : null)
@@ -2461,6 +2652,27 @@ export default function SalesCyclesKanban({
     setShowBulkModal(false)
     setSelectedIds(new Set())
   }, [selectedGroupId, selectedScope, selectedOwnerId, searchTerm, slaFilter, agendaFilter])
+
+  useEffect(() => {
+    const terminalCycleIds = new Set([
+      ...items.ganho.map((item) => item.id),
+      ...items.perdido.map((item) => item.id),
+    ])
+
+    if (terminalCycleIds.size === 0) {
+      return
+    }
+
+    setSelectedIds((currentSelectedIds) => {
+      const nextSelectedIds = new Set(
+        Array.from(currentSelectedIds).filter((cycleId) => !terminalCycleIds.has(cycleId)),
+      )
+
+      return nextSelectedIds.size === currentSelectedIds.size
+        ? currentSelectedIds
+        : nextSelectedIds
+    })
+  }, [items.ganho, items.perdido])
 
   useEffect(() => {
     let isCurrentSearch = true
@@ -2531,16 +2743,16 @@ export default function SalesCyclesKanban({
   const setGroupForCycle = useCallback(async (cycleId: string, groupId: string | null) => {
     setSavingId(cycleId)
     setError(null)
-  
+
     try {
       const data = await postKanbanAction({
         action: 'set_group',
         cycle_id: cycleId,
         group_id: groupId,
       })
-  
+
       if (!data.success) throw new Error('Ciclo não encontrado ou sem permissão')
-  
+
       await loadItems(searchTerm)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao vincular grupo')
@@ -2610,38 +2822,38 @@ export default function SalesCyclesKanban({
 
   const confirmCreateGroup = useCallback(async (groupName: string) => {
     if (!createGroupRequest) return
-  
+
     setCreatingGroup(true)
     setError(null)
-  
+
     try {
       const data = await postKanbanAction({
         action: 'create_group',
         name: groupName.trim(),
       })
-  
+
       if (!data.success || !data.id) throw new Error('Falha ao criar grupo')
-  
+
       const createdGroupName = data.name ?? groupName.trim()
       const createdGroup = {
         id: data.id,
         name: createdGroupName,
       }
-  
+
       await loadGroups()
-  
+
       setGroups((currentGroups) => {
         const alreadyExists = currentGroups.some((group) => group.id === createdGroup.id)
-  
+
         if (alreadyExists) {
           return currentGroups
         }
-  
+
         return [...currentGroups, createdGroup].sort((a, b) =>
           a.name.localeCompare(b.name, 'pt-BR'),
         )
       })
-  
+
       if (createGroupRequest.target === 'bulk') {
         setBulkGroup(data.id)
         addToast(`Grupo "${createdGroupName}" criado e selecionado. Clique em "Agrupar Todos" para vincular os leads.`)
