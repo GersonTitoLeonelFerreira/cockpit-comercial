@@ -101,6 +101,7 @@ const STATUS_STAGE_ACTION_META: Record<
 interface CyclePageTabsProps {
   cycle: any
   events: CycleEvent[]
+  historyEvents?: CycleEvent[]
   leadProfile: any
   companyId: string
 }
@@ -136,7 +137,13 @@ function getQuickActionToastLabel(actionId: string): string {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function CyclePageTabs({ cycle, events, leadProfile, companyId }: CyclePageTabsProps) {
+export default function CyclePageTabs({
+  cycle,
+  events,
+  historyEvents,
+  leadProfile,
+  companyId,
+}: CyclePageTabsProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [loading, setLoading] = useState(false)
@@ -197,8 +204,9 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
   const lead = cycle.leads as { id?: string; name?: string; phone?: string; email?: string } | null
   const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
   const waLink = whatsappLink(lead?.phone)
-  const { badge: nextActionBadge, borderColor: nextActionBorderColor } = getNextActionUrgency(cycle.next_action_date as string | null)
 
+  const timelineEvents = historyEvents ?? events
+  const historyEntityLabel = historyEvents ? 'lead' : 'ciclo'
   // --------------------------------------------------------------------------
   // Handlers
   // --------------------------------------------------------------------------
@@ -660,7 +668,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             alignItems: 'flex-start',
             gap: 12,
             flexWrap: 'wrap',
-            marginBottom: events.length > 0 ? 14 : 0,
+            marginBottom: timelineEvents.length > 0 ? 14 : 0,
           }}
         >
           <div>
@@ -677,7 +685,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               Histórico
             </div>
             <div style={{ color: '#8fa3bc', fontSize: 12, lineHeight: 1.5 }}>
-              Linha do tempo completa das movimentações, contatos e registros do ciclo.
+            Linha do tempo completa das movimentações, contatos e registros do {historyEntityLabel}.
             </div>
           </div>
 
@@ -693,11 +701,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
               whiteSpace: 'nowrap',
             }}
           >
-            {events.length} registro{events.length === 1 ? '' : 's'}
+            {timelineEvents.length} registro{timelineEvents.length === 1 ? '' : 's'}
           </div>
         </div>
 
-        {events.length > 0 && (
+        {timelineEvents.length > 0 && (
           <div
             style={{
               background: '#0d0f14',
@@ -733,14 +741,14 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }}
-                title={getEventTitle(events[0])}
+                title={getEventTitle(timelineEvents[0])}
               >
-                {getEventTitle(events[0])}
+                {getEventTitle(timelineEvents[0])}
               </div>
             </div>
 
             <span style={{ color: '#546070', fontSize: 11, whiteSpace: 'nowrap' }}>
-              {fmtDate(events[0].occurred_at)}
+            {fmtDate(timelineEvents[0].occurred_at)}
             </span>
           </div>
         )}
@@ -759,7 +767,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
         </div>
       )}
 
-      {events.length === 0 && cycle.status !== 'ganho' ? (
+{timelineEvents.length === 0 && cycle.status !== 'ganho' ? (
         <div
           style={{
             background: '#111318',
@@ -787,7 +795,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
           }}
         >
           <div style={{ display: 'grid', gap: 10 }}>
-            {events.map((event) => {
+          {timelineEvents.map((event) => {
               const cls = classifyEvent(event)
               const dotColor = EVENT_CLASS_DOT_COLOR[cls]
 
@@ -854,7 +862,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       borderRadius: 16,
       padding: 16,
     }
-  
+
     const titleStyle: React.CSSProperties = {
       color: '#edf2f7',
       fontWeight: 900,
@@ -863,11 +871,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
       textTransform: 'uppercase',
       letterSpacing: '0.08em',
     }
-  
+
     const birthDateLabel = leadProfile?.birth_date
       ? new Date(`${leadProfile.birth_date}T00:00:00`).toLocaleDateString('pt-BR')
       : null
-  
+
     return (
       <div style={{ display: 'grid', gap: 16 }}>
         <div
@@ -938,11 +946,11 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
             </button>
           </div>
         </div>
-  
+
         {editingLead ? (
           <div style={sectionStyle}>
             <h3 style={{ ...titleStyle, marginBottom: 12 }}>Dados básicos</h3>
-  
+
             <div style={{ display: 'grid', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#8fa3bc', marginBottom: 4 }}>Nome</label>
@@ -963,7 +971,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   }}
                 />
               </div>
-  
+
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#8fa3bc', marginBottom: 4 }}>Telefone</label>
                 <input
@@ -983,7 +991,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   }}
                 />
               </div>
-  
+
               <div>
                 <label style={{ display: 'block', fontSize: 12, color: '#8fa3bc', marginBottom: 4 }}>Email</label>
                 <input
@@ -1003,7 +1011,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                   }}
                 />
               </div>
-  
+
               <button
                 onClick={handleSaveLead}
                 disabled={leadEditLoading}
@@ -1038,7 +1046,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 <DataRow label="Razão social" value={leadProfile?.razao_social} />
               </div>
             </div>
-  
+
             <div style={sectionStyle}>
               <h3 style={{ ...titleStyle, marginBottom: 16 }}>Documentos e perfil</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1054,7 +1062,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 <DataRow label="Estado civil" value={leadProfile?.marital_status} />
               </div>
             </div>
-  
+
             <div style={sectionStyle}>
               <h3 style={{ ...titleStyle, marginBottom: 16 }}>Endereço</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1068,7 +1076,7 @@ export default function CyclePageTabs({ cycle, events, leadProfile, companyId }:
                 <DataRow label="País" value={leadProfile?.address_country} />
               </div>
             </div>
-  
+
             <div style={sectionStyle}>
               <h3 style={{ ...titleStyle, marginBottom: 16 }}>Contato de emergência</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

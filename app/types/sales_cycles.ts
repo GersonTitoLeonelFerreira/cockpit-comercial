@@ -16,6 +16,13 @@ export const OPEN_STATUSES: LeadStatus[] = ['novo', 'contato', 'respondeu', 'neg
 export const COMMERCIAL_CLOSE_STATUSES: LeadStatus[] = ['ganho', 'perdido']
 export const TERMINAL_STATUSES: LeadStatus[] = ['ganho', 'perdido', 'cancelado']
 
+export type OpportunityType =
+  | 'reativacao'
+  | 'renovacao'
+  | 'recompra'
+  | 'upgrade'
+  | 'novo_produto'
+
 export type CycleEventType =
   | 'cycle_created'
   | 'owner_assigned'
@@ -57,6 +64,8 @@ export interface SalesCycle {
   paused_reason: string | null
   canceled_at: string | null
   canceled_reason: string | null
+  origin_cycle_id: string | null
+  opportunity_type: OpportunityType | null
 }
 
 export interface CycleEvent {
@@ -65,7 +74,7 @@ export interface CycleEvent {
   cycle_id: string
   event_type: CycleEventType
   created_by: string
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   occurred_at: string
 }
 
@@ -163,7 +172,7 @@ export interface RpcCycleResponse {
 export interface MoveCycleStageRequest {
   cycle_id: string
   to_status: LeadStatus
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface AssignCycleOwnerRequest {
