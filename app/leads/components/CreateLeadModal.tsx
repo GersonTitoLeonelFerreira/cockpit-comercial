@@ -816,74 +816,33 @@ export default function CreateLeadModal({
   }
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.7)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9999,
-      }}
-      onClick={onClose}
-    >
+    <div className="create-lead-modal-overlay" onClick={onClose}>
       <div
-        style={{
-          background: '#111',
-          border: '1px solid #333',
-          borderRadius: 12,
-          padding: 24,
-          width: '90%',
-          maxWidth: 700,
-          color: 'white',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-        }}
+        className="create-lead-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-lead-modal-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 20,
-          }}
-        >
-          <div style={{ fontSize: 18, fontWeight: 900 }}>Criar Novo Lead</div>
+        <div className="create-lead-modal__header">
+          <div id="create-lead-modal-title" className="create-lead-modal__title">
+            Criar Novo Lead
+          </div>
+
           <button
+            type="button"
             onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#999',
-              cursor: 'pointer',
-              fontSize: 24,
-              padding: 0,
-            }}
+            className="create-lead-modal__close"
+            aria-label="Fechar criação de lead"
           >
             ✕
           </button>
         </div>
 
+        <div className="create-lead-modal__body">
+
         {error && (
-          <div
-            style={{
-              background: '#7f1d1d',
-              color: '#fecaca',
-              padding: 12,
-              borderRadius: 10,
-              marginBottom: 16,
-              fontSize: 12,
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
+          <div className="create-lead-modal__alert create-lead-modal__alert--error">
             <div>
               <div>{error}</div>
               {errorConflictLead && buildConflictLeadMeta(errorConflictLead) && (
@@ -1414,35 +1373,19 @@ export default function CreateLeadModal({
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+<div className="create-lead-modal__actions">
               <button
+                type="button"
                 onClick={onClose}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: 8,
-                  border: '1px solid #2a2a2a',
-                  background: 'transparent',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontWeight: 900,
-                  fontSize: 13,
-                }}
+                className="create-lead-modal__button create-lead-modal__button--secondary"
               >
                 Cancelar
               </button>
 
               <button
+                type="button"
                 onClick={handleNextStep}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: '#3b82f6',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontWeight: 900,
-                  fontSize: 13,
-                }}
+                className="create-lead-modal__button create-lead-modal__button--primary"
               >
                 Próximo →
               </button>
@@ -1560,28 +1503,21 @@ export default function CreateLeadModal({
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+<div className="create-lead-modal__actions">
               <button
+                type="button"
                 onClick={() => {
                   setError(null)
                   setErrorConflictLead(null)
                   setStep('form')
                 }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: 8,
-                  border: '1px solid #2a2a2a',
-                  background: 'transparent',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontWeight: 900,
-                  fontSize: 13,
-                }}
+                className="create-lead-modal__button create-lead-modal__button--secondary"
               >
                 ← Voltar
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   if (cpfConflictLead?.deleted_at && isAdmin) {
                     void handleAdminReactivateLead()
@@ -1591,17 +1527,7 @@ export default function CreateLeadModal({
                   void handleCreateLead()
                 }}
                 disabled={loading}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: '#10b981',
-                  color: 'white',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontWeight: 900,
-                  fontSize: 13,
-                  opacity: loading ? 0.6 : 1,
-                }}
+                className="create-lead-modal__button create-lead-modal__button--success"
               >
                 {loading
                   ? cpfConflictLead?.deleted_at && isAdmin
@@ -1614,7 +1540,237 @@ export default function CreateLeadModal({
             </div>
           </>
         )}
+        </div>
       </div>
+
+      <style jsx global>{`
+        .create-lead-modal-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          background: rgba(3, 5, 10, 0.8);
+          backdrop-filter: blur(10px);
+        }
+
+        .create-lead-modal {
+          width: min(720px, 100%);
+          max-height: min(860px, calc(100vh - 48px));
+          overflow-y: auto;
+          color: #f4f4f5;
+          background:
+            radial-gradient(circle at top right, rgba(37, 99, 235, 0.1), transparent 32%),
+            linear-gradient(180deg, #111318 0%, #0d0f14 100%);
+          border: 1px solid #1a1d2e;
+          border-radius: 22px;
+          box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58);
+        }
+
+        .create-lead-modal::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .create-lead-modal::-webkit-scrollbar-thumb {
+          border: 2px solid #0d0f14;
+          border-radius: 999px;
+          background: #2a3042;
+        }
+
+        .create-lead-modal__header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 24px 24px 18px;
+          border-bottom: 1px solid #1a1d2e;
+        }
+
+        .create-lead-modal__title {
+          font-size: 18px;
+          font-weight: 900;
+          letter-spacing: -0.02em;
+          color: #f4f4f5;
+        }
+
+        .create-lead-modal__close {
+          display: inline-flex;
+          width: 36px;
+          height: 36px;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #1a1d2e;
+          border-radius: 10px;
+          background: #090b0f;
+          color: #a1a1aa;
+          cursor: pointer;
+          font-size: 18px;
+          line-height: 1;
+          transition: 160ms ease;
+        }
+
+        .create-lead-modal__close:hover {
+          border-color: #2e3650;
+          background: #151823;
+          color: #ffffff;
+        }
+
+        .create-lead-modal__body {
+          padding: 22px 24px 24px;
+        }
+
+        .create-lead-modal label {
+          margin-bottom: 7px !important;
+          font-size: 11px !important;
+          font-weight: 900 !important;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #71717a !important;
+        }
+
+        .create-lead-modal input,
+        .create-lead-modal select,
+        .create-lead-modal textarea {
+          border-radius: 12px !important;
+          background: #090b0f !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+          transition:
+            border-color 160ms ease,
+            box-shadow 160ms ease,
+            background 160ms ease;
+        }
+
+        .create-lead-modal input,
+        .create-lead-modal select {
+          min-height: 44px;
+        }
+
+        .create-lead-modal textarea {
+          min-height: 104px !important;
+          font-family: inherit !important;
+          line-height: 1.5;
+          resize: vertical;
+        }
+
+        .create-lead-modal input::placeholder,
+        .create-lead-modal textarea::placeholder {
+          color: #52525b;
+        }
+
+        .create-lead-modal input:focus,
+        .create-lead-modal select:focus,
+        .create-lead-modal textarea:focus {
+          outline: none !important;
+          box-shadow:
+            0 0 0 3px rgba(59, 130, 246, 0.12),
+            inset 0 1px 0 rgba(255, 255, 255, 0.02) !important;
+        }
+
+        .create-lead-modal__alert {
+          margin-bottom: 18px;
+          padding: 14px;
+          border: 1px solid rgba(248, 113, 113, 0.28);
+          border-radius: 14px;
+          background: rgba(127, 29, 29, 0.2);
+          color: #fecaca;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .create-lead-modal__actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          padding-top: 4px;
+        }
+
+        .create-lead-modal__button {
+          display: inline-flex;
+          min-height: 42px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 12px;
+          padding: 10px 16px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 900;
+          transition:
+            transform 160ms ease,
+            border-color 160ms ease,
+            background 160ms ease,
+            box-shadow 160ms ease;
+        }
+
+        .create-lead-modal__button:hover:not(:disabled) {
+          transform: translateY(-1px);
+        }
+
+        .create-lead-modal__button:disabled {
+          cursor: not-allowed;
+          opacity: 0.58;
+        }
+
+        .create-lead-modal__button--secondary {
+          border: 1px solid #1f2434;
+          background: #111318;
+          color: #e4e4e7;
+        }
+
+        .create-lead-modal__button--secondary:hover:not(:disabled) {
+          border-color: #303850;
+          background: #171a24;
+        }
+
+        .create-lead-modal__button--primary {
+          border: 1px solid rgba(96, 165, 250, 0.24);
+          background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+          color: #ffffff;
+          box-shadow: 0 12px 28px rgba(37, 99, 235, 0.25);
+        }
+
+        .create-lead-modal__button--primary:hover:not(:disabled) {
+          background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+        }
+
+        .create-lead-modal__button--success {
+          border: 1px solid rgba(52, 211, 153, 0.22);
+          background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+          color: #ffffff;
+          box-shadow: 0 12px 28px rgba(5, 150, 105, 0.2);
+        }
+
+        .create-lead-modal__button--success:hover:not(:disabled) {
+          background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+        }
+
+        @media (max-width: 640px) {
+          .create-lead-modal-overlay {
+            align-items: flex-end;
+            padding: 12px;
+          }
+
+          .create-lead-modal {
+            max-height: calc(100vh - 24px);
+            border-radius: 20px;
+          }
+
+          .create-lead-modal__header,
+          .create-lead-modal__body {
+            padding-right: 16px;
+            padding-left: 16px;
+          }
+
+          .create-lead-modal__actions {
+            flex-direction: column-reverse;
+          }
+
+          .create-lead-modal__button {
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   )
 }
