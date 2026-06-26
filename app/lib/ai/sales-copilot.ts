@@ -785,6 +785,7 @@ function buildSystemPrompt(): string {
     'Você não deve forçar passagem obrigatória por todas as etapas se a conversa já indicar estágio mais avançado.',
     'Classifique pelo ESTADO OPERACIONAL FINAL da conversa, e não pelo primeiro sinal forte encontrado no meio do texto.',
     'Se houve objeção ou discussão comercial no meio da conversa, mas ao final o cliente aceitou visitar, marcou test drive ou confirmou horário — a etapa correta é respondeu (AGENDA), não negociacao.',
+    'Pedido explícito de retorno com dia ou período definido — por exemplo, "pode me chamar na sexta de manhã" — também é AGENDA (respondeu), mesmo se ainda houver objeção de preço.',
     'Só recomende ganho ou perdido quando houver evidência explícita.',
     'Se não houver evidência forte, seja conservador.',
     'Campos obrigatórios no JSON:',
@@ -904,6 +905,27 @@ export async function analyzeConversationWithCopilotDetailed(
     return {
       suggestion: fallbackDecision.suggestion,
       diagnostics,
+    }
+  }
+
+  const fallbackLocksFinalAgenda =
+    diagnostics.selected_rule === 'final_resolution' ||
+    diagnostics.selected_rule === 'final_resolution_over_negotiation'
+
+  if (fallbackLocksFinalAgenda) {
+    return {
+      suggestion: fallbackDecision.suggestion,
+      diagnostics: {
+        ...diagnostics,
+        engine: 'fallback',
+        fallback_rule: diagnostics.selected_rule,
+        selected_rule: diagnostics.selected_rule,
+        used_history: false,
+        notes: [
+          ...diagnostics.notes,
+          'A resposta do provider externo foi ignorada porque o desfecho final da conversa contém agenda ou compromisso concreto.',
+        ],
+      },
     }
   }
 
