@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
@@ -107,6 +108,7 @@ export default function LeadsClient({
   void userLabel
 
   const isAdmin = role === 'admin'
+const canManageReactivation = role === 'admin' || role === 'manager'
 
   const [period, setPeriod] = React.useState<{ start: string; end: string } | null>(null)
 
@@ -222,10 +224,41 @@ export default function LeadsClient({
 
   return (
     <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#546070', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          Meta exibida:
-        </div>
+     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+  {canManageReactivation ? (
+    <Link
+      href="/leads/reativacao"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 34,
+        padding: '0 12px',
+        borderRadius: 7,
+        border: '1px solid rgba(59,130,246,0.36)',
+        background: 'rgba(59,130,246,0.10)',
+        color: '#93c5fd',
+        fontSize: 12,
+        fontWeight: 800,
+        textDecoration: 'none',
+      }}
+    >
+      Reativar oportunidades
+    </Link>
+  ) : null}
+
+<div
+  style={{
+    marginLeft: 'auto',
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#546070',
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+  }}
+>
+  Meta exibida:
+</div>
         <select
           value={goalView}
           onChange={(e) => setGoalView(e.target.value as GoalView)}
