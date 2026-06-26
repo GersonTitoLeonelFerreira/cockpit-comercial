@@ -34,13 +34,8 @@ import {
   type CycleEvent,
   statusLabel,
   fmtDate,
-  fmtDateShort,
   whatsappLink,
-  statusBadgeStyle,
-  getNextActionUrgency,
   getEventTitle,
-  HEX_ALPHA_LIGHT,
-  HEX_ALPHA_MEDIUM,
   CheckpointCard,
   LostCard,
   WonCard,
@@ -99,9 +94,13 @@ const STATUS_STAGE_ACTION_META: Record<
 }
 
 interface CyclePageTabsProps {
+  // O detalhe recebe o objeto expandido da oportunidade e do lead.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cycle: any
   events: CycleEvent[]
   historyEvents?: CycleEvent[]
+  // O perfil possui campos opcionais variáveis conforme o cadastro do lead.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   leadProfile: any
   companyId: string
 }
@@ -125,6 +124,10 @@ function DataRow({ label, value }: { label: string; value?: string | null }) {
 // ---------------------------------------------------------------------------
 
 const TOAST_DURATION_MS = 4000
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 function getQuickActionToastLabel(actionId: string): string {
   if (actionId === 'quick_closed_won') return 'Fechamento registrado'
@@ -243,8 +246,8 @@ export default function CyclePageTabs({
       setActionDate('')
       setShowActionModal(false)
       router.refresh()
-    } catch (err: any) {
-      setToastError(`Erro ao salvar: ${err?.message ?? String(err)}`)
+    } catch (error: unknown) {
+      setToastError(`Erro ao salvar: ${getErrorMessage(error)}`)
     } finally {
       setLoading(false)
     }
@@ -266,8 +269,8 @@ export default function CyclePageTabs({
       if (error) throw error
       setEditingLead(false)
       router.refresh()
-    } catch (err: any) {
-      setToastError(`Erro ao salvar: ${err?.message ?? String(err)}`)
+    } catch (error: unknown) {
+      setToastError(`Erro ao salvar: ${getErrorMessage(error)}`)
     } finally {
       setLeadEditLoading(false)
     }
@@ -1651,7 +1654,7 @@ export default function CyclePageTabs({
             <LeadCopilotPanel
               variant="compact"
               forcedInitialStatus={aiMoveStatus}
-              cycle={cycle as any}
+              cycle={cycle}
               onApplied={async () => {
                 setAiMoveStatus(null)
                 router.refresh()
@@ -1810,8 +1813,8 @@ export default function CyclePageTabs({
               setSuggestedStatus(suggested)
             }
             router.refresh()
-          } catch (err: any) {
-            setToastError(`Erro: ${err?.message ?? String(err)}`)
+          } catch (error: unknown) {
+            setToastError(`Erro: ${getErrorMessage(error)}`)
           } finally {
             setQuickActionLoading(false)
           }
