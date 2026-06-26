@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { classifyEvent } from '@/app/config/eventClassification'
 import * as faturamentoService from '@/app/lib/services/faturamento'
 
@@ -38,7 +37,6 @@ const SCORE_SAUDAVEL = 70
 const SCORE_ATENCAO = 40
 const STALE_DAYS = 14
 
-const CLOSED_STATUSES = new Set(['ganho', 'perdido', 'cancelado'])
 
 const SYSTEM_EVENT_TYPES = new Set([
   'cycle_created',
@@ -314,46 +312,6 @@ type SellerScore = {
 // ==============================================================================
 // Fetch helpers
 // ==============================================================================
-
-async function fetchAllOpenCycles(
-  companyId: string,
-): Promise<RawCycle[]> {
-  const supabase = supabaseBrowser()
-
-  const rows: RawCycle[] = []
-  const pageSize = 1000
-
-  let from = 0
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('sales_cycles')
-      .select(
-        'id, owner_user_id, status, updated_at, next_action_date',
-      )
-      .eq('company_id', companyId)
-      .order('id', { ascending: true })
-      .range(from, from + pageSize - 1)
-
-    if (error) {
-      throw new Error(`Erro ao buscar carteira ativa: ${error.message}`)
-    }
-
-    const page = (data ?? []) as RawCycle[]
-
-    rows.push(...page)
-
-    if (page.length < pageSize) {
-      break
-    }
-
-    from += pageSize
-  }
-
-  return rows.filter(
-    (cycle) => !CLOSED_STATUSES.has(String(cycle.status ?? '').toLowerCase()),
-  )
-}
 
 // ==============================================================================
 // Score engine
@@ -1022,7 +980,6 @@ export default function ScoreDeAderenciaPage() {
       return
     }
 
-    const activeCompanyId = companyId
     let cancelled = false
 
     async function loadScores() {
@@ -1030,27 +987,42 @@ export default function ScoreDeAderenciaPage() {
       setDataError(null)
 
       try {
-        const eventSellerId = selectedSellerId ?? undefined
+        const params = new URLSearchParams({
+          date_start: dateStart,
+          date_end: dateEnd,
+        })
 
-        const [eventsData, openCycles] = await Promise.all([
-          fetchAllCycleEvents(supabase, {
-            companyId: activeCompanyId,
-            dateStart,
-            dateEnd,
-            sellerId: eventSellerId,
-            columns:
-              'id, cycle_id, event_type, metadata, created_by, occurred_at',
-          }),
-          fetchAllOpenCycles(activeCompanyId),
-        ])
+        if (selectedSellerId) {
+          params.set('seller_id', selectedSellerId)
+        }
+
+        const response = await fetch(
+          `/api/reports/governance/adherence?${params.toString()}`,
+          {
+            cache: 'no-store',
+          },
+        )
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: boolean
+          events?: RawEvent[]
+          open_cycles?: RawCycle[]
+          error?: string
+        }
+
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload.error ?? 'Erro ao carregar dados do Score de Aderência.',
+          )
+        }
 
         if (cancelled) {
           return
         }
 
         const data = buildScores({
-          events: eventsData as RawEvent[],
-          openCycles,
+          events: payload.events ?? [],
+          openCycles: payload.open_cycles ?? [],
           sellers,
           selectedSellerId,
           dateStart,
@@ -1085,7 +1057,6 @@ export default function ScoreDeAderenciaPage() {
     dateStart,
     selectedSellerId,
     sellers,
-    supabase,
   ])
 
   const summary = React.useMemo(() => {
