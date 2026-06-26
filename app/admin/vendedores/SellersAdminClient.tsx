@@ -441,18 +441,30 @@ export default function SellersAdminClient({
     setSuccessMessage(null)
 
     try {
-      await adminUpdateSellerAccess({
+      const result = await adminUpdateSellerAccess({
         companyId: activeCompanyId,
         sellerId: seller.seller_id,
         role: seller.role ?? 'member',
         isActive: nextStatus,
       })
 
+      const returnedToPoolCount = Number(
+        result.active_cycles_returned_to_pool ?? 0,
+      )
+
       setPendingSeller(null)
 
-      setSuccessMessage(
-        `${label} foi ${nextStatus ? 'ativado' : 'desativado'} com sucesso.`,
-      )
+      if (nextStatus) {
+        setSuccessMessage(`${label} foi ativado com sucesso.`)
+      } else if (returnedToPoolCount > 0) {
+        setSuccessMessage(
+          `${label} foi desativado. ${returnedToPoolCount} ciclo(s) ativo(s) retornaram ao Pool para redistribuição.`,
+        )
+      } else {
+        setSuccessMessage(
+          `${label} foi desativado. Não havia ciclos ativos para devolver ao Pool.`,
+        )
+      }
 
       await load()
     } catch (cause: unknown) {
@@ -1127,9 +1139,10 @@ export default function SellersAdminClient({
               lineHeight: 1.65,
             }}
           >
-            Desativar um vendedor remove o acesso operacional à empresa ativa,
-            mas preserva o histórico comercial e os resultados já registrados.
-            A carteira ativa e os ganhos exibidos seguem o período selecionado.
+            Desativar um vendedor remove o acesso operacional à empresa ativa.
+Todos os ciclos ativos da carteira retornam automaticamente ao Pool
+para redistribuição. O histórico comercial e os resultados já
+registrados permanecem preservados.
           </div>
         </section>
       </div>
@@ -1218,8 +1231,8 @@ export default function SellersAdminClient({
               }}
             >
               {pendingSeller.is_active
-                ? 'O vendedor perderá o acesso à empresa ativa. O histórico e os resultados permanecerão preservados.'
-                : 'O vendedor voltará a ter acesso à empresa ativa com o perfil atual.'}
+  ? 'O vendedor perderá o acesso à empresa ativa. Todos os ciclos ativos da carteira retornarão automaticamente ao Pool para redistribuição. O histórico e os resultados permanecerão preservados.'
+  : 'O vendedor voltará a ter acesso à empresa ativa com o perfil atual.'}
             </div>
 
             <div
