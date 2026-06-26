@@ -46,6 +46,17 @@ type ProductRelation = {
   category?: string | null
 }
 
+type ProfileRow = {
+  id: string
+  full_name: string | null
+  email: string | null
+}
+
+type GroupRow = {
+  id: string
+  name: string
+}
+
 type LeadCycle = SalesCycle & {
   products?: ProductRelation | null
 }
@@ -64,6 +75,22 @@ const OPPORTUNITY_TYPE_LABELS: OpportunityTypeLabel = {
   novo_produto: 'Novo produto',
 }
 
+function getProfileLabel(profile: ProfileRow | undefined, fallbackId: string) {
+  const fullName = profile?.full_name?.trim()
+
+  if (fullName) {
+    return fullName
+  }
+
+  const email = profile?.email?.trim()
+
+  if (email) {
+    return email
+  }
+
+  return `Usuário ${fallbackId.slice(0, 8)}`
+}
+
 function getOpportunityLabel(cycle: LeadCycle) {
   if (!cycle.origin_cycle_id) {
     return 'Oportunidade original'
@@ -77,7 +104,128 @@ function getOpportunityLabel(cycle: LeadCycle) {
 }
 
 function getOpportunityReferenceDate(cycle: LeadCycle) {
-  return cycle.won_at ?? cycle.lost_at ?? cycle.created_at
+  return cycle.won_at ?? cycle.lost_at ?? cycle.closed_at ?? cycle.created_at
+}
+
+function getCycleResponsibleOwnerId(cycle: LeadCycle) {
+  if (cycle.status === 'ganho') {
+    return cycle.won_owner_user_id ?? cycle.owner_user_id
+  }
+
+  if (cycle.status === 'perdido') {
+    return cycle.lost_owner_user_id ?? cycle.owner_user_id
+  }
+
+  return cycle.owner_user_id
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value)
+}
+
+function getCycleOutcomeLabel(cycle: LeadCycle) {
+  if (cycle.status === 'ganho') {
+    if (cycle.won_total !== null && Number.isFinite(cycle.won_total)) {
+      return `Venda: ${formatCurrency(cycle.won_total)}`
+    }
+
+    return 'Venda ganha'
+  }
+
+  if (cycle.status === 'perdido') {
+    const reason = cycle.lost_reason?.trim()
+
+    return reason ? `Motivo: ${reason}` : 'Perda sem motivo informado'
+  }
+
+  const nextAction = cycle.next_action?.trim()
+
+  return nextAction ? `Próxima ação: ${nextAction}` : 'Em andamento'
+}
+
+function getCycleDateLabel(cycle: LeadCycle) {
+  if (cycle.status === 'ganho') {
+    return `Ganho em ${fmtDateShort(
+      cycle.won_at ?? cycle.closed_at ?? cycle.updated_at,
+    )}`
+  }
+
+  if (cycle.status === 'perdido') {
+    return `Perdido em ${fmtDateShort(
+      cycle.lost_at ?? cycle.closed_at ?? cycle.updated_at,
+    )}`
+  }
+
+  return `Criada em ${fmtDateShort(cycle.created_at)}`
+}
+
+function getCycleOriginLabel(
+  cycle: LeadCycle,
+  cyclesById: Map<string, LeadCycle>,
+) {
+  if (!cycle.origin_cycle_id) {
+    return 'Cadastro original'
+  }
+
+  const originCycle = cyclesById.get(cycle.origin_cycle_id)
+
+  if (!originCycle) {
+    return 'Oportunidade anterior'
+  }
+
+  return `${statusLabel(originCycle.status)} · ${fmtDateShort(
+    getOpportunityReferenceDate(originCycle),
+  )}`
+}
+
+function OpportunityCardMeta({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div
+      style={{
+        minWidth: 0,
+        padding: '7px 8px',
+        borderRadius: 8,
+        border: `1px solid ${DS.borderSubtle}`,
+        background: 'rgba(9,11,15,0.46)',
+      }}
+    >
+      <div
+        style={{
+          color: DS.textMuted,
+          fontSize: 9,
+          fontWeight: 850,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          marginBottom: 3,
+        }}
+      >
+        {label}
+      </div>
+
+      <div
+        title={value}
+        style={{
+          color: DS.textSecondary,
+          fontSize: 11,
+          fontWeight: 650,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  )
 }
 
 async function getLeadPageData(
@@ -173,8 +321,63 @@ async function getLeadPageData(
     (event) => event.cycle_id === selectedCycle.id,
   )
 
+  const responsibleUserIds = Array.from(
+    new Set(
+      cycles
+        .flatMap((cycle) => [
+          cycle.owner_user_id,
+          cycle.won_owner_user_id,
+          cycle.lost_owner_user_id,
+        ])
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  )
+
+  let responsibleProfiles: ProfileRow[] = []
+
+  if (responsibleUserIds.length > 0) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', responsibleUserIds)
+
+    responsibleProfiles = (data ?? []) as ProfileRow[]
+  }
+
+  const profileNameById = new Map(
+    responsibleProfiles.map((profile) => [
+      profile.id,
+      getProfileLabel(profile, profile.id),
+    ]),
+  )
+
+  const groupIds = Array.from(
+    new Set(
+      cycles
+        .map((cycle) => cycle.current_group_id)
+        .filter((groupId): groupId is string => Boolean(groupId)),
+    ),
+  )
+
+  let groups: GroupRow[] = []
+
+  if (groupIds.length > 0) {
+    const { data } = await supabase
+      .from('lead_groups')
+      .select('id, name')
+      .eq('company_id', activeCompanyId)
+      .in('id', groupIds)
+      .is('archived_at', null)
+
+    groups = (data ?? []) as GroupRow[]
+  }
+
+  const groupNameById = new Map(
+    groups.map((group) => [group.id, group.name]),
+  )
+
   const { data: leadProfile } = await supabase
-    .from('lead_profiles')
+  .from('lead_profiles')
     .select('*')
     .eq('lead_id', leadId)
     .eq('company_id', activeCompanyId)
@@ -199,7 +402,9 @@ async function getLeadPageData(
     selectedCycleEvents,
     allLeadEvents,
     leadProfile: leadProfile ?? null,
-    activeGroupName: groupRelation?.name ?? null,
+activeGroupName: groupRelation?.name ?? null,
+profileNameById,
+groupNameById,
   }
 }
 
@@ -225,15 +430,21 @@ export default async function LeadDetailPage({
     selectedCycle,
     selectedCycleEvents,
     allLeadEvents,
-    leadProfile,
-    activeGroupName,
+leadProfile,
+activeGroupName,
+profileNameById,
+groupNameById,
   } = await getLeadPageData(leadId, requestedOpportunityId)
 
   const selectedProduct = selectedCycle.products ?? null
   const selectedBadgeStyle = statusBadgeStyle(selectedCycle.status)
   const selectedCycleIsClosed =
-    selectedCycle.status === 'ganho' ||
-    selectedCycle.status === 'perdido'
+  selectedCycle.status === 'ganho' ||
+  selectedCycle.status === 'perdido'
+
+const cyclesById = new Map(
+  cycles.map((cycle) => [cycle.id, cycle]),
+)
 
   const selectedCycleWithLead = {
     ...selectedCycle,
@@ -453,96 +664,157 @@ export default async function LeadDetailPage({
           }}
         >
           {cycles.map((cycle) => {
-            const isSelected = cycle.id === selectedCycle.id
-            const badgeStyle = statusBadgeStyle(cycle.status)
-            const productName =
-              cycle.products?.name ?? 'Produto não informado'
+  const isSelected = cycle.id === selectedCycle.id
+  const badgeStyle = statusBadgeStyle(cycle.status)
+  const productName =
+    cycle.products?.name ?? 'Produto não informado'
 
-            return (
-              <Link
-                key={cycle.id}
-                href={`/leads/${lead.id}?opportunity=${cycle.id}`}
-                style={{
-                  textDecoration: 'none',
-                  border: `1px solid ${
-                    isSelected
-                      ? 'rgba(59,130,246,0.45)'
-                      : DS.border
-                  }`,
-                  background: isSelected
-                    ? 'rgba(59,130,246,0.08)'
-                    : DS.surfaceBg,
-                  borderRadius: 12,
-                  padding: '11px 12px',
-                  display: 'grid',
-                  gap: 6,
-                  minWidth: 0,
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: isSelected
-                        ? DS.blueSoft
-                        : DS.textSecondary,
-                      fontSize: 10,
-                      fontWeight: 900,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {getOpportunityLabel(cycle)}
-                  </span>
+  const responsibleOwnerId = getCycleResponsibleOwnerId(cycle)
 
-                  <span
-                    style={{
-                      ...badgeStyle,
-                      borderRadius: 999,
-                      padding: '3px 7px',
-                      fontSize: 9,
-                      fontWeight: 800,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {statusLabel(cycle.status)}
-                  </span>
-                </div>
+  const responsibleLabel = responsibleOwnerId
+    ? profileNameById.get(responsibleOwnerId) ??
+      'Responsável não informado'
+    : cycle.status === 'novo'
+      ? 'Pool'
+      : 'Sem responsável definido'
 
-                <div
-                  style={{
-                    color: DS.textPrimary,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={productName}
-                >
-                  {productName}
-                </div>
+  const groupLabel = cycle.current_group_id
+    ? groupNameById.get(cycle.current_group_id) ??
+      'Grupo não informado'
+    : 'Sem grupo'
 
-                <div
-                  style={{
-                    color: DS.textMuted,
-                    fontSize: 11,
-                  }}
-                >
-                  {fmtDateShort(getOpportunityReferenceDate(cycle))}
-                </div>
-              </Link>
-            )
-          })}
+  const originLabel = getCycleOriginLabel(cycle, cyclesById)
+  const outcomeLabel = getCycleOutcomeLabel(cycle)
+  const dateLabel = getCycleDateLabel(cycle)
+
+  const outcomeColor =
+    cycle.status === 'ganho'
+      ? '#86efac'
+      : cycle.status === 'perdido'
+        ? '#fca5a5'
+        : DS.textSecondary
+
+  return (
+    <Link
+      key={cycle.id}
+      href={`/leads/${lead.id}?opportunity=${cycle.id}`}
+      style={{
+        textDecoration: 'none',
+        border: `1px solid ${
+          isSelected
+            ? 'rgba(59,130,246,0.50)'
+            : DS.border
+        }`,
+        background: isSelected
+          ? 'rgba(59,130,246,0.08)'
+          : DS.surfaceBg,
+        borderRadius: 12,
+        padding: '12px',
+        display: 'grid',
+        gap: 9,
+        minWidth: 0,
+        boxShadow: isSelected
+          ? '0 0 0 1px rgba(59,130,246,0.10)'
+          : 'none',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span
+          style={{
+            color: isSelected
+              ? DS.blueSoft
+              : DS.textSecondary,
+            fontSize: 10,
+            fontWeight: 900,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {getOpportunityLabel(cycle)}
+        </span>
+
+        <span
+          style={{
+            ...badgeStyle,
+            borderRadius: 999,
+            padding: '3px 7px',
+            fontSize: 9,
+            fontWeight: 800,
+            flexShrink: 0,
+          }}
+        >
+          {statusLabel(cycle.status)}
+        </span>
+      </div>
+
+      <div
+        title={productName}
+        style={{
+          color: DS.textPrimary,
+          fontSize: 13,
+          fontWeight: 850,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {productName}
+      </div>
+
+      <div
+        title={outcomeLabel}
+        style={{
+          color: outcomeColor,
+          fontSize: 11,
+          fontWeight: 700,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {outcomeLabel}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: 7,
+        }}
+      >
+        <OpportunityCardMeta
+          label="Responsável"
+          value={responsibleLabel}
+        />
+
+        <OpportunityCardMeta
+          label="Grupo"
+          value={groupLabel}
+        />
+
+        <OpportunityCardMeta
+          label="Origem"
+          value={originLabel}
+        />
+
+        <OpportunityCardMeta
+          label="Registro"
+          value={dateLabel}
+        />
+      </div>
+    </Link>
+  )
+})}
         </div>
       </section>
 
