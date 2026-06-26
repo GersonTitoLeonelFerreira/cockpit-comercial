@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import {
   STAGE_ACTIONS,
   STAGE_LABELS,
@@ -482,40 +481,60 @@ export default function AvancoPorAcaoPage() {
   React.useEffect(() => {
     if (companyId === null || currentUserId === null) return
 
-    const resolvedCompanyId: string = companyId
     const resolvedCurrentUserId: string = currentUserId
 
-    async function loadData() {
-      setLoadingData(true)
-      setError(null)
+async function loadData() {
+  setLoadingData(true)
+  setError(null)
 
-      try {
-        const events = await fetchAllCycleEvents(supabase, {
-          companyId: resolvedCompanyId,
-          dateStart,
-          dateEnd: addDays(dateEnd, 45),
-          columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-        })
+  try {
+    const params = new URLSearchParams({
+      date_start: dateStart,
+      date_end: addDays(dateEnd, 45),
+    })
 
-        const stats = buildActionStats(
-          events as RawEvent[],
-          dateStart,
-          dateEnd,
-          selectedSellerId,
-          isAdmin,
-          resolvedCurrentUserId,
-        )
+    const response = await fetch(
+      `/api/reports/operations/actions?${params.toString()}`,
+      {
+        cache: 'no-store',
+      },
+    )
 
-        setActionStats(stats)
-      } catch (cause: unknown) {
-        setError(cause instanceof Error ? cause.message : 'Erro ao carregar dados.')
-      } finally {
-        setLoadingData(false)
-      }
+    const payload = (await response.json().catch(() => ({}))) as {
+      ok?: boolean
+      events?: RawEvent[]
+      error?: string
     }
 
+    if (!response.ok || !payload.ok) {
+      throw new Error(
+        payload.error ?? 'Erro ao carregar dados do relatório.',
+      )
+    }
+
+    const stats = buildActionStats(
+      payload.events ?? [],
+      dateStart,
+      dateEnd,
+      selectedSellerId,
+      isAdmin,
+      resolvedCurrentUserId,
+    )
+
+    setActionStats(stats)
+  } catch (cause: unknown) {
+    setError(
+      cause instanceof Error
+        ? cause.message
+        : 'Erro ao carregar dados.',
+    )
+  } finally {
+    setLoadingData(false)
+  }
+}
+
     void loadData()
-  }, [companyId, currentUserId, dateStart, dateEnd, selectedSellerId, isAdmin, supabase])
+  }, [companyId, currentUserId, dateStart, dateEnd, selectedSellerId, isAdmin])
 
   const activeStats = actionStats.filter((stat) => stat.total > 0)
   const totalActions = activeStats.reduce((sum, stat) => sum + stat.total, 0)
