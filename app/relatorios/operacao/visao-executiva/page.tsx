@@ -2,7 +2,6 @@
 
 import React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 import { extractActionFromEvent } from '@/app/config/stageActions'
@@ -730,23 +729,47 @@ export default function VisaoExecutivaPage() {
           ? selectedSellerId ?? undefined
           : resolvedCurrentUserId
 
-        const [events, sellerRevenueRows, extraRevenueRows] = await Promise.all([
-          fetchAllCycleEvents(supabase, {
-            companyId: resolvedCompanyId,
-            dateStart,
-            dateEnd,
-            sellerId: isAdmin ? selectedSellerId : resolvedCurrentUserId,
-            columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-          }),
-          faturamentoService.getRevenueDailySellers(
-            supabase,
-            resolvedCompanyId,
-            revenueSellerId,
-          ),
-          isAdmin && !selectedSellerId
-            ? faturamentoService.getRevenueDailyExtras(supabase, resolvedCompanyId)
-            : Promise.resolve([]),
-        ])
+          const params = new URLSearchParams({
+            date_start: dateStart,
+            date_end: dateEnd,
+          })
+
+          if (isAdmin && selectedSellerId) {
+            params.set('seller_id', selectedSellerId)
+          }
+
+          const [actionsResponse, sellerRevenueRows, extraRevenueRows] =
+            await Promise.all([
+              fetch(
+                `/api/reports/operations/actions?${params.toString()}`,
+                {
+                  cache: 'no-store',
+                },
+              ),
+              faturamentoService.getRevenueDailySellers(
+                supabase,
+                resolvedCompanyId,
+                revenueSellerId,
+              ),
+              isAdmin && !selectedSellerId
+                ? faturamentoService.getRevenueDailyExtras(
+                    supabase,
+                    resolvedCompanyId,
+                  )
+                : Promise.resolve([]),
+            ])
+
+          const payload = (await actionsResponse.json().catch(() => ({}))) as {
+            ok?: boolean
+            events?: RawEvent[]
+            error?: string
+          }
+
+          if (!actionsResponse.ok || !payload.ok) {
+            throw new Error(
+              payload.error ?? 'Erro ao carregar eventos da Visão Executiva.',
+            )
+          }
 
         const sellerRevenueRowsInPeriod = filterRevenueByPeriod(
           sellerRevenueRows,
@@ -776,7 +799,7 @@ export default function VisaoExecutivaPage() {
 
         setData(
           buildExecutiveData(
-            (events ?? []) as RawEvent[],
+            payload.events ?? [],
             dateStart,
             dateEnd,
             selectedSellerId,
@@ -1361,4 +1384,3 @@ const navButtonStyle: React.CSSProperties = {
   padding: '8px 12px',
   textDecoration: 'none',
 }
-
