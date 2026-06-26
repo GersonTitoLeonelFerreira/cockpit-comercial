@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import {
   STAGE_ACTIONS,
   STAGE_LABELS,
@@ -332,32 +331,53 @@ export default function AcoesPorEtapaPage() {
   React.useEffect(() => {
     if (companyId === null || currentUserId === null) return
 
-    const resolvedCompanyId: string = companyId
-    const resolvedCurrentUserId: string = currentUserId
-
     async function loadData() {
       setLoadingData(true)
       setError(null)
-
+    
       try {
-        const events = await fetchAllCycleEvents(supabase, {
-          companyId: resolvedCompanyId,
-          dateStart,
-          dateEnd,
-          sellerId: isAdmin ? selectedSellerId : resolvedCurrentUserId,
-          columns: 'id, cycle_id, event_type, metadata, created_by, occurred_at',
+        const params = new URLSearchParams({
+          date_start: dateStart,
+          date_end: dateEnd,
         })
-
-        setBreakdowns(buildBreakdowns(events as RawEvent[]))
+    
+        if (isAdmin && selectedSellerId) {
+          params.set('seller_id', selectedSellerId)
+        }
+    
+        const response = await fetch(
+          `/api/reports/operations/actions?${params.toString()}`,
+          {
+            cache: 'no-store',
+          },
+        )
+    
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: boolean
+          events?: RawEvent[]
+          error?: string
+        }
+    
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload.error ?? 'Erro ao carregar ações do relatório.',
+          )
+        }
+    
+        setBreakdowns(buildBreakdowns(payload.events ?? []))
       } catch (cause: unknown) {
-        setError(cause instanceof Error ? cause.message : 'Erro ao carregar dados.')
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Erro ao carregar dados.',
+        )
       } finally {
         setLoadingData(false)
       }
     }
 
     void loadData()
-  }, [companyId, currentUserId, dateStart, dateEnd, selectedSellerId, isAdmin, supabase])
+  }, [companyId, currentUserId, dateStart, dateEnd, selectedSellerId, isAdmin])
 
   const totalActions = breakdowns.reduce((sum, breakdown) => sum + breakdown.total, 0)
   const mostActiveStage =
