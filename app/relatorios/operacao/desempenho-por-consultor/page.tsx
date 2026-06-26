@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS, resolveCheckpointData } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 import {
@@ -582,15 +581,35 @@ export default function DesempenhoPorConsultorPage() {
       setError(null)
 
       try {
-        const [events, revenueRows] = await Promise.all([
-          fetchAllCycleEvents(supabase, {
-            companyId: resolvedCompanyId,
-            dateStart,
-            dateEnd,
-            columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-          }),
-          faturamentoService.getRevenueDailySellers(supabase, resolvedCompanyId),
+        const params = new URLSearchParams({
+          date_start: dateStart,
+          date_end: dateEnd,
+        })
+
+        const [actionsResponse, revenueRows] = await Promise.all([
+          fetch(
+            `/api/reports/operations/actions?${params.toString()}`,
+            {
+              cache: 'no-store',
+            },
+          ),
+          faturamentoService.getRevenueDailySellers(
+            supabase,
+            resolvedCompanyId,
+          ),
         ])
+
+        const payload = (await actionsResponse.json().catch(() => ({}))) as {
+          ok?: boolean
+          events?: RawEvent[]
+          error?: string
+        }
+
+        if (!actionsResponse.ok || !payload.ok) {
+          throw new Error(
+            payload.error ?? 'Erro ao carregar eventos do relatório.',
+          )
+        }
 
         const revenueBySeller = new Map<string, number>()
 
@@ -604,7 +623,7 @@ export default function DesempenhoPorConsultorPage() {
 
         setStats(
           buildStats(
-            events as RawEvent[],
+            payload.events ?? [],
             sellers,
             revenueBySeller,
             dateStart,
