@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
-import { fetchAllCycleEvents } from '@/app/lib/supabasePaginatedFetch'
 import { STAGE_LABELS } from '@/app/config/stageActions'
 import { classifyEvent } from '@/app/config/eventClassification'
 import {
@@ -83,6 +82,13 @@ function getThirtyDaysAgo() {
 
 function getTodayDate() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function addDays(dateString: string, days: number) {
+  const date = new Date(`${dateString}T12:00:00`)
+  date.setDate(date.getDate() + days)
+
+  return date.toISOString().slice(0, 10)
 }
 
 function safePct(numerator: number, denominator: number) {
@@ -371,38 +377,58 @@ export default function CanaisPage() {
   React.useEffect(() => {
     if (companyId === null || currentUserId === null) return
 
-    const resolvedCompanyId: string = companyId
     const resolvedCurrentUserId: string = currentUserId
 
-    async function loadReport() {
-      setLoadingData(true)
-      setError(null)
+async function loadReport() {
+  setLoadingData(true)
+  setError(null)
 
-      try {
-        const events = await fetchAllCycleEvents(supabase, {
-          companyId: resolvedCompanyId,
-          dateStart,
-          dateEnd,
-          columns: 'id, cycle_id, event_type, metadata, occurred_at, created_by',
-        })
+  try {
+    const params = new URLSearchParams({
+      date_start: dateStart,
+      date_end: addDays(dateEnd, 45),
+    })
 
-        setStats(
-          buildChannelStats(
-            events as RawEvent[],
-            dateStart,
-            dateEnd,
-            selectedSellerId,
-            isAdmin,
-            resolvedCurrentUserId,
-            selectedStage,
-          ),
-        )
-      } catch (cause: unknown) {
-        setError(cause instanceof Error ? cause.message : 'Erro ao carregar dados.')
-      } finally {
-        setLoadingData(false)
-      }
+    const response = await fetch(
+      `/api/reports/operations/actions?${params.toString()}`,
+      {
+        cache: 'no-store',
+      },
+    )
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      ok?: boolean
+      events?: RawEvent[]
+      error?: string
     }
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(
+        payload.error ?? 'Erro ao carregar dados do relatório.',
+      )
+    }
+
+    setStats(
+      buildChannelStats(
+        payload.events ?? [],
+        dateStart,
+        dateEnd,
+        selectedSellerId,
+        isAdmin,
+        resolvedCurrentUserId,
+        selectedStage,
+      ),
+    )
+  } catch (cause: unknown) {
+    setError(
+      cause instanceof Error
+        ? cause.message
+        : 'Erro ao carregar dados.',
+    )
+  } finally {
+    setLoadingData(false)
+  }
+}
 
     void loadReport()
   }, [
@@ -413,7 +439,6 @@ export default function CanaisPage() {
     selectedSellerId,
     selectedStage,
     isAdmin,
-    supabase,
   ])
 
   if (loading) {
