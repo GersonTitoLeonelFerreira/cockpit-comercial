@@ -12,6 +12,7 @@ import {
 } from '@/app/lib/sales-cycle-status'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
 import type { AISalesSuggestion, ConversationSource, AIAuditDiagnostics } from '@/app/types/ai-sales'
+import AICoachingReview from '@/app/components/leads/AICoachingReview'
 
 type SalesCycleWithLead = SalesCycle & {
   leads?: {
@@ -1008,6 +1009,18 @@ export default function LeadCopilotPanel({
               </div>
             </div>
           </div>
+
+          <AICoachingReview
+            cycleId={cycle.id}
+            conversationText={conversationText}
+            source={source}
+            suggestion={suggestion}
+            persistenceSource={
+              compact
+                ? 'ai_copilot_kanban'
+                : 'ai_copilot_detail'
+            }
+          />
 
           {/* ============================================================ */}
           {/* Auditoria — escondida por padrão, expande com o botão        */}
