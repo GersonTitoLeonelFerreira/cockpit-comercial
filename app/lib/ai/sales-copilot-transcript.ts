@@ -549,8 +549,37 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
     return null
   }
 
+  function readPeriodTime(): { hour: number; minute: number } | null {
+    if (/\b(?:de|pela)\s+manha\b/.test(compare)) {
+      return { hour: 9, minute: 0 }
+    }
+
+    if (/\b(?:de|a|pela)\s+tarde\b/.test(compare)) {
+      return { hour: 15, minute: 0 }
+    }
+
+    if (/\b(?:de|a|pela)\s+noite\b/.test(compare)) {
+      return { hour: 19, minute: 0 }
+    }
+
+    return null
+  }
+
+  function readWeekday(): number | null {
+    if (/\bdomingo\b/.test(compare)) return 0
+    if (/\bsegunda(?: feira)?\b/.test(compare)) return 1
+    if (/\bterca(?: feira)?\b/.test(compare)) return 2
+    if (/\bquarta(?: feira)?\b/.test(compare)) return 3
+    if (/\bquinta(?: feira)?\b/.test(compare)) return 4
+    if (/\bsexta(?: feira)?\b/.test(compare)) return 5
+    if (/\bsabado\b/.test(compare)) return 6
+
+    return null
+  }
+
   const explicitDateMatch = text.match(/\b(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/)
-  const time = readTime()
+  const time = readTime() ?? readPeriodTime()
+  const weekday = readWeekday()
   const businessNow = getBusinessDateParts(new Date())
 
   if (explicitDateMatch) {
@@ -603,6 +632,40 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
       target.day,
       time?.hour ?? 9,
       time?.minute ?? 0,
+    )
+  }
+
+  if (weekday !== null) {
+    const currentWeekday = new Date(
+      Date.UTC(businessNow.year, businessNow.month - 1, businessNow.day, 12, 0, 0)
+    ).getUTCDay()
+
+    let daysToAdd = (weekday - currentWeekday + 7) % 7
+
+    const targetHour = time?.hour ?? 9
+    const targetMinute = time?.minute ?? 0
+
+    const requestedTimeAlreadyPassed =
+      businessNow.hour > targetHour ||
+      (businessNow.hour === targetHour && businessNow.minute >= targetMinute)
+
+    if (daysToAdd === 0 && requestedTimeAlreadyPassed) {
+      daysToAdd = 7
+    }
+
+    const target = addBusinessCalendarDays(
+      businessNow.year,
+      businessNow.month,
+      businessNow.day,
+      daysToAdd,
+    )
+
+    return buildBusinessDate(
+      target.year,
+      target.month,
+      target.day,
+      targetHour,
+      targetMinute,
     )
   }
 

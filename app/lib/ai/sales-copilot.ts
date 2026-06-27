@@ -10,10 +10,8 @@ import type {
 } from '@/app/types/ai-sales'
 import {
   TERMINAL_SALES_CYCLE_STATUSES as TERMINAL_STATUSES,
-  buildSalesCycleAIGuide,
   getSalesCycleLabel,
 } from '@/app/lib/sales-cycle-status'
-import { buildSalesCopilotExamplesGuide } from '@/app/lib/ai/sales-copilot-examples'
 import {
   buildTranscriptSegments,
   buildTranscriptSignals,
@@ -31,20 +29,24 @@ type AnalyzeConversationInput = {
   source: ConversationSource
 }
 
+type ProviderCommercialFacts = {
+  lead_responded?: boolean
+  no_response?: boolean
+  commercial_objection_active?: boolean
+  follow_up_requested?: boolean
+  follow_up_has_date_or_period?: boolean
+  visit_or_test_drive_scheduled?: boolean
+  explicit_win?: boolean
+  explicit_loss?: boolean
+  final_intent?: string | null
+}
+
 type ProviderRawSuggestion = {
-  recommended_status?: string
   confidence?: number
   action_channel?: string | null
-  action_result?: string | null
-  result_detail?: string | null
-  next_action?: string | null
-  next_action_date?: string | null
   summary?: string
   tags?: string[]
-  should_close_won?: boolean
-  should_close_lost?: boolean
-  close_reason?: string | null
-  reason_for_recommendation?: string
+  facts?: ProviderCommercialFacts
 }
 
 type ProviderCallResult = {
@@ -186,13 +188,6 @@ function clampConfidence(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return 0.6
   return Math.max(0, Math.min(1, n))
-}
-
-function isLeadStatus(value: unknown): value is LeadStatus {
-  return (
-    typeof value === 'string' &&
-    ['novo', 'contato', 'respondeu', 'negociacao', 'pausado', 'cancelado', 'ganho', 'perdido'].includes(value)
-  )
 }
 
 function normalizeWhitespace(text: string): string {
@@ -708,95 +703,243 @@ function buildFallbackAudit(input: AnalyzeConversationInput): FallbackAuditBuild
 }
 
 // ---------------------------------------------------------------------------
-// Sanitização da resposta do provider externo
+// IA extrai fatos; Yolen decide o estágio operacional.
 // ---------------------------------------------------------------------------
 
-function sanitizeSuggestion(
-  raw: ProviderRawSuggestion | null,
+function getProviderFacts(raw: ProviderRawSuggestion | null): ProviderCommercialFacts | null {
+  if (!raw?.facts || typeof raw.facts !== 'object' || Array.isArray(raw.facts)) {
+    return null
+  }
+
+  return raw.facts
+}
+
+function isConfirmedFact(value: unknown): boolean {
+  return value === true
+}
+
+function buildSuggestionFromCommercialFacts(
+  input: AnalyzeConversationInput,
   fallback: AISalesSuggestion,
-  context: AISalesContext
+  raw: ProviderRawSuggestion,
+  facts: ProviderCommercialFacts,
+  fallbackRule: string
 ): AISalesSuggestion {
-  if (!raw) return fallback
+  if (TERMINAL_STATUSES.includes(input.context.current_status)) {
+    return fallback
+  }
 
-  const recommendedStatus: LeadStatus =
-    isLeadStatus(raw.recommended_status) ? raw.recommended_status : fallback.recommended_status
+  const leadResponded = isConfirmedFact(facts.lead_responded)
 
-  const suggestion: AISalesSuggestion = {
+  const localLost = fallback.recommended_status === 'perdido'
+  const localWon = fallback.recommended_status === 'ganho'
+  const localNegotiation = fallback.recommended_status === 'negociacao'
+  const localNoResponse = fallback.recommended_status === 'contato'
+
+  const localFinalAgenda =
+    fallbackRule === 'final_resolution' ||
+    fallbackRule === 'final_resolution_over_negotiation'
+
+  const concreteReturnDate = extractSuggestedDateFromText(input.conversationText)
+
+  const explicitLoss = isConfirmedFact(facts.explicit_loss) || localLost
+  const explicitWin = isConfirmedFact(facts.explicit_win) || localWon
+
+  const visitOrTestDriveScheduled =
+    leadResponded && isConfirmedFact(facts.visit_or_test_drive_scheduled)
+
+  const returnWithConcreteDate =
+    leadResponded &&
+    isConfirmedFact(facts.follow_up_requested) &&
+    Boolean(concreteReturnDate)
+
+  const agendaDetected =
+    localFinalAgenda ||
+    visitOrTestDriveScheduled ||
+    returnWithConcreteDate
+
+  const commercialObjection =
+    isConfirmedFact(facts.commercial_objection_active) || localNegotiation
+
+    const noResponseDetected =
+    !explicitLoss &&
+    !explicitWin &&
+    !agendaDetected &&
+    !commercialObjection &&
+    !leadResponded &&
+    (isConfirmedFact(facts.no_response) || localNoResponse)
+
+  let recommendedStatus: LeadStatus = fallback.recommended_status
+
+  if (explicitLoss) {
+    recommendedStatus = 'perdido'
+  } else if (explicitWin) {
+    recommendedStatus = 'ganho'
+  } else if (agendaDetected) {
+    recommendedStatus = 'respondeu'
+  } else if (commercialObjection) {
+    recommendedStatus = 'negociacao'
+  } else if (noResponseDetected) {
+    recommendedStatus = 'contato'
+  }
+
+  const tags =
+    recommendedStatus === 'respondeu'
+      ? [visitOrTestDriveScheduled ? 'visita_agendada' : 'retorno_agendado']
+      : recommendedStatus === 'negociacao'
+        ? ['objecao_comercial']
+        : recommendedStatus === 'contato'
+          ? ['sem_resposta']
+          : recommendedStatus === 'ganho'
+            ? ['ganho_explicito']
+            : recommendedStatus === 'perdido'
+              ? ['perda_explicita']
+              : []
+
+  const finalIntent =
+    typeof facts.final_intent === 'string' && facts.final_intent.trim()
+      ? facts.final_intent.trim()
+      : null
+
+      const factSummary =
+      recommendedStatus === 'respondeu'
+        ? visitOrTestDriveScheduled
+          ? 'visita ou encontro concreto'
+          : 'retorno ou agenda concreta'
+        : recommendedStatus === 'negociacao'
+          ? 'objeção comercial sem compromisso concreto'
+          : recommendedStatus === 'contato'
+            ? 'tentativa de contato sem resposta'
+            : recommendedStatus === 'ganho'
+              ? 'ganho explícito'
+              : recommendedStatus === 'perdido'
+                ? 'perda explícita'
+                : 'sem avanço comercial suficiente'
+
+  const providerConfidence = clampConfidence(raw.confidence)
+
+  const confidence =
+    explicitLoss || explicitWin || agendaDetected
+      ? Math.max(providerConfidence, fallback.confidence, 0.9)
+      : Math.max(providerConfidence, fallback.confidence)
+
+  const actionChannel =
+    typeof raw.action_channel === 'string' && raw.action_channel.trim()
+      ? raw.action_channel.trim()
+      : fallback.action_channel
+
+  let actionResult: string | null = null
+  let resultDetail: string | null = null
+  let nextAction: string | null = null
+  let nextActionDate: string | null = null
+  let summary = ''
+
+  if (recommendedStatus === 'novo') {
+    actionResult = 'Lead sem avanço operacional'
+    resultDetail = 'Ainda não há fato comercial suficiente para movimentação do ciclo.'
+    nextAction = 'Entrar em contato'
+    summary = 'Ainda não há evidência comercial suficiente para avançar o ciclo.'
+  }
+
+  if (recommendedStatus === 'contato') {
+    actionResult = 'Tentativa de contato sem resposta'
+    resultDetail = 'Houve tentativa de contato, mas sem continuidade concreta do lead.'
+    nextAction = 'Nova tentativa de contato'
+    nextActionDate = buildFutureIso(24)
+    summary = 'Houve tentativa de contato, mas o lead ainda não apresentou resposta concreta.'
+  }
+
+  if (recommendedStatus === 'respondeu') {
+    actionResult = 'Lead respondeu e possui próximo passo concreto'
+    resultDetail =
+      finalIntent ||
+      'O cliente respondeu e existe retorno, agenda ou continuidade concreta para a operação.'
+    nextAction = 'Confirmar agenda / próximo passo'
+    nextActionDate =
+      concreteReturnDate ??
+      fallback.next_action_date ??
+      buildFutureIso(12)
+    summary = 'O lead respondeu e deixou um próximo passo concreto para continuidade comercial.'
+  }
+
+  if (recommendedStatus === 'negociacao') {
+    actionResult = 'Objeção ou discussão comercial em andamento'
+    resultDetail =
+      finalIntent ||
+      'Existe objeção, preço, proposta ou necessidade de avaliação sem compromisso concreto de retorno.'
+    nextAction = 'Retornar negociação'
+    nextActionDate = buildFutureIso(24)
+    summary = 'O lead demonstrou objeção ou necessidade de avaliar antes de avançar na decisão.'
+  }
+
+  if (recommendedStatus === 'ganho') {
+    actionResult = 'Fechamento comercial confirmado'
+    resultDetail =
+      finalIntent ||
+      'A conversa contém evidência explícita de pagamento, assinatura, matrícula ou compra concluída.'
+    nextAction = null
+    nextActionDate = null
+    summary = 'O lead confirmou a conclusão comercial.'
+  }
+
+  if (recommendedStatus === 'perdido') {
+    actionResult = 'Perda comercial confirmada'
+    resultDetail =
+      finalIntent ||
+      'A conversa contém evidência explícita de desinteresse definitivo ou fechamento com concorrente.'
+    nextAction = null
+    nextActionDate = null
+    summary = 'O lead informou que não seguirá com a oportunidade.'
+  }
+
+  return {
     recommended_status: recommendedStatus,
-    confidence: clampConfidence(raw.confidence),
-    action_channel: raw.action_channel ?? fallback.action_channel,
-    action_result: raw.action_result ?? fallback.action_result,
-    result_detail: raw.result_detail ?? fallback.result_detail,
-    next_action: raw.next_action ?? fallback.next_action,
-    next_action_date: raw.next_action_date ?? fallback.next_action_date,
-    summary: typeof raw.summary === 'string' && raw.summary.trim() ? raw.summary.trim() : fallback.summary,
-    tags: Array.isArray(raw.tags) ? raw.tags.filter((v): v is string => typeof v === 'string') : fallback.tags,
-    should_close_won: Boolean(raw.should_close_won),
-    should_close_lost: Boolean(raw.should_close_lost),
-    close_reason: raw.close_reason ?? null,
-    reason_for_recommendation:
-      typeof raw.reason_for_recommendation === 'string' && raw.reason_for_recommendation.trim()
-        ? raw.reason_for_recommendation.trim()
-        : fallback.reason_for_recommendation,
-    source: 'ai',
+    confidence,
+    action_channel: actionChannel,
+    action_result: actionResult,
+    result_detail: resultDetail,
+    next_action: nextAction,
+    next_action_date: nextActionDate,
+    summary,
+    tags,
+    should_close_won: recommendedStatus === 'ganho',
+    should_close_lost: recommendedStatus === 'perdido',
+    close_reason:
+      recommendedStatus === 'perdido'
+        ? fallback.close_reason ?? (commercialObjection ? 'Preço' : 'Sem interesse')
+        : null,
+    reason_for_recommendation: `O Yolen definiu ${getSalesCycleLabel(
+      recommendedStatus
+    )} a partir de ${factSummary}.`,
+    source: 'yolen',
   }
-
-  if (TERMINAL_STATUSES.includes(context.current_status)) {
-    return {
-      ...fallback,
-      summary: 'O ciclo atual já está terminal. A sugestão foi neutralizada.',
-      reason_for_recommendation: 'Não é seguro sugerir movimentação para um ciclo já encerrado.',
-    }
-  }
-
-  if (suggestion.recommended_status === 'novo') {
-    suggestion.next_action = 'Entrar em contato'
-    suggestion.next_action_date = null
-  }
-
-  if (suggestion.recommended_status === 'respondeu' && !suggestion.next_action) {
-    suggestion.next_action = 'Confirmar agenda / próximo passo'
-  }
-
-  if (suggestion.recommended_status === 'ganho') {
-    suggestion.should_close_won = true
-    suggestion.should_close_lost = false
-  }
-
-  if (suggestion.recommended_status === 'perdido') {
-    suggestion.should_close_lost = true
-    suggestion.should_close_won = false
-  }
-
-  return suggestion
 }
 
 function buildSystemPrompt(): string {
   return [
-    'Você é um copiloto comercial.',
-    'Sua função é ler uma conversa de vendas e devolver JSON puro.',
+    'Você é um extrator de fatos comerciais.',
+    'Leia a conversa e devolva somente JSON válido.',
     'Nunca escreva texto fora do JSON.',
-    'Analise o contexto do ciclo atual e recomende o estágio mais fiel ao que aconteceu de verdade.',
-    buildSalesCycleAIGuide(),
-    buildSalesCopilotExamplesGuide(),
-    'O contexto pode incluir recent_events, que trazem o histórico recente do ciclo. Use esse histórico para entender o que já aconteceu antes da conversa atual.',
-    'Mantenha coerência entre o texto atual e os eventos recentes.',
-    'Você pode recomendar avanço direto de novo para respondeu ou negociacao se a conversa mostrar que isso já aconteceu na prática.',
-    'Você não deve forçar passagem obrigatória por todas as etapas se a conversa já indicar estágio mais avançado.',
-    'Classifique pelo ESTADO OPERACIONAL FINAL da conversa, e não pelo primeiro sinal forte encontrado no meio do texto.',
-    'Se houve objeção ou discussão comercial no meio da conversa, mas ao final o cliente aceitou visitar, marcou test drive ou confirmou horário — a etapa correta é respondeu (AGENDA), não negociacao.',
-    'Pedido explícito de retorno com dia ou período definido — por exemplo, "pode me chamar na sexta de manhã" — também é AGENDA (respondeu), mesmo se ainda houver objeção de preço.',
-    'Só recomende ganho ou perdido quando houver evidência explícita.',
-    'Se não houver evidência forte, seja conservador.',
-    'Campos obrigatórios no JSON:',
-    'recommended_status, confidence, action_channel, action_result, result_detail, next_action, next_action_date, summary, tags, should_close_won, should_close_lost, close_reason, reason_for_recommendation',
-    'Use os status válidos: novo, contato, respondeu, negociacao, ganho, perdido.',
-    'Lembre que respondeu é o nome interno da etapa visual AGENDA.',
-    'Se houver tentativa sem resposta, normalmente o estágio correto é contato.',
-    'Se houver resposta real do lead com próximo passo concreto, normalmente o estágio correto é respondeu/AGENDA.',
-    'Se houver proposta, objeção, condição comercial ou pedido de pensar SEM desfecho concreto no final, o estágio correto pode ser negociacao mesmo que o ciclo ainda esteja em novo.',
-    'Se a conversa indicar compra concluída, use ganho.',
-    'Se a conversa indicar desinteresse definitivo ou perda clara, use perdido.',
+    'Você NÃO decide estágio do funil, próxima ação, ganho ou perda.',
+    'O sistema Yolen decide o estágio comercial a partir dos fatos que você extrair.',
+    'Use o contexto e a conversa atual apenas para identificar fatos comprovados.',
+    'Não invente fatos, datas, horários, visitas, pagamentos ou intenções.',
+    'Se não houver evidência suficiente, use false.',
+    'Retorne obrigatoriamente os campos: confidence, action_channel, summary, tags e facts.',
+    'Dentro de facts, retorne obrigatoriamente:',
+    'lead_responded, no_response, commercial_objection_active, follow_up_requested, follow_up_has_date_or_period, visit_or_test_drive_scheduled, explicit_win, explicit_loss, final_intent.',
+    'lead_responded só é true quando existe resposta real do cliente na conversa.',
+    'no_response nunca pode ser true quando lead_responded também for true.',
+    'follow_up_requested só é true quando o cliente pede ou aceita que a empresa retorne em um momento futuro.',
+    'follow_up_has_date_or_period só é true quando houver data, dia, horário ou período claramente definido, como segunda, sexta de manhã, amanhã à tarde ou 14h.',
+    'A frase "vou pensar e depois te retorno" NÃO é agenda, NÃO tem data definida e NÃO é pedido de retorno. Nesse caso, use commercial_objection_active=true e follow_up_requested=false.',
+    'A frase "pode me chamar na quinta de tarde" indica follow_up_requested=true e follow_up_has_date_or_period=true.',
+    'visit_or_test_drive_scheduled só é true quando visita, teste ou encontro foi efetivamente combinado.',
+    'commercial_objection_active só é true quando preço, proposta, condição, desconto, concorrência ou comparação ainda está em discussão sem desfecho final concreto.',
+    'explicit_win só é true com prova clara de pagamento, assinatura, matrícula, compra ou contrato concluído.',
+    'explicit_loss só é true com prova clara de desistência, fechamento com concorrente, pedido para não contatar ou desinteresse definitivo.',
+    'summary deve ser factual e curto, sem citar estágio do funil.',
+    'final_intent deve resumir a última intenção objetiva do cliente em uma frase curta ou ser null.',
   ].join(' ')
 }
 
@@ -908,43 +1051,46 @@ export async function analyzeConversationWithCopilotDetailed(
     }
   }
 
-  const fallbackLocksFinalAgenda =
-    diagnostics.selected_rule === 'final_resolution' ||
-    diagnostics.selected_rule === 'final_resolution_over_negotiation'
+  const providerFacts = getProviderFacts(providerResult.raw)
 
-  if (fallbackLocksFinalAgenda) {
+  if (!providerFacts) {
     return {
       suggestion: fallbackDecision.suggestion,
       diagnostics: {
         ...diagnostics,
-        engine: 'fallback',
-        fallback_rule: diagnostics.selected_rule,
-        selected_rule: diagnostics.selected_rule,
-        used_history: false,
+        provider: {
+          ...diagnostics.provider,
+          success: false,
+          failure_reason: 'openai_missing_commercial_facts',
+        },
         notes: [
           ...diagnostics.notes,
-          'A resposta do provider externo foi ignorada porque o desfecho final da conversa contém agenda ou compromisso concreto.',
+          'A IA respondeu sem fatos comerciais estruturados. O Yolen usou apenas as regras locais.',
         ],
       },
     }
   }
 
-  const aiSuggestion = sanitizeSuggestion(
-    providerResult.raw,
+  const yolenSuggestion = buildSuggestionFromCommercialFacts(
+    normalizedInput,
     fallbackDecision.suggestion,
-    normalizedInput.context
+    providerResult.raw,
+    providerFacts,
+    diagnostics.selected_rule
   )
 
   return {
-    suggestion: aiSuggestion,
+    suggestion: yolenSuggestion,
     diagnostics: {
       ...diagnostics,
-      engine: 'ai',
+      engine: 'yolen',
       fallback_rule: diagnostics.selected_rule,
-      selected_rule: `provider_${aiSuggestion.recommended_status}`,
-      // o provider nunca usa histórico local para decidir a resposta final
+      selected_rule: `yolen_${yolenSuggestion.recommended_status}`,
       used_history: false,
-      notes: [...diagnostics.notes, 'A resposta final veio do provider externo.'],
+      notes: [
+        ...diagnostics.notes,
+        'A IA extraiu fatos comerciais e o Yolen calculou a decisão operacional final.',
+      ],
     },
   }
 }

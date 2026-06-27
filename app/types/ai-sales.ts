@@ -98,7 +98,7 @@ export interface AIAuditFinalResolution {
 // ---------------------------------------------------------------------------
 
 export interface AIAuditDiagnostics {
-  engine: 'fallback' | 'ai'
+  engine: 'fallback' | 'ai' | 'yolen'
   selected_rule: string
   fallback_rule?: string | null
 
@@ -167,7 +167,7 @@ export interface AISalesSuggestion {
   should_close_lost: boolean
   close_reason: string | null
   reason_for_recommendation: string
-  source: 'ai' | 'fallback'
+  source: 'ai' | 'fallback' | 'yolen'
 }
 
 export interface AnalyzeConversationResponse {

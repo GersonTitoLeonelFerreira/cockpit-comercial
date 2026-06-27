@@ -62,6 +62,12 @@ function confidenceLabel(confidence: number): string {
   return 'Baixa'
 }
 
+function suggestionSourceLabel(source: AISalesSuggestion['source']): string {
+  if (source === 'yolen') return 'Yolen + IA'
+  if (source === 'ai') return 'IA'
+  return 'Regra local'
+}
+
 function toDatetimeLocalValue(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -607,7 +613,7 @@ export default function LeadCopilotPanel({
                   marginBottom: 6,
                 }}
               >
-                Sugestão da IA
+                Análise comercial
               </div>
 
               <div
@@ -657,7 +663,7 @@ export default function LeadCopilotPanel({
                   fontWeight: 800,
                 }}
               >
-                {suggestion.source}
+                {suggestionSourceLabel(suggestion.source)}
               </div>
             </div>
           </div>
