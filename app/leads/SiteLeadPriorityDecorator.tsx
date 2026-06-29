@@ -41,24 +41,18 @@ function applyPriorityHighlight(leads: SitePriorityLead[]) {
   const cards = Array.from(document.querySelectorAll<HTMLElement>('[draggable="true"]'))
 
   for (const card of cards) {
+    // Remove o elemento inserido pela versão anterior. O selo passa a ser um
+    // pseudo-elemento CSS para não ser apagado pelo React ao redesenhar o card.
+    card.querySelector<HTMLElement>('[data-yolen-site-priority-badge="true"]')?.remove()
+
     const matchedLead = leads.find((lead) => cardMatchesLead(card, lead))
-    const existingBadge = card.querySelector<HTMLElement>('[data-yolen-site-priority-badge="true"]')
 
     if (!matchedLead) {
       card.removeAttribute('data-yolen-site-priority')
-      existingBadge?.remove()
       continue
     }
 
     card.setAttribute('data-yolen-site-priority', 'true')
-
-    if (!existingBadge) {
-      const badge = document.createElement('span')
-      badge.setAttribute('data-yolen-site-priority-badge', 'true')
-      badge.setAttribute('aria-label', 'Lead do site com prioridade de primeiro atendimento')
-      badge.textContent = '⚡ LEAD DO SITE · PRIORIDADE'
-      card.prepend(badge)
-    }
   }
 }
 
@@ -125,7 +119,8 @@ export default function SiteLeadPriorityDecorator() {
           0 4px 14px rgba(245, 158, 11, 0.08) !important;
       }
 
-      [data-yolen-site-priority="true"] [data-yolen-site-priority-badge="true"] {
+      [data-yolen-site-priority="true"]::before {
+        content: '⚡ LEAD DO SITE · PRIORIDADE';
         position: absolute;
         top: 7px;
         left: 8px;
