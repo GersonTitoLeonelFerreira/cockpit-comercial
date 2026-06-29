@@ -40,7 +40,7 @@ export default function PoolTabs({ active }: PoolTabsProps) {
         Operação do Pool
       </Link>
       <Link href="/pool/site-leads" style={tabStyle(active === 'site-leads')}>
-        Leads do site
+        Leads Inbound
       </Link>
     </nav>
   )
