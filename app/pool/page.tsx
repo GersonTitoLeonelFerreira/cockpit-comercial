@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createServerClient } from '@supabase/ssr'
 
 import PoolClient from './PoolClient'
+import PoolTabs from './PoolTabs'
 
 export default async function PoolPage() {
   const cookieStore = await cookies()
@@ -30,7 +31,7 @@ export default async function PoolPage() {
           }
         },
       },
-    }
+    },
   )
 
   const { data: auth } = await supabase.auth.getUser()
@@ -71,9 +72,12 @@ export default async function PoolPage() {
   }
 
   return (
-    <PoolClient
-      companyId={activeCompanyId}
-      userLabel={(profile.full_name ?? user.email ?? user.id) as string}
-    />
+    <div>
+      <PoolTabs active="pool" />
+      <PoolClient
+        companyId={activeCompanyId}
+        userLabel={(profile.full_name ?? user.email ?? user.id) as string}
+      />
+    </div>
   )
 }
