@@ -41,8 +41,6 @@ function applyPriorityHighlight(leads: SitePriorityLead[]) {
   const cards = Array.from(document.querySelectorAll<HTMLElement>('[draggable="true"]'))
 
   for (const card of cards) {
-    // Remove o elemento inserido pela versão anterior. O selo passa a ser um
-    // pseudo-elemento CSS para não ser apagado pelo React ao redesenhar o card.
     card.querySelector<HTMLElement>('[data-yolen-site-priority-badge="true"]')?.remove()
 
     const matchedLead = leads.find((lead) => cardMatchesLead(card, lead))
@@ -120,7 +118,7 @@ export default function SiteLeadPriorityDecorator() {
       }
 
       [data-yolen-site-priority="true"]::before {
-        content: '⚡ LEAD DO SITE · PRIORIDADE';
+        content: '⚡ LEAD INBOUND · PRIORIDADE';
         position: absolute;
         top: 7px;
         left: 8px;
