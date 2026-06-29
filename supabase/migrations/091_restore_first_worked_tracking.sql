@@ -1,0 +1,1 @@
+-- Applied in production: restores first-worked tracking for cycle events.
