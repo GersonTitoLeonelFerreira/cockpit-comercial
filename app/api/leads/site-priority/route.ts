@@ -23,20 +23,14 @@ export async function GET() {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!url || !anon || !serviceKey) {
-      return NextResponse.json(
-        { ok: false, error: 'Configuração do Kanban indisponível.' },
-        { status: 500 },
-      )
+      return NextResponse.json({ ok: false, error: 'Configuração do Kanban indisponível.' }, { status: 500 })
     }
 
     const cookieStore = await cookies()
     const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
 
     if (!activeCompanyId) {
-      return NextResponse.json(
-        { ok: false, error: 'Empresa ativa não selecionada.' },
-        { status: 400 },
-      )
+      return NextResponse.json({ ok: false, error: 'Empresa ativa não selecionada.' }, { status: 400 })
     }
 
     const supabase = createServerClient(url, anon, {
@@ -44,16 +38,11 @@ export async function GET() {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll() {
-          // Endpoint somente de leitura.
-        },
+        setAll() {},
       },
     })
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError || !user?.id) {
       return NextResponse.json({ ok: false, error: 'Usuário não autenticado.' }, { status: 401 })
@@ -92,14 +81,11 @@ export async function GET() {
     }
 
     const admin = createClient(url, serviceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
+      auth: { persistSession: false, autoRefreshToken: false },
     })
 
     let query = admin
-      .from('v_kanban_items')
+      .from('v_pipeline_items')
       .select('id, name, phone, email')
       .eq('company_id', activeCompanyId)
       .eq('entry_mode', 'import_api')
@@ -120,17 +106,8 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
     }
 
-    return NextResponse.json({
-      ok: true,
-      leads: (data ?? []) as SitePriorityLead[],
-    })
+    return NextResponse.json({ ok: true, leads: (data ?? []) as SitePriorityLead[] })
   } catch (error: unknown) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : 'Erro ao carregar prioridades do Kanban.',
-      },
-      { status: 500 },
-    )
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : 'Erro ao carregar prioridades do Kanban.' }, { status: 500 })
   }
 }
