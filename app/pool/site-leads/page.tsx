@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createServerClient } from '@supabase/ssr'
 
 import PoolTabs from '../PoolTabs'
+import InboundTerminology from './InboundTerminology'
 import SiteLeadsClient from './SiteLeadsClient'
 
 export default async function SiteLeadsPage() {
@@ -69,6 +70,7 @@ export default async function SiteLeadsPage() {
 
   return (
     <div>
+      <InboundTerminology />
       <PoolTabs active="site-leads" />
       <SiteLeadsClient />
     </div>
