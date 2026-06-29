@@ -12,6 +12,47 @@ type RevokeApiKeyBody = {
   id?: unknown
 }
 
+type ApiKeyRow = {
+  id: string
+  name: string
+  key_prefix: string
+  secret_hash: string
+  company_id: string
+  created_by: string
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+  revoked_by: string | null
+}
+
+type ApiKeysTableClient = {
+  from: (table: 'company_lead_api_keys') => {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        order: (column: string, options: { ascending: boolean; nullsFirst?: boolean }) => {
+          order: (column: string, options: { ascending: boolean }) => Promise<{ data: ApiKeyRow[] | null; error: { message: string } | null }>
+        }
+      }
+    }
+    insert: (values: Pick<ApiKeyRow, 'company_id' | 'name' | 'key_prefix' | 'secret_hash' | 'created_by'>) => {
+      select: (columns: string) => {
+        single: () => Promise<{ data: ApiKeyRow | null; error: { message: string } | null }>
+      }
+    }
+    update: (values: Pick<ApiKeyRow, 'revoked_at' | 'revoked_by'>) => {
+      eq: (column: string, value: string) => {
+        eq: (column: string, value: string) => {
+          is: (column: string, value: null) => {
+            select: (columns: string) => {
+              maybeSingle: () => Promise<{ data: Pick<ApiKeyRow, 'id'> | null; error: { message: string } | null }>
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 function cleanText(value: unknown): string | null {
   const text = String(value ?? '').trim()
   return text || null
@@ -37,7 +78,8 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: context.error }, { status: context.status })
   }
 
-  const { data, error } = await context.admin
+  const admin = context.admin as unknown as ApiKeysTableClient
+  const { data, error } = await admin
     .from('company_lead_api_keys')
     .select('id, name, key_prefix, created_at, last_used_at, revoked_at')
     .eq('company_id', context.companyId)
@@ -70,8 +112,8 @@ export async function POST(req: Request) {
 
   const apiKey = createSecret()
   const keyPrefix = apiKey.slice(0, 18)
-
-  const { data, error } = await context.admin
+  const admin = context.admin as unknown as ApiKeysTableClient
+  const { data, error } = await admin
     .from('company_lead_api_keys')
     .insert({
       company_id: context.companyId,
@@ -119,7 +161,8 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ ok: false, error: 'Chave de integração inválida.' }, { status: 400 })
   }
 
-  const { data, error } = await context.admin
+  const admin = context.admin as unknown as ApiKeysTableClient
+  const { data, error } = await admin
     .from('company_lead_api_keys')
     .update({
       revoked_at: new Date().toISOString(),
