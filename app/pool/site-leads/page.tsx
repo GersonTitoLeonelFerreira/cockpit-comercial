@@ -2,10 +2,10 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createServerClient } from '@supabase/ssr'
 
-import PoolClient from './PoolClient'
-import PoolTabs from './PoolTabs'
+import PoolTabs from '../PoolTabs'
+import SiteLeadsClient from './SiteLeadsClient'
 
-export default async function PoolPage() {
+export default async function SiteLeadsPage() {
   const cookieStore = await cookies()
   const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
 
@@ -43,15 +43,11 @@ export default async function PoolPage() {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('id, full_name, is_active_global')
+    .select('id, is_active_global')
     .eq('id', user.id)
     .maybeSingle()
 
-  if (profileError || !profile?.id) {
-    redirect('/login')
-  }
-
-  if (profile.is_active_global === false) {
+  if (profileError || !profile?.id || profile.is_active_global === false) {
     redirect('/login')
   }
 
@@ -73,11 +69,8 @@ export default async function PoolPage() {
 
   return (
     <div>
-      <PoolTabs active="pool" />
-      <PoolClient
-        companyId={activeCompanyId}
-        userLabel={(profile.full_name ?? user.email ?? user.id) as string}
-      />
+      <PoolTabs active="site-leads" />
+      <SiteLeadsClient />
     </div>
   )
 }
