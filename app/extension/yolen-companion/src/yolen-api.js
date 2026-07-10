@@ -82,6 +82,10 @@
     return sendToBackground('ANALYZE_CONVERSATION', payload)
   }
 
+  async function applySuggestion(payload) {
+    return sendToBackground('APPLY_SUGGESTION', payload)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -89,5 +93,6 @@
     clearSession,
     resolveLead,
     analyzeConversation,
+    applySuggestion,
   }
 })()

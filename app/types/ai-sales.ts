@@ -191,7 +191,7 @@ export interface ApplyAISuggestionRequest {
   next_action_date?: string | null
   edited_summary?: string | null
   suggestion: AISalesSuggestion
-  source?: 'ai_copilot_detail' | 'ai_copilot_kanban'
+  source?: 'ai_copilot_detail' | 'ai_copilot_kanban' | 'whatsapp_companion'
 }
 
 export interface ApplyAISuggestionResponse {

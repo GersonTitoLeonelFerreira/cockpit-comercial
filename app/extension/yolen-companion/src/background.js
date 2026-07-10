@@ -229,6 +229,14 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (message.action === 'APPLY_SUGGESTION') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/apply-suggestion',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,
