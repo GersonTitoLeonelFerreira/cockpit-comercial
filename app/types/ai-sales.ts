@@ -176,6 +176,10 @@ export interface AnalyzeConversationResponse {
     context: AISalesContext
     suggestion: AISalesSuggestion
     diagnostics?: AIAuditDiagnostics
+    saved_coaching?: {
+      id: string
+      occurred_at: string
+    }
   }
   error?: string
 }

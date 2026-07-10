@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'crypto'
+import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -27,7 +27,42 @@ type AnalyzeCompanionBody = {
   source?: unknown
 }
 
+
 type JsonRecord = Record<string, unknown>
+
+type CompanionQueryError = {
+  message?: string
+}
+
+type SavedCompanionCoaching = {
+  id: string
+  occurred_at: string
+}
+
+type InsertResult = {
+  error: CompanionQueryError | null
+}
+
+type InsertSingleResult = {
+  data: JsonRecord | null
+  error: CompanionQueryError | null
+}
+
+type InsertSelectBuilder = {
+  single: () => PromiseLike<InsertSingleResult>
+}
+
+type InsertBuilder = PromiseLike<InsertResult> & {
+  select: (columns: string) => InsertSelectBuilder
+}
+
+type CompanionWriteTable = {
+  insert: (values: JsonRecord) => InsertBuilder
+}
+
+type CompanionWriteClient = {
+  from: (table: 'ai_coaching_notes' | 'cycle_events') => CompanionWriteTable
+}
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -260,6 +295,159 @@ function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
       ['source'],
       ['payload', 'source'],
     ]),
+  }
+}
+
+function buildConversationHash(conversationText: string) {
+  return createHash('sha256').update(conversationText).digest('hex')
+}
+
+function buildCompanionCoaching({
+  conversationText,
+  suggestion,
+}: {
+  conversationText: string
+  suggestion: {
+    summary: string
+    recommended_status: LeadStatus
+    action_result: string | null
+    result_detail: string | null
+    next_action: string | null
+    reason_for_recommendation: string
+    tags: string[]
+  }
+}) {
+  const whatWentWell = [
+    suggestion.action_result,
+    suggestion.result_detail,
+  ].filter((item): item is string => Boolean(item && item.trim()))
+
+  const whatToImprove = [
+    suggestion.next_action
+      ? `Próxima ação recomendada: ${suggestion.next_action}`
+      : null,
+    suggestion.reason_for_recommendation,
+  ].filter((item): item is string => Boolean(item && item.trim()))
+
+  const hasCommercialObjection =
+    suggestion.recommended_status === 'negociacao' ||
+    suggestion.tags.some((tag) => tag.includes('objecao'))
+
+  return {
+    conversation_summary:
+      suggestion.summary ||
+      conversationText.slice(0, 700) ||
+      'Análise gerada pelo Yolen Companion a partir da conversa do WhatsApp.',
+    customer_interests: suggestion.tags.slice(0, 6),
+    objections: hasCommercialObjection
+      ? [suggestion.result_detail || 'Objeção comercial identificada na conversa.']
+      : [],
+    what_went_well: whatWentWell.slice(0, 6),
+    what_to_improve: whatToImprove.slice(0, 6),
+    recommended_next_approach: suggestion.next_action,
+    suggested_message: null,
+  }
+}
+
+function buildYolenDecision({
+  suggestion,
+  diagnostics,
+  conversationText,
+}: {
+  suggestion: JsonRecord
+  diagnostics: unknown
+  conversationText: string
+}) {
+  return {
+    recommended_status: suggestion.recommended_status,
+    confidence: suggestion.confidence,
+    action_channel: suggestion.action_channel,
+    action_result: suggestion.action_result,
+    result_detail: suggestion.result_detail,
+    next_action: suggestion.next_action,
+    next_action_date: suggestion.next_action_date,
+    summary: suggestion.summary,
+    tags: suggestion.tags,
+    source: suggestion.source,
+    reason_for_recommendation: suggestion.reason_for_recommendation,
+    should_close_won: suggestion.should_close_won,
+    should_close_lost: suggestion.should_close_lost,
+    close_reason: suggestion.close_reason,
+    diagnostics,
+    companion: {
+      source: 'whatsapp_companion',
+      conversation_hash: buildConversationHash(conversationText),
+      captured_character_count: conversationText.length,
+      saved_without_applying: true,
+    },
+  }
+}
+
+async function saveCompanionCoachingNote({
+  admin,
+  tokenPayload,
+  cycleId,
+  coaching,
+  yolenDecision,
+}: {
+  admin: CompanionWriteClient
+  tokenPayload: CompanionTokenPayload
+  cycleId: string
+  coaching: JsonRecord
+  yolenDecision: JsonRecord
+}): Promise<SavedCompanionCoaching> {
+  const now = new Date().toISOString()
+
+  const { data: note, error: noteError } = await admin
+    .from('ai_coaching_notes')
+    .insert({
+      company_id: tokenPayload.company_id,
+      cycle_id: cycleId,
+      created_by: tokenPayload.sub,
+      source: 'whatsapp_companion',
+      coaching,
+      yolen_decision: yolenDecision,
+      created_at: now,
+    })
+    .select('id, created_at')
+    .single()
+
+  if (noteError) {
+    throw new Error(noteError.message || 'Erro ao salvar leitura no histórico.')
+  }
+
+  const noteId = getString(note?.id)
+
+  if (!noteId) {
+    throw new Error('Leitura salva sem ID retornado.')
+  }
+
+  const occurredAt = getString(note?.created_at) || now
+  const summaryPreview = getString(coaching.conversation_summary)?.slice(0, 220) || ''
+
+  const { error: eventError } = await admin.from('cycle_events').insert({
+    company_id: tokenPayload.company_id,
+    cycle_id: cycleId,
+    event_type: 'ai_coaching_saved',
+    created_by: tokenPayload.sub,
+    occurred_at: occurredAt,
+    metadata: {
+      coaching_note_id: noteId,
+      summary_preview: summaryPreview,
+      source: 'whatsapp_companion',
+      companion: {
+        saved_without_applying: true,
+      },
+    },
+  })
+
+  if (eventError) {
+    throw new Error(eventError.message || 'Erro ao registrar evento da leitura.')
+  }
+
+  return {
+    id: noteId,
+    occurred_at: occurredAt,
   }
 }
 
@@ -536,6 +724,27 @@ export async function POST(request: Request) {
       source,
     })
 
+    const coaching = buildCompanionCoaching({
+      conversationText,
+      suggestion: result.suggestion,
+    })
+
+    const yolenDecision = buildYolenDecision({
+      suggestion: result.suggestion as unknown as JsonRecord,
+      diagnostics: result.diagnostics,
+      conversationText,
+    })
+
+    const companionWriteAdmin = admin as unknown as CompanionWriteClient
+
+    const savedCoaching = await saveCompanionCoachingNote({
+      admin: companionWriteAdmin,
+      tokenPayload,
+      cycleId,
+      coaching,
+      yolenDecision,
+    })
+
     return NextResponse.json<AnalyzeConversationResponse>(
       {
         ok: true,
@@ -543,6 +752,7 @@ export async function POST(request: Request) {
           context,
           suggestion: result.suggestion,
           diagnostics: result.diagnostics,
+          saved_coaching: savedCoaching,
         },
       },
       {

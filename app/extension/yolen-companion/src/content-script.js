@@ -1008,6 +1008,7 @@
 
     if (suggestion) {
       const details = []
+      const savedCoaching = state.conversationAnalysis?.saved_coaching
 
       details.push(`Etapa sugerida: ${suggestion.recommended_status}`)
 
@@ -1021,6 +1022,10 @@
 
       if (suggestion.result_detail) {
         details.push(`Detalhe: ${suggestion.result_detail}`)
+      }
+
+      if (savedCoaching?.id) {
+        details.push('Histórico: salvo na Yolen')
       }
 
       return escapeHtml(details.join(' · '))
