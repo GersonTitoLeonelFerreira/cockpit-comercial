@@ -37,6 +37,9 @@
     conversationAnalysisLoading: false,
     conversationAnalysis: null,
     conversationAnalysisError: null,
+    suggestionApplyLoading: false,
+    suggestionApplyResult: null,
+    suggestionApplyError: null,
   }
 
   function waitForWhatsAppApp() {
@@ -726,6 +729,9 @@
       conversationAnalysisLoading: false,
       conversationAnalysis: null,
       conversationAnalysisError: null,
+      suggestionApplyLoading: false,
+      suggestionApplyResult: null,
+      suggestionApplyError: null,
     }
   }
 
@@ -890,7 +896,7 @@
     }
 
     if (resolution.cycle?.status) {
-      details.push(`Etapa atual: ${resolution.cycle.status}`)
+      details.push(`Etapa atual: ${getStageLabel(resolution.cycle.status)}`)
     }
 
     if (resolution.cycle?.owner_name) {
@@ -918,6 +924,21 @@
 
   function getPrimaryButtonAction() {
     return state.connected ? 'open-yolen' : 'connect-yolen'
+  }
+
+  function getStageLabel(status) {
+    const labels = {
+      novo: 'Novo',
+      contato: 'Contato',
+      respondeu: 'Agenda',
+      negociacao: 'Negociação',
+      pausado: 'Pausado',
+      ganho: 'Ganho',
+      perdido: 'Perdido',
+      cancelado: 'Cancelado',
+    }
+
+    return labels[status] || status || '-'
   }
 
   function getLeadActionButton() {
@@ -963,12 +984,30 @@
     )
   }
 
+  function isOpenSuggestionStatus(status) {
+    return ['novo', 'contato', 'respondeu', 'negociacao', 'pausado'].includes(status)
+  }
+
+  function canApplyCurrentSuggestion() {
+    const suggestion = state.conversationAnalysis?.suggestion
+
+    return (
+      canAnalyzeCurrentConversation() &&
+      Boolean(state.conversationAnalysis?.saved_coaching?.id) &&
+      Boolean(suggestion) &&
+      isOpenSuggestionStatus(suggestion.recommended_status) &&
+      !state.conversationAnalysisLoading &&
+      !state.suggestionApplyLoading &&
+      !state.suggestionApplyResult
+    )
+  }
+
   function getAnalysisStatusClass() {
-    if (state.conversationAnalysisError) {
+    if (state.conversationAnalysisError || state.suggestionApplyError) {
       return 'yolen-status-warning'
     }
 
-    if (state.conversationAnalysis) {
+    if (state.suggestionApplyResult || state.conversationAnalysis) {
       return 'yolen-status-success'
     }
 
@@ -976,6 +1015,18 @@
   }
 
   function getAnalysisTitle() {
+    if (state.suggestionApplyLoading) {
+      return 'Aplicando sugestão na Yolen...'
+    }
+
+    if (state.suggestionApplyError) {
+      return 'Erro ao aplicar sugestão'
+    }
+
+    if (state.suggestionApplyResult) {
+      return 'Sugestão aplicada na Yolen'
+    }
+
     if (state.conversationAnalysisLoading) {
       return 'Analisando conversa...'
     }
@@ -995,7 +1046,53 @@
     return 'Conversa pronta para análise'
   }
 
+  function formatSuggestionDate(value) {
+    if (!value) {
+      return null
+    }
+
+    try {
+      return new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(new Date(value))
+    } catch {
+      return value
+    }
+  }
+
   function getAnalysisDescription() {
+    if (state.suggestionApplyLoading) {
+      return 'A Yolen está atualizando o ciclo, registrando evento e preservando o histórico.'
+    }
+
+    if (state.suggestionApplyError) {
+      return escapeHtml(state.suggestionApplyError)
+    }
+
+    if (state.suggestionApplyResult) {
+      const result = state.suggestionApplyResult
+      const details = []
+
+      details.push(`Etapa aplicada: ${getStageLabel(result.status)}`)
+
+      if (result.previous_status) {
+        details.push(`Etapa anterior: ${getStageLabel(result.previous_status)}`)
+      }
+
+      if (result.next_action) {
+        details.push(`Próxima ação: ${result.next_action}`)
+      }
+
+      if (result.next_action_date) {
+        details.push(`Data: ${formatSuggestionDate(result.next_action_date)}`)
+      }
+
+      details.push('Evento registrado no histórico')
+
+      return escapeHtml(details.join(' · '))
+    }
+
     if (state.conversationAnalysisLoading) {
       return 'A Yolen está lendo as mensagens visíveis e calculando a melhor atualização comercial.'
     }
@@ -1010,7 +1107,7 @@
       const details = []
       const savedCoaching = state.conversationAnalysis?.saved_coaching
 
-      details.push(`Etapa sugerida: ${suggestion.recommended_status}`)
+      details.push(`Etapa sugerida: ${getStageLabel(suggestion.recommended_status)}`)
 
       if (typeof suggestion.confidence === 'number') {
         details.push(`Confiança: ${Math.round(suggestion.confidence * 100)}%`)
@@ -1020,12 +1117,20 @@
         details.push(`Próxima ação: ${suggestion.next_action}`)
       }
 
+      if (suggestion.next_action_date) {
+        details.push(`Data: ${formatSuggestionDate(suggestion.next_action_date)}`)
+      }
+
       if (suggestion.result_detail) {
         details.push(`Detalhe: ${suggestion.result_detail}`)
       }
 
       if (savedCoaching?.id) {
         details.push('Histórico: salvo na Yolen')
+      }
+
+      if (!isOpenSuggestionStatus(suggestion.recommended_status)) {
+        details.push('Aplicação automática bloqueada nesta fase')
       }
 
       return escapeHtml(details.join(' · '))
@@ -1043,10 +1148,30 @@
       return ''
     }
 
-    return `
-      <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
+    const analyzeButton = `
+      <button class="yolen-secondary-button" type="button" data-yolen-action="analyze-conversation">
         Analisar conversa com IA
       </button>
+    `
+
+    if (!state.conversationAnalysis?.suggestion) {
+      return `
+        <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
+          Analisar conversa com IA
+        </button>
+      `
+    }
+
+    if (!canApplyCurrentSuggestion()) {
+      return analyzeButton
+    }
+
+    return `
+      <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
+        Aplicar sugestão na Yolen
+      </button>
+
+      ${analyzeButton}
     `
   }
 
@@ -1197,6 +1322,10 @@
 
     panel.querySelector('[data-yolen-action="analyze-conversation"]')?.addEventListener('click', () => {
       analyzeCurrentConversation()
+    })
+
+    panel.querySelector('[data-yolen-action="apply-suggestion"]')?.addEventListener('click', () => {
+      applyCurrentSuggestion()
     })
   }
 
@@ -1411,6 +1540,9 @@
       conversationAnalysisLoading: true,
       conversationAnalysis: null,
       conversationAnalysisError: null,
+      suggestionApplyLoading: false,
+      suggestionApplyResult: null,
+      suggestionApplyError: null,
     }
 
     renderPanel()
@@ -1453,6 +1585,132 @@
           error instanceof Error && error.message
             ? error.message
             : 'Erro ao analisar conversa com IA.',
+      }
+
+      renderPanel()
+    }
+  }
+
+  function buildApplyConfirmationText() {
+    const suggestion = state.conversationAnalysis?.suggestion
+    const currentStatus = state.leadResolution?.cycle?.status || '-'
+
+    if (!suggestion) {
+      return 'Confirmar aplicação da sugestão na Yolen?'
+    }
+
+    const lines = [
+      'Confirmar aplicação da sugestão na Yolen?',
+      '',
+      `De: ${getStageLabel(currentStatus)}`,
+      `Para: ${getStageLabel(suggestion.recommended_status)}`,
+    ]
+
+    if (suggestion.next_action) {
+      lines.push(`Próxima ação: ${suggestion.next_action}`)
+    }
+
+    if (suggestion.next_action_date) {
+      lines.push(`Data: ${formatSuggestionDate(suggestion.next_action_date)}`)
+    }
+
+    lines.push('')
+    lines.push('Essa ação vai atualizar o ciclo e registrar evento no histórico.')
+
+    return lines.join('\n')
+  }
+
+  async function applyCurrentSuggestion() {
+    if (!canApplyCurrentSuggestion()) {
+      return
+    }
+
+    const suggestion = state.conversationAnalysis?.suggestion
+    const cycleId = state.leadResolution?.cycle?.id
+
+    if (!suggestion || !cycleId) {
+      state = {
+        ...state,
+        suggestionApplyLoading: false,
+        suggestionApplyResult: null,
+        suggestionApplyError: 'Sugestão ou ciclo não localizado para aplicação.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    const confirmed = window.confirm(buildApplyConfirmationText())
+
+    if (!confirmed) {
+      return
+    }
+
+    state = {
+      ...state,
+      suggestionApplyLoading: true,
+      suggestionApplyResult: null,
+      suggestionApplyError: null,
+    }
+
+    renderPanel()
+
+    try {
+      const result = await window.YolenCompanionApi.applySuggestion({
+        cycle_id: cycleId,
+        applied_status: suggestion.recommended_status,
+        next_action: suggestion.next_action,
+        next_action_date: suggestion.next_action_date,
+        edited_summary: suggestion.summary,
+        suggestion,
+        source: 'whatsapp_companion',
+      })
+
+      if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
+        state = {
+          ...state,
+          suggestionApplyLoading: false,
+          suggestionApplyResult: null,
+          suggestionApplyError:
+            result?.payload?.error ||
+            'Não foi possível aplicar a sugestão na Yolen.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      const applied = result.payload.data
+
+      state = {
+        ...state,
+        suggestionApplyLoading: false,
+        suggestionApplyResult: applied,
+        suggestionApplyError: null,
+        leadResolution: state.leadResolution
+          ? {
+              ...state.leadResolution,
+              cycle: {
+                ...state.leadResolution.cycle,
+                status: applied.status,
+                previous_status: applied.previous_status,
+                next_action: applied.next_action,
+                next_action_date: applied.next_action_date,
+              },
+            }
+          : state.leadResolution,
+      }
+
+      renderPanel()
+    } catch (error) {
+      state = {
+        ...state,
+        suggestionApplyLoading: false,
+        suggestionApplyResult: null,
+        suggestionApplyError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao aplicar sugestão na Yolen.',
       }
 
       renderPanel()
