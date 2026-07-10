@@ -221,6 +221,14 @@ async function handleCompanionMessage(message) {
     return requestYolenWithToken(message, '/api/companion/resolve-lead', message.payload)
   }
 
+  if (message.action === 'ANALYZE_CONVERSATION') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/analyze-conversation',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,

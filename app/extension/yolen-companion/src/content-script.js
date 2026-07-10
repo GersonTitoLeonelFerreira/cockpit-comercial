@@ -34,6 +34,9 @@
     leadResolution: null,
     leadResolutionError: null,
     autoLookupStatus: null,
+    conversationAnalysisLoading: false,
+    conversationAnalysis: null,
+    conversationAnalysisError: null,
   }
 
   function waitForWhatsAppApp() {
@@ -469,6 +472,59 @@
     return detected.size
   }
 
+  function normalizeMessageText(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .replace(/\u200e/g, '')
+      .trim()
+  }
+
+  function collectVisibleConversationText() {
+    const main = getMainConversationRoot()
+
+    if (!main) {
+      return ''
+    }
+
+    const lines = []
+    const messageNodes = Array.from(main.querySelectorAll('[data-pre-plain-text]'))
+
+    messageNodes.forEach((node) => {
+      const prePlainText = node.getAttribute('data-pre-plain-text') || ''
+      const text = normalizeMessageText(node.textContent)
+
+      if (!text) {
+        return
+      }
+
+      const cleanPreText = normalizeMessageText(prePlainText)
+
+      lines.push(`${cleanPreText} ${text}`.trim())
+    })
+
+    if (lines.length === 0) {
+      const fallbackRows = Array.from(main.querySelectorAll('[role="row"]'))
+
+      fallbackRows.forEach((row) => {
+        const text = normalizeMessageText(row.textContent)
+
+        if (text && text.length > 2 && text.length < 1200) {
+          lines.push(text)
+        }
+      })
+    }
+
+    if (state.audioCount > 0) {
+      lines.push(`[Yolen Companion: ${state.audioCount} áudio(s) visível(is) detectado(s), ainda sem transcrição.]`)
+    }
+
+    return Array.from(new Set(lines))
+      .slice(-80)
+      .join('\n')
+      .trim()
+      .slice(0, 24000)
+  }
+
   function getClickableHeaderTarget() {
     const header = getMainHeader()
 
@@ -667,6 +723,9 @@
       leadResolution: null,
       leadResolutionError: null,
       autoLookupStatus: null,
+      conversationAnalysisLoading: false,
+      conversationAnalysis: null,
+      conversationAnalysisError: null,
     }
   }
 
@@ -895,6 +954,110 @@
     `
   }
 
+  function canAnalyzeCurrentConversation() {
+    return (
+      state.connected &&
+      !state.isSelfConversation &&
+      state.leadResolution?.cycle?.id &&
+      state.leadResolution?.actions?.can_analyze_conversation === true
+    )
+  }
+
+  function getAnalysisStatusClass() {
+    if (state.conversationAnalysisError) {
+      return 'yolen-status-warning'
+    }
+
+    if (state.conversationAnalysis) {
+      return 'yolen-status-success'
+    }
+
+    return 'yolen-status-neutral'
+  }
+
+  function getAnalysisTitle() {
+    if (state.conversationAnalysisLoading) {
+      return 'Analisando conversa...'
+    }
+
+    if (state.conversationAnalysisError) {
+      return 'Erro na análise da IA'
+    }
+
+    if (state.conversationAnalysis?.suggestion?.summary) {
+      return state.conversationAnalysis.suggestion.summary
+    }
+
+    if (!canAnalyzeCurrentConversation()) {
+      return 'Análise ainda indisponível'
+    }
+
+    return 'Conversa pronta para análise'
+  }
+
+  function getAnalysisDescription() {
+    if (state.conversationAnalysisLoading) {
+      return 'A Yolen está lendo as mensagens visíveis e calculando a melhor atualização comercial.'
+    }
+
+    if (state.conversationAnalysisError) {
+      return escapeHtml(state.conversationAnalysisError)
+    }
+
+    const suggestion = state.conversationAnalysis?.suggestion
+
+    if (suggestion) {
+      const details = []
+
+      details.push(`Etapa sugerida: ${suggestion.recommended_status}`)
+
+      if (typeof suggestion.confidence === 'number') {
+        details.push(`Confiança: ${Math.round(suggestion.confidence * 100)}%`)
+      }
+
+      if (suggestion.next_action) {
+        details.push(`Próxima ação: ${suggestion.next_action}`)
+      }
+
+      if (suggestion.result_detail) {
+        details.push(`Detalhe: ${suggestion.result_detail}`)
+      }
+
+      return escapeHtml(details.join(' · '))
+    }
+
+    if (!canAnalyzeCurrentConversation()) {
+      return 'A análise só é liberada quando o lead está localizado e a regra de carteira permite leitura.'
+    }
+
+    return 'Clique para enviar as mensagens visíveis desta conversa ao Copiloto da Yolen.'
+  }
+
+  function getAnalysisActionButton() {
+    if (!canAnalyzeCurrentConversation() || state.conversationAnalysisLoading) {
+      return ''
+    }
+
+    return `
+      <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
+        Analisar conversa com IA
+      </button>
+    `
+  }
+
+  function getAnalysisCardHtml() {
+    return `
+      <div class="yolen-card ${getAnalysisStatusClass()}">
+        <div class="yolen-section-label">Análise da conversa</div>
+        <div class="yolen-card-title">${escapeHtml(getAnalysisTitle())}</div>
+        <div class="yolen-card-description">${getAnalysisDescription()}</div>
+        <div class="yolen-inline-actions">
+          ${getAnalysisActionButton()}
+        </div>
+      </div>
+    `
+  }
+
   function renderPanel() {
     const panel = createPanel()
 
@@ -961,6 +1124,8 @@
         </div>
       </div>
 
+      ${getAnalysisCardHtml()}
+
       <div class="yolen-card">
         <div class="yolen-section-label">Regras preservadas</div>
 
@@ -1023,6 +1188,10 @@
     panel.querySelector('[data-yolen-action="open-cycle-yolen"]')?.addEventListener('click', () => {
       const url = state.leadResolution?.actions?.open_yolen_url || '/leads'
       openYolen(url)
+    })
+
+    panel.querySelector('[data-yolen-action="analyze-conversation"]')?.addEventListener('click', () => {
+      analyzeCurrentConversation()
     })
   }
 
@@ -1196,6 +1365,92 @@
       renderPanel()
     } finally {
       leadResolutionInFlight = false
+    }
+  }
+
+  async function analyzeCurrentConversation() {
+    if (!canAnalyzeCurrentConversation()) {
+      return
+    }
+
+    const cycleId = state.leadResolution?.cycle?.id
+    const conversationText = collectVisibleConversationText()
+
+    if (!cycleId) {
+      state = {
+        ...state,
+        conversationAnalysisLoading: false,
+        conversationAnalysis: null,
+        conversationAnalysisError: 'Ciclo comercial não localizado para análise.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    if (!conversationText || conversationText.length < 15) {
+      state = {
+        ...state,
+        conversationAnalysisLoading: false,
+        conversationAnalysis: null,
+        conversationAnalysisError:
+          'Não há texto suficiente visível na conversa para análise. Áudios ainda não entram como transcrição.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    state = {
+      ...state,
+      conversationAnalysisLoading: true,
+      conversationAnalysis: null,
+      conversationAnalysisError: null,
+    }
+
+    renderPanel()
+
+    try {
+      const result = await window.YolenCompanionApi.analyzeConversation({
+        cycle_id: cycleId,
+        conversation_text: conversationText,
+        source: 'whatsapp',
+      })
+
+      if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
+        state = {
+          ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysis: null,
+          conversationAnalysisError:
+            result?.payload?.error ||
+            'Não foi possível analisar a conversa com IA.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        conversationAnalysisLoading: false,
+        conversationAnalysis: result.payload.data,
+        conversationAnalysisError: null,
+      }
+
+      renderPanel()
+    } catch (error) {
+      state = {
+        ...state,
+        conversationAnalysisLoading: false,
+        conversationAnalysis: null,
+        conversationAnalysisError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao analisar conversa com IA.',
+      }
+
+      renderPanel()
     }
   }
 

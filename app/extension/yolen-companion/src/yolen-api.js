@@ -78,11 +78,16 @@
     return sendToBackground('RESOLVE_LEAD', payload)
   }
 
+  async function analyzeConversation(payload) {
+    return sendToBackground('ANALYZE_CONVERSATION', payload)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
     setSession,
     clearSession,
     resolveLead,
+    analyzeConversation,
   }
 })()
