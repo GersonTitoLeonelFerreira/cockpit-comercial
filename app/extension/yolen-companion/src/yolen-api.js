@@ -43,7 +43,7 @@
         source: 'YOLEN_COMPANION',
         action,
         baseUrl: getBaseUrl(),
-        ...payload,
+        payload: payload || null,
       })
     } catch (error) {
       return {
@@ -74,10 +74,15 @@
     return sendToBackground('CLEAR_SESSION')
   }
 
+  async function resolveLead(payload) {
+    return sendToBackground('RESOLVE_LEAD', payload)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
     setSession,
     clearSession,
+    resolveLead,
   }
 })()

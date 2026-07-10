@@ -1,8 +1,22 @@
 /* global browser, chrome */
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
+const DEFAULT_BASE_URL = 'https://cockpit-commercial-vocn.vercel.app'
+const LOCAL_BASE_URL = 'http://localhost:3000'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
+
+function getAllowedBaseUrl(baseUrl) {
+  if (baseUrl === LOCAL_BASE_URL) {
+    return LOCAL_BASE_URL
+  }
+
+  if (baseUrl === DEFAULT_BASE_URL) {
+    return DEFAULT_BASE_URL
+  }
+
+  return DEFAULT_BASE_URL
+}
 
 function storageGet(key) {
   if (typeof browser !== 'undefined') {
@@ -91,8 +105,8 @@ async function getValidCachedSession() {
 }
 
 async function handleSetSession(message) {
-  if (isValidSession(message.session)) {
-    await setCachedSession(message.session)
+  if (isValidSession(message.payload?.session)) {
+    await setCachedSession(message.payload.session)
 
     return {
       ok: true,
@@ -115,6 +129,58 @@ async function handleSetSession(message) {
   }
 }
 
+async function requestYolenWithToken(message, path, body) {
+  const cachedSession = await getValidCachedSession()
+
+  if (!cachedSession) {
+    return {
+      ok: false,
+      statusCode: 401,
+      payload: {
+        ok: false,
+        status: 'NO_COMPANION_SESSION',
+        error: 'Sessão do Companion não capturada. Clique em Conectar Yolen.',
+      },
+    }
+  }
+
+  const baseUrl = getAllowedBaseUrl(message.baseUrl || DEFAULT_BASE_URL)
+  const token = cachedSession.payload.companion_token
+
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body || {}),
+    })
+
+    const payload = await response.json().catch(() => null)
+
+    return {
+      ok: response.ok,
+      statusCode: response.status,
+      payload,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 0,
+      payload: {
+        ok: false,
+        status: 'NETWORK_ERROR',
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro de rede ao chamar a Yolen.',
+      },
+    }
+  }
+}
+
 async function handleCompanionMessage(message) {
   if (message.action === 'GET_ME') {
     const cachedSession = await getValidCachedSession()
@@ -129,8 +195,7 @@ async function handleCompanionMessage(message) {
       payload: {
         ok: false,
         status: 'NO_COMPANION_SESSION',
-        error:
-          'Sessão do Companion não capturada. Clique em Conectar Yolen.',
+        error: 'Sessão do Companion não capturada. Clique em Conectar Yolen.',
       },
     }
   }
@@ -152,6 +217,10 @@ async function handleCompanionMessage(message) {
     }
   }
 
+  if (message.action === 'RESOLVE_LEAD') {
+    return requestYolenWithToken(message, '/api/companion/resolve-lead', message.payload)
+  }
+
   return {
     ok: false,
     statusCode: 400,
@@ -164,7 +233,28 @@ async function handleCompanionMessage(message) {
 
 async function handleBridgeMessage(message) {
   if (message.action === 'SESSION_UPDATE') {
-    return handleSetSession(message)
+    if (isValidSession(message.session)) {
+      await setCachedSession(message.session)
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: {
+          ok: true,
+          status: 'SESSION_STORED',
+        },
+      }
+    }
+
+    return {
+      ok: false,
+      statusCode: 401,
+      payload: {
+        ok: false,
+        status: 'SESSION_IGNORED_INVALID',
+        error: 'Sessão inválida ignorada pela extensão.',
+      },
+    }
   }
 
   return {
