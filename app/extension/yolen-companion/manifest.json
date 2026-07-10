@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Yolen Companion",
+  "version": "0.1.4",
+  "description": "Camada de leitura assistida da Yolen para WhatsApp Web.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://cockpit-commercial-vocn.vercel.app/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "scripts": ["src/background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/yolen-api.js", "src/content-script.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://cockpit-commercial-vocn.vercel.app/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["src/yolen-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/yolen-page-bridge.js"],
+      "matches": [
+        "https://cockpit-commercial-vocn.vercel.app/*",
+        "http://localhost:3000/*"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "yolen-companion@gerson.local"
+    }
+  }
+}
