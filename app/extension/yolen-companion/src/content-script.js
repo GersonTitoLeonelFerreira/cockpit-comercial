@@ -4,8 +4,16 @@
   const WHATSAPP_APP_SELECTOR = '#app'
   const SESSION_REFRESH_INTERVAL_MS = 5000
   const HASH_SESSION_KEY = 'yolen_companion_session'
+  const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
+  const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
 
   let sessionRefreshTimerId = 0
+  let lastResolvedConversationKey = null
+  let leadResolutionInFlight = false
+  let autoContactLookupInFlight = false
+
+  const autoLookupAttemptedKeys = new Set()
+  const cachedPhonesByConversationKey = new Map()
 
   let state = {
     connected: false,
@@ -14,10 +22,18 @@
     companyName: null,
     companyRole: null,
     conversationTitle: null,
+    conversationKey: null,
+    conversationPhone: null,
+    phoneSource: null,
+    isSelfConversation: false,
     messageCount: 0,
     audioCount: 0,
     lastError: null,
     lastSessionSyncAt: null,
+    leadResolutionLoading: false,
+    leadResolution: null,
+    leadResolutionError: null,
+    autoLookupStatus: null,
   }
 
   function waitForWhatsAppApp() {
@@ -89,7 +105,11 @@
       const result = await window.YolenCompanionApi.setSession(session)
 
       if (result?.ok) {
-        window.history.replaceState(null, document.title, window.location.pathname + window.location.search)
+        window.history.replaceState(
+          null,
+          document.title,
+          window.location.pathname + window.location.search,
+        )
         return true
       }
 
@@ -120,29 +140,313 @@
     }
   }
 
-  function getConversationTitle() {
-    const header = document.querySelector('header')
-    const titleByAttribute = header?.querySelector('span[title]')?.getAttribute('title')
+  function sleep(ms) {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, ms)
+    })
+  }
 
-    if (titleByAttribute && titleByAttribute.trim()) {
-      return titleByAttribute.trim()
+  function onlyDigits(value) {
+    return String(value || '').replace(/\D/g, '')
+  }
+
+  function isLikelyPhone(value) {
+    const digits = onlyDigits(value)
+
+    if (digits.length < 10 || digits.length > 13) {
+      return false
     }
 
-    const textCandidates = Array.from(header?.querySelectorAll('span') || [])
-      .map((element) => element.textContent?.trim())
-      .filter(Boolean)
+    if (/^(\d)\1+$/.test(digits)) {
+      return false
+    }
 
-    return textCandidates[0] || null
+    return true
+  }
+
+  function extractPhoneFromText(value) {
+    const text = String(value || '')
+    const matches = text.match(/(?:\+?\d[\d\s().-]{8,}\d)/g) || []
+
+    for (const match of matches) {
+      if (isLikelyPhone(match)) {
+        return onlyDigits(match)
+      }
+    }
+
+    return null
+  }
+
+  function isProfileOrContactPanelText(value) {
+    const normalized = String(value || '').trim().toLowerCase()
+
+    return (
+      normalized === 'dados do contato' ||
+      normalized === 'dados do perfil' ||
+      normalized === 'contact info' ||
+      normalized === 'profile'
+    )
+  }
+
+  function isIgnoredHeaderText(value) {
+    const normalized = String(value || '').trim().toLowerCase()
+
+    return (
+      !normalized ||
+      normalized === 'dados do contato' ||
+      normalized === 'dados do perfil' ||
+      normalized === 'clique para mostrar os dados do contato' ||
+      normalized === 'click here for contact info'
+    )
+  }
+
+  function getMainConversationRoot() {
+    return (
+      document.querySelector('#main') ||
+      document.querySelector('[data-testid="conversation-panel-wrapper"]') ||
+      null
+    )
+  }
+
+  function getMainHeader() {
+    const main = getMainConversationRoot()
+
+    if (!main) {
+      return null
+    }
+
+    return main.querySelector('header')
+  }
+
+  function getMainHeaderTextCandidates() {
+    const header = getMainHeader()
+    const candidates = []
+
+    if (!header) {
+      return candidates
+    }
+
+    header.querySelectorAll('[title]').forEach((element) => {
+      const title = element.getAttribute('title')?.trim()
+
+      if (title && !title.startsWith('wds-') && title.length > 1) {
+        candidates.push(title)
+      }
+    })
+
+    header.querySelectorAll('span, div').forEach((element) => {
+      const text = element.textContent?.trim()
+
+      if (text && !text.startsWith('wds-') && text.length > 1 && text.length < 120) {
+        candidates.push(text)
+      }
+    })
+
+    return Array.from(new Set(candidates)).filter((candidate) => {
+      return !isIgnoredHeaderText(candidate)
+    })
+  }
+
+  function getSelectedChatElement() {
+    return document.querySelector('[aria-selected="true"]')
+  }
+
+  function getSelectedChatTitle() {
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return null
+    }
+
+    const titleElements = selectedElement.querySelectorAll('[title]')
+
+    for (const titleElement of titleElements) {
+      const title = titleElement.getAttribute('title')?.trim()
+
+      if (title && title.length > 1 && !title.startsWith('wds-')) {
+        return title
+      }
+    }
+
+    const autoTextElements = selectedElement.querySelectorAll('[dir="auto"]')
+
+    for (const autoTextElement of autoTextElements) {
+      const text = autoTextElement.textContent?.trim()
+
+      if (text && text.length > 1 && text.length < 90) {
+        return text
+      }
+    }
+
+    return null
+  }
+
+  function getSelectedChatTextSnapshot() {
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return ''
+    }
+
+    return String(selectedElement.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240)
+  }
+
+  function getConversationKey(title) {
+    const selectedSnapshot = getSelectedChatTextSnapshot()
+    const safeTitle = String(title || '').trim()
+
+    return `${safeTitle}::${selectedSnapshot}`
+  }
+
+  function findContactInfoPanel() {
+    const possibleTitles = Array.from(document.querySelectorAll('span, div, h1, h2, header'))
+
+    for (const element of possibleTitles) {
+      const text = element.textContent?.trim()
+
+      if (!isProfileOrContactPanelText(text)) {
+        continue
+      }
+
+      let current = element
+
+      for (let index = 0; index < 10; index += 1) {
+        const parent = current.parentElement
+
+        if (!parent || parent === document.body || parent.id === PANEL_ID) {
+          break
+        }
+
+        const parentText = parent.textContent || ''
+        const parentTextLength = parentText.length
+
+        if (
+          parentTextLength > 40 &&
+          parentTextLength < 7000 &&
+          parentText.toLowerCase().includes(text.toLowerCase())
+        ) {
+          return parent
+        }
+
+        current = parent
+      }
+    }
+
+    return null
+  }
+
+  function getContactPanelPhone() {
+    const panel = findContactInfoPanel()
+
+    if (!panel) {
+      return null
+    }
+
+    const candidates = []
+
+    panel.querySelectorAll('[title], span, div, a').forEach((element) => {
+      const title = element.getAttribute?.('title')?.trim()
+      const text = element.textContent?.trim()
+
+      if (title && title.length < 140) {
+        candidates.push(title)
+      }
+
+      if (text && text.length < 220) {
+        candidates.push(text)
+      }
+    })
+
+    for (const candidate of Array.from(new Set(candidates))) {
+      const phone = extractPhoneFromText(candidate)
+
+      if (phone) {
+        return phone
+      }
+    }
+
+    return null
+  }
+
+  function isSelfConversationTitle(title) {
+    const normalized = String(title || '').toLowerCase()
+
+    return (
+      normalized.includes('(você)') ||
+      normalized.includes('mensagens para mim') ||
+      normalized.includes('message yourself')
+    )
+  }
+
+  function getConversationTitle() {
+    const selectedTitle = getSelectedChatTitle()
+
+    if (selectedTitle) {
+      return selectedTitle
+    }
+
+    const headerCandidates = getMainHeaderTextCandidates()
+    const headerTitle = headerCandidates.find((candidate) => !isIgnoredHeaderText(candidate))
+
+    return headerTitle || null
+  }
+
+  function getConversationPhone(title, conversationKey) {
+    const headerCandidates = getMainHeaderTextCandidates()
+
+    for (const candidate of headerCandidates) {
+      if (isLikelyPhone(candidate)) {
+        return {
+          phone: onlyDigits(candidate),
+          source: 'Cabeçalho da conversa',
+        }
+      }
+    }
+
+    if (isSelfConversationTitle(title)) {
+      return {
+        phone: null,
+        source: null,
+      }
+    }
+
+    const selectedTitle = getSelectedChatTitle()
+
+    if (selectedTitle && isLikelyPhone(selectedTitle)) {
+      return {
+        phone: onlyDigits(selectedTitle),
+        source: 'Contato selecionado',
+      }
+    }
+
+    const cachedPhone = cachedPhonesByConversationKey.get(conversationKey)
+
+    if (cachedPhone) {
+      return {
+        phone: cachedPhone,
+        source: 'Dados do contato automático',
+      }
+    }
+
+    return {
+      phone: null,
+      source: null,
+    }
   }
 
   function getVisibleMessagesCount() {
-    const messagesWithPreText = document.querySelectorAll('[data-pre-plain-text]')
-    const messageRows = document.querySelectorAll('[role="row"]')
+    const main = getMainConversationRoot() || document
+    const messagesWithPreText = main.querySelectorAll('[data-pre-plain-text]')
+    const messageRows = main.querySelectorAll('[role="row"]')
 
     return Math.max(messagesWithPreText.length, messageRows.length, 0)
   }
 
   function getVisibleAudioCount() {
+    const main = getMainConversationRoot() || document
     const audioSelectors = [
       'audio',
       '[aria-label*="áudio" i]',
@@ -157,7 +461,7 @@
     const detected = new Set()
 
     audioSelectors.forEach((selector) => {
-      document.querySelectorAll(selector).forEach((element) => {
+      main.querySelectorAll(selector).forEach((element) => {
         detected.add(element)
       })
     })
@@ -165,15 +469,251 @@
     return detected.size
   }
 
-  function refreshConversationSnapshot() {
+  function getClickableHeaderTarget() {
+    const header = getMainHeader()
+
+    if (!header) {
+      return null
+    }
+
+    const roleButton = header.querySelector('[role="button"]')
+
+    if (roleButton) {
+      return roleButton
+    }
+
+    const clickable = Array.from(header.querySelectorAll('div, span, button')).find((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.width > 80 && rect.height > 20
+    })
+
+    return clickable || header
+  }
+
+  function clickElement(element) {
+    if (!element) {
+      return false
+    }
+
+    const rect = element.getBoundingClientRect()
+    const clientX = rect.left + rect.width / 2
+    const clientY = rect.top + rect.height / 2
+
+    element.dispatchEvent(
+      new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+      }),
+    )
+
+    element.dispatchEvent(
+      new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+      }),
+    )
+
+    element.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+      }),
+    )
+
+    return true
+  }
+
+  function closeContactInfoPanel() {
+    const panel = findContactInfoPanel()
+
+    if (!panel) {
+      return
+    }
+
+    const closeButton =
+      panel.querySelector('[aria-label*="Fechar" i]') ||
+      panel.querySelector('[aria-label*="Close" i]') ||
+      panel.querySelector('[data-icon="x"]')?.closest('button')
+
+    if (closeButton) {
+      clickElement(closeButton)
+      return
+    }
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        keyCode: 27,
+        which: 27,
+        bubbles: true,
+      }),
+    )
+  }
+
+  async function waitForContactPanelPhone(timeoutMs) {
+    const startedAt = Date.now()
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const phone = getContactPanelPhone()
+
+      if (phone) {
+        return phone
+      }
+
+      await sleep(200)
+    }
+
+    return null
+  }
+
+  async function runAutomaticContactLookup(conversationKey) {
+    if (autoContactLookupInFlight) {
+      return
+    }
+
+    if (!state.connected || state.isSelfConversation || state.conversationPhone) {
+      return
+    }
+
+    if (!conversationKey || autoLookupAttemptedKeys.has(conversationKey)) {
+      return
+    }
+
+    autoLookupAttemptedKeys.add(conversationKey)
+    autoContactLookupInFlight = true
+
+    const lookupTitle = state.conversationTitle
+    const hadContactPanelOpen = Boolean(findContactInfoPanel())
+
     state = {
       ...state,
-      conversationTitle: getConversationTitle(),
+      autoLookupStatus: 'Abrindo dados do contato automaticamente...',
+    }
+
+    renderPanel()
+
+    try {
+      if (!hadContactPanelOpen) {
+        const clicked = clickElement(getClickableHeaderTarget())
+
+        if (!clicked) {
+          state = {
+            ...state,
+            autoLookupStatus: 'Não consegui abrir os dados do contato automaticamente.',
+          }
+
+          renderPanel()
+          return
+        }
+
+        await sleep(AUTO_CONTACT_LOOKUP_DELAY_MS)
+      }
+
+      const phone = await waitForContactPanelPhone(AUTO_CONTACT_LOOKUP_TIMEOUT_MS)
+
+      if (state.conversationKey !== conversationKey || state.conversationTitle !== lookupTitle) {
+        return
+      }
+
+      if (!phone) {
+        state = {
+          ...state,
+          autoLookupStatus:
+            'Telefone não apareceu nos dados do contato. A consulta não foi feita.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      cachedPhonesByConversationKey.set(conversationKey, phone)
+
+      state = {
+        ...state,
+        conversationPhone: phone,
+        phoneSource: hadContactPanelOpen ? 'Dados do contato' : 'Dados do contato automático',
+        autoLookupStatus: null,
+      }
+
+      renderPanel()
+
+      if (!hadContactPanelOpen) {
+        await sleep(250)
+        closeContactInfoPanel()
+      }
+
+      if (state.connected) {
+        resolveCurrentLead()
+      }
+    } finally {
+      autoContactLookupInFlight = false
+    }
+  }
+
+  function clearLeadStateForNewConversation() {
+    state = {
+      ...state,
+      leadResolutionLoading: false,
+      leadResolution: null,
+      leadResolutionError: null,
+      autoLookupStatus: null,
+    }
+  }
+
+  function refreshConversationSnapshot() {
+    const conversationTitle = getConversationTitle()
+    const conversationKey = getConversationKey(conversationTitle)
+    const isSelfConversation = isSelfConversationTitle(conversationTitle)
+    const phoneResult = getConversationPhone(conversationTitle, conversationKey)
+    const previousConversationKey = state.conversationKey
+    const conversationChanged = previousConversationKey !== conversationKey
+
+    state = {
+      ...state,
+      conversationTitle,
+      conversationKey,
+      conversationPhone: phoneResult.phone,
+      phoneSource: phoneResult.source,
+      isSelfConversation,
       messageCount: getVisibleMessagesCount(),
       audioCount: getVisibleAudioCount(),
     }
 
+    if (conversationChanged) {
+      lastResolvedConversationKey = null
+      clearLeadStateForNewConversation()
+    }
+
+    if (isSelfConversation) {
+      lastResolvedConversationKey = null
+      clearLeadStateForNewConversation()
+      renderPanel()
+      return
+    }
+
     renderPanel()
+
+    if (state.connected && phoneResult.phone && lastResolvedConversationKey !== conversationKey) {
+      lastResolvedConversationKey = conversationKey
+      resolveCurrentLead()
+      return
+    }
+
+    if (state.connected && !phoneResult.phone && conversationKey) {
+      window.setTimeout(() => {
+        runAutomaticContactLookup(conversationKey)
+      }, 300)
+    }
   }
 
   function getConnectionLabel() {
@@ -216,6 +756,95 @@
     )
   }
 
+  function getLeadStatusClass() {
+    const status = state.leadResolution?.status
+
+    if (status === 'OWNED_BY_ME') {
+      return 'yolen-status-success'
+    }
+
+    if (status === 'NOT_FOUND' || status === 'NO_PHONE_DETECTED') {
+      return 'yolen-status-warning'
+    }
+
+    return 'yolen-status-neutral'
+  }
+
+  function getLeadStatusTitle() {
+    if (state.isSelfConversation) {
+      return 'Conversa do próprio usuário'
+    }
+
+    if (state.leadResolutionLoading) {
+      return 'Localizando lead...'
+    }
+
+    if (state.leadResolutionError) {
+      return 'Erro ao localizar lead'
+    }
+
+    if (!state.connected) {
+      return 'Lead não consultado'
+    }
+
+    if (!state.conversationPhone) {
+      return 'Telefone não detectado'
+    }
+
+    return state.leadResolution?.user_message || 'Lead ainda não consultado'
+  }
+
+  function getLeadStatusDescription() {
+    if (state.isSelfConversation) {
+      return 'O Companion não vincula conversa com você mesmo a um lead comercial.'
+    }
+
+    if (state.leadResolutionLoading) {
+      return 'A Yolen está verificando esse telefone apenas na empresa ativa.'
+    }
+
+    if (state.leadResolutionError) {
+      return escapeHtml(state.leadResolutionError)
+    }
+
+    if (!state.connected) {
+      return 'Conecte a Yolen para consultar o vínculo comercial.'
+    }
+
+    if (!state.conversationPhone) {
+      return escapeHtml(
+        state.autoLookupStatus ||
+          'O Companion tentará abrir os dados do contato automaticamente para localizar o telefone.',
+      )
+    }
+
+    const resolution = state.leadResolution
+
+    if (!resolution) {
+      return 'Clique em Atualizar leitura para consultar esse telefone.'
+    }
+
+    const details = []
+
+    if (resolution.lead?.name) {
+      details.push(`Lead: ${resolution.lead.name}`)
+    }
+
+    if (resolution.cycle?.status) {
+      details.push(`Etapa atual: ${resolution.cycle.status}`)
+    }
+
+    if (resolution.cycle?.owner_name) {
+      details.push(`Responsável: ${resolution.cycle.owner_name}`)
+    }
+
+    if (resolution.phone_variants?.length) {
+      details.push(`Busca: ${resolution.phone_variants.join(', ')}`)
+    }
+
+    return escapeHtml(details.join(' · ') || resolution.user_message)
+  }
+
   function openYolen(path) {
     const baseUrl =
       window.YolenCompanionApi?.getBaseUrl?.() ||
@@ -230,6 +859,40 @@
 
   function getPrimaryButtonAction() {
     return state.connected ? 'open-yolen' : 'connect-yolen'
+  }
+
+  function getLeadActionButton() {
+    if (state.leadResolutionLoading || state.isSelfConversation) {
+      return ''
+    }
+
+    const resolution = state.leadResolution
+
+    if (!resolution || !state.connected) {
+      return ''
+    }
+
+    if (resolution.status === 'NOT_FOUND') {
+      return `
+        <button class="yolen-secondary-button" type="button" data-yolen-action="create-lead-yolen">
+          Criar lead na Yolen
+        </button>
+      `
+    }
+
+    if (resolution.status === 'IN_POOL') {
+      return `
+        <button class="yolen-secondary-button" type="button" data-yolen-action="open-pool">
+          Abrir Pool na Yolen
+        </button>
+      `
+    }
+
+    return `
+      <button class="yolen-secondary-button" type="button" data-yolen-action="open-cycle-yolen">
+        Abrir vínculo na Yolen
+      </button>
+    `
   }
 
   function renderPanel() {
@@ -267,6 +930,15 @@
           ${escapeHtml(state.conversationTitle || 'Nenhuma conversa detectada')}
         </div>
 
+        <div class="yolen-card-description">
+          Telefone detectado: ${escapeHtml(state.conversationPhone || 'não detectado')}
+          ${
+            state.phoneSource
+              ? ` · Fonte: ${escapeHtml(state.phoneSource)}`
+              : ''
+          }
+        </div>
+
         <div class="yolen-metrics">
           <div class="yolen-metric">
             <span class="yolen-metric-number">${state.messageCount}</span>
@@ -280,11 +952,12 @@
         </div>
       </div>
 
-      <div class="yolen-card yolen-status-neutral">
-        <div class="yolen-card-title">Próximo bloco: localizar lead</div>
-        <div class="yolen-card-description">
-          Nesta primeira versão, o Companion apenas conecta com a Yolen e lê o contexto visual.
-          No próximo bloco, vamos consultar se o telefone existe na empresa ativa.
+      <div class="yolen-card ${getLeadStatusClass()}">
+        <div class="yolen-section-label">Vínculo na Yolen</div>
+        <div class="yolen-card-title">${getLeadStatusTitle()}</div>
+        <div class="yolen-card-description">${getLeadStatusDescription()}</div>
+        <div class="yolen-inline-actions">
+          ${getLeadActionButton()}
         </div>
       </div>
 
@@ -312,8 +985,20 @@
 
     panel.querySelectorAll('[data-yolen-action="refresh"]').forEach((button) => {
       button.addEventListener('click', () => {
+        const currentKey = state.conversationKey
+
+        if (currentKey) {
+          autoLookupAttemptedKeys.delete(currentKey)
+          cachedPhonesByConversationKey.delete(currentKey)
+        }
+
+        lastResolvedConversationKey = null
         refreshConversationSnapshot()
         loadYolenSession({ showLoading: true })
+
+        if (!state.isSelfConversation) {
+          resolveCurrentLead()
+        }
       })
     })
 
@@ -323,6 +1008,21 @@
 
     panel.querySelector('[data-yolen-action="connect-yolen"]')?.addEventListener('click', () => {
       openYolen('/companion/connect')
+    })
+
+    panel.querySelector('[data-yolen-action="create-lead-yolen"]')?.addEventListener('click', () => {
+      const url = state.leadResolution?.actions?.create_lead_url || '/leads'
+      openYolen(url)
+    })
+
+    panel.querySelector('[data-yolen-action="open-pool"]')?.addEventListener('click', () => {
+      const url = state.leadResolution?.actions?.pool_url || '/pool'
+      openYolen(url)
+    })
+
+    panel.querySelector('[data-yolen-action="open-cycle-yolen"]')?.addEventListener('click', () => {
+      const url = state.leadResolution?.actions?.open_yolen_url || '/leads'
+      openYolen(url)
     })
   }
 
@@ -388,6 +1088,14 @@
       }
 
       renderPanel()
+
+      if (options.resolveLeadAfterLoad === true && !state.isSelfConversation) {
+        resolveCurrentLead()
+
+        if (!state.conversationPhone && state.conversationKey) {
+          runAutomaticContactLookup(state.conversationKey)
+        }
+      }
     } catch (error) {
       state = {
         ...state,
@@ -400,6 +1108,94 @@
       }
 
       renderPanel()
+    }
+  }
+
+  async function resolveCurrentLead() {
+    if (leadResolutionInFlight) {
+      return
+    }
+
+    if (!state.connected || state.isSelfConversation) {
+      return
+    }
+
+    if (!state.conversationPhone) {
+      state = {
+        ...state,
+        leadResolutionLoading: false,
+        leadResolution: null,
+        leadResolutionError: null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    const phoneAtRequest = state.conversationPhone
+    const keyAtRequest = state.conversationKey
+
+    leadResolutionInFlight = true
+
+    state = {
+      ...state,
+      leadResolutionLoading: true,
+      leadResolution: null,
+      leadResolutionError: null,
+    }
+
+    renderPanel()
+
+    try {
+      const result = await window.YolenCompanionApi.resolveLead({
+        phone: phoneAtRequest,
+        display_name: state.conversationTitle,
+      })
+
+      if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
+        return
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        state = {
+          ...state,
+          leadResolutionLoading: false,
+          leadResolution: null,
+          leadResolutionError:
+            result?.payload?.error ||
+            'Não foi possível consultar o vínculo na Yolen.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        leadResolutionLoading: false,
+        leadResolution: result.payload,
+        leadResolutionError: null,
+      }
+
+      renderPanel()
+    } catch (error) {
+      if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
+        return
+      }
+
+      state = {
+        ...state,
+        leadResolutionLoading: false,
+        leadResolution: null,
+        leadResolutionError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao localizar lead na Yolen.',
+      }
+
+      renderPanel()
+    } finally {
+      leadResolutionInFlight = false
     }
   }
 
@@ -440,7 +1236,10 @@
     refreshConversationSnapshot()
     observeWhatsAppChanges()
     startSessionAutoRefresh()
-    loadYolenSession({ showLoading: true })
+    loadYolenSession({
+      showLoading: true,
+      resolveLeadAfterLoad: true,
+    })
   }
 
   start()
