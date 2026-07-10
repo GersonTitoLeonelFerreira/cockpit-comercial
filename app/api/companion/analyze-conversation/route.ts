@@ -27,6 +27,8 @@ type AnalyzeCompanionBody = {
   source?: unknown
 }
 
+type JsonRecord = Record<string, unknown>
+
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
   const allowedOrigins = [
@@ -52,7 +54,7 @@ function getCorsHeaders(request: Request) {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
@@ -162,27 +164,103 @@ function getNullableString(value: unknown) {
   return value === null || typeof value === 'string' ? value : null
 }
 
-function getRecentEvents(value: unknown): AISalesRecentEvent[] {
-  if (!Array.isArray(value)) {
-    return []
+function getNestedString(record: JsonRecord, paths: string[][]) {
+  for (const path of paths) {
+    let current: unknown = record
+
+    for (const key of path) {
+      if (!isRecord(current)) {
+        current = null
+        break
+      }
+
+      current = current[key]
+    }
+
+    if (typeof current === 'string' && current.trim()) {
+      return current
+    }
   }
 
-  return value
-    .filter(isRecord)
-    .map((event) => ({
-      event_type: String(event.event_type ?? ''),
-      occurred_at: String(event.occurred_at ?? ''),
-      from_status: isLeadStatus(event.from_status) ? event.from_status : null,
-      to_status: isLeadStatus(event.to_status) ? event.to_status : null,
-      action_channel: getNullableString(event.action_channel),
-      action_result: getNullableString(event.action_result),
-      result_detail: getNullableString(event.result_detail),
-      next_action: getNullableString(event.next_action),
-      next_action_date: getNullableString(event.next_action_date),
-      lost_reason: getNullableString(event.lost_reason),
-      source: getNullableString(event.source),
-    }))
-    .filter((event) => event.event_type && event.occurred_at)
+  return null
+}
+
+function normalizeEventMetadata(value: unknown): JsonRecord {
+  return isRecord(value) ? value : {}
+}
+
+function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
+  const metadata = normalizeEventMetadata(event.metadata)
+
+  const eventType = getString(event.event_type)
+  const occurredAt = getString(event.occurred_at)
+
+  if (!eventType || !occurredAt) {
+    return null
+  }
+
+  const fromStatus = getNestedString(metadata, [
+    ['from_status'],
+    ['payload', 'from_status'],
+    ['checkpoint', 'from_status'],
+    ['previous_status'],
+    ['original_status'],
+  ])
+
+  const toStatus = getNestedString(metadata, [
+    ['to_status'],
+    ['payload', 'to_status'],
+    ['checkpoint', 'to_status'],
+    ['applied_status'],
+    ['new_status'],
+  ])
+
+  return {
+    event_type: eventType,
+    occurred_at: occurredAt,
+    from_status: isLeadStatus(fromStatus) ? fromStatus : null,
+    to_status: isLeadStatus(toStatus) ? toStatus : null,
+    action_channel: getNestedString(metadata, [
+      ['action_channel'],
+      ['payload', 'action_channel'],
+      ['checkpoint', 'action_channel'],
+      ['suggestion', 'action_channel'],
+    ]),
+    action_result: getNestedString(metadata, [
+      ['action_result'],
+      ['payload', 'action_result'],
+      ['checkpoint', 'action_result'],
+      ['suggestion', 'action_result'],
+    ]),
+    result_detail: getNestedString(metadata, [
+      ['result_detail'],
+      ['payload', 'result_detail'],
+      ['checkpoint', 'result_detail'],
+      ['suggestion', 'result_detail'],
+    ]),
+    next_action: getNestedString(metadata, [
+      ['next_action'],
+      ['payload', 'next_action'],
+      ['checkpoint', 'next_action'],
+      ['new_next_action'],
+    ]),
+    next_action_date: getNestedString(metadata, [
+      ['next_action_date'],
+      ['payload', 'next_action_date'],
+      ['checkpoint', 'next_action_date'],
+      ['new_next_action_date'],
+    ]),
+    lost_reason: getNestedString(metadata, [
+      ['lost_reason'],
+      ['payload', 'lost_reason'],
+      ['checkpoint', 'lost_reason'],
+      ['suggestion', 'close_reason'],
+    ]),
+    source: getNestedString(metadata, [
+      ['source'],
+      ['payload', 'source'],
+    ]),
+  }
 }
 
 export async function OPTIONS(request: Request) {
@@ -299,17 +377,20 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data, error } = await admin.rpc('rpc_get_cycle_ai_context_for_company', {
-      p_company_id: tokenPayload.company_id,
-      p_cycle_id: cycleId,
-      p_events_limit: 12,
-    })
+    const { data: cycle, error: cycleError } = await admin
+      .from('sales_cycles')
+      .select(
+        'id, company_id, lead_id, status, owner_user_id, next_action, next_action_date, current_group_id',
+      )
+      .eq('id', cycleId)
+      .eq('company_id', tokenPayload.company_id)
+      .maybeSingle()
 
-    if (error) {
+    if (cycleError) {
       return NextResponse.json<AnalyzeConversationResponse>(
         {
           ok: false,
-          error: error.message || 'Erro ao montar contexto da IA.',
+          error: cycleError.message,
         },
         {
           status: 400,
@@ -318,31 +399,11 @@ export async function POST(request: Request) {
       )
     }
 
-    const rpcResult = Array.isArray(data) ? data[0] : data
-
-    if (!isRecord(rpcResult)) {
+    if (!cycle?.id || !cycle.lead_id || !isLeadStatus(cycle.status)) {
       return NextResponse.json<AnalyzeConversationResponse>(
         {
           ok: false,
-          error: 'Contexto do ciclo não retornado.',
-        },
-        {
-          status: 404,
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    const cycle = isRecord(rpcResult.cycle) ? rpcResult.cycle : null
-    const lead = isRecord(rpcResult.lead) ? rpcResult.lead : null
-
-    if (rpcResult.success !== true || !cycle || !lead || !isLeadStatus(cycle.status)) {
-      return NextResponse.json<AnalyzeConversationResponse>(
-        {
-          ok: false,
-          error:
-            getString(rpcResult.error) ||
-            'Ciclo não encontrado ou sem permissão.',
+          error: 'Ciclo não encontrado ou sem permissão.',
         },
         {
           status: 404,
@@ -367,6 +428,94 @@ export async function POST(request: Request) {
       )
     }
 
+    const { data: lead, error: leadError } = await admin
+      .from('leads')
+      .select('id, name, phone, email, company_id')
+      .eq('id', cycle.lead_id)
+      .eq('company_id', tokenPayload.company_id)
+      .maybeSingle()
+
+    if (leadError) {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        {
+          ok: false,
+          error: leadError.message,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (!lead?.id) {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        {
+          ok: false,
+          error: 'Lead do ciclo não encontrado.',
+        },
+        {
+          status: 404,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    let currentGroupName: string | null = null
+
+    if (cycle.current_group_id) {
+      const { data: group, error: groupError } = await admin
+        .from('lead_groups')
+        .select('id, name')
+        .eq('id', cycle.current_group_id)
+        .eq('company_id', tokenPayload.company_id)
+        .maybeSingle()
+
+      if (groupError) {
+        return NextResponse.json<AnalyzeConversationResponse>(
+          {
+            ok: false,
+            error: groupError.message,
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      currentGroupName = getNullableString(group?.name)
+    }
+
+    const { data: events, error: eventsError } = await admin
+      .from('cycle_events')
+      .select('event_type, occurred_at, metadata')
+      .eq('company_id', tokenPayload.company_id)
+      .eq('cycle_id', cycleId)
+      .order('occurred_at', {
+        ascending: false,
+      })
+      .limit(12)
+
+    if (eventsError) {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        {
+          ok: false,
+          error: eventsError.message,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const recentEvents: AISalesRecentEvent[] = Array.isArray(events)
+      ? events
+          .map((event) => mapRecentEvent(isRecord(event) ? event : {}))
+          .filter((event): event is AISalesRecentEvent => Boolean(event))
+      : []
+
     const context: AISalesContext = {
       cycle_id: String(cycle.id),
       current_status: cycle.status,
@@ -377,8 +526,8 @@ export async function POST(request: Request) {
       current_next_action: getNullableString(cycle.next_action),
       current_next_action_date: getNullableString(cycle.next_action_date),
       current_group_id: getNullableString(cycle.current_group_id),
-      current_group_name: getNullableString(cycle.current_group_name),
-      recent_events: getRecentEvents(rpcResult.recent_events),
+      current_group_name: currentGroupName,
+      recent_events: recentEvents,
     }
 
     const result = await analyzeConversationWithCopilotDetailed({
