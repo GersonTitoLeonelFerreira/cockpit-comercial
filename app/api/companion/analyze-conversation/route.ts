@@ -37,6 +37,7 @@ type CompanionQueryError = {
 type SavedCompanionCoaching = {
   id: string
   occurred_at: string
+  reused?: boolean
 }
 
 type InsertResult = {
@@ -62,6 +63,32 @@ type CompanionWriteTable = {
 
 type CompanionWriteClient = {
   from: (table: 'ai_coaching_notes' | 'cycle_events') => CompanionWriteTable
+}
+
+
+type ExistingCoachingQueryResult = {
+  data: JsonRecord | null
+  error: CompanionQueryError | null
+}
+
+type ExistingCoachingQueryBuilder = {
+  eq: (column: string, value: string) => ExistingCoachingQueryBuilder
+  order: (
+    column: string,
+    options?: {
+      ascending?: boolean
+    },
+  ) => ExistingCoachingQueryBuilder
+  limit: (count: number) => ExistingCoachingQueryBuilder
+  maybeSingle: () => PromiseLike<ExistingCoachingQueryResult>
+}
+
+type ExistingCoachingTable = {
+  select: (columns: string) => ExistingCoachingQueryBuilder
+}
+
+type CompanionReadClient = {
+  from: (table: 'ai_coaching_notes') => ExistingCoachingTable
 }
 
 function getCorsHeaders(request: Request) {
@@ -353,10 +380,12 @@ function buildYolenDecision({
   suggestion,
   diagnostics,
   conversationText,
+  conversationHash,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
   conversationText: string
+  conversationHash: string
 }) {
   return {
     recommended_status: suggestion.recommended_status,
@@ -376,10 +405,52 @@ function buildYolenDecision({
     diagnostics,
     companion: {
       source: 'whatsapp_companion',
-      conversation_hash: buildConversationHash(conversationText),
+      conversation_hash: conversationHash,
       captured_character_count: conversationText.length,
       saved_without_applying: true,
     },
+  }
+}
+
+async function findExistingCompanionCoachingNote({
+  admin,
+  tokenPayload,
+  cycleId,
+  conversationHash,
+}: {
+  admin: CompanionReadClient
+  tokenPayload: CompanionTokenPayload
+  cycleId: string
+  conversationHash: string
+}): Promise<SavedCompanionCoaching | null> {
+  const { data, error } = await admin
+    .from('ai_coaching_notes')
+    .select('id, created_at')
+    .eq('company_id', tokenPayload.company_id)
+    .eq('cycle_id', cycleId)
+    .eq('source', 'whatsapp_companion')
+    .eq('yolen_decision->companion->>conversation_hash', conversationHash)
+    .order('created_at', {
+      ascending: false,
+    })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message || 'Erro ao verificar análise já salva.')
+  }
+
+  const id = getString(data?.id)
+  const occurredAt = getString(data?.created_at)
+
+  if (!id || !occurredAt) {
+    return null
+  }
+
+  return {
+    id,
+    occurred_at: occurredAt,
+    reused: true,
   }
 }
 
@@ -448,6 +519,7 @@ async function saveCompanionCoachingNote({
   return {
     id: noteId,
     occurred_at: occurredAt,
+    reused: false,
   }
 }
 
@@ -724,6 +796,8 @@ export async function POST(request: Request) {
       source,
     })
 
+    const conversationHash = buildConversationHash(conversationText)
+
     const coaching = buildCompanionCoaching({
       conversationText,
       suggestion: result.suggestion,
@@ -733,17 +807,28 @@ export async function POST(request: Request) {
       suggestion: result.suggestion as unknown as JsonRecord,
       diagnostics: result.diagnostics,
       conversationText,
+      conversationHash,
     })
 
+    const companionReadAdmin = admin as unknown as CompanionReadClient
     const companionWriteAdmin = admin as unknown as CompanionWriteClient
 
-    const savedCoaching = await saveCompanionCoachingNote({
-      admin: companionWriteAdmin,
+    const existingSavedCoaching = await findExistingCompanionCoachingNote({
+      admin: companionReadAdmin,
       tokenPayload,
       cycleId,
-      coaching,
-      yolenDecision,
+      conversationHash,
     })
+
+    const savedCoaching =
+      existingSavedCoaching ??
+      (await saveCompanionCoachingNote({
+        admin: companionWriteAdmin,
+        tokenPayload,
+        cycleId,
+        coaching,
+        yolenDecision,
+      }))
 
     return NextResponse.json<AnalyzeConversationResponse>(
       {

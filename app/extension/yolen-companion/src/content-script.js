@@ -1024,7 +1024,9 @@
     }
 
     if (state.suggestionApplyResult) {
-      return 'Sugestão aplicada na Yolen'
+      return state.suggestionApplyResult.already_applied
+        ? 'Sugestão já estava aplicada na Yolen'
+        : 'Sugestão aplicada na Yolen'
     }
 
     if (state.conversationAnalysisLoading) {
@@ -1074,7 +1076,11 @@
       const result = state.suggestionApplyResult
       const details = []
 
-      details.push(`Etapa aplicada: ${getStageLabel(result.status)}`)
+      details.push(
+        result.already_applied
+          ? `Etapa já aplicada: ${getStageLabel(result.status)}`
+          : `Etapa aplicada: ${getStageLabel(result.status)}`,
+      )
 
       if (result.previous_status) {
         details.push(`Etapa anterior: ${getStageLabel(result.previous_status)}`)
@@ -1088,7 +1094,11 @@
         details.push(`Data: ${formatSuggestionDate(result.next_action_date)}`)
       }
 
-      details.push('Evento registrado no histórico')
+      details.push(
+        result.already_applied
+          ? 'Nenhum evento duplicado foi criado'
+          : 'Evento registrado no histórico',
+      )
 
       return escapeHtml(details.join(' · '))
     }
@@ -1126,7 +1136,11 @@
       }
 
       if (savedCoaching?.id) {
-        details.push('Histórico: salvo na Yolen')
+        details.push(
+          savedCoaching.reused
+            ? 'Histórico: já salvo na Yolen'
+            : 'Histórico: salvo na Yolen',
+        )
       }
 
       if (!isOpenSuggestionStatus(suggestion.recommended_status)) {

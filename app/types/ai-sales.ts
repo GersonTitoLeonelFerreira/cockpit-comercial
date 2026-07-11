@@ -179,6 +179,7 @@ export interface AnalyzeConversationResponse {
     saved_coaching?: {
       id: string
       occurred_at: string
+      reused?: boolean
     }
   }
   error?: string
@@ -202,6 +203,7 @@ export interface ApplyAISuggestionResponse {
     previous_status?: LeadStatus | null
     next_action?: string | null
     next_action_date?: string | null
+    already_applied?: boolean
   }
   error?: string
 }

@@ -228,6 +228,38 @@ function getSource(value: unknown) {
     : 'ai_copilot_detail'
 }
 
+
+function getDateKey(value: string | null) {
+  if (!value) {
+    return null
+  }
+
+  const raw = value.trim()
+
+  if (!raw) {
+    return null
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw
+  }
+
+  const parsed = new Date(raw)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return raw
+  }
+
+  return parsed.toISOString().slice(0, 10)
+}
+
+function isSameNextActionDate(
+  currentValue: string | null,
+  suggestedValue: string | null,
+) {
+  return getDateKey(currentValue) === getDateKey(suggestedValue)
+}
+
 async function insertCycleEvent({
   writeAdmin,
   companyId,
@@ -492,7 +524,26 @@ export async function POST(request: Request) {
     const currentNextActionDate = getNullableString(cycle.next_action_date)
     const actionChanged =
       currentNextAction !== nextAction ||
-      currentNextActionDate !== nextActionDate
+      !isSameNextActionDate(currentNextActionDate, nextActionDate)
+
+    if (!statusChanged && !actionChanged) {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        {
+          ok: true,
+          data: {
+            id: String(cycle.id),
+            status: appliedStatus,
+            previous_status: null,
+            next_action: currentNextAction,
+            next_action_date: currentNextActionDate,
+            already_applied: true,
+          },
+        },
+        {
+          headers: corsHeaders,
+        },
+      )
+    }
 
     const updatePayload: JsonRecord = {
       next_action: nextAction,
@@ -575,6 +626,7 @@ export async function POST(request: Request) {
           ...commonMetadata,
           next_action: nextAction,
           next_action_date: nextActionDate,
+          already_applied: false,
         },
       })
     }
