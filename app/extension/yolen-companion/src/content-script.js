@@ -1141,6 +1141,12 @@
             ? 'Histórico: já salvo na Yolen'
             : 'Histórico: salvo na Yolen',
         )
+
+        if (savedCoaching.incremental) {
+          details.push('Escopo: apenas mensagens novas')
+        } else {
+          details.push('Escopo: conversa visível')
+        }
       }
 
       if (!isOpenSuggestionStatus(suggestion.recommended_status)) {

@@ -180,6 +180,8 @@ export interface AnalyzeConversationResponse {
       id: string
       occurred_at: string
       reused?: boolean
+      incremental?: boolean
+      analyzed_character_count?: number
     }
   }
   error?: string

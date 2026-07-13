@@ -6,6 +6,7 @@ import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copil
 import type {
   AISalesContext,
   AISalesRecentEvent,
+  AISalesSuggestion,
   AnalyzeConversationResponse,
   ConversationSource,
 } from '@/app/types/ai-sales'
@@ -38,6 +39,8 @@ type SavedCompanionCoaching = {
   id: string
   occurred_at: string
   reused?: boolean
+  incremental?: boolean
+  analyzed_character_count?: number
 }
 
 type InsertResult = {
@@ -87,8 +90,13 @@ type ExistingCoachingTable = {
   select: (columns: string) => ExistingCoachingQueryBuilder
 }
 
+
 type CompanionReadClient = {
   from: (table: 'ai_coaching_notes') => ExistingCoachingTable
+}
+
+type ExistingCompanionCoaching = SavedCompanionCoaching & {
+  yolenDecision: JsonRecord | null
 }
 
 function getCorsHeaders(request: Request) {
@@ -226,6 +234,31 @@ function getNullableString(value: unknown) {
   return value === null || typeof value === 'string' ? value : null
 }
 
+function getRecord(value: unknown) {
+  return isRecord(value) ? value : null
+}
+
+function getStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((item): item is string => typeof item === 'string')
+}
+
+
+function getNumber(value: unknown) {
+  return typeof value === 'number' ? value : undefined
+}
+
+function getSuggestionSource(value: unknown): AISalesSuggestion['source'] {
+  if (value === 'ai' || value === 'fallback' || value === 'yolen') {
+    return value
+  }
+
+  return 'fallback'
+}
+
 function getNestedString(record: JsonRecord, paths: string[][]) {
   for (const path of paths) {
     let current: unknown = record
@@ -250,6 +283,11 @@ function getNestedString(record: JsonRecord, paths: string[][]) {
 function normalizeEventMetadata(value: unknown): JsonRecord {
   return isRecord(value) ? value : {}
 }
+
+function buildConversationHash(conversationText: string) {
+  return createHash('sha256').update(conversationText).digest('hex')
+}
+
 
 function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
   const metadata = normalizeEventMetadata(event.metadata)
@@ -325,8 +363,119 @@ function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
   }
 }
 
-function buildConversationHash(conversationText: string) {
-  return createHash('sha256').update(conversationText).digest('hex')
+
+function buildSuggestionFromSavedDecision(value: unknown): AISalesSuggestion | null {
+  const decision = getRecord(value)
+
+  if (!decision || !isLeadStatus(decision.recommended_status)) {
+    return null
+  }
+
+  const summary = getString(decision.summary)
+  const reason = getString(decision.reason_for_recommendation)
+
+  if (!summary || !reason) {
+    return null
+  }
+
+  return {
+    recommended_status: decision.recommended_status,
+    confidence:
+      typeof decision.confidence === 'number'
+        ? decision.confidence
+        : 0.55,
+    action_channel: getNullableString(decision.action_channel),
+    action_result: getNullableString(decision.action_result),
+    result_detail: getNullableString(decision.result_detail),
+    next_action: getNullableString(decision.next_action),
+    next_action_date: getNullableString(decision.next_action_date),
+    summary,
+    tags: getStringArray(decision.tags),
+    should_close_won: decision.should_close_won === true,
+    should_close_lost: decision.should_close_lost === true,
+    close_reason: getNullableString(decision.close_reason),
+    reason_for_recommendation: reason,
+    source: getSuggestionSource(decision.source),
+  }
+}
+
+function getCapturedTextFromDecision(value: unknown) {
+  const decision = getRecord(value)
+  const companion = getRecord(decision?.companion)
+
+  return getString(companion?.captured_text)
+}
+
+function getCapturedTailFromDecision(value: unknown) {
+  const decision = getRecord(value)
+  const companion = getRecord(decision?.companion)
+
+  return getString(companion?.captured_text_tail)
+}
+
+function extractIncrementalConversationText({
+  currentText,
+  latestDecision,
+}: {
+  currentText: string
+  latestDecision: JsonRecord | null
+}) {
+  const previousText = getCapturedTextFromDecision(latestDecision)
+  const previousTail = getCapturedTailFromDecision(latestDecision)
+
+  if (!previousText && !previousTail) {
+    return {
+      text: currentText,
+      incremental: false,
+      previous_captured_character_count: 0,
+    }
+  }
+
+  if (previousText && currentText === previousText) {
+    return {
+      text: '',
+      incremental: true,
+      previous_captured_character_count: previousText.length,
+    }
+  }
+
+  if (previousText && currentText.startsWith(previousText)) {
+    return {
+      text: currentText.slice(previousText.length).trim(),
+      incremental: true,
+      previous_captured_character_count: previousText.length,
+    }
+  }
+
+  if (previousText) {
+    const previousTextIndex = currentText.lastIndexOf(previousText)
+
+    if (previousTextIndex >= 0) {
+      return {
+        text: currentText.slice(previousTextIndex + previousText.length).trim(),
+        incremental: true,
+        previous_captured_character_count: previousText.length,
+      }
+    }
+  }
+
+  if (previousTail) {
+    const previousTailIndex = currentText.lastIndexOf(previousTail)
+
+    if (previousTailIndex >= 0) {
+      return {
+        text: currentText.slice(previousTailIndex + previousTail.length).trim(),
+        incremental: true,
+        previous_captured_character_count: previousTail.length,
+      }
+    }
+  }
+
+  return {
+    text: currentText,
+    incremental: false,
+    previous_captured_character_count: previousText?.length ?? previousTail?.length ?? 0,
+  }
 }
 
 function buildCompanionCoaching({
@@ -380,12 +529,20 @@ function buildYolenDecision({
   suggestion,
   diagnostics,
   conversationText,
+  analysisText,
   conversationHash,
+  incrementalAnalysis,
+  previousCoachingNoteId,
+  previousCapturedCharacterCount,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
   conversationText: string
+  analysisText: string
   conversationHash: string
+  incrementalAnalysis: boolean
+  previousCoachingNoteId: string | null
+  previousCapturedCharacterCount: number
 }) {
   return {
     recommended_status: suggestion.recommended_status,
@@ -406,7 +563,15 @@ function buildYolenDecision({
     companion: {
       source: 'whatsapp_companion',
       conversation_hash: conversationHash,
+      analysis_text_hash: buildConversationHash(analysisText),
       captured_character_count: conversationText.length,
+      analyzed_character_count: analysisText.length,
+      incremental_analysis: incrementalAnalysis,
+      previous_coaching_note_id: previousCoachingNoteId,
+      previous_captured_character_count: previousCapturedCharacterCount,
+      captured_text: conversationText,
+      captured_text_tail: conversationText.slice(-4000),
+      analysis_text_preview: analysisText.slice(0, 4000),
       saved_without_applying: true,
     },
   }
@@ -422,10 +587,10 @@ async function findExistingCompanionCoachingNote({
   tokenPayload: CompanionTokenPayload
   cycleId: string
   conversationHash: string
-}): Promise<SavedCompanionCoaching | null> {
+}): Promise<ExistingCompanionCoaching | null> {
   const { data, error } = await admin
     .from('ai_coaching_notes')
-    .select('id, created_at')
+    .select('id, created_at, yolen_decision')
     .eq('company_id', tokenPayload.company_id)
     .eq('cycle_id', cycleId)
     .eq('source', 'whatsapp_companion')
@@ -451,6 +616,47 @@ async function findExistingCompanionCoachingNote({
     id,
     occurred_at: occurredAt,
     reused: true,
+    yolenDecision: getRecord(data?.yolen_decision),
+  }
+}
+
+async function findLatestCompanionCoachingNote({
+  admin,
+  tokenPayload,
+  cycleId,
+}: {
+  admin: CompanionReadClient
+  tokenPayload: CompanionTokenPayload
+  cycleId: string
+}): Promise<ExistingCompanionCoaching | null> {
+  const { data, error } = await admin
+    .from('ai_coaching_notes')
+    .select('id, created_at, yolen_decision')
+    .eq('company_id', tokenPayload.company_id)
+    .eq('cycle_id', cycleId)
+    .eq('source', 'whatsapp_companion')
+    .order('created_at', {
+      ascending: false,
+    })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message || 'Erro ao verificar última análise salva.')
+  }
+
+  const id = getString(data?.id)
+  const occurredAt = getString(data?.created_at)
+
+  if (!id || !occurredAt) {
+    return null
+  }
+
+  return {
+    id,
+    occurred_at: occurredAt,
+    reused: true,
+    yolenDecision: getRecord(data?.yolen_decision),
   }
 }
 
@@ -520,6 +726,11 @@ async function saveCompanionCoachingNote({
     id: noteId,
     occurred_at: occurredAt,
     reused: false,
+    incremental:
+      getRecord(yolenDecision.companion)?.incremental_analysis === true,
+      analyzed_character_count: getNumber(
+        getRecord(yolenDecision.companion)?.analyzed_character_count,
+      ),
   }
 }
 
@@ -790,26 +1001,7 @@ export async function POST(request: Request) {
       recent_events: recentEvents,
     }
 
-    const result = await analyzeConversationWithCopilotDetailed({
-      context,
-      conversationText,
-      source,
-    })
-
     const conversationHash = buildConversationHash(conversationText)
-
-    const coaching = buildCompanionCoaching({
-      conversationText,
-      suggestion: result.suggestion,
-    })
-
-    const yolenDecision = buildYolenDecision({
-      suggestion: result.suggestion as unknown as JsonRecord,
-      diagnostics: result.diagnostics,
-      conversationText,
-      conversationHash,
-    })
-
     const companionReadAdmin = admin as unknown as CompanionReadClient
     const companionWriteAdmin = admin as unknown as CompanionWriteClient
 
@@ -820,15 +1012,87 @@ export async function POST(request: Request) {
       conversationHash,
     })
 
-    const savedCoaching =
-      existingSavedCoaching ??
-      (await saveCompanionCoachingNote({
-        admin: companionWriteAdmin,
-        tokenPayload,
-        cycleId,
-        coaching,
-        yolenDecision,
-      }))
+    const existingSuggestion = buildSuggestionFromSavedDecision(
+      existingSavedCoaching?.yolenDecision,
+    )
+
+    if (existingSavedCoaching && existingSuggestion) {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        {
+          ok: true,
+          data: {
+            context,
+            suggestion: existingSuggestion,
+            saved_coaching: {
+              id: existingSavedCoaching.id,
+              occurred_at: existingSavedCoaching.occurred_at,
+              reused: true,
+              incremental:
+                getRecord(existingSavedCoaching.yolenDecision?.companion)?.incremental_analysis === true,
+                analyzed_character_count: getNumber(
+                  getRecord(existingSavedCoaching.yolenDecision?.companion)
+                    ?.analyzed_character_count,
+                ),  
+            },
+          },
+        },
+        {
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const latestSavedCoaching = await findLatestCompanionCoachingNote({
+      admin: companionReadAdmin,
+      tokenPayload,
+      cycleId,
+    })
+
+    const incrementalResult = extractIncrementalConversationText({
+      currentText: conversationText,
+      latestDecision: latestSavedCoaching?.yolenDecision ?? null,
+    })
+
+    const analysisText =
+      incrementalResult.text.trim().length >= 15
+        ? incrementalResult.text.trim()
+        : conversationText
+
+    const incrementalAnalysis =
+      incrementalResult.text.trim().length >= 15
+        ? incrementalResult.incremental
+        : false
+
+    const result = await analyzeConversationWithCopilotDetailed({
+      context,
+      conversationText: analysisText,
+      source,
+    })
+
+    const coaching = buildCompanionCoaching({
+      conversationText: analysisText,
+      suggestion: result.suggestion,
+    })
+
+    const yolenDecision = buildYolenDecision({
+      suggestion: result.suggestion as unknown as JsonRecord,
+      diagnostics: result.diagnostics,
+      conversationText,
+      analysisText,
+      conversationHash,
+      incrementalAnalysis,
+      previousCoachingNoteId: latestSavedCoaching?.id ?? null,
+      previousCapturedCharacterCount:
+        incrementalResult.previous_captured_character_count,
+    })
+
+    const savedCoaching = await saveCompanionCoachingNote({
+      admin: companionWriteAdmin,
+      tokenPayload,
+      cycleId,
+      coaching,
+      yolenDecision,
+    })
 
     return NextResponse.json<AnalyzeConversationResponse>(
       {
