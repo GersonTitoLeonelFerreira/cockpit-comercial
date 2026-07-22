@@ -40,6 +40,7 @@
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
     suggestionApplyError: null,
+    suggestedMessageCopyStatus: null,
   }
 
   function waitForWhatsAppApp() {
@@ -732,6 +733,7 @@
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
+      suggestedMessageCopyStatus: null,
     }
   }
 
@@ -1153,6 +1155,10 @@
         details.push('Aplicação automática bloqueada nesta fase')
       }
 
+      if (state.suggestedMessageCopyStatus) {
+        details.push(state.suggestedMessageCopyStatus)
+      }
+
       return escapeHtml(details.join(' · '))
     }
 
@@ -1162,6 +1168,28 @@
 
     return 'Clique para enviar as mensagens visíveis desta conversa ao Copiloto da Yolen.'
   }
+
+  function getSuggestedMessage() {
+    const message = state.conversationAnalysis?.coaching?.suggested_message
+
+    return typeof message === 'string' && message.trim() ? message.trim() : null
+  }
+
+  function getSuggestedMessageHtml() {
+    const message = getSuggestedMessage()
+
+    if (!message) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-card-description">
+        <strong>Mensagem sugerida</strong><br>
+        ${escapeHtml(message)}
+      </div>
+    `
+  }
+
 
   function getAnalysisActionButton() {
     if (!canAnalyzeCurrentConversation() || state.conversationAnalysisLoading) {
@@ -1174,6 +1202,14 @@
       </button>
     `
 
+    const copyMessageButton = getSuggestedMessage()
+      ? `
+        <button class="yolen-secondary-button" type="button" data-yolen-action="copy-suggested-message">
+          Copiar mensagem
+        </button>
+      `
+      : ''
+
     if (!state.conversationAnalysis?.suggestion) {
       return `
         <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
@@ -1183,15 +1219,19 @@
     }
 
     if (!canApplyCurrentSuggestion()) {
-      return analyzeButton
+      return `
+        ${copyMessageButton}
+        ${analyzeButton}
+      `
     }
 
     return `
-      <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
-        Aplicar sugestão na Yolen
-      </button>
+    <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
+    Aplicar sugestão na Yolen
+  </button>
 
-      ${analyzeButton}
+  ${copyMessageButton}
+  ${analyzeButton}
     `
   }
 
@@ -1201,6 +1241,7 @@
         <div class="yolen-section-label">Análise da conversa</div>
         <div class="yolen-card-title">${escapeHtml(getAnalysisTitle())}</div>
         <div class="yolen-card-description">${getAnalysisDescription()}</div>
+        ${getSuggestedMessageHtml()}
         <div class="yolen-inline-actions">
           ${getAnalysisActionButton()}
         </div>
@@ -1346,6 +1387,10 @@
 
     panel.querySelector('[data-yolen-action="apply-suggestion"]')?.addEventListener('click', () => {
       applyCurrentSuggestion()
+    })
+
+    panel.querySelector('[data-yolen-action="copy-suggested-message"]')?.addEventListener('click', () => {
+      copySuggestedMessage()
     })
   }
 
@@ -1563,6 +1608,7 @@
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
+      suggestedMessageCopyStatus: null,
     }
 
     renderPanel()
@@ -1605,6 +1651,33 @@
           error instanceof Error && error.message
             ? error.message
             : 'Erro ao analisar conversa com IA.',
+      }
+
+      renderPanel()
+    }
+  }
+
+  async function copySuggestedMessage() {
+    const message = getSuggestedMessage()
+
+    if (!message) {
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(message)
+
+      state = {
+        ...state,
+        suggestedMessageCopyStatus: 'Mensagem copiada',
+      }
+
+      renderPanel()
+    } catch {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          'Não foi possível copiar automaticamente. Selecione e copie a mensagem manualmente.',
       }
 
       renderPanel()

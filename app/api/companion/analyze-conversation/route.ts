@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
+import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
+import type { AICoaching } from '@/app/types/ai-coaching'
 import type {
   AISalesContext,
   AISalesRecentEvent,
@@ -97,6 +99,7 @@ type CompanionReadClient = {
 
 type ExistingCompanionCoaching = SavedCompanionCoaching & {
   yolenDecision: JsonRecord | null
+  coaching: JsonRecord | null
 }
 
 function getCorsHeaders(request: Request) {
@@ -363,6 +366,46 @@ function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
   }
 }
 
+function buildResponseCoaching(value: unknown) {
+  const coaching = getRecord(value)
+
+  if (!coaching) {
+    return {
+      recommended_next_approach: null,
+      suggested_message: null,
+    }
+  }
+
+  return {
+    recommended_next_approach: getNullableString(coaching.recommended_next_approach),
+    suggested_message: getNullableString(coaching.suggested_message),
+  }
+}
+
+async function generateCompanionCoachingOrFallback({
+  context,
+  analysisText,
+  suggestion,
+}: {
+  context: AISalesContext
+  analysisText: string
+  suggestion: AISalesSuggestion
+}): Promise<AICoaching> {
+  try {
+    return await generateSalesCoaching({
+      context,
+      conversationText: analysisText,
+      suggestion,
+    })
+  } catch {
+    return buildCompanionCoaching({
+      conversationText: analysisText,
+      suggestion,
+    })
+  }
+}
+
+
 
 function buildSuggestionFromSavedDecision(value: unknown): AISalesSuggestion | null {
   const decision = getRecord(value)
@@ -590,7 +633,7 @@ async function findExistingCompanionCoachingNote({
 }): Promise<ExistingCompanionCoaching | null> {
   const { data, error } = await admin
     .from('ai_coaching_notes')
-    .select('id, created_at, yolen_decision')
+    .select('id, created_at, coaching, yolen_decision')
     .eq('company_id', tokenPayload.company_id)
     .eq('cycle_id', cycleId)
     .eq('source', 'whatsapp_companion')
@@ -616,6 +659,7 @@ async function findExistingCompanionCoachingNote({
     id,
     occurred_at: occurredAt,
     reused: true,
+    coaching: getRecord(data?.coaching),
     yolenDecision: getRecord(data?.yolen_decision),
   }
 }
@@ -631,7 +675,7 @@ async function findLatestCompanionCoachingNote({
 }): Promise<ExistingCompanionCoaching | null> {
   const { data, error } = await admin
     .from('ai_coaching_notes')
-    .select('id, created_at, yolen_decision')
+    .select('id, created_at, coaching, yolen_decision')
     .eq('company_id', tokenPayload.company_id)
     .eq('cycle_id', cycleId)
     .eq('source', 'whatsapp_companion')
@@ -656,6 +700,7 @@ async function findLatestCompanionCoachingNote({
     id,
     occurred_at: occurredAt,
     reused: true,
+    coaching: getRecord(data?.coaching),
     yolenDecision: getRecord(data?.yolen_decision),
   }
 }
@@ -1028,12 +1073,14 @@ export async function POST(request: Request) {
               occurred_at: existingSavedCoaching.occurred_at,
               reused: true,
               incremental:
-                getRecord(existingSavedCoaching.yolenDecision?.companion)?.incremental_analysis === true,
-                analyzed_character_count: getNumber(
-                  getRecord(existingSavedCoaching.yolenDecision?.companion)
-                    ?.analyzed_character_count,
-                ),  
+                getRecord(existingSavedCoaching.yolenDecision?.companion)
+                  ?.incremental_analysis === true,
+              analyzed_character_count: getNumber(
+                getRecord(existingSavedCoaching.yolenDecision?.companion)
+                  ?.analyzed_character_count,
+              ),
             },
+            coaching: buildResponseCoaching(existingSavedCoaching.coaching),
           },
         },
         {
@@ -1069,8 +1116,9 @@ export async function POST(request: Request) {
       source,
     })
 
-    const coaching = buildCompanionCoaching({
-      conversationText: analysisText,
+    const coaching = await generateCompanionCoachingOrFallback({
+      context,
+      analysisText,
       suggestion: result.suggestion,
     })
 
@@ -1090,7 +1138,7 @@ export async function POST(request: Request) {
       admin: companionWriteAdmin,
       tokenPayload,
       cycleId,
-      coaching,
+      coaching: coaching as unknown as JsonRecord,
       yolenDecision,
     })
 
@@ -1102,6 +1150,7 @@ export async function POST(request: Request) {
           suggestion: result.suggestion,
           diagnostics: result.diagnostics,
           saved_coaching: savedCoaching,
+          coaching: buildResponseCoaching(coaching),
         },
       },
       {

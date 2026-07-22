@@ -183,6 +183,10 @@ export interface AnalyzeConversationResponse {
       incremental?: boolean
       analyzed_character_count?: number
     }
+    coaching?: {
+      recommended_next_approach?: string | null
+      suggested_message?: string | null
+    }
   }
   error?: string
 }
