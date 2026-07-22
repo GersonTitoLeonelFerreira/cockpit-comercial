@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 type CompanionRole = 'admin' | 'manager' | 'member'
-type MessageAction = 'copied' | 'inserted'
+type MessageAction = 'copied' | 'inserted' | 'sent'
 
 type CompanionTokenPayload = {
   sub: string
@@ -182,8 +182,8 @@ function getCleanString(value: unknown) {
 }
 
 function isMessageAction(value: unknown): value is MessageAction {
-  return value === 'copied' || value === 'inserted'
-}
+    return value === 'copied' || value === 'inserted' || value === 'sent'
+  }
 
 function getMessagePreview(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 500)
@@ -473,11 +473,12 @@ export async function POST(request: Request) {
         message_preview: getMessagePreview(message),
         message_length: message.length,
         companion: {
-          used_suggested_message: true,
-          copied_to_clipboard: action === 'copied',
-          inserted_into_whatsapp: action === 'inserted',
-          sent_automatically: false,
-        },
+            used_suggested_message: true,
+            copied_to_clipboard: action === 'copied',
+            inserted_into_whatsapp: action === 'inserted',
+            sent_manually: action === 'sent',
+            sent_automatically: false,
+          },
       },
     })
 

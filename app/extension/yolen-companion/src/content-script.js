@@ -42,6 +42,7 @@
     suggestionApplyError: null,
     suggestedMessageCopyStatus: null,
     suggestedMessageLastRegisteredKey: null,
+    pendingSuggestedMessageSend: null,
   }
 
   function waitForWhatsAppApp() {
@@ -736,6 +737,7 @@
       suggestionApplyError: null,
       suggestedMessageCopyStatus: null,
       suggestedMessageLastRegisteredKey: null,
+      pendingSuggestedMessageSend: null,
     }
   }
 
@@ -1348,6 +1350,12 @@
             : 'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
         suggestedMessageLastRegisteredKey:
           registration.registrationKey || state.suggestedMessageLastRegisteredKey,
+        pendingSuggestedMessageSend: {
+          cycleId: state.leadResolution?.cycle?.id || null,
+          coachingNoteId: state.conversationAnalysis?.saved_coaching?.id || null,
+          conversationKey: state.conversationKey,
+          message,
+        },
       }
 
       renderPanel()
@@ -1799,6 +1807,7 @@
       suggestionApplyError: null,
       suggestedMessageCopyStatus: null,
       suggestedMessageLastRegisteredKey: null,
+      pendingSuggestedMessageSend: null,
     }
 
     renderPanel()
@@ -1847,14 +1856,16 @@
     }
   }
 
-  async function registerSuggestedMessageAction(action) {
-    const cycleId = state.leadResolution?.cycle?.id
-    const message = getSuggestedMessage()
-    const coachingNoteId = state.conversationAnalysis?.saved_coaching?.id || null
+  async function registerSuggestedMessageAction(action, options = {}) {
+    const cycleId = options.cycleId || state.leadResolution?.cycle?.id
+    const message = options.message || getSuggestedMessage()
+    const coachingNoteId =
+      options.coachingNoteId || state.conversationAnalysis?.saved_coaching?.id || null
 
     if (!cycleId || !message || !window.YolenCompanionApi?.registerMessageAction) {
       return {
         registered: false,
+        alreadyRegistered: false,
         registrationKey: null,
       }
     }
@@ -1869,6 +1880,7 @@
     if (state.suggestedMessageLastRegisteredKey === registrationKey) {
       return {
         registered: false,
+        alreadyRegistered: false,
         registrationKey,
       }
     }
@@ -1893,6 +1905,146 @@
       registrationKey,
     }
   }
+
+  function getComposerText() {
+    const composer = getWhatsAppComposer()
+
+    if (!composer) {
+      return ''
+    }
+
+    return normalizeMessageText(composer.textContent)
+  }
+
+  function isWhatsAppSendButtonTarget(target) {
+    if (!target || typeof target.closest !== 'function') {
+      return false
+    }
+
+    const button = target.closest('button,[role="button"]')
+
+    if (!button || button.closest(`#${PANEL_ID}`)) {
+      return false
+    }
+
+    const ariaLabel = button.getAttribute('aria-label') || ''
+    const title = button.getAttribute('title') || ''
+    const text = `${ariaLabel} ${title}`
+
+    if (/enviar|send/i.test(text)) {
+      return true
+    }
+
+    return Boolean(
+      button.querySelector('[data-icon="send"]') ||
+        button.querySelector('[data-testid="send"]'),
+    )
+  }
+
+  function isComposerEnterTarget(target) {
+    if (!target || typeof target.closest !== 'function') {
+      return false
+    }
+
+    const composer = target.closest('[contenteditable="true"]')
+
+    if (!composer || composer.closest(`#${PANEL_ID}`)) {
+      return false
+    }
+
+    return composer === getWhatsAppComposer()
+  }
+
+  async function registerManualSuggestedMessageSend(finalMessage) {
+    const pending = state.pendingSuggestedMessageSend
+
+    if (!pending?.cycleId || !pending.message) {
+      return
+    }
+
+    if (pending.conversationKey !== state.conversationKey) {
+      return
+    }
+
+    const messageToRegister = normalizeMessageText(finalMessage || pending.message)
+
+    if (!messageToRegister || messageToRegister.length < 2) {
+      return
+    }
+
+    try {
+      const registration = await registerSuggestedMessageAction('sent', {
+        cycleId: pending.cycleId,
+        coachingNoteId: pending.coachingNoteId,
+        message: messageToRegister,
+      })
+
+      state = {
+        ...state,
+        suggestedMessageCopyStatus: registration.alreadyRegistered
+          ? 'Envio manual já estava registrado na Yolen'
+          : registration.registered
+            ? 'Envio manual registrado na Yolen'
+            : state.suggestedMessageCopyStatus,
+        suggestedMessageLastRegisteredKey:
+          registration.registrationKey || state.suggestedMessageLastRegisteredKey,
+        pendingSuggestedMessageSend: null,
+      }
+
+      renderPanel()
+    } catch {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          'Mensagem enviada manualmente, mas a Yolen não conseguiu registrar o envio.',
+        pendingSuggestedMessageSend: null,
+      }
+
+      renderPanel()
+    }
+  }
+
+  function scheduleManualSendRegistration() {
+    const currentMessage = getComposerText()
+
+    if (!currentMessage) {
+      return
+    }
+
+    window.setTimeout(() => {
+      registerManualSuggestedMessageSend(currentMessage)
+    }, 250)
+  }
+
+  function observeManualWhatsAppSend() {
+    document.addEventListener(
+      'click',
+      (event) => {
+        if (isWhatsAppSendButtonTarget(event.target)) {
+          scheduleManualSendRegistration()
+        }
+      },
+      true,
+    )
+
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        if (
+          event.key === 'Enter' &&
+          !event.shiftKey &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          isComposerEnterTarget(event.target)
+        ) {
+          scheduleManualSendRegistration()
+        }
+      },
+      true,
+    )
+  }
+
 
 
   async function copySuggestedMessage() {
@@ -2105,6 +2257,7 @@
     await captureSessionFromHash()
     refreshConversationSnapshot()
     observeWhatsAppChanges()
+    observeManualWhatsAppSend()
     startSessionAutoRefresh()
     loadYolenSession({
       showLoading: true,

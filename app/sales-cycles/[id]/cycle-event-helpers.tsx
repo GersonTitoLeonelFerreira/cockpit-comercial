@@ -454,6 +454,10 @@ function getMessageActionLabel(action: unknown): string | null {
     return 'Inserida no campo do WhatsApp'
   }
 
+  if (action === 'sent') {
+    return 'Enviada manualmente pelo vendedor'
+  }
+
   return null
 }
 
