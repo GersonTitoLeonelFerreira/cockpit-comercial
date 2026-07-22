@@ -175,8 +175,10 @@ export function getEventTitle(event: CycleEvent): string {
     contacted: 'Contato registrado',
     replied: 'Resposta registrada',
     ai_analysis_generated: 'Análise da IA gerada',
+    ai_coaching_saved: 'Orientação da IA salva',
     ai_suggestion_applied: 'Sugestão da IA aplicada',
     ai_suggestion_rejected: 'Sugestão da IA descartada',
+    whatsapp_suggested_message_used: 'Mensagem sugerida usada no WhatsApp',
   }
   return EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 }
@@ -437,6 +439,33 @@ export function WonCard({ cycle }: { cycle: Record<string, unknown> }) {
   )
 }
 
+function getEventMetadataRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function getMessageActionLabel(action: unknown): string | null {
+  if (action === 'copied') {
+    return 'Copiada pelo vendedor'
+  }
+
+  if (action === 'inserted') {
+    return 'Inserida no campo do WhatsApp'
+  }
+
+  return null
+}
+
+function getCompanionSourceLabel(source: unknown): string | null {
+  if (source === 'whatsapp_companion') {
+    return 'Yolen Companion'
+  }
+
+  return typeof source === 'string' ? source : null
+}
+
+
 export function AdminCard({ event }: { event: CycleEvent }) {
   const m = event.metadata ?? {}
   const suggestion =
@@ -444,20 +473,22 @@ export function AdminCard({ event }: { event: CycleEvent }) {
       ? (m.suggestion as Record<string, unknown>)
       : null
 
-  const EVENT_LABELS: Record<string, string> = {
-    assigned: 'Ciclo atribuído',
-    reassigned: 'Ciclo reatribuído',
-    returned_to_pool: 'Devolvido ao pool',
-    cycle_created: 'Ciclo criado',
-    owner_assigned: 'Proprietário atribuído',
-    next_action_set: 'Próxima ação definida',
-    note_added: 'Nota adicionada',
-    contacted: 'Contato registrado',
-    replied: 'Resposta registrada',
-    ai_analysis_generated: 'Análise da IA gerada',
-    ai_suggestion_applied: 'Sugestão da IA aplicada',
-    ai_suggestion_rejected: 'Sugestão da IA descartada',
-  }
+      const EVENT_LABELS: Record<string, string> = {
+        assigned: 'Ciclo atribuído',
+        reassigned: 'Ciclo reatribuído',
+        returned_to_pool: 'Devolvido ao pool',
+        cycle_created: 'Ciclo criado',
+        owner_assigned: 'Proprietário atribuído',
+        next_action_set: 'Próxima ação definida',
+        note_added: 'Nota adicionada',
+        contacted: 'Contato registrado',
+        replied: 'Resposta registrada',
+        ai_analysis_generated: 'Análise da IA gerada',
+        ai_coaching_saved: 'Orientação da IA salva',
+        ai_suggestion_applied: 'Sugestão da IA aplicada',
+        ai_suggestion_rejected: 'Sugestão da IA descartada',
+        whatsapp_suggested_message_used: 'Mensagem sugerida usada no WhatsApp',
+      }
 
   const label = EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 
@@ -474,10 +505,19 @@ export function AdminCard({ event }: { event: CycleEvent }) {
     (suggestion?.summary as string | undefined) ??
     (m.edited_summary as string | undefined)
 
-  const confidence =
+    const confidence =
     typeof suggestion?.confidence === 'number'
       ? Math.round((suggestion.confidence as number) * 100)
       : null
+
+  const companion = getEventMetadataRecord(m.companion)
+  const messageActionLabel = getMessageActionLabel(m.action)
+  const messagePreview =
+    typeof m.message_preview === 'string' ? m.message_preview : null
+  const summaryPreview =
+    typeof m.summary_preview === 'string' ? m.summary_preview : null
+  const sourceLabel = getCompanionSourceLabel(m.source)
+  const sentAutomatically = companion?.sent_automatically === true
 
   return (
     <div>
@@ -511,6 +551,48 @@ export function AdminCard({ event }: { event: CycleEvent }) {
 
           {!!summary && (
             <FieldRow label="Resumo" value={<em>{summary}</em>} />
+          )}
+        </div>
+      )}
+
+{event.event_type === 'ai_coaching_saved' && (
+        <div style={{ marginTop: 8 }}>
+          {!!sourceLabel && (
+            <FieldRow label="Origem" value={sourceLabel} />
+          )}
+
+          {!!summaryPreview && (
+            <FieldRow label="Resumo" value={<em>{summaryPreview}</em>} />
+          )}
+
+          <FieldRow
+            label="Aplicação"
+            value="Salva no histórico. Nenhuma etapa foi alterada automaticamente."
+          />
+        </div>
+      )}
+
+      {event.event_type === 'whatsapp_suggested_message_used' && (
+        <div style={{ marginTop: 8 }}>
+          {!!messageActionLabel && (
+            <FieldRow label="Ação" value={messageActionLabel} />
+          )}
+
+          {!!sourceLabel && (
+            <FieldRow label="Origem" value={sourceLabel} />
+          )}
+
+          <FieldRow
+            label="Envio"
+            value={
+              sentAutomatically
+                ? 'Enviada automaticamente'
+                : 'Manual. A Yolen não enviou a mensagem.'
+            }
+          />
+
+          {!!messagePreview && (
+            <FieldRow label="Mensagem" value={<em>{messagePreview}</em>} />
           )}
         </div>
       )}
