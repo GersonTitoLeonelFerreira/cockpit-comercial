@@ -1341,9 +1341,11 @@
 
       state = {
         ...state,
-        suggestedMessageCopyStatus: registration.registered
-          ? 'Mensagem inserida no WhatsApp e registrada na Yolen. Revise antes de enviar.'
-          : 'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
+        suggestedMessageCopyStatus: registration.alreadyRegistered
+          ? 'Mensagem inserida no WhatsApp. Uso já estava registrado na Yolen. Revise antes de enviar.'
+          : registration.registered
+            ? 'Mensagem inserida no WhatsApp e registrada na Yolen. Revise antes de enviar.'
+            : 'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
         suggestedMessageLastRegisteredKey:
           registration.registrationKey || state.suggestedMessageLastRegisteredKey,
       }
@@ -1886,7 +1888,8 @@
     }
 
     return {
-      registered: true,
+      registered: result.payload?.data?.already_registered !== true,
+      alreadyRegistered: result.payload?.data?.already_registered === true,
       registrationKey,
     }
   }
@@ -1917,9 +1920,11 @@
 
       state = {
         ...state,
-        suggestedMessageCopyStatus: registration.registered
-          ? 'Mensagem copiada e registrada na Yolen'
-          : 'Mensagem copiada',
+        suggestedMessageCopyStatus: registration.alreadyRegistered
+          ? 'Mensagem copiada. Uso já estava registrado na Yolen'
+          : registration.registered
+            ? 'Mensagem copiada e registrada na Yolen'
+            : 'Mensagem copiada',
         suggestedMessageLastRegisteredKey:
           registration.registrationKey || state.suggestedMessageLastRegisteredKey,
       }

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'crypto'
+import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -21,14 +21,15 @@ type RegisterMessageActionBody = {
 }
 
 type RegisterMessageActionResponse = {
-  ok: boolean
-  data?: {
-    event_type: string
-    action: MessageAction
-    occurred_at: string
+    ok: boolean
+    data?: {
+      event_type: string
+      action: MessageAction
+      occurred_at: string
+      already_registered?: boolean
+    }
+    error?: string
   }
-  error?: string
-}
 
 type JsonRecord = Record<string, unknown>
 
@@ -37,16 +38,34 @@ type CompanionQueryError = {
 }
 
 type InsertResult = {
-  error: CompanionQueryError | null
-}
-
-type CompanionMessageActionTable = {
-  insert: (values: JsonRecord) => PromiseLike<InsertResult>
-}
-
-type CompanionMessageActionWriteClient = {
-  from: (table: 'cycle_events') => CompanionMessageActionTable
-}
+    error: CompanionQueryError | null
+  }
+  
+  type ExistingMessageActionResult = {
+    data: JsonRecord | null
+    error: CompanionQueryError | null
+  }
+  
+  type ExistingMessageActionQueryBuilder = {
+    eq: (column: string, value: string) => ExistingMessageActionQueryBuilder
+    order: (
+      column: string,
+      options?: {
+        ascending?: boolean
+      },
+    ) => ExistingMessageActionQueryBuilder
+    limit: (count: number) => ExistingMessageActionQueryBuilder
+    maybeSingle: () => PromiseLike<ExistingMessageActionResult>
+  }
+  
+  type CompanionMessageActionTable = {
+    insert: (values: JsonRecord) => PromiseLike<InsertResult>
+    select: (columns: string) => ExistingMessageActionQueryBuilder
+  }
+  
+  type CompanionMessageActionWriteClient = {
+    from: (table: 'cycle_events') => CompanionMessageActionTable
+  }
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -169,6 +188,63 @@ function isMessageAction(value: unknown): value is MessageAction {
 function getMessagePreview(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 500)
 }
+
+
+function buildMessageActionIdempotencyKey({
+    cycleId,
+    action,
+    coachingNoteId,
+    message,
+  }: {
+    cycleId: string
+    action: MessageAction
+    coachingNoteId: string | null
+    message: string
+  }) {
+    return createHash('sha256')
+      .update(
+        [
+          cycleId,
+          action,
+          coachingNoteId || '-',
+          message.replace(/\s+/g, ' ').trim(),
+        ].join('::'),
+      )
+      .digest('hex')
+  }
+  
+  async function findExistingMessageAction({
+    writeAdmin,
+    companyId,
+    cycleId,
+    idempotencyKey,
+  }: {
+    writeAdmin: CompanionMessageActionWriteClient
+    companyId: string
+    cycleId: string
+    idempotencyKey: string
+  }) {
+    const { data, error } = await writeAdmin
+      .from('cycle_events')
+      .select('id, occurred_at')
+      .eq('company_id', companyId)
+      .eq('cycle_id', cycleId)
+      .eq('event_type', 'whatsapp_suggested_message_used')
+      .eq('metadata->>idempotency_key', idempotencyKey)
+      .order('occurred_at', {
+        ascending: false,
+      })
+      .limit(1)
+      .maybeSingle()
+  
+    if (error) {
+      throw new Error(error.message || 'Erro ao verificar uso já registrado.')
+    }
+  
+    const occurredAt = getString(data?.occurred_at)
+  
+    return occurredAt
+  }
 
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
@@ -352,6 +428,37 @@ export async function POST(request: Request) {
     const eventType = 'whatsapp_suggested_message_used'
     const writeAdmin = admin as unknown as CompanionMessageActionWriteClient
 
+    const idempotencyKey = buildMessageActionIdempotencyKey({
+      cycleId,
+      action,
+      coachingNoteId,
+      message,
+    })
+
+    const existingOccurredAt = await findExistingMessageAction({
+      writeAdmin,
+      companyId: tokenPayload.company_id,
+      cycleId,
+      idempotencyKey,
+    })
+
+    if (existingOccurredAt) {
+      return NextResponse.json<RegisterMessageActionResponse>(
+        {
+          ok: true,
+          data: {
+            event_type: eventType,
+            action,
+            occurred_at: existingOccurredAt,
+            already_registered: true,
+          },
+        },
+        {
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const { error: insertError } = await writeAdmin.from('cycle_events').insert({
       company_id: tokenPayload.company_id,
       cycle_id: cycleId,
@@ -362,6 +469,7 @@ export async function POST(request: Request) {
         source: 'whatsapp_companion',
         action,
         coaching_note_id: coachingNoteId,
+        idempotency_key: idempotencyKey,
         message_preview: getMessagePreview(message),
         message_length: message.length,
         companion: {
@@ -390,10 +498,11 @@ export async function POST(request: Request) {
       {
         ok: true,
         data: {
-          event_type: eventType,
-          action,
-          occurred_at: now,
-        },
+            event_type: eventType,
+            action,
+            occurred_at: now,
+            already_registered: false,
+          },
       },
       {
         headers: corsHeaders,
