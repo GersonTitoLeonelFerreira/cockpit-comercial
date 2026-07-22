@@ -2022,6 +2022,39 @@
     return expectedStart.length >= 24 && actual.includes(expectedStart)
   }
 
+  function resolveManualSendMessageToRegister(actualMessage, expectedMessage) {
+    const actual = normalizeMessageText(actualMessage)
+    const expected = normalizeMessageText(expectedMessage)
+
+    if (!expected) {
+      return actual
+    }
+
+    if (!actual) {
+      return expected
+    }
+
+    if (actual === expected) {
+      return expected
+    }
+
+    if (expected.length >= 24 && actual.includes(expected)) {
+      return expected
+    }
+
+    if (actual.length >= 24 && expected.includes(actual)) {
+      return expected
+    }
+
+    const duplicatedExpected = `${expected} ${expected}`
+
+    if (actual === duplicatedExpected || actual.includes(duplicatedExpected)) {
+      return expected
+    }
+
+    return actual
+  }
+
   async function registerManualSuggestedMessageSend(finalMessage) {
     const pending = state.pendingSuggestedMessageSend
 
@@ -2037,7 +2070,10 @@
       return
     }
 
-    const messageToRegister = normalizeMessageText(finalMessage || pending.message)
+    const messageToRegister = resolveManualSendMessageToRegister(
+      finalMessage,
+      pending.message,
+    )
 
     if (!messageToRegister || messageToRegister.length < 2) {
       return
@@ -2103,7 +2139,9 @@
       return
     }
 
-    registerManualSuggestedMessageSend(latestOutgoingMessage)
+    registerManualSuggestedMessageSend(
+      resolveManualSendMessageToRegister(latestOutgoingMessage, pending.message),
+    )
   }
 
   function scheduleManualSendRegistration() {
