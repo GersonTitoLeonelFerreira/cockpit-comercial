@@ -237,6 +237,14 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (message.action === 'REGISTER_MESSAGE_ACTION') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/message-action',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,

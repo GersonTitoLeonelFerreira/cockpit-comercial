@@ -86,6 +86,10 @@
     return sendToBackground('APPLY_SUGGESTION', payload)
   }
 
+  async function registerMessageAction(payload) {
+    return sendToBackground('REGISTER_MESSAGE_ACTION', payload)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -94,5 +98,6 @@
     resolveLead,
     analyzeConversation,
     applySuggestion,
+    registerMessageAction,
   }
 })()

@@ -41,6 +41,7 @@
     suggestionApplyResult: null,
     suggestionApplyError: null,
     suggestedMessageCopyStatus: null,
+    suggestedMessageLastRegisteredKey: null,
   }
 
   function waitForWhatsAppApp() {
@@ -734,6 +735,7 @@
       suggestionApplyResult: null,
       suggestionApplyError: null,
       suggestedMessageCopyStatus: null,
+      suggestedMessageLastRegisteredKey: null,
     }
   }
 
@@ -1294,7 +1296,7 @@
     return true
   }
 
-  function insertSuggestedMessageInWhatsApp() {
+  async function insertSuggestedMessageInWhatsApp() {
     const message = getSuggestedMessage()
 
     if (!message) {
@@ -1334,13 +1336,30 @@
 
     writeTextInComposer(composer, message)
 
-    state = {
-      ...state,
-      suggestedMessageCopyStatus:
-        'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
-    }
+    try {
+      const registration = await registerSuggestedMessageAction('inserted')
 
-    renderPanel()
+      state = {
+        ...state,
+        suggestedMessageCopyStatus: registration.registered
+          ? 'Mensagem inserida no WhatsApp e registrada na Yolen. Revise antes de enviar.'
+          : 'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
+        suggestedMessageLastRegisteredKey:
+          registration.registrationKey || state.suggestedMessageLastRegisteredKey,
+      }
+
+      renderPanel()
+    } catch (error) {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          error instanceof Error && error.message
+            ? `Mensagem inserida, mas não registrada: ${error.message}`
+            : 'Mensagem inserida, mas não registrada na Yolen. Revise antes de enviar.',
+      }
+
+      renderPanel()
+    }
   }
 
 
@@ -1777,6 +1796,7 @@
       suggestionApplyResult: null,
       suggestionApplyError: null,
       suggestedMessageCopyStatus: null,
+      suggestedMessageLastRegisteredKey: null,
     }
 
     renderPanel()
@@ -1825,6 +1845,53 @@
     }
   }
 
+  async function registerSuggestedMessageAction(action) {
+    const cycleId = state.leadResolution?.cycle?.id
+    const message = getSuggestedMessage()
+    const coachingNoteId = state.conversationAnalysis?.saved_coaching?.id || null
+
+    if (!cycleId || !message || !window.YolenCompanionApi?.registerMessageAction) {
+      return {
+        registered: false,
+        registrationKey: null,
+      }
+    }
+
+    const registrationKey = [
+      cycleId,
+      coachingNoteId || '-',
+      action,
+      message,
+    ].join('::')
+
+    if (state.suggestedMessageLastRegisteredKey === registrationKey) {
+      return {
+        registered: false,
+        registrationKey,
+      }
+    }
+
+    const result = await window.YolenCompanionApi.registerMessageAction({
+      cycle_id: cycleId,
+      action,
+      message,
+      coaching_note_id: coachingNoteId,
+    })
+
+    if (!result?.ok || !result.payload?.ok) {
+      throw new Error(
+        result?.payload?.error ||
+          'Não foi possível registrar o uso da mensagem sugerida na Yolen.',
+      )
+    }
+
+    return {
+      registered: true,
+      registrationKey,
+    }
+  }
+
+
   async function copySuggestedMessage() {
     const message = getSuggestedMessage()
 
@@ -1834,18 +1901,37 @@
 
     try {
       await navigator.clipboard.writeText(message)
-
-      state = {
-        ...state,
-        suggestedMessageCopyStatus: 'Mensagem copiada',
-      }
-
-      renderPanel()
     } catch {
       state = {
         ...state,
         suggestedMessageCopyStatus:
           'Não foi possível copiar automaticamente. Selecione e copie a mensagem manualmente.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    try {
+      const registration = await registerSuggestedMessageAction('copied')
+
+      state = {
+        ...state,
+        suggestedMessageCopyStatus: registration.registered
+          ? 'Mensagem copiada e registrada na Yolen'
+          : 'Mensagem copiada',
+        suggestedMessageLastRegisteredKey:
+          registration.registrationKey || state.suggestedMessageLastRegisteredKey,
+      }
+
+      renderPanel()
+    } catch (error) {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          error instanceof Error && error.message
+            ? `Mensagem copiada, mas não registrada: ${error.message}`
+            : 'Mensagem copiada, mas não registrada na Yolen.',
       }
 
       renderPanel()
