@@ -212,7 +212,7 @@ function buildMessageActionIdempotencyKey({
       )
       .digest('hex')
   }
-  
+
   async function findExistingMessageAction({
     writeAdmin,
     companyId,
@@ -244,6 +244,60 @@ function buildMessageActionIdempotencyKey({
     const occurredAt = getString(data?.occurred_at)
   
     return occurredAt
+  }
+  
+  
+  
+async function insertCompanionCommercialContactEvent({
+    writeAdmin,
+    companyId,
+    cycleId,
+    userId,
+    occurredAt,
+    coachingNoteId,
+    idempotencyKey,
+    message,
+  }: {
+    writeAdmin: CompanionMessageActionWriteClient
+    companyId: string
+    cycleId: string
+    userId: string
+    occurredAt: string
+    coachingNoteId: string | null
+    idempotencyKey: string
+    message: string
+  }) {
+    const { error } = await writeAdmin.from('cycle_events').insert({
+      company_id: companyId,
+      cycle_id: cycleId,
+      event_type: 'contacted',
+      created_by: userId,
+      occurred_at: occurredAt,
+      metadata: {
+        source: 'whatsapp_companion',
+        action_channel: 'whatsapp',
+        action_result: 'message_sent',
+        result_detail: 'Mensagem sugerida enviada manualmente pelo WhatsApp.',
+        action_type: 'quick_whats_sent',
+        detail: 'quick_whats_sent',
+        coaching_note_id: coachingNoteId,
+        idempotency_key: idempotencyKey,
+        message_preview: getMessagePreview(message),
+        message_length: message.length,
+        companion: {
+          counted_as_commercial_activity: true,
+          sent_manually: true,
+          sent_automatically: false,
+        },
+      },
+    })
+  
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Erro ao registrar envio manual como atividade comercial.',
+      )
+    }
   }
 
 export async function OPTIONS(request: Request) {
@@ -483,19 +537,32 @@ export async function POST(request: Request) {
     })
 
     if (insertError) {
+        return NextResponse.json<RegisterMessageActionResponse>(
+          {
+            ok: false,
+            error: insertError.message || 'Erro ao registrar uso da mensagem sugerida.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          },
+        )
+      }
+  
+      if (action === 'sent') {
+        await insertCompanionCommercialContactEvent({
+          writeAdmin,
+          companyId: tokenPayload.company_id,
+          cycleId,
+          userId: tokenPayload.sub,
+          occurredAt: now,
+          coachingNoteId,
+          idempotencyKey,
+          message,
+        })
+      }
+  
       return NextResponse.json<RegisterMessageActionResponse>(
-        {
-          ok: false,
-          error: insertError.message || 'Erro ao registrar uso da mensagem sugerida.',
-        },
-        {
-          status: 400,
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    return NextResponse.json<RegisterMessageActionResponse>(
       {
         ok: true,
         data: {
