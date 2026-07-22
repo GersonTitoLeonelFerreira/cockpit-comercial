@@ -43,6 +43,7 @@
     suggestedMessageCopyStatus: null,
     suggestedMessageLastRegisteredKey: null,
     pendingSuggestedMessageSend: null,
+    pendingSuggestedMessageSendRegistering: false,
   }
 
   function waitForWhatsAppApp() {
@@ -738,6 +739,7 @@
       suggestedMessageCopyStatus: null,
       suggestedMessageLastRegisteredKey: null,
       pendingSuggestedMessageSend: null,
+      pendingSuggestedMessageSendRegistering: false,
     }
   }
 
@@ -1808,6 +1810,7 @@
       suggestedMessageCopyStatus: null,
       suggestedMessageLastRegisteredKey: null,
       pendingSuggestedMessageSend: null,
+      pendingSuggestedMessageSendRegistering: false,
     }
 
     renderPanel()
@@ -1955,10 +1958,78 @@
     return composer === getWhatsAppComposer()
   }
 
+  function isOutgoingMessageNode(node) {
+    if (!node || typeof node.closest !== 'function') {
+      return false
+    }
+
+    if (node.closest('.message-out')) {
+      return true
+    }
+
+    const dataIdElement = node.closest('[data-id]')
+    const dataId = dataIdElement?.getAttribute('data-id') || ''
+
+    return dataId.startsWith('true_') || dataId.includes('_true_')
+  }
+
+  function getLatestOutgoingVisibleMessageText() {
+    const main = getMainConversationRoot()
+
+    if (!main) {
+      return ''
+    }
+
+    const nodes = Array.from(main.querySelectorAll('[data-pre-plain-text]')).reverse()
+
+    for (const node of nodes) {
+      if (!isOutgoingMessageNode(node)) {
+        continue
+      }
+
+      const text = normalizeMessageText(node.textContent)
+
+      if (text && text.length >= 2) {
+        return text
+      }
+    }
+
+    return ''
+  }
+
+  function isProbablySameMessage(actualMessage, expectedMessage) {
+    const actual = normalizeMessageText(actualMessage)
+    const expected = normalizeMessageText(expectedMessage)
+
+    if (!actual || !expected) {
+      return false
+    }
+
+    if (actual === expected) {
+      return true
+    }
+
+    if (expected.length >= 24 && actual.includes(expected)) {
+      return true
+    }
+
+    if (actual.length >= 24 && expected.includes(actual)) {
+      return true
+    }
+
+    const expectedStart = expected.slice(0, 80)
+
+    return expectedStart.length >= 24 && actual.includes(expectedStart)
+  }
+
   async function registerManualSuggestedMessageSend(finalMessage) {
     const pending = state.pendingSuggestedMessageSend
 
     if (!pending?.cycleId || !pending.message) {
+      return
+    }
+
+    if (state.pendingSuggestedMessageSendRegistering) {
       return
     }
 
@@ -1970,6 +2041,11 @@
 
     if (!messageToRegister || messageToRegister.length < 2) {
       return
+    }
+
+    state = {
+      ...state,
+      pendingSuggestedMessageSendRegistering: true,
     }
 
     try {
@@ -1989,6 +2065,7 @@
         suggestedMessageLastRegisteredKey:
           registration.registrationKey || state.suggestedMessageLastRegisteredKey,
         pendingSuggestedMessageSend: null,
+        pendingSuggestedMessageSendRegistering: false,
       }
 
       renderPanel()
@@ -1998,14 +2075,39 @@
         suggestedMessageCopyStatus:
           'Mensagem enviada manualmente, mas a Yolen não conseguiu registrar o envio.',
         pendingSuggestedMessageSend: null,
+        pendingSuggestedMessageSendRegistering: false,
       }
 
       renderPanel()
     }
   }
 
+  function checkPendingSuggestedMessageSentFromConversation() {
+    const pending = state.pendingSuggestedMessageSend
+
+    if (!pending?.cycleId || !pending.message) {
+      return
+    }
+
+    if (state.pendingSuggestedMessageSendRegistering) {
+      return
+    }
+
+    if (pending.conversationKey !== state.conversationKey) {
+      return
+    }
+
+    const latestOutgoingMessage = getLatestOutgoingVisibleMessageText()
+
+    if (!isProbablySameMessage(latestOutgoingMessage, pending.message)) {
+      return
+    }
+
+    registerManualSuggestedMessageSend(latestOutgoingMessage)
+  }
+
   function scheduleManualSendRegistration() {
-    const currentMessage = getComposerText()
+    const currentMessage = getComposerText() || state.pendingSuggestedMessageSend?.message || ''
 
     if (!currentMessage) {
       return
@@ -2237,6 +2339,7 @@
 
       observeWhatsAppChanges.timeoutId = window.setTimeout(() => {
         refreshConversationSnapshot()
+        checkPendingSuggestedMessageSentFromConversation()
       }, 600)
     })
 
