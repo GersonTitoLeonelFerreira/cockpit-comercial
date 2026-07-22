@@ -1190,6 +1190,159 @@
     `
   }
 
+  function getWhatsAppComposer() {
+    const main = getMainConversationRoot()
+    const root = main || document
+
+    const selectors = [
+      'footer [contenteditable="true"][role="textbox"]',
+      'footer [contenteditable="true"][data-tab]',
+      'footer [contenteditable="true"]',
+      '[data-testid="conversation-compose-box-input"]',
+      '[contenteditable="true"][role="textbox"]',
+    ]
+
+    for (const selector of selectors) {
+      const candidates = Array.from(root.querySelectorAll(selector))
+
+      const composer = candidates.find((element) => {
+        if (element.closest(`#${PANEL_ID}`)) {
+          return false
+        }
+
+        const ariaLabel = element.getAttribute('aria-label') || ''
+        const dataLexicalEditor = element.getAttribute('data-lexical-editor')
+
+        if (/pesquisar|search|filtrar|buscar/i.test(ariaLabel)) {
+          return false
+        }
+
+        return dataLexicalEditor === 'true' || element.isContentEditable
+      })
+
+      if (composer) {
+        return composer
+      }
+    }
+
+    return null
+  }
+
+  function selectComposerContents(composer) {
+    const selection = window.getSelection()
+
+    if (!selection) {
+      return false
+    }
+
+    const range = document.createRange()
+    range.selectNodeContents(composer)
+
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    return true
+  }
+
+  function dispatchComposerInput(composer, message) {
+    try {
+      composer.dispatchEvent(
+        new InputEvent('input', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: message,
+        }),
+      )
+    } catch {
+      composer.dispatchEvent(
+        new Event('input', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    }
+
+    composer.dispatchEvent(
+      new Event('change', {
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  }
+
+  function writeTextInComposer(composer, message) {
+    composer.focus()
+    selectComposerContents(composer)
+
+    let inserted = false
+
+    try {
+      document.execCommand('delete')
+      inserted = document.execCommand('insertText', false, message)
+    } catch {
+      inserted = false
+    }
+
+    if (!inserted) {
+      composer.textContent = message
+    }
+
+    dispatchComposerInput(composer, message)
+    composer.focus()
+
+    return true
+  }
+
+  function insertSuggestedMessageInWhatsApp() {
+    const message = getSuggestedMessage()
+
+    if (!message) {
+      return
+    }
+
+    const composer = getWhatsAppComposer()
+
+    if (!composer) {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          'Não encontrei o campo de mensagem do WhatsApp. Copie e cole manualmente.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    const currentComposerText = normalizeMessageText(composer.textContent)
+
+    if (currentComposerText) {
+      const confirmed = window.confirm(
+        'O campo do WhatsApp já tem texto. Substituir pela mensagem sugerida?',
+      )
+
+      if (!confirmed) {
+        state = {
+          ...state,
+          suggestedMessageCopyStatus: 'Inserção cancelada',
+        }
+
+        renderPanel()
+        return
+      }
+    }
+
+    writeTextInComposer(composer, message)
+
+    state = {
+      ...state,
+      suggestedMessageCopyStatus:
+        'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
+    }
+
+    renderPanel()
+  }
+
 
   function getAnalysisActionButton() {
     if (!canAnalyzeCurrentConversation() || state.conversationAnalysisLoading) {
@@ -1210,6 +1363,14 @@
       `
       : ''
 
+    const insertMessageButton = getSuggestedMessage()
+      ? `
+        <button class="yolen-secondary-button" type="button" data-yolen-action="insert-suggested-message">
+          Inserir no WhatsApp
+        </button>
+      `
+      : ''
+
     if (!state.conversationAnalysis?.suggestion) {
       return `
         <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
@@ -1220,18 +1381,20 @@
 
     if (!canApplyCurrentSuggestion()) {
       return `
+        ${insertMessageButton}
         ${copyMessageButton}
         ${analyzeButton}
       `
     }
 
     return `
-    <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
-    Aplicar sugestão na Yolen
-  </button>
+      <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
+        Aplicar sugestão na Yolen
+      </button>
 
-  ${copyMessageButton}
-  ${analyzeButton}
+      ${insertMessageButton}
+      ${copyMessageButton}
+      ${analyzeButton}
     `
   }
 
@@ -1325,6 +1488,7 @@
           <div class="yolen-rule">Não puxa lead do Pool</div>
           <div class="yolen-rule">Não transfere carteira</div>
           <div class="yolen-rule">Não aplica ação sem aprovação</div>
+          <div class="yolen-rule">Não envia mensagem automaticamente</div>
         </div>
       </div>
 
@@ -1391,6 +1555,10 @@
 
     panel.querySelector('[data-yolen-action="copy-suggested-message"]')?.addEventListener('click', () => {
       copySuggestedMessage()
+    })
+
+    panel.querySelector('[data-yolen-action="insert-suggested-message"]')?.addEventListener('click', () => {
+      insertSuggestedMessageInWhatsApp()
     })
   }
 
