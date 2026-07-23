@@ -44,10 +44,12 @@ export type EventClass =
 export const STATUS_PT: Record<string, string> = {
   novo: 'NOVO',
   contato: 'CONTATO',
-  respondeu: 'RESPONDEU',
+  respondeu: 'AGENDA',
   negociacao: 'NEGOCIAÇÃO',
+  pausado: 'PAUSADO',
   ganho: 'GANHO',
   perdido: 'PERDIDO',
+  cancelado: 'CANCELADO',
 }
 
 export const PAYMENT_METHOD_PT: Record<string, string> = {

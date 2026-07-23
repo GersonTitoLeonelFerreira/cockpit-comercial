@@ -36,10 +36,12 @@ interface Props {
 const LEAD_STATUS_PT: Record<string, string> = {
   novo: 'NOVO',
   contato: 'CONTATO',
-  respondeu: 'RESPONDEU',
+  respondeu: 'AGENDA',
   negociacao: 'NEGOCIAÇÃO',
+  pausado: 'PAUSADO',
   ganho: 'GANHO',
   perdido: 'PERDIDO',
+  cancelado: 'CANCELADO',
 }
 
 const PAYMENT_METHOD_PT: Record<string, string> = {

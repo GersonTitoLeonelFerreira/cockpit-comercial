@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { WinDealModal } from '@/app/components/leads/WinDealModal'
 import { LostDealModal } from '@/app/components/leads/LostDealModal'
 import type { SalesCycle, LeadStatus } from '@/app/types/sales_cycles'
-import StageCheckpointModal from '@/app/leads/components/StageCheckpointModal'
+import { getSalesCycleLabel } from '@/app/lib/sales-cycle-status'
+import StageCheckpointModal, {
+  type CheckpointPayload,
+} from '@/app/leads/components/StageCheckpointModal'
 import ConversationCopilot from './components/ConversationCopilot'
 import {
   moveCycleStage,
@@ -85,6 +88,17 @@ type SalesCycleWithLead = SalesCycle & {
   }
 }
 
+
+type CheckpointStatus = Exclude<LeadStatus, 'pausado' | 'cancelado'>
+
+function isCheckpointStatus(status: LeadStatus): status is CheckpointStatus {
+  return status !== 'pausado' && status !== 'cancelado'
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 interface SalesCycleDetailClientProps {
   cycle: SalesCycleWithLead
 }
@@ -105,24 +119,39 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
   // Checkpoint modal (idêntico ao Kanban)
   // ============================================================================
   const [checkpointOpen, setCheckpointOpen] = useState(false)
-  const [checkpointToStatus, setCheckpointToStatus] = useState<LeadStatus>('contato')
+  const [checkpointToStatus, setCheckpointToStatus] = useState<CheckpointStatus>('contato')
   const [checkpointLoading, setCheckpointLoading] = useState(false)
 
   const openCheckpoint = (toStatus: LeadStatus) => {
     if (toStatus === cycle.status) return
+
     if (toStatus === 'ganho') {
       setShowWinDealModal(true)
       return
     }
+
     if (toStatus === 'perdido') {
       setShowLostDealModal(true)
       return
     }
+
+    if (!isCheckpointStatus(cycle.status) || !isCheckpointStatus(toStatus)) {
+      alert('Este status não usa checkpoint intermediário.')
+      return
+    }
+
     setCheckpointToStatus(toStatus)
     setCheckpointOpen(true)
   }
 
-  const isClosed = cycle.status === 'ganho' || cycle.status === 'perdido'
+  const isClosed =
+    cycle.status === 'ganho' ||
+    cycle.status === 'perdido' ||
+    cycle.status === 'cancelado'
+
+  const checkpointFromStatus: CheckpointStatus = isCheckpointStatus(cycle.status)
+    ? cycle.status
+    : 'novo'
 
   // ============================================================================
   // Move stage
@@ -148,8 +177,8 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
       setActionDate('')
       setShowActionModal(false)
       router.refresh()
-    } catch (err: any) {
-      alert(`Erro: ${err?.message ?? String(err)}`)
+    } catch (err: unknown) {
+      alert(`Erro: ${getErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -181,7 +210,7 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
                 'disabled:opacity-50 disabled:cursor-not-allowed',
               ].join(' ')}
             >
-              {status.toUpperCase()}
+              {getSalesCycleLabel(status)}
             </button>
           ))}
         </div>
@@ -190,20 +219,20 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
       {/* Modal de checkpoint para transições intermediárias */}
       <StageCheckpointModal
         open={checkpointOpen}
-        fromStatus={cycle.status as any}
-        toStatus={checkpointToStatus as any}
+        fromStatus={checkpointFromStatus}
+        toStatus={checkpointToStatus}
         loading={checkpointLoading}
         onCancel={() => {
           if (checkpointLoading) return
           setCheckpointOpen(false)
         }}
-        onConfirm={async (payload) => {
+        onConfirm={async (payload: CheckpointPayload) => {
           setCheckpointLoading(true)
           try {
             await moveCycleStage({
               cycle_id: cycle.id,
               to_status: checkpointToStatus,
-              metadata: payload as any,
+              metadata: { ...payload },
             })
 
             if (payload?.next_action && payload?.next_action_date) {
@@ -216,8 +245,8 @@ export default function SalesCycleDetailClient({ cycle }: SalesCycleDetailClient
 
             setCheckpointOpen(false)
             router.refresh()
-          } catch (err: any) {
-            alert(`Erro: ${err?.message ?? String(err)}`)
+          } catch (err: unknown) {
+            alert(`Erro: ${getErrorMessage(err)}`)
           } finally {
             setCheckpointLoading(false)
           }
