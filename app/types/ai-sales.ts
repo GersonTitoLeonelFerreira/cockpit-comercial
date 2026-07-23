@@ -151,6 +151,7 @@ export interface AnalyzeConversationRequest {
   cycle_id: string
   conversation_text: string
   source?: ConversationSource
+  audio_count?: number
 }
 
 export interface AISalesSuggestion {
@@ -182,6 +183,8 @@ export interface AnalyzeConversationResponse {
       reused?: boolean
       incremental?: boolean
       analyzed_character_count?: number
+      audio_count?: number
+      has_audio_without_transcription?: boolean
     }
     coaching?: {
       recommended_next_approach?: string | null

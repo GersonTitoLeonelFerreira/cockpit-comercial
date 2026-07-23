@@ -28,6 +28,7 @@ type AnalyzeCompanionBody = {
   cycle_id?: unknown
   conversation_text?: unknown
   source?: unknown
+  audio_count?: unknown
 }
 
 
@@ -43,6 +44,8 @@ type SavedCompanionCoaching = {
   reused?: boolean
   incremental?: boolean
   analyzed_character_count?: number
+  audio_count?: number
+  has_audio_without_transcription?: boolean
 }
 
 type InsertResult = {
@@ -252,6 +255,40 @@ function getStringArray(value: unknown) {
 
 function getNumber(value: unknown) {
   return typeof value === 'number' ? value : undefined
+}
+
+
+function getAudioCount(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value))
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.floor(parsed))
+    }
+  }
+
+  return 0
+}
+
+function getCompanionRecordFromDecision(value: unknown) {
+  const decision = getRecord(value)
+
+  return getRecord(decision?.companion)
+}
+
+function getCompanionAudioCount(value: unknown) {
+  return getAudioCount(getCompanionRecordFromDecision(value)?.audio_count)
+}
+
+function hasCompanionAudioWithoutTranscription(value: unknown) {
+  const companion = getCompanionRecordFromDecision(value)
+  const audioCount = getAudioCount(companion?.audio_count)
+
+  return audioCount > 0 && companion?.audio_transcribed !== true
 }
 
 function getSuggestionSource(value: unknown): AISalesSuggestion['source'] {
@@ -577,6 +614,7 @@ function buildYolenDecision({
   incrementalAnalysis,
   previousCoachingNoteId,
   previousCapturedCharacterCount,
+  audioCount,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
@@ -586,6 +624,7 @@ function buildYolenDecision({
   incrementalAnalysis: boolean
   previousCoachingNoteId: string | null
   previousCapturedCharacterCount: number
+  audioCount: number
 }) {
   return {
     recommended_status: suggestion.recommended_status,
@@ -615,6 +654,9 @@ function buildYolenDecision({
       captured_text: conversationText,
       captured_text_tail: conversationText.slice(-4000),
       analysis_text_preview: analysisText.slice(0, 4000),
+      audio_count: audioCount,
+      audio_transcribed: false,
+      has_audio_without_transcription: audioCount > 0,
       saved_without_applying: true,
     },
   }
@@ -746,6 +788,10 @@ async function saveCompanionCoachingNote({
 
   const occurredAt = getString(note?.created_at) || now
   const summaryPreview = getString(coaching.conversation_summary)?.slice(0, 220) || ''
+  const companion = getRecord(yolenDecision.companion)
+  const audioCount = getAudioCount(companion?.audio_count)
+  const hasAudioWithoutTranscription =
+    audioCount > 0 && companion?.audio_transcribed !== true
 
   const { error: eventError } = await admin.from('cycle_events').insert({
     company_id: tokenPayload.company_id,
@@ -759,6 +805,9 @@ async function saveCompanionCoachingNote({
       source: 'whatsapp_companion',
       companion: {
         saved_without_applying: true,
+        audio_count: audioCount,
+        audio_transcribed: false,
+        has_audio_without_transcription: hasAudioWithoutTranscription,
       },
     },
   })
@@ -771,11 +820,10 @@ async function saveCompanionCoachingNote({
     id: noteId,
     occurred_at: occurredAt,
     reused: false,
-    incremental:
-      getRecord(yolenDecision.companion)?.incremental_analysis === true,
-      analyzed_character_count: getNumber(
-        getRecord(yolenDecision.companion)?.analyzed_character_count,
-      ),
+    incremental: companion?.incremental_analysis === true,
+    analyzed_character_count: getNumber(companion?.analyzed_character_count),
+    audio_count: audioCount,
+    has_audio_without_transcription: hasAudioWithoutTranscription,
   }
 }
 
@@ -809,6 +857,7 @@ export async function POST(request: Request) {
     const cycleId = getString(body.cycle_id)
     const conversationText = cleanConversationText(body.conversation_text)
     const source = isConversationSource(body.source) ? body.source : 'whatsapp'
+    const audioCount = getAudioCount(body.audio_count)
 
     if (!cycleId) {
       return NextResponse.json<AnalyzeConversationResponse>(
@@ -1075,10 +1124,17 @@ export async function POST(request: Request) {
               incremental:
                 getRecord(existingSavedCoaching.yolenDecision?.companion)
                   ?.incremental_analysis === true,
-              analyzed_character_count: getNumber(
-                getRecord(existingSavedCoaching.yolenDecision?.companion)
-                  ?.analyzed_character_count,
-              ),
+                  analyzed_character_count: getNumber(
+                    getRecord(existingSavedCoaching.yolenDecision?.companion)
+                      ?.analyzed_character_count,
+                  ),
+                  audio_count: getCompanionAudioCount(
+                    existingSavedCoaching.yolenDecision,
+                  ),
+                  has_audio_without_transcription:
+                    hasCompanionAudioWithoutTranscription(
+                      existingSavedCoaching.yolenDecision,
+                    ),
             },
             coaching: buildResponseCoaching(existingSavedCoaching.coaching),
           },
@@ -1132,6 +1188,7 @@ export async function POST(request: Request) {
       previousCoachingNoteId: latestSavedCoaching?.id ?? null,
       previousCapturedCharacterCount:
         incrementalResult.previous_captured_character_count,
+      audioCount,
     })
 
     const savedCoaching = await saveCompanionCoachingNote({

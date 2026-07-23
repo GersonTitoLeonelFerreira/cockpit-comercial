@@ -1834,6 +1834,7 @@
         cycle_id: cycleId,
         conversation_text: conversationText,
         source: 'whatsapp',
+        audio_count: state.lastAnalysisAudioCount || 0,
       })
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
