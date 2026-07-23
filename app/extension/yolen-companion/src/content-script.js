@@ -1530,9 +1530,10 @@
           <div class="yolen-rule">Não cria lead dentro da extensão</div>
           <div class="yolen-rule">Não puxa lead do Pool</div>
           <div class="yolen-rule">Não transfere carteira</div>
-          <div class="yolen-rule">Não aplica ação sem aprovação</div>
-          <div class="yolen-rule">Não envia mensagem automaticamente</div>
-        </div>
+
+        </div>          <div class="yolen-rule">Não aplica ação sem aprovação</div>
+        <div class="yolen-rule">Não aplica sugestão com áudio sem transcrição</div>
+        <div class="yolen-rule">Não envia mensagem automaticamente</div>
       </div>
 
       <div class="yolen-actions">
@@ -2321,6 +2322,7 @@
         edited_summary: suggestion.summary,
         suggestion,
         source: 'whatsapp_companion',
+        audio_count: state.lastAnalysisAudioCount || 0,
       })
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {

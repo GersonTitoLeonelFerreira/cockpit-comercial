@@ -199,6 +199,7 @@ export interface ApplyAISuggestionRequest {
   edited_summary?: string | null
   suggestion: AISalesSuggestion
   source?: 'ai_copilot_detail' | 'ai_copilot_kanban' | 'whatsapp_companion'
+  audio_count?: number
 }
 
 export interface ApplyAISuggestionResponse {

@@ -26,6 +26,7 @@ type ApplyCompanionSuggestionBody = {
   edited_summary?: unknown
   suggestion?: unknown
   source?: unknown
+  audio_count?: unknown
 }
 
 type JsonRecord = Record<string, unknown>
@@ -229,6 +230,23 @@ function getSource(value: unknown) {
 }
 
 
+function getAudioCount(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value))
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.floor(parsed))
+    }
+  }
+
+  return 0
+}
+
+
 function getDateKey(value: string | null) {
   if (!value) {
     return null
@@ -323,10 +341,11 @@ export async function POST(request: Request) {
     const appliedStatus = isOpenApplyStatus(body.applied_status)
       ? body.applied_status
       : null
-    const suggestion = isAISalesSuggestion(body.suggestion)
+      const suggestion = isAISalesSuggestion(body.suggestion)
       ? body.suggestion
       : null
     const source = getSource(body.source)
+    const audioCount = getAudioCount(body.audio_count)
 
     if (!cycleId) {
       return NextResponse.json<ApplyAISuggestionResponse>(
@@ -372,6 +391,20 @@ export async function POST(request: Request) {
         {
           ok: false,
           error: 'A etapa aplicada precisa ser igual à etapa sugerida pela análise.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (source === 'whatsapp_companion' && audioCount > 0) {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        {
+          ok: false,
+          error:
+            'Aplicação bloqueada: há áudio visível sem transcrição nesta análise.',
         },
         {
           status: 400,
@@ -583,6 +616,7 @@ export async function POST(request: Request) {
       companion: {
         applied_with_user_approval: true,
         applied_from: 'whatsapp_companion',
+        audio_count: audioCount,
       },
       suggestion: {
         recommended_status: suggestion.recommended_status,
