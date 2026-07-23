@@ -184,6 +184,7 @@ export function getEventTitle(event: CycleEvent): string {
     ai_suggestion_applied: 'Sugestão da IA aplicada',
     ai_suggestion_rejected: 'Sugestão da IA descartada',
     whatsapp_suggested_message_used: 'Mensagem sugerida usada no WhatsApp',
+    whatsapp_audio_transcribed: 'Áudio do WhatsApp transcrito',
   }
   return EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
 }
@@ -475,6 +476,11 @@ function getCompanionSourceLabel(source: unknown): string | null {
 }
 
 
+function getTranscriptionText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+
 export function AdminCard({ event }: { event: CycleEvent }) {
   const m = event.metadata ?? {}
   const suggestion =
@@ -497,6 +503,7 @@ export function AdminCard({ event }: { event: CycleEvent }) {
         ai_suggestion_applied: 'Sugestão da IA aplicada',
         ai_suggestion_rejected: 'Sugestão da IA descartada',
         whatsapp_suggested_message_used: 'Mensagem sugerida usada no WhatsApp',
+        whatsapp_audio_transcribed: 'Áudio do WhatsApp transcrito',
       }
 
   const label = EVENT_LABELS[event.event_type] ?? event.event_type.replace(/_/g, ' ')
@@ -527,6 +534,9 @@ export function AdminCard({ event }: { event: CycleEvent }) {
     typeof m.summary_preview === 'string' ? m.summary_preview : null
   const sourceLabel = getCompanionSourceLabel(m.source)
   const sentAutomatically = companion?.sent_automatically === true
+  const transcriptionText = getTranscriptionText(m.transcription_text)
+  const audioSizeBytes =
+    typeof m.audio_size_bytes === 'number' ? m.audio_size_bytes : null
   const audioCount =
     typeof companion?.audio_count === 'number' ? companion.audio_count : 0
   const hasAudioWithoutTranscription =
@@ -599,7 +609,7 @@ export function AdminCard({ event }: { event: CycleEvent }) {
         </div>
       )}
 
-      {event.event_type === 'whatsapp_suggested_message_used' && (
+{event.event_type === 'whatsapp_suggested_message_used' && (
         <div style={{ marginTop: 8 }}>
           {!!messageActionLabel && (
             <FieldRow label="Ação" value={messageActionLabel} />
@@ -620,6 +630,30 @@ export function AdminCard({ event }: { event: CycleEvent }) {
 
           {!!messagePreview && (
             <FieldRow label="Mensagem" value={<em>{messagePreview}</em>} />
+          )}
+        </div>
+      )}
+
+      {event.event_type === 'whatsapp_audio_transcribed' && (
+        <div style={{ marginTop: 8 }}>
+          {!!sourceLabel && (
+            <FieldRow label="Origem" value={sourceLabel} />
+          )}
+
+          <FieldRow
+            label="Uso"
+            value="Transcrição registrada para análise comercial. Nenhuma etapa foi alterada automaticamente."
+          />
+
+          {audioSizeBytes !== null && (
+            <FieldRow
+              label="Tamanho"
+              value={`${Math.round(audioSizeBytes / 1024)} KB`}
+            />
+          )}
+
+          {!!transcriptionText && (
+            <FieldRow label="Transcrição" value={<em>{transcriptionText}</em>} />
           )}
         </div>
       )}

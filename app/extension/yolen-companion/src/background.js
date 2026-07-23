@@ -245,6 +245,14 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (message.action === 'TRANSCRIBE_AUDIO') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/transcribe-audio',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,
