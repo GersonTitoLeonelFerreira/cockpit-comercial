@@ -189,47 +189,120 @@ function cleanBase64Audio(value: unknown) {
   return withoutDataUrl.replace(/\s/g, '')
 }
 
-function getSafeMimeType(value: unknown) {
-  const mimeType = getString(value)?.trim().toLowerCase()
-
-  if (!mimeType) {
+function getCleanMimeType(value: unknown) {
+    const mimeType = getString(value)?.trim().toLowerCase()
+  
+    if (!mimeType) {
+      return 'audio/webm'
+    }
+  
+    const cleanMimeType = mimeType.split(';')[0]?.trim() || 'audio/webm'
+  
+    if (
+      cleanMimeType.startsWith('audio/') ||
+      cleanMimeType === 'video/webm' ||
+      cleanMimeType === 'video/mp4' ||
+      cleanMimeType === 'application/octet-stream'
+    ) {
+      return cleanMimeType
+    }
+  
     return 'audio/webm'
   }
-
-  if (
-    mimeType.startsWith('audio/') ||
-    mimeType === 'video/webm' ||
-    mimeType === 'application/octet-stream'
-  ) {
-    return mimeType
+  
+  function getAudioFormatFromMimeType(mimeType: string) {
+    if (mimeType.includes('ogg') || mimeType.includes('opus')) {
+      return {
+        mimeType: 'audio/ogg',
+        extension: 'ogg',
+      }
+    }
+  
+    if (mimeType.includes('mpeg') || mimeType.includes('mp3')) {
+      return {
+        mimeType: 'audio/mpeg',
+        extension: 'mp3',
+      }
+    }
+  
+    if (mimeType.includes('mp4') || mimeType.includes('m4a')) {
+      return {
+        mimeType: 'audio/mp4',
+        extension: 'm4a',
+      }
+    }
+  
+    if (mimeType.includes('wav')) {
+      return {
+        mimeType: 'audio/wav',
+        extension: 'wav',
+      }
+    }
+  
+    return {
+      mimeType: 'audio/webm',
+      extension: 'webm',
+    }
   }
-
-  return 'audio/webm'
-}
-
-function getSafeFileName(value: unknown, mimeType: string) {
-  const rawName = getString(value)?.trim()
-  const extension = mimeType.includes('ogg')
-    ? 'ogg'
-    : mimeType.includes('mpeg') || mimeType.includes('mp3')
-      ? 'mp3'
-      : mimeType.includes('mp4') || mimeType.includes('m4a')
-        ? 'm4a'
-        : mimeType.includes('wav')
-          ? 'wav'
-          : 'webm'
-
-  if (!rawName) {
-    return `whatsapp-audio.${extension}`
+  
+  function detectAudioFormatFromBuffer(audioBuffer: Buffer, fallbackMimeType: string) {
+    const header = audioBuffer.subarray(0, 16)
+  
+    const headerAscii = header.toString('ascii')
+  
+    if (headerAscii.startsWith('OggS')) {
+      return {
+        mimeType: 'audio/ogg',
+        extension: 'ogg',
+      }
+    }
+  
+    if (headerAscii.startsWith('RIFF') && audioBuffer.subarray(8, 12).toString('ascii') === 'WAVE') {
+      return {
+        mimeType: 'audio/wav',
+        extension: 'wav',
+      }
+    }
+  
+    if (headerAscii.includes('ftyp')) {
+      return {
+        mimeType: 'audio/mp4',
+        extension: 'm4a',
+      }
+    }
+  
+    if (header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3) {
+      return {
+        mimeType: 'audio/webm',
+        extension: 'webm',
+      }
+    }
+  
+    if (
+      headerAscii.startsWith('ID3') ||
+      (header[0] === 0xff && (header[1] & 0xe0) === 0xe0)
+    ) {
+      return {
+        mimeType: 'audio/mpeg',
+        extension: 'mp3',
+      }
+    }
+  
+    return getAudioFormatFromMimeType(fallbackMimeType)
   }
-
-  const sanitized = rawName
-    .replace(/[^\w.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 80)
-
-  return sanitized.includes('.') ? sanitized : `${sanitized}.${extension}`
-}
+  
+  function getSafeFileName(value: unknown, extension: string) {
+    const rawName = getString(value)?.trim()
+    const baseName = rawName
+      ? rawName
+          .replace(/\.[a-z0-9]+$/i, '')
+          .replace(/[^\w.-]+/g, '-')
+          .replace(/-+/g, '-')
+          .slice(0, 70)
+      : 'whatsapp-audio'
+  
+    return `${baseName || 'whatsapp-audio'}.${extension}`
+  }
 
 function getTextFromOpenAIResponse(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -241,73 +314,116 @@ function getTextFromOpenAIResponse(value: unknown) {
   return typeof text === 'string' && text.trim() ? text.trim() : null
 }
 
-async function transcribeAudioWithOpenAI({
-  audioBuffer,
-  mimeType,
-  fileName,
-}: {
-  audioBuffer: Buffer
-  mimeType: string
-  fileName: string
-}) {
-  const openAiKey = process.env.OPENAI_API_KEY
-
-  if (!openAiKey) {
-    throw new Error('ENV faltando: OPENAI_API_KEY.')
-  }
-
-  const formData = new FormData()
-  const audioArrayBuffer = new ArrayBuffer(audioBuffer.length)
-  const audioView = new Uint8Array(audioArrayBuffer)
-
-  audioView.set(audioBuffer)
-
-  const audioBlob = new Blob([audioArrayBuffer], {
-    type: mimeType,
-  })
-
-  formData.append('file', audioBlob, fileName)
-  formData.append('model', 'gpt-4o-mini-transcribe')
-  formData.append('language', 'pt')
-  formData.append(
-    'prompt',
-    'Transcreva em português do Brasil. O áudio faz parte de uma conversa comercial no WhatsApp.',
-  )
-
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${openAiKey}`,
-    },
-    body: formData,
-  })
-
-  const payload = (await response.json().catch(() => null)) as unknown
-
-  if (!response.ok) {
-    const message =
-      payload &&
-      typeof payload === 'object' &&
-      !Array.isArray(payload) &&
-      typeof (payload as Record<string, unknown>).error === 'object'
-        ? ((payload as Record<string, unknown>).error as Record<string, unknown>).message
-        : null
-
-    throw new Error(
-      typeof message === 'string' && message
-        ? message
-        : 'Erro ao transcrever áudio na OpenAI.',
+async function requestOpenAITranscription({
+    openAiKey,
+    audioBuffer,
+    mimeType,
+    fileName,
+    model,
+  }: {
+    openAiKey: string
+    audioBuffer: Buffer
+    mimeType: string
+    fileName: string
+    model: string
+  }) {
+    const formData = new FormData()
+    const audioArrayBuffer = new ArrayBuffer(audioBuffer.length)
+    const audioView = new Uint8Array(audioArrayBuffer)
+  
+    audioView.set(audioBuffer)
+  
+    const audioBlob = new Blob([audioArrayBuffer], {
+      type: mimeType,
+    })
+  
+    formData.append('file', audioBlob, fileName)
+    formData.append('model', model)
+    formData.append('language', 'pt')
+    formData.append('response_format', 'json')
+    formData.append(
+      'prompt',
+      'Transcreva em português do Brasil. O áudio faz parte de uma conversa comercial no WhatsApp.',
     )
+  
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openAiKey}`,
+      },
+      body: formData,
+    })
+  
+    const payload = (await response.json().catch(() => null)) as unknown
+  
+    if (!response.ok) {
+      const message =
+        payload &&
+        typeof payload === 'object' &&
+        !Array.isArray(payload) &&
+        typeof (payload as Record<string, unknown>).error === 'object'
+          ? ((payload as Record<string, unknown>).error as Record<string, unknown>).message
+          : null
+  
+      throw new Error(
+        typeof message === 'string' && message
+          ? message
+          : 'Erro ao transcrever áudio na OpenAI.',
+      )
+    }
+  
+    const text = getTextFromOpenAIResponse(payload)
+  
+    if (!text) {
+      throw new Error('A transcrição retornou vazia.')
+    }
+  
+    return text
   }
-
-  const text = getTextFromOpenAIResponse(payload)
-
-  if (!text) {
-    throw new Error('A transcrição retornou vazia.')
+  
+  async function transcribeAudioWithOpenAI({
+    audioBuffer,
+    mimeType,
+    fileName,
+  }: {
+    audioBuffer: Buffer
+    mimeType: string
+    fileName: string
+  }) {
+    const openAiKey = process.env.OPENAI_API_KEY
+  
+    if (!openAiKey) {
+      throw new Error('ENV faltando: OPENAI_API_KEY.')
+    }
+  
+    try {
+      return await requestOpenAITranscription({
+        openAiKey,
+        audioBuffer,
+        mimeType,
+        fileName,
+        model: 'gpt-4o-mini-transcribe',
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+  
+      if (
+        !message.toLowerCase().includes('processing failed') &&
+        !message.toLowerCase().includes('invalid file') &&
+        !message.toLowerCase().includes('unsupported')
+      ) {
+        throw error
+      }
+  
+      return requestOpenAITranscription({
+        openAiKey,
+        audioBuffer,
+        mimeType,
+        fileName,
+        model: 'whisper-1',
+      })
+    }
   }
-
-  return text
-}
 
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
@@ -339,8 +455,7 @@ export async function POST(request: Request) {
 
     const cycleId = getString(body.cycle_id)
     const audioBase64 = cleanBase64Audio(body.audio_base64)
-    const mimeType = getSafeMimeType(body.mime_type)
-    const fileName = getSafeFileName(body.file_name, mimeType)
+    const requestedMimeType = getCleanMimeType(body.mime_type)
     const audioIndex = getAudioIndex(body.audio_index)
 
     if (!cycleId) {
@@ -385,19 +500,22 @@ export async function POST(request: Request) {
     }
 
     if (audioBuffer.length > MAX_AUDIO_BYTES) {
-      return NextResponse.json<TranscribeCompanionAudioResponse>(
-        {
-          ok: false,
-          error: 'Áudio muito grande para transcrição nesta fase.',
-        },
-        {
-          status: 413,
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        return NextResponse.json<TranscribeCompanionAudioResponse>(
+          {
+            ok: false,
+            error: 'Áudio muito grande para transcrição nesta fase.',
+          },
+          {
+            status: 413,
+            headers: corsHeaders,
+          },
+        )
+      }
+  
+      const audioFormat = detectAudioFormatFromBuffer(audioBuffer, requestedMimeType)
+      const fileName = getSafeFileName(body.file_name, audioFormat.extension)
+  
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!supabaseUrl || !serviceRoleKey) {
@@ -504,10 +622,10 @@ export async function POST(request: Request) {
     }
 
     const text = await transcribeAudioWithOpenAI({
-      audioBuffer,
-      mimeType,
-      fileName,
-    })
+        audioBuffer,
+        mimeType: audioFormat.mimeType,
+        fileName,
+      })
 
     const now = new Date().toISOString()
     const eventType = 'whatsapp_audio_transcribed'
@@ -523,7 +641,7 @@ export async function POST(request: Request) {
         source: 'whatsapp_companion',
         audio_index: audioIndex,
         audio_size_bytes: audioBuffer.length,
-        mime_type: mimeType,
+        mime_type: audioFormat.mimeType,
         file_name: fileName,
         transcription_text: text,
         companion: {
