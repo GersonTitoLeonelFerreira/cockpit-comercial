@@ -527,6 +527,10 @@ export function AdminCard({ event }: { event: CycleEvent }) {
     typeof m.summary_preview === 'string' ? m.summary_preview : null
   const sourceLabel = getCompanionSourceLabel(m.source)
   const sentAutomatically = companion?.sent_automatically === true
+  const audioCount =
+    typeof companion?.audio_count === 'number' ? companion.audio_count : 0
+  const hasAudioWithoutTranscription =
+    companion?.has_audio_without_transcription === true
 
   return (
     <div>
@@ -570,8 +574,22 @@ export function AdminCard({ event }: { event: CycleEvent }) {
             <FieldRow label="Origem" value={sourceLabel} />
           )}
 
-          {!!summaryPreview && (
+{!!summaryPreview && (
             <FieldRow label="Resumo" value={<em>{summaryPreview}</em>} />
+          )}
+
+          {audioCount > 0 && (
+            <FieldRow
+              label="Áudio"
+              value={`${audioCount} áudio(s) visível(is) sem transcrição`}
+            />
+          )}
+
+          {hasAudioWithoutTranscription && (
+            <FieldRow
+              label="Regra preservada"
+              value="Aplicação automática bloqueada até transcrever o áudio."
+            />
           )}
 
           <FieldRow
