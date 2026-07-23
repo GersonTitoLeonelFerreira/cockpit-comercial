@@ -11,6 +11,7 @@
   let lastResolvedConversationKey = null
   let leadResolutionInFlight = false
   let autoContactLookupInFlight = false
+  let capturedAudioBlobEntries = []
 
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
@@ -45,6 +46,11 @@
     pendingSuggestedMessageSend: null,
     pendingSuggestedMessageSendRegistering: false,
     lastAnalysisAudioCount: 0,
+    audioTranscriptionLoading: false,
+    audioTranscriptionStatus: null,
+    audioTranscriptionsByKey: {},
+    audioBridgeStatus: 'Aguardando bridge de áudio',
+    capturedAudioBlobCount: 0,
   }
 
   function waitForWhatsAppApp() {
@@ -154,6 +160,102 @@
   function sleep(ms) {
     return new Promise((resolve) => {
       window.setTimeout(resolve, ms)
+    })
+  }
+
+  function getExtensionRuntime() {
+    return globalThis.browser?.runtime || globalThis.chrome?.runtime || null
+  }
+
+  function injectWhatsAppAudioBridge() {
+    const runtime = getExtensionRuntime()
+
+    if (!runtime?.getURL) {
+      return
+    }
+
+    if (document.getElementById('yolen-whatsapp-audio-bridge-script')) {
+      return
+    }
+
+    const script = document.createElement('script')
+    script.id = 'yolen-whatsapp-audio-bridge-script'
+    script.src = runtime.getURL('src/whatsapp-audio-bridge.js')
+    script.async = false
+
+    script.onload = () => {
+      script.remove()
+    }
+
+    document.documentElement.appendChild(script)
+  }
+
+  function rememberCapturedWhatsAppAudioBlob(audio) {
+    const blob = audio?.blob
+
+    if (!blob || typeof blob.arrayBuffer !== 'function' || !blob.size) {
+      return
+    }
+
+    const existingIndex = capturedAudioBlobEntries.findIndex((entry) => {
+      return entry.objectUrl && entry.objectUrl === audio.objectUrl
+    })
+
+    const nextEntry = {
+      id: audio.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      blob,
+      mimeType: audio.mimeType || blob.type || '',
+      size: blob.size,
+      objectUrl: audio.objectUrl || '',
+      capturedAt: Date.now(),
+    }
+
+    if (existingIndex >= 0) {
+      capturedAudioBlobEntries = capturedAudioBlobEntries.map((entry, index) => {
+        return index === existingIndex ? nextEntry : entry
+      })
+    } else {
+      capturedAudioBlobEntries = [...capturedAudioBlobEntries, nextEntry].slice(-12)
+    }
+
+    state = {
+      ...state,
+      audioBridgeStatus: `Bridge ativo · ${capturedAudioBlobEntries.length} áudio(s) capturado(s)`,
+      capturedAudioBlobCount: capturedAudioBlobEntries.length,
+    }
+
+    renderPanel()
+  }
+
+  function listenToWhatsAppAudioBridge() {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) {
+        return
+      }
+
+      if (event.origin !== window.location.origin) {
+        return
+      }
+
+      if (event.data?.source !== 'YOLEN_COMPANION_WHATSAPP_AUDIO_BRIDGE') {
+        return
+      }
+
+      if (event.data?.action === 'BRIDGE_READY') {
+        state = {
+          ...state,
+          audioBridgeStatus: 'Bridge de áudio ativo',
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (event.data?.action !== 'AUDIO_BLOB_CAPTURED') {
+        return
+      }
+
+      rememberCapturedWhatsAppAudioBlob(event.data.audio)
     })
   }
 
@@ -534,11 +636,11 @@
     )
   }
 
-  function getVisibleAudioCount() {
+  function getVisibleAudioTargets() {
     const main = getMainConversationRoot()
 
     if (!main) {
-      return 0
+      return []
     }
 
     const audioSelectors = [
@@ -557,23 +659,31 @@
       '[role="button"][aria-label*="play audio" i]',
     ]
 
-    const detectedMessageContainers = new Set()
+    const detectedMessageContainers = new Map()
 
-    audioSelectors.forEach((selector) => {
-      main.querySelectorAll(selector).forEach((element) => {
-        if (!isRealAudioElement(element)) {
-          return
-        }
+    main.querySelectorAll(audioSelectors.join(',')).forEach((element) => {
+      if (!isRealAudioElement(element)) {
+        return
+      }
 
-        const messageContainer = getMessageContainer(element)
+      const messageContainer = getMessageContainer(element)
 
-        if (messageContainer) {
-          detectedMessageContainers.add(messageContainer)
-        }
+      if (!messageContainer || detectedMessageContainers.has(messageContainer)) {
+        return
+      }
+
+      detectedMessageContainers.set(messageContainer, {
+        index: detectedMessageContainers.size,
+        container: messageContainer,
+        element,
       })
     })
 
-    return detectedMessageContainers.size
+    return Array.from(detectedMessageContainers.values())
+  }
+
+  function getVisibleAudioCount() {
+    return getVisibleAudioTargets().length
   }
 
   function normalizeMessageText(value) {
@@ -581,6 +691,348 @@
       .replace(/\s+/g, ' ')
       .replace(/\u200e/g, '')
       .trim()
+  }
+
+
+  function getAudioTranscriptionKey(audioIndex) {
+    return `${state.conversationKey || 'sem-conversa'}::audio::${audioIndex}`
+  }
+
+  function getAudioTranscriptionsForCurrentConversation() {
+    const prefix = `${state.conversationKey || 'sem-conversa'}::audio::`
+
+    return Object.entries(state.audioTranscriptionsByKey || {})
+      .filter(([key, value]) => {
+        return key.startsWith(prefix) && value?.text
+      })
+      .map(([key, value]) => {
+        const audioIndex = Number(key.split('::audio::').pop() || 0)
+
+        return {
+          audioIndex,
+          text: value.text,
+          occurredAt: value.occurredAt || null,
+        }
+      })
+      .sort((a, b) => a.audioIndex - b.audioIndex)
+  }
+
+  function getPendingAudioCountForCurrentConversation() {
+    return Math.max(
+      0,
+      Number(state.audioCount || 0) - getAudioTranscriptionsForCurrentConversation().length,
+    )
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+
+      reader.onload = () => {
+        const result = String(reader.result || '')
+        resolve(result.includes(',') ? result.split(',').pop() : result)
+      }
+
+      reader.onerror = () => {
+        reject(new Error('Não foi possível ler o arquivo de áudio.'))
+      }
+
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  function isValidCapturedAudioBlobEntry(entry) {
+    return (
+      entry &&
+      entry.blob &&
+      entry.blob.size > 100 &&
+      entry.blob.size <= 15 * 1024 * 1024
+    )
+  }
+
+  function getLatestCapturedAudioBlobEntry() {
+    return capturedAudioBlobEntries
+      .filter(isValidCapturedAudioBlobEntry)
+      .sort((a, b) => b.capturedAt - a.capturedAt)[0] || null
+  }
+
+  function getLatestCapturedAudioBlobEntrySince(startedAt) {
+    return capturedAudioBlobEntries
+      .filter((entry) => {
+        return isValidCapturedAudioBlobEntry(entry) && entry.capturedAt >= startedAt
+      })
+      .sort((a, b) => b.capturedAt - a.capturedAt)[0] || null
+  }
+
+  async function waitForCapturedAudioBlobEntrySince(startedAt) {
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const entry = getLatestCapturedAudioBlobEntrySince(startedAt)
+
+      if (entry) {
+        return entry
+      }
+
+      await sleep(250)
+    }
+
+    return null
+  }
+
+  function buildBlobFromCapturedEntry(entry) {
+    return new Blob([entry.blob], {
+      type: entry.mimeType || entry.blob.type || 'audio/webm',
+    })
+  }
+
+  function getAudioSourceFromTarget(target) {
+    const audioElement =
+      target.element?.tagName?.toLowerCase() === 'audio'
+        ? target.element
+        : target.container.querySelector('audio')
+
+    if (audioElement?.currentSrc || audioElement?.src) {
+      return {
+        source: audioElement.currentSrc || audioElement.src,
+        mimeType: audioElement.getAttribute('type') || '',
+      }
+    }
+
+    const sourceElement = target.container.querySelector(
+      'audio source[src], source[type^="audio/"][src]',
+    )
+
+    if (sourceElement?.src || sourceElement?.getAttribute?.('src')) {
+      return {
+        source: sourceElement.src || sourceElement.getAttribute('src') || '',
+        mimeType: sourceElement.getAttribute('type') || '',
+      }
+    }
+
+    return {
+      source: '',
+      mimeType: '',
+    }
+  }
+
+  function clickAudioTarget(target) {
+    const button =
+      target.element?.closest?.('button,[role="button"]') ||
+      target.container.querySelector('button[aria-label*="reproduzir" i]') ||
+      target.container.querySelector('button[aria-label*="play" i]') ||
+      target.container.querySelector('[role="button"][aria-label*="reproduzir" i]') ||
+      target.container.querySelector('[role="button"][aria-label*="play" i]') ||
+      target.container.querySelector('[data-icon="audio-play"]')?.closest?.('button,[role="button"]') ||
+      target.container.querySelector('[data-icon="ptt"]')?.closest?.('button,[role="button"]')
+
+    if (!button) {
+      return false
+    }
+
+    button.dispatchEvent(
+      new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }),
+    )
+
+    button.dispatchEvent(
+      new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }),
+    )
+
+    button.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }),
+    )
+
+    return true
+  }
+
+  async function waitForAudioSourceFromTarget(target) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const audioSource = getAudioSourceFromTarget(target)
+
+      if (audioSource.source) {
+        return audioSource
+      }
+
+      if (attempt === 0) {
+        clickAudioTarget(target)
+      }
+
+      await sleep(250)
+    }
+
+    return {
+      source: '',
+      mimeType: '',
+    }
+  }
+
+  function isProbablyAudioBlob(blob) {
+    const type = String(blob?.type || '').toLowerCase()
+
+    return (
+      type.startsWith('audio/') ||
+      type === 'video/webm' ||
+      type === 'application/octet-stream' ||
+      type === ''
+    )
+  }
+
+  async function getAudioBlobForTarget(target) {
+    const previouslyCapturedEntry = getLatestCapturedAudioBlobEntry()
+
+    if (previouslyCapturedEntry) {
+      return buildBlobFromCapturedEntry(previouslyCapturedEntry)
+    }
+
+    const startedAt = Date.now() - 1000
+
+    clickAudioTarget(target)
+
+    const capturedEntry = await waitForCapturedAudioBlobEntrySince(startedAt)
+
+    if (capturedEntry) {
+      return buildBlobFromCapturedEntry(capturedEntry)
+    }
+
+    const audioSource = await waitForAudioSourceFromTarget(target)
+
+    if (!audioSource.source) {
+      throw new Error(
+        `Arquivo do áudio ainda não foi exposto pelo WhatsApp. Status: ${state.audioBridgeStatus || 'bridge sem retorno'}. Recarregue o WhatsApp Web, dê play no áudio e tente novamente.`,
+      )
+    }
+
+    const response = await fetch(audioSource.source)
+
+    if (!response.ok) {
+      throw new Error('Não foi possível baixar o áudio visível do WhatsApp.')
+    }
+
+    const blob = await response.blob()
+
+    if (!blob.size) {
+      throw new Error('O arquivo de áudio carregado está vazio.')
+    }
+
+    if (!isProbablyAudioBlob(blob)) {
+      throw new Error(
+        'O arquivo capturado não parece ser áudio. Recarregue o WhatsApp Web, dê play no áudio e tente novamente.',
+      )
+    }
+
+    return new Blob([blob], {
+      type: audioSource.mimeType || blob.type || 'audio/webm',
+    })
+  }
+
+  async function transcribeNextVisibleAudio() {
+    if (state.audioTranscriptionLoading) {
+      return
+    }
+
+    const cycleId = state.leadResolution?.cycle?.id
+
+    if (!cycleId) {
+      state = {
+        ...state,
+        audioTranscriptionStatus: 'Ciclo comercial não localizado para transcrição.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    const audioTargets = getVisibleAudioTargets()
+
+    if (audioTargets.length === 0) {
+      state = {
+        ...state,
+        audioTranscriptionStatus: 'Nenhum áudio real visível foi encontrado nesta conversa.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    const nextTarget = audioTargets.find((target) => {
+      return !state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target.index)]
+    })
+
+    if (!nextTarget) {
+      state = {
+        ...state,
+        audioTranscriptionStatus: 'Todos os áudios visíveis desta conversa já foram transcritos.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    state = {
+      ...state,
+      audioTranscriptionLoading: true,
+      audioTranscriptionStatus: `Transcrevendo áudio ${nextTarget.index + 1}...`,
+    }
+
+    renderPanel()
+
+    try {
+      const blob = await getAudioBlobForTarget(nextTarget)
+      const audioBase64 = await blobToBase64(blob)
+      const result = await window.YolenCompanionApi.transcribeAudio({
+        cycle_id: cycleId,
+        audio_base64: audioBase64,
+        mime_type: blob.type || 'audio/webm',
+        file_name: `whatsapp-audio-${nextTarget.index + 1}.webm`,
+        audio_index: nextTarget.index,
+      })
+
+      if (!result?.ok || !result.payload?.ok || !result.payload?.data?.text) {
+        throw new Error(
+          result?.payload?.error ||
+            'Não foi possível transcrever o áudio pela Yolen.',
+        )
+      }
+
+      const transcriptionKey = getAudioTranscriptionKey(nextTarget.index)
+
+      state = {
+        ...state,
+        audioTranscriptionLoading: false,
+        audioTranscriptionStatus:
+          'Áudio transcrito. Analise a conversa novamente para usar a transcrição.',
+        audioTranscriptionsByKey: {
+          ...(state.audioTranscriptionsByKey || {}),
+          [transcriptionKey]: {
+            text: result.payload.data.text,
+            occurredAt: result.payload.data.occurred_at || null,
+          },
+        },
+      }
+
+      renderPanel()
+    } catch (error) {
+      state = {
+        ...state,
+        audioTranscriptionLoading: false,
+        audioTranscriptionStatus:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao transcrever áudio.',
+      }
+
+      renderPanel()
+    }
   }
 
   function collectVisibleConversationText() {
@@ -618,8 +1070,20 @@
       })
     }
 
-    if (state.audioCount > 0) {
-      lines.push(`[Yolen Companion: ${state.audioCount} áudio(s) visível(is) detectado(s), ainda sem transcrição.]`)
+    const audioTranscriptions = getAudioTranscriptionsForCurrentConversation()
+
+    audioTranscriptions.forEach((transcription) => {
+      lines.push(
+        `[Yolen Companion: áudio ${transcription.audioIndex + 1} transcrito: ${transcription.text}]`,
+      )
+    })
+
+    const pendingAudioCount = getPendingAudioCountForCurrentConversation()
+
+    if (pendingAudioCount > 0) {
+      lines.push(
+        `[Yolen Companion: ${pendingAudioCount} áudio(s) visível(is) detectado(s), ainda sem transcrição.]`,
+      )
     }
 
     return Array.from(new Set(lines))
@@ -838,6 +1302,8 @@
       pendingSuggestedMessageSend: null,
       pendingSuggestedMessageSendRegistering: false,
       lastAnalysisAudioCount: 0,
+      audioTranscriptionLoading: false,
+      audioTranscriptionStatus: null,
     }
   }
 
@@ -1289,6 +1755,39 @@
     return typeof message === 'string' && message.trim() ? message.trim() : null
   }
 
+  function getAudioTranscriptionHtml() {
+    const transcriptions = getAudioTranscriptionsForCurrentConversation()
+    const details = []
+
+    if (state.audioTranscriptionStatus) {
+      details.push(escapeHtml(state.audioTranscriptionStatus))
+    }
+
+    if (state.audioCount > 0 && state.audioBridgeStatus) {
+      details.push(escapeHtml(state.audioBridgeStatus))
+    }
+
+    if (state.capturedAudioBlobCount > 0) {
+      details.push(`${state.capturedAudioBlobCount} arquivo(s) de áudio capturado(s) pelo bridge.`)
+    }
+
+    if (transcriptions.length > 0) {
+      details.push(`${transcriptions.length} áudio(s) transcrito(s) nesta conversa.`)
+    }
+
+    if (details.length === 0) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-card-description">
+        <strong>Transcrição de áudio</strong><br>
+        ${details.join('<br>')}
+      </div>
+    `
+  }
+
+
   function getSuggestedMessageHtml() {
     const message = getSuggestedMessage()
 
@@ -1502,7 +2001,7 @@
       `
       : ''
 
-    const insertMessageButton = getSuggestedMessage()
+      const insertMessageButton = getSuggestedMessage()
       ? `
         <button class="yolen-secondary-button" type="button" data-yolen-action="insert-suggested-message">
           Inserir no WhatsApp
@@ -1510,27 +2009,43 @@
       `
       : ''
 
-    if (!state.conversationAnalysis?.suggestion) {
-      return `
-        <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
-          Analisar conversa com IA
+    const transcribeAudioButton = state.audioCount > 0
+      ? `
+        <button
+          class="yolen-secondary-button"
+          type="button"
+          data-yolen-action="transcribe-audio"
+          ${state.audioTranscriptionLoading ? 'disabled' : ''}
+        >
+          ${state.audioTranscriptionLoading ? 'Transcrevendo áudio...' : 'Transcrever próximo áudio'}
         </button>
       `
-    }
+      : ''
 
-    if (!canApplyCurrentSuggestion()) {
-      return `
-        ${insertMessageButton}
-        ${copyMessageButton}
-        ${analyzeButton}
-      `
-    }
+      if (!state.conversationAnalysis?.suggestion) {
+        return `
+          ${transcribeAudioButton}
+          <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
+            Analisar conversa com IA
+          </button>
+        `
+      }
+
+      if (!canApplyCurrentSuggestion()) {
+        return `
+          ${transcribeAudioButton}
+          ${insertMessageButton}
+          ${copyMessageButton}
+          ${analyzeButton}
+        `
+      }
 
     return `
       <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
         Aplicar sugestão na Yolen
       </button>
 
+      ${transcribeAudioButton}
       ${insertMessageButton}
       ${copyMessageButton}
       ${analyzeButton}
@@ -1543,6 +2058,7 @@
         <div class="yolen-section-label">Análise da conversa</div>
         <div class="yolen-card-title">${escapeHtml(getAnalysisTitle())}</div>
         <div class="yolen-card-description">${getAnalysisDescription()}</div>
+        ${getAudioTranscriptionHtml()}
         ${getSuggestedMessageHtml()}
         <div class="yolen-inline-actions">
           ${getAnalysisActionButton()}
@@ -1699,6 +2215,10 @@
 
     panel.querySelector('[data-yolen-action="insert-suggested-message"]')?.addEventListener('click', () => {
       insertSuggestedMessageInWhatsApp()
+    })
+
+    panel.querySelector('[data-yolen-action="transcribe-audio"]')?.addEventListener('click', () => {
+      transcribeNextVisibleAudio()
     })
   }
 
@@ -1920,7 +2440,7 @@
       suggestedMessageLastRegisteredKey: null,
       pendingSuggestedMessageSend: null,
       pendingSuggestedMessageSendRegistering: false,
-      lastAnalysisAudioCount: state.audioCount,
+      lastAnalysisAudioCount: getPendingAudioCountForCurrentConversation(),
     }
 
     renderPanel()
@@ -2505,6 +3025,8 @@
   async function start() {
     await waitForWhatsAppApp()
 
+    listenToWhatsAppAudioBridge()
+    injectWhatsAppAudioBridge()
     createPanel()
     renderPanel()
     await captureSessionFromHash()
