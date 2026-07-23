@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'crypto'
+import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -21,15 +21,16 @@ type TranscribeCompanionAudioBody = {
 }
 
 type TranscribeCompanionAudioResponse = {
-  ok: boolean
-  data?: {
-    text: string
-    event_type: string
-    occurred_at: string
-    audio_size_bytes: number
+    ok: boolean
+    data?: {
+      text: string
+      event_type: string
+      occurred_at: string
+      audio_size_bytes: number
+      already_transcribed?: boolean
+    }
+    error?: string
   }
-  error?: string
-}
 
 type JsonRecord = Record<string, unknown>
 
@@ -38,16 +39,34 @@ type CompanionQueryError = {
 }
 
 type InsertResult = {
-  error: CompanionQueryError | null
-}
-
-type CompanionTranscribeWriteTable = {
-  insert: (values: JsonRecord) => PromiseLike<InsertResult>
-}
-
-type CompanionTranscribeWriteClient = {
-  from: (table: 'cycle_events') => CompanionTranscribeWriteTable
-}
+    error: CompanionQueryError | null
+  }
+  
+  type ExistingAudioTranscriptionResult = {
+    data: JsonRecord | null
+    error: CompanionQueryError | null
+  }
+  
+  type ExistingAudioTranscriptionQueryBuilder = {
+    eq: (column: string, value: string) => ExistingAudioTranscriptionQueryBuilder
+    order: (
+      column: string,
+      options?: {
+        ascending?: boolean
+      },
+    ) => ExistingAudioTranscriptionQueryBuilder
+    limit: (count: number) => ExistingAudioTranscriptionQueryBuilder
+    maybeSingle: () => PromiseLike<ExistingAudioTranscriptionResult>
+  }
+  
+  type CompanionTranscribeWriteTable = {
+    insert: (values: JsonRecord) => PromiseLike<InsertResult>
+    select: (columns: string) => ExistingAudioTranscriptionQueryBuilder
+  }
+  
+  type CompanionTranscribeWriteClient = {
+    from: (table: 'cycle_events') => CompanionTranscribeWriteTable
+  }
 
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
@@ -150,6 +169,13 @@ function verifyCompanionToken(request: Request): CompanionTokenPayload | null {
 function getString(value: unknown) {
   return typeof value === 'string' ? value : null
 }
+
+
+function getRecord(value: unknown): JsonRecord | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as JsonRecord)
+      : null
+  }
 
 function getNullableString(value: unknown) {
   return value === null || typeof value === 'string' ? value : null
@@ -302,6 +328,53 @@ function getCleanMimeType(value: unknown) {
       : 'whatsapp-audio'
   
     return `${baseName || 'whatsapp-audio'}.${extension}`
+  }
+
+
+function buildAudioFingerprint(audioBuffer: Buffer) {
+    return createHash('sha256').update(audioBuffer).digest('hex')
+  }
+  
+  async function findExistingAudioTranscription({
+    writeAdmin,
+    companyId,
+    cycleId,
+    audioFingerprint,
+  }: {
+    writeAdmin: CompanionTranscribeWriteClient
+    companyId: string
+    cycleId: string
+    audioFingerprint: string
+  }) {
+    const { data, error } = await writeAdmin
+      .from('cycle_events')
+      .select('id, occurred_at, metadata')
+      .eq('company_id', companyId)
+      .eq('cycle_id', cycleId)
+      .eq('event_type', 'whatsapp_audio_transcribed')
+      .eq('metadata->>audio_fingerprint', audioFingerprint)
+      .order('occurred_at', {
+        ascending: false,
+      })
+      .limit(1)
+      .maybeSingle()
+  
+    if (error) {
+      throw new Error(error.message || 'Erro ao verificar áudio já transcrito.')
+    }
+  
+    const metadata = getRecord(data?.metadata)
+    const text = getString(metadata?.transcription_text)
+    const occurredAt = getString(data?.occurred_at)
+  
+    if (!text || !occurredAt) {
+      return null
+    }
+  
+    return {
+      text,
+      occurredAt,
+    }
   }
 
 function getTextFromOpenAIResponse(value: unknown) {
@@ -514,6 +587,7 @@ export async function POST(request: Request) {
   
       const audioFormat = detectAudioFormatFromBuffer(audioBuffer, requestedMimeType)
       const fileName = getSafeFileName(body.file_name, audioFormat.extension)
+      const audioFingerprint = buildAudioFingerprint(audioBuffer)
   
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -621,15 +695,41 @@ export async function POST(request: Request) {
       )
     }
 
-    const text = await transcribeAudioWithOpenAI({
-        audioBuffer,
-        mimeType: audioFormat.mimeType,
-        fileName,
-      })
-
-    const now = new Date().toISOString()
     const eventType = 'whatsapp_audio_transcribed'
     const writeAdmin = admin as unknown as CompanionTranscribeWriteClient
+
+    const existingTranscription = await findExistingAudioTranscription({
+      writeAdmin,
+      companyId: tokenPayload.company_id,
+      cycleId,
+      audioFingerprint,
+    })
+
+    if (existingTranscription) {
+      return NextResponse.json<TranscribeCompanionAudioResponse>(
+        {
+          ok: true,
+          data: {
+            text: existingTranscription.text,
+            event_type: eventType,
+            occurred_at: existingTranscription.occurredAt,
+            audio_size_bytes: audioBuffer.length,
+            already_transcribed: true,
+          },
+        },
+        {
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const text = await transcribeAudioWithOpenAI({
+      audioBuffer,
+      mimeType: audioFormat.mimeType,
+      fileName,
+    })
+
+    const now = new Date().toISOString()
 
     const { error: insertError } = await writeAdmin.from('cycle_events').insert({
       company_id: tokenPayload.company_id,
@@ -641,6 +741,7 @@ export async function POST(request: Request) {
         source: 'whatsapp_companion',
         audio_index: audioIndex,
         audio_size_bytes: audioBuffer.length,
+        audio_fingerprint: audioFingerprint,
         mime_type: audioFormat.mimeType,
         file_name: fileName,
         transcription_text: text,
@@ -669,10 +770,11 @@ export async function POST(request: Request) {
       {
         ok: true,
         data: {
-          text,
-          event_type: eventType,
-          occurred_at: now,
-          audio_size_bytes: audioBuffer.length,
+            text,
+            event_type: eventType,
+            occurred_at: now,
+            audio_size_bytes: audioBuffer.length,
+            already_transcribed: false,
         },
       },
       {

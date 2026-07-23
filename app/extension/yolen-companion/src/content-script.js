@@ -1009,8 +1009,9 @@
       state = {
         ...state,
         audioTranscriptionLoading: false,
-        audioTranscriptionStatus:
-          'Áudio transcrito. Analise a conversa novamente para usar a transcrição.',
+        audioTranscriptionStatus: result.payload.data.already_transcribed
+          ? 'Áudio já estava transcrito. Analise a conversa novamente para usar a transcrição.'
+          : 'Áudio transcrito. Analise a conversa novamente para usar a transcrição.',
         audioTranscriptionsByKey: {
           ...(state.audioTranscriptionsByKey || {}),
           [transcriptionKey]: {
