@@ -73,19 +73,22 @@ export const HEX_ALPHA_MEDIUM = '44'
 export const MONOSPACE_FONT = 'monospace'
 export const MILLISECONDS_PER_DAY = 1000 * 60 * 60 * 24
 
-export const COLOR_BLUE = '#60a5fa'
+export const COLOR_BLUE = '#1685ff'
+export const COLOR_CYAN = '#06d6e8'
+export const COLOR_YELLOW = '#f5c400'
 export const COLOR_PURPLE = '#a855f7'
-export const COLOR_YELLOW = '#fde68a'
-export const COLOR_GREEN = '#34d399'
-export const COLOR_RED = '#f87171'
+export const COLOR_GREEN = '#00e889'
+export const COLOR_RED = '#ff4d5e'
 
 export const STATUS_BADGE: Record<string, { background: string; color: string }> = {
-  novo:       { background: 'rgba(96,165,250,0.15)',  color: COLOR_BLUE },
-  contato:    { background: 'rgba(96,165,250,0.15)',  color: COLOR_BLUE },
-  respondeu:  { background: 'rgba(168,85,247,0.15)',  color: COLOR_PURPLE },
-  negociacao: { background: 'rgba(253,224,138,0.15)', color: COLOR_YELLOW },
-  ganho:      { background: 'rgba(52,211,153,0.15)',  color: COLOR_GREEN },
-  perdido:    { background: 'rgba(248,113,113,0.15)', color: COLOR_RED },
+  novo:       { background: 'rgba(22,133,255,0.15)',  color: COLOR_BLUE },
+  contato:    { background: 'rgba(6,214,232,0.15)',   color: COLOR_CYAN },
+  respondeu:  { background: 'rgba(245,196,0,0.16)',   color: COLOR_YELLOW },
+  negociacao: { background: 'rgba(168,85,247,0.15)',  color: COLOR_PURPLE },
+  pausado:    { background: 'rgba(245,196,0,0.10)',   color: COLOR_YELLOW },
+  ganho:      { background: 'rgba(0,232,137,0.12)',   color: COLOR_GREEN },
+  perdido:    { background: 'rgba(255,77,94,0.14)',   color: COLOR_RED },
+  cancelado:  { background: 'rgba(148,163,184,0.15)', color: '#94a3b8' },
 }
 
 /** Dot color for each event class in the timeline */

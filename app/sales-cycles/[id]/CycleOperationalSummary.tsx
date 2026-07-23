@@ -44,6 +44,17 @@ const LEAD_STATUS_PT: Record<string, string> = {
   cancelado: 'CANCELADO',
 }
 
+const LEAD_STATUS_COLOR: Record<string, string> = {
+  novo: '#1685ff',
+  contato: '#06d6e8',
+  respondeu: '#f5c400',
+  negociacao: '#a855f7',
+  pausado: '#f5c400',
+  ganho: '#00e889',
+  perdido: '#ff4d5e',
+  cancelado: '#94a3b8',
+}
+
 const PAYMENT_METHOD_PT: Record<string, string> = {
   pix: 'PIX',
   credito: 'Cartão de Crédito',
@@ -55,9 +66,19 @@ const PAYMENT_METHOD_PT: Record<string, string> = {
   outro: 'Outro',
 }
 
+function stageKey(s: string | null | undefined): string {
+  return String(s ?? '').toLowerCase()
+}
+
 function stageLabel(s: string | null | undefined): string {
   if (!s) return '—'
-  return LEAD_STATUS_PT[s.toLowerCase()] ?? s.toUpperCase()
+  const key = stageKey(s)
+  return LEAD_STATUS_PT[key] ?? s.toUpperCase()
+}
+
+function stageColor(s: string | null | undefined): string {
+  const key = stageKey(s)
+  return LEAD_STATUS_COLOR[key] ?? '#93c5fd'
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -113,10 +134,14 @@ function buildSummary(events: CycleEvent[], ciclo?: CycleSummary | null): Summar
       label: 'Última movimentação',
       content: (
         <span>
-          <span style={{ color: '#93c5fd' }}>{stageLabel(from)}</span>
-          <span style={{ opacity: 0.55 }}> → </span>
-          <span style={{ color: '#93c5fd', fontWeight: 700 }}>{stageLabel(to)}</span>
+        <span style={{ color: stageColor(from), fontWeight: 700 }}>
+          {stageLabel(from)}
         </span>
+        <span style={{ opacity: 0.55 }}> → </span>
+        <span style={{ color: stageColor(to), fontWeight: 700 }}>
+          {stageLabel(to)}
+        </span>
+      </span>
       ),
       date: lastMove.occurred_at,
     })
