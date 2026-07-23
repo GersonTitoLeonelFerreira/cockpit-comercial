@@ -1,6 +1,8 @@
 ;(function initYolenWhatsAppAudioBridge() {
     const MESSAGE_SOURCE = 'YOLEN_COMPANION_WHATSAPP_AUDIO_BRIDGE'
+    const CONTENT_SCRIPT_SOURCE = 'YOLEN_COMPANION_CONTENT_SCRIPT'
     const MAX_AUDIO_BYTES = 15 * 1024 * 1024
+    const CAPTURE_REQUEST_TIMEOUT_MS = 8000
   
     if (window.__yolenWhatsAppAudioBridgeInstalled === true) {
       return
@@ -9,23 +11,74 @@
     window.__yolenWhatsAppAudioBridgeInstalled = true
   
     const originalCreateObjectURL = URL.createObjectURL.bind(URL)
-
-  window.postMessage(
-    {
-      source: MESSAGE_SOURCE,
-      action: 'BRIDGE_READY',
-      installedAt: Date.now(),
-    },
-    window.location.origin,
-  )
+    const originalMediaPlay = HTMLMediaElement.prototype.play
+  
+    let activeCaptureRequest = null
+  
+    const captureInFlightRequestIds = new Set()
+    const completedCaptureRequestIds = new Set()
+  
+    function getActiveCaptureRequest() {
+      if (!activeCaptureRequest) {
+        return null
+      }
+  
+      if (activeCaptureRequest.expiresAt <= Date.now()) {
+        activeCaptureRequest = null
+        return null
+      }
+  
+      return activeCaptureRequest
+    }
+  
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) {
+        return
+      }
+  
+      if (event.origin !== window.location.origin) {
+        return
+      }
+  
+      if (event.data?.source !== CONTENT_SCRIPT_SOURCE) {
+        return
+      }
+  
+      if (
+        event.data?.action === 'CAPTURE_NEXT_AUDIO' &&
+        typeof event.data?.requestId === 'string'
+      ) {
+        activeCaptureRequest = {
+          requestId: event.data.requestId,
+          targetKey: event.data.targetKey || null,
+          expiresAt: Date.now() + CAPTURE_REQUEST_TIMEOUT_MS,
+        }
+  
+        return
+      }
+  
+      if (
+        event.data?.action === 'CAPTURE_FINISHED' &&
+        activeCaptureRequest?.requestId === event.data?.requestId
+      ) {
+        activeCaptureRequest = null
+      }
+    })
+  
+    window.postMessage(
+      {
+        source: MESSAGE_SOURCE,
+        action: 'BRIDGE_READY',
+        installedAt: Date.now(),
+      },
+      window.location.origin,
+    )
   
     function isPotentialAudioMimeType(type) {
       const cleanType = String(type || '').toLowerCase()
   
       return (
         cleanType.startsWith('audio/') ||
-        cleanType === 'video/webm' ||
-        cleanType === 'video/mp4' ||
         cleanType === 'application/octet-stream' ||
         cleanType === ''
       )
@@ -45,10 +98,6 @@
       }
   
       if (ascii.startsWith('RIFF')) {
-        return true
-      }
-  
-      if (ascii.includes('ftyp')) {
         return true
       }
   
@@ -85,10 +134,6 @@
         return true
       }
   
-      if (String(blob.type || '').toLowerCase() === 'video/webm') {
-        return true
-      }
-  
       try {
         const headerBuffer = await blob.slice(0, 16).arrayBuffer()
         const headerBytes = new Uint8Array(headerBuffer)
@@ -99,46 +144,193 @@
       }
     }
   
-    async function publishAudioBlob(blob, objectUrl) {
-        const shouldPublish = await isAudioBlob(blob)
-    
-        if (!shouldPublish) {
-          return
-        }
-    
-        window.__yolenCapturedAudioBlobs = [
-          ...(window.__yolenCapturedAudioBlobs || []),
-          {
+    async function publishAudioBlob(
+      blob,
+      objectUrl,
+      captureRequestId = null,
+    ) {
+      if (
+        captureRequestId &&
+        completedCaptureRequestIds.has(captureRequestId)
+      ) {
+        return false
+      }
+  
+      const shouldPublish = await isAudioBlob(blob)
+  
+      if (!shouldPublish) {
+        return false
+      }
+  
+      const capturedAt = Date.now()
+  
+      window.__yolenCapturedAudioBlobs = [
+        ...(window.__yolenCapturedAudioBlobs || []),
+        {
+          objectUrl,
+          mimeType: blob.type || '',
+          size: blob.size,
+          capturedAt,
+          captureRequestId,
+          blob,
+        },
+      ].slice(-12)
+  
+      window.postMessage(
+        {
+          source: MESSAGE_SOURCE,
+          action: 'AUDIO_BLOB_CAPTURED',
+          audio: {
+            id: `${capturedAt}-${Math.random().toString(16).slice(2)}`,
             objectUrl,
             mimeType: blob.type || '',
             size: blob.size,
-            capturedAt: Date.now(),
+            capturedAt,
+            captureRequestId,
             blob,
           },
-        ].slice(-12)
-    
-        window.postMessage(
-          {
-            source: MESSAGE_SOURCE,
-            action: 'AUDIO_BLOB_CAPTURED',
-            audio: {
-              id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              objectUrl,
-              mimeType: blob.type || '',
-              size: blob.size,
-              capturedAt: Date.now(),
-              blob,
-            },
-          },
-          window.location.origin,
-        )
+        },
+        window.location.origin,
+      )
+  
+      if (captureRequestId) {
+        completedCaptureRequestIds.add(captureRequestId)
       }
+  
+      return true
+    }
+  
+    function getMediaElementSource(mediaElement) {
+      const directSource =
+        mediaElement.currentSrc ||
+        mediaElement.src ||
+        ''
+  
+      if (directSource) {
+        return directSource
+      }
+  
+      const sourceElement = mediaElement.querySelector?.('source[src]')
+  
+      return (
+        sourceElement?.src ||
+        sourceElement?.getAttribute?.('src') ||
+        ''
+      )
+    }
+  
+    async function waitForMediaElementSource(mediaElement) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const source = getMediaElementSource(mediaElement)
+  
+        if (source) {
+          return source
+        }
+  
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 100)
+        })
+      }
+  
+      return ''
+    }
+  
+    async function captureAudioFromMediaElement(
+      mediaElement,
+      captureRequestId,
+    ) {
+      if (!captureRequestId) {
+        return
+      }
+  
+      if (completedCaptureRequestIds.has(captureRequestId)) {
+        return
+      }
+  
+      if (captureInFlightRequestIds.has(captureRequestId)) {
+        return
+      }
+  
+      if (!(mediaElement instanceof HTMLMediaElement)) {
+        return
+      }
+  
+      if (mediaElement.tagName.toLowerCase() !== 'audio') {
+        return
+      }
+  
+      captureInFlightRequestIds.add(captureRequestId)
+  
+      try {
+        const source = await waitForMediaElementSource(mediaElement)
+  
+        if (!source) {
+          return
+        }
+  
+        const response = await fetch(source, {
+          credentials: 'include',
+        })
+  
+        if (!response.ok) {
+          return
+        }
+  
+        const blob = await response.blob()
+  
+        await publishAudioBlob(
+          blob,
+          source,
+          captureRequestId,
+        )
+      } catch {
+        // O content-script exibirá a falha caso nenhum arquivo seja capturado.
+      } finally {
+        captureInFlightRequestIds.delete(captureRequestId)
+      }
+    }
+  
+    function captureCurrentRequestFromMediaElement(mediaElement) {
+      const captureRequest = getActiveCaptureRequest()
+  
+      if (!captureRequest) {
+        return
+      }
+  
+      captureAudioFromMediaElement(
+        mediaElement,
+        captureRequest.requestId,
+      )
+    }
+  
+    HTMLMediaElement.prototype.play = function yolenTrackedMediaPlay(
+      ...args
+    ) {
+      const result = originalMediaPlay.apply(this, args)
+  
+      captureCurrentRequestFromMediaElement(this)
+  
+      return result
+    }
+  
+    document.addEventListener(
+      'play',
+      (event) => {
+        captureCurrentRequestFromMediaElement(event.target)
+      },
+      true,
+    )
   
     URL.createObjectURL = function createYolenTrackedObjectURL(value) {
       const objectUrl = originalCreateObjectURL(value)
   
       if (value instanceof Blob) {
-        publishAudioBlob(value, objectUrl)
+        /*
+         * Blobs capturados genericamente ficam sem requestId.
+         * Somente o elemento <audio> que realmente iniciou a reprodução
+         * recebe o requestId da solicitação atual.
+         */
+        publishAudioBlob(value, objectUrl, null)
       }
   
       return objectUrl
