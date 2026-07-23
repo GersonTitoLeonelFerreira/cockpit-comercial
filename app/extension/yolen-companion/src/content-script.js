@@ -456,28 +456,124 @@
     return Math.max(messagesWithPreText.length, messageRows.length, 0)
   }
 
+  function isVisibleDomElement(element) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return false
+    }
+
+    const rect = element.getBoundingClientRect()
+    const style = window.getComputedStyle(element)
+
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      Number(style.opacity || 1) > 0
+    )
+  }
+
+  function getMessageContainer(element) {
+    if (!element || typeof element.closest !== 'function') {
+      return null
+    }
+
+    return (
+      element.closest('[data-pre-plain-text]') ||
+      element.closest('.message-in, .message-out') ||
+      element.closest('[data-id]') ||
+      element.closest('[role="row"]')
+    )
+  }
+
+  function isRealAudioElement(element) {
+    if (!isVisibleDomElement(element)) {
+      return false
+    }
+
+    if (element.closest(`#${PANEL_ID}`)) {
+      return false
+    }
+
+    const messageContainer = getMessageContainer(element)
+
+    if (!messageContainer || !isVisibleDomElement(messageContainer)) {
+      return false
+    }
+
+    const text = normalizeMessageText(
+      [
+        element.getAttribute?.('aria-label') || '',
+        element.getAttribute?.('title') || '',
+        element.textContent || '',
+        messageContainer.getAttribute?.('aria-label') || '',
+        messageContainer.textContent || '',
+      ].join(' '),
+    ).toLowerCase()
+
+    const icon = element.getAttribute?.('data-icon') || ''
+
+    if (
+      icon === 'audio-download' ||
+      icon === 'ptt' ||
+      icon === 'audio-play' ||
+      icon === 'audio-pip'
+    ) {
+      return true
+    }
+
+    if (element.tagName?.toLowerCase() === 'audio') {
+      return true
+    }
+
+    return (
+      text.includes('mensagem de voz') ||
+      text.includes('voice message') ||
+      text.includes('reproduzir áudio') ||
+      text.includes('play audio')
+    )
+  }
+
   function getVisibleAudioCount() {
-    const main = getMainConversationRoot() || document
+    const main = getMainConversationRoot()
+
+    if (!main) {
+      return 0
+    }
+
     const audioSelectors = [
       'audio',
-      '[aria-label*="áudio" i]',
-      '[aria-label*="audio" i]',
-      '[aria-label*="mensagem de voz" i]',
-      '[aria-label*="voice message" i]',
       '[data-icon="audio-download"]',
       '[data-icon="ptt"]',
       '[data-icon="audio-play"]',
+      '[data-icon="audio-pip"]',
+      'button[aria-label*="mensagem de voz" i]',
+      'button[aria-label*="voice message" i]',
+      'button[aria-label*="reproduzir áudio" i]',
+      'button[aria-label*="play audio" i]',
+      '[role="button"][aria-label*="mensagem de voz" i]',
+      '[role="button"][aria-label*="voice message" i]',
+      '[role="button"][aria-label*="reproduzir áudio" i]',
+      '[role="button"][aria-label*="play audio" i]',
     ]
 
-    const detected = new Set()
+    const detectedMessageContainers = new Set()
 
     audioSelectors.forEach((selector) => {
       main.querySelectorAll(selector).forEach((element) => {
-        detected.add(element)
+        if (!isRealAudioElement(element)) {
+          return
+        }
+
+        const messageContainer = getMessageContainer(element)
+
+        if (messageContainer) {
+          detectedMessageContainers.add(messageContainer)
+        }
       })
     })
 
-    return detected.size
+    return detectedMessageContainers.size
   }
 
   function normalizeMessageText(value) {
