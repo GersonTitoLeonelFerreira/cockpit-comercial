@@ -44,6 +44,7 @@
     suggestedMessageLastRegisteredKey: null,
     pendingSuggestedMessageSend: null,
     pendingSuggestedMessageSendRegistering: false,
+    lastAnalysisAudioCount: 0,
   }
 
   function waitForWhatsAppApp() {
@@ -740,6 +741,7 @@
       suggestedMessageLastRegisteredKey: null,
       pendingSuggestedMessageSend: null,
       pendingSuggestedMessageSendRegistering: false,
+      lastAnalysisAudioCount: 0,
     }
   }
 
@@ -996,6 +998,10 @@
     return ['novo', 'contato', 'respondeu', 'negociacao', 'pausado'].includes(status)
   }
 
+  function hasAudioWithoutTranscriptionForAnalysis() {
+    return Boolean(state.conversationAnalysis) && Number(state.lastAnalysisAudioCount || 0) > 0
+  }
+
   function canApplyCurrentSuggestion() {
     const suggestion = state.conversationAnalysis?.suggestion
 
@@ -1004,6 +1010,7 @@
       Boolean(state.conversationAnalysis?.saved_coaching?.id) &&
       Boolean(suggestion) &&
       isOpenSuggestionStatus(suggestion.recommended_status) &&
+      !hasAudioWithoutTranscriptionForAnalysis() &&
       !state.conversationAnalysisLoading &&
       !state.suggestionApplyLoading &&
       !state.suggestionApplyResult
@@ -1155,6 +1162,11 @@
         } else {
           details.push('Escopo: conversa visível')
         }
+      }
+
+      if (hasAudioWithoutTranscriptionForAnalysis()) {
+        details.push(`Áudio sem transcrição: ${state.lastAnalysisAudioCount} detectado(s)`)
+        details.push('Aplicação bloqueada até transcrever áudio')
       }
 
       if (!isOpenSuggestionStatus(suggestion.recommended_status)) {
@@ -1811,6 +1823,7 @@
       suggestedMessageLastRegisteredKey: null,
       pendingSuggestedMessageSend: null,
       pendingSuggestedMessageSendRegistering: false,
+      lastAnalysisAudioCount: state.audioCount,
     }
 
     renderPanel()
