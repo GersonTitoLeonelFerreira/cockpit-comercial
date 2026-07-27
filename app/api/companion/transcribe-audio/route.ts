@@ -18,6 +18,7 @@ type TranscribeCompanionAudioBody = {
   mime_type?: unknown
   file_name?: unknown
   audio_index?: unknown
+  audio_target_key?: unknown
 }
 
 type TranscribeCompanionAudioResponse = {
@@ -38,35 +39,56 @@ type CompanionQueryError = {
   message?: string
 }
 
-type InsertResult = {
-    error: CompanionQueryError | null
-  }
-  
-  type ExistingAudioTranscriptionResult = {
-    data: JsonRecord | null
-    error: CompanionQueryError | null
-  }
-  
-  type ExistingAudioTranscriptionQueryBuilder = {
-    eq: (column: string, value: string) => ExistingAudioTranscriptionQueryBuilder
-    order: (
-      column: string,
-      options?: {
-        ascending?: boolean
-      },
-    ) => ExistingAudioTranscriptionQueryBuilder
-    limit: (count: number) => ExistingAudioTranscriptionQueryBuilder
-    maybeSingle: () => PromiseLike<ExistingAudioTranscriptionResult>
-  }
-  
-  type CompanionTranscribeWriteTable = {
-    insert: (values: JsonRecord) => PromiseLike<InsertResult>
-    select: (columns: string) => ExistingAudioTranscriptionQueryBuilder
-  }
-  
-  type CompanionTranscribeWriteClient = {
-    from: (table: 'cycle_events') => CompanionTranscribeWriteTable
-  }
+type WriteResult = {
+  error: CompanionQueryError | null
+}
+
+type ExistingAudioTranscriptionResult = {
+  data: JsonRecord | null
+  error: CompanionQueryError | null
+}
+
+type ExistingAudioTranscriptionQueryBuilder = {
+  eq: (
+    column: string,
+    value: string,
+  ) => ExistingAudioTranscriptionQueryBuilder
+  order: (
+    column: string,
+    options?: {
+      ascending?: boolean
+    },
+  ) => ExistingAudioTranscriptionQueryBuilder
+  limit: (
+    count: number,
+  ) => ExistingAudioTranscriptionQueryBuilder
+  maybeSingle: () => PromiseLike<ExistingAudioTranscriptionResult>
+}
+
+type ExistingAudioTranscriptionUpdateBuilder = {
+  eq: (
+    column: string,
+    value: string,
+  ) => PromiseLike<WriteResult>
+}
+
+type CompanionTranscribeWriteTable = {
+  insert: (
+    values: JsonRecord,
+  ) => PromiseLike<WriteResult>
+  select: (
+    columns: string,
+  ) => ExistingAudioTranscriptionQueryBuilder
+  update: (
+    values: JsonRecord,
+  ) => ExistingAudioTranscriptionUpdateBuilder
+}
+
+type CompanionTranscribeWriteClient = {
+  from: (
+    table: 'cycle_events',
+  ) => CompanionTranscribeWriteTable
+}
 
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
@@ -336,6 +358,7 @@ function buildAudioFingerprint(audioBuffer: Buffer) {
   }
   
   async function findExistingAudioTranscription({
+    
     writeAdmin,
     companyId,
     cycleId,
@@ -363,17 +386,71 @@ function buildAudioFingerprint(audioBuffer: Buffer) {
       throw new Error(error.message || 'Erro ao verificar áudio já transcrito.')
     }
   
+    const eventId = getString(data?.id)
     const metadata = getRecord(data?.metadata)
     const text = getString(metadata?.transcription_text)
     const occurredAt = getString(data?.occurred_at)
-  
-    if (!text || !occurredAt) {
+
+    if (!eventId || !metadata || !text || !occurredAt) {
       return null
     }
-  
+
     return {
+      eventId,
+      metadata,
       text,
       occurredAt,
+    }
+  }
+
+  async function bindExistingAudioTranscription({
+    writeAdmin,
+    eventId,
+    metadata,
+    audioTargetKey,
+    audioIndex,
+  }: {
+    writeAdmin: CompanionTranscribeWriteClient
+    eventId: string
+    metadata: JsonRecord
+    audioTargetKey: string | null
+    audioIndex: number
+  }) {
+    if (!audioTargetKey) {
+      return
+    }
+  
+    const existingTargetKey =
+      getString(metadata.audio_target_key)
+  
+    const existingAudioIndex =
+      getAudioIndex(metadata.audio_index)
+  
+    if (
+      existingTargetKey === audioTargetKey &&
+      existingAudioIndex === audioIndex
+    ) {
+      return
+    }
+  
+    const nextMetadata: JsonRecord = {
+      ...metadata,
+      audio_index: audioIndex,
+      audio_target_key: audioTargetKey,
+    }
+  
+    const { error } = await writeAdmin
+      .from('cycle_events')
+      .update({
+        metadata: nextMetadata,
+      })
+      .eq('id', eventId)
+  
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Erro ao vincular a transcrição ao áudio do WhatsApp.',
+      )
     }
   }
 
@@ -530,6 +607,10 @@ export async function POST(request: Request) {
     const audioBase64 = cleanBase64Audio(body.audio_base64)
     const requestedMimeType = getCleanMimeType(body.mime_type)
     const audioIndex = getAudioIndex(body.audio_index)
+    const audioTargetKey =
+      getString(body.audio_target_key)
+        ?.trim()
+        .slice(0, 500) || null
 
     if (!cycleId) {
       return NextResponse.json<TranscribeCompanionAudioResponse>(
@@ -706,6 +787,14 @@ export async function POST(request: Request) {
     })
 
     if (existingTranscription) {
+      await bindExistingAudioTranscription({
+        writeAdmin,
+        eventId: existingTranscription.eventId,
+        metadata: existingTranscription.metadata,
+        audioTargetKey,
+        audioIndex,
+      })
+
       return NextResponse.json<TranscribeCompanionAudioResponse>(
         {
           ok: true,
@@ -740,6 +829,7 @@ export async function POST(request: Request) {
       metadata: {
         source: 'whatsapp_companion',
         audio_index: audioIndex,
+        audio_target_key: audioTargetKey,
         audio_size_bytes: audioBuffer.length,
         audio_fingerprint: audioFingerprint,
         mime_type: audioFormat.mimeType,

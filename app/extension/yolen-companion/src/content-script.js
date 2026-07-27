@@ -51,6 +51,8 @@
     audioTranscriptionsByKey: {},
     audioBridgeStatus: 'Aguardando bridge de áudio',
     capturedAudioBlobCount: 0,
+    audioTranscriptionHistoryLoading: false,
+    audioTranscriptionHistoryCycleId: null,
   }
 
   function waitForWhatsAppApp() {
@@ -1333,6 +1335,7 @@
         mime_type: blob.type || 'audio/webm',
         file_name: `whatsapp-audio-${nextTarget.index + 1}.webm`,
         audio_index: nextTarget.index,
+        audio_target_key: nextTarget.key,
       })
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data?.text) {
@@ -1664,6 +1667,8 @@
       audioTranscriptionLoading: false,
       audioTranscriptionStatus: null,
       capturedAudioBlobCount: 0,
+      audioTranscriptionHistoryLoading: false,
+      audioTranscriptionHistoryCycleId: null,
     }
   }
 
@@ -2688,6 +2693,185 @@
     }
   }
 
+  async function waitForVisibleAudioTargetsForRestore() {
+    const expectedAudioCount =
+      Number(state.audioCount || 0)
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const visibleTargets =
+        getVisibleAudioTargets()
+
+      if (
+        expectedAudioCount > 0 &&
+        visibleTargets.length >= expectedAudioCount
+      ) {
+        return visibleTargets
+      }
+
+      if (
+        expectedAudioCount === 0 &&
+        visibleTargets.length > 0
+      ) {
+        return visibleTargets
+      }
+
+      await sleep(250)
+    }
+
+    return getVisibleAudioTargets()
+  }
+
+  async function loadSavedAudioTranscriptionsForCurrentCycle() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    if (
+      !cycleId ||
+      !window.YolenCompanionApi
+        ?.loadAudioTranscriptions
+    ) {
+      return
+    }
+
+    if (
+      state.audioTranscriptionHistoryLoading ||
+      state.audioTranscriptionHistoryCycleId === cycleId
+    ) {
+      return
+    }
+
+    const conversationKeyAtRequest =
+      state.conversationKey
+
+    state = {
+      ...state,
+      audioTranscriptionHistoryLoading: true,
+    }
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadAudioTranscriptions({
+            cycle_id: cycleId,
+          })
+
+      if (
+        state.conversationKey !==
+          conversationKeyAtRequest ||
+        state.leadResolution?.cycle?.id !==
+          cycleId
+      ) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        state = {
+          ...state,
+          audioTranscriptionHistoryLoading: false,
+          audioTranscriptionHistoryCycleId:
+            cycleId,
+        }
+
+        return
+      }
+
+      const savedTranscriptions =
+        Array.isArray(
+          result.payload?.data?.transcriptions,
+        )
+          ? result.payload.data.transcriptions
+          : []
+
+          const visibleTargets =
+          await waitForVisibleAudioTargetsForRestore()
+
+      const nextAudioTranscriptionsByKey = {
+        ...(state.audioTranscriptionsByKey || {}),
+      }
+
+      let restoredCount = 0
+
+      savedTranscriptions.forEach(
+        (transcription) => {
+          if (
+            !transcription.audio_target_key ||
+            !transcription.text
+          ) {
+            return
+          }
+
+          const target =
+            visibleTargets.find(
+              (visibleTarget) =>
+                visibleTarget.key ===
+                transcription.audio_target_key,
+            )
+
+          if (!target) {
+            return
+          }
+
+          const transcriptionKey =
+            getAudioTranscriptionKey(target)
+
+          if (
+            nextAudioTranscriptionsByKey[
+              transcriptionKey
+            ]?.text
+          ) {
+            return
+          }
+
+          nextAudioTranscriptionsByKey[
+            transcriptionKey
+          ] = {
+            audioIndex: target.index,
+            targetKey: target.key,
+            capturedBlobId: null,
+            text: transcription.text,
+            occurredAt:
+              transcription.occurred_at ||
+              null,
+          }
+
+          restoredCount += 1
+        },
+      )
+
+      state = {
+        ...state,
+        audioTranscriptionHistoryLoading: false,
+        audioTranscriptionHistoryCycleId:
+          cycleId,
+        audioTranscriptionsByKey:
+          nextAudioTranscriptionsByKey,
+        audioTranscriptionStatus:
+          restoredCount > 0
+            ? `${restoredCount} transcrição(ões) recuperada(s) da Yolen.`
+            : state.audioTranscriptionStatus,
+      }
+
+      renderPanel()
+    } catch {
+      if (
+        state.conversationKey !==
+        conversationKeyAtRequest
+      ) {
+        return
+      }
+
+      state = {
+        ...state,
+        audioTranscriptionHistoryLoading: false,
+        audioTranscriptionHistoryCycleId:
+          cycleId,
+      }
+    }
+  }
+
   async function resolveCurrentLead() {
     if (leadResolutionInFlight) {
       return
@@ -2755,6 +2939,7 @@
       }
 
       renderPanel()
+      loadSavedAudioTranscriptionsForCurrentCycle()
     } catch (error) {
       if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
         return

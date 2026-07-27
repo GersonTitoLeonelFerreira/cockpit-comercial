@@ -253,6 +253,14 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (message.action === 'LOAD_AUDIO_TRANSCRIPTIONS') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/audio-transcriptions',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,

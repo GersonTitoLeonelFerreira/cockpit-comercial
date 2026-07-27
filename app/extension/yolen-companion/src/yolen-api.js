@@ -94,6 +94,13 @@
     return sendToBackground('TRANSCRIBE_AUDIO', payload)
   }
 
+  async function loadAudioTranscriptions(payload) {
+    return sendToBackground(
+      'LOAD_AUDIO_TRANSCRIPTIONS',
+      payload,
+    )
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -104,5 +111,6 @@
     applySuggestion,
     registerMessageAction,
     transcribeAudio,
+    loadAudioTranscriptions,
   }
 })()
