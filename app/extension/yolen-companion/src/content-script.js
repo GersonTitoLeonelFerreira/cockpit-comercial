@@ -207,12 +207,21 @@
       mimeType: audio.mimeType || blob.type || '',
       size: blob.size,
       objectUrl: audio.objectUrl || '',
-      capturedAt: Date.now(),
+      capturedAt: Number(audio.capturedAt) || Date.now(),
+      captureRequestId: audio.captureRequestId || null,
+      durationSeconds: null,
+      assignedTargetKey: null,
     }
 
     if (existingIndex >= 0) {
       capturedAudioBlobEntries = capturedAudioBlobEntries.map((entry, index) => {
-        return index === existingIndex ? nextEntry : entry
+        return index === existingIndex
+          ? {
+              ...entry,
+              ...nextEntry,
+              assignedTargetKey: entry.assignedTargetKey || null,
+            }
+          : entry
       })
     } else {
       capturedAudioBlobEntries = [...capturedAudioBlobEntries, nextEntry].slice(-12)
@@ -223,6 +232,21 @@
       audioBridgeStatus: `Bridge ativo · ${capturedAudioBlobEntries.length} áudio(s) capturado(s)`,
       capturedAudioBlobCount: capturedAudioBlobEntries.length,
     }
+
+    getBlobDurationSeconds(blob).then((durationSeconds) => {
+      if (!Number.isFinite(durationSeconds)) {
+        return
+      }
+
+      capturedAudioBlobEntries = capturedAudioBlobEntries.map((entry) => {
+        return entry.id === nextEntry.id
+          ? {
+              ...entry,
+              durationSeconds,
+            }
+          : entry
+      })
+    })
 
     renderPanel()
   }
@@ -636,6 +660,54 @@
     )
   }
 
+  function getAudioTargetDurationSeconds(container) {
+    const messageRoot =
+      container.closest?.('.message-in, .message-out, [data-id], [role="row"]') ||
+      container
+
+    const text = normalizeMessageText(messageRoot?.textContent)
+    const matches = Array.from(text.matchAll(/\b(\d{1,2}):(\d{2})\b/g))
+
+    const durations = matches
+      .map((match) => {
+        const minutes = Number(match[1])
+        const seconds = Number(match[2])
+
+        if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds > 59) {
+          return null
+        }
+
+        return minutes * 60 + seconds
+      })
+      .filter((value) => Number.isFinite(value) && value > 0)
+
+    return durations.length > 0 ? Math.min(...durations) : null
+  }
+
+  function getAudioTargetKey(container, index) {
+    const dataId =
+      container.closest?.('[data-id]')?.getAttribute?.('data-id') || ''
+
+    if (dataId) {
+      return dataId
+    }
+
+    const prePlainText =
+      container.getAttribute?.('data-pre-plain-text') ||
+      container.querySelector?.('[data-pre-plain-text]')?.getAttribute?.(
+        'data-pre-plain-text',
+      ) ||
+      ''
+
+    const durationSeconds = getAudioTargetDurationSeconds(container)
+
+    return [
+      normalizeMessageText(prePlainText) || 'sem-horario',
+      durationSeconds ?? 'sem-duracao',
+      index,
+    ].join('::')
+  }
+
   function getVisibleAudioTargets() {
     const main = getMainConversationRoot()
 
@@ -672,8 +744,12 @@
         return
       }
 
+      const index = detectedMessageContainers.size
+
       detectedMessageContainers.set(messageContainer, {
-        index: detectedMessageContainers.size,
+        index,
+        key: getAudioTargetKey(messageContainer, index),
+        durationSeconds: getAudioTargetDurationSeconds(messageContainer),
         container: messageContainer,
         element,
       })
@@ -694,8 +770,15 @@
   }
 
 
-  function getAudioTranscriptionKey(audioIndex) {
-    return `${state.conversationKey || 'sem-conversa'}::audio::${audioIndex}`
+  function getAudioTranscriptionKey(target) {
+    const targetKey =
+      target && typeof target === 'object' && target.key
+        ? target.key
+        : `legacy-${String(target ?? 0)}`
+
+    return `${state.conversationKey || 'sem-conversa'}::audio::${encodeURIComponent(
+      targetKey,
+    )}`
   }
 
   function getAudioTranscriptionsForCurrentConversation() {
@@ -705,11 +788,11 @@
       .filter(([key, value]) => {
         return key.startsWith(prefix) && value?.text
       })
-      .map(([key, value]) => {
-        const audioIndex = Number(key.split('::audio::').pop() || 0)
-
+      .map(([, value]) => {
         return {
-          audioIndex,
+          audioIndex:
+            typeof value.audioIndex === 'number' ? value.audioIndex : 0,
+          targetKey: value.targetKey || null,
           text: value.text,
           occurredAt: value.occurredAt || null,
         }
@@ -718,9 +801,18 @@
   }
 
   function getPendingAudioCountForCurrentConversation() {
+    const visibleTargets = getVisibleAudioTargets()
+    const transcribedKeys = new Set(
+      Object.keys(state.audioTranscriptionsByKey || {}),
+    )
+
+    const transcribedVisibleCount = visibleTargets.filter((target) => {
+      return transcribedKeys.has(getAudioTranscriptionKey(target))
+    }).length
+
     return Math.max(
       0,
-      Number(state.audioCount || 0) - getAudioTranscriptionsForCurrentConversation().length,
+      Number(state.audioCount || 0) - transcribedVisibleCount,
     )
   }
 
@@ -750,32 +842,169 @@
     )
   }
 
-  function getLatestCapturedAudioBlobEntry() {
-    return capturedAudioBlobEntries
-      .filter(isValidCapturedAudioBlobEntry)
-      .sort((a, b) => b.capturedAt - a.capturedAt)[0] || null
-  }
-
-  function getLatestCapturedAudioBlobEntrySince(startedAt) {
-    return capturedAudioBlobEntries
-      .filter((entry) => {
-        return isValidCapturedAudioBlobEntry(entry) && entry.capturedAt >= startedAt
-      })
-      .sort((a, b) => b.capturedAt - a.capturedAt)[0] || null
-  }
-
-  async function waitForCapturedAudioBlobEntrySince(startedAt) {
-    for (let attempt = 0; attempt < 16; attempt += 1) {
-      const entry = getLatestCapturedAudioBlobEntrySince(startedAt)
-
-      if (entry) {
-        return entry
-      }
-
-      await sleep(250)
+  function isAudioOnlyCapturedEntry(entry) {
+    if (!isValidCapturedAudioBlobEntry(entry)) {
+      return false
     }
 
-    return null
+    const mimeType = String(
+      entry.mimeType || entry.blob?.type || '',
+    ).toLowerCase()
+
+    return (
+      mimeType.startsWith('audio/') ||
+      mimeType === 'application/octet-stream' ||
+      mimeType === ''
+    )
+  }
+
+  function getBlobDurationSeconds(blob) {
+    return new Promise((resolve) => {
+      if (!blob?.size) {
+        resolve(null)
+        return
+      }
+
+      const objectUrl = URL.createObjectURL(blob)
+      const audio = document.createElement('audio')
+      let finished = false
+
+      const finish = (value) => {
+        if (finished) {
+          return
+        }
+
+        finished = true
+        window.clearTimeout(timeoutId)
+        audio.removeAttribute('src')
+        URL.revokeObjectURL(objectUrl)
+        resolve(Number.isFinite(value) ? value : null)
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        finish(null)
+      }, 3000)
+
+      audio.preload = 'metadata'
+
+      audio.addEventListener(
+        'loadedmetadata',
+        () => {
+          finish(audio.duration)
+        },
+        {
+          once: true,
+        },
+      )
+
+      audio.addEventListener(
+        'error',
+        () => {
+          finish(null)
+        },
+        {
+          once: true,
+        },
+      )
+
+      audio.src = objectUrl
+    })
+  }
+
+  async function ensureCapturedEntryDuration(entry) {
+    if (Number.isFinite(entry.durationSeconds)) {
+      return entry.durationSeconds
+    }
+
+    const durationSeconds = await getBlobDurationSeconds(entry.blob)
+
+    capturedAudioBlobEntries = capturedAudioBlobEntries.map((currentEntry) => {
+      return currentEntry.id === entry.id
+        ? {
+            ...currentEntry,
+            durationSeconds,
+          }
+        : currentEntry
+    })
+
+    return durationSeconds
+  }
+
+  async function findBestCapturedAudioEntryForTarget(
+    target,
+    captureRequestId = null,
+  ) {
+    const candidates = capturedAudioBlobEntries.filter((entry) => {
+      if (!isAudioOnlyCapturedEntry(entry)) {
+        return false
+      }
+
+      if (
+        entry.assignedTargetKey &&
+        entry.assignedTargetKey !== target.key
+      ) {
+        return false
+      }
+
+      if (
+        captureRequestId &&
+        entry.captureRequestId !== captureRequestId
+      ) {
+        return false
+      }
+
+      return true
+    })
+
+    if (candidates.length === 0) {
+      return null
+    }
+
+    if (Number.isFinite(target.durationSeconds)) {
+      const candidatesWithDistance = await Promise.all(
+        candidates.map(async (entry) => {
+          const durationSeconds = await ensureCapturedEntryDuration(entry)
+
+          return {
+            entry,
+            distance: Number.isFinite(durationSeconds)
+              ? Math.abs(durationSeconds - target.durationSeconds)
+              : Number.POSITIVE_INFINITY,
+          }
+        }),
+      )
+
+      const matchingCandidates = candidatesWithDistance
+        .filter((candidate) => candidate.distance <= 2)
+        .sort((a, b) => {
+          if (a.distance !== b.distance) {
+            return a.distance - b.distance
+          }
+
+          return b.entry.capturedAt - a.entry.capturedAt
+        })
+
+      if (matchingCandidates.length > 0) {
+        return matchingCandidates[0].entry
+      }
+    }
+
+    return candidates.length === 1 ? candidates[0] : null
+  }
+
+  function assignCapturedAudioEntryToTarget(entry, target) {
+    capturedAudioBlobEntries = capturedAudioBlobEntries.map((currentEntry) => {
+      return currentEntry.id === entry.id
+        ? {
+            ...currentEntry,
+            assignedTargetKey: target.key,
+          }
+        : currentEntry
+    })
+
+    return capturedAudioBlobEntries.find((currentEntry) => {
+      return currentEntry.id === entry.id
+    }) || entry
   }
 
   function buildBlobFromCapturedEntry(entry) {
@@ -819,10 +1048,18 @@
       target.element?.closest?.('button,[role="button"]') ||
       target.container.querySelector('button[aria-label*="reproduzir" i]') ||
       target.container.querySelector('button[aria-label*="play" i]') ||
-      target.container.querySelector('[role="button"][aria-label*="reproduzir" i]') ||
-      target.container.querySelector('[role="button"][aria-label*="play" i]') ||
-      target.container.querySelector('[data-icon="audio-play"]')?.closest?.('button,[role="button"]') ||
-      target.container.querySelector('[data-icon="ptt"]')?.closest?.('button,[role="button"]')
+      target.container.querySelector(
+        '[role="button"][aria-label*="reproduzir" i]',
+      ) ||
+      target.container.querySelector(
+        '[role="button"][aria-label*="play" i]',
+      ) ||
+      target.container
+        .querySelector('[data-icon="audio-play"]')
+        ?.closest?.('button,[role="button"]') ||
+      target.container
+        .querySelector('[data-icon="ptt"]')
+        ?.closest?.('button,[role="button"]')
 
     if (!button) {
       return false
@@ -863,10 +1100,6 @@
         return audioSource
       }
 
-      if (attempt === 0) {
-        clickAudioTarget(target)
-      }
-
       await sleep(250)
     }
 
@@ -881,58 +1114,161 @@
 
     return (
       type.startsWith('audio/') ||
-      type === 'video/webm' ||
       type === 'application/octet-stream' ||
       type === ''
     )
   }
 
-  async function getAudioBlobForTarget(target) {
-    const previouslyCapturedEntry = getLatestCapturedAudioBlobEntry()
+  function requestTargetedAudioCapture(target) {
+    const requestId = [
+      'yolen-audio',
+      Date.now(),
+      Math.random().toString(16).slice(2),
+    ].join('-')
 
-    if (previouslyCapturedEntry) {
-      return buildBlobFromCapturedEntry(previouslyCapturedEntry)
+    window.postMessage(
+      {
+        source: 'YOLEN_COMPANION_CONTENT_SCRIPT',
+        action: 'CAPTURE_NEXT_AUDIO',
+        requestId,
+        targetKey: target.key,
+      },
+      window.location.origin,
+    )
+
+    return requestId
+  }
+
+  function finishTargetedAudioCapture(requestId) {
+    window.postMessage(
+      {
+        source: 'YOLEN_COMPANION_CONTENT_SCRIPT',
+        action: 'CAPTURE_FINISHED',
+        requestId,
+      },
+      window.location.origin,
+    )
+  }
+
+  async function waitForTargetedAudioEntry(target, requestId) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const entry = await findBestCapturedAudioEntryForTarget(
+        target,
+        requestId,
+      )
+
+      if (entry) {
+        return entry
+      }
+
+      await sleep(250)
     }
 
-    const startedAt = Date.now() - 1000
+    return null
+  }
 
+  async function getAudioBlobForTarget(target) {
+    const audioSource = getAudioSourceFromTarget(target)
+
+    if (audioSource.source) {
+      const response = await fetch(audioSource.source)
+
+      if (response.ok) {
+        const blob = await response.blob()
+
+        if (blob.size && isProbablyAudioBlob(blob)) {
+          return {
+            blob: new Blob([blob], {
+              type: audioSource.mimeType || blob.type || 'audio/webm',
+            }),
+            capturedBlobId: null,
+          }
+        }
+      }
+    }
+
+    const matchedExistingEntry =
+      await findBestCapturedAudioEntryForTarget(target)
+
+    if (matchedExistingEntry) {
+      const assignedEntry = assignCapturedAudioEntryToTarget(
+        matchedExistingEntry,
+        target,
+      )
+
+      return {
+        blob: buildBlobFromCapturedEntry(assignedEntry),
+        capturedBlobId: assignedEntry.id,
+      }
+    }
+
+    const requestId = requestTargetedAudioCapture(target)
+
+    await sleep(80)
     clickAudioTarget(target)
 
-    const capturedEntry = await waitForCapturedAudioBlobEntrySince(startedAt)
-
-    if (capturedEntry) {
-      return buildBlobFromCapturedEntry(capturedEntry)
-    }
-
-    const audioSource = await waitForAudioSourceFromTarget(target)
-
-    if (!audioSource.source) {
-      throw new Error(
-        `Arquivo do áudio ainda não foi exposto pelo WhatsApp. Status: ${state.audioBridgeStatus || 'bridge sem retorno'}. Recarregue o WhatsApp Web, dê play no áudio e tente novamente.`,
+    try {
+      const targetedEntry = await waitForTargetedAudioEntry(
+        target,
+        requestId,
       )
-    }
 
-    const response = await fetch(audioSource.source)
+      if (targetedEntry) {
+        const assignedEntry = assignCapturedAudioEntryToTarget(
+          targetedEntry,
+          target,
+        )
 
-    if (!response.ok) {
-      throw new Error('Não foi possível baixar o áudio visível do WhatsApp.')
-    }
+        return {
+          blob: buildBlobFromCapturedEntry(assignedEntry),
+          capturedBlobId: assignedEntry.id,
+        }
+      }
 
-    const blob = await response.blob()
+      const fallbackEntry =
+        await findBestCapturedAudioEntryForTarget(target)
 
-    if (!blob.size) {
-      throw new Error('O arquivo de áudio carregado está vazio.')
-    }
+      if (fallbackEntry) {
+        const assignedEntry = assignCapturedAudioEntryToTarget(
+          fallbackEntry,
+          target,
+        )
 
-    if (!isProbablyAudioBlob(blob)) {
+        return {
+          blob: buildBlobFromCapturedEntry(assignedEntry),
+          capturedBlobId: assignedEntry.id,
+        }
+      }
+
+      const loadedSource = await waitForAudioSourceFromTarget(target)
+
+      if (loadedSource.source) {
+        const response = await fetch(loadedSource.source)
+
+        if (response.ok) {
+          const blob = await response.blob()
+
+          if (blob.size && isProbablyAudioBlob(blob)) {
+            return {
+              blob: new Blob([blob], {
+                type: loadedSource.mimeType || blob.type || 'audio/webm',
+              }),
+              capturedBlobId: null,
+            }
+          }
+        }
+      }
+
       throw new Error(
-        'O arquivo capturado não parece ser áudio. Recarregue o WhatsApp Web, dê play no áudio e tente novamente.',
+        `Não foi possível associar o arquivo ao áudio correto. Duração visível: ${
+          Number.isFinite(target.durationSeconds)
+            ? `${target.durationSeconds}s`
+            : 'não identificada'
+        }. O Companion não enviou nenhum arquivo para transcrição.`,
       )
+    } finally {
+      finishTargetedAudioCapture(requestId)
     }
-
-    return new Blob([blob], {
-      type: audioSource.mimeType || blob.type || 'audio/webm',
-    })
   }
 
   async function transcribeNextVisibleAudio() {
@@ -965,7 +1301,7 @@
     }
 
     const nextTarget = audioTargets.find((target) => {
-      return !state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target.index)]
+      return !state.audioTranscriptionsByKey?.[getAudioTranscriptionKey(target)]
     })
 
     if (!nextTarget) {
@@ -987,8 +1323,10 @@
     renderPanel()
 
     try {
-      const blob = await getAudioBlobForTarget(nextTarget)
+      const audioCapture = await getAudioBlobForTarget(nextTarget)
+      const blob = audioCapture.blob
       const audioBase64 = await blobToBase64(blob)
+
       const result = await window.YolenCompanionApi.transcribeAudio({
         cycle_id: cycleId,
         audio_base64: audioBase64,
@@ -1003,8 +1341,8 @@
             'Não foi possível transcrever o áudio pela Yolen.',
         )
       }
+      const transcriptionKey = getAudioTranscriptionKey(nextTarget)
 
-      const transcriptionKey = getAudioTranscriptionKey(nextTarget.index)
 
       state = {
         ...state,
@@ -1015,6 +1353,9 @@
         audioTranscriptionsByKey: {
           ...(state.audioTranscriptionsByKey || {}),
           [transcriptionKey]: {
+            audioIndex: nextTarget.index,
+            targetKey: nextTarget.key,
+            capturedBlobId: audioCapture.capturedBlobId,
             text: result.payload.data.text,
             occurredAt: result.payload.data.occurred_at || null,
           },
@@ -1286,6 +1627,8 @@
   }
 
   function clearLeadStateForNewConversation() {
+    capturedAudioBlobEntries = []
+
     state = {
       ...state,
       leadResolutionLoading: false,
@@ -1305,6 +1648,7 @@
       lastAnalysisAudioCount: 0,
       audioTranscriptionLoading: false,
       audioTranscriptionStatus: null,
+      capturedAudioBlobCount: 0,
     }
   }
 
