@@ -1344,22 +1344,37 @@
       const transcriptionKey = getAudioTranscriptionKey(nextTarget)
 
 
+      const nextAudioTranscriptionsByKey = {
+        ...(state.audioTranscriptionsByKey || {}),
+        [transcriptionKey]: {
+          audioIndex: nextTarget.index,
+          targetKey: nextTarget.key,
+          capturedBlobId: audioCapture.capturedBlobId,
+          text: result.payload.data.text,
+          occurredAt: result.payload.data.occurred_at || null,
+        },
+      }
+
+      const remainingAudioCount = Math.max(
+        0,
+        Number(state.audioCount || 0) -
+          Object.keys(nextAudioTranscriptionsByKey).filter((key) => {
+            return key.startsWith(
+              `${state.conversationKey || 'sem-conversa'}::audio::`,
+            )
+          }).length,
+      )
+
       state = {
         ...state,
         audioTranscriptionLoading: false,
-        audioTranscriptionStatus: result.payload.data.already_transcribed
-          ? 'Áudio já estava transcrito. Analise a conversa novamente para usar a transcrição.'
-          : 'Áudio transcrito. Analise a conversa novamente para usar a transcrição.',
-        audioTranscriptionsByKey: {
-          ...(state.audioTranscriptionsByKey || {}),
-          [transcriptionKey]: {
-            audioIndex: nextTarget.index,
-            targetKey: nextTarget.key,
-            capturedBlobId: audioCapture.capturedBlobId,
-            text: result.payload.data.text,
-            occurredAt: result.payload.data.occurred_at || null,
-          },
-        },
+        audioTranscriptionStatus:
+          remainingAudioCount === 0
+            ? 'Todos os áudios visíveis foram transcritos. Analise a conversa novamente.'
+            : result.payload.data.already_transcribed
+              ? 'Áudio já estava transcrito.'
+              : 'Áudio transcrito com sucesso.',
+        audioTranscriptionsByKey: nextAudioTranscriptionsByKey,
       }
 
       renderPanel()
@@ -2101,23 +2116,29 @@
   }
 
   function getAudioTranscriptionHtml() {
-    const transcriptions = getAudioTranscriptionsForCurrentConversation()
+    const totalAudioCount = Number(state.audioCount || 0)
+    const pendingAudioCount = getPendingAudioCountForCurrentConversation()
+    const transcribedAudioCount = Math.max(
+      0,
+      totalAudioCount - pendingAudioCount,
+    )
     const details = []
 
     if (state.audioTranscriptionStatus) {
       details.push(escapeHtml(state.audioTranscriptionStatus))
     }
 
-    if (state.audioCount > 0 && state.audioBridgeStatus) {
-      details.push(escapeHtml(state.audioBridgeStatus))
-    }
-
-    if (state.capturedAudioBlobCount > 0) {
-      details.push(`${state.capturedAudioBlobCount} arquivo(s) de áudio capturado(s) pelo bridge.`)
-    }
-
-    if (transcriptions.length > 0) {
-      details.push(`${transcriptions.length} áudio(s) transcrito(s) nesta conversa.`)
+    if (totalAudioCount > 0) {
+      if (pendingAudioCount === 0) {
+        details.push(
+          `Todos os ${totalAudioCount} áudio(s) visível(is) foram transcritos.`,
+        )
+      } else {
+        details.push(
+          `${transcribedAudioCount} de ${totalAudioCount} áudio(s) transcrito(s).`,
+        )
+        details.push(`${pendingAudioCount} áudio(s) pendente(s).`)
+      }
     }
 
     if (details.length === 0) {
@@ -2354,18 +2375,33 @@
       `
       : ''
 
-    const transcribeAudioButton = state.audioCount > 0
-      ? `
-        <button
-          class="yolen-secondary-button"
-          type="button"
-          data-yolen-action="transcribe-audio"
-          ${state.audioTranscriptionLoading ? 'disabled' : ''}
-        >
-          ${state.audioTranscriptionLoading ? 'Transcrevendo áudio...' : 'Transcrever próximo áudio'}
-        </button>
-      `
-      : ''
+      const totalAudioCount = Number(state.audioCount || 0)
+      const pendingAudioCount = getPendingAudioCountForCurrentConversation()
+      const transcribedAudioCount = Math.max(
+        0,
+        totalAudioCount - pendingAudioCount,
+      )
+      const nextAudioNumber = Math.min(
+        totalAudioCount,
+        transcribedAudioCount + 1,
+      )
+  
+      const transcribeAudioButton = pendingAudioCount > 0
+        ? `
+          <button
+            class="yolen-secondary-button"
+            type="button"
+            data-yolen-action="transcribe-audio"
+            ${state.audioTranscriptionLoading ? 'disabled' : ''}
+          >
+            ${
+              state.audioTranscriptionLoading
+                ? `Transcrevendo áudio ${nextAudioNumber} de ${totalAudioCount}...`
+                : `Transcrever áudio ${nextAudioNumber} de ${totalAudioCount}`
+            }
+          </button>
+        `
+        : ''
 
       if (!state.conversationAnalysis?.suggestion) {
         return `
