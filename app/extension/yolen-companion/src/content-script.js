@@ -38,6 +38,7 @@
     conversationAnalysisLoading: false,
     conversationAnalysis: null,
     conversationAnalysisError: null,
+    analyzedConversationFingerprint: null,
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
     suggestionApplyError: null,
@@ -1453,6 +1454,52 @@
       .slice(0, 24000)
   }
 
+  function buildConversationFingerprint(value) {
+    const text = String(value || '')
+      .replace(/\r\n/g, '\n')
+      .trim()
+
+    let hash = 2166136261
+
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+
+    return `${text.length}:${(hash >>> 0).toString(16)}`
+  }
+
+  function getCurrentConversationFingerprint() {
+    const conversationText = collectVisibleConversationText()
+
+    if (!conversationText || conversationText.length < 15) {
+      return null
+    }
+
+    return buildConversationFingerprint(conversationText)
+  }
+
+  function isCurrentAnalysisOutdated() {
+    if (
+      !state.conversationAnalysis ||
+      !state.analyzedConversationFingerprint
+    ) {
+      return false
+    }
+
+    const currentFingerprint =
+      getCurrentConversationFingerprint()
+
+    if (!currentFingerprint) {
+      return false
+    }
+
+    return (
+      currentFingerprint !==
+      state.analyzedConversationFingerprint
+    )
+  }
+
   function getClickableHeaderTarget() {
     const header = getMainHeader()
 
@@ -1656,6 +1703,7 @@
       conversationAnalysisLoading: false,
       conversationAnalysis: null,
       conversationAnalysisError: null,
+      analyzedConversationFingerprint: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -1938,6 +1986,7 @@
       Boolean(suggestion) &&
       isOpenSuggestionStatus(suggestion.recommended_status) &&
       !hasAudioWithoutTranscriptionForAnalysis() &&
+      !isCurrentAnalysisOutdated() &&
       !state.conversationAnalysisLoading &&
       !state.suggestionApplyLoading &&
       !state.suggestionApplyResult
@@ -1945,7 +1994,11 @@
   }
 
   function getAnalysisStatusClass() {
-    if (state.conversationAnalysisError || state.suggestionApplyError) {
+    if (
+      state.conversationAnalysisError ||
+      state.suggestionApplyError ||
+      isCurrentAnalysisOutdated()
+    ) {
       return 'yolen-status-warning'
     }
 
@@ -1977,6 +2030,10 @@
 
     if (state.conversationAnalysisError) {
       return 'Erro na análise da IA'
+    }
+
+    if (isCurrentAnalysisOutdated()) {
+      return 'A conversa mudou após a análise'
     }
 
     if (state.conversationAnalysis?.suggestion?.summary) {
@@ -2012,6 +2069,13 @@
 
     if (state.suggestionApplyError) {
       return escapeHtml(state.suggestionApplyError)
+    }
+
+    if (isCurrentAnalysisOutdated()) {
+      return (
+        'Foram detectadas novas mensagens ou transcrições depois da última análise. ' +
+        'A sugestão anterior foi bloqueada. Analise a conversa novamente antes de aplicar uma etapa ou usar a mensagem sugerida.'
+      )
     }
 
     if (state.suggestionApplyResult) {
@@ -2162,7 +2226,10 @@
   function getSuggestedMessageHtml() {
     const message = getSuggestedMessage()
 
-    if (!message) {
+    if (
+      !message ||
+      isCurrentAnalysisOutdated()
+    ) {
       return ''
     }
 
@@ -2279,6 +2346,17 @@
   }
 
   async function insertSuggestedMessageInWhatsApp() {
+    if (isCurrentAnalysisOutdated()) {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          'A conversa mudou. Analise novamente antes de inserir a mensagem.',
+      }
+
+      renderPanel()
+      return
+    }
+
     const message = getSuggestedMessage()
 
     if (!message) {
@@ -2407,6 +2485,20 @@
           </button>
         `
         : ''
+
+        if (isCurrentAnalysisOutdated()) {
+          return `
+            ${transcribeAudioButton}
+  
+            <button
+              class="yolen-primary-button"
+              type="button"
+              data-yolen-action="analyze-conversation"
+            >
+              Analisar conversa novamente
+            </button>
+          `
+        }
 
       if (!state.conversationAnalysis?.suggestion) {
         return `
@@ -2987,18 +3079,25 @@
         conversationAnalysisLoading: false,
         conversationAnalysis: null,
         conversationAnalysisError:
-          'Não há texto suficiente visível na conversa para análise. Áudios ainda não entram como transcrição.',
+          'Não há texto suficiente visível na conversa para análise.',
+        analyzedConversationFingerprint: null,
       }
 
       renderPanel()
       return
     }
 
+    const conversationFingerprint =
+      buildConversationFingerprint(
+        conversationText,
+      )
+
     state = {
       ...state,
       conversationAnalysisLoading: true,
       conversationAnalysis: null,
       conversationAnalysisError: null,
+      analyzedConversationFingerprint: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -3038,6 +3137,8 @@
         conversationAnalysisLoading: false,
         conversationAnalysis: result.payload.data,
         conversationAnalysisError: null,
+        analyzedConversationFingerprint:
+          conversationFingerprint,
       }
 
       renderPanel()
@@ -3050,6 +3151,7 @@
           error instanceof Error && error.message
             ? error.message
             : 'Erro ao analisar conversa com IA.',
+        analyzedConversationFingerprint: null,
       }
 
       renderPanel()
@@ -3385,6 +3487,17 @@
 
 
   async function copySuggestedMessage() {
+    if (isCurrentAnalysisOutdated()) {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          'A conversa mudou. Analise novamente antes de copiar a mensagem.',
+      }
+
+      renderPanel()
+      return
+    }
+
     const message = getSuggestedMessage()
 
     if (!message) {
