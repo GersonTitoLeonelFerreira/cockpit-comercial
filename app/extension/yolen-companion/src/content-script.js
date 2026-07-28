@@ -6,12 +6,16 @@
   const HASH_SESSION_KEY = 'yolen_companion_session'
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
+  const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
 
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
   let leadResolutionInFlight = false
   let autoContactLookupInFlight = false
   let capturedAudioBlobEntries = []
+  let automaticAnalysisTimerId = 0
+  let automaticAnalysisScheduledKey = null
+  let lastSelectedChatActivitySnapshot = null
 
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
@@ -39,6 +43,7 @@
     conversationAnalysis: null,
     conversationAnalysisError: null,
     analyzedConversationFingerprint: null,
+    automaticAnalysisStatus: null,
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
     suggestionApplyError: null,
@@ -1415,6 +1420,12 @@
       }
 
       renderPanel()
+
+      if (remainingAudioCount === 0) {
+        scheduleAutomaticAnalysis(
+          'Todos os áudios foram transcritos. A análise será atualizada automaticamente em 8 segundos.',
+        )
+      }
     } catch (error) {
       state = {
         ...state,
@@ -1530,6 +1541,174 @@
     return (
       currentFingerprint !==
       state.analyzedConversationFingerprint
+    )
+  }
+
+  function getSelectedChatActivitySnapshot() {
+    const selectedElement = getSelectedChatElement()
+
+    if (!selectedElement) {
+      return ''
+    }
+
+    return normalizeMessageText(
+      selectedElement.textContent,
+    ).slice(0, 600)
+  }
+
+  function clearAutomaticAnalysisTimer() {
+    if (automaticAnalysisTimerId) {
+      window.clearTimeout(
+        automaticAnalysisTimerId,
+      )
+    }
+
+    automaticAnalysisTimerId = 0
+    automaticAnalysisScheduledKey = null
+  }
+
+  function getAutomaticAnalysisKey() {
+    const conversationFingerprint =
+      getCurrentConversationFingerprint()
+
+    if (
+      !state.conversationKey ||
+      !conversationFingerprint
+    ) {
+      return null
+    }
+
+    return [
+      state.conversationKey,
+      conversationFingerprint,
+    ].join('::')
+  }
+
+  function canScheduleAutomaticAnalysis() {
+    const currentFingerprint =
+      getCurrentConversationFingerprint()
+
+    if (
+      !canAnalyzeCurrentConversation() ||
+      !currentFingerprint
+    ) {
+      return false
+    }
+
+    if (
+      state.conversationAnalysisLoading ||
+      state.suggestionApplyLoading ||
+      state.audioTranscriptionLoading
+    ) {
+      return false
+    }
+
+    if (
+      getPendingAudioCountForCurrentConversation() > 0
+    ) {
+      return false
+    }
+
+    if (
+      state.analyzedConversationFingerprint ===
+      currentFingerprint
+    ) {
+      return false
+    }
+
+    return true
+  }
+
+  function scheduleAutomaticAnalysis(message) {
+    clearAutomaticAnalysisTimer()
+
+    if (!canScheduleAutomaticAnalysis()) {
+      if (
+        state.automaticAnalysisStatus &&
+        !state.conversationAnalysisLoading
+      ) {
+        state = {
+          ...state,
+          automaticAnalysisStatus: null,
+        }
+
+        renderPanel()
+      }
+
+      return
+    }
+
+    const scheduledKey =
+      getAutomaticAnalysisKey()
+
+    if (!scheduledKey) {
+      return
+    }
+
+    automaticAnalysisScheduledKey =
+      scheduledKey
+
+    state = {
+      ...state,
+      automaticAnalysisStatus:
+        message ||
+        'A conversa será analisada automaticamente após alguns segundos sem novas mensagens.',
+    }
+
+    renderPanel()
+
+    automaticAnalysisTimerId =
+      window.setTimeout(() => {
+        automaticAnalysisTimerId = 0
+
+        const currentKey =
+          getAutomaticAnalysisKey()
+
+        if (
+          !currentKey ||
+          currentKey !==
+            automaticAnalysisScheduledKey
+        ) {
+          automaticAnalysisScheduledKey = null
+          return
+        }
+
+        automaticAnalysisScheduledKey = null
+
+        analyzeCurrentConversation({
+          automatic: true,
+        })
+      }, AUTOMATIC_ANALYSIS_DELAY_MS)
+  }
+
+  function handleConversationActivityForAutomaticAnalysis() {
+    const activitySnapshot =
+      getSelectedChatActivitySnapshot()
+
+    if (!activitySnapshot) {
+      return
+    }
+
+    if (
+      lastSelectedChatActivitySnapshot === null
+    ) {
+      lastSelectedChatActivitySnapshot =
+        activitySnapshot
+      return
+    }
+
+    if (
+      activitySnapshot ===
+      lastSelectedChatActivitySnapshot
+    ) {
+      return
+    }
+
+    lastSelectedChatActivitySnapshot =
+      activitySnapshot
+
+    scheduleAutomaticAnalysis(
+      'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
     )
   }
 
@@ -1726,6 +1905,10 @@
 
   function clearLeadStateForNewConversation() {
     capturedAudioBlobEntries = []
+    clearAutomaticAnalysisTimer()
+
+    lastSelectedChatActivitySnapshot =
+      getSelectedChatActivitySnapshot()
 
     state = {
       ...state,
@@ -1737,6 +1920,7 @@
       conversationAnalysis: null,
       conversationAnalysisError: null,
       analyzedConversationFingerprint: null,
+      automaticAnalysisStatus: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -2077,6 +2261,10 @@
       return 'Análise ainda indisponível'
     }
 
+    if (state.automaticAnalysisStatus) {
+      return 'Análise automática preparada'
+    }
+
     return 'Conversa pronta para análise'
   }
 
@@ -2156,6 +2344,12 @@
       const details = []
       const savedCoaching = state.conversationAnalysis?.saved_coaching
 
+      if (state.automaticAnalysisStatus) {
+        details.push(
+          state.automaticAnalysisStatus,
+        )
+      }
+
       details.push(`Etapa sugerida: ${getStageLabel(suggestion.recommended_status)}`)
 
       if (typeof suggestion.confidence === 'number') {
@@ -2208,7 +2402,13 @@
       return 'A análise só é liberada quando o lead está localizado e a regra de carteira permite leitura.'
     }
 
-    return 'Clique para enviar as mensagens visíveis desta conversa ao Copiloto da Yolen.'
+    if (state.automaticAnalysisStatus) {
+      return escapeHtml(
+        state.automaticAnalysisStatus,
+      )
+    }
+
+    return 'A Yolen analisará automaticamente depois que a conversa permanecer alguns segundos sem novas mensagens. O botão também permite iniciar a leitura imediatamente.'
   }
 
   function getSuggestedMessage() {
@@ -2713,7 +2913,9 @@
     })
 
     panel.querySelector('[data-yolen-action="analyze-conversation"]')?.addEventListener('click', () => {
-      analyzeCurrentConversation()
+      analyzeCurrentConversation({
+        automatic: false,
+      })
     })
 
     panel.querySelector('[data-yolen-action="apply-suggestion"]')?.addEventListener('click', () => {
@@ -3064,7 +3266,13 @@
       }
 
       renderPanel()
+
       loadSavedAudioTranscriptionsForCurrentCycle()
+        .finally(() => {
+          scheduleAutomaticAnalysis(
+            'Lead localizado. A conversa será analisada automaticamente em 8 segundos.',
+          )
+        })
     } catch (error) {
       if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
         return
@@ -3086,8 +3294,24 @@
     }
   }
 
-  async function analyzeCurrentConversation() {
+  async function analyzeCurrentConversation(
+    options = {},
+  ) {
+    const isAutomatic =
+      options.automatic === true
+
+    clearAutomaticAnalysisTimer()
+
     if (!canAnalyzeCurrentConversation()) {
+      if (isAutomatic) {
+        state = {
+          ...state,
+          automaticAnalysisStatus: null,
+        }
+
+        renderPanel()
+      }
+
       return
     }
 
@@ -3125,13 +3349,17 @@
         conversationText,
       )
 
-    state = {
-      ...state,
-      conversationAnalysisLoading: true,
-      conversationAnalysis: null,
-      conversationAnalysisError: null,
-      analyzedConversationFingerprint: null,
-      suggestionApplyLoading: false,
+      state = {
+        ...state,
+        conversationAnalysisLoading: true,
+        conversationAnalysis: null,
+        conversationAnalysisError: null,
+        analyzedConversationFingerprint: null,
+        automaticAnalysisStatus:
+          isAutomatic
+            ? 'Analisando automaticamente as novas mensagens...'
+            : null,
+        suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
       suggestedMessageCopyStatus: null,
@@ -3159,6 +3387,7 @@
           conversationAnalysisError:
             result?.payload?.error ||
             'Não foi possível analisar a conversa com IA.',
+          automaticAnalysisStatus: null,
         }
 
         renderPanel()
@@ -3172,6 +3401,10 @@
         conversationAnalysisError: null,
         analyzedConversationFingerprint:
           conversationFingerprint,
+        automaticAnalysisStatus:
+          isAutomatic
+            ? 'Análise automática concluída.'
+            : null,
       }
 
       renderPanel()
@@ -3184,8 +3417,9 @@
           error instanceof Error && error.message
             ? error.message
             : 'Erro ao analisar conversa com IA.',
-        analyzedConversationFingerprint: null,
-      }
+            analyzedConversationFingerprint: null,
+            automaticAnalysisStatus: null,
+          }
 
       renderPanel()
     }
@@ -3745,10 +3979,11 @@
       )
 
       observeWhatsAppChanges.timeoutId =
-        window.setTimeout(() => {
-          refreshConversationSnapshot()
-          checkPendingSuggestedMessageSentFromConversation()
-        }, 600)
+      window.setTimeout(() => {
+        refreshConversationSnapshot()
+        checkPendingSuggestedMessageSentFromConversation()
+        handleConversationActivityForAutomaticAnalysis()
+      }, 600)
     })
 
     observer.observe(observedRoot, {
