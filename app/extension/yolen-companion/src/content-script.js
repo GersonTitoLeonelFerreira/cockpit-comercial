@@ -421,24 +421,57 @@
     return null
   }
 
-  function getSelectedChatTextSnapshot() {
+  function getSelectedChatStableIdentity() {
     const selectedElement = getSelectedChatElement()
 
     if (!selectedElement) {
       return ''
     }
 
-    return String(selectedElement.textContent || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 240)
+    const directDataId =
+      selectedElement.getAttribute?.('data-id') || ''
+
+    const nestedDataId =
+      selectedElement
+        .querySelector?.('[data-id]')
+        ?.getAttribute?.('data-id') || ''
+
+    const dataId =
+      directDataId || nestedDataId
+
+    if (dataId) {
+      return `data:${dataId}`
+    }
+
+    const avatarSource =
+      selectedElement
+        .querySelector?.('img[src]')
+        ?.getAttribute?.('src') || ''
+
+    if (avatarSource) {
+      return `avatar:${avatarSource}`
+    }
+
+    const selectedTitle =
+      getSelectedChatTitle()
+
+    return selectedTitle
+      ? `title:${selectedTitle}`
+      : ''
   }
 
   function getConversationKey(title) {
-    const selectedSnapshot = getSelectedChatTextSnapshot()
-    const safeTitle = String(title || '').trim()
+    const safeTitle =
+      String(title || '').trim()
 
-    return `${safeTitle}::${selectedSnapshot}`
+    const stableIdentity =
+      getSelectedChatStableIdentity()
+
+    if (stableIdentity) {
+      return `${safeTitle}::${stableIdentity}`
+    }
+
+    return safeTitle
   }
 
   function findContactInfoPanel() {
