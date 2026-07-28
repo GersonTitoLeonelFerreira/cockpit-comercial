@@ -2,7 +2,7 @@
   const PANEL_ID = 'yolen-companion-panel'
   const ROOT_CLASS = 'yolen-companion-root'
   const WHATSAPP_APP_SELECTOR = '#app'
-  const SESSION_REFRESH_INTERVAL_MS = 5000
+  const SESSION_REFRESH_INTERVAL_MS = 60000
   const HASH_SESSION_KEY = 'yolen_companion_session'
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
@@ -3716,16 +3716,42 @@
   }
 
   function observeWhatsAppChanges() {
-    const observer = new MutationObserver(() => {
-      window.clearTimeout(observeWhatsAppChanges.timeoutId)
+    const observedRoot =
+      document.querySelector(WHATSAPP_APP_SELECTOR) ||
+      document.body
 
-      observeWhatsAppChanges.timeoutId = window.setTimeout(() => {
-        refreshConversationSnapshot()
-        checkPendingSuggestedMessageSentFromConversation()
-      }, 600)
+    const observer = new MutationObserver((mutations) => {
+      const hasRelevantMutation = mutations.some((mutation) => {
+        const target = mutation.target
+
+        const targetElement =
+          target instanceof Element
+            ? target
+            : target.parentElement
+
+        if (!targetElement) {
+          return false
+        }
+
+        return !targetElement.closest(`#${PANEL_ID}`)
+      })
+
+      if (!hasRelevantMutation) {
+        return
+      }
+
+      window.clearTimeout(
+        observeWhatsAppChanges.timeoutId,
+      )
+
+      observeWhatsAppChanges.timeoutId =
+        window.setTimeout(() => {
+          refreshConversationSnapshot()
+          checkPendingSuggestedMessageSentFromConversation()
+        }, 600)
     })
 
-    observer.observe(document.body, {
+    observer.observe(observedRoot, {
       childList: true,
       subtree: true,
       characterData: true,

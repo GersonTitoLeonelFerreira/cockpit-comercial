@@ -217,46 +217,6 @@ function buildPhoneVariants(rawPhone: string) {
   return Array.from(variants).filter(Boolean)
 }
 
-function buildPhoneSearchFragments(phoneVariants: string[]) {
-  const fragments = new Set<string>()
-
-  phoneVariants.forEach((variant) => {
-    const digits = onlyDigits(variant)
-
-    if (!digits) {
-      return
-    }
-
-    fragments.add(digits)
-
-    if (digits.startsWith('55') && digits.length > 11) {
-      fragments.add(digits.slice(2))
-    }
-
-    if (digits.length >= 11) {
-      fragments.add(digits.slice(-11))
-    }
-
-    if (digits.length >= 9) {
-      fragments.add(digits.slice(-9))
-    }
-
-    if (digits.length >= 8) {
-      fragments.add(digits.slice(-8))
-    }
-
-    if (digits.length >= 6) {
-      fragments.add(digits.slice(-6))
-    }
-
-    if (digits.length >= 4) {
-      fragments.add(digits.slice(-4))
-    }
-  })
-
-  return Array.from(fragments).filter((fragment) => fragment.length >= 4)
-}
-
 function leadMatchesPhoneVariants(lead: LeadRow, phoneVariants: string[]) {
   const targetVariants = new Set(phoneVariants)
   const leadPhoneVariants = buildPhoneVariants(lead.phone ?? '')
@@ -284,10 +244,10 @@ type CompanionQueryError = {
   }
   
   type LeadFilterBuilder = {
-    in: (column: string, values: string[]) => PromiseLike<LeadQueryResponse>
-    or: (filters: string) => {
-      limit: (count: number) => PromiseLike<LeadQueryResponse>
-    }
+    in: (
+      column: string,
+      values: string[],
+    ) => PromiseLike<LeadQueryResponse>
   }
   
   type LeadSelectBuilder = {
@@ -302,77 +262,50 @@ type CompanionQueryError = {
     from: (table: 'leads') => LeadTableBuilder
   }
 
-async function findLeadsByPhone({
-  admin,
-  companyId,
-  phoneVariants,
-}: {
-  admin: SupabaseAdminClient
-  companyId: string
-  phoneVariants: string[]
-}) {
-  const { data: exactLeadsData, error: exactLeadsError } = await admin
-    .from('leads')
-    .select('id, company_id, name, phone, email, cpf_cnpj, deleted_at')
-    .eq('company_id', companyId)
-    .in('phone', phoneVariants)
-
-  if (exactLeadsError) {
-    return {
-      leads: [],
-      error: exactLeadsError.message,
+  async function findLeadsByPhone({
+    admin,
+    companyId,
+    phoneVariants,
+  }: {
+    admin: SupabaseAdminClient
+    companyId: string
+    phoneVariants: string[]
+  }) {
+    const {
+      data: leadsData,
+      error: leadsError,
+    } = await admin
+      .from('leads')
+      .select(
+        'id, company_id, name, phone, email, cpf_cnpj, deleted_at',
+      )
+      .eq('company_id', companyId)
+      .in('phone_digits', phoneVariants)
+  
+    if (leadsError) {
+      return {
+        leads: [],
+        error: leadsError.message,
+      }
     }
-  }
-
-  const exactLeads = ((exactLeadsData ?? []) as LeadRow[]).filter(
-    (lead) => lead.company_id === companyId,
-  )
-
-  const exactMatches = exactLeads.filter((lead) => leadMatchesPhoneVariants(lead, phoneVariants))
-
-  if (exactMatches.length > 0) {
+  
+    const leads = (
+      (leadsData ?? []) as LeadRow[]
+    ).filter((lead) => {
+      return (
+        lead.company_id === companyId &&
+        leadMatchesPhoneVariants(
+          lead,
+          phoneVariants,
+        )
+      )
+    })
+  
     return {
-      leads: dedupeLeads(exactMatches),
+      leads: dedupeLeads(leads),
       error: null,
     }
   }
-
-  const fragments = buildPhoneSearchFragments(phoneVariants)
-
-  if (fragments.length === 0) {
-    return {
-      leads: [],
-      error: null,
-    }
-  }
-
-  const orFilter = fragments.map((fragment) => `phone.ilike.%${fragment}%`).join(',')
-
-  const { data: fuzzyLeadsData, error: fuzzyLeadsError } = await admin
-    .from('leads')
-    .select('id, company_id, name, phone, email, cpf_cnpj, deleted_at')
-    .eq('company_id', companyId)
-    .or(orFilter)
-    .limit(500)
-
-  if (fuzzyLeadsError) {
-    return {
-      leads: [],
-      error: fuzzyLeadsError.message,
-    }
-  }
-
-  const fuzzyLeads = ((fuzzyLeadsData ?? []) as LeadRow[]).filter(
-    (lead) => lead.company_id === companyId,
-  )
-
-  const fuzzyMatches = fuzzyLeads.filter((lead) => leadMatchesPhoneVariants(lead, phoneVariants))
-
-  return {
-    leads: dedupeLeads(fuzzyMatches),
-    error: null,
-  }
-}
 
 function isClosedStatus(status: string | null) {
   return ['ganho', 'perdido', 'cancelado'].includes(String(status ?? '').toLowerCase())
