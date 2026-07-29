@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
+import { resolveCompanionEngineVersion } from '@/app/lib/companion/engine-version'
 import type { AICoaching } from '@/app/types/ai-coaching'
 import type {
   AISalesContext,
@@ -1250,6 +1251,23 @@ export async function POST(request: Request) {
         },
         {
           status: 401,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const engineVersion =
+      resolveCompanionEngineVersion()
+
+    if (engineVersion === 'v2') {
+      return NextResponse.json<AnalyzeConversationResponse>(
+        {
+          ok: false,
+          error:
+            'O motor Companion V2 ainda não está disponível. Configure COMPANION_ENGINE_VERSION=v1 para manter o fluxo operacional.',
+        },
+        {
+          status: 503,
           headers: corsHeaders,
         },
       )
