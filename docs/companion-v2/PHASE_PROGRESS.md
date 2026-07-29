@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Fase atual | 0 - Congelamento e proteção |
-| Estado | Concluída tecnicamente; gates manuais pendentes |
+| Estado | Concluída |
 | Início | 2026-07-29 |
 | Commit-base | `50059c32ac924302822a85d044c39890c628b441` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
@@ -29,11 +29,11 @@
 - [x] Lint do escopo Companion validado.
 - [x] Build validado.
 - [x] Referência remota de rollback criada no GitHub.
-- [ ] Tag anotada publicada no GitHub.
+- [x] Tag anotada publicada no GitHub.
 - [x] Commit da Fase 0 publicado.
 - [x] Deployment canônico `READY`.
 - [x] Verificação pós-deploy registrada.
-- [ ] Fluxo real no Firefox validado pelo operador.
+- [x] Fluxo real no Firefox validado pelo operador.
 
 ## Evidências
 
@@ -49,13 +49,14 @@
 | Smoke test | `https://cockpit-comercial-vocn.vercel.app/login` respondeu HTTP 200 |
 | Runtime | Nenhum erro encontrado na última hora após a publicação |
 | Supabase após publicação | `ACTIVE_HEALTHY`; nenhuma mutation executada |
-| Firefox + WhatsApp | Pendente: conectar, resolver lead, analisar e aplicar sugestão |
+| Firefox + WhatsApp | Passou em conexão, resolução do lead, análise, aplicação, atualização do ciclo e registro no histórico sem duplicidade aparente |
 
 ## Aprovações
 
 | Data | Decisão |
 |---|---|
 | 2026-07-29 | Usuário autorizou a execução completa da Fase 0 |
+| 2026-07-29 | Usuário publicou a tag anotada e validou o fluxo real no Firefox |
 
 ## Restrições preservadas
 
@@ -65,21 +66,25 @@
 - nenhum arquivo da extensão alterado;
 - nenhum projeto Vercel duplicado removido.
 
+## Correção operacional antes da Fase 1
+
+O teste real revelou que uma sugestão podia carregar `next_action_date` anterior
+ao momento da aplicação. A correção foi tratada como hotfix isolado do V1:
+
+- a extração de data descarta horários que já passaram;
+- a aplicação valida novamente a data no momento do clique;
+- uma sugestão que envelheceu é bloqueada antes de alterar o ciclo;
+- nenhum horário novo é inventado silenciosamente;
+- banco, extensão e contratos do V2 permanecem inalterados.
+
+O teste também produziu o primeiro caso obrigatório do corpus da Fase 1:
+conversa pessoal interpretada como Agenda. A classificação não foi remendada no
+V1, pois a correção estrutural pertence ao novo contrato de análise e ao motor
+de decisão.
+
 ## Próximo gate
 
-A tag anotada existe no checkout local, mas o aplicativo GitHub disponível
-neste ambiente não publica refs de tag. Até o envio da tag, a branch de
-segurança preserva o mesmo commit-base no GitHub.
+A Fase 0 está encerrada. A próxima entrega é a Fase 1 - Corpus de regressão.
 
-Comandos para encerrar essa única pendência em um checkout autenticado:
-
-```bash
-git tag -a yolen-companion-v1-baseline-2026-07-29 50059c32ac924302822a85d044c39890c628b441 -m "Baseline do Yolen Companion V1 antes do desenvolvimento V2"
-git push origin refs/tags/yolen-companion-v1-baseline-2026-07-29
-```
-
-A Fase 1 só pode começar depois que:
-
-1. a tag estiver visível no GitHub;
-2. o fluxo real no Firefox passar em conexão, resolução do lead, análise e
-   aplicação da sugestão.
+O hotfix precisa estar publicado, com TypeScript, lint, cenários temporais,
+deployment canônico e smoke test aprovados, antes de iniciar o corpus.

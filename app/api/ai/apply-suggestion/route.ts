@@ -72,6 +72,17 @@ export async function POST(req: Request) {
         )
       }
 
+      if (parsed.getTime() <= Date.now()) {
+        return NextResponse.json<ApplyAISuggestionResponse>(
+          {
+            ok: false,
+            error:
+              'A próxima ação sugerida está em um horário que já passou. Gere uma nova sugestão antes de aplicar.',
+          },
+          { status: 400 }
+        )
+      }
+
       nextActionDate = parsed.toISOString()
     }
 
