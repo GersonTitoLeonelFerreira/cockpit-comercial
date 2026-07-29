@@ -539,7 +539,22 @@ export async function POST(request: Request) {
     }
 
     let nextAction = getCleanString(body.next_action)
-    let nextActionDate = normalizeNextActionDate(body.next_action_date)
+    let nextActionDate: string | null
+
+    try {
+      nextActionDate = normalizeNextActionDate(body.next_action_date)
+    } catch {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        {
+          ok: false,
+          error: 'A data da próxima ação é inválida.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
 
     if (appliedStatus === 'novo') {
       nextAction = null
@@ -550,7 +565,26 @@ export async function POST(request: Request) {
       nextActionDate = null
     }
 
-    const now = new Date().toISOString()
+    const now = new Date()
+
+    if (
+      nextActionDate &&
+      new Date(nextActionDate).getTime() <= now.getTime()
+    ) {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        {
+          ok: false,
+          error:
+            'A próxima ação sugerida está em um horário que já passou. Analise a conversa novamente antes de aplicar.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const nowIso = now.toISOString()
     const currentStatus = cycle.status
     const statusChanged = currentStatus !== appliedStatus
     const currentNextAction = getNullableString(cycle.next_action)
@@ -581,13 +615,13 @@ export async function POST(request: Request) {
     const updatePayload: JsonRecord = {
       next_action: nextAction,
       next_action_date: nextActionDate,
-      updated_at: now,
+      updated_at: nowIso,
     }
 
     if (statusChanged) {
       updatePayload.previous_status = currentStatus
       updatePayload.status = appliedStatus
-      updatePayload.stage_entered_at = now
+      updatePayload.stage_entered_at = nowIso
     }
 
     const writeAdmin = admin as unknown as CompanionApplyWriteClient
@@ -639,7 +673,7 @@ export async function POST(request: Request) {
         cycleId,
         userId: tokenPayload.sub,
         eventType: 'stage_changed',
-        occurredAt: now,
+        occurredAt: nowIso,
         metadata: {
           ...commonMetadata,
           from_status: currentStatus,
@@ -655,7 +689,7 @@ export async function POST(request: Request) {
         cycleId,
         userId: tokenPayload.sub,
         eventType: 'next_action_set',
-        occurredAt: now,
+        occurredAt: nowIso,
         metadata: {
           ...commonMetadata,
           next_action: nextAction,
@@ -671,7 +705,7 @@ export async function POST(request: Request) {
       cycleId,
       userId: tokenPayload.sub,
       eventType: 'ai_suggestion_applied',
-      occurredAt: now,
+      occurredAt: nowIso,
       metadata: {
         ...commonMetadata,
         applied_status: appliedStatus,

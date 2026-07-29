@@ -419,7 +419,10 @@ export function normalizeForCompare(text: string): string {
     .trim()
 }
 
-export function extractSuggestedDateFromText(rawText: string): string | null {
+export function extractSuggestedDateFromText(
+  rawText: string,
+  referenceDate = new Date(),
+): string | null {
   const text = String(rawText ?? '')
     .toLowerCase()
     .normalize('NFD')
@@ -519,6 +522,14 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
     }
   }
 
+  function keepOnlyFutureDate(value: string | null): string | null {
+    if (!value) return null
+
+    return new Date(value).getTime() > referenceDate.getTime()
+      ? value
+      : null
+  }
+
   function readTime(): { hour: number; minute: number } | null {
     const patterns = [
       /\bas\s*(\d{1,2})(?:(?:h|:)\s*(\d{2}))?\b/,
@@ -580,7 +591,7 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
   const explicitDateMatch = text.match(/\b(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/)
   const time = readTime() ?? readPeriodTime()
   const weekday = readWeekday()
-  const businessNow = getBusinessDateParts(new Date())
+  const businessNow = getBusinessDateParts(referenceDate)
 
   if (explicitDateMatch) {
     const day = Number(explicitDateMatch[1])
@@ -605,11 +616,25 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
 
     if (!explicitIso) return null
 
-    if (!explicitDateMatch[3] && new Date(explicitIso).getTime() < Date.now()) {
-      return buildBusinessDate(year + 1, month, day, hour, minute)
+    if (
+      !explicitDateMatch[3] &&
+      new Date(explicitIso).getTime() <= referenceDate.getTime()
+    ) {
+      const isToday =
+        year === businessNow.year &&
+        month === businessNow.month &&
+        day === businessNow.day
+
+      if (isToday) {
+        return null
+      }
+
+      return keepOnlyFutureDate(
+        buildBusinessDate(year + 1, month, day, hour, minute),
+      )
     }
 
-    return explicitIso
+    return keepOnlyFutureDate(explicitIso)
   }
 
   const relativeDaysMatch = compare.match(/\bdaqui a (\d{1,3}) dias?\b/)
@@ -626,12 +651,14 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
       days,
     )
 
-    return buildBusinessDate(
-      target.year,
-      target.month,
-      target.day,
-      time?.hour ?? 9,
-      time?.minute ?? 0,
+    return keepOnlyFutureDate(
+      buildBusinessDate(
+        target.year,
+        target.month,
+        target.day,
+        time?.hour ?? 9,
+        time?.minute ?? 0,
+      ),
     )
   }
 
@@ -660,12 +687,14 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
       daysToAdd,
     )
 
-    return buildBusinessDate(
-      target.year,
-      target.month,
-      target.day,
-      targetHour,
-      targetMinute,
+    return keepOnlyFutureDate(
+      buildBusinessDate(
+        target.year,
+        target.month,
+        target.day,
+        targetHour,
+        targetMinute,
+      ),
     )
   }
 
@@ -688,12 +717,14 @@ export function extractSuggestedDateFromText(rawText: string): string | null {
     daysToAdd,
   )
 
-  return buildBusinessDate(
-    target.year,
-    target.month,
-    target.day,
-    time.hour,
-    time.minute,
+  return keepOnlyFutureDate(
+    buildBusinessDate(
+      target.year,
+      target.month,
+      target.day,
+      time.hour,
+      time.minute,
+    ),
   )
 }
 
