@@ -7,6 +7,8 @@
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
+  const MAX_MESSAGE_LEDGER_SIZE = 300
+  const MAX_ANALYSIS_MESSAGE_COUNT = 80
 
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
@@ -16,6 +18,9 @@
   let automaticAnalysisTimerId = 0
   let automaticAnalysisScheduledKey = null
   let lastSelectedChatActivitySnapshot = null
+  let messageLedgerConversationKey = null
+  let messageWindowFloorTimestamp = null
+  let conversationMessageLedger = new Map()
 
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
@@ -616,11 +621,7 @@
   }
 
   function getVisibleMessagesCount() {
-    const main = getMainConversationRoot() || document
-    const messagesWithPreText = main.querySelectorAll('[data-pre-plain-text]')
-    const messageRows = main.querySelectorAll('[role="row"]')
-
-    return Math.max(messagesWithPreText.length, messageRows.length, 0)
+    return getAnalysisMessageBatch().length
   }
 
   function isVisibleDomElement(element) {
@@ -650,6 +651,545 @@
       element.closest('.message-in, .message-out') ||
       element.closest('[data-id]') ||
       element.closest('[role="row"]')
+    )
+  }
+
+  function getMessageDataId(element) {
+    const container =
+      getMessageContainer(element)
+
+    if (!container) {
+      return null
+    }
+
+    const dataIdElement =
+      container.matches?.('[data-id]')
+        ? container
+        : container.closest?.('[data-id]') ||
+          container.querySelector?.('[data-id]')
+
+    const dataId =
+      dataIdElement
+        ?.getAttribute?.('data-id')
+        ?.trim()
+
+    return dataId || null
+  }
+
+  function getMessagePrePlainText(element) {
+    if (!element) {
+      return ''
+    }
+
+    const source =
+      element.matches?.(
+        '[data-pre-plain-text]',
+      )
+        ? element
+        : element.closest?.(
+              '[data-pre-plain-text]',
+            ) ||
+          element.querySelector?.(
+            '[data-pre-plain-text]',
+          )
+
+    return (
+      source
+        ?.getAttribute?.(
+          'data-pre-plain-text',
+        )
+        ?.trim() || ''
+    )
+  }
+
+  function parseWhatsAppMessageTimestamp(
+    value,
+  ) {
+    const text =
+      String(value || '').trim()
+
+    const timeFirstMatch = text.match(
+      /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*,\s*(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/,
+    )
+
+    const dateFirstMatch = text.match(
+      /(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})\s*,\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/,
+    )
+
+    let day
+    let month
+    let year
+    let hour
+    let minute
+    let second
+
+    if (timeFirstMatch) {
+      hour = Number(timeFirstMatch[1])
+      minute = Number(timeFirstMatch[2])
+      second = Number(
+        timeFirstMatch[3] || 0,
+      )
+      day = Number(timeFirstMatch[4])
+      month = Number(timeFirstMatch[5])
+      year = Number(timeFirstMatch[6])
+    } else if (dateFirstMatch) {
+      day = Number(dateFirstMatch[1])
+      month = Number(dateFirstMatch[2])
+      year = Number(dateFirstMatch[3])
+      hour = Number(dateFirstMatch[4])
+      minute = Number(dateFirstMatch[5])
+      second = Number(
+        dateFirstMatch[6] || 0,
+      )
+    } else {
+      return null
+    }
+
+    if (year < 100) {
+      year += 2000
+    }
+
+    const date = new Date(
+      year,
+      month - 1,
+      day,
+      hour,
+      minute,
+      second,
+      0,
+    )
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day ||
+      date.getHours() !== hour ||
+      date.getMinutes() !== minute
+    ) {
+      return null
+    }
+
+    return {
+      timestampMs: date.getTime(),
+      dateKey: [
+        String(year).padStart(4, '0'),
+        String(month).padStart(2, '0'),
+        String(day).padStart(2, '0'),
+      ].join('-'),
+      timestampLabel: [
+        `${String(day).padStart(2, '0')}/${String(
+          month,
+        ).padStart(2, '0')}/${year}`,
+        `${String(hour).padStart(2, '0')}:${String(
+          minute,
+        ).padStart(2, '0')}`,
+      ].join(' '),
+    }
+  }
+
+  function getMessageSenderFromPrePlainText(
+    value,
+  ) {
+    const text =
+      String(value || '').trim()
+
+    const bracketIndex =
+      text.lastIndexOf(']')
+
+    if (bracketIndex < 0) {
+      return null
+    }
+
+    const sender = text
+      .slice(bracketIndex + 1)
+      .replace(/:\s*$/, '')
+      .trim()
+
+    return sender || null
+  }
+
+  function messageContainerHasAudio(
+    container,
+  ) {
+    if (!container) {
+      return false
+    }
+
+    return Boolean(
+      container.querySelector(
+        [
+          'audio',
+          '[data-icon="audio-download"]',
+          '[data-icon="ptt"]',
+          '[data-icon="audio-play"]',
+          '[data-icon="audio-pip"]',
+          'button[aria-label*="mensagem de voz" i]',
+          'button[aria-label*="voice message" i]',
+          'button[aria-label*="reproduzir áudio" i]',
+          'button[aria-label*="play audio" i]',
+        ].join(','),
+      ),
+    )
+  }
+
+  function cleanCapturedMessageText(value) {
+    const text =
+      normalizeMessageText(value)
+
+    if (
+      !text ||
+      /^(\d{1,2}:\d{2}\s*)+$/.test(text)
+    ) {
+      return ''
+    }
+
+    return text.slice(0, 4000)
+  }
+
+  function buildReliableMessageFromNode(
+    node,
+  ) {
+    const id = getMessageDataId(node)
+
+    if (!id) {
+      return null
+    }
+
+    const prePlainText =
+      getMessagePrePlainText(node)
+
+    const timestamp =
+      parseWhatsAppMessageTimestamp(
+        prePlainText,
+      )
+
+    if (!timestamp) {
+      return null
+    }
+
+    const container =
+      getMessageContainer(node)
+
+    const hasAudio =
+      messageContainerHasAudio(container)
+
+    const text =
+      cleanCapturedMessageText(
+        node.textContent,
+      )
+
+    if (!text && !hasAudio) {
+      return null
+    }
+
+    return {
+      id,
+      timestampMs:
+        timestamp.timestampMs,
+      timestampLabel:
+        timestamp.timestampLabel,
+      dateKey: timestamp.dateKey,
+      direction:
+        isOutgoingMessageNode(node)
+          ? 'outgoing'
+          : 'incoming',
+      sender:
+        getMessageSenderFromPrePlainText(
+          prePlainText,
+        ),
+      text,
+      hasAudio,
+    }
+  }
+
+  function resetConversationMessageLedger(
+    conversationKey,
+  ) {
+    messageLedgerConversationKey =
+      conversationKey || null
+
+    messageWindowFloorTimestamp = null
+    conversationMessageLedger =
+      new Map()
+  }
+
+  function synchronizeConversationMessageLedger() {
+    const conversationKey =
+      state.conversationKey
+
+    if (!conversationKey) {
+      return
+    }
+
+    if (
+      messageLedgerConversationKey !==
+      conversationKey
+    ) {
+      resetConversationMessageLedger(
+        conversationKey,
+      )
+    }
+
+    const main =
+      getMainConversationRoot()
+
+    if (!main) {
+      return
+    }
+
+    main
+      .querySelectorAll(
+        '[data-pre-plain-text]',
+      )
+      .forEach((node) => {
+        const message =
+          buildReliableMessageFromNode(
+            node,
+          )
+
+        if (!message) {
+          return
+        }
+
+        conversationMessageLedger.set(
+          message.id,
+          message,
+        )
+      })
+
+    const sortedMessages =
+      Array.from(
+        conversationMessageLedger.values(),
+      ).sort((a, b) => {
+        if (
+          a.timestampMs !==
+          b.timestampMs
+        ) {
+          return (
+            a.timestampMs -
+            b.timestampMs
+          )
+        }
+
+        return a.id.localeCompare(b.id)
+      })
+
+    if (
+      sortedMessages.length >
+      MAX_MESSAGE_LEDGER_SIZE
+    ) {
+      const retainedMessages =
+        sortedMessages.slice(
+          -MAX_MESSAGE_LEDGER_SIZE,
+        )
+
+      conversationMessageLedger =
+        new Map(
+          retainedMessages.map(
+            (message) => [
+              message.id,
+              message,
+            ],
+          ),
+        )
+    }
+  }
+
+  function getSortedLedgerMessages() {
+    synchronizeConversationMessageLedger()
+
+    return Array.from(
+      conversationMessageLedger.values(),
+    ).sort((a, b) => {
+      if (
+        a.timestampMs !== b.timestampMs
+      ) {
+        return (
+          a.timestampMs -
+          b.timestampMs
+        )
+      }
+
+      return a.id.localeCompare(b.id)
+    })
+  }
+
+  function getLatestDateMessageBlock(
+    messages,
+  ) {
+    if (messages.length === 0) {
+      return []
+    }
+
+    const latestDateKey =
+      messages[
+        messages.length - 1
+      ].dateKey
+
+    return messages
+      .filter(
+        (message) =>
+          message.dateKey ===
+          latestDateKey,
+      )
+      .slice(
+        -MAX_ANALYSIS_MESSAGE_COUNT,
+      )
+  }
+
+  function lockCurrentMessageWindow() {
+    if (
+      Number.isFinite(
+        messageWindowFloorTimestamp,
+      )
+    ) {
+      return
+    }
+
+    const messages =
+      getLatestDateMessageBlock(
+        getSortedLedgerMessages(),
+      )
+
+    if (messages.length === 0) {
+      return
+    }
+
+    messageWindowFloorTimestamp =
+      messages[0].timestampMs
+  }
+
+  function getAnalysisMessageBatch() {
+    const messages =
+      getSortedLedgerMessages()
+
+    if (messages.length === 0) {
+      return []
+    }
+
+    if (
+      Number.isFinite(
+        messageWindowFloorTimestamp,
+      )
+    ) {
+      return messages
+        .filter(
+          (message) =>
+            message.timestampMs >=
+            messageWindowFloorTimestamp,
+        )
+        .slice(
+          -MAX_ANALYSIS_MESSAGE_COUNT,
+        )
+    }
+
+    return getLatestDateMessageBlock(
+      messages,
+    )
+  }
+
+  function getMessageTranscription(
+    messageId,
+    transcriptionMap = null,
+  ) {
+    const transcriptions =
+      transcriptionMap ||
+      state.audioTranscriptionsByKey ||
+      {}
+
+    const entry = Object.values(
+      transcriptions,
+    ).find((transcription) => {
+      return (
+        transcription?.targetKey ===
+        messageId
+      )
+    })
+
+    return (
+      typeof entry?.text === 'string' &&
+      entry.text.trim()
+        ? entry.text.trim()
+        : null
+    )
+  }
+
+  function getStructuredMessagesForAnalysis(
+    transcriptionMap = null,
+  ) {
+    return getAnalysisMessageBatch().map(
+      (message) => {
+        return {
+          id: message.id,
+          timestamp_ms:
+            message.timestampMs,
+          timestamp_label:
+            message.timestampLabel,
+          date_key: message.dateKey,
+          direction:
+            message.direction,
+          sender: message.sender,
+          text: message.text,
+          has_audio:
+            message.hasAudio,
+          audio_transcription:
+            getMessageTranscription(
+              message.id,
+              transcriptionMap,
+            ),
+        }
+      },
+    )
+  }
+
+  function buildConversationTextFromMessages(
+    messages,
+  ) {
+    return messages
+      .map((message) => {
+        const actor =
+          message.direction ===
+          'outgoing'
+            ? 'Vendedor'
+            : 'Lead'
+
+        const parts = []
+
+        if (message.text) {
+          parts.push(message.text)
+        }
+
+        if (
+          message.audio_transcription
+        ) {
+          parts.push(
+            `[Áudio transcrito: ${message.audio_transcription}]`,
+          )
+        } else if (message.has_audio) {
+          parts.push(
+            '[Áudio ainda sem transcrição]',
+          )
+        }
+
+        if (parts.length === 0) {
+          return null
+        }
+
+        return `[${message.timestamp_label}] ${actor}: ${parts.join(
+          ' ',
+        )}`
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim()
+      .slice(0, 24000)
+  }
+
+  function getAnalysisMessageIdSet() {
+    return new Set(
+      getAnalysisMessageBatch().map(
+        (message) => message.id,
+      ),
     )
   }
 
@@ -799,8 +1339,26 @@
     return Array.from(detectedMessageContainers.values())
   }
 
+  function getRelevantVisibleAudioTargets() {
+    const messageIds =
+      getAnalysisMessageIdSet()
+
+    return getVisibleAudioTargets().filter(
+      (target) => {
+        return messageIds.has(
+          target.key,
+        )
+      },
+    )
+  }
+
   function getVisibleAudioCount() {
-    return getVisibleAudioTargets().length
+    return getAnalysisMessageBatch()
+      .filter(
+        (message) =>
+          message.hasAudio,
+      )
+      .length
   }
 
   function normalizeMessageText(value) {
@@ -822,39 +1380,20 @@
     )}`
   }
 
-  function getAudioTranscriptionsForCurrentConversation() {
-    const prefix = `${state.conversationKey || 'sem-conversa'}::audio::`
-
-    return Object.entries(state.audioTranscriptionsByKey || {})
-      .filter(([key, value]) => {
-        return key.startsWith(prefix) && value?.text
+  function getPendingAudioCountForCurrentConversation(
+    transcriptionMap = null,
+  ) {
+    return getAnalysisMessageBatch()
+      .filter((message) => {
+        return (
+          message.hasAudio &&
+          !getMessageTranscription(
+            message.id,
+            transcriptionMap,
+          )
+        )
       })
-      .map(([, value]) => {
-        return {
-          audioIndex:
-            typeof value.audioIndex === 'number' ? value.audioIndex : 0,
-          targetKey: value.targetKey || null,
-          text: value.text,
-          occurredAt: value.occurredAt || null,
-        }
-      })
-      .sort((a, b) => a.audioIndex - b.audioIndex)
-  }
-
-  function getPendingAudioCountForCurrentConversation() {
-    const visibleTargets = getVisibleAudioTargets()
-    const transcribedKeys = new Set(
-      Object.keys(state.audioTranscriptionsByKey || {}),
-    )
-
-    const transcribedVisibleCount = visibleTargets.filter((target) => {
-      return transcribedKeys.has(getAudioTranscriptionKey(target))
-    }).length
-
-    return Math.max(
-      0,
-      Number(state.audioCount || 0) - transcribedVisibleCount,
-    )
+      .length
   }
 
   function blobToBase64(blob) {
@@ -1329,12 +1868,14 @@
       return
     }
 
-    const audioTargets = getVisibleAudioTargets()
+    const audioTargets =
+      getRelevantVisibleAudioTargets()
 
     if (audioTargets.length === 0) {
       state = {
         ...state,
-        audioTranscriptionStatus: 'Nenhum áudio real visível foi encontrado nesta conversa.',
+        audioTranscriptionStatus:
+          'O áudio pendente da conversa atual não está visível. Volte ao ponto mais recente da conversa e tente novamente.',
       }
 
       renderPanel()
@@ -1397,15 +1938,10 @@
         },
       }
 
-      const remainingAudioCount = Math.max(
-        0,
-        Number(state.audioCount || 0) -
-          Object.keys(nextAudioTranscriptionsByKey).filter((key) => {
-            return key.startsWith(
-              `${state.conversationKey || 'sem-conversa'}::audio::`,
-            )
-          }).length,
-      )
+      const remainingAudioCount =
+        getPendingAudioCountForCurrentConversation(
+          nextAudioTranscriptionsByKey,
+        )
 
       state = {
         ...state,
@@ -1440,64 +1976,6 @@
     }
   }
 
-  function collectVisibleConversationText() {
-    const main = getMainConversationRoot()
-
-    if (!main) {
-      return ''
-    }
-
-    const lines = []
-    const messageNodes = Array.from(main.querySelectorAll('[data-pre-plain-text]'))
-
-    messageNodes.forEach((node) => {
-      const prePlainText = node.getAttribute('data-pre-plain-text') || ''
-      const text = normalizeMessageText(node.textContent)
-
-      if (!text) {
-        return
-      }
-
-      const cleanPreText = normalizeMessageText(prePlainText)
-
-      lines.push(`${cleanPreText} ${text}`.trim())
-    })
-
-    if (lines.length === 0) {
-      const fallbackRows = Array.from(main.querySelectorAll('[role="row"]'))
-
-      fallbackRows.forEach((row) => {
-        const text = normalizeMessageText(row.textContent)
-
-        if (text && text.length > 2 && text.length < 1200) {
-          lines.push(text)
-        }
-      })
-    }
-
-    const audioTranscriptions = getAudioTranscriptionsForCurrentConversation()
-
-    audioTranscriptions.forEach((transcription) => {
-      lines.push(
-        `[Yolen Companion: áudio ${transcription.audioIndex + 1} transcrito: ${transcription.text}]`,
-      )
-    })
-
-    const pendingAudioCount = getPendingAudioCountForCurrentConversation()
-
-    if (pendingAudioCount > 0) {
-      lines.push(
-        `[Yolen Companion: ${pendingAudioCount} áudio(s) visível(is) detectado(s), ainda sem transcrição.]`,
-      )
-    }
-
-    return Array.from(new Set(lines))
-      .slice(-80)
-      .join('\n')
-      .trim()
-      .slice(0, 24000)
-  }
-
   function buildConversationFingerprint(value) {
     const text = String(value || '')
       .replace(/\r\n/g, '\n')
@@ -1514,13 +1992,35 @@
   }
 
   function getCurrentConversationFingerprint() {
-    const conversationText = collectVisibleConversationText()
+    const messages =
+      getStructuredMessagesForAnalysis()
 
-    if (!conversationText || conversationText.length < 15) {
+    if (messages.length === 0) {
       return null
     }
 
-    return buildConversationFingerprint(conversationText)
+    const fingerprintSource =
+      messages
+        .map((message) => {
+          return [
+            message.id,
+            message.timestamp_ms,
+            message.text,
+            message.audio_transcription ||
+              '',
+          ].join('|')
+        })
+        .join('\n')
+
+    if (
+      fingerprintSource.length < 15
+    ) {
+      return null
+    }
+
+    return buildConversationFingerprint(
+      fingerprintSource,
+    )
   }
 
   function isCurrentAnalysisOutdated() {
@@ -1938,27 +2438,61 @@
   }
 
   function refreshConversationSnapshot() {
-    const conversationTitle = getConversationTitle()
-    const conversationKey = getConversationKey(conversationTitle)
-    const isSelfConversation = isSelfConversationTitle(conversationTitle)
-    const phoneResult = getConversationPhone(conversationTitle, conversationKey)
-    const previousConversationKey = state.conversationKey
-    const conversationChanged = previousConversationKey !== conversationKey
+    const conversationTitle =
+      getConversationTitle()
+
+    const conversationKey =
+      getConversationKey(
+        conversationTitle,
+      )
+
+    const isSelfConversation =
+      isSelfConversationTitle(
+        conversationTitle,
+      )
+
+    const phoneResult =
+      getConversationPhone(
+        conversationTitle,
+        conversationKey,
+      )
+
+    const previousConversationKey =
+      state.conversationKey
+
+    const conversationChanged =
+      previousConversationKey !==
+      conversationKey
+
+    if (conversationChanged) {
+      lastResolvedConversationKey = null
+
+      resetConversationMessageLedger(
+        conversationKey,
+      )
+
+      clearLeadStateForNewConversation()
+    }
 
     state = {
       ...state,
       conversationTitle,
       conversationKey,
-      conversationPhone: phoneResult.phone,
-      phoneSource: phoneResult.source,
+      conversationPhone:
+        phoneResult.phone,
+      phoneSource:
+        phoneResult.source,
       isSelfConversation,
-      messageCount: getVisibleMessagesCount(),
-      audioCount: getVisibleAudioCount(),
     }
 
-    if (conversationChanged) {
-      lastResolvedConversationKey = null
-      clearLeadStateForNewConversation()
+    synchronizeConversationMessageLedger()
+
+    state = {
+      ...state,
+      messageCount:
+        getVisibleMessagesCount(),
+      audioCount:
+        getVisibleAudioCount(),
     }
 
     if (isSelfConversation) {
@@ -1970,15 +2504,28 @@
 
     renderPanel()
 
-    if (state.connected && phoneResult.phone && lastResolvedConversationKey !== conversationKey) {
-      lastResolvedConversationKey = conversationKey
+    if (
+      state.connected &&
+      phoneResult.phone &&
+      lastResolvedConversationKey !==
+        conversationKey
+    ) {
+      lastResolvedConversationKey =
+        conversationKey
+
       resolveCurrentLead()
       return
     }
 
-    if (state.connected && !phoneResult.phone && conversationKey) {
+    if (
+      state.connected &&
+      !phoneResult.phone &&
+      conversationKey
+    ) {
       window.setTimeout(() => {
-        runAutomaticContactLookup(conversationKey)
+        runAutomaticContactLookup(
+          conversationKey,
+        )
       }, 300)
     }
   }
@@ -2825,12 +3372,12 @@
         <div class="yolen-metrics">
           <div class="yolen-metric">
             <span class="yolen-metric-number">${state.messageCount}</span>
-            <span class="yolen-metric-label">mensagens visíveis</span>
+            <span class="yolen-metric-label">mensagens da conversa atual</span>
           </div>
 
           <div class="yolen-metric">
             <span class="yolen-metric-number">${state.audioCount}</span>
-            <span class="yolen-metric-label">áudios detectados</span>
+            <span class="yolen-metric-label">áudios da conversa atual</span>
           </div>
         </div>
       </div>
@@ -3269,6 +3816,9 @@
 
       loadSavedAudioTranscriptionsForCurrentCycle()
         .finally(() => {
+          lockCurrentMessageWindow()
+          refreshConversationSnapshot()
+
           scheduleAutomaticAnalysis(
             'Lead localizado. A conversa será analisada automaticamente em 8 segundos.',
           )
@@ -3315,8 +3865,16 @@
       return
     }
 
-    const cycleId = state.leadResolution?.cycle?.id
-    const conversationText = collectVisibleConversationText()
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const companionMessages =
+      getStructuredMessagesForAnalysis()
+
+    const conversationText =
+      buildConversationTextFromMessages(
+        companionMessages,
+      )
 
     if (!cycleId) {
       state = {
@@ -3345,6 +3903,7 @@
     }
 
     const conversationFingerprint =
+      getCurrentConversationFingerprint() ||
       buildConversationFingerprint(
         conversationText,
       )
@@ -3372,12 +3931,19 @@
     renderPanel()
 
     try {
-      const result = await window.YolenCompanionApi.analyzeConversation({
-        cycle_id: cycleId,
-        conversation_text: conversationText,
-        source: 'whatsapp',
-        audio_count: state.lastAnalysisAudioCount || 0,
-      })
+      const result =
+        await window.YolenCompanionApi
+          .analyzeConversation({
+            cycle_id: cycleId,
+            conversation_text:
+              conversationText,
+            messages:
+              companionMessages,
+            source: 'whatsapp',
+            audio_count:
+              state.lastAnalysisAudioCount ||
+              0,
+          })
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
         state = {

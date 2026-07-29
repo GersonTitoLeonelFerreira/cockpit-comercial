@@ -27,8 +27,32 @@ type CompanionTokenPayload = {
 type AnalyzeCompanionBody = {
   cycle_id?: unknown
   conversation_text?: unknown
+  messages?: unknown
   source?: unknown
   audio_count?: unknown
+}
+
+type CompanionMessageDirection =
+  | 'incoming'
+  | 'outgoing'
+
+type CompanionMessage = {
+  id: string
+  timestamp_ms: number
+  timestamp_label: string
+  date_key: string
+  direction: CompanionMessageDirection
+  sender: string | null
+  text: string
+  has_audio: boolean
+  audio_transcription: string | null
+}
+
+type CompanionMessageCursor = {
+  has_cursor: boolean
+  last_message_timestamp_ms: number
+  last_message_id: string | null
+  processed_message_ids: string[]
 }
 
 
@@ -289,6 +313,350 @@ function hasCompanionAudioWithoutTranscription(value: unknown) {
   const audioCount = getAudioCount(companion?.audio_count)
 
   return audioCount > 0 && companion?.audio_transcribed !== true
+}
+
+function cleanCompanionMessageText(
+  value: unknown,
+  maxLength: number,
+) {
+  return String(value ?? '')
+    .replace(/\u0000/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+}
+
+function cleanCompanionMessages(
+  value: unknown,
+): CompanionMessage[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const byId =
+    new Map<string, CompanionMessage>()
+
+  for (const item of value.slice(-300)) {
+    const record = getRecord(item)
+
+    if (!record) {
+      continue
+    }
+
+    const id =
+      getString(record.id)
+        ?.trim()
+        .slice(0, 500)
+
+    const timestampMs =
+      getNumber(record.timestamp_ms)
+
+    const timestampLabel =
+      cleanCompanionMessageText(
+        record.timestamp_label,
+        40,
+      )
+
+    const dateKey =
+      cleanCompanionMessageText(
+        record.date_key,
+        20,
+      )
+
+    const direction =
+      record.direction === 'outgoing'
+        ? 'outgoing'
+        : record.direction ===
+            'incoming'
+          ? 'incoming'
+          : null
+
+    const sender =
+      getNullableString(record.sender)
+
+    const text =
+      cleanCompanionMessageText(
+        record.text,
+        4000,
+      )
+
+    const audioTranscription =
+      cleanCompanionMessageText(
+        record.audio_transcription,
+        8000,
+      ) || null
+
+    const hasAudio =
+      record.has_audio === true
+
+    if (
+      !id ||
+      !timestampMs ||
+      !Number.isFinite(timestampMs) ||
+      timestampMs <
+        new Date(
+          '2000-01-01T00:00:00Z',
+        ).getTime() ||
+      timestampMs >
+        Date.now() +
+          24 * 60 * 60 * 1000 ||
+      !timestampLabel ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(
+        dateKey,
+      ) ||
+      !direction
+    ) {
+      continue
+    }
+
+    if (
+      !text &&
+      !audioTranscription &&
+      !hasAudio
+    ) {
+      continue
+    }
+
+    byId.set(id, {
+      id,
+      timestamp_ms: timestampMs,
+      timestamp_label:
+        timestampLabel,
+      date_key: dateKey,
+      direction,
+      sender,
+      text,
+      has_audio: hasAudio,
+      audio_transcription:
+        audioTranscription,
+    })
+  }
+
+  return Array.from(
+    byId.values(),
+  )
+    .sort((a, b) => {
+      if (
+        a.timestamp_ms !==
+        b.timestamp_ms
+      ) {
+        return (
+          a.timestamp_ms -
+          b.timestamp_ms
+        )
+      }
+
+      return a.id.localeCompare(b.id)
+    })
+    .slice(-300)
+}
+
+function buildStructuredConversationText(
+  messages: CompanionMessage[],
+) {
+  return messages
+    .map((message) => {
+      const actor =
+        message.direction ===
+        'outgoing'
+          ? 'Vendedor'
+          : 'Lead'
+
+      const parts: string[] = []
+
+      if (message.text) {
+        parts.push(message.text)
+      }
+
+      if (
+        message.audio_transcription
+      ) {
+        parts.push(
+          `[Áudio transcrito: ${message.audio_transcription}]`,
+        )
+      } else if (message.has_audio) {
+        parts.push(
+          '[Áudio ainda sem transcrição]',
+        )
+      }
+
+      if (parts.length === 0) {
+        return null
+      }
+
+      return `[${message.timestamp_label}] ${actor}: ${parts.join(
+        ' ',
+      )}`
+    })
+    .filter(
+      (line): line is string =>
+        Boolean(line),
+    )
+    .join('\n')
+    .trim()
+    .slice(0, 24000)
+}
+
+function getMessageCursorFromDecision(
+  value: unknown,
+): CompanionMessageCursor {
+  const companion =
+    getCompanionRecordFromDecision(value)
+
+  const processedMessageIds =
+    getStringArray(
+      companion?.processed_message_ids,
+    )
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(-500)
+
+  const lastTimestamp =
+    getNumber(
+      companion
+        ?.last_message_timestamp_ms,
+    ) || 0
+
+  const lastMessageId =
+    getNullableString(
+      companion?.last_message_id,
+    )
+
+  return {
+    has_cursor:
+      companion
+        ?.message_cursor_version ===
+        1 ||
+      lastTimestamp > 0 ||
+      processedMessageIds.length > 0,
+    last_message_timestamp_ms:
+      lastTimestamp,
+    last_message_id: lastMessageId,
+    processed_message_ids:
+      processedMessageIds,
+  }
+}
+
+function selectStructuredMessageBatch({
+  messages,
+  latestDecision,
+}: {
+  messages: CompanionMessage[]
+  latestDecision: JsonRecord | null
+}) {
+  const cursor =
+    getMessageCursorFromDecision(
+      latestDecision,
+    )
+
+  if (!cursor.has_cursor) {
+    const latestDateKey =
+      messages.at(-1)?.date_key
+
+    const initialMessages =
+      latestDateKey
+        ? messages.filter(
+            (message) =>
+              message.date_key ===
+              latestDateKey,
+          )
+        : messages
+
+    return {
+      messages:
+        initialMessages.slice(-80),
+      incremental: false,
+      cursor,
+    }
+  }
+
+  const processedIds =
+    new Set(
+      cursor.processed_message_ids,
+    )
+
+  const newMessages =
+    messages.filter((message) => {
+      if (
+        message.timestamp_ms >
+        cursor.last_message_timestamp_ms
+      ) {
+        return true
+      }
+
+      if (
+        message.timestamp_ms ===
+          cursor.last_message_timestamp_ms &&
+        !processedIds.has(message.id)
+      ) {
+        return true
+      }
+
+      return false
+    })
+
+  return {
+    messages:
+      newMessages.slice(-80),
+    incremental: true,
+    cursor,
+  }
+}
+
+function buildNextMessageCursor({
+  latestDecision,
+  messageBatch,
+}: {
+  latestDecision: JsonRecord | null
+  messageBatch: CompanionMessage[]
+}) {
+  const previousCursor =
+    getMessageCursorFromDecision(
+      latestDecision,
+    )
+
+  const mergedIds =
+    Array.from(
+      new Set([
+        ...previousCursor
+          .processed_message_ids,
+        ...messageBatch.map(
+          (message) => message.id,
+        ),
+      ]),
+    ).slice(-500)
+
+  const latestBatchMessage =
+    messageBatch.at(-1) || null
+
+  const lastTimestamp =
+    Math.max(
+      previousCursor
+        .last_message_timestamp_ms,
+      latestBatchMessage
+        ?.timestamp_ms || 0,
+    )
+
+  const lastMessageId =
+    latestBatchMessage &&
+    latestBatchMessage
+      .timestamp_ms >=
+      previousCursor
+        .last_message_timestamp_ms
+      ? latestBatchMessage.id
+      : previousCursor.last_message_id
+
+  return {
+    has_cursor:
+      previousCursor.has_cursor ||
+      messageBatch.length > 0,
+    processed_message_ids:
+      mergedIds,
+    last_message_timestamp_ms:
+      lastTimestamp,
+    last_message_id:
+      lastMessageId,
+  }
 }
 
 function getSuggestionSource(value: unknown): AISalesSuggestion['source'] {
@@ -615,6 +983,8 @@ function buildYolenDecision({
   previousCoachingNoteId,
   previousCapturedCharacterCount,
   audioCount,
+  messageBatch,
+  latestDecision,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
@@ -625,7 +995,14 @@ function buildYolenDecision({
   previousCoachingNoteId: string | null
   previousCapturedCharacterCount: number
   audioCount: number
+  messageBatch: CompanionMessage[]
+  latestDecision: JsonRecord | null
 }) {
+  const messageCursor =
+    buildNextMessageCursor({
+      latestDecision,
+      messageBatch,
+    })
   return {
     recommended_status: suggestion.recommended_status,
     confidence: suggestion.confidence,
@@ -655,8 +1032,33 @@ function buildYolenDecision({
       captured_text_tail: conversationText.slice(-4000),
       analysis_text_preview: analysisText.slice(0, 4000),
       audio_count: audioCount,
-      audio_transcribed: false,
-      has_audio_without_transcription: audioCount > 0,
+      audio_transcribed:
+        audioCount === 0,
+      has_audio_without_transcription:
+        audioCount > 0,
+      capture_mode:
+        messageBatch.length > 0
+          ? 'structured_messages'
+          : 'legacy_text',
+      message_cursor_version:
+        messageCursor.has_cursor
+          ? 1
+          : null,
+      processed_message_ids:
+        messageCursor
+          .processed_message_ids,
+      last_message_timestamp_ms:
+        messageCursor
+          .last_message_timestamp_ms,
+      last_message_id:
+        messageCursor
+          .last_message_id,
+      message_batch_ids:
+        messageBatch.map(
+          (message) => message.id,
+        ),
+      message_count:
+        messageBatch.length,
       saved_without_applying: true,
     },
   }
@@ -853,11 +1255,36 @@ export async function POST(request: Request) {
       )
     }
 
-    const body = (await request.json().catch(() => ({}))) as AnalyzeCompanionBody
-    const cycleId = getString(body.cycle_id)
-    const conversationText = cleanConversationText(body.conversation_text)
-    const source = isConversationSource(body.source) ? body.source : 'whatsapp'
-    const audioCount = getAudioCount(body.audio_count)
+    const body = (
+      await request
+        .json()
+        .catch(() => ({}))
+    ) as AnalyzeCompanionBody
+
+    const cycleId =
+      getString(body.cycle_id)
+
+    const legacyConversationText =
+      cleanConversationText(
+        body.conversation_text,
+      )
+
+    const structuredMessages =
+      cleanCompanionMessages(
+        body.messages,
+      )
+
+    const source =
+      isConversationSource(
+        body.source,
+      )
+        ? body.source
+        : 'whatsapp'
+
+    const audioCount =
+      getAudioCount(
+        body.audio_count,
+      )
 
     if (!cycleId) {
       return NextResponse.json<AnalyzeConversationResponse>(
@@ -872,11 +1299,15 @@ export async function POST(request: Request) {
       )
     }
 
-    if (conversationText.length < 15) {
+    if (
+      structuredMessages.length === 0 &&
+      legacyConversationText.length < 15
+    ) {
       return NextResponse.json<AnalyzeConversationResponse>(
         {
           ok: false,
-          error: 'A conversa capturada precisa ter pelo menos 15 caracteres úteis.',
+          error:
+            'Nenhuma mensagem confiável foi encontrada. A Yolen exige ID e data válidos para impedir mistura com mensagens antigas.',
         },
         {
           status: 400,
@@ -1095,76 +1526,221 @@ export async function POST(request: Request) {
       recent_events: recentEvents,
     }
 
-    const conversationHash = buildConversationHash(conversationText)
-    const companionReadAdmin = admin as unknown as CompanionReadClient
-    const companionWriteAdmin = admin as unknown as CompanionWriteClient
+    const companionReadAdmin =
+    admin as unknown as CompanionReadClient
 
-    const existingSavedCoaching = await findExistingCompanionCoachingNote({
-      admin: companionReadAdmin,
+  const companionWriteAdmin =
+    admin as unknown as CompanionWriteClient
+
+  const latestSavedCoaching =
+    await findLatestCompanionCoachingNote({
+      admin:
+        companionReadAdmin,
+      tokenPayload,
+      cycleId,
+    })
+
+  const structuredSelection =
+    selectStructuredMessageBatch({
+      messages:
+        structuredMessages,
+      latestDecision:
+        latestSavedCoaching
+          ?.yolenDecision ?? null,
+    })
+
+  const latestSuggestion =
+    buildSuggestionFromSavedDecision(
+      latestSavedCoaching
+        ?.yolenDecision,
+    )
+
+  if (
+    structuredMessages.length > 0 &&
+    structuredSelection
+      .messages.length === 0 &&
+    latestSavedCoaching &&
+    latestSuggestion
+  ) {
+    return NextResponse.json<AnalyzeConversationResponse>(
+      {
+        ok: true,
+        data: {
+          context,
+          suggestion:
+            latestSuggestion,
+          saved_coaching: {
+            id:
+              latestSavedCoaching.id,
+            occurred_at:
+              latestSavedCoaching
+                .occurred_at,
+            reused: true,
+            incremental: true,
+            analyzed_character_count:
+              0,
+            audio_count:
+              getCompanionAudioCount(
+                latestSavedCoaching
+                  .yolenDecision,
+              ),
+            has_audio_without_transcription:
+              hasCompanionAudioWithoutTranscription(
+                latestSavedCoaching
+                  .yolenDecision,
+              ),
+          },
+          coaching:
+            buildResponseCoaching(
+              latestSavedCoaching
+                .coaching,
+            ),
+        },
+      },
+      {
+        headers: corsHeaders,
+      },
+    )
+  }
+
+  const conversationText =
+    structuredMessages.length > 0
+      ? buildStructuredConversationText(
+          structuredSelection
+            .messages,
+        )
+      : legacyConversationText
+
+  if (
+    conversationText.length < 15
+  ) {
+    return NextResponse.json<AnalyzeConversationResponse>(
+      {
+        ok: false,
+        error:
+          'Não existem mensagens novas suficientes para uma nova análise.',
+      },
+      {
+        status: 400,
+        headers: corsHeaders,
+      },
+    )
+  }
+
+  const incrementalResult =
+    structuredMessages.length > 0
+      ? {
+          text:
+            conversationText,
+          incremental:
+            structuredSelection
+              .incremental,
+          previous_captured_character_count:
+            0,
+        }
+      : extractIncrementalConversationText({
+          currentText:
+            conversationText,
+          latestDecision:
+            latestSavedCoaching
+              ?.yolenDecision ??
+            null,
+        })
+
+  const analysisText =
+    incrementalResult.text
+      .trim().length >= 15
+      ? incrementalResult.text.trim()
+      : conversationText
+
+  const incrementalAnalysis =
+    structuredMessages.length > 0
+      ? structuredSelection
+          .incremental
+      : incrementalResult.text
+            .trim().length >= 15
+        ? incrementalResult
+            .incremental
+        : false
+
+  const conversationHash =
+    buildConversationHash(
+      conversationText,
+    )
+
+  const existingSavedCoaching =
+    await findExistingCompanionCoachingNote({
+      admin:
+        companionReadAdmin,
       tokenPayload,
       cycleId,
       conversationHash,
     })
 
-    const existingSuggestion = buildSuggestionFromSavedDecision(
-      existingSavedCoaching?.yolenDecision,
+  const existingSuggestion =
+    buildSuggestionFromSavedDecision(
+      existingSavedCoaching
+        ?.yolenDecision,
     )
 
-    if (existingSavedCoaching && existingSuggestion) {
-      return NextResponse.json<AnalyzeConversationResponse>(
-        {
-          ok: true,
-          data: {
-            context,
-            suggestion: existingSuggestion,
-            saved_coaching: {
-              id: existingSavedCoaching.id,
-              occurred_at: existingSavedCoaching.occurred_at,
-              reused: true,
-              incremental:
-                getRecord(existingSavedCoaching.yolenDecision?.companion)
-                  ?.incremental_analysis === true,
-                  analyzed_character_count: getNumber(
-                    getRecord(existingSavedCoaching.yolenDecision?.companion)
-                      ?.analyzed_character_count,
-                  ),
-                  audio_count: getCompanionAudioCount(
-                    existingSavedCoaching.yolenDecision,
-                  ),
-                  has_audio_without_transcription:
-                    hasCompanionAudioWithoutTranscription(
-                      existingSavedCoaching.yolenDecision,
-                    ),
-            },
-            coaching: buildResponseCoaching(existingSavedCoaching.coaching),
+  if (
+    existingSavedCoaching &&
+    existingSuggestion
+  ) {
+    return NextResponse.json<AnalyzeConversationResponse>(
+      {
+        ok: true,
+        data: {
+          context,
+          suggestion:
+            existingSuggestion,
+          saved_coaching: {
+            id:
+              existingSavedCoaching.id,
+            occurred_at:
+              existingSavedCoaching
+                .occurred_at,
+            reused: true,
+            incremental:
+              getRecord(
+                existingSavedCoaching
+                  .yolenDecision
+                  ?.companion,
+              )
+                ?.incremental_analysis ===
+              true,
+            analyzed_character_count:
+              getNumber(
+                getRecord(
+                  existingSavedCoaching
+                    .yolenDecision
+                    ?.companion,
+                )
+                  ?.analyzed_character_count,
+              ),
+            audio_count:
+              getCompanionAudioCount(
+                existingSavedCoaching
+                  .yolenDecision,
+              ),
+            has_audio_without_transcription:
+              hasCompanionAudioWithoutTranscription(
+                existingSavedCoaching
+                  .yolenDecision,
+              ),
           },
+          coaching:
+            buildResponseCoaching(
+              existingSavedCoaching
+                .coaching,
+            ),
         },
-        {
-          headers: corsHeaders,
-        },
-      )
-    }
-
-    const latestSavedCoaching = await findLatestCompanionCoachingNote({
-      admin: companionReadAdmin,
-      tokenPayload,
-      cycleId,
-    })
-
-    const incrementalResult = extractIncrementalConversationText({
-      currentText: conversationText,
-      latestDecision: latestSavedCoaching?.yolenDecision ?? null,
-    })
-
-    const analysisText =
-      incrementalResult.text.trim().length >= 15
-        ? incrementalResult.text.trim()
-        : conversationText
-
-    const incrementalAnalysis =
-      incrementalResult.text.trim().length >= 15
-        ? incrementalResult.incremental
-        : false
+      },
+      {
+        headers: corsHeaders,
+      },
+    )
+  }
 
     const result = await analyzeConversationWithCopilotDetailed({
       context,
@@ -1178,18 +1754,30 @@ export async function POST(request: Request) {
       suggestion: result.suggestion,
     })
 
-    const yolenDecision = buildYolenDecision({
-      suggestion: result.suggestion as unknown as JsonRecord,
-      diagnostics: result.diagnostics,
-      conversationText,
-      analysisText,
-      conversationHash,
-      incrementalAnalysis,
-      previousCoachingNoteId: latestSavedCoaching?.id ?? null,
-      previousCapturedCharacterCount:
-        incrementalResult.previous_captured_character_count,
-      audioCount,
-    })
+    const yolenDecision =
+      buildYolenDecision({
+        suggestion:
+          result.suggestion as unknown as JsonRecord,
+        diagnostics:
+          result.diagnostics,
+        conversationText,
+        analysisText,
+        conversationHash,
+        incrementalAnalysis,
+        previousCoachingNoteId:
+          latestSavedCoaching
+            ?.id ?? null,
+        previousCapturedCharacterCount:
+          incrementalResult
+            .previous_captured_character_count,
+        audioCount,
+        messageBatch:
+          structuredSelection
+            .messages,
+        latestDecision:
+          latestSavedCoaching
+            ?.yolenDecision ?? null,
+      })
 
     const savedCoaching = await saveCompanionCoachingNote({
       admin: companionWriteAdmin,
