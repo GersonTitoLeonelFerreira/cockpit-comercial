@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Fase atual | 0 - Congelamento e proteção |
-| Estado | Concluída tecnicamente; tag remota pendente |
+| Estado | Concluída tecnicamente; gates manuais pendentes |
 | Início | 2026-07-29 |
 | Commit-base | `50059c32ac924302822a85d044c39890c628b441` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
@@ -33,6 +33,7 @@
 - [x] Commit da Fase 0 publicado.
 - [x] Deployment canônico `READY`.
 - [x] Verificação pós-deploy registrada.
+- [ ] Fluxo real no Firefox validado pelo operador.
 
 ## Evidências
 
@@ -48,6 +49,7 @@
 | Smoke test | `https://cockpit-comercial-vocn.vercel.app/login` respondeu HTTP 200 |
 | Runtime | Nenhum erro encontrado na última hora após a publicação |
 | Supabase após publicação | `ACTIVE_HEALTHY`; nenhuma mutation executada |
+| Firefox + WhatsApp | Pendente: conectar, resolver lead, analisar e aplicar sugestão |
 
 ## Aprovações
 
@@ -76,4 +78,8 @@ git tag -a yolen-companion-v1-baseline-2026-07-29 50059c32ac924302822a85d044c398
 git push origin refs/tags/yolen-companion-v1-baseline-2026-07-29
 ```
 
-A Fase 1 só pode começar depois que a tag estiver visível no GitHub.
+A Fase 1 só pode começar depois que:
+
+1. a tag estiver visível no GitHub;
+2. o fluxo real no Firefox passar em conexão, resolução do lead, análise e
+   aplicação da sugestão.
