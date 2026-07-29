@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Fase atual | 0 - Congelamento e proteção |
-| Estado | Em publicação |
+| Estado | Concluída tecnicamente; tag remota pendente |
 | Início | 2026-07-29 |
 | Commit-base | `50059c32ac924302822a85d044c39890c628b441` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
@@ -28,10 +28,11 @@
 - [x] TypeScript validado.
 - [x] Lint do escopo Companion validado.
 - [x] Build validado.
-- [ ] Tag criada no GitHub.
-- [ ] Commit da Fase 0 publicado.
-- [ ] Deployment canônico `READY`.
-- [ ] Verificação pós-deploy registrada.
+- [x] Referência remota de rollback criada no GitHub.
+- [ ] Tag anotada publicada no GitHub.
+- [x] Commit da Fase 0 publicado.
+- [x] Deployment canônico `READY`.
+- [x] Verificação pós-deploy registrada.
 
 ## Evidências
 
@@ -41,9 +42,12 @@
 | Lint Companion | ESLint passou em rotas, tipos, biblioteca e extensão |
 | Seletor do motor | 5 cenários passaram: ausência, vazio, `v1`, `v2` normalizado e valor inválido |
 | Build | `next build` passou com certificados do sistema e variáveis temporárias sem segredos |
-| Commit | Pendente |
-| Deployment | Pendente |
-| Supabase após publicação | Pendente |
+| Commit | `59842da36a407a727af6b2584c3eb9f65ad53780` publicado na `main` |
+| Referência de rollback | `safety/yolen-companion-v1-baseline-2026-07-29` aponta para `50059c32` |
+| Deployment | `dpl_DHdLFFuEgp8g2trVaoehz511ph1G` - `READY` em produção |
+| Smoke test | `https://cockpit-comercial-vocn.vercel.app/login` respondeu HTTP 200 |
+| Runtime | Nenhum erro encontrado na última hora após a publicação |
+| Supabase após publicação | `ACTIVE_HEALTHY`; nenhuma mutation executada |
 
 ## Aprovações
 
@@ -61,5 +65,15 @@
 
 ## Próximo gate
 
-A Fase 1 só pode começar após todas as evidências da Fase 0 estarem preenchidas
-e o deployment canônico estar estável.
+A tag anotada existe no checkout local, mas o aplicativo GitHub disponível
+neste ambiente não publica refs de tag. Até o envio da tag, a branch de
+segurança preserva o mesmo commit-base no GitHub.
+
+Comandos para encerrar essa única pendência em um checkout autenticado:
+
+```bash
+git tag -a yolen-companion-v1-baseline-2026-07-29 50059c32ac924302822a85d044c39890c628b441 -m "Baseline do Yolen Companion V1 antes do desenvolvimento V2"
+git push origin refs/tags/yolen-companion-v1-baseline-2026-07-29
+```
+
+A Fase 1 só pode começar depois que a tag estiver visível no GitHub.
