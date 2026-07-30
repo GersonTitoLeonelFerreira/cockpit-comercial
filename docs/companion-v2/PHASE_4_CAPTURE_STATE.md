@@ -1,4 +1,8 @@
-# Fase 4 - Cursor e estado de captura
+# Registro técnico PT4-B - Cursor e estado de captura
+
+> Nota de governança: este arquivo foi publicado originalmente como "Fase
+> técnica 4". No roadmap oficial do produto, ele é o pacote PT4-B e compõe a
+> fundação da Fase 4 - Captura completa, demonstrável e confiável.
 
 ## Objetivo
 
@@ -32,8 +36,9 @@ Ela não:
 - aplica alterações no CRM;
 - copia conversas ou dados de produção.
 
-A ingestão e o avanço atômico do cursor entram na Fase 5. O consumidor de
-análise que avança o cursor processado entra nas fases seguintes.
+A ingestão e o avanço atômico do cursor pertencem ao pacote PT4-C, ainda
+pendente na Fase 4 do produto. O motor de diagnóstico que avança o cursor
+processado pertence à Fase 5 do produto.
 
 ## Semântica dos cursores
 
@@ -104,11 +109,11 @@ cursores independentes.
 
 ## Concorrência
 
-`state_version` começa em `1`. A Fase 5 deverá avançá-la dentro do mesmo
+`state_version` começa em `1`. O pacote PT4-C deverá avançá-la dentro do mesmo
 `INSERT ... ON CONFLICT DO UPDATE` que mover os cursores. Esse padrão elimina a
 janela de corrida de um fluxo `SELECT` seguido de `INSERT` ou `UPDATE`.
 
-A Fase 4 comprova o contrato de upsert, mas ainda não cria a rota que o executa
+O pacote PT4-B comprova o contrato de upsert, mas ainda não cria a rota que o executa
 em produção.
 
 ## Segurança
@@ -167,7 +172,7 @@ A migration é aditiva. O V1 não consulta a nova tabela.
 
 Antes de qualquer escrita real, um ambiente descartável pode remover
 `conversation_capture_state` e o índice composto adicional do ledger. Depois
-que a Fase 5 começar a gravar:
+que o pacote PT4-C começar a gravar:
 
 1. manter `COMPANION_ENGINE_VERSION=v1`;
 2. interromper ingestão e avanço de cursor;
@@ -194,7 +199,7 @@ produção como primeira ação de rollback.
 - [x] Teste descartável da Fase 4 aprovado.
 - [x] Baseline da Fase 2 e ledger da Fase 3 continuam reproduzíveis.
 - [x] Gates completos do repositório aprovados.
-- [ ] PR revisado e integrado.
-- [ ] Migration aplicada no projeto remoto com autorização.
-- [ ] Advisors pós-migration sem novo alerta da Fase 4.
-- [ ] Deployment canônico confirmado.
+- [x] PR #143 revisado e integrado no commit `516dc92`.
+- [x] Migration `20260730170515` aplicada no projeto remoto com autorização.
+- [x] Advisors pós-migration sem novo alerta de segurança do pacote PT4-B.
+- [x] Deployment canônico confirmado como `READY`.
