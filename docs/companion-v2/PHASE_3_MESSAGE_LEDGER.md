@@ -13,9 +13,9 @@ A tabela `conversation_messages` registra cada versão observada como uma nova
 linha. Mensagens editadas não sobrescrevem o conteúdo anterior. Uma exclusão é
 uma nova versão sem conteúdo e com `is_deleted = true`.
 
-## Limites da fase
+## Limites do pacote
 
-Esta fase cria somente o ledger e seus testes.
+Este pacote cria somente o ledger e seus testes.
 
 Ela não:
 
@@ -135,7 +135,7 @@ npm run test:companion
 npx tsc --noEmit --incremental false
 ```
 
-O teste específico da Fase 3 comprova:
+O teste específico do PT4-A comprova:
 
 - criação da tabela e da identidade sequencial;
 - RLS habilitado e forçado;
@@ -177,5 +177,5 @@ operacional não deve apagar histórico:
 - [x] Gates completos do repositório aprovados.
 - [x] PR #142 revisado e integrado no commit `b92bbd4`.
 - [x] Migration aplicada no projeto remoto com autorização.
-- [x] Advisors pós-migration sem novo alerta de segurança da Fase 3.
+- [x] Advisors pós-migration sem novo alerta de segurança do PT4-A.
 - [x] Deployment canônico confirmado como `READY`.
