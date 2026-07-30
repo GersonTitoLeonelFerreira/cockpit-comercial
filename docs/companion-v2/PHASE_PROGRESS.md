@@ -12,6 +12,7 @@
 | Motor padrão | `v1` |
 | Banco alterado | Não |
 | Extensão alterada | Não |
+| Correção pré-Fase 1 | Integridade de mensagens em validação |
 
 ## Checklist da Fase 0
 
@@ -82,9 +83,36 @@ conversa pessoal interpretada como Agenda. A classificação não foi remendada 
 V1, pois a correção estrutural pertence ao novo contrato de análise e ao motor
 de decisão.
 
+## Integridade de mensagens antes da Fase 1
+
+A análise da branch local preservada revelou a necessidade de tratar edições e
+exclusões no WhatsApp sem reintroduzir mensagens antigas nem gerar novas
+orientações a cada clique. A implementação foi reconstruída sobre a árvore da
+`main` e mantém as seguintes regras:
+
+- mensagem nova continua em análise incremental;
+- edição, exclusão ou restauração reprocessa somente o dia mais recente;
+- o botão manual não força reanálise sem mudança real;
+- a mesma fotografia da conversa reutiliza o resultado já salvo;
+- horário legítimo no fim do texto e palavras repetidas não são cortados;
+- conversas retomadas no mesmo dia não são divididas por intervalo arbitrário;
+- o hotfix que bloqueia agenda vencida permanece preservado;
+- nenhuma migration, policy, RPC, dado ou prompt comercial é alterado.
+
+Validação técnica:
+
+- 13 cenários automatizados passaram;
+- ESLint passou nos arquivos afetados;
+- `npx tsc --noEmit` passou;
+- `next build` passou com 106 rotas.
+
 ## Próximo gate
 
-A Fase 0 está encerrada. A próxima entrega é a Fase 1 - Corpus de regressão.
+A Fase 0 está encerrada. Antes da Fase 1 - Corpus de regressão, a correção de
+integridade está no PR
+[#137](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/137)
+e precisa:
 
-O hotfix precisa estar publicado, com TypeScript, lint, cenários temporais,
-deployment canônico e smoke test aprovados, antes de iniciar o corpus.
+1. concluir o preview do projeto canônico;
+2. passar no Firefox com mensagem nova, editada e apagada;
+3. confirmar ausência de orientação e evento duplicados.
