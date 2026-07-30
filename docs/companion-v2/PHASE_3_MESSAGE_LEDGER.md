@@ -171,7 +171,7 @@ operacional não deve apagar histórico:
 - [x] Teste descartável da Fase 3 aprovado.
 - [x] Baseline da Fase 2 continua reproduzível.
 - [x] Gates completos do repositório aprovados.
-- [ ] PR revisado e integrado.
-- [ ] Migration aplicada no projeto remoto com autorização.
-- [ ] Advisors pós-migration sem novo alerta da Fase 3.
-- [ ] Deployment canônico confirmado.
+- [x] PR #142 revisado e integrado no commit `b92bbd4`.
+- [x] Migration aplicada no projeto remoto com autorização.
+- [x] Advisors pós-migration sem novo alerta de segurança da Fase 3.
+- [x] Deployment canônico confirmado como `READY`.
