@@ -296,12 +296,19 @@ where n.nspname = 'public'
 order by p.proname, argumentos;
 ```
 
-## 14. Bloqueios para o Companion V2
+## 14. Gates para o Companion V2
 
-Antes de qualquer DDL do V2:
+A Fase 2 conciliou os 94 arquivos SQL anteriores com as 19 migrations remotas
+sem executar DDL em produção:
 
-- conciliar os 94 arquivos SQL com as 19 migrations remotas;
-- versionar a origem de `lead_conversation_analyses`;
+- os arquivos anteriores foram preservados em `supabase/migrations_legacy/`;
+- a cadeia oficial agora espelha as 19 versões do Supabase;
+- `lead_conversation_analyses` está incluída no baseline consolidado;
+- uma base PostgreSQL descartável reconstrói e compara o schema com o manifesto;
+- as 39 tabelas reproduzidas permanecem com RLS habilitado.
+
+Antes de criar ou aplicar qualquer DDL novo do V2 ainda é obrigatório:
+
 - definir policies das cinco tabelas canônicas;
 - definir retenção e exclusão de conteúdo;
 - remover execução anônima das RPCs privilegiadas relacionadas;
@@ -309,4 +316,4 @@ Antes de qualquer DDL do V2:
 
 ---
 
-Última atualização: 2026-07-29 - Fase 0 do Yolen Companion V2.
+Última atualização: 2026-07-30 - Fase 2 do Yolen Companion V2.

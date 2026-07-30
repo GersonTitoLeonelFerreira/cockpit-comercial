@@ -4,10 +4,10 @@
 
 | Campo | Valor |
 |---|---|
-| Fase atual | 1 - Corpus de regressão |
+| Fase atual | 2 - Baseline reproduzível do schema |
 | Estado | Em validação |
 | Início | 2026-07-29 |
-| Commit-base | `50059c32ac924302822a85d044c39890c628b441` |
+| Commit-base da Fase 2 | `651765ebc30fed919932a35c9ae326e2e079eb75` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
 | Motor padrão | `v1` |
 | Banco alterado | Não |
@@ -146,9 +146,9 @@ e validada no Firefox:
 - [x] Negociação superada por agendamento final.
 - [x] Negociação superada por perda explícita.
 - [x] Validador de cobertura, versão, evidência e anonimização.
-- [ ] Revisão comercial do corpus.
+- [x] Revisão comercial do corpus.
 - [x] Validações técnicas registradas.
-- [ ] PR integrado e deployment canônico confirmado.
+- [x] PR integrado e deployment canônico confirmado.
 
 ### Evidências técnicas
 
@@ -160,6 +160,9 @@ e validada no Firefox:
 | TypeScript | `npx tsc --noEmit` passou |
 | Build | `next build` passou com 106 rotas |
 | Dados externos | Nenhuma chamada de IA, banco ou rede durante o teste |
+| Aprovação comercial | Aprovado pelo usuário em 2026-07-30 |
+| Integração | PR #138 integrado por squash no commit `651765e` |
+| Produção | Deployment canônico `READY`, login HTTP 200 e sem erros de runtime |
 
 ### Restrições preservadas
 
@@ -169,7 +172,56 @@ e validada no Firefox:
 - nenhuma migration, policy, grant, RPC ou dado alterado;
 - motor padrão continua `v1`.
 
+## Fase 2 - Baseline reproduzível do schema
+
+### Escopo
+
+- auditar schema e histórico remoto sem mutações;
+- preservar os 94 arquivos SQL anteriores;
+- alinhar a cadeia oficial aos 19 nomes registrados no Supabase;
+- versionar a fotografia estrutural do schema `public`;
+- reproduzir o schema em PostgreSQL descartável;
+- comprovar RLS, policies, grants e ausência de DDL do V2.
+
+### Checklist
+
+- [x] Histórico remoto de 19 migrations auditado.
+- [x] Schema vivo inventariado sem copiar dados.
+- [x] 94 arquivos anteriores preservados em `migrations_legacy`.
+- [x] Cadeia oficial alinhada aos 19 nomes remotos.
+- [x] `lead_conversation_analyses` incluída no baseline.
+- [x] Manifesto estrutural versionado.
+- [x] Reprodução local descartável aprovada.
+- [x] RLS habilitado nas 39 tabelas reproduzidas.
+- [x] Advisors de segurança e performance registrados.
+- [x] Nenhuma branch ou custo criado após o bloqueio do plano Supabase.
+- [x] Nenhuma alteração aplicada em produção.
+- [x] Gates completos do repositório aprovados.
+- [ ] PR integrado e deployment canônico confirmado.
+
+### Evidências técnicas
+
+| Evidência | Resultado |
+|---|---|
+| Produção | 19 migrations, 39 tabelas e 448 colunas |
+| Schema | 162 constraints, 148 índices, 159 funções, 15 views e 27 triggers |
+| Segurança | 103 policies e RLS em 39 de 39 tabelas |
+| Histórico anterior | 94 arquivos preservados sem reescrita |
+| Reprodução | `npm run test:schema-baseline` aplica e compara a cadeia em PGlite |
+| Regressões | 22 testes do Companion aprovados |
+| Qualidade | ESLint e `npx tsc --noEmit` aprovados |
+| Build | `next build` aprovado com 106 rotas |
+| Dados reais | Nenhuma linha de produção copiada |
+| Mutação remota | Nenhuma migration, policy, grant, RPC ou dado alterado |
+
+### Restrição do ambiente
+
+A branch temporária autorizada não foi criada porque o Supabase exige plano Pro.
+Nenhum custo foi gerado. A validação foi transferida para PostgreSQL descartável
+em memória; uma branch oficial continuará sendo um gate adicional quando o
+recurso estiver disponível.
+
 ## Próximo gate
 
-Concluir a revisão comercial do corpus, registrar as validações técnicas e
-integrar a Fase 1 antes de iniciar a Fase 2 - Baseline reproduzível do schema.
+Concluir lint, TypeScript, testes e build da árvore completa; depois abrir o PR
+da Fase 2 para revisão antes de qualquer tabela nova do Companion V2.
