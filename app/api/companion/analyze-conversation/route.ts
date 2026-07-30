@@ -5,6 +5,10 @@ import { createClient } from '@supabase/supabase-js'
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
 import { resolveCompanionEngineVersion } from '@/app/lib/companion/engine-version'
+import {
+  selectStructuredMessageBatch,
+  shouldForceReanalysis,
+} from '@/app/lib/companion/message-selection'
 import type { AICoaching } from '@/app/types/ai-coaching'
 import type {
   AISalesContext,
@@ -31,6 +35,8 @@ type AnalyzeCompanionBody = {
   messages?: unknown
   source?: unknown
   audio_count?: unknown
+  force_reanalysis?: unknown
+  message_snapshot_hash?: unknown
 }
 
 type CompanionMessageDirection =
@@ -538,70 +544,15 @@ function getMessageCursorFromDecision(
   }
 }
 
-function selectStructuredMessageBatch({
-  messages,
-  latestDecision,
-}: {
-  messages: CompanionMessage[]
-  latestDecision: JsonRecord | null
-}) {
-  const cursor =
-    getMessageCursorFromDecision(
-      latestDecision,
-    )
+function getMessageSnapshotHashFromDecision(
+  value: unknown,
+) {
+  const companion =
+    getCompanionRecordFromDecision(value)
 
-  if (!cursor.has_cursor) {
-    const latestDateKey =
-      messages.at(-1)?.date_key
-
-    const initialMessages =
-      latestDateKey
-        ? messages.filter(
-            (message) =>
-              message.date_key ===
-              latestDateKey,
-          )
-        : messages
-
-    return {
-      messages:
-        initialMessages.slice(-80),
-      incremental: false,
-      cursor,
-    }
-  }
-
-  const processedIds =
-    new Set(
-      cursor.processed_message_ids,
-    )
-
-  const newMessages =
-    messages.filter((message) => {
-      if (
-        message.timestamp_ms >
-        cursor.last_message_timestamp_ms
-      ) {
-        return true
-      }
-
-      if (
-        message.timestamp_ms ===
-          cursor.last_message_timestamp_ms &&
-        !processedIds.has(message.id)
-      ) {
-        return true
-      }
-
-      return false
-    })
-
-  return {
-    messages:
-      newMessages.slice(-80),
-    incremental: true,
-    cursor,
-  }
+  return getNullableString(
+    companion?.message_snapshot_hash,
+  )
 }
 
 function buildNextMessageCursor({
@@ -986,6 +937,8 @@ function buildYolenDecision({
   audioCount,
   messageBatch,
   latestDecision,
+  messageSnapshotHash,
+  forceReanalysis,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
@@ -998,6 +951,8 @@ function buildYolenDecision({
   audioCount: number
   messageBatch: CompanionMessage[]
   latestDecision: JsonRecord | null
+  messageSnapshotHash: string | null
+  forceReanalysis: boolean
 }) {
   const messageCursor =
     buildNextMessageCursor({
@@ -1060,6 +1015,10 @@ function buildYolenDecision({
         ),
       message_count:
         messageBatch.length,
+      message_snapshot_hash:
+        messageSnapshotHash,
+      force_reanalysis:
+        forceReanalysis,
       saved_without_applying: true,
     },
   }
@@ -1303,6 +1262,14 @@ export async function POST(request: Request) {
       getAudioCount(
         body.audio_count,
       )
+
+    const forceReanalysisRequested =
+      body.force_reanalysis === true
+
+    const messageSnapshotHash =
+      getNullableString(
+        body.message_snapshot_hash,
+      )?.slice(0, 200) ?? null
 
     if (!cycleId) {
       return NextResponse.json<AnalyzeConversationResponse>(
@@ -1558,13 +1525,32 @@ export async function POST(request: Request) {
       cycleId,
     })
 
+  const latestMessageSnapshotHash =
+    getMessageSnapshotHashFromDecision(
+      latestSavedCoaching
+        ?.yolenDecision,
+    )
+
+  const forceReanalysis =
+    shouldForceReanalysis({
+      requested:
+        forceReanalysisRequested,
+      currentSnapshotHash:
+        messageSnapshotHash,
+      previousSnapshotHash:
+        latestMessageSnapshotHash,
+    })
+
   const structuredSelection =
     selectStructuredMessageBatch({
       messages:
         structuredMessages,
-      latestDecision:
-        latestSavedCoaching
-          ?.yolenDecision ?? null,
+      cursor:
+        getMessageCursorFromDecision(
+          latestSavedCoaching
+            ?.yolenDecision ?? null,
+        ),
+      forceReanalysis,
     })
 
   const latestSuggestion =
@@ -1795,6 +1781,8 @@ export async function POST(request: Request) {
         latestDecision:
           latestSavedCoaching
             ?.yolenDecision ?? null,
+        messageSnapshotHash,
+        forceReanalysis,
       })
 
     const savedCoaching = await saveCompanionCoachingNote({
