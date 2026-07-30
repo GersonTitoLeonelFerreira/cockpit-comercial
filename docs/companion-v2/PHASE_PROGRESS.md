@@ -109,9 +109,10 @@ Validação técnica:
 ## Próximo gate
 
 A Fase 0 está encerrada. Antes da Fase 1 - Corpus de regressão, a correção de
-integridade precisa:
+integridade está no PR
+[#137](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/137)
+e precisa:
 
-1. ser publicada em PR isolado;
-2. chegar ao deployment canônico;
-3. passar no Firefox com mensagem nova, editada e apagada;
-4. confirmar ausência de orientação e evento duplicados.
+1. concluir o preview do projeto canônico;
+2. passar no Firefox com mensagem nova, editada e apagada;
+3. confirmar ausência de orientação e evento duplicados.
