@@ -4,10 +4,10 @@
 
 | Campo | Valor |
 |---|---|
-| Fase atual | 2 - Baseline reproduzível do schema |
-| Estado | Em validação |
+| Fase atual | 3 - Ledger canônico de mensagens |
+| Estado | Em validação local |
 | Início | 2026-07-29 |
-| Commit-base da Fase 2 | `651765ebc30fed919932a35c9ae326e2e079eb75` |
+| Commit-base da Fase 3 | `63a23fb36f319453b5e95bcd371a2ecccd277ba0` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
 | Motor padrão | `v1` |
 | Banco alterado | Não |
@@ -197,7 +197,7 @@ e validada no Firefox:
 - [x] Nenhuma branch ou custo criado após o bloqueio do plano Supabase.
 - [x] Nenhuma alteração aplicada em produção.
 - [x] Gates completos do repositório aprovados.
-- [ ] PR integrado e deployment canônico confirmado.
+- [x] PR integrado e deployment canônico confirmado.
 
 ### Evidências técnicas
 
@@ -213,6 +213,8 @@ e validada no Firefox:
 | Build | `next build` aprovado com 106 rotas |
 | Dados reais | Nenhuma linha de produção copiada |
 | Mutação remota | Nenhuma migration, policy, grant, RPC ou dado alterado |
+| Integração | PR #139 integrado no commit `84e57a3` |
+| Produção | Deployment canônico `READY`; login HTTP 200 e sem erro de runtime |
 
 ### Restrição do ambiente
 
@@ -221,7 +223,62 @@ Nenhum custo foi gerado. A validação foi transferida para PostgreSQL descartá
 em memória; uma branch oficial continuará sendo um gate adicional quando o
 recurso estiver disponível.
 
+## Fase 3 - Ledger canônico de mensagens
+
+### Escopo
+
+- criar `conversation_messages` sem alterar o V1;
+- registrar versões imutáveis de texto, áudio e exclusão;
+- vincular cada registro à empresa e ao ciclo;
+- impedir colisão entre empresas e sobrescrita do histórico;
+- bloquear acesso direto de `anon` e `authenticated`;
+- validar a migration em PostgreSQL descartável.
+
+### Checklist
+
+- [x] Pré-flight do schema e das migrations realizado sem mutação.
+- [x] Mudanças recentes da Data API e RLS revisadas na documentação oficial.
+- [x] Migration criada manualmente no formato oficial do Supabase após o CLI
+  ser bloqueado pelas restrições do ambiente local.
+- [x] Chave única por empresa, conversa, mensagem e versão.
+- [x] Foreign key composta bloqueia ciclo de outra empresa.
+- [x] Edição e exclusão modeladas como novas versões.
+- [x] RLS habilitado e forçado.
+- [x] `anon` e `authenticated` sem privilégios.
+- [x] `service_role` limitado a `SELECT` e `INSERT`.
+- [x] Índices de identidade, ciclo, horário e capturador.
+- [x] Teste descartável da Fase 3 aprovado.
+- [x] Baseline da Fase 2 permanece aprovado.
+- [x] Testes de regressão do Companion aprovados.
+- [x] TypeScript, lint e build aprovados.
+- [ ] PR integrado e deployment canônico confirmado.
+- [ ] Migration aplicada no Supabase com autorização explícita.
+- [ ] Advisors pós-migration revisados.
+
+### Evidências locais
+
+| Evidência | Resultado |
+|---|---|
+| Banco vivo | 19 migrations e nenhuma tabela V2 antes da fase |
+| Baseline | 1/1; schema anterior reconstruído do zero |
+| Ledger | 1/1; versionamento, exclusão e duas empresas validados |
+| Regressões Companion | 22/22 |
+| Lint | Arquivos de teste da Fase 3 sem erros |
+| TypeScript | `npx tsc --noEmit --incremental false` sem erros |
+| Build | 106 rotas compiladas |
+| Mutação remota | Nenhuma |
+| Motor padrão | `v1` |
+
+### Restrições preservadas
+
+- nenhuma conversa ou linha de produção lida;
+- nenhuma migration aplicada remotamente;
+- nenhuma rota, extensão ou prompt alterado;
+- nenhuma decisão ou alteração de CRM executada;
+- nenhum custo ou branch Supabase criado.
+
 ## Próximo gate
 
-Concluir lint, TypeScript, testes e build da árvore completa; depois abrir o PR
-da Fase 2 para revisão antes de qualquer tabela nova do Companion V2.
+Executar regressões do Companion, lint, TypeScript e build da árvore completa.
+Depois, revisar o diff e abrir o PR da Fase 3 sem aplicar a migration em
+produção.

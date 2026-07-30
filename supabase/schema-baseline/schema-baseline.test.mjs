@@ -105,7 +105,25 @@ test("baseline recria o schema public canônico do zero", async () => {
       (name) => name.endsWith(".sql"),
     );
 
-    assert.deepEqual(migrationFiles, manifest.remote_migrations);
+    assert.deepEqual(
+      migrationFiles.slice(0, manifest.remote_migrations.length),
+      manifest.remote_migrations,
+    );
+
+    const migrationsAfterBaseline = migrationFiles.slice(
+      manifest.remote_migrations.length,
+    );
+    const lastBaselineMigration = manifest.remote_migrations.at(-1);
+
+    assert.ok(lastBaselineMigration);
+    assert.ok(
+      migrationsAfterBaseline.every(
+        (name) =>
+          /^\d{14}_[a-z0-9_]+\.sql$/.test(name) &&
+          name > lastBaselineMigration,
+      ),
+      "Toda migration posterior ao baseline deve ter timestamp crescente e nome válido.",
+    );
     assert.equal(legacyMigrationFiles.length, 94);
 
     await db.exec(baselineSql);

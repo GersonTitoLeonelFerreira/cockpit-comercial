@@ -6,10 +6,12 @@ linhas de produção.
 
 ## Como a conciliação funciona
 
-- `supabase/migrations/` contém exatamente os 19 nomes registrados no histórico
-  remoto.
+- Os 19 primeiros arquivos de `supabase/migrations/` correspondem exatamente
+  aos nomes registrados no histórico remoto no momento da Fase 2.
 - As 18 primeiras migrations são marcadores históricos sem DDL.
 - A 19ª migration contém o baseline consolidado do schema vivo.
+- Migrations das fases posteriores são adicionadas depois dessa cadeia, sem
+  reescrever o baseline.
 - `supabase/migrations_legacy/` preserva, sem reescrita, os 94 arquivos que
   existiam antes da conciliação.
 
@@ -39,13 +41,15 @@ Execute:
 npm run test:schema-baseline
 ```
 
-O teste sobe um PostgreSQL descartável em memória com PGlite, aplica as 19
-migrations oficiais e compara o resultado com o manifesto. Ele também comprova
-que:
+O teste sobe um PostgreSQL descartável em memória com PGlite, aplica a
+migration consolidada do baseline e compara o resultado com o manifesto. As
+migrations posteriores possuem testes próprios e não alteram esta fotografia.
+O teste também comprova que:
 
 - as 39 tabelas estão com RLS habilitado;
 - as cinco tabelas planejadas para o Companion V2 ainda não existem;
-- o histórico oficial tem os mesmos nomes do Supabase;
+- os 19 arquivos do baseline têm os mesmos nomes do histórico remoto;
+- migrations posteriores possuem timestamp crescente e nome válido;
 - os 94 arquivos anteriores continuam preservados;
 - o baseline não depende de dados reais.
 
