@@ -105,8 +105,9 @@ Por isso, a Fase 4 do produto continua parcial.
 
 | Entrega técnica | PR | Commit integrado | Estado |
 |---|---|---|---|
-| Proteção do V1 | #136 | `59842da` | Produção validada |
-| Integridade de edição/exclusão | #137 | anterior ao corpus | V1 validado no Firefox |
+| Proteção do V1 | Commit direto de governança | `59842da` | Produção validada |
+| Bloqueio de agenda vencida | #136 | `27ea5a9` | V1 protegido |
+| Integridade de edição/exclusão | #137 | `1fb1aeb` | V1 validado no Firefox |
 | Corpus de regressão | #138 | `651765e` | Integrado |
 | Baseline do schema | #139 | `84e57a3` | Integrado |
 | Compatibilidade dos testes | #140 e #141 | `3b6b147` e `63a23fb` | Integrado |
