@@ -1,350 +1,153 @@
-# Progresso do Yolen Companion V2
+# Progresso oficial do Yolen Companion V2
 
-## Estado geral
+## Regra de leitura
 
-| Campo | Valor |
+Este relatório acompanha fases do produto. Banco, migrations, testes e rotas
+aparecem como evidências ou pacotes técnicos, não como substitutos de uma
+entrega funcional.
+
+O detalhamento histórico dos pacotes anteriores permanece nos documentos
+`PHASE_2_SCHEMA_BASELINE.md`, `PHASE_3_MESSAGE_LEDGER.md` e
+`PHASE_4_CAPTURE_STATE.md`.
+
+## Estado geral em 2026-07-30
+
+| Campo | Estado |
 |---|---|
-| Fase atual | 4 - Cursor e estado de captura |
-| Estado | Em implementação e validação local |
-| Início | 2026-07-29 |
-| Commit-base da Fase 4 | `b92bbd4bc9e0ab2c572116d62522473e3633997c` |
-| Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
-| Motor padrão | `v1` |
-| Banco alterado | Fase 3 aplicada; Fase 4 ainda não aplicada |
-| Extensão alterada | Não |
-| Correção pré-Fase 1 | Concluída no PR #137 |
+| Momento atual | Realinhamento de governança antes de retomar a Fase 1 |
+| Motor ativo | `v1` |
+| Commit de produção | `516dc92c227a86229548e9def4712c141caae694` |
+| Produção canônica | `READY`; `/login` respondeu HTTP 200 |
+| Supabase | Projeto saudável; migrations técnicas PT4-A e PT4-B aplicadas |
+| Extensão V2 | Não integrada ao ledger |
+| Tabelas V2 | Criadas e vazias |
+| Interface nova V2 | Não existe |
+| Fase 5 do produto | Não iniciada |
 
-## Checklist da Fase 0
+## Painel executivo por fase do produto
 
-- [x] `git status` e commit-base verificados.
-- [x] GitHub, Supabase e Vercel auditados.
-- [x] Escopo e arquivos permitidos definidos.
-- [x] Roadmap V2 registrado.
-- [x] ADR de convivência V1/V2 registrado.
-- [x] Plano de rollback registrado.
-- [x] Baseline de segurança e dados registrado.
-- [x] Flag tipada criada com padrão `v1`.
-- [x] `.env.example` documentado sem segredos reais.
-- [x] Governança de RLS atualizada conforme o banco vivo.
-- [x] TypeScript validado.
-- [x] Lint do escopo Companion validado.
-- [x] Build validado.
-- [x] Referência remota de rollback criada no GitHub.
-- [x] Tag anotada publicada no GitHub.
-- [x] Commit da Fase 0 publicado.
-- [x] Deployment canônico `READY`.
-- [x] Verificação pós-deploy registrada.
-- [x] Fluxo real no Firefox validado pelo operador.
+| Fase | Entrega | Estado | Evidência existente | Pendência que impede conclusão |
+|---|---|---|---|---|
+| 0 | Proteção do V1 e rollback | Concluída | Tag de baseline, flag padrão `v1`, rollback e produção validados | Nenhuma |
+| 1 | Contrato da inteligência comercial | Parcial | Corpus sintético com 14 conversas e 22 testes | Contrato completo de entradas, fatos, diagnóstico, evidências, orientação e proibições ainda não foi apresentado e aprovado |
+| 2 | Dados de método, produtos e configurações | Não iniciada funcionalmente | Baseline do schema pronto | Modelo configurável por empresa ainda não foi criado |
+| 3 | Tela de configuração comercial | Não iniciada | Nenhuma entrega funcional | Interface e fluxo de salvar/editar configurações ainda não existem |
+| 4 | Captura completa e demonstrável | Fundação parcial | Ledger e cursor criados, seguros e testados | Extensão não envia ao ledger; ingestão, reconciliação e prévia técnica não existem |
+| 5 | Motor de diagnóstico comercial V2 | Não iniciada | Nenhuma execução V2 | Depende do aceite funcional das Fases 1 a 4 |
 
-## Evidências
+## O que o vendedor consegue usar hoje
 
-| Evidência | Resultado |
-|---|---|
-| TypeScript | `npx tsc --noEmit` passou |
-| Lint Companion | ESLint passou em rotas, tipos, biblioteca e extensão |
-| Seletor do motor | 5 cenários passaram: ausência, vazio, `v1`, `v2` normalizado e valor inválido |
-| Build | `next build` passou com certificados do sistema e variáveis temporárias sem segredos |
-| Commit | `59842da36a407a727af6b2584c3eb9f65ad53780` publicado na `main` |
-| Referência de rollback | `safety/yolen-companion-v1-baseline-2026-07-29` aponta para `50059c32` |
-| Deployment | `dpl_DHdLFFuEgp8g2trVaoehz511ph1G` - `READY` em produção |
-| Smoke test | `https://cockpit-comercial-vocn.vercel.app/login` respondeu HTTP 200 |
-| Runtime | Nenhum erro encontrado na última hora após a publicação |
-| Supabase após publicação | `ACTIVE_HEALTHY`; nenhuma mutation executada |
-| Firefox + WhatsApp | Passou em conexão, resolução do lead, análise, aplicação, atualização do ciclo e registro no histórico sem duplicidade aparente |
+O que existe para uso continua sendo o Companion V1:
 
-## Aprovações
+- conexão e resolução do lead;
+- análise incremental de mensagens novas;
+- reanálise controlada após edição, exclusão ou restauração;
+- reutilização do resultado quando não há mudança na conversa;
+- separação entre analisar e aplicar a sugestão;
+- bloqueio de agendamento com horário vencido.
 
-| Data | Decisão |
-|---|---|
-| 2026-07-29 | Usuário autorizou a execução completa da Fase 0 |
-| 2026-07-29 | Usuário publicou a tag anotada e validou o fluxo real no Firefox |
+Essas correções preservaram o fluxo existente. Elas não representam uma nova
+interface do V2.
 
-## Restrições preservadas
+## Fundação técnica V2 concluída
 
-- nenhuma migration criada ou aplicada;
-- nenhuma policy, grant, RPC ou dado alterado;
-- nenhum prompt comercial alterado;
-- nenhum arquivo da extensão alterado;
-- nenhum projeto Vercel duplicado removido.
+### PT0 - proteção do V1
 
-## Correção operacional antes da Fase 1
+- tag `yolen-companion-v1-baseline-2026-07-29`;
+- referência remota de rollback;
+- seletor `COMPANION_ENGINE_VERSION` com padrão `v1`;
+- documentação de arquitetura, segurança e rollback;
+- deployment e fluxo real validados.
 
-O teste real revelou que uma sugestão podia carregar `next_action_date` anterior
-ao momento da aplicação. A correção foi tratada como hotfix isolado do V1:
+### PT1-A - corpus de regressão
 
-- a extração de data descarta horários que já passaram;
-- a aplicação valida novamente a data no momento do clique;
-- uma sugestão que envelheceu é bloqueada antes de alterar o ciclo;
-- nenhum horário novo é inventado silenciosamente;
-- banco, extensão e contratos do V2 permanecem inalterados.
+- 14 conversas sintéticas e anonimizadas;
+- ganho, perda, agenda, negociação, ausência de resposta, edição, exclusão,
+  áudio e falsos positivos;
+- 22 cenários automatizados;
+- nenhuma conversa real usada.
 
-O teste também produziu o primeiro caso obrigatório do corpus da Fase 1:
-conversa pessoal interpretada como Agenda. A classificação não foi remendada no
-V1, pois a correção estrutural pertence ao novo contrato de análise e ao motor
-de decisão.
+Esse pacote sustenta a Fase 1, mas não substitui o contrato comercial que ainda
+precisa de aprovação do usuário.
 
-## Integridade de mensagens antes da Fase 1
+### PT-BASE - baseline reproduzível do schema
 
-A análise da branch local preservada revelou a necessidade de tratar edições e
-exclusões no WhatsApp sem reintroduzir mensagens antigas nem gerar novas
-orientações a cada clique. A implementação foi reconstruída sobre a árvore da
-`main` e mantém as seguintes regras:
+- 94 migrations legadas preservadas;
+- histórico oficial conciliado com o Supabase;
+- 39 tabelas e respectivos controles estruturais reproduzidos em banco
+  descartável;
+- nenhuma linha de produção copiada.
 
-- mensagem nova continua em análise incremental;
-- edição, exclusão ou restauração reprocessa somente o dia mais recente;
-- o botão manual não força reanálise sem mudança real;
-- a mesma fotografia da conversa reutiliza o resultado já salvo;
-- horário legítimo no fim do texto e palavras repetidas não são cortados;
-- conversas retomadas no mesmo dia não são divididas por intervalo arbitrário;
-- o hotfix que bloqueia agenda vencida permanece preservado;
-- nenhuma migration, policy, RPC, dado ou prompt comercial é alterado.
+Esse pacote reduz risco de banco, mas não cria os dados comerciais da Fase 2.
 
-Validação técnica:
+### PT4-A - ledger de mensagens
 
-- 13 cenários automatizados passaram;
-- ESLint passou nos arquivos afetados;
-- `npx tsc --noEmit` passou;
-- `next build` passou com 106 rotas.
+- tabela `conversation_messages`;
+- versões imutáveis para texto, áudio, edição e exclusão;
+- isolamento por empresa;
+- RLS forçado e grants mínimos;
+- migration `20260730155903` aplicada;
+- teste local 1/1 aprovado.
 
-## Fechamento da correção pré-Fase 1
+### PT4-B - estado de captura
 
-A correção de integridade foi publicada pelo PR
-[#137](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/137)
-e validada no Firefox:
+- tabela `conversation_capture_state`;
+- separação entre última mensagem observada e processada;
+- estado independente por empresa, conversa e dispositivo;
+- RLS forçado e grants mínimos;
+- migration `20260730170515` aplicada;
+- teste local 1/1 aprovado.
 
-- mensagem nova gerou uma análise;
-- edição gerou reanálise controlada;
-- exclusão removeu a mensagem da fotografia atual;
-- clique sem mudança reutilizou a orientação;
-- nenhuma orientação duplicada foi criada;
-- a aplicação da sugestão permaneceu separada da análise.
+PT4-A e PT4-B permanecem vazios porque a extensão V2 ainda não escreve neles.
+Por isso, a Fase 4 do produto continua parcial.
 
-## Fase 1 - Corpus de regressão
+## Evidências integradas
 
-### Escopo
+| Entrega técnica | PR | Commit integrado | Estado |
+|---|---|---|---|
+| Proteção do V1 | Commit direto de governança | `59842da` | Produção validada |
+| Bloqueio de agenda vencida | #136 | `27ea5a9` | V1 protegido |
+| Integridade de edição/exclusão | #137 | `1fb1aeb` | V1 validado no Firefox |
+| Corpus de regressão | #138 | `651765e` | Integrado |
+| Baseline do schema | #139 | `84e57a3` | Integrado |
+| Compatibilidade dos testes | #140 e #141 | `3b6b147` e `63a23fb` | Integrado |
+| Ledger PT4-A | #142 | `b92bbd4` | Integrado e aplicado no Supabase |
+| Cursor PT4-B | #143 | `516dc92` | Integrado e aplicado no Supabase |
 
-- conversas exclusivamente sintéticas e anonimizadas;
-- oráculo de fatos comerciais, decisão, evidências e proibições;
-- identidade e versão para cenários de edição e exclusão;
-- áudio transcrito e áudio sem transcrição;
-- falsos positivos conhecidos de agenda;
-- teste estrutural sem chamada de IA, banco ou rede.
+## Correção do registro técnico da antiga Fase 4
 
-### Checklist
+O documento anterior ainda marcava como pendentes itens que já foram
+concluídos. O estado correto é:
 
-- [x] Ganho explícito.
-- [x] Perda explícita.
-- [x] Agenda confirmada pelo cliente.
-- [x] Negociação sem desfecho.
-- [x] Ausência de resposta.
-- [x] Mensagem editada.
-- [x] Mensagem apagada.
-- [x] Áudio transcrito.
-- [x] Áudio sem transcrição.
-- [x] Conversa pessoal com horário.
-- [x] Convite feito só pelo vendedor.
-- [x] Negociação superada por agendamento final.
-- [x] Negociação superada por perda explícita.
-- [x] Validador de cobertura, versão, evidência e anonimização.
-- [x] Revisão comercial do corpus.
-- [x] Validações técnicas registradas.
-- [x] PR integrado e deployment canônico confirmado.
+- PR #143 integrado por squash;
+- deployment canônico `READY`;
+- migration `20260730170515` aplicada;
+- RLS, policy e privilégios verificados;
+- advisors sem novo alerta de segurança do pacote;
+- teste local 1/1 aprovado;
+- repositório do usuário limpo depois da validação.
 
-### Evidências técnicas
+Esse fechamento comprova PT4-B. Ele não comprova captura funcional da Fase 4.
 
-| Evidência | Resultado |
-|---|---|
-| Corpus | 14 casos e 10 coberturas obrigatórias |
-| Testes Companion | 22 cenários passaram |
-| ESLint | Passou nos três arquivos de teste do Companion |
-| TypeScript | `npx tsc --noEmit` passou |
-| Build | `next build` passou com 106 rotas |
-| Dados externos | Nenhuma chamada de IA, banco ou rede durante o teste |
-| Aprovação comercial | Aprovado pelo usuário em 2026-07-30 |
-| Integração | PR #138 integrado por squash no commit `651765e` |
-| Produção | Deployment canônico `READY`, login HTTP 200 e sem erros de runtime |
+## Itens explicitamente não entregues
 
-### Restrições preservadas
-
-- nenhum arquivo de runtime alterado;
-- nenhuma alteração na extensão;
-- nenhum prompt comercial alterado;
-- nenhuma migration, policy, grant, RPC ou dado alterado;
-- motor padrão continua `v1`.
-
-## Fase 2 - Baseline reproduzível do schema
-
-### Escopo
-
-- auditar schema e histórico remoto sem mutações;
-- preservar os 94 arquivos SQL anteriores;
-- alinhar a cadeia oficial aos 19 nomes registrados no Supabase;
-- versionar a fotografia estrutural do schema `public`;
-- reproduzir o schema em PostgreSQL descartável;
-- comprovar RLS, policies, grants e ausência de DDL do V2.
-
-### Checklist
-
-- [x] Histórico remoto de 19 migrations auditado.
-- [x] Schema vivo inventariado sem copiar dados.
-- [x] 94 arquivos anteriores preservados em `migrations_legacy`.
-- [x] Cadeia oficial alinhada aos 19 nomes remotos.
-- [x] `lead_conversation_analyses` incluída no baseline.
-- [x] Manifesto estrutural versionado.
-- [x] Reprodução local descartável aprovada.
-- [x] RLS habilitado nas 39 tabelas reproduzidas.
-- [x] Advisors de segurança e performance registrados.
-- [x] Nenhuma branch ou custo criado após o bloqueio do plano Supabase.
-- [x] Nenhuma alteração aplicada em produção.
-- [x] Gates completos do repositório aprovados.
-- [x] PR integrado e deployment canônico confirmado.
-
-### Evidências técnicas
-
-| Evidência | Resultado |
-|---|---|
-| Produção | 19 migrations, 39 tabelas e 448 colunas |
-| Schema | 162 constraints, 148 índices, 159 funções, 15 views e 27 triggers |
-| Segurança | 103 policies e RLS em 39 de 39 tabelas |
-| Histórico anterior | 94 arquivos preservados sem reescrita |
-| Reprodução | `npm run test:schema-baseline` aplica e compara a cadeia em PGlite |
-| Regressões | 22 testes do Companion aprovados |
-| Qualidade | ESLint e `npx tsc --noEmit` aprovados |
-| Build | `next build` aprovado com 106 rotas |
-| Dados reais | Nenhuma linha de produção copiada |
-| Mutação remota | Nenhuma migration, policy, grant, RPC ou dado alterado |
-| Integração | PR #139 integrado no commit `84e57a3` |
-| Produção | Deployment canônico `READY`; login HTTP 200 e sem erro de runtime |
-
-### Restrição do ambiente
-
-A branch temporária autorizada não foi criada porque o Supabase exige plano Pro.
-Nenhum custo foi gerado. A validação foi transferida para PostgreSQL descartável
-em memória; uma branch oficial continuará sendo um gate adicional quando o
-recurso estiver disponível.
-
-## Fase 3 - Ledger canônico de mensagens
-
-### Escopo
-
-- criar `conversation_messages` sem alterar o V1;
-- registrar versões imutáveis de texto, áudio e exclusão;
-- vincular cada registro à empresa e ao ciclo;
-- impedir colisão entre empresas e sobrescrita do histórico;
-- bloquear acesso direto de `anon` e `authenticated`;
-- validar a migration em PostgreSQL descartável.
-
-### Checklist
-
-- [x] Pré-flight do schema e das migrations realizado sem mutação.
-- [x] Mudanças recentes da Data API e RLS revisadas na documentação oficial.
-- [x] Migration criada manualmente no formato oficial do Supabase após o CLI
-  ser bloqueado pelas restrições do ambiente local.
-- [x] Chave única por empresa, conversa, mensagem e versão.
-- [x] Foreign key composta bloqueia ciclo de outra empresa.
-- [x] Edição e exclusão modeladas como novas versões.
-- [x] RLS habilitado e forçado.
-- [x] `anon` e `authenticated` sem privilégios.
-- [x] `service_role` limitado a `SELECT` e `INSERT`.
-- [x] Índices de identidade, ciclo, horário e capturador.
-- [x] Teste descartável da Fase 3 aprovado.
-- [x] Baseline da Fase 2 permanece aprovado.
-- [x] Testes de regressão do Companion aprovados.
-- [x] TypeScript, lint e build aprovados.
-- [x] PR #142 integrado e deployment canônico confirmado.
-- [x] Migration aplicada no Supabase com autorização explícita.
-- [x] Advisors pós-migration revisados.
-
-### Evidências de fechamento
-
-| Evidência | Resultado |
-|---|---|
-| Banco vivo | 19 migrations e nenhuma tabela V2 antes da fase |
-| Baseline | 1/1; schema anterior reconstruído do zero |
-| Ledger | 1/1; versionamento, exclusão e duas empresas validados |
-| Regressões Companion | 22/22 |
-| Lint | Arquivos de teste da Fase 3 sem erros |
-| TypeScript | `npx tsc --noEmit --incremental false` sem erros |
-| Build | 106 rotas compiladas |
-| Integração | PR #142 integrado por squash no commit `b92bbd4` |
-| Supabase | Migration `20260730155903` aplicada; projeto `ACTIVE_HEALTHY` |
-| Segurança | Nenhum novo alerta; `anon` e `authenticated` sem acesso |
-| Produção | Deployment canônico `READY`; login HTTP 200; sem erro de runtime |
-| Validação no Mac | Ledger 1/1 e repositório limpo |
-| Motor padrão | `v1` |
-
-### Restrições preservadas
-
-- nenhuma conversa ou linha de produção lida;
-- nenhuma rota, extensão ou prompt alterado;
-- nenhuma decisão ou alteração de CRM executada;
-- nenhum custo ou branch Supabase criado.
-
-## Fase 4 - Cursor e estado de captura
-
-### Escopo
-
-- criar `conversation_capture_state` sem alterar o V1;
-- separar última mensagem observada de última mensagem processada;
-- manter um estado por empresa, conversa e dispositivo;
-- referenciar somente versões válidas do ledger;
-- impedir ponteiros entre empresas e conversas;
-- remover a dependência arquitetural do JSON de coaching;
-- validar a migration em PostgreSQL descartável.
-
-### Checklist
-
-- [x] `main` e commit-base `b92bbd4` confirmados.
-- [x] Projeto e histórico remoto auditados sem mutação.
-- [x] Changelog, RLS, grants, foreign keys e upsert revisados.
-- [x] Migration criada em área isolada.
-- [x] Identidade por empresa, conversa e dispositivo.
-- [x] Cursor observado separado do processado.
-- [x] Ponteiros compostos para o ledger.
-- [x] Cursor processado bloqueado quando ultrapassa o observado.
-- [x] RLS habilitado e forçado.
-- [x] `anon` e `authenticated` sem privilégios.
-- [x] `service_role` limitado a `SELECT`, `INSERT` e `UPDATE`.
-- [x] `DELETE` e `TRUNCATE` não concedidos.
-- [x] Estado sem coluna JSON e sem vínculo com `ai_coaching_notes`.
-- [x] Índices das foreign keys.
-- [x] Teste descartável da Fase 4 aprovado.
-- [x] Baseline da Fase 2 permanece aprovado.
-- [x] Ledger da Fase 3 permanece aprovado.
-- [x] Testes de regressão do Companion aprovados.
-- [x] TypeScript, lint e build aprovados.
-- [ ] PR integrado e deployment canônico confirmado.
-- [ ] Migration aplicada no Supabase com autorização explícita.
-- [ ] Advisors pós-migration revisados.
-
-### Evidências locais
-
-| Evidência | Resultado |
-|---|---|
-| Base | `b92bbd4`, mesma `main` que encerrou a Fase 3 |
-| Banco vivo | 20 migrations; ledger presente; cursor ausente antes da fase |
-| Baseline | 1/1; schema anterior reconstruído do zero |
-| Ledger | 1/1; Fase 3 sem regressão |
-| Cursor | 1/1; duas empresas e dois dispositivos validados |
-| Regressões Companion | 22/22 |
-| Lint | Teste da Fase 4 sem erros |
-| TypeScript | `npx tsc --noEmit --incremental false` sem erros |
-| Build | Concluído com certificados TLS do sistema e 119 caminhos de aplicação |
-| Mutação remota | Nenhuma |
-| Runtime e extensão | Nenhum arquivo alterado |
-| Motor padrão | `v1` |
-
-### Restrições preservadas
-
-- nenhuma conversa ou linha operacional lida;
-- nenhuma migration da Fase 4 aplicada remotamente;
-- nenhuma rota, extensão ou prompt alterado;
-- nenhum identificador de dispositivo coletado;
-- nenhuma decisão ou alteração de CRM executada;
-- nenhum custo ou branch Supabase criado.
+- nenhuma mensagem real gravada no ledger V2;
+- nenhuma rota V2 de ingestão;
+- nenhum `device_key` gerado pela extensão;
+- nenhuma prévia de mensagens capturadas;
+- nenhuma tela de configuração comercial;
+- nenhum diagnóstico do motor V2;
+- nenhuma alteração automática de estágio, agenda ou CRM pelo V2;
+- nenhum rollout para empresa piloto.
 
 ## Próximo gate
 
-Executar regressões do Companion, lint, TypeScript e build da árvore completa.
-Depois, revisar o diff e solicitar autorização para publicar a Fase 4 sem
-aplicar a migration em produção.
+1. Integrar este realinhamento documental.
+2. Produzir o contrato comercial da Fase 1 em linguagem de negócio.
+3. Apresentar exemplos de entrada, fatos, diagnóstico, evidências, orientação e
+   situações em que o motor deve se recusar a decidir.
+4. Obter aprovação explícita do usuário.
+5. Somente então iniciar o modelo de dados da Fase 2.
+
+Nenhuma ingestão, migration, tela ou motor V2 deve ser iniciado durante o gate
+de realinhamento.
