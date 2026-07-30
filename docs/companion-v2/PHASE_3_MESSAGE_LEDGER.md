@@ -1,4 +1,8 @@
-# Fase 3 - Ledger canônico de mensagens
+# Registro técnico PT4-A - Ledger canônico de mensagens
+
+> Nota de governança: este arquivo foi publicado originalmente como "Fase
+> técnica 3". No roadmap oficial do produto, ele é o pacote PT4-A e compõe a
+> fundação da Fase 4 - Captura completa, demonstrável e confiável.
 
 ## Objetivo
 
@@ -24,7 +28,7 @@ Ela não:
 - aplica alterações no CRM;
 - copia conversas ou dados de produção.
 
-O cursor entra na Fase 4. A escrita idempotente entra na Fase 5.
+O cursor foi entregue no pacote PT4-B. A escrita idempotente pertence ao pacote PT4-C, ainda pendente para concluir a Fase 4 do produto.
 
 ## Modelo criado
 
