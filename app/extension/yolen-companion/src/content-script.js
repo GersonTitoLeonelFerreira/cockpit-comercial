@@ -9,6 +9,15 @@
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
+  const messageMutationTools =
+    globalThis
+      .YolenCompanionMessageMutations
+
+  if (!messageMutationTools) {
+    throw new Error(
+      'Módulo de integridade das mensagens do Companion não carregado.',
+    )
+  }
 
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
@@ -21,6 +30,9 @@
   let messageLedgerConversationKey = null
   let messageWindowFloorTimestamp = null
   let conversationMessageLedger = new Map()
+  let deletedMessageIds = new Set()
+  let messageLedgerRequiresRebase = false
+  let messageLedgerMutationRevision = 0
 
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
@@ -833,17 +845,35 @@
   }
 
   function cleanCapturedMessageText(value) {
-    const text =
-      normalizeMessageText(value)
+    return messageMutationTools
+      .cleanCapturedMessageText(value)
+  }
+
+  function isDeletedMessageNode(node) {
+    const container =
+      getMessageContainer(node) ||
+      node
 
     if (
-      !text ||
-      /^(\d{1,2}:\d{2}\s*)+$/.test(text)
+      container.querySelector?.(
+        '[data-icon*="revoke"]',
+      )
     ) {
-      return ''
+      return true
     }
 
-    return text.slice(0, 4000)
+    return messageMutationTools
+      .isDeletedMessageText(
+        container.textContent,
+      )
+  }
+
+  function markMessageLedgerForRebase() {
+    messageLedgerRequiresRebase =
+      true
+
+    messageLedgerMutationRevision +=
+      1
   }
 
   function buildReliableMessageFromNode(
@@ -890,7 +920,9 @@
         timestamp.timestampLabel,
       dateKey: timestamp.dateKey,
       direction:
-        isOutgoingMessageNode(node)
+        isOutgoingMessageNode(
+          container || node,
+        )
           ? 'outgoing'
           : 'incoming',
       sender:
@@ -911,6 +943,12 @@
     messageWindowFloorTimestamp = null
     conversationMessageLedger =
       new Map()
+    deletedMessageIds =
+      new Set()
+    messageLedgerRequiresRebase =
+      false
+    messageLedgerMutationRevision =
+      0
   }
 
   function synchronizeConversationMessageLedger() {
@@ -918,7 +956,7 @@
       state.conversationKey
 
     if (!conversationKey) {
-      return
+      return false
     }
 
     if (
@@ -934,14 +972,45 @@
       getMainConversationRoot()
 
     if (!main) {
-      return
+      return false
     }
+
+    let detectedMessageMutation =
+      false
 
     main
       .querySelectorAll(
         '[data-pre-plain-text]',
       )
       .forEach((node) => {
+        const messageId =
+          getMessageDataId(node)
+
+        if (!messageId) {
+          return
+        }
+
+        if (isDeletedMessageNode(node)) {
+          conversationMessageLedger.delete(
+            messageId,
+          )
+
+          if (
+            !deletedMessageIds.has(
+              messageId,
+            )
+          ) {
+            deletedMessageIds.add(
+              messageId,
+            )
+
+            detectedMessageMutation =
+              true
+          }
+
+          return
+        }
+
         const message =
           buildReliableMessageFromNode(
             node,
@@ -949,6 +1018,31 @@
 
         if (!message) {
           return
+        }
+
+        const currentMessage =
+          conversationMessageLedger.get(
+            message.id,
+          )
+
+        const messageWasDeleted =
+          deletedMessageIds.delete(
+            message.id,
+          )
+
+        if (
+          messageWasDeleted ||
+          (
+            currentMessage &&
+            !messageMutationTools
+              .areCapturedMessagesEqual(
+                currentMessage,
+                message,
+              )
+          )
+        ) {
+          detectedMessageMutation =
+            true
         }
 
         conversationMessageLedger.set(
@@ -993,6 +1087,12 @@
           ),
         )
     }
+
+    if (detectedMessageMutation) {
+      markMessageLedgerForRebase()
+    }
+
+    return detectedMessageMutation
   }
 
   function getSortedLedgerMessages() {
@@ -1017,23 +1117,10 @@
   function getLatestDateMessageBlock(
     messages,
   ) {
-    if (messages.length === 0) {
-      return []
-    }
-
-    const latestDateKey =
-      messages[
-        messages.length - 1
-      ].dateKey
-
-    return messages
-      .filter(
-        (message) =>
-          message.dateKey ===
-          latestDateKey,
-      )
-      .slice(
-        -MAX_ANALYSIS_MESSAGE_COUNT,
+    return messageMutationTools
+      .getLatestDateMessageBlock(
+        messages,
+        MAX_ANALYSIS_MESSAGE_COUNT,
       )
   }
 
@@ -1995,32 +2082,11 @@
     const messages =
       getStructuredMessagesForAnalysis()
 
-    if (messages.length === 0) {
-      return null
-    }
-
-    const fingerprintSource =
-      messages
-        .map((message) => {
-          return [
-            message.id,
-            message.timestamp_ms,
-            message.text,
-            message.audio_transcription ||
-              '',
-          ].join('|')
-        })
-        .join('\n')
-
-    if (
-      fingerprintSource.length < 15
-    ) {
-      return null
-    }
-
-    return buildConversationFingerprint(
-      fingerprintSource,
-    )
+    return messageMutationTools
+      .buildMessageSnapshotFingerprint(
+        messages,
+        deletedMessageIds,
+      )
   }
 
   function isCurrentAnalysisOutdated() {
@@ -2485,7 +2551,8 @@
       isSelfConversation,
     }
 
-    synchronizeConversationMessageLedger()
+    const messageMutationDetected =
+      synchronizeConversationMessageLedger()
 
     state = {
       ...state,
@@ -2499,7 +2566,7 @@
       lastResolvedConversationKey = null
       clearLeadStateForNewConversation()
       renderPanel()
-      return
+      return messageMutationDetected
     }
 
     renderPanel()
@@ -2514,7 +2581,7 @@
         conversationKey
 
       resolveCurrentLead()
-      return
+      return messageMutationDetected
     }
 
     if (
@@ -2528,6 +2595,8 @@
         )
       }, 300)
     }
+
+    return messageMutationDetected
   }
 
   function getConnectionLabel() {
@@ -3908,17 +3977,23 @@
         conversationText,
       )
 
-      state = {
-        ...state,
-        conversationAnalysisLoading: true,
-        conversationAnalysis: null,
-        conversationAnalysisError: null,
-        analyzedConversationFingerprint: null,
-        automaticAnalysisStatus:
-          isAutomatic
-            ? 'Analisando automaticamente as novas mensagens...'
-            : null,
-        suggestionApplyLoading: false,
+    const forceReanalysis =
+      messageLedgerRequiresRebase
+
+    const mutationRevisionAtRequest =
+      messageLedgerMutationRevision
+
+    state = {
+      ...state,
+      conversationAnalysisLoading: true,
+      conversationAnalysis: null,
+      conversationAnalysisError: null,
+      analyzedConversationFingerprint: null,
+      automaticAnalysisStatus:
+        isAutomatic
+          ? 'Analisando automaticamente as novas mensagens...'
+          : null,
+      suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
       suggestedMessageCopyStatus: null,
@@ -3943,6 +4018,10 @@
             audio_count:
               state.lastAnalysisAudioCount ||
               0,
+            force_reanalysis:
+              forceReanalysis,
+            message_snapshot_hash:
+              conversationFingerprint,
           })
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
@@ -3960,6 +4039,15 @@
         return
       }
 
+      if (
+        forceReanalysis &&
+        messageLedgerMutationRevision ===
+          mutationRevisionAtRequest
+      ) {
+        messageLedgerRequiresRebase =
+          false
+      }
+
       state = {
         ...state,
         conversationAnalysisLoading: false,
@@ -3974,6 +4062,17 @@
       }
 
       renderPanel()
+
+      if (
+        messageLedgerMutationRevision !==
+          mutationRevisionAtRequest ||
+        getCurrentConversationFingerprint() !==
+          conversationFingerprint
+      ) {
+        scheduleAutomaticAnalysis(
+          'A conversa mudou durante a análise. A Yolen fará uma nova leitura em 8 segundos.',
+        )
+      }
     } catch (error) {
       state = {
         ...state,
@@ -4546,9 +4645,18 @@
 
       observeWhatsAppChanges.timeoutId =
       window.setTimeout(() => {
-        refreshConversationSnapshot()
+        const messageMutationDetected =
+          refreshConversationSnapshot()
+
         checkPendingSuggestedMessageSentFromConversation()
-        handleConversationActivityForAutomaticAnalysis()
+
+        if (messageMutationDetected) {
+          scheduleAutomaticAnalysis(
+            'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
+          )
+        } else {
+          handleConversationActivityForAutomaticAnalysis()
+        }
       }, 600)
     })
 
