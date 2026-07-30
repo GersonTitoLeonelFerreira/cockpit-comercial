@@ -1,8 +1,10 @@
 {
-  "corpus_version": 1,
+  "corpus_version": 2,
+  "contract_version": "phase-1-v1",
   "language": "pt-BR",
   "data_origin": "synthetic_anonymized",
   "created_on": "2026-07-30",
+  "approved_on": "2026-07-30",
   "required_coverages": [
     "won",
     "lost",
@@ -13,13 +15,33 @@
     "message_deleted",
     "audio_transcribed",
     "audio_without_transcription",
-    "known_false_positive"
+    "known_false_positive",
+    "non_commercial",
+    "price_without_discovery",
+    "business_hours_simple",
+    "ignored_question",
+    "repeated_answered_question",
+    "premature_presentation",
+    "good_discovery",
+    "contract_objection",
+    "competitor_comparison",
+    "think_it_over",
+    "vague_follow_up",
+    "proposal_sent",
+    "human_confirmation",
+    "historical_scroll",
+    "same_minute_messages",
+    "insufficient_context",
+    "solution_fit",
+    "intervention_not_required"
   ],
   "cases": [
     {
       "id": "won-explicit-payment",
       "title": "Pagamento confirmado pelo cliente",
-      "coverage": ["won"],
+      "coverage": [
+        "won"
+      ],
       "reference_time": "2026-07-30T10:10:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -31,7 +53,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Quando concluir o pagamento, me avise para eu confirmar sua matrícula.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "won-2",
@@ -41,11 +65,20 @@
           "state": "active",
           "content_type": "text",
           "text": "Pagamento feito. Pode confirmar minha matrícula.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["won-1", "won-2"],
+        "current_message_ids": [
+          "won-1",
+          "won-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -57,21 +90,106 @@
           "explicit_loss": false,
           "final_intent": "Confirmar a matrícula após o pagamento."
         },
-        "decision": {
-          "recommended_status": "ganho",
-          "apply_crm_change": true,
-          "next_action_required": false,
-          "application_blocked": false,
-          "prohibited_statuses": ["respondeu", "negociacao", "perdido"]
+        "customer_intent": {
+          "summary": "Confirmar a matrícula após o pagamento.",
+          "evidence_message_ids": [
+            "won-2"
+          ]
         },
-        "evidence_message_ids": ["won-2"],
+        "needs": [
+          {
+            "summary": "Concluir a matrícula.",
+            "evidence_message_ids": [
+              "won-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Orientou o cliente sobre a confirmação após o pagamento.",
+              "evidence_message_ids": [
+                "won-1"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "apresentar",
+            "avancar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "won-1",
+            "won-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "fit",
+          "rationale": "O cliente confirmou pagamento e pediu a matrícula.",
+          "evidence_message_ids": [
+            "won-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Confirmar a matrícula no fluxo operacional.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
+          "recommended_status": "ganho",
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "won-2"
+        ],
         "rationale": "A confirmação de pagamento é evidência explícita de fechamento."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "lost-explicit-competitor",
       "title": "Cliente fechou com concorrente",
-      "coverage": ["lost"],
+      "coverage": [
+        "lost"
+      ],
       "reference_time": "2026-07-30T11:10:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -83,7 +201,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Conseguiu avaliar a proposta?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "lost-2",
@@ -93,11 +213,20 @@
           "state": "active",
           "content_type": "text",
           "text": "Fechei com outra academia. Não precisa continuar o contato.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["lost-1", "lost-2"],
+        "current_message_ids": [
+          "lost-1",
+          "lost-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -109,21 +238,88 @@
           "explicit_loss": true,
           "final_intent": "Encerrar o contato porque fechou com concorrente."
         },
-        "decision": {
-          "recommended_status": "perdido",
-          "apply_crm_change": true,
-          "next_action_required": false,
-          "application_blocked": false,
-          "prohibited_statuses": ["respondeu", "negociacao", "ganho"]
+        "customer_intent": {
+          "summary": "Encerrar o contato porque já contratou um concorrente.",
+          "evidence_message_ids": [
+            "lost-2"
+          ]
         },
-        "evidence_message_ids": ["lost-2"],
+        "needs": [],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "lost-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não informa os critérios usados na escolha do concorrente.",
+          "evidence_message_ids": [
+            "lost-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Respeitar o encerramento solicitado.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
+          "recommended_status": "perdido",
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "lost-2"
+        ],
         "rationale": "O cliente declarou fechamento com concorrente e pediu encerramento."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "appointment-client-confirmed",
       "title": "Cliente pede retorno em data e horário definidos",
-      "coverage": ["appointment"],
+      "coverage": [
+        "appointment"
+      ],
       "reference_time": "2026-07-30T12:10:00-03:00",
       "initial_status": "contato",
       "messages": [
@@ -135,7 +331,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Posso explicar os planos e tirar suas dúvidas.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "appointment-2",
@@ -145,11 +343,20 @@
           "state": "active",
           "content_type": "text",
           "text": "Pode me chamar na quinta-feira às 14h para continuarmos.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["appointment-1", "appointment-2"],
+        "current_message_ids": [
+          "appointment-1",
+          "appointment-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -161,22 +368,104 @@
           "explicit_loss": false,
           "final_intent": "Retomar a conversa na quinta-feira às 14h."
         },
-        "decision": {
+        "customer_intent": {
+          "summary": "Retomar a conversa na quinta-feira às 14h.",
+          "evidence_message_ids": [
+            "appointment-2"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Entender planos e tirar dúvidas.",
+            "evidence_message_ids": [
+              "appointment-1",
+              "appointment-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Abriu espaço para explicar e esclarecer dúvidas.",
+              "evidence_message_ids": [
+                "appointment-1"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "acolher"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "appointment-1",
+            "appointment-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Registrar o retorno confirmado para quinta-feira às 14h.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
           "recommended_status": "respondeu",
-          "apply_crm_change": true,
           "next_action_required": true,
           "expected_next_action_at": "2026-07-30T14:00:00-03:00",
-          "application_blocked": false,
-          "prohibited_statuses": ["ganho", "perdido"]
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
         },
-        "evidence_message_ids": ["appointment-2"],
+        "evidence_message_ids": [
+          "appointment-2"
+        ],
         "rationale": "O próprio cliente pediu retorno em período objetivo."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "negotiation-price-objection",
       "title": "Objeção de preço sem desfecho",
-      "coverage": ["negotiation"],
+      "coverage": [
+        "negotiation"
+      ],
       "reference_time": "2026-07-30T13:20:00-03:00",
       "initial_status": "respondeu",
       "messages": [
@@ -188,7 +477,9 @@
           "state": "active",
           "content_type": "text",
           "text": "O plano anual fica em doze parcelas de R$ 150.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "negotiation-2",
@@ -198,7 +489,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Ficou acima do que eu esperava. Tem desconto ou outra condição?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         },
         {
           "id": "negotiation-3",
@@ -208,11 +501,21 @@
           "state": "active",
           "content_type": "text",
           "text": "Vou verificar a melhor condição disponível.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 3,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["negotiation-1", "negotiation-2", "negotiation-3"],
+        "current_message_ids": [
+          "negotiation-1",
+          "negotiation-2",
+          "negotiation-3"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -224,21 +527,127 @@
           "explicit_loss": false,
           "final_intent": "Receber uma condição comercial melhor."
         },
-        "decision": {
-          "recommended_status": "negociacao",
-          "apply_crm_change": true,
-          "next_action_required": true,
-          "application_blocked": false,
-          "prohibited_statuses": ["ganho", "perdido", "respondeu"]
+        "customer_intent": {
+          "summary": "Receber uma condição comercial melhor.",
+          "evidence_message_ids": [
+            "negotiation-2"
+          ]
         },
-        "evidence_message_ids": ["negotiation-2"],
+        "needs": [
+          {
+            "summary": "Encontrar uma condição compatível com a expectativa de investimento.",
+            "evidence_message_ids": [
+              "negotiation-2"
+            ]
+          }
+        ],
+        "missing_information": [
+          {
+            "summary": "Faixa de investimento e prioridade principal do cliente.",
+            "reason": "A conversa apresenta preço antes de registrar esses critérios."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Preço acima do esperado.",
+            "evidence_message_ids": [
+              "negotiation-2"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Assumiu o compromisso de verificar outra condição.",
+              "evidence_message_ids": [
+                "negotiation-3"
+              ]
+            }
+          ],
+          "risks": [
+            {
+              "type": "premature_presentation",
+              "summary": "Apresentou preço sem diagnóstico visível no recorte.",
+              "evidence_message_ids": [
+                "negotiation-1"
+              ]
+            }
+          ]
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [
+            "diagnosticar"
+          ],
+          "evidence_message_ids": [
+            "negotiation-1",
+            "negotiation-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "Ainda faltam critérios para afirmar que a opção combina com a necessidade.",
+          "evidence_message_ids": [
+            "negotiation-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Entender o limite e o critério principal antes de oferecer outra condição.",
+          "recommended_question": "O que mais pesou para você: o valor total, a parcela ou o que está incluído?",
+          "suggested_message": "Entendi. O que mais pesou para você: o valor total, a parcela ou o que está incluído?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido",
+            "respondeu"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "negotiation-2"
+        ],
         "rationale": "Preço e condição seguem em discussão sem compromisso final."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "no-response-after-read",
       "title": "Tentativas lidas sem resposta do cliente",
-      "coverage": ["no_response"],
+      "coverage": [
+        "no_response"
+      ],
       "reference_time": "2026-07-30T16:30:00-03:00",
       "initial_status": "novo",
       "messages": [
@@ -251,7 +660,9 @@
           "content_type": "text",
           "text": "Olá, posso te explicar como funciona o plano?",
           "audio_transcription": null,
-          "delivery_status": "read"
+          "delivery_status": "read",
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "no-response-2",
@@ -262,11 +673,20 @@
           "content_type": "text",
           "text": "Passando para saber se posso ajudar com alguma dúvida.",
           "audio_transcription": null,
-          "delivery_status": "read"
+          "delivery_status": "read",
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["no-response-1", "no-response-2"],
+        "current_message_ids": [
+          "no-response-1",
+          "no-response-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": false,
           "no_response": true,
@@ -278,21 +698,92 @@
           "explicit_loss": false,
           "final_intent": null
         },
-        "decision": {
-          "recommended_status": "contato",
-          "apply_crm_change": true,
-          "next_action_required": true,
-          "application_blocked": false,
-          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        "customer_intent": null,
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Interesse e necessidade do cliente.",
+            "reason": "Não existe resposta do cliente."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
         },
-        "evidence_message_ids": ["no-response-1", "no-response-2"],
+        "sales_method": {
+          "configured": true,
+          "current_step": "acolher",
+          "completed_steps": [
+            "acolher"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "no-response-1",
+            "no-response-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Manter a cadência definida sem inventar interesse ou objeção.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
+          "recommended_status": "contato",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "no-response-1",
+          "no-response-2"
+        ],
         "rationale": "Houve esforço de contato lido, mas nenhuma resposta real do cliente."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "edited-win-becomes-negotiation",
       "title": "Edição remove falso fechamento",
-      "coverage": ["message_edited", "negotiation"],
+      "coverage": [
+        "message_edited",
+        "negotiation"
+      ],
       "reference_time": "2026-07-30T17:15:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -304,7 +795,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Essa condição funciona para você?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "edited-2",
@@ -314,7 +807,9 @@
           "state": "superseded",
           "content_type": "text",
           "text": "Fechado, vou pagar agora.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         },
         {
           "id": "edited-2",
@@ -324,11 +819,20 @@
           "state": "active",
           "content_type": "text",
           "text": "Ainda vou comparar as condições antes de decidir.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 3,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["edited-1", "edited-2"],
+        "current_message_ids": [
+          "edited-1",
+          "edited-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -340,21 +844,104 @@
           "explicit_loss": false,
           "final_intent": "Comparar condições antes da decisão."
         },
-        "decision": {
-          "recommended_status": "negociacao",
-          "apply_crm_change": false,
-          "next_action_required": true,
-          "application_blocked": false,
-          "prohibited_statuses": ["ganho", "perdido", "respondeu"]
+        "customer_intent": {
+          "summary": "Comparar condições antes da decisão.",
+          "evidence_message_ids": [
+            "edited-2"
+          ]
         },
-        "evidence_message_ids": ["edited-2"],
+        "needs": [
+          {
+            "summary": "Comparar alternativas comerciais.",
+            "evidence_message_ids": [
+              "edited-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Decisão ainda depende de comparação.",
+            "evidence_message_ids": [
+              "edited-2"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "edited-1",
+            "edited-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Descobrir quais critérios serão usados na comparação.",
+          "recommended_question": "Quais pontos você vai comparar antes de decidir?",
+          "suggested_message": "Perfeito. Quais pontos você vai comparar antes de decidir?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido",
+            "respondeu"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "edited-2"
+        ],
         "rationale": "Somente a versão mais recente pode influenciar os fatos e ela não confirma venda."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "deleted-win-falls-back-to-negotiation",
       "title": "Mensagem de fechamento apagada deixa de influenciar",
-      "coverage": ["message_deleted", "negotiation"],
+      "coverage": [
+        "message_deleted",
+        "negotiation"
+      ],
       "reference_time": "2026-07-30T18:20:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -366,7 +953,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Tem como melhorar o valor?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "deleted-2",
@@ -376,7 +965,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Consigo verificar uma condição diferente.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         },
         {
           "id": "deleted-3",
@@ -386,7 +977,9 @@
           "state": "superseded",
           "content_type": "text",
           "text": "Fechado, pode confirmar.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 3,
+          "analysis_scope": "current"
         },
         {
           "id": "deleted-3",
@@ -396,11 +989,20 @@
           "state": "deleted",
           "content_type": "text",
           "text": null,
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 4,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["deleted-1", "deleted-2"],
+        "current_message_ids": [
+          "deleted-1",
+          "deleted-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -412,21 +1014,104 @@
           "explicit_loss": false,
           "final_intent": "Negociar uma condição de valor melhor."
         },
-        "decision": {
-          "recommended_status": "negociacao",
-          "apply_crm_change": false,
-          "next_action_required": true,
-          "application_blocked": false,
-          "prohibited_statuses": ["ganho", "perdido", "respondeu"]
+        "customer_intent": {
+          "summary": "Negociar uma condição de valor melhor.",
+          "evidence_message_ids": [
+            "deleted-1"
+          ]
         },
-        "evidence_message_ids": ["deleted-1"],
+        "needs": [
+          {
+            "summary": "Avaliar uma condição de valor diferente.",
+            "evidence_message_ids": [
+              "deleted-1"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Valor ainda não resolvido.",
+            "evidence_message_ids": [
+              "deleted-1"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "deleted-1",
+            "deleted-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Retomar o critério de valor sem considerar a mensagem apagada.",
+          "recommended_question": "Qual condição faria sentido para você avaliar agora?",
+          "suggested_message": "Entendi. Qual condição faria sentido para você avaliar agora?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido",
+            "respondeu"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "deleted-1"
+        ],
         "rationale": "A última versão de deleted-3 está apagada e não pode sustentar fechamento."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "audio-transcribed-appointment",
       "title": "Áudio transcrito confirma visita",
-      "coverage": ["audio_transcribed", "appointment"],
+      "coverage": [
+        "audio_transcribed",
+        "appointment"
+      ],
       "reference_time": "2026-07-30T19:20:00-03:00",
       "initial_status": "contato",
       "messages": [
@@ -438,7 +1123,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Quer conhecer a estrutura pessoalmente?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "audio-transcribed-2",
@@ -448,11 +1135,20 @@
           "state": "active",
           "content_type": "audio",
           "text": null,
-          "audio_transcription": "Pode marcar minha visita para sexta-feira às 18h."
+          "audio_transcription": "Pode marcar minha visita para sexta-feira às 18h.",
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["audio-transcribed-1", "audio-transcribed-2"],
+        "current_message_ids": [
+          "audio-transcribed-1",
+          "audio-transcribed-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -464,22 +1160,105 @@
           "explicit_loss": false,
           "final_intent": "Visitar a unidade na sexta-feira às 18h."
         },
-        "decision": {
+        "customer_intent": {
+          "summary": "Visitar a unidade na sexta-feira às 18h.",
+          "evidence_message_ids": [
+            "audio-transcribed-2"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Conhecer a estrutura pessoalmente.",
+            "evidence_message_ids": [
+              "audio-transcribed-1",
+              "audio-transcribed-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Convidou o cliente para conhecer a estrutura.",
+              "evidence_message_ids": [
+                "audio-transcribed-1"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "avancar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "audio-transcribed-1",
+            "audio-transcribed-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Registrar a visita confirmada para sexta-feira às 18h.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
           "recommended_status": "respondeu",
-          "apply_crm_change": true,
           "next_action_required": true,
           "expected_next_action_at": "2026-07-31T18:00:00-03:00",
-          "application_blocked": false,
-          "prohibited_statuses": ["ganho", "perdido", "negociacao"]
+          "prohibited_statuses": [
+            "ganho",
+            "perdido",
+            "negociacao"
+          ],
+          "requires_human_confirmation": true
         },
-        "evidence_message_ids": ["audio-transcribed-2"],
+        "evidence_message_ids": [
+          "audio-transcribed-2"
+        ],
         "rationale": "A transcrição contém aceite explícito de visita com data e horário."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "audio-without-transcription-blocks-apply",
       "title": "Áudio sem transcrição bloqueia aplicação",
-      "coverage": ["audio_without_transcription"],
+      "coverage": [
+        "audio_without_transcription"
+      ],
       "reference_time": "2026-07-30T20:10:00-03:00",
       "initial_status": "contato",
       "messages": [
@@ -491,7 +1270,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Conseguiu analisar as opções?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "audio-blocked-2",
@@ -501,11 +1282,22 @@
           "state": "active",
           "content_type": "audio",
           "text": null,
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["audio-blocked-1", "audio-blocked-2"],
+        "current_message_ids": [
+          "audio-blocked-1",
+          "audio-blocked-2"
+        ],
+        "analysis_status": "blocked",
+        "analysis_limitations": [
+          "audio_without_transcription"
+        ],
+        "commercial_relevance": "uncertain",
+        "confidence": "low",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -517,21 +1309,85 @@
           "explicit_loss": false,
           "final_intent": null
         },
-        "decision": {
-          "recommended_status": "contato",
-          "apply_crm_change": false,
-          "next_action_required": false,
-          "application_blocked": true,
-          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        "customer_intent": null,
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Conteúdo da resposta em áudio.",
+            "reason": "O áudio ainda não possui transcrição."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
         },
-        "evidence_message_ids": ["audio-blocked-2"],
+        "sales_method": {
+          "configured": true,
+          "current_step": null,
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": []
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Aguardar a transcrição antes de diagnosticar ou sugerir CRM.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "audio-blocked-2"
+        ],
         "rationale": "O áudio prova resposta, mas seu conteúdo é desconhecido e nenhuma mudança pode ser aplicada."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "false-positive-personal-time",
       "title": "Horário pessoal não é agenda comercial",
-      "coverage": ["known_false_positive"],
+      "coverage": [
+        "known_false_positive"
+      ],
       "reference_time": "2026-07-30T21:10:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -543,7 +1399,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Conseguiu decidir sobre a proposta?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "personal-time-2",
@@ -553,11 +1411,20 @@
           "state": "active",
           "content_type": "text",
           "text": "Hoje vou buscar meu filho às 17:35. Depois eu vejo isso com calma.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["personal-time-1", "personal-time-2"],
+        "current_message_ids": [
+          "personal-time-1",
+          "personal-time-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -569,21 +1436,104 @@
           "explicit_loss": false,
           "final_intent": "Analisar a proposta sem combinar retorno."
         },
-        "decision": {
-          "recommended_status": "negociacao",
-          "apply_crm_change": false,
-          "next_action_required": true,
-          "application_blocked": false,
-          "prohibited_statuses": ["respondeu", "ganho", "perdido"]
+        "customer_intent": {
+          "summary": "Analisar a proposta sem combinar retorno.",
+          "evidence_message_ids": [
+            "personal-time-2"
+          ]
         },
-        "evidence_message_ids": ["personal-time-2"],
+        "needs": [
+          {
+            "summary": "Avaliar a proposta recebida.",
+            "evidence_message_ids": [
+              "personal-time-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Decisão ainda não tomada.",
+            "evidence_message_ids": [
+              "personal-time-2"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "personal-time-1",
+            "personal-time-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Descobrir o que ainda precisa ser avaliado sem transformar o horário pessoal em agenda.",
+          "recommended_question": "O que você ainda precisa avaliar na proposta para conseguir decidir?",
+          "suggested_message": "Sem problema. O que você ainda precisa avaliar na proposta para conseguir decidir?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "respondeu",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "personal-time-2"
+        ],
         "rationale": "17:35 pertence a um compromisso pessoal e não a um retorno comercial."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "false-positive-seller-only-invite",
       "title": "Convite do vendedor sem aceite não é agenda",
-      "coverage": ["known_false_positive", "no_response"],
+      "coverage": [
+        "known_false_positive",
+        "no_response"
+      ],
       "reference_time": "2026-07-30T22:10:00-03:00",
       "initial_status": "contato",
       "messages": [
@@ -596,11 +1546,19 @@
           "content_type": "text",
           "text": "Posso te chamar amanhã às 14h para explicar os valores?",
           "audio_transcription": null,
-          "delivery_status": "read"
+          "delivery_status": "read",
+          "sequence": 1,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["seller-invite-1"],
+        "current_message_ids": [
+          "seller-invite-1"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": false,
           "no_response": true,
@@ -612,21 +1570,90 @@
           "explicit_loss": false,
           "final_intent": null
         },
-        "decision": {
-          "recommended_status": "contato",
-          "apply_crm_change": false,
-          "next_action_required": true,
-          "application_blocked": false,
-          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        "customer_intent": null,
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Aceite ou recusa do convite.",
+            "reason": "Somente o vendedor enviou mensagem."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
         },
-        "evidence_message_ids": ["seller-invite-1"],
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "avancar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "seller-invite-1"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Aguardar resposta ou seguir a cadência; não registrar agenda.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "contato",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "seller-invite-1"
+        ],
         "rationale": "O horário foi proposto pelo vendedor e não aceito pelo cliente."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "negotiation-overridden-by-final-appointment",
       "title": "Agendamento final supera objeção intermediária",
-      "coverage": ["appointment", "negotiation"],
+      "coverage": [
+        "appointment",
+        "negotiation"
+      ],
       "reference_time": "2026-07-30T14:30:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -638,7 +1665,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Achei o valor alto. O que está incluso?",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "override-2",
@@ -648,7 +1677,9 @@
           "state": "active",
           "content_type": "text",
           "text": "A visita ajuda a comparar toda a estrutura e os serviços.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         },
         {
           "id": "override-3",
@@ -658,11 +1689,21 @@
           "state": "active",
           "content_type": "text",
           "text": "Certo, pode marcar minha visita para sábado às 10h.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 3,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["override-1", "override-2", "override-3"],
+        "current_message_ids": [
+          "override-1",
+          "override-2",
+          "override-3"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -674,22 +1715,106 @@
           "explicit_loss": false,
           "final_intent": "Visitar a unidade no sábado às 10h."
         },
-        "decision": {
+        "customer_intent": {
+          "summary": "Visitar a unidade no sábado às 10h.",
+          "evidence_message_ids": [
+            "override-3"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Avaliar presencialmente antes da decisão.",
+            "evidence_message_ids": [
+              "override-3"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Conduziu a objeção para um próximo passo concreto.",
+              "evidence_message_ids": [
+                "override-3"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "apresentar",
+            "avancar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "override-2",
+            "override-3"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Registrar a visita confirmada para sábado às 10h.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
           "recommended_status": "respondeu",
-          "apply_crm_change": true,
           "next_action_required": true,
           "expected_next_action_at": "2026-08-01T10:00:00-03:00",
-          "application_blocked": false,
-          "prohibited_statuses": ["negociacao", "ganho", "perdido"]
+          "prohibited_statuses": [
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
         },
-        "evidence_message_ids": ["override-3"],
+        "evidence_message_ids": [
+          "override-3"
+        ],
         "rationale": "O desfecho final trouxe compromisso concreto e superou a objeção intermediária."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "negotiation-then-explicit-loss",
       "title": "Perda explícita supera negociação anterior",
-      "coverage": ["lost", "negotiation"],
+      "coverage": [
+        "lost",
+        "negotiation"
+      ],
       "reference_time": "2026-07-30T15:30:00-03:00",
       "initial_status": "negociacao",
       "messages": [
@@ -701,7 +1826,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Se tiver desconto, talvez eu consiga fechar.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "loss-override-2",
@@ -711,7 +1838,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Consigo manter essa condição somente hoje.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         },
         {
           "id": "loss-override-3",
@@ -721,11 +1850,21 @@
           "state": "active",
           "content_type": "text",
           "text": "Agradeço, mas decidi não contratar. Pode encerrar.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 3,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["loss-override-1", "loss-override-2", "loss-override-3"],
+        "current_message_ids": [
+          "loss-override-1",
+          "loss-override-2",
+          "loss-override-3"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -737,21 +1876,86 @@
           "explicit_loss": true,
           "final_intent": "Encerrar a negociação sem contratar."
         },
-        "decision": {
-          "recommended_status": "perdido",
-          "apply_crm_change": true,
-          "next_action_required": false,
-          "application_blocked": false,
-          "prohibited_statuses": ["negociacao", "respondeu", "ganho"]
+        "customer_intent": {
+          "summary": "Encerrar a negociação sem contratar.",
+          "evidence_message_ids": [
+            "loss-override-3"
+          ]
         },
-        "evidence_message_ids": ["loss-override-3"],
+        "needs": [],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "loss-override-3"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Respeitar a decisão final e encerrar o ciclo.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
+          "recommended_status": "perdido",
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "negociacao",
+            "respondeu",
+            "ganho"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "loss-override-3"
+        ],
         "rationale": "A decisão final explícita de não contratar supera a negociação anterior."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
       }
     },
     {
       "id": "personal-conversation-with-date",
       "title": "Data em conversa pessoal não altera o CRM",
-      "coverage": ["known_false_positive"],
+      "coverage": [
+        "known_false_positive"
+      ],
       "reference_time": "2026-07-30T09:20:00-03:00",
       "initial_status": "contato",
       "messages": [
@@ -763,7 +1967,9 @@
           "state": "active",
           "content_type": "text",
           "text": "Minha viagem ficou para sexta-feira de manhã.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 1,
+          "analysis_scope": "current"
         },
         {
           "id": "personal-date-2",
@@ -773,11 +1979,20 @@
           "state": "active",
           "content_type": "text",
           "text": "Entendi.",
-          "audio_transcription": null
+          "audio_transcription": null,
+          "sequence": 2,
+          "analysis_scope": "current"
         }
       ],
       "oracle": {
-        "current_message_ids": ["personal-date-1", "personal-date-2"],
+        "current_message_ids": [
+          "personal-date-1",
+          "personal-date-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "non_commercial",
+        "confidence": "high",
         "facts": {
           "lead_responded": true,
           "no_response": false,
@@ -789,15 +2004,2474 @@
           "explicit_loss": false,
           "final_intent": null
         },
-        "decision": {
-          "recommended_status": "contato",
-          "apply_crm_change": false,
-          "next_action_required": false,
-          "application_blocked": false,
-          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        "customer_intent": {
+          "summary": "Conversar sobre uma viagem pessoal.",
+          "evidence_message_ids": [
+            "personal-date-1"
+          ]
         },
-        "evidence_message_ids": ["personal-date-1"],
+        "needs": [],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": null,
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": []
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa não comprova adequação suficiente.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": null,
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "personal-date-1"
+        ],
         "rationale": "A data descreve uma viagem pessoal e não um compromisso comercial."
+      },
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "non-commercial-pizza-conversation",
+      "title": "Conversa sobre pizza não gera orientação comercial",
+      "coverage": [
+        "non_commercial",
+        "intervention_not_required"
+      ],
+      "reference_time": "2026-07-30T09:20:00-03:00",
+      "initial_status": "contato",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "pizza-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T09:10:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Você já provou a pizza daquele lugar novo?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "pizza-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T09:12:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Ainda não, mas falaram que é boa.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "pizza-1",
+          "pizza-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "non_commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Conversar sobre pizza."
+        },
+        "customer_intent": {
+          "summary": "Conversar sobre pizza.",
+          "evidence_message_ids": [
+            "pizza-1"
+          ]
+        },
+        "needs": [],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": null,
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": []
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "Não existe assunto comercial para avaliar.",
+          "evidence_message_ids": []
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": null,
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "pizza-1"
+        ],
+        "rationale": "O conteúdo é pessoal e não contém intenção comercial."
+      }
+    },
+    {
+      "id": "price-question-before-discovery",
+      "title": "Pergunta de preço ainda exige diagnóstico",
+      "coverage": [
+        "price_without_discovery",
+        "premature_presentation"
+      ],
+      "reference_time": "2026-07-30T10:20:00-03:00",
+      "initial_status": "novo",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "price-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T10:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Quanto custa o plano?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "price-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T10:07:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "O anual custa doze parcelas de R$ 150.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "price-1",
+          "price-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Entender o preço do plano."
+        },
+        "customer_intent": {
+          "summary": "Entender o preço do plano.",
+          "evidence_message_ids": [
+            "price-1"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Conhecer o investimento necessário.",
+            "evidence_message_ids": [
+              "price-1"
+            ]
+          }
+        ],
+        "missing_information": [
+          {
+            "summary": "Objetivo, frequência desejada e critério de escolha.",
+            "reason": "Nenhum diagnóstico foi feito antes da apresentação do plano."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": [
+            {
+              "type": "premature_presentation",
+              "summary": "Apresentou uma opção antes de entender a necessidade.",
+              "evidence_message_ids": [
+                "price-2"
+              ]
+            }
+          ]
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [
+            "diagnosticar"
+          ],
+          "evidence_message_ids": [
+            "price-1",
+            "price-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "Preço informado não comprova adequação do plano.",
+          "evidence_message_ids": [
+            "price-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Retomar o diagnóstico antes de aprofundar a proposta.",
+          "recommended_question": "Além do preço, o que é mais importante para você escolher uma academia?",
+          "suggested_message": "Te passo tudo certinho. Além do preço, o que é mais importante para você escolher uma academia?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "price-1",
+          "price-2"
+        ],
+        "rationale": "Interesse em preço não equivale a negociação sem diagnóstico."
+      }
+    },
+    {
+      "id": "business-hours-question-answered",
+      "title": "Horário de funcionamento respondido corretamente",
+      "coverage": [
+        "business_hours_simple",
+        "intervention_not_required"
+      ],
+      "reference_time": "2026-07-30T11:20:00-03:00",
+      "initial_status": "novo",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "hours-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T11:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Qual é o horário de funcionamento no sábado?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "hours-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T11:07:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "No sábado funcionamos das 8h às 18h.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "hours-3",
+          "version": 1,
+          "sequence": 3,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T11:09:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Obrigado, era só isso por enquanto.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "hours-1",
+          "hours-2",
+          "hours-3"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Confirmar o horário de funcionamento."
+        },
+        "customer_intent": {
+          "summary": "Confirmar o horário de funcionamento no sábado.",
+          "evidence_message_ids": [
+            "hours-1"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Saber quando a unidade abre no sábado.",
+            "evidence_message_ids": [
+              "hours-1"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Respondeu diretamente à pergunta.",
+              "evidence_message_ids": [
+                "hours-2"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "acolher",
+          "completed_steps": [
+            "acolher"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "hours-1",
+            "hours-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A conversa tratou apenas de informação operacional.",
+          "evidence_message_ids": [
+            "hours-1"
+          ]
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": null,
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "hours-1",
+          "hours-2",
+          "hours-3"
+        ],
+        "rationale": "A pergunta foi respondida e não existe avanço comercial comprovado."
+      }
+    },
+    {
+      "id": "seller-ignores-customer-question",
+      "title": "Pergunta do cliente ignorada pelo vendedor",
+      "coverage": [
+        "ignored_question"
+      ],
+      "reference_time": "2026-07-30T12:20:00-03:00",
+      "initial_status": "contato",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "ignored-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T12:02:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "O plano tem multa se eu precisar cancelar?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "ignored-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T12:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Temos uma condição especial se você fechar hoje.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "ignored-1",
+          "ignored-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Entender a regra de cancelamento."
+        },
+        "customer_intent": {
+          "summary": "Entender a regra de cancelamento.",
+          "evidence_message_ids": [
+            "ignored-1"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Ter segurança sobre o compromisso contratual.",
+            "evidence_message_ids": [
+              "ignored-1"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [
+          {
+            "summary": "O plano tem multa em caso de cancelamento?",
+            "evidence_message_ids": [
+              "ignored-1"
+            ]
+          }
+        ],
+        "active_objections": [
+          {
+            "summary": "Risco contratual ainda sem resposta.",
+            "evidence_message_ids": [
+              "ignored-1"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": [
+            {
+              "type": "ignored_question",
+              "summary": "Ignorou a pergunta e desviou para urgência de fechamento.",
+              "evidence_message_ids": [
+                "ignored-1",
+                "ignored-2"
+              ]
+            },
+            {
+              "type": "excessive_pressure",
+              "summary": "Criou pressão de fechamento antes de esclarecer a dúvida.",
+              "evidence_message_ids": [
+                "ignored-2"
+              ]
+            }
+          ]
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [
+            "diagnosticar"
+          ],
+          "evidence_message_ids": [
+            "ignored-1",
+            "ignored-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A objeção contratual impede avaliar adequação.",
+          "evidence_message_ids": [
+            "ignored-1"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Responder diretamente à dúvida contratual antes de retomar a venda.",
+          "recommended_question": null,
+          "suggested_message": "Boa pergunta. Vou te explicar exatamente como funciona o cancelamento e se existe multa."
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "ignored-1",
+          "ignored-2"
+        ],
+        "rationale": "A pergunta central continua aberta e exige resposta direta."
+      }
+    },
+    {
+      "id": "seller-repeats-answered-question",
+      "title": "Vendedor repete pergunta já respondida",
+      "coverage": [
+        "repeated_answered_question"
+      ],
+      "reference_time": "2026-07-30T13:20:00-03:00",
+      "initial_status": "respondeu",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "repeat-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T13:01:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Qual é o seu principal objetivo?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "repeat-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T13:03:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Quero melhorar meu condicionamento para correr.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "repeat-3",
+          "version": 1,
+          "sequence": 3,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T13:06:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "E qual é o seu objetivo com a academia?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "repeat-1",
+          "repeat-2",
+          "repeat-3"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Melhorar o condicionamento para correr."
+        },
+        "customer_intent": {
+          "summary": "Melhorar o condicionamento para correr.",
+          "evidence_message_ids": [
+            "repeat-2"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Treino voltado a condicionamento e corrida.",
+            "evidence_message_ids": [
+              "repeat-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": [
+            {
+              "type": "repeated_answered_question",
+              "summary": "Repetiu uma pergunta cujo conteúdo já havia sido respondido.",
+              "evidence_message_ids": [
+                "repeat-2",
+                "repeat-3"
+              ]
+            }
+          ]
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "diagnosticar",
+          "completed_steps": [
+            "acolher",
+            "diagnosticar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "repeat-1",
+            "repeat-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A necessidade está clara, mas nenhuma solução foi apresentada.",
+          "evidence_message_ids": [
+            "repeat-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Aprofundar a necessidade já informada sem repetir a pergunta.",
+          "recommended_question": "Hoje, o que mais limita você na corrida: fôlego, força ou constância?",
+          "suggested_message": "Entendi que seu foco é correr melhor. Hoje, o que mais limita você: fôlego, força ou constância?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "repeat-2",
+          "repeat-3"
+        ],
+        "rationale": "A orientação deve avançar o diagnóstico, não pedir novamente o que já foi dito."
+      }
+    },
+    {
+      "id": "seller-presents-before-diagnosis",
+      "title": "Produto apresentado antes do diagnóstico",
+      "coverage": [
+        "premature_presentation"
+      ],
+      "reference_time": "2026-07-30T14:20:00-03:00",
+      "initial_status": "novo",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "premature-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T14:01:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Queria saber como funciona.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "premature-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T14:03:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "O melhor para você é o anual com acesso completo.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "premature-1",
+          "premature-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Entender como o serviço funciona."
+        },
+        "customer_intent": {
+          "summary": "Entender como o serviço funciona.",
+          "evidence_message_ids": [
+            "premature-1"
+          ]
+        },
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Objetivo, rotina, limitações e critério de escolha.",
+            "reason": "A solução foi indicada sem perguntas de diagnóstico."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": [
+            {
+              "type": "premature_presentation",
+              "summary": "Afirmou qual produto seria melhor sem conhecer a necessidade.",
+              "evidence_message_ids": [
+                "premature-2"
+              ]
+            }
+          ]
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [
+            "diagnosticar"
+          ],
+          "evidence_message_ids": [
+            "premature-1",
+            "premature-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "Não existem dados para sustentar que o plano anual é adequado.",
+          "evidence_message_ids": [
+            "premature-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Voltar ao diagnóstico antes de defender um plano.",
+          "recommended_question": "O que você está buscando mudar com a academia neste momento?",
+          "suggested_message": "Claro. Antes de te indicar a melhor opção, o que você está buscando mudar neste momento?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "premature-1",
+          "premature-2"
+        ],
+        "rationale": "A recomendação de produto veio antes das informações necessárias."
+      }
+    },
+    {
+      "id": "seller-good-discovery-and-answer",
+      "title": "Bom diagnóstico sem crítica inventada",
+      "coverage": [
+        "good_discovery",
+        "solution_fit",
+        "intervention_not_required"
+      ],
+      "reference_time": "2026-07-30T15:30:00-03:00",
+      "initial_status": "respondeu",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "good-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T15:01:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "O que você quer melhorar e quantos dias consegue treinar?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "good-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T15:04:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Quero ganhar força e consigo treinar três vezes por semana.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "good-3",
+          "version": 1,
+          "sequence": 3,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T15:07:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Nesse caso, o acompanhamento inicial ajuda a organizar um treino compatível com seus três dias.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "good-4",
+          "version": 1,
+          "sequence": 4,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T15:10:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Faz sentido. Quero conhecer a estrutura.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "good-1",
+          "good-2",
+          "good-3",
+          "good-4"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Conhecer uma solução para ganhar força treinando três vezes por semana."
+        },
+        "customer_intent": {
+          "summary": "Ganhar força com uma rotina de três treinos semanais.",
+          "evidence_message_ids": [
+            "good-2"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Treino de força compatível com três dias por semana.",
+            "evidence_message_ids": [
+              "good-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Investigou objetivo e disponibilidade.",
+              "evidence_message_ids": [
+                "good-1"
+              ]
+            },
+            {
+              "summary": "Conectou a solução à necessidade informada.",
+              "evidence_message_ids": [
+                "good-2",
+                "good-3"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "good-1",
+            "good-2",
+            "good-3",
+            "good-4"
+          ]
+        },
+        "solution_fit": {
+          "status": "fit",
+          "rationale": "O acompanhamento inicial foi relacionado ao objetivo e à disponibilidade.",
+          "evidence_message_ids": [
+            "good-2",
+            "good-3"
+          ]
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Conduzir o cliente para um próximo passo concreto.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "good-1",
+          "good-2",
+          "good-3",
+          "good-4"
+        ],
+        "rationale": "O vendedor diagnosticou e apresentou com coerência; não cabe inventar crítica."
+      }
+    },
+    {
+      "id": "active-contract-objection",
+      "title": "Objeção de contrato continua ativa",
+      "coverage": [
+        "contract_objection"
+      ],
+      "reference_time": "2026-07-30T16:20:00-03:00",
+      "initial_status": "negociacao",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "contract-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T16:02:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Tenho receio de ficar preso por doze meses.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "contract-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T16:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Entendo. O anual tem essa duração e eu posso te explicar as alternativas.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "contract-1",
+          "contract-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Evitar compromisso contratual longo."
+        },
+        "customer_intent": {
+          "summary": "Avaliar uma opção sem compromisso longo.",
+          "evidence_message_ids": [
+            "contract-1"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Flexibilidade contratual.",
+            "evidence_message_ids": [
+              "contract-1"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Compromisso de doze meses.",
+            "evidence_message_ids": [
+              "contract-1"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Acolheu a preocupação sem negar o contrato.",
+              "evidence_message_ids": [
+                "contract-2"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "diagnosticar",
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "contract-1",
+            "contract-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "partial_fit",
+          "rationale": "O plano anual conflita com a necessidade de flexibilidade, mas podem existir alternativas.",
+          "evidence_message_ids": [
+            "contract-1",
+            "contract-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Entender o motivo da necessidade de flexibilidade antes de apresentar alternativas.",
+          "recommended_question": "O que mais preocupa nesse prazo: mudança de rotina, orçamento ou outra situação?",
+          "suggested_message": "Entendo. O que mais preocupa nesse prazo: mudança de rotina, orçamento ou outra situação?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "contract-1",
+          "contract-2"
+        ],
+        "rationale": "A objeção segue aberta e precisa ser compreendida antes da solução."
+      }
+    },
+    {
+      "id": "customer-compares-competitor",
+      "title": "Comparação com concorrente exige critério",
+      "coverage": [
+        "competitor_comparison",
+        "solution_fit"
+      ],
+      "reference_time": "2026-07-30T17:20:00-03:00",
+      "initial_status": "negociacao",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "competitor-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T17:02:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "A outra academia custa menos. Por que eu escolheria vocês?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "competitor-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T17:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Temos acompanhamento inicial e uma estrutura completa.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "competitor-1",
+          "competitor-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Comparar valor e diferenciais entre academias."
+        },
+        "customer_intent": {
+          "summary": "Entender por que a opção justificaria um preço maior.",
+          "evidence_message_ids": [
+            "competitor-1"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Comparar custo e valor percebido.",
+            "evidence_message_ids": [
+              "competitor-1"
+            ]
+          }
+        ],
+        "missing_information": [
+          {
+            "summary": "Critério principal de comparação.",
+            "reason": "O cliente citou preço, mas ainda não disse o que mais valoriza."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Concorrente com preço menor.",
+            "evidence_message_ids": [
+              "competitor-1"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Apresentou diferenciais concretos disponíveis no contexto.",
+              "evidence_message_ids": [
+                "competitor-2"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "competitor-1",
+            "competitor-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "partial_fit",
+          "rationale": "Há diferenciais potenciais, mas a relevância deles para o cliente ainda não foi validada.",
+          "evidence_message_ids": [
+            "competitor-1",
+            "competitor-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Descobrir qual diferencial teria valor real para o cliente.",
+          "recommended_question": "Além do preço, o que mais pesa na sua escolha entre as duas academias?",
+          "suggested_message": "Boa comparação. Além do preço, o que mais pesa na sua escolha entre as duas academias?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "competitor-1",
+          "competitor-2"
+        ],
+        "rationale": "A comparação está aberta e requer critério antes de defender diferenciais."
+      }
+    },
+    {
+      "id": "customer-will-think",
+      "title": "Vou pensar não é agenda, ganho ou perda",
+      "coverage": [
+        "think_it_over"
+      ],
+      "reference_time": "2026-07-30T18:20:00-03:00",
+      "initial_status": "negociacao",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "think-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T18:02:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Essa opção atende o que você busca?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "think-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T18:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Vou pensar e depois te aviso.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "think-1",
+          "think-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Adiar a decisão sem combinar retorno."
+        },
+        "customer_intent": {
+          "summary": "Pensar antes de decidir.",
+          "evidence_message_ids": [
+            "think-2"
+          ]
+        },
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Motivo que impede a decisão agora.",
+            "reason": "A expressão vou pensar não revela a trava real."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Decisão adiada sem motivo explícito.",
+            "evidence_message_ids": [
+              "think-2"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "think-1",
+            "think-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "A adequação não pode ser confirmada enquanto a trava for desconhecida.",
+          "evidence_message_ids": [
+            "think-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Descobrir o que o cliente precisa avaliar.",
+          "recommended_question": "Claro. O que você sente que ainda precisa avaliar para decidir com segurança?",
+          "suggested_message": "Claro. O que você sente que ainda precisa avaliar para decidir com segurança?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "respondeu",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "think-2"
+        ],
+        "rationale": "Não existe data, aceite, compra ou recusa explícita."
+      }
+    },
+    {
+      "id": "customer-will-return-without-date",
+      "title": "Eu retorno sem data não cria agenda",
+      "coverage": [
+        "vague_follow_up",
+        "known_false_positive"
+      ],
+      "reference_time": "2026-07-30T19:20:00-03:00",
+      "initial_status": "negociacao",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "vague-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T19:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Eu retorno quando conseguir ver isso com calma.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "vague-1"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Retornar sem data definida."
+        },
+        "customer_intent": {
+          "summary": "Avaliar o assunto antes de retornar.",
+          "evidence_message_ids": [
+            "vague-1"
+          ]
+        },
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Prazo e ponto que ainda precisa ser avaliado.",
+            "reason": "O cliente não informou data nem critério."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Decisão adiada sem prazo.",
+            "evidence_message_ids": [
+              "vague-1"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "vague-1"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "Não há informação suficiente para avaliar adequação.",
+          "evidence_message_ids": [
+            "vague-1"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Entender o que falta avaliar; não registrar agenda.",
+          "recommended_question": "O que você precisa verificar antes de conseguir me dar um retorno?",
+          "suggested_message": "Combinado. O que você precisa verificar antes de conseguir me dar um retorno?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "respondeu",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "vague-1"
+        ],
+        "rationale": "Retorno vago não contém referência concreta de data ou período."
+      }
+    },
+    {
+      "id": "proposal-sent-awaiting-response",
+      "title": "Proposta enviada ainda aguarda resposta",
+      "coverage": [
+        "proposal_sent"
+      ],
+      "reference_time": "2026-07-30T20:20:00-03:00",
+      "initial_status": "respondeu",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "proposal-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T20:03:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Enviei a proposta com as duas opções que conversamos.",
+          "audio_transcription": null,
+          "analysis_scope": "current",
+          "delivery_status": "read"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "proposal-1"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": false,
+          "no_response": true,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": null
+        },
+        "customer_intent": null,
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Reação do cliente à proposta.",
+            "reason": "A proposta foi enviada, mas o cliente ainda não respondeu."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Registrou o envio de opções discutidas.",
+              "evidence_message_ids": [
+                "proposal-1"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "proposal-1"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "O conteúdo das opções e a reação do cliente não estão no recorte.",
+          "evidence_message_ids": [
+            "proposal-1"
+          ]
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Aguardar a cadência de retorno; não presumir negociação concluída.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "proposal-1"
+        ],
+        "rationale": "Envio de proposta pelo vendedor não comprova resposta nem decisão."
+      }
+    },
+    {
+      "id": "customer-explicitly-not-interested",
+      "title": "Falta de interesse permite sugerir perda",
+      "coverage": [
+        "lost",
+        "human_confirmation"
+      ],
+      "reference_time": "2026-07-30T21:20:00-03:00",
+      "initial_status": "contato",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "not-interested-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T21:02:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Posso te ajudar a escolher uma opção?",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "not-interested-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T21:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Não tenho interesse. Pode encerrar o contato.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "not-interested-1",
+          "not-interested-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": true,
+          "final_intent": "Encerrar o contato por falta de interesse."
+        },
+        "customer_intent": {
+          "summary": "Encerrar o contato.",
+          "evidence_message_ids": [
+            "not-interested-2"
+          ]
+        },
+        "needs": [],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "avancar",
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "not-interested-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "O cliente recusou sem detalhar a necessidade.",
+          "evidence_message_ids": [
+            "not-interested-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": false,
+          "next_move": "Respeitar o encerramento solicitado.",
+          "recommended_question": null,
+          "suggested_message": null
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": true,
+          "recommended_status": "perdido",
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "not-interested-2"
+        ],
+        "rationale": "A falta de interesse foi explícita, mas a mudança continua dependendo de confirmação humana."
+      }
+    },
+    {
+      "id": "historical-scroll-does-not-override-current-outcome",
+      "title": "Histórico antigo não supera o desfecho atual",
+      "coverage": [
+        "historical_scroll",
+        "recent_outcome_priority"
+      ],
+      "reference_time": "2026-07-30T22:20:00-03:00",
+      "initial_status": "negociacao",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "history-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-29T18:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Fechado, pode preparar.",
+          "audio_transcription": null,
+          "analysis_scope": "historical_context"
+        },
+        {
+          "id": "history-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T22:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Hoje preciso corrigir: ainda não decidi e vou comparar as opções.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "history-1",
+          "history-2"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Comparar opções antes de decidir."
+        },
+        "customer_intent": {
+          "summary": "Comparar opções antes de decidir.",
+          "evidence_message_ids": [
+            "history-2"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Reavaliar alternativas atuais.",
+            "evidence_message_ids": [
+              "history-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Decisão atual ainda aberta.",
+            "evidence_message_ids": [
+              "history-2"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "history-2"
+          ]
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "O desfecho atual reabriu a comparação.",
+          "evidence_message_ids": [
+            "history-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Entender os critérios atuais de comparação.",
+          "recommended_question": "Quais pontos você quer comparar antes de decidir?",
+          "suggested_message": "Entendi a correção. Quais pontos você quer comparar antes de decidir?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido",
+            "respondeu"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "history-2"
+        ],
+        "rationale": "O histórico é contexto, mas a mensagem atual substitui o desfecho anterior."
+      }
+    },
+    {
+      "id": "same-minute-messages-respect-sequence",
+      "title": "Mensagens no mesmo minuto preservam a sequência",
+      "coverage": [
+        "same_minute_messages"
+      ],
+      "reference_time": "2026-07-30T23:10:00-03:00",
+      "initial_status": "respondeu",
+      "commercial_context": {
+        "method": {
+          "id": "synthetic-method-1",
+          "name": "Método sintético de venda consultiva",
+          "steps": [
+            "acolher",
+            "diagnosticar",
+            "apresentar",
+            "avancar"
+          ]
+        },
+        "products": [
+          {
+            "id": "synthetic-product-1",
+            "name": "Plano sintético",
+            "known_attributes": [
+              "acesso à estrutura",
+              "acompanhamento inicial",
+              "opções mensal e anual"
+            ]
+          }
+        ]
+      },
+      "messages": [
+        {
+          "id": "minute-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T23:01:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Quero o plano anual.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "minute-2",
+          "version": 1,
+          "sequence": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T23:01:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Mas antes preciso entender a regra de cancelamento.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        },
+        {
+          "id": "minute-3",
+          "version": 1,
+          "sequence": 3,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T23:01:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Claro, vou explicar essa regra primeiro.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "minute-1",
+          "minute-2",
+          "minute-3"
+        ],
+        "analysis_status": "complete",
+        "analysis_limitations": [],
+        "commercial_relevance": "commercial",
+        "confidence": "high",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Entender cancelamento antes de decidir pelo anual."
+        },
+        "customer_intent": {
+          "summary": "Avaliar o anual depois de entender o cancelamento.",
+          "evidence_message_ids": [
+            "minute-1",
+            "minute-2"
+          ]
+        },
+        "needs": [
+          {
+            "summary": "Segurança sobre a regra de cancelamento.",
+            "evidence_message_ids": [
+              "minute-2"
+            ]
+          }
+        ],
+        "missing_information": [],
+        "unanswered_questions": [],
+        "active_objections": [
+          {
+            "summary": "Regra de cancelamento ainda não esclarecida.",
+            "evidence_message_ids": [
+              "minute-2"
+            ]
+          }
+        ],
+        "seller_assessment": {
+          "strengths": [
+            {
+              "summary": "Priorizou responder a dúvida antes de fechar.",
+              "evidence_message_ids": [
+                "minute-3"
+              ]
+            }
+          ],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": true,
+          "current_step": "apresentar",
+          "completed_steps": [
+            "apresentar"
+          ],
+          "skipped_steps": [],
+          "evidence_message_ids": [
+            "minute-1",
+            "minute-2",
+            "minute-3"
+          ]
+        },
+        "solution_fit": {
+          "status": "partial_fit",
+          "rationale": "Há interesse no anual, condicionado ao esclarecimento contratual.",
+          "evidence_message_ids": [
+            "minute-1",
+            "minute-2"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Explicar a regra de cancelamento antes de pedir decisão.",
+          "recommended_question": null,
+          "suggested_message": "Claro. Vou te explicar a regra de cancelamento em detalhes antes de avançarmos."
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": "negociacao",
+          "next_action_required": true,
+          "prohibited_statuses": [
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "minute-1",
+          "minute-2",
+          "minute-3"
+        ],
+        "rationale": "A segunda mensagem condiciona o interesse e deve prevalecer na sequência."
+      }
+    },
+    {
+      "id": "commercial-conversation-insufficient-context",
+      "title": "Contexto insuficiente limita o diagnóstico",
+      "coverage": [
+        "insufficient_context",
+        "missing_method"
+      ],
+      "reference_time": "2026-07-30T23:40:00-03:00",
+      "initial_status": "novo",
+      "commercial_context": {
+        "method": null,
+        "products": []
+      },
+      "messages": [
+        {
+          "id": "limited-1",
+          "version": 1,
+          "sequence": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T23:30:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Oi, vi a empresa e queria informações.",
+          "audio_transcription": null,
+          "analysis_scope": "current"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": [
+          "limited-1"
+        ],
+        "analysis_status": "limited",
+        "analysis_limitations": [
+          "method_not_configured",
+          "product_information_missing",
+          "conversation_context_insufficient"
+        ],
+        "commercial_relevance": "commercial",
+        "confidence": "low",
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Pedir informações comerciais ainda não especificadas."
+        },
+        "customer_intent": {
+          "summary": "Pedir informações comerciais.",
+          "evidence_message_ids": [
+            "limited-1"
+          ]
+        },
+        "needs": [],
+        "missing_information": [
+          {
+            "summary": "Assunto, necessidade e produto de interesse.",
+            "reason": "A mensagem é genérica e a empresa não possui contexto configurado."
+          }
+        ],
+        "unanswered_questions": [],
+        "active_objections": [],
+        "seller_assessment": {
+          "strengths": [],
+          "risks": []
+        },
+        "sales_method": {
+          "configured": false,
+          "current_step": null,
+          "completed_steps": [],
+          "skipped_steps": [],
+          "evidence_message_ids": []
+        },
+        "solution_fit": {
+          "status": "unknown",
+          "rationale": "Não há produto nem necessidade suficientes para avaliar adequação.",
+          "evidence_message_ids": [
+            "limited-1"
+          ]
+        },
+        "guidance": {
+          "intervention_required": true,
+          "next_move": "Descobrir o assunto principal sem presumir necessidade.",
+          "recommended_question": "Claro. Qual informação você procura primeiro?",
+          "suggested_message": "Claro. Qual informação você procura primeiro?"
+        },
+        "crm_suggestion": {
+          "should_change_crm_stage": false,
+          "recommended_status": null,
+          "next_action_required": false,
+          "prohibited_statuses": [
+            "respondeu",
+            "negociacao",
+            "ganho",
+            "perdido"
+          ],
+          "requires_human_confirmation": true
+        },
+        "evidence_message_ids": [
+          "limited-1"
+        ],
+        "rationale": "A análise reconhece o interesse, mas declara as limitações em vez de inventar diagnóstico."
       }
     }
   ]
