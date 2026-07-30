@@ -1,0 +1,804 @@
+{
+  "corpus_version": 1,
+  "language": "pt-BR",
+  "data_origin": "synthetic_anonymized",
+  "created_on": "2026-07-30",
+  "required_coverages": [
+    "won",
+    "lost",
+    "appointment",
+    "negotiation",
+    "no_response",
+    "message_edited",
+    "message_deleted",
+    "audio_transcribed",
+    "audio_without_transcription",
+    "known_false_positive"
+  ],
+  "cases": [
+    {
+      "id": "won-explicit-payment",
+      "title": "Pagamento confirmado pelo cliente",
+      "coverage": ["won"],
+      "reference_time": "2026-07-30T10:10:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "won-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T10:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Quando concluir o pagamento, me avise para eu confirmar sua matrícula.",
+          "audio_transcription": null
+        },
+        {
+          "id": "won-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T10:08:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Pagamento feito. Pode confirmar minha matrícula.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["won-1", "won-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": true,
+          "explicit_loss": false,
+          "final_intent": "Confirmar a matrícula após o pagamento."
+        },
+        "decision": {
+          "recommended_status": "ganho",
+          "apply_crm_change": true,
+          "next_action_required": false,
+          "application_blocked": false,
+          "prohibited_statuses": ["respondeu", "negociacao", "perdido"]
+        },
+        "evidence_message_ids": ["won-2"],
+        "rationale": "A confirmação de pagamento é evidência explícita de fechamento."
+      }
+    },
+    {
+      "id": "lost-explicit-competitor",
+      "title": "Cliente fechou com concorrente",
+      "coverage": ["lost"],
+      "reference_time": "2026-07-30T11:10:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "lost-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T11:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Conseguiu avaliar a proposta?",
+          "audio_transcription": null
+        },
+        {
+          "id": "lost-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T11:07:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Fechei com outra academia. Não precisa continuar o contato.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["lost-1", "lost-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": true,
+          "final_intent": "Encerrar o contato porque fechou com concorrente."
+        },
+        "decision": {
+          "recommended_status": "perdido",
+          "apply_crm_change": true,
+          "next_action_required": false,
+          "application_blocked": false,
+          "prohibited_statuses": ["respondeu", "negociacao", "ganho"]
+        },
+        "evidence_message_ids": ["lost-2"],
+        "rationale": "O cliente declarou fechamento com concorrente e pediu encerramento."
+      }
+    },
+    {
+      "id": "appointment-client-confirmed",
+      "title": "Cliente pede retorno em data e horário definidos",
+      "coverage": ["appointment"],
+      "reference_time": "2026-07-30T12:10:00-03:00",
+      "initial_status": "contato",
+      "messages": [
+        {
+          "id": "appointment-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T12:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Posso explicar os planos e tirar suas dúvidas.",
+          "audio_transcription": null
+        },
+        {
+          "id": "appointment-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T12:06:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Pode me chamar na quinta-feira às 14h para continuarmos.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["appointment-1", "appointment-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": true,
+          "follow_up_has_date_or_period": true,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Retomar a conversa na quinta-feira às 14h."
+        },
+        "decision": {
+          "recommended_status": "respondeu",
+          "apply_crm_change": true,
+          "next_action_required": true,
+          "expected_next_action_at": "2026-07-30T14:00:00-03:00",
+          "application_blocked": false,
+          "prohibited_statuses": ["ganho", "perdido"]
+        },
+        "evidence_message_ids": ["appointment-2"],
+        "rationale": "O próprio cliente pediu retorno em período objetivo."
+      }
+    },
+    {
+      "id": "negotiation-price-objection",
+      "title": "Objeção de preço sem desfecho",
+      "coverage": ["negotiation"],
+      "reference_time": "2026-07-30T13:20:00-03:00",
+      "initial_status": "respondeu",
+      "messages": [
+        {
+          "id": "negotiation-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T13:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "O plano anual fica em doze parcelas de R$ 150.",
+          "audio_transcription": null
+        },
+        {
+          "id": "negotiation-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T13:04:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Ficou acima do que eu esperava. Tem desconto ou outra condição?",
+          "audio_transcription": null
+        },
+        {
+          "id": "negotiation-3",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T13:08:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Vou verificar a melhor condição disponível.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["negotiation-1", "negotiation-2", "negotiation-3"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Receber uma condição comercial melhor."
+        },
+        "decision": {
+          "recommended_status": "negociacao",
+          "apply_crm_change": true,
+          "next_action_required": true,
+          "application_blocked": false,
+          "prohibited_statuses": ["ganho", "perdido", "respondeu"]
+        },
+        "evidence_message_ids": ["negotiation-2"],
+        "rationale": "Preço e condição seguem em discussão sem compromisso final."
+      }
+    },
+    {
+      "id": "no-response-after-read",
+      "title": "Tentativas lidas sem resposta do cliente",
+      "coverage": ["no_response"],
+      "reference_time": "2026-07-30T16:30:00-03:00",
+      "initial_status": "novo",
+      "messages": [
+        {
+          "id": "no-response-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-29T16:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Olá, posso te explicar como funciona o plano?",
+          "audio_transcription": null,
+          "delivery_status": "read"
+        },
+        {
+          "id": "no-response-2",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T09:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Passando para saber se posso ajudar com alguma dúvida.",
+          "audio_transcription": null,
+          "delivery_status": "read"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["no-response-1", "no-response-2"],
+        "facts": {
+          "lead_responded": false,
+          "no_response": true,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": null
+        },
+        "decision": {
+          "recommended_status": "contato",
+          "apply_crm_change": true,
+          "next_action_required": true,
+          "application_blocked": false,
+          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        },
+        "evidence_message_ids": ["no-response-1", "no-response-2"],
+        "rationale": "Houve esforço de contato lido, mas nenhuma resposta real do cliente."
+      }
+    },
+    {
+      "id": "edited-win-becomes-negotiation",
+      "title": "Edição remove falso fechamento",
+      "coverage": ["message_edited", "negotiation"],
+      "reference_time": "2026-07-30T17:15:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "edited-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T17:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Essa condição funciona para você?",
+          "audio_transcription": null
+        },
+        {
+          "id": "edited-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T17:04:00-03:00",
+          "state": "superseded",
+          "content_type": "text",
+          "text": "Fechado, vou pagar agora.",
+          "audio_transcription": null
+        },
+        {
+          "id": "edited-2",
+          "version": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T17:06:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Ainda vou comparar as condições antes de decidir.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["edited-1", "edited-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Comparar condições antes da decisão."
+        },
+        "decision": {
+          "recommended_status": "negociacao",
+          "apply_crm_change": false,
+          "next_action_required": true,
+          "application_blocked": false,
+          "prohibited_statuses": ["ganho", "perdido", "respondeu"]
+        },
+        "evidence_message_ids": ["edited-2"],
+        "rationale": "Somente a versão mais recente pode influenciar os fatos e ela não confirma venda."
+      }
+    },
+    {
+      "id": "deleted-win-falls-back-to-negotiation",
+      "title": "Mensagem de fechamento apagada deixa de influenciar",
+      "coverage": ["message_deleted", "negotiation"],
+      "reference_time": "2026-07-30T18:20:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "deleted-1",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T18:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Tem como melhorar o valor?",
+          "audio_transcription": null
+        },
+        {
+          "id": "deleted-2",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T18:02:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Consigo verificar uma condição diferente.",
+          "audio_transcription": null
+        },
+        {
+          "id": "deleted-3",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T18:05:00-03:00",
+          "state": "superseded",
+          "content_type": "text",
+          "text": "Fechado, pode confirmar.",
+          "audio_transcription": null
+        },
+        {
+          "id": "deleted-3",
+          "version": 2,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T18:06:00-03:00",
+          "state": "deleted",
+          "content_type": "text",
+          "text": null,
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["deleted-1", "deleted-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Negociar uma condição de valor melhor."
+        },
+        "decision": {
+          "recommended_status": "negociacao",
+          "apply_crm_change": false,
+          "next_action_required": true,
+          "application_blocked": false,
+          "prohibited_statuses": ["ganho", "perdido", "respondeu"]
+        },
+        "evidence_message_ids": ["deleted-1"],
+        "rationale": "A última versão de deleted-3 está apagada e não pode sustentar fechamento."
+      }
+    },
+    {
+      "id": "audio-transcribed-appointment",
+      "title": "Áudio transcrito confirma visita",
+      "coverage": ["audio_transcribed", "appointment"],
+      "reference_time": "2026-07-30T19:20:00-03:00",
+      "initial_status": "contato",
+      "messages": [
+        {
+          "id": "audio-transcribed-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T19:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Quer conhecer a estrutura pessoalmente?",
+          "audio_transcription": null
+        },
+        {
+          "id": "audio-transcribed-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T19:05:00-03:00",
+          "state": "active",
+          "content_type": "audio",
+          "text": null,
+          "audio_transcription": "Pode marcar minha visita para sexta-feira às 18h."
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["audio-transcribed-1", "audio-transcribed-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": true,
+          "follow_up_has_date_or_period": true,
+          "visit_or_test_drive_scheduled": true,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Visitar a unidade na sexta-feira às 18h."
+        },
+        "decision": {
+          "recommended_status": "respondeu",
+          "apply_crm_change": true,
+          "next_action_required": true,
+          "expected_next_action_at": "2026-07-31T18:00:00-03:00",
+          "application_blocked": false,
+          "prohibited_statuses": ["ganho", "perdido", "negociacao"]
+        },
+        "evidence_message_ids": ["audio-transcribed-2"],
+        "rationale": "A transcrição contém aceite explícito de visita com data e horário."
+      }
+    },
+    {
+      "id": "audio-without-transcription-blocks-apply",
+      "title": "Áudio sem transcrição bloqueia aplicação",
+      "coverage": ["audio_without_transcription"],
+      "reference_time": "2026-07-30T20:10:00-03:00",
+      "initial_status": "contato",
+      "messages": [
+        {
+          "id": "audio-blocked-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T20:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Conseguiu analisar as opções?",
+          "audio_transcription": null
+        },
+        {
+          "id": "audio-blocked-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T20:04:00-03:00",
+          "state": "active",
+          "content_type": "audio",
+          "text": null,
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["audio-blocked-1", "audio-blocked-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": null
+        },
+        "decision": {
+          "recommended_status": "contato",
+          "apply_crm_change": false,
+          "next_action_required": false,
+          "application_blocked": true,
+          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        },
+        "evidence_message_ids": ["audio-blocked-2"],
+        "rationale": "O áudio prova resposta, mas seu conteúdo é desconhecido e nenhuma mudança pode ser aplicada."
+      }
+    },
+    {
+      "id": "false-positive-personal-time",
+      "title": "Horário pessoal não é agenda comercial",
+      "coverage": ["known_false_positive"],
+      "reference_time": "2026-07-30T21:10:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "personal-time-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T21:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Conseguiu decidir sobre a proposta?",
+          "audio_transcription": null
+        },
+        {
+          "id": "personal-time-2",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T21:03:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Hoje vou buscar meu filho às 17:35. Depois eu vejo isso com calma.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["personal-time-1", "personal-time-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": true,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Analisar a proposta sem combinar retorno."
+        },
+        "decision": {
+          "recommended_status": "negociacao",
+          "apply_crm_change": false,
+          "next_action_required": true,
+          "application_blocked": false,
+          "prohibited_statuses": ["respondeu", "ganho", "perdido"]
+        },
+        "evidence_message_ids": ["personal-time-2"],
+        "rationale": "17:35 pertence a um compromisso pessoal e não a um retorno comercial."
+      }
+    },
+    {
+      "id": "false-positive-seller-only-invite",
+      "title": "Convite do vendedor sem aceite não é agenda",
+      "coverage": ["known_false_positive", "no_response"],
+      "reference_time": "2026-07-30T22:10:00-03:00",
+      "initial_status": "contato",
+      "messages": [
+        {
+          "id": "seller-invite-1",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T21:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Posso te chamar amanhã às 14h para explicar os valores?",
+          "audio_transcription": null,
+          "delivery_status": "read"
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["seller-invite-1"],
+        "facts": {
+          "lead_responded": false,
+          "no_response": true,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": null
+        },
+        "decision": {
+          "recommended_status": "contato",
+          "apply_crm_change": false,
+          "next_action_required": true,
+          "application_blocked": false,
+          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        },
+        "evidence_message_ids": ["seller-invite-1"],
+        "rationale": "O horário foi proposto pelo vendedor e não aceito pelo cliente."
+      }
+    },
+    {
+      "id": "negotiation-overridden-by-final-appointment",
+      "title": "Agendamento final supera objeção intermediária",
+      "coverage": ["appointment", "negotiation"],
+      "reference_time": "2026-07-30T14:30:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "override-1",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T14:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Achei o valor alto. O que está incluso?",
+          "audio_transcription": null
+        },
+        {
+          "id": "override-2",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T14:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "A visita ajuda a comparar toda a estrutura e os serviços.",
+          "audio_transcription": null
+        },
+        {
+          "id": "override-3",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T14:10:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Certo, pode marcar minha visita para sábado às 10h.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["override-1", "override-2", "override-3"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": true,
+          "follow_up_has_date_or_period": true,
+          "visit_or_test_drive_scheduled": true,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": "Visitar a unidade no sábado às 10h."
+        },
+        "decision": {
+          "recommended_status": "respondeu",
+          "apply_crm_change": true,
+          "next_action_required": true,
+          "expected_next_action_at": "2026-08-01T10:00:00-03:00",
+          "application_blocked": false,
+          "prohibited_statuses": ["negociacao", "ganho", "perdido"]
+        },
+        "evidence_message_ids": ["override-3"],
+        "rationale": "O desfecho final trouxe compromisso concreto e superou a objeção intermediária."
+      }
+    },
+    {
+      "id": "negotiation-then-explicit-loss",
+      "title": "Perda explícita supera negociação anterior",
+      "coverage": ["lost", "negotiation"],
+      "reference_time": "2026-07-30T15:30:00-03:00",
+      "initial_status": "negociacao",
+      "messages": [
+        {
+          "id": "loss-override-1",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T15:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Se tiver desconto, talvez eu consiga fechar.",
+          "audio_transcription": null
+        },
+        {
+          "id": "loss-override-2",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T15:05:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Consigo manter essa condição somente hoje.",
+          "audio_transcription": null
+        },
+        {
+          "id": "loss-override-3",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T15:08:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Agradeço, mas decidi não contratar. Pode encerrar.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["loss-override-1", "loss-override-2", "loss-override-3"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": true,
+          "final_intent": "Encerrar a negociação sem contratar."
+        },
+        "decision": {
+          "recommended_status": "perdido",
+          "apply_crm_change": true,
+          "next_action_required": false,
+          "application_blocked": false,
+          "prohibited_statuses": ["negociacao", "respondeu", "ganho"]
+        },
+        "evidence_message_ids": ["loss-override-3"],
+        "rationale": "A decisão final explícita de não contratar supera a negociação anterior."
+      }
+    },
+    {
+      "id": "personal-conversation-with-date",
+      "title": "Data em conversa pessoal não altera o CRM",
+      "coverage": ["known_false_positive"],
+      "reference_time": "2026-07-30T09:20:00-03:00",
+      "initial_status": "contato",
+      "messages": [
+        {
+          "id": "personal-date-1",
+          "version": 1,
+          "direction": "incoming",
+          "captured_at": "2026-07-30T09:00:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Minha viagem ficou para sexta-feira de manhã.",
+          "audio_transcription": null
+        },
+        {
+          "id": "personal-date-2",
+          "version": 1,
+          "direction": "outgoing",
+          "captured_at": "2026-07-30T09:03:00-03:00",
+          "state": "active",
+          "content_type": "text",
+          "text": "Entendi.",
+          "audio_transcription": null
+        }
+      ],
+      "oracle": {
+        "current_message_ids": ["personal-date-1", "personal-date-2"],
+        "facts": {
+          "lead_responded": true,
+          "no_response": false,
+          "commercial_objection_active": false,
+          "follow_up_requested": false,
+          "follow_up_has_date_or_period": false,
+          "visit_or_test_drive_scheduled": false,
+          "explicit_win": false,
+          "explicit_loss": false,
+          "final_intent": null
+        },
+        "decision": {
+          "recommended_status": "contato",
+          "apply_crm_change": false,
+          "next_action_required": false,
+          "application_blocked": false,
+          "prohibited_statuses": ["respondeu", "negociacao", "ganho", "perdido"]
+        },
+        "evidence_message_ids": ["personal-date-1"],
+        "rationale": "A data descreve uma viagem pessoal e não um compromisso comercial."
+      }
+    }
+  ]
+}

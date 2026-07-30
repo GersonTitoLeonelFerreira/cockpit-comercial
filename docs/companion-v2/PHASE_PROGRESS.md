@@ -4,15 +4,15 @@
 
 | Campo | Valor |
 |---|---|
-| Fase atual | 0 - Congelamento e proteção |
-| Estado | Concluída |
+| Fase atual | 1 - Corpus de regressão |
+| Estado | Em validação |
 | Início | 2026-07-29 |
 | Commit-base | `50059c32ac924302822a85d044c39890c628b441` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
 | Motor padrão | `v1` |
 | Banco alterado | Não |
 | Extensão alterada | Não |
-| Correção pré-Fase 1 | Integridade de mensagens em validação |
+| Correção pré-Fase 1 | Concluída no PR #137 |
 
 ## Checklist da Fase 0
 
@@ -106,13 +106,70 @@ Validação técnica:
 - `npx tsc --noEmit` passou;
 - `next build` passou com 106 rotas.
 
+## Fechamento da correção pré-Fase 1
+
+A correção de integridade foi publicada pelo PR
+[#137](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/137)
+e validada no Firefox:
+
+- mensagem nova gerou uma análise;
+- edição gerou reanálise controlada;
+- exclusão removeu a mensagem da fotografia atual;
+- clique sem mudança reutilizou a orientação;
+- nenhuma orientação duplicada foi criada;
+- a aplicação da sugestão permaneceu separada da análise.
+
+## Fase 1 - Corpus de regressão
+
+### Escopo
+
+- conversas exclusivamente sintéticas e anonimizadas;
+- oráculo de fatos comerciais, decisão, evidências e proibições;
+- identidade e versão para cenários de edição e exclusão;
+- áudio transcrito e áudio sem transcrição;
+- falsos positivos conhecidos de agenda;
+- teste estrutural sem chamada de IA, banco ou rede.
+
+### Checklist
+
+- [x] Ganho explícito.
+- [x] Perda explícita.
+- [x] Agenda confirmada pelo cliente.
+- [x] Negociação sem desfecho.
+- [x] Ausência de resposta.
+- [x] Mensagem editada.
+- [x] Mensagem apagada.
+- [x] Áudio transcrito.
+- [x] Áudio sem transcrição.
+- [x] Conversa pessoal com horário.
+- [x] Convite feito só pelo vendedor.
+- [x] Negociação superada por agendamento final.
+- [x] Negociação superada por perda explícita.
+- [x] Validador de cobertura, versão, evidência e anonimização.
+- [ ] Revisão comercial do corpus.
+- [x] Validações técnicas registradas.
+- [ ] PR integrado e deployment canônico confirmado.
+
+### Evidências técnicas
+
+| Evidência | Resultado |
+|---|---|
+| Corpus | 14 casos e 10 coberturas obrigatórias |
+| Testes Companion | 22 cenários passaram |
+| ESLint | Passou nos três arquivos de teste do Companion |
+| TypeScript | `npx tsc --noEmit` passou |
+| Build | `next build` passou com 106 rotas |
+| Dados externos | Nenhuma chamada de IA, banco ou rede durante o teste |
+
+### Restrições preservadas
+
+- nenhum arquivo de runtime alterado;
+- nenhuma alteração na extensão;
+- nenhum prompt comercial alterado;
+- nenhuma migration, policy, grant, RPC ou dado alterado;
+- motor padrão continua `v1`.
+
 ## Próximo gate
 
-A Fase 0 está encerrada. Antes da Fase 1 - Corpus de regressão, a correção de
-integridade está no PR
-[#137](https://github.com/GersonTitoLeonelFerreira/cockpit-comercial/pull/137)
-e precisa:
-
-1. concluir o preview do projeto canônico;
-2. passar no Firefox com mensagem nova, editada e apagada;
-3. confirmar ausência de orientação e evento duplicados.
+Concluir a revisão comercial do corpus, registrar as validações técnicas e
+integrar a Fase 1 antes de iniciar a Fase 2 - Baseline reproduzível do schema.
