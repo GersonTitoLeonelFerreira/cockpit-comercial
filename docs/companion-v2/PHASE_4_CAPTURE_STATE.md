@@ -20,9 +20,9 @@ Ela aponta para versões imutáveis de `conversation_messages`. O ledger continu
 sendo a fonte auditável; o estado de captura pode avançar sem reescrever
 mensagens.
 
-## Limites da fase
+## Limites do pacote
 
-Esta fase cria somente a tabela de estado, sua migration e seus testes.
+Este pacote cria somente a tabela de estado, sua migration e seus testes.
 
 Ela não:
 
@@ -128,7 +128,7 @@ em produção.
 - nenhum acesso direto do cliente.
 
 O estado precisa de `UPDATE` porque é um cursor. Essa é a diferença intencional
-em relação ao ledger append-only da Fase 3.
+em relação ao ledger append-only do PT4-A.
 
 ## Artefatos
 
@@ -151,7 +151,7 @@ npm run test:companion
 npx tsc --noEmit --incremental false
 ```
 
-O teste específico da Fase 4 comprova:
+O teste específico do PT4-B comprova:
 
 - RLS habilitado e forçado;
 - grants mínimos do `service_role`;
