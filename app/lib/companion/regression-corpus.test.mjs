@@ -38,6 +38,37 @@ const allowedContentTypes = new Set([
   'audio',
 ])
 
+const allowedAnalysisScopes = new Set([
+  'current',
+  'historical_context',
+])
+
+const allowedAnalysisStatuses =
+  new Set([
+    'complete',
+    'limited',
+    'blocked',
+  ])
+
+const allowedRelevance = new Set([
+  'commercial',
+  'non_commercial',
+  'uncertain',
+])
+
+const allowedConfidence = new Set([
+  'high',
+  'medium',
+  'low',
+])
+
+const allowedFit = new Set([
+  'fit',
+  'partial_fit',
+  'misfit',
+  'unknown',
+])
+
 const factKeys = [
   'lead_responded',
   'no_response',
@@ -47,6 +78,23 @@ const factKeys = [
   'visit_or_test_drive_scheduled',
   'explicit_win',
   'explicit_loss',
+]
+
+const preservedCaseIds = [
+  'won-explicit-payment',
+  'lost-explicit-competitor',
+  'appointment-client-confirmed',
+  'negotiation-price-objection',
+  'no-response-after-read',
+  'edited-win-becomes-negotiation',
+  'deleted-win-falls-back-to-negotiation',
+  'audio-transcribed-appointment',
+  'audio-without-transcription-blocks-apply',
+  'false-positive-personal-time',
+  'false-positive-seller-only-invite',
+  'negotiation-overridden-by-final-appointment',
+  'negotiation-then-explicit-loss',
+  'personal-conversation-with-date',
 ]
 
 function getLatestMessages(messages) {
@@ -73,6 +121,15 @@ function getLatestMessages(messages) {
   )
 }
 
+function getCurrentMessages(messages) {
+  return getLatestMessages(
+    messages,
+  ).filter(
+    (message) =>
+      message.state === 'active',
+  )
+}
+
 function collectText(caseItem) {
   return [
     caseItem.title,
@@ -82,15 +139,62 @@ function collectText(caseItem) {
         message.audio_transcription,
       ],
     ),
+    JSON.stringify(caseItem.oracle),
   ]
     .filter(Boolean)
     .join(' ')
 }
 
-test('corpus possui metadados e origem segura', () => {
+function collectEvidenceArrays(
+  value,
+  key = '',
+  output = [],
+) {
+  if (Array.isArray(value)) {
+    if (
+      key === 'evidence_message_ids'
+    ) {
+      output.push(value)
+    } else {
+      for (const item of value) {
+        collectEvidenceArrays(
+          item,
+          '',
+          output,
+        )
+      }
+    }
+
+    return output
+  }
+
+  if (
+    value &&
+    typeof value === 'object'
+  ) {
+    for (
+      const [childKey, childValue] of
+      Object.entries(value)
+    ) {
+      collectEvidenceArrays(
+        childValue,
+        childKey,
+        output,
+      )
+    }
+  }
+
+  return output
+}
+
+test('corpus formaliza a versão aprovada da Fase 1', () => {
   assert.equal(
     corpus.corpus_version,
-    1,
+    2,
+  )
+  assert.equal(
+    corpus.contract_version,
+    'phase-1-v1',
   )
   assert.equal(
     corpus.language,
@@ -100,12 +204,29 @@ test('corpus possui metadados e origem segura', () => {
     corpus.data_origin,
     'synthetic_anonymized',
   )
-  assert.ok(
-    Array.isArray(corpus.cases),
+  assert.equal(
+    corpus.approved_on,
+    '2026-07-30',
   )
-  assert.ok(
-    corpus.cases.length >= 10,
+  assert.equal(
+    corpus.cases.length,
+    30,
   )
+})
+
+test('os 14 casos originais foram preservados', () => {
+  const ids = new Set(
+    corpus.cases.map(
+      (caseItem) => caseItem.id,
+    ),
+  )
+
+  for (const id of preservedCaseIds) {
+    assert.ok(
+      ids.has(id),
+      `Caso original ausente: ${id}`,
+    )
+  }
 })
 
 test('todas as coberturas obrigatórias estão presentes', () => {
@@ -127,7 +248,7 @@ test('todas as coberturas obrigatórias estão presentes', () => {
   }
 })
 
-test('casos, mensagens e versões são únicos e válidos', () => {
+test('casos, mensagens, versões e sequências são únicos', () => {
   const caseIds = new Set()
 
   for (const caseItem of corpus.cases) {
@@ -154,40 +275,72 @@ test('casos, mensagens e versões são únicos e válidos', () => {
       `Horário inválido em ${caseItem.id}`,
     )
 
+    const identities = new Set()
+    const sequences = new Set()
     const versionsByMessage =
       new Map()
-    const identityVersions =
-      new Set()
 
     for (
       const message of
       caseItem.messages
     ) {
+      const identity =
+        `${message.id}:${message.version}`
+
       assert.ok(message.id)
+      assert.equal(
+        identities.has(identity),
+        false,
+        `Identidade duplicada em ${caseItem.id}: ${identity}`,
+      )
+      identities.add(identity)
+
+      assert.ok(
+        Number.isInteger(
+          message.sequence,
+        ) &&
+          message.sequence >= 1,
+        `Sequência inválida em ${caseItem.id}/${identity}`,
+      )
+      assert.equal(
+        sequences.has(
+          message.sequence,
+        ),
+        false,
+        `Sequência duplicada em ${caseItem.id}: ${message.sequence}`,
+      )
+      sequences.add(message.sequence)
+
       assert.ok(
         Number.isInteger(
           message.version,
         ) &&
           message.version >= 1,
-        `Versão inválida em ${caseItem.id}/${message.id}`,
+        `Versão inválida em ${caseItem.id}/${identity}`,
       )
       assert.ok(
         allowedDirections.has(
           message.direction,
         ),
-        `Direção inválida em ${caseItem.id}/${message.id}`,
+        `Direção inválida em ${caseItem.id}/${identity}`,
       )
       assert.ok(
         allowedStates.has(
           message.state,
         ),
-        `Estado inválido em ${caseItem.id}/${message.id}`,
+        `Estado inválido em ${caseItem.id}/${identity}`,
       )
       assert.ok(
         allowedContentTypes.has(
           message.content_type,
         ),
-        `Tipo inválido em ${caseItem.id}/${message.id}`,
+        `Tipo inválido em ${caseItem.id}/${identity}`,
+      )
+      assert.ok(
+        allowedAnalysisScopes.has(
+          message.analysis_scope,
+        ),
+        `Escopo inválido em ${caseItem.id}/${identity}`,
       )
       assert.ok(
         Number.isFinite(
@@ -195,20 +348,8 @@ test('casos, mensagens e versões são únicos e válidos', () => {
             message.captured_at,
           ),
         ),
-        `Horário inválido em ${caseItem.id}/${message.id}`,
+        `Horário inválido em ${caseItem.id}/${identity}`,
       )
-
-      const identity =
-        `${message.id}:${message.version}`
-
-      assert.equal(
-        identityVersions.has(
-          identity,
-        ),
-        false,
-        `Identidade duplicada em ${caseItem.id}: ${identity}`,
-      )
-      identityVersions.add(identity)
 
       const versions =
         versionsByMessage.get(
@@ -219,356 +360,840 @@ test('casos, mensagens e versões são únicos e válidos', () => {
         message.id,
         versions,
       )
-
-      if (
-        message.content_type ===
-        'text'
-      ) {
-        if (
-          message.state ===
-          'deleted'
-        ) {
-          assert.equal(
-            message.text,
-            null,
-            `Mensagem apagada manteve texto em ${caseItem.id}/${message.id}`,
-          )
-        } else {
-          assert.equal(
-            typeof message.text,
-            'string',
-            `Texto ausente em ${caseItem.id}/${message.id}`,
-          )
-        }
-        assert.equal(
-          message.audio_transcription,
-          null,
-          `Texto não pode ter transcrição em ${caseItem.id}/${message.id}`,
-        )
-      }
-
-      if (
-        message.content_type ===
-        'audio'
-      ) {
-        assert.equal(
-          message.text,
-          null,
-          `Áudio não pode ter texto bruto em ${caseItem.id}/${message.id}`,
-        )
-        assert.ok(
-          message.audio_transcription ===
-            null ||
-            typeof message.audio_transcription ===
-              'string',
-          `Transcrição inválida em ${caseItem.id}/${message.id}`,
-        )
-      }
     }
 
     for (
-      const [
-        messageId,
-        versions,
-      ] of versionsByMessage
+      const [messageId, versions] of
+      versionsByMessage
     ) {
-      versions.sort(
-        (left, right) =>
-          left - right,
-      )
+      const ordered =
+        versions.toSorted(
+          (left, right) =>
+            left - right,
+        )
 
       assert.deepEqual(
-        versions,
+        ordered,
         Array.from(
           {
             length:
-              versions.length,
+              ordered.at(-1),
           },
-          (_, index) =>
-            index + 1,
+          (_, index) => index + 1,
         ),
-        `Versões fora de sequência em ${caseItem.id}/${messageId}`,
+        `Versões descontínuas em ${caseItem.id}/${messageId}`,
       )
     }
   }
 })
 
-test('fotografia atual coincide com o oráculo', () => {
+test('a fotografia atual coincide com as mensagens ativas mais recentes', () => {
   for (const caseItem of corpus.cases) {
-    const latestMessages =
-      getLatestMessages(
+    const currentIds =
+      getCurrentMessages(
         caseItem.messages,
       )
-
-    const activeIds =
-      latestMessages
-        .filter(
-          (message) =>
-            message.state ===
-            'active',
-        )
-        .map(
-          (message) =>
-            message.id,
-        )
-        .sort()
-
-    const expectedIds = [
-      ...caseItem.oracle
-        .current_message_ids,
-    ].sort()
+        .map((message) => message.id)
+        .toSorted()
 
     assert.deepEqual(
-      activeIds,
-      expectedIds,
+      caseItem.oracle
+        .current_message_ids
+        .toSorted(),
+      currentIds,
       `Fotografia divergente em ${caseItem.id}`,
     )
-
-    const latestIds =
-      new Set(
-        latestMessages.map(
-          (message) =>
-            message.id,
-        ),
-      )
-
-    for (
-      const message of
-      caseItem.messages
-    ) {
-      if (
-        !latestIds.has(
-          message.id,
-        )
-      ) {
-        continue
-      }
-
-      const latest =
-        latestMessages.find(
-          (item) =>
-            item.id ===
-            message.id,
-        )
-
-      if (
-        message.version <
-        latest.version
-      ) {
-        assert.equal(
-          message.state,
-          'superseded',
-          `Versão anterior não superseded em ${caseItem.id}/${message.id}`,
-        )
-      }
-    }
   }
 })
 
-test('evidências usam somente mensagens atuais e ativas', () => {
+test('contexto comercial diferencia método configurado e ausência de método', () => {
   for (const caseItem of corpus.cases) {
-    const activeIds =
-      new Set(
-        getLatestMessages(
-          caseItem.messages,
-        )
-          .filter(
-            (message) =>
-              message.state ===
-              'active',
-          )
-          .map(
-            (message) =>
-              message.id,
-          ),
-      )
+    const context =
+      caseItem.commercial_context
 
-    for (
-      const evidenceId of
-      caseItem.oracle
-        .evidence_message_ids
-    ) {
+    assert.ok(context)
+    assert.ok(
+      Array.isArray(
+        context.products,
+      ),
+    )
+
+    const methodConfigured =
+      context.method !== null
+
+    assert.equal(
+      caseItem.oracle.sales_method
+        .configured,
+      methodConfigured,
+      `Configuração de método divergente em ${caseItem.id}`,
+    )
+
+    if (methodConfigured) {
+      assert.ok(context.method.id)
+      assert.ok(context.method.name)
       assert.ok(
-        activeIds.has(
-          evidenceId,
+        Array.isArray(
+          context.method.steps,
         ),
-        `Evidência inativa em ${caseItem.id}: ${evidenceId}`,
       )
     }
   }
 })
 
-test('fatos e decisões não possuem contradições', () => {
+test('todo oráculo contém os 16 blocos funcionais aprovados', () => {
+  const requiredKeys = [
+    'analysis_status',
+    'analysis_limitations',
+    'commercial_relevance',
+    'confidence',
+    'facts',
+    'customer_intent',
+    'needs',
+    'missing_information',
+    'unanswered_questions',
+    'active_objections',
+    'seller_assessment',
+    'sales_method',
+    'solution_fit',
+    'guidance',
+    'crm_suggestion',
+    'evidence_message_ids',
+  ]
+
   for (const caseItem of corpus.cases) {
-    const {
-      facts,
-      decision,
-    } = caseItem.oracle
+    for (const key of requiredKeys) {
+      assert.ok(
+        Object.hasOwn(
+          caseItem.oracle,
+          key,
+        ),
+        `Bloco ${key} ausente em ${caseItem.id}`,
+      )
+    }
+
+    assert.ok(
+      caseItem.oracle.rationale,
+      `Justificativa ausente em ${caseItem.id}`,
+    )
+  }
+})
+
+test('enumerações e fatos possuem valores válidos', () => {
+  for (const caseItem of corpus.cases) {
+    const current =
+      caseItem.oracle
+
+    assert.ok(
+      allowedAnalysisStatuses.has(
+        current.analysis_status,
+      ),
+      `analysis_status inválido em ${caseItem.id}`,
+    )
+    assert.ok(
+      allowedRelevance.has(
+        current
+          .commercial_relevance,
+      ),
+      `commercial_relevance inválida em ${caseItem.id}`,
+    )
+    assert.ok(
+      allowedConfidence.has(
+        current.confidence,
+      ),
+      `confidence inválida em ${caseItem.id}`,
+    )
+    assert.ok(
+      allowedFit.has(
+        current.solution_fit
+          .status,
+      ),
+      `solution_fit inválido em ${caseItem.id}`,
+    )
 
     for (const key of factKeys) {
       assert.equal(
-        typeof facts[key],
+        typeof current.facts[key],
         'boolean',
-        `Fato inválido em ${caseItem.id}: ${key}`,
+        `Fato ${key} inválido em ${caseItem.id}`,
       )
     }
 
     assert.ok(
-      facts.final_intent ===
+      current.facts.final_intent ===
         null ||
-        typeof facts.final_intent ===
+        typeof current.facts
+          .final_intent ===
           'string',
       `Intenção final inválida em ${caseItem.id}`,
     )
-    assert.equal(
-      facts.lead_responded &&
-        facts.no_response,
-      false,
-      `Resposta e ausência simultâneas em ${caseItem.id}`,
-    )
-    assert.equal(
-      facts.explicit_win &&
-        facts.explicit_loss,
-      false,
-      `Ganho e perda simultâneos em ${caseItem.id}`,
-    )
-    assert.ok(
-      allowedStatuses.has(
-        decision.recommended_status,
+  }
+})
+
+test('evidências apontam somente para mensagens ativas na versão atual', () => {
+  for (const caseItem of corpus.cases) {
+    const activeIds = new Set(
+      getCurrentMessages(
+        caseItem.messages,
+      ).map(
+        (message) => message.id,
       ),
-      `Decisão inválida em ${caseItem.id}`,
     )
+
+    const evidenceArrays =
+      collectEvidenceArrays(
+        caseItem.oracle,
+      )
+
+    for (
+      const evidenceIds of
+      evidenceArrays
+    ) {
+      for (
+        const messageId of
+        evidenceIds
+      ) {
+        assert.ok(
+          activeIds.has(messageId),
+          `Evidência inválida em ${caseItem.id}: ${messageId}`,
+        )
+      }
+    }
+  }
+})
+
+test('mensagens apagadas ou superadas não sustentam diagnóstico', () => {
+  for (const caseItem of corpus.cases) {
+    const inactiveIds = new Set(
+      getLatestMessages(
+        caseItem.messages,
+      )
+        .filter(
+          (message) =>
+            message.state !==
+            'active',
+        )
+        .map(
+          (message) => message.id,
+        ),
+    )
+
+    const evidenceIds = new Set(
+      collectEvidenceArrays(
+        caseItem.oracle,
+      ).flat(),
+    )
+
+    for (const id of inactiveIds) {
+      assert.equal(
+        evidenceIds.has(id),
+        false,
+        `Mensagem inativa usada em ${caseItem.id}: ${id}`,
+      )
+    }
+  }
+})
+
+test('o contrato não contém comando de aplicação automática', () => {
+  const serialized =
+    JSON.stringify(corpus)
+
+  assert.equal(
+    serialized.includes(
+      'apply_crm_change',
+    ),
+    false,
+  )
+  assert.equal(
+    serialized.includes(
+      'application_blocked',
+    ),
+    false,
+  )
+
+  for (const caseItem of corpus.cases) {
     assert.equal(
-      decision.prohibited_statuses.includes(
-        decision.recommended_status,
-      ),
-      false,
-      `Status recomendado também proibido em ${caseItem.id}`,
+      caseItem.oracle
+        .crm_suggestion
+        .requires_human_confirmation,
+      true,
+      `Confirmação humana ausente em ${caseItem.id}`,
+    )
+  }
+})
+
+test('sugestão de CRM respeita regras de null e confirmação', () => {
+  for (const caseItem of corpus.cases) {
+    const crm =
+      caseItem.oracle
+        .crm_suggestion
+
+    assert.equal(
+      typeof crm
+        .should_change_crm_stage,
+      'boolean',
+      `should_change_crm_stage inválido em ${caseItem.id}`,
     )
 
     if (
-      decision.recommended_status ===
+      crm.should_change_crm_stage
+    ) {
+      assert.ok(
+        allowedStatuses.has(
+          crm.recommended_status,
+        ),
+        `Etapa recomendada inválida em ${caseItem.id}`,
+      )
+    }
+
+    if (
+      crm.recommended_status !== null
+    ) {
+      assert.ok(
+        allowedStatuses.has(
+          crm.recommended_status,
+        ),
+        `Etapa inválida em ${caseItem.id}`,
+      )
+    }
+
+    assert.ok(
+      Array.isArray(
+        crm.prohibited_statuses,
+      ),
+      `Proibições ausentes em ${caseItem.id}`,
+    )
+  }
+})
+
+test('ganho e perda exigem declaração explícita do cliente', () => {
+  for (const caseItem of corpus.cases) {
+    const {
+      facts,
+      crm_suggestion: crm,
+    } = caseItem.oracle
+
+    if (
+      crm.recommended_status ===
       'ganho'
     ) {
       assert.equal(
         facts.explicit_win,
         true,
-        `Ganho sem fato explícito em ${caseItem.id}`,
+        `Ganho sem evidência em ${caseItem.id}`,
       )
       assert.equal(
-        decision.next_action_required,
+        facts.explicit_loss,
         false,
-        `Ganho não pode exigir próxima ação em ${caseItem.id}`,
+        `Ganho contraditório em ${caseItem.id}`,
       )
     }
 
     if (
-      decision.recommended_status ===
+      crm.recommended_status ===
       'perdido'
     ) {
       assert.equal(
         facts.explicit_loss,
         true,
-        `Perda sem fato explícito em ${caseItem.id}`,
+        `Perda sem evidência em ${caseItem.id}`,
       )
       assert.equal(
-        decision.next_action_required,
+        facts.explicit_win,
         false,
-        `Perda não pode exigir próxima ação em ${caseItem.id}`,
-      )
-    }
-
-    if (
-      decision.recommended_status ===
-      'respondeu'
-    ) {
-      assert.equal(
-        facts.lead_responded,
-        true,
-        `Agenda sem resposta real em ${caseItem.id}`,
-      )
-      assert.equal(
-        facts.follow_up_requested ||
-          facts
-            .visit_or_test_drive_scheduled,
-        true,
-        `Agenda sem compromisso comercial em ${caseItem.id}`,
-      )
-      assert.equal(
-        facts.follow_up_has_date_or_period,
-        true,
-        `Agenda sem data ou período em ${caseItem.id}`,
-      )
-      assert.ok(
-        Number.isFinite(
-          Date.parse(
-            decision
-              .expected_next_action_at,
-          ),
-        ),
-        `Agenda sem horário resolvido em ${caseItem.id}`,
-      )
-      assert.ok(
-        Date.parse(
-          decision
-            .expected_next_action_at,
-        ) >
-          Date.parse(
-            caseItem.reference_time,
-          ),
-        `Agenda vencida em ${caseItem.id}`,
+        `Perda contraditória em ${caseItem.id}`,
       )
     }
   }
 })
 
-test('áudio sem transcrição bloqueia aplicação no CRM', () => {
-  const affectedCases =
+test('agenda exige aceite do cliente, data futura e confirmação humana', () => {
+  for (const caseItem of corpus.cases) {
+    const {
+      facts,
+      crm_suggestion: crm,
+    } = caseItem.oracle
+
+    if (
+      crm.recommended_status !==
+        'respondeu' ||
+      !crm.next_action_required
+    ) {
+      continue
+    }
+
+    assert.equal(
+      facts.lead_responded,
+      true,
+      `Agenda sem resposta em ${caseItem.id}`,
+    )
+    assert.equal(
+      facts.follow_up_requested ||
+        facts
+          .visit_or_test_drive_scheduled,
+      true,
+      `Agenda sem compromisso em ${caseItem.id}`,
+    )
+    assert.equal(
+      facts
+        .follow_up_has_date_or_period,
+      true,
+      `Agenda sem data em ${caseItem.id}`,
+    )
+    assert.ok(
+      Number.isFinite(
+        Date.parse(
+          crm.expected_next_action_at,
+        ),
+      ),
+      `Agenda sem horário resolvido em ${caseItem.id}`,
+    )
+    assert.ok(
+      Date.parse(
+        crm.expected_next_action_at,
+      ) >
+        Date.parse(
+          caseItem.reference_time,
+        ),
+      `Agenda vencida em ${caseItem.id}`,
+    )
+  }
+})
+
+test('conversa não comercial não gera intervenção nem CRM', () => {
+  const nonCommercial =
     corpus.cases.filter(
       (caseItem) =>
-        caseItem.coverage.includes(
-          'audio_without_transcription',
-        ),
+        caseItem.oracle
+          .commercial_relevance ===
+        'non_commercial',
     )
 
   assert.ok(
-    affectedCases.length > 0,
+    nonCommercial.length >= 2,
   )
 
   for (
     const caseItem of
-    affectedCases
+    nonCommercial
   ) {
-    const currentMessages =
-      getLatestMessages(
-        caseItem.messages,
-      )
+    const {
+      guidance,
+      crm_suggestion: crm,
+    } = caseItem.oracle
 
-    assert.ok(
-      currentMessages.some(
-        (message) =>
-          message.state ===
-            'active' &&
-          message.content_type ===
-            'audio' &&
-          message.audio_transcription ===
-            null,
-      ),
-      `Caso sem áudio pendente: ${caseItem.id}`,
-    )
     assert.equal(
-      caseItem.oracle.decision
-        .application_blocked,
-      true,
-      `Aplicação não bloqueada em ${caseItem.id}`,
-    )
-    assert.equal(
-      caseItem.oracle.decision
-        .apply_crm_change,
+      guidance
+        .intervention_required,
       false,
-      `CRM liberado com áudio pendente em ${caseItem.id}`,
+      `Intervenção pessoal em ${caseItem.id}`,
+    )
+    assert.equal(
+      guidance
+        .recommended_question,
+      null,
+      `Pergunta pessoal em ${caseItem.id}`,
+    )
+    assert.equal(
+      guidance.suggested_message,
+      null,
+      `Mensagem pessoal em ${caseItem.id}`,
+    )
+    assert.equal(
+      crm.should_change_crm_stage,
+      false,
+      `CRM alterado em conversa pessoal: ${caseItem.id}`,
+    )
+    assert.equal(
+      crm.recommended_status,
+      null,
+      `Etapa sugerida em conversa pessoal: ${caseItem.id}`,
     )
   }
+})
+
+test('análise completa não esconde limitação e análise limitada a declara', () => {
+  for (const caseItem of corpus.cases) {
+    const {
+      analysis_status:
+        analysisStatus,
+      analysis_limitations:
+        limitations,
+    } = caseItem.oracle
+
+    assert.ok(
+      Array.isArray(limitations),
+    )
+
+    if (
+      analysisStatus === 'complete'
+    ) {
+      assert.equal(
+        limitations.length,
+        0,
+        `Limitação oculta em ${caseItem.id}`,
+      )
+    } else {
+      assert.ok(
+        limitations.length > 0,
+        `Limitação não declarada em ${caseItem.id}`,
+      )
+    }
+  }
+})
+
+test('análise bloqueada não inventa intenção, orientação ou etapa', () => {
+  const blocked =
+    corpus.cases.filter(
+      (caseItem) =>
+        caseItem.oracle
+          .analysis_status ===
+        'blocked',
+    )
+
+  assert.ok(blocked.length > 0)
+
+  for (const caseItem of blocked) {
+    const {
+      customer_intent:
+        customerIntent,
+      guidance,
+      crm_suggestion: crm,
+    } = caseItem.oracle
+
+    assert.equal(
+      customerIntent,
+      null,
+      `Intenção inventada em ${caseItem.id}`,
+    )
+    assert.equal(
+      guidance
+        .intervention_required,
+      false,
+      `Intervenção inventada em ${caseItem.id}`,
+    )
+    assert.equal(
+      crm.recommended_status,
+      null,
+      `CRM inventado em ${caseItem.id}`,
+    )
+    assert.equal(
+      crm.should_change_crm_stage,
+      false,
+      `Mudança inventada em ${caseItem.id}`,
+    )
+  }
+})
+
+test('objeções ativas coincidem com os fatos atuais', () => {
+  for (const caseItem of corpus.cases) {
+    const {
+      facts,
+      active_objections:
+        activeObjections,
+    } = caseItem.oracle
+
+    if (
+      facts
+        .commercial_objection_active
+    ) {
+      assert.ok(
+        activeObjections.length > 0,
+        `Objeção sem descrição em ${caseItem.id}`,
+      )
+    } else {
+      assert.equal(
+        activeObjections.length,
+        0,
+        `Objeção encerrada mantida em ${caseItem.id}`,
+      )
+    }
+  }
+})
+
+test('perguntas ignoradas e repetidas permanecem separadas', () => {
+  const ignored = corpus.cases.find(
+    (caseItem) =>
+      caseItem.id ===
+      'seller-ignores-customer-question',
+  )
+  const repeated = corpus.cases.find(
+    (caseItem) =>
+      caseItem.id ===
+      'seller-repeats-answered-question',
+  )
+
+  assert.equal(
+    ignored.oracle
+      .unanswered_questions.length,
+    1,
+  )
+  assert.ok(
+    ignored.oracle
+      .seller_assessment.risks.some(
+        (item) =>
+          item.type ===
+          'ignored_question',
+      ),
+  )
+  assert.equal(
+    repeated.oracle
+      .unanswered_questions.length,
+    0,
+  )
+  assert.ok(
+    repeated.oracle
+      .seller_assessment.risks.some(
+        (item) =>
+          item.type ===
+          'repeated_answered_question',
+      ),
+  )
+})
+
+test('bom diagnóstico reconhece acertos sem criar crítica', () => {
+  const caseItem =
+    corpus.cases.find(
+      (item) =>
+        item.id ===
+        'seller-good-discovery-and-answer',
+    )
+
+  assert.ok(
+    caseItem.oracle
+      .seller_assessment.strengths
+      .length >= 2,
+  )
+  assert.equal(
+    caseItem.oracle
+      .seller_assessment.risks
+      .length,
+    0,
+  )
+  assert.equal(
+    caseItem.oracle.guidance
+      .intervention_required,
+    false,
+  )
+  assert.equal(
+    caseItem.oracle.solution_fit
+      .status,
+    'fit',
+  )
+})
+
+test('apresentação prematura registra etapa pulada do método', () => {
+  const prematureCases =
+    corpus.cases.filter(
+      (caseItem) =>
+        caseItem.coverage.includes(
+          'premature_presentation',
+        ),
+    )
+
+  assert.ok(
+    prematureCases.length >= 2,
+  )
+
+  for (
+    const caseItem of
+    prematureCases
+  ) {
+    assert.ok(
+      caseItem.oracle
+        .sales_method.skipped_steps
+        .includes('diagnosticar'),
+      `Diagnóstico não marcado como pulado em ${caseItem.id}`,
+    )
+    assert.ok(
+      caseItem.oracle
+        .seller_assessment.risks
+        .some(
+          (item) =>
+            item.type ===
+            'premature_presentation',
+        ),
+      `Risco ausente em ${caseItem.id}`,
+    )
+  }
+})
+
+test('orientação pode concluir que nenhuma intervenção é necessária', () => {
+  const noIntervention =
+    corpus.cases.filter(
+      (caseItem) =>
+        caseItem.oracle.guidance
+          .intervention_required ===
+        false,
+    )
+
+  assert.ok(
+    noIntervention.length >= 8,
+  )
+
+  for (
+    const caseItem of
+    noIntervention
+  ) {
+    assert.equal(
+      caseItem.oracle.guidance
+        .recommended_question,
+      null,
+      `Pergunta indevida em ${caseItem.id}`,
+    )
+    assert.equal(
+      caseItem.oracle.guidance
+        .suggested_message,
+      null,
+      `Mensagem indevida em ${caseItem.id}`,
+    )
+  }
+})
+
+test('vou pensar, eu retorno e proposta enviada não viram agenda', () => {
+  const ids = [
+    'customer-will-think',
+    'customer-will-return-without-date',
+    'proposal-sent-awaiting-response',
+  ]
+
+  for (const id of ids) {
+    const caseItem =
+      corpus.cases.find(
+        (item) => item.id === id,
+      )
+    const crm =
+      caseItem.oracle
+        .crm_suggestion
+
+    assert.notEqual(
+      crm.recommended_status,
+      'respondeu',
+      `Falso agendamento em ${id}`,
+    )
+    assert.ok(
+      crm.prohibited_statuses.includes(
+        'respondeu',
+      ),
+      `Agenda não proibida em ${id}`,
+    )
+  }
+})
+
+test('histórico antigo é contexto e o desfecho recente sustenta a decisão', () => {
+  const caseItem =
+    corpus.cases.find(
+      (item) =>
+        item.id ===
+        'historical-scroll-does-not-override-current-outcome',
+    )
+
+  const historicalIds =
+    new Set(
+      caseItem.messages
+        .filter(
+          (message) =>
+            message.analysis_scope ===
+            'historical_context',
+        )
+        .map(
+          (message) => message.id,
+        ),
+    )
+
+  assert.ok(
+    historicalIds.size > 0,
+  )
+  assert.equal(
+    caseItem.oracle
+      .crm_suggestion
+      .recommended_status,
+    'negociacao',
+  )
+
+  for (
+    const id of
+    caseItem.oracle
+      .evidence_message_ids
+  ) {
+    assert.equal(
+      historicalIds.has(id),
+      false,
+      `Histórico antigo sustentou desfecho: ${id}`,
+    )
+  }
+})
+
+test('mensagens no mesmo minuto usam sequência estável', () => {
+  const caseItem =
+    corpus.cases.find(
+      (item) =>
+        item.id ===
+        'same-minute-messages-respect-sequence',
+    )
+
+  const timestamps =
+    new Set(
+      caseItem.messages.map(
+        (message) =>
+          message.captured_at,
+      ),
+    )
+
+  assert.equal(timestamps.size, 1)
+  assert.deepEqual(
+    caseItem.messages.map(
+      (message) =>
+        message.sequence,
+    ),
+    [1, 2, 3],
+  )
+  assert.equal(
+    caseItem.oracle.facts
+      .commercial_objection_active,
+    true,
+  )
+  assert.equal(
+    caseItem.oracle
+      .crm_suggestion
+      .recommended_status,
+    'negociacao',
+  )
+})
+
+test('contexto insuficiente reduz confiança e não autoriza CRM', () => {
+  const caseItem =
+    corpus.cases.find(
+      (item) =>
+        item.id ===
+        'commercial-conversation-insufficient-context',
+    )
+
+  assert.equal(
+    caseItem.oracle
+      .analysis_status,
+    'limited',
+  )
+  assert.equal(
+    caseItem.oracle.confidence,
+    'low',
+  )
+  assert.equal(
+    caseItem.oracle.sales_method
+      .configured,
+    false,
+  )
+  assert.equal(
+    caseItem.oracle
+      .crm_suggestion
+      .recommended_status,
+    null,
+  )
+  assert.equal(
+    caseItem.oracle
+      .crm_suggestion
+      .should_change_crm_stage,
+    false,
+  )
 })
 
 test('corpus não contém formatos reconhecíveis de dados pessoais', () => {
@@ -596,8 +1221,9 @@ test('corpus não contém formatos reconhecíveis de dados pessoais', () => {
   ]
 
   for (const caseItem of corpus.cases) {
-    const text =
-      collectText(caseItem)
+    const text = collectText(
+      caseItem,
+    )
 
     for (
       const {
@@ -611,38 +1237,5 @@ test('corpus não contém formatos reconhecíveis de dados pessoais', () => {
         `${label} encontrado em ${caseItem.id}`,
       )
     }
-  }
-})
-
-test('falsos positivos conhecidos proíbem Agenda', () => {
-  const falsePositives =
-    corpus.cases.filter(
-      (caseItem) =>
-        caseItem.coverage.includes(
-          'known_false_positive',
-        ),
-    )
-
-  assert.ok(
-    falsePositives.length >= 2,
-  )
-
-  for (
-    const caseItem of
-    falsePositives
-  ) {
-    assert.notEqual(
-      caseItem.oracle.decision
-        .recommended_status,
-      'respondeu',
-      `Falso positivo virou Agenda em ${caseItem.id}`,
-    )
-    assert.ok(
-      caseItem.oracle.decision
-        .prohibited_statuses.includes(
-          'respondeu',
-        ),
-      `Agenda não está proibida em ${caseItem.id}`,
-    )
   }
 })
