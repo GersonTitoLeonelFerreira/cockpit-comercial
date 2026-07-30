@@ -123,6 +123,21 @@ seu nome não aparece no histórico remoto.
 Conclusão: migrations do V2 ficam bloqueadas até a Fase 2 produzir um baseline
 reproduzível.
 
+### Conciliação da Fase 2
+
+Em 2026-07-30, a Fase 2 preservou os 94 arquivos anteriores em
+`supabase/migrations_legacy/` e substituiu a cadeia oficial por 19 arquivos com
+os mesmos nomes registrados no Supabase. As 18 primeiras versões são
+marcadores; a última contém a fotografia estrutural consolidada do schema vivo.
+
+Produção já registra essas 19 versões, portanto nenhuma DDL é reexecutada. Uma
+base vazia aplica a cadeia em ordem e reconstrói o schema. O resultado é
+comparado com um manifesto independente por
+`npm run test:schema-baseline`.
+
+Detalhes, limites e evidências estão em
+`docs/companion-v2/PHASE_2_SCHEMA_BASELINE.md`.
+
 ## Evidências do V1 congelado
 
 | Componente | Evidência |
