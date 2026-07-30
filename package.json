@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:companion": "node --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
+    "test:companion-ledger": "node --test supabase/phase-tests/phase-3-message-ledger.test.mjs",
     "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs"
   },
   "dependencies": {

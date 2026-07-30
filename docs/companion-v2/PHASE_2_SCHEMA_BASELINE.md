@@ -104,7 +104,7 @@ registrados para migrations futuras, com escopo, teste e rollback próprios.
 - [x] Advisors registrados sem alteração oportunista.
 - [x] Produção permaneceu sem mutações.
 - [x] Gates completos do repositório aprovados.
-- [ ] PR integrado e deployment canônico confirmado.
+- [x] PR integrado e deployment canônico confirmado.
 
 ## Evidências dos gates locais
 
@@ -115,3 +115,5 @@ registrados para migrations futuras, com escopo, teste e rollback próprios.
 | ESLint | Teste do baseline sem erros |
 | TypeScript | `npx tsc --noEmit` sem erros |
 | Build | `next build` aprovado com 106 rotas |
+| Integração | PR #139 integrado no commit `84e57a3` |
+| Produção | Deployment canônico `READY`; login HTTP 200 e sem erro de runtime |
