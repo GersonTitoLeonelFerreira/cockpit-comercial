@@ -53,6 +53,16 @@ O teste também comprova que:
 - os 94 arquivos anteriores continuam preservados;
 - o baseline não depende de dados reais.
 
+As fundações posteriores do Companion são validadas separadamente:
+
+```bash
+npm run test:companion-ledger
+npm run test:companion-capture-state
+```
+
+O primeiro comando aplica baseline + Fase 3. O segundo aplica baseline +
+Fase 3 + Fase 4 e comprova o cursor por empresa, conversa e dispositivo.
+
 PGlite valida a estrutura PostgreSQL do schema `public`. A criação de uma
 branch hospedada do Supabase não estava disponível porque o projeto não está no
 plano Pro; por isso, integrações específicas da plataforma deverão ser

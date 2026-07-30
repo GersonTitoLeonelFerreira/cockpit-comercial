@@ -4,13 +4,13 @@
 
 | Campo | Valor |
 |---|---|
-| Fase atual | 3 - Ledger canônico de mensagens |
-| Estado | Em validação local |
+| Fase atual | 4 - Cursor e estado de captura |
+| Estado | Em implementação e validação local |
 | Início | 2026-07-29 |
-| Commit-base da Fase 3 | `63a23fb36f319453b5e95bcd371a2ecccd277ba0` |
+| Commit-base da Fase 4 | `b92bbd4bc9e0ab2c572116d62522473e3633997c` |
 | Tag de baseline | `yolen-companion-v1-baseline-2026-07-29` |
 | Motor padrão | `v1` |
-| Banco alterado | Não |
+| Banco alterado | Fase 3 aplicada; Fase 4 ainda não aplicada |
 | Extensão alterada | Não |
 | Correção pré-Fase 1 | Concluída no PR #137 |
 
@@ -251,11 +251,11 @@ recurso estiver disponível.
 - [x] Baseline da Fase 2 permanece aprovado.
 - [x] Testes de regressão do Companion aprovados.
 - [x] TypeScript, lint e build aprovados.
-- [ ] PR integrado e deployment canônico confirmado.
-- [ ] Migration aplicada no Supabase com autorização explícita.
-- [ ] Advisors pós-migration revisados.
+- [x] PR #142 integrado e deployment canônico confirmado.
+- [x] Migration aplicada no Supabase com autorização explícita.
+- [x] Advisors pós-migration revisados.
 
-### Evidências locais
+### Evidências de fechamento
 
 | Evidência | Resultado |
 |---|---|
@@ -266,19 +266,85 @@ recurso estiver disponível.
 | Lint | Arquivos de teste da Fase 3 sem erros |
 | TypeScript | `npx tsc --noEmit --incremental false` sem erros |
 | Build | 106 rotas compiladas |
-| Mutação remota | Nenhuma |
+| Integração | PR #142 integrado por squash no commit `b92bbd4` |
+| Supabase | Migration `20260730155903` aplicada; projeto `ACTIVE_HEALTHY` |
+| Segurança | Nenhum novo alerta; `anon` e `authenticated` sem acesso |
+| Produção | Deployment canônico `READY`; login HTTP 200; sem erro de runtime |
+| Validação no Mac | Ledger 1/1 e repositório limpo |
 | Motor padrão | `v1` |
 
 ### Restrições preservadas
 
 - nenhuma conversa ou linha de produção lida;
-- nenhuma migration aplicada remotamente;
 - nenhuma rota, extensão ou prompt alterado;
+- nenhuma decisão ou alteração de CRM executada;
+- nenhum custo ou branch Supabase criado.
+
+## Fase 4 - Cursor e estado de captura
+
+### Escopo
+
+- criar `conversation_capture_state` sem alterar o V1;
+- separar última mensagem observada de última mensagem processada;
+- manter um estado por empresa, conversa e dispositivo;
+- referenciar somente versões válidas do ledger;
+- impedir ponteiros entre empresas e conversas;
+- remover a dependência arquitetural do JSON de coaching;
+- validar a migration em PostgreSQL descartável.
+
+### Checklist
+
+- [x] `main` e commit-base `b92bbd4` confirmados.
+- [x] Projeto e histórico remoto auditados sem mutação.
+- [x] Changelog, RLS, grants, foreign keys e upsert revisados.
+- [x] Migration criada em área isolada.
+- [x] Identidade por empresa, conversa e dispositivo.
+- [x] Cursor observado separado do processado.
+- [x] Ponteiros compostos para o ledger.
+- [x] Cursor processado bloqueado quando ultrapassa o observado.
+- [x] RLS habilitado e forçado.
+- [x] `anon` e `authenticated` sem privilégios.
+- [x] `service_role` limitado a `SELECT`, `INSERT` e `UPDATE`.
+- [x] `DELETE` e `TRUNCATE` não concedidos.
+- [x] Estado sem coluna JSON e sem vínculo com `ai_coaching_notes`.
+- [x] Índices das foreign keys.
+- [x] Teste descartável da Fase 4 aprovado.
+- [x] Baseline da Fase 2 permanece aprovado.
+- [x] Ledger da Fase 3 permanece aprovado.
+- [x] Testes de regressão do Companion aprovados.
+- [x] TypeScript, lint e build aprovados.
+- [ ] PR integrado e deployment canônico confirmado.
+- [ ] Migration aplicada no Supabase com autorização explícita.
+- [ ] Advisors pós-migration revisados.
+
+### Evidências locais
+
+| Evidência | Resultado |
+|---|---|
+| Base | `b92bbd4`, mesma `main` que encerrou a Fase 3 |
+| Banco vivo | 20 migrations; ledger presente; cursor ausente antes da fase |
+| Baseline | 1/1; schema anterior reconstruído do zero |
+| Ledger | 1/1; Fase 3 sem regressão |
+| Cursor | 1/1; duas empresas e dois dispositivos validados |
+| Regressões Companion | 22/22 |
+| Lint | Teste da Fase 4 sem erros |
+| TypeScript | `npx tsc --noEmit --incremental false` sem erros |
+| Build | Concluído com certificados TLS do sistema e 119 caminhos de aplicação |
+| Mutação remota | Nenhuma |
+| Runtime e extensão | Nenhum arquivo alterado |
+| Motor padrão | `v1` |
+
+### Restrições preservadas
+
+- nenhuma conversa ou linha operacional lida;
+- nenhuma migration da Fase 4 aplicada remotamente;
+- nenhuma rota, extensão ou prompt alterado;
+- nenhum identificador de dispositivo coletado;
 - nenhuma decisão ou alteração de CRM executada;
 - nenhum custo ou branch Supabase criado.
 
 ## Próximo gate
 
 Executar regressões do Companion, lint, TypeScript e build da árvore completa.
-Depois, revisar o diff e abrir o PR da Fase 3 sem aplicar a migration em
-produção.
+Depois, revisar o diff e solicitar autorização para publicar a Fase 4 sem
+aplicar a migration em produção.

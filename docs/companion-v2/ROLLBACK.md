@@ -65,6 +65,26 @@ Para fases futuras, nenhuma migration pode ser aprovada sem:
 Rollback de banco não deve apagar dados de conversa por padrão. Preferir
 desabilitar escrita nova, preservar o ledger e reverter leitores/aplicadores.
 
+### Estado atual das migrations V2
+
+A Fase 3 já criou `conversation_messages` em produção. O V1 não consulta essa
+tabela e o ledger deve ser preservado mesmo durante um rollback.
+
+A Fase 4 adiciona `conversation_capture_state`, mas não liga nenhum gravador.
+Antes da aplicação remota, o rollback técnico é simplesmente não aplicar a
+migration. Depois da aplicação:
+
+1. manter o motor em `v1`;
+2. não habilitar a ingestão da Fase 5;
+3. preservar `conversation_messages` e `conversation_capture_state`;
+4. se um gravador futuro falhar, interromper sua execução;
+5. corrigir por nova migration ou novo deployment.
+
+Em ambiente descartável e sem dados, a reversão estrutural da Fase 4 pode
+remover primeiro `conversation_capture_state` e depois o índice
+`conversation_messages_company_conversation_id_uidx`. Esse procedimento não é
+o rollback padrão de produção.
+
 ## Checklist operacional
 
 - [ ] incidente e impacto identificados;
