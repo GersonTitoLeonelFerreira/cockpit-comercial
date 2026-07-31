@@ -13,6 +13,13 @@ const migrationPath = fileURLToPath(
   ),
 );
 
+const policyMigrationPath = fileURLToPath(
+  new URL(
+    "../migrations/20260731005400_split_company_commercial_write_policies.sql",
+    import.meta.url,
+  ),
+);
+
 const ids = {
   companyA: "10000000-0000-4000-8000-000000000001",
   companyB: "10000000-0000-4000-8000-000000000002",
@@ -275,6 +282,7 @@ test(
     try {
       await db.exec(bootstrapSql);
       await db.exec(await readFile(migrationPath, "utf8"));
+      await db.exec(await readFile(policyMigrationPath, "utf8"));
 
       await becomePostgres(db);
       await db.exec(`
@@ -363,7 +371,7 @@ test(
       );
 
       const policies = await db.query(`
-        select p.polname as name
+        select p.polname as name, p.polcmd as command
         from pg_policy p
         join pg_class c on c.oid = p.polrelid
         join pg_namespace n on n.oid = c.relnamespace
@@ -371,7 +379,11 @@ test(
           and c.relname like 'company_commercial_%'
         order by p.polname
       `);
-      assert.equal(policies.rows.length, 12);
+      assert.equal(policies.rows.length, 20);
+      assert.equal(
+        policies.rows.filter((policy) => policy.command === "*").length,
+        0,
+      );
 
       const triggerFunctions = await db.query(`
         select
