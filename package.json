@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test:companion": "node --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
     "test:companion-commercial-config": "node --test supabase/phase-tests/phase-2-commercial-config.test.mjs",
-    "test:companion-ledger": "node --test supabase/phase-tests/phase-3-message-ledger.test.mjs",
+"test:companion-commercial-config-admin": "node --test supabase/phase-tests/phase-3-commercial-config-admin.test.mjs",
+"test:companion-ledger": "node --test supabase/phase-tests/phase-3-message-ledger.test.mjs",
     "test:companion-capture-state": "node --test supabase/phase-tests/phase-4-capture-state.test.mjs",
     "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs"
   },

@@ -892,6 +892,8 @@ security definer
 set search_path = ''
 set row_security = off
 as $$
+declare
+  v_draft_id uuid;
 begin
   perform private.require_company_commercial_admin(p_company_id);
 
@@ -899,20 +901,44 @@ begin
     hashtextextended(p_company_id::text, 0)
   );
 
+  select version.id
+  into v_draft_id
+  from public.company_commercial_config_versions version
+  where version.company_id = p_company_id
+    and version.id = p_config_version_id
+    and version.status = 'draft'
+  for update;
+
+  if v_draft_id is null then
+    raise exception
+      'Rascunho não encontrado ou não pode mais ser excluído';
+  end if;
+
+  delete from public.company_commercial_objection_guides guide
+  where guide.company_id = p_company_id
+    and guide.config_version_id = v_draft_id;
+
+  delete from public.company_commercial_facts fact
+  where fact.company_id = p_company_id
+    and fact.config_version_id = v_draft_id;
+
+  delete from public.company_commercial_product_profiles profile
+  where profile.company_id = p_company_id
+    and profile.config_version_id = v_draft_id;
+
+  delete from public.company_commercial_method_steps step
+  where step.company_id = p_company_id
+    and step.config_version_id = v_draft_id;
+
   return query
   delete from public.company_commercial_config_versions version
   where version.company_id = p_company_id
-    and version.id = p_config_version_id
+    and version.id = v_draft_id
     and version.status = 'draft'
   returning
     version.company_id,
     version.id,
     true;
-
-  if not found then
-    raise exception
-      'Rascunho não encontrado ou não pode mais ser excluído';
-  end if;
 end;
 $$;
 
