@@ -37,8 +37,8 @@ não concluem uma fase do produto sozinhos.
 | Fase | Entrega de produto | Estado em 2026-07-30 | Critério de conclusão |
 |---|---|---|---|
 | 0 | Proteger o V1 e garantir rollback | Concluída | V1 preservado, flag segura, baseline, rollback e produção validados |
-| 1 | Contrato completo da inteligência comercial | Aprovada funcionalmente | Contrato `phase-1-v1`, 30 conversas e confirmação humana documentados; formalização integrada e validada |
-| 2 | Dados de método, produtos e configurações comerciais | Não iniciada funcionalmente | Configuração versionada, multiempresa e testável existe no banco sem depender de código fixo |
+| 1 | Contrato completo da inteligência comercial | Concluída | Contrato `phase-1-v1`, 30 conversas e confirmação humana documentados; formalização integrada e validada |
+| 2 | Dados de método, produtos e configurações comerciais | Modelo aprovado; fundação técnica pronta | Contrato `phase-2-v1`, migration e teste existem; conclusão depende de revisão, aplicação controlada e validação do schema remoto |
 | 3 | Tela de configuração do método comercial | Não iniciada | Empresa consegue visualizar, criar e editar sua configuração sem alterar código |
 | 4 | Captura completa, demonstrável e confiável | Fundação parcial | Extensão envia somente mensagens novas completas; reenvio não duplica; edição, exclusão e áudio são reconciliados; existe prévia técnica para validação |
 | 5 | Motor de diagnóstico comercial V2 | Não iniciada | Conversa gera fatos, diagnóstico e orientação explicáveis, validados contra o contrato e demonstrados antes de qualquer aplicação no CRM |
@@ -66,6 +66,24 @@ Ele obriga o futuro motor a analisar nesta ordem:
 O campo conceitual `apply_crm_change` foi removido. O contrato usa
 `crm_suggestion.should_change_crm_stage`, sempre acompanhado de
 `requires_human_confirmation=true`.
+
+## Contrato vinculante da Fase 2
+
+O modelo funcional aprovado está em
+`docs/companion-v2/PHASE_2_COMMERCIAL_CONFIG.md`.
+
+Ele obriga a configuração comercial a:
+
+1. manter método comercial separado do CRM;
+2. reaproveitar `products` como catálogo único;
+3. versionar contexto, método, perfis, fatos e objeções por empresa;
+4. permitir escrita somente ao administrador ativo da própria empresa;
+5. expor aos membros somente a versão publicada;
+6. tornar versões publicadas e arquivadas imutáveis;
+7. registrar autoria e datas das transições;
+8. impedir vínculos entre empresas com RLS e chaves compostas;
+9. declarar ausência de conhecimento em vez de inventar;
+10. preservar as regras globais de segurança da Yolen.
 
 ## Estado real do produto
 
@@ -100,11 +118,17 @@ o motor da Fase 5 deverá cumprir.
 - baseline reproduzível do schema;
 - ledger versionado `conversation_messages`;
 - estado de captura `conversation_capture_state`;
-- RLS, grants mínimos, constraints e testes dessas duas tabelas.
+- contrato, migration e teste descartável da configuração comercial;
+- RLS, grants mínimos, constraints e testes dessas fundações.
+
+A migration da configuração comercial ainda não foi aplicada ao Supabase. A
+Fase 2 permanece como fundação técnica pronta para revisão, não como entrega
+funcional disponível na interface.
 
 ### O que ainda não existe
 
-- dados configuráveis de método, produtos e regras por empresa;
+- estruturas de configuração comercial aplicadas no Supabase;
+- dados comerciais reais cadastrados por empresa;
 - tela de configuração comercial;
 - rota V2 de ingestão;
 - escrita da extensão no ledger;
@@ -120,6 +144,7 @@ o motor da Fase 5 deverá cumprir.
 | Fase técnica 0 — proteção do V1 | PT0 | Conclui a Fase 0 do produto |
 | Fase técnica 1 — corpus de regressão | PT1-A | Contrato e corpus que concluem a definição funcional da Fase 1 |
 | Fase técnica 2 — baseline do schema | PT-BASE | Fundação transversal; não entrega a Fase 2 funcional |
+| Configuração comercial versionada | PT2-A | Contrato, migration e teste da Fase 2; aplicação remota ainda pendente |
 | Fase técnica 3 — ledger de mensagens | PT4-A | Fundação da Fase 4 |
 | Fase técnica 4 — cursor de captura | PT4-B | Fundação da Fase 4 |
 | Antiga Fase técnica 5 — ingestão idempotente | PT4-C | Parte ainda pendente da Fase 4, não é a Fase 5 do produto |
@@ -130,9 +155,9 @@ produto e o identificador `PT` para trabalho interno.
 
 ## Sequência de execução
 
-1. Integrar e validar a formalização da Fase 1.
-2. Apresentar o modelo funcional dos dados da Fase 2.
-3. Criar a estrutura de dados somente depois da aprovação do modelo.
+1. Revisar e integrar o pacote técnico PT2-A.
+2. Aplicar a migration da Fase 2 somente após autorização específica.
+3. Validar schema, RLS, grants, imutabilidade e isolamento no Supabase.
 4. Entregar a tela de configuração da Fase 3.
 5. Concluir a Fase 4 com ingestão, integração da extensão e demonstração
    funcional.

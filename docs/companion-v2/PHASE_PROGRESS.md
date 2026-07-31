@@ -14,13 +14,13 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 
 | Campo | Estado |
 |---|---|
-| Momento atual | Fase 1 aprovada funcionalmente; formalização do contrato e corpus V2 pronta para integração |
+| Momento atual | Fase 1 concluída; modelo da Fase 2 aprovado e fundação técnica pronta para revisão |
 | Motor ativo | `v1` |
-| Commit de produção | `194854623d1f4e2d068292f2b38c7e79fc6c5716` |
+| Commit de produção | `e6af2e34b8973f01bc19421e8b1c4b7a629f54cb` |
 | Produção canônica | `READY`; `/login` respondeu HTTP 200 |
-| Supabase | Projeto saudável; migrations técnicas PT4-A e PT4-B aplicadas |
+| Supabase | Projeto saudável; PT4-A e PT4-B aplicadas; migration PT2-A ainda não aplicada |
 | Extensão V2 | Não integrada ao ledger |
-| Tabelas V2 | Criadas e vazias |
+| Tabelas V2 | Ledger e cursor criados e vazios; cinco tabelas da Fase 2 ainda não aplicadas |
 | Interface nova V2 | Não existe |
 | Fase 5 do produto | Não iniciada |
 
@@ -29,9 +29,9 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 | Fase | Entrega | Estado | Evidência existente | Próximo gate |
 |---|---|---|---|---|
 | 0 | Proteção do V1 e rollback | Concluída | Tag de baseline, flag padrão `v1`, rollback e produção validados | Nenhum |
-| 1 | Contrato da inteligência comercial | Aprovada funcionalmente | Contrato `phase-1-v1`, 30 conversas sintéticas e 27 controles automatizados | Integrar a formalização e validar o teste no checkout do usuário |
-| 2 | Dados de método, produtos e configurações | Não iniciada funcionalmente | Baseline do schema pronto | Apresentar e aprovar o modelo de dados antes da migration |
-| 3 | Tela de configuração comercial | Não iniciada | Nenhuma entrega funcional | Depende do modelo aprovado da Fase 2 |
+| 1 | Contrato da inteligência comercial | Concluída | Contrato `phase-1-v1`, 30 conversas sintéticas, 27 controles e PR #145 integrado | Nenhum |
+| 2 | Dados de método, produtos e configurações | Modelo aprovado; fundação técnica pronta | Contrato `phase-2-v1`, migration com cinco tabelas e teste descartável | Revisar, integrar e autorizar a aplicação remota |
+| 3 | Tela de configuração comercial | Não iniciada | Nenhuma entrega funcional | Depende da aplicação e validação da Fase 2 |
 | 4 | Captura completa e demonstrável | Fundação parcial | Ledger e cursor criados, seguros e testados | Extensão não envia ao ledger; ingestão, reconciliação e prévia técnica não existem |
 | 5 | Motor de diagnóstico comercial V2 | Não iniciada | Contrato da Fase 1 define o comportamento futuro, mas nenhum motor V2 executa | Depende das Fases 2, 3 e 4 funcionalmente aceitas |
 
@@ -109,6 +109,34 @@ Ela impede que o futuro motor V2 confunda recomendação e execução.
 O resultado da Fase 1 é o comportamento comercial vinculante que as próximas
 fases deverão implementar e demonstrar.
 
+## Fase 2 — modelo funcional aprovado
+
+O usuário aprovou o modelo com a frase:
+
+```text
+APROVADO MODELO FUNCIONAL FASE 2
+```
+
+A aprovação autoriza construir, mas não aplicar remotamente, a fundação:
+
+- configuração central versionada por empresa;
+- etapas ordenadas do método comercial;
+- perfis comerciais ligados ao catálogo `products`;
+- fatos oficiais da empresa;
+- guias contextuais de objeções;
+- diretrizes obrigatórias e proibidas;
+- fluxo `draft -> published -> archived`;
+- imutabilidade de versões publicadas e arquivadas;
+- escrita exclusiva do administrador ativo da empresa;
+- leitura da versão publicada por membros ativos;
+- RLS forçado, grants explícitos e chaves compostas multiempresa.
+
+O contrato completo está em
+`docs/companion-v2/PHASE_2_COMMERCIAL_CONFIG.md`.
+
+Não existe ligação automática entre o método comercial e as colunas do CRM.
+Nenhum dado real de empresa é criado por esta entrega.
+
 ## O que o vendedor consegue usar hoje
 
 O que existe para uso continua sendo o Companion V1:
@@ -123,7 +151,7 @@ O que existe para uso continua sendo o Companion V1:
 Essas correções preservaram o fluxo existente. Elas não representam uma nova
 interface do V2.
 
-## Fundação técnica V2 concluída
+## Fundação técnica V2 disponível
 
 ### PT0 — proteção do V1
 
@@ -156,6 +184,25 @@ da Fase 5.
 - nenhuma linha de produção copiada.
 
 Esse pacote reduz risco de banco, mas não cria os dados comerciais da Fase 2.
+
+### PT2-A — configuração comercial versionada
+
+- contrato funcional `phase-2-v1`;
+- tabela central de versões;
+- etapas do método separadas do CRM;
+- perfis vinculados ao catálogo `products`;
+- fatos oficiais e guias de objeções;
+- uma versão rascunho e uma publicada por empresa;
+- publicação transacional com arquivamento da versão anterior;
+- versões publicadas e arquivadas imutáveis;
+- RLS forçado e acesso baseado em `company_memberships`;
+- grants explícitos para a Data API;
+- chaves compostas contra vínculos entre empresas;
+- teste sintético e descartável aprovado;
+- migration `20260731000105` ainda não aplicada ao Supabase.
+
+Esse pacote é fundação técnica. A Fase 2 só poderá ser encerrada depois da
+revisão, aplicação controlada e validação do schema remoto.
 
 ### PT4-A — ledger de mensagens
 
@@ -191,6 +238,7 @@ Por isso, a Fase 4 do produto continua parcial.
 | Ledger PT4-A | #142 | `b92bbd4` | Integrado e aplicado no Supabase |
 | Cursor PT4-B | #143 | `516dc92` | Integrado e aplicado no Supabase |
 | Realinhamento do roadmap | #144 | `1948546` | Integrado e em produção |
+| Contrato funcional da Fase 1 | #145 | `e6af2e3` | Integrado e em produção |
 
 ## Itens explicitamente não entregues
 
@@ -198,7 +246,8 @@ Por isso, a Fase 4 do produto continua parcial.
 - nenhuma rota V2 de ingestão;
 - nenhum `device_key` gerado pela extensão;
 - nenhuma prévia de mensagens capturadas;
-- nenhum dado configurável de método, produto ou regra por empresa;
+- nenhuma tabela da Fase 2 aplicada ao Supabase;
+- nenhum método, perfil de produto, fato ou objeção real cadastrado;
 - nenhuma tela de configuração comercial;
 - nenhum diagnóstico executado pelo motor V2;
 - nenhuma alteração automática de estágio, agenda ou CRM pelo V2;
@@ -206,11 +255,11 @@ Por isso, a Fase 4 do produto continua parcial.
 
 ## Próximo gate
 
-1. Integrar a formalização da Fase 1.
-2. Executar `npm run test:companion` no checkout atualizado do usuário.
-3. Confirmar repositório limpo.
-4. Apresentar o modelo de dados funcional da Fase 2 em linguagem de produto.
-5. Obter aprovação explícita antes de criar qualquer migration.
+1. Revisar o contrato, a migration e os testes da Fase 2.
+2. Integrar o pacote PT2-A somente após aprovação explícita.
+3. Aplicar a migration no Supabase somente com autorização específica.
+4. Validar advisors, RLS, grants, imutabilidade e isolamento após a aplicação.
+5. Demonstrar o schema criado antes de iniciar a tela da Fase 3.
 
-Nenhum motor V2, tela ou migration da Fase 2 está autorizado por este
-fechamento.
+Nenhum motor V2, tela, dado real ou aplicação remota está autorizado por esta
+entrega técnica.
