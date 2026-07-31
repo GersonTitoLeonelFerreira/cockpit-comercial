@@ -999,6 +999,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
           {isAdminUser && (
             <NavBtn
+              href="/admin/configuracao-comercial"
+              label="Método Comercial"
+              icon="settings"
+              collapsed={collapsed}
+              active={isActive('/admin/configuracao-comercial')}
+            />
+          )}
+          {isAdminUser && (
+            <NavBtn
               href="/admin/faturamento"
               label="Gestão de Faturamento"
               icon="money"
