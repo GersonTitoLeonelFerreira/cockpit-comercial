@@ -3,6 +3,7 @@
 import * as React from 'react'
 
 import CommercialMethodStepsEditor from './CommercialMethodStepsEditor'
+import CommercialProductProfilesEditor from './CommercialProductProfilesEditor'
 import {
   createEmptyCommercialConfigDraft,
 } from '@/app/types/commercial-config'
@@ -378,6 +379,21 @@ export default function CommercialConfigDraftEditor({
       | 'commercial_method_name'
       | 'commercial_method_description'
       | 'method_steps'
+    >,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      ...nextValue,
+    }))
+
+    setDirty(true)
+    setFeedback(null)
+  }
+
+  const updateProductProfilesSection = (
+    nextValue: Pick<
+      CommercialConfigDraftInput,
+      'product_profiles'
     >,
   ) => {
     setDraft((current) => ({
@@ -809,7 +825,7 @@ export default function CommercialConfigDraftEditor({
           }}
         />
 
-        <CommercialMethodStepsEditor
+<CommercialMethodStepsEditor
           key={`${draft.config_version_id ?? 'new'}:${
             workspace.draft?.version.updated_at ?? 'local'
           }`}
@@ -821,6 +837,26 @@ export default function CommercialConfigDraftEditor({
             method_steps: draft.method_steps,
           }}
           onChange={updateMethodSection}
+        />
+
+        <div
+          style={{
+            background: DS.border,
+            height: 1,
+            width: '100%',
+          }}
+        />
+
+        <CommercialProductProfilesEditor
+          key={`${draft.config_version_id ?? 'new'}:${
+            workspace.draft?.version.updated_at ?? 'local'
+          }:products`}
+          products={workspace.products}
+          value={{
+            product_profiles:
+              draft.product_profiles,
+          }}
+          onChange={updateProductProfilesSection}
         />
 
         <div
@@ -841,9 +877,9 @@ export default function CommercialConfigDraftEditor({
           >
             Próximas seções:
           </strong>{' '}
-          perfis dos produtos, fatos oficiais e tratamento de
-          objeções. Essas seções serão adicionadas sem apagar o
-          contexto, as diretrizes ou as etapas já cadastradas.
+          fatos oficiais e tratamento de objeções. Essas seções
+          serão adicionadas sem apagar o contexto, as diretrizes,
+          as etapas ou os perfis dos produtos já cadastrados.
         </div>
       </div>
     </div>
