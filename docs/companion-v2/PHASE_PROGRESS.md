@@ -144,6 +144,77 @@ A implementação funcional da Fase 3 foi concluída e validada localmente em
 
 ```text
 feature/companion-v2-phase-3-commercial-config-ui
+```
+
+### Entregas da Fase 3
+
+- página administrativa protegida em `/admin/configuracao-comercial`;
+- opção `Método Comercial` no menu administrativo;
+- seleção automática da empresa ativa;
+- acesso restrito ao administrador ativo da empresa;
+- leitura do rascunho, versão publicada, versões arquivadas e catálogo;
+- criação e edição do rascunho comercial;
+- contexto da empresa, público-alvo e proposta de valor;
+- tom de comunicação e diretrizes obrigatórias e proibidas;
+- nome, descrição e etapas ordenadas do método comercial;
+- critérios de conclusão e perguntas recomendadas por etapa;
+- perfis comerciais vinculados aos produtos cadastrados;
+- necessidades atendidas, benefícios, diferenciais e limitações;
+- condições contratuais e de pagamento;
+- afirmações permitidas e proibidas;
+- fatos oficiais com categoria, chave, valor, fonte e status;
+- guias ordenados de tratamento de objeções;
+- validação visual das pendências que impedem a publicação;
+- bloqueio das operações enquanto existem alterações não salvas;
+- publicação, clonagem e exclusão conectadas às operações transacionais;
+- versões publicadas e arquivadas preservadas como imutáveis.
+
+### Operações administrativas
+
+Foram criadas as rotas:
+
+```text
+GET    /api/admin/commercial-config
+PUT    /api/admin/commercial-config
+POST   /api/admin/commercial-config/clone
+POST   /api/admin/commercial-config/publish
+DELETE /api/admin/commercial-config/draft
+```
+
+As escritas utilizam a sessão autenticada do administrador e os RPCs
+transacionais do Supabase. Nenhuma operação depende de `service_role` no
+cliente.
+
+### Validação técnica final
+
+A branch foi validada com:
+
+```text
+schema baseline: 1/1
+message ledger: 1/1
+capture state: 1/1
+configuração comercial da Fase 2: 1/1
+operações administrativas da Fase 3: 1/1
+Companion: 40/40
+ESLint: aprovado
+TypeScript: aprovado
+Next.js build: aprovado
+páginas estáticas: 109/109
+```
+
+O build reconheceu a página administrativa e todas as rotas comerciais.
+
+### O que a Fase 3 não ativa
+
+- não altera o motor ativo, que permanece em `v1`;
+- não executa diagnóstico comercial V2;
+- não muda etapas, agenda ou CRM automaticamente;
+- não integra a extensão ao ledger;
+- não publica automaticamente o rascunho comercial;
+- não realiza rollout para empresas clientes;
+- ainda depende de pull request, integração e deployment.
+
+## O que o vendedor consegue usar hoje
 
 O que existe para uso continua sendo o Companion V1:
 
@@ -264,7 +335,7 @@ Por isso, a Fase 4 do produto continua parcial.
 | Realinhamento do roadmap | #144 | `1948546` | Integrado e em produção |
 | Contrato funcional da Fase 1 | #145 | `e6af2e3` | Integrado e em produção |
 | Configuração comercial versionada | #146 | `db01cc7` | Integrada e aplicada no Supabase |
-| Interface administrativa da Fase 3 | PR pendente | branch até `d3a0723` | Build aprovado; aguardando integração |
+| Interface administrativa da Fase 3 | PR pendente | `feature/companion-v2-phase-3-commercial-config-ui` | Build aprovado; aguardando integração |
 
 ## Itens explicitamente não entregues
 
