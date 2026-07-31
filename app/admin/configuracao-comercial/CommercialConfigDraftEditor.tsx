@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 
+import CommercialMethodStepsEditor from './CommercialMethodStepsEditor'
 import {
   createEmptyCommercialConfigDraft,
 } from '@/app/types/commercial-config'
@@ -365,6 +366,23 @@ export default function CommercialConfigDraftEditor({
     setDraft((current) => ({
       ...current,
       [field]: value,
+    }))
+
+    setDirty(true)
+    setFeedback(null)
+  }
+
+  const updateMethodSection = (
+    nextValue: Pick<
+      CommercialConfigDraftInput,
+      | 'commercial_method_name'
+      | 'commercial_method_description'
+      | 'method_steps'
+    >,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      ...nextValue,
     }))
 
     setDirty(true)
@@ -785,6 +803,28 @@ export default function CommercialConfigDraftEditor({
 
         <div
           style={{
+            background: DS.border,
+            height: 1,
+            width: '100%',
+          }}
+        />
+
+        <CommercialMethodStepsEditor
+          key={`${draft.config_version_id ?? 'new'}:${
+            workspace.draft?.version.updated_at ?? 'local'
+          }`}
+          value={{
+            commercial_method_name:
+              draft.commercial_method_name,
+            commercial_method_description:
+              draft.commercial_method_description,
+            method_steps: draft.method_steps,
+          }}
+          onChange={updateMethodSection}
+        />
+
+        <div
+          style={{
             background: DS.surfaceRaised,
             border: `1px solid ${DS.border}`,
             borderRadius: DS.radius,
@@ -801,9 +841,9 @@ export default function CommercialConfigDraftEditor({
           >
             Próximas seções:
           </strong>{' '}
-          método comercial, perfis dos produtos, fatos oficiais
-          e tratamento de objeções. O conteúdo dessas seções será
-          preservado automaticamente caso já exista no rascunho.
+          perfis dos produtos, fatos oficiais e tratamento de
+          objeções. Essas seções serão adicionadas sem apagar o
+          contexto, as diretrizes ou as etapas já cadastradas.
         </div>
       </div>
     </div>
