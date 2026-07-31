@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 
+import CommercialFactsEditor from './CommercialFactsEditor'
 import CommercialMethodStepsEditor from './CommercialMethodStepsEditor'
 import CommercialProductProfilesEditor from './CommercialProductProfilesEditor'
 import {
@@ -394,6 +395,21 @@ export default function CommercialConfigDraftEditor({
     nextValue: Pick<
       CommercialConfigDraftInput,
       'product_profiles'
+    >,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      ...nextValue,
+    }))
+
+    setDirty(true)
+    setFeedback(null)
+  }
+
+  const updateFactsSection = (
+    nextValue: Pick<
+      CommercialConfigDraftInput,
+      'facts'
     >,
   ) => {
     setDraft((current) => ({
@@ -861,6 +877,24 @@ export default function CommercialConfigDraftEditor({
 
         <div
           style={{
+            background: DS.border,
+            height: 1,
+            width: '100%',
+          }}
+        />
+
+        <CommercialFactsEditor
+          key={`${draft.config_version_id ?? 'new'}:${
+            workspace.draft?.version.updated_at ?? 'local'
+          }:facts`}
+          value={{
+            facts: draft.facts,
+          }}
+          onChange={updateFactsSection}
+        />
+
+        <div
+          style={{
             background: DS.surfaceRaised,
             border: `1px solid ${DS.border}`,
             borderRadius: DS.radius,
@@ -875,11 +909,10 @@ export default function CommercialConfigDraftEditor({
               color: DS.textPrimary,
             }}
           >
-            Próximas seções:
+            Próxima seção:
           </strong>{' '}
-          fatos oficiais e tratamento de objeções. Essas seções
-          serão adicionadas sem apagar o contexto, as diretrizes,
-          as etapas ou os perfis dos produtos já cadastrados.
+          tratamento de objeções. Ela será adicionada sem apagar
+          nenhuma informação já cadastrada no rascunho.
         </div>
       </div>
     </div>
