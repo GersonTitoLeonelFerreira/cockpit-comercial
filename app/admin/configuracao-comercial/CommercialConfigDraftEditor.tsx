@@ -4,6 +4,7 @@ import * as React from 'react'
 
 import CommercialFactsEditor from './CommercialFactsEditor'
 import CommercialMethodStepsEditor from './CommercialMethodStepsEditor'
+import CommercialObjectionGuidesEditor from './CommercialObjectionGuidesEditor'
 import CommercialProductProfilesEditor from './CommercialProductProfilesEditor'
 import {
   createEmptyCommercialConfigDraft,
@@ -410,6 +411,21 @@ export default function CommercialConfigDraftEditor({
     nextValue: Pick<
       CommercialConfigDraftInput,
       'facts'
+    >,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      ...nextValue,
+    }))
+
+    setDirty(true)
+    setFeedback(null)
+  }
+
+  const updateObjectionGuidesSection = (
+    nextValue: Pick<
+      CommercialConfigDraftInput,
+      'objection_guides'
     >,
   ) => {
     setDraft((current) => ({
@@ -895,8 +911,30 @@ export default function CommercialConfigDraftEditor({
 
         <div
           style={{
-            background: DS.surfaceRaised,
-            border: `1px solid ${DS.border}`,
+            background: DS.border,
+            height: 1,
+            width: '100%',
+          }}
+        />
+
+        <CommercialObjectionGuidesEditor
+          key={`${draft.config_version_id ?? 'new'}:${
+            workspace.draft?.version.updated_at ?? 'local'
+          }:objections`}
+          value={{
+            objection_guides:
+              draft.objection_guides,
+          }}
+          onChange={
+            updateObjectionGuidesSection
+          }
+        />
+
+        <div
+          style={{
+            background: 'rgba(34,197,94,0.06)',
+            border:
+              '1px solid rgba(134,239,172,0.15)',
             borderRadius: DS.radius,
             color: DS.textSecondary,
             fontSize: 11,
@@ -906,13 +944,15 @@ export default function CommercialConfigDraftEditor({
         >
           <strong
             style={{
-              color: DS.textPrimary,
+              color: DS.greenSoft,
             }}
           >
-            Próxima seção:
+            Estrutura completa:
           </strong>{' '}
-          tratamento de objeções. Ela será adicionada sem apagar
-          nenhuma informação já cadastrada no rascunho.
+          contexto, diretrizes, método, produtos, fatos oficiais
+          e tratamento de objeções já podem ser configurados no
+          mesmo rascunho. O próximo bloco fará a validação final
+          e conectará publicação, clonagem e exclusão.
         </div>
       </div>
     </div>
