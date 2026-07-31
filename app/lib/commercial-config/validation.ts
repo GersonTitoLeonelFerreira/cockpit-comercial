@@ -5,18 +5,18 @@ import type {
     CommercialConfigValidationIssue,
     CommercialConfigValidationResult,
   } from '@/app/types/commercial-config'
-  
+
   function hasText(value: string): boolean {
     return value.trim().length > 0
   }
-  
+
   function hasTextItems(items: string[]): boolean {
     return (
       items.length > 0 &&
       items.every((item) => hasText(item))
     )
   }
-  
+
   function factIdentity(
     category: string,
     factKey: string,
@@ -27,7 +27,7 @@ import type {
       .trim()
       .toLocaleLowerCase('pt-BR')}`
   }
-  
+
   function addIssue(
     issues: CommercialConfigValidationIssue[],
     section: CommercialConfigSectionKey,
@@ -40,14 +40,14 @@ import type {
       message,
     })
   }
-  
+
   export function validateCommercialConfigForPublish(
     bundle: CommercialConfigBundle,
     products: CommercialConfigProductOption[],
   ): CommercialConfigValidationResult {
     const issues: CommercialConfigValidationIssue[] = []
     const { version } = bundle
-  
+
     if (!hasText(version.business_description)) {
       addIssue(
         issues,
@@ -56,7 +56,7 @@ import type {
         'Preencha a descrição da empresa.',
       )
     }
-  
+
     if (!hasText(version.target_audience)) {
       addIssue(
         issues,
@@ -65,7 +65,7 @@ import type {
         'Preencha o público-alvo.',
       )
     }
-  
+
     if (!hasText(version.value_proposition)) {
       addIssue(
         issues,
@@ -74,7 +74,7 @@ import type {
         'Preencha a proposta de valor.',
       )
     }
-  
+
     if (!hasText(version.communication_tone)) {
       addIssue(
         issues,
@@ -83,7 +83,7 @@ import type {
         'Preencha o tom de comunicação.',
       )
     }
-  
+
     if (!hasTextItems(version.required_behaviors)) {
       addIssue(
         issues,
@@ -92,7 +92,7 @@ import type {
         'Informe pelo menos um comportamento obrigatório.',
       )
     }
-  
+
     if (!hasTextItems(version.prohibited_behaviors)) {
       addIssue(
         issues,
@@ -101,7 +101,7 @@ import type {
         'Informe pelo menos um comportamento proibido.',
       )
     }
-  
+
     if (!hasText(version.commercial_method_name)) {
       addIssue(
         issues,
@@ -110,7 +110,7 @@ import type {
         'Preencha o nome do método comercial.',
       )
     }
-  
+
     if (
       !hasText(
         version.commercial_method_description,
@@ -123,7 +123,7 @@ import type {
         'Preencha a descrição do método comercial.',
       )
     }
-  
+
     if (bundle.method_steps.length === 0) {
       addIssue(
         issues,
@@ -132,10 +132,10 @@ import type {
         'Cadastre pelo menos uma etapa do método.',
       )
     }
-  
+
     bundle.method_steps.forEach((step, index) => {
       const stepLabel = `Etapa ${index + 1}`
-  
+
       if (!hasText(step.name)) {
         addIssue(
           issues,
@@ -144,7 +144,7 @@ import type {
           `${stepLabel}: preencha o nome.`,
         )
       }
-  
+
       if (!hasText(step.objective)) {
         addIssue(
           issues,
@@ -153,7 +153,7 @@ import type {
           `${stepLabel}: preencha o objetivo.`,
         )
       }
-  
+
       if (
         !hasTextItems(step.completion_criteria)
       ) {
@@ -164,7 +164,7 @@ import type {
           `${stepLabel}: informe pelo menos um critério de conclusão.`,
         )
       }
-  
+
       if (
         step.recommended_questions.some(
           (question) => !hasText(question),
@@ -178,10 +178,10 @@ import type {
         )
       }
     })
-  
+
     const profileCountByProductId =
       new Map<string, number>()
-  
+
     bundle.product_profiles.forEach((profile) => {
       profileCountByProductId.set(
         profile.product_id,
@@ -190,7 +190,7 @@ import type {
         ) ?? 0) + 1,
       )
     })
-  
+
     profileCountByProductId.forEach(
       (count, productId) => {
         if (count > 1) {
@@ -203,7 +203,7 @@ import type {
         }
       },
     )
-  
+
     products
       .filter((product) => product.active)
       .forEach((product) => {
@@ -212,7 +212,7 @@ import type {
             (item) =>
               item.product_id === product.id,
           )
-  
+
         if (!profile) {
           addIssue(
             issues,
@@ -222,18 +222,18 @@ import type {
           )
         }
       })
-  
+
     bundle.product_profiles.forEach(
       (profile, index) => {
         const product = products.find(
           (item) =>
             item.id === profile.product_id,
         )
-  
+
         const productLabel =
           product?.name ??
           `Perfil de produto ${index + 1}`
-  
+
         if (
           !hasTextItems(profile.needs_addressed)
         ) {
@@ -244,7 +244,7 @@ import type {
             `${productLabel}: informe pelo menos uma necessidade atendida.`,
           )
         }
-  
+
         if (!hasTextItems(profile.benefits)) {
           addIssue(
             issues,
@@ -253,7 +253,7 @@ import type {
             `${productLabel}: informe pelo menos um benefício.`,
           )
         }
-  
+
         const optionalLists = [
           profile.indicated_audiences,
           profile.verified_differentiators,
@@ -263,7 +263,7 @@ import type {
           profile.allowed_claims,
           profile.forbidden_claims,
         ]
-  
+
         if (
           optionalLists.some((items) =>
             items.some(
@@ -280,9 +280,9 @@ import type {
         }
       },
     )
-  
+
     const factIdentities = new Set<string>()
-  
+
     bundle.facts.forEach((fact, index) => {
       if (!hasText(fact.category)) {
         addIssue(
@@ -292,7 +292,7 @@ import type {
           `Fato ${index + 1}: preencha a categoria.`,
         )
       }
-  
+
       if (!hasText(fact.fact_key)) {
         addIssue(
           issues,
@@ -301,7 +301,7 @@ import type {
           `Fato ${index + 1}: preencha a chave interna.`,
         )
       }
-  
+
       if (!hasText(fact.fact_value)) {
         addIssue(
           issues,
@@ -310,7 +310,7 @@ import type {
           `Fato ${index + 1}: preencha o valor oficial.`,
         )
       }
-  
+
       if (
         hasText(fact.category) &&
         hasText(fact.fact_key)
@@ -319,7 +319,7 @@ import type {
           fact.category,
           fact.fact_key,
         )
-  
+
         if (factIdentities.has(identity)) {
           addIssue(
             issues,
@@ -328,11 +328,11 @@ import type {
             `Fato ${index + 1}: a combinação de categoria e chave está duplicada.`,
           )
         }
-  
+
         factIdentities.add(identity)
       }
     })
-  
+
     bundle.objection_guides.forEach(
       (guide, index) => {
         if (!hasText(guide.objection)) {
@@ -343,7 +343,7 @@ import type {
             `Guia ${index + 1}: preencha a objeção.`,
           )
         }
-  
+
         if (
           !hasText(
             guide.recommended_approach,
@@ -356,13 +356,13 @@ import type {
             `Guia ${index + 1}: preencha a abordagem recomendada.`,
           )
         }
-  
+
         const optionalLists = [
           guide.signals,
           guide.discovery_questions,
           guide.response_limits,
         ]
-  
+
         if (
           optionalLists.some((items) =>
             items.some(
@@ -379,7 +379,7 @@ import type {
         }
       },
     )
-  
+
     return {
       valid: issues.length === 0,
       issues,

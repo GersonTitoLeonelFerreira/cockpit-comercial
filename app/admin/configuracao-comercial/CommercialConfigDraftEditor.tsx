@@ -353,7 +353,7 @@ export default function CommercialConfigDraftEditor({
 
     React.useEffect(() => {
       const nextDraft = createDraftFromWorkspace(workspace)
-  
+
       setDraft(nextDraft)
       setRequiredBehaviorsText(
         itemsToLines(nextDraft.required_behaviors),
@@ -363,15 +363,15 @@ export default function CommercialConfigDraftEditor({
       )
       setDirty(false)
     }, [workspace])
-  
+
     React.useEffect(() => {
       onDirtyChange?.(dirty)
-  
+
       return () => {
         onDirtyChange?.(false)
       }
     }, [dirty, onDirtyChange])
-  
+
     const updateTextField = (
     field: EditableTextField,
     value: string,
