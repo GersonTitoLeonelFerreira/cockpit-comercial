@@ -145,8 +145,6 @@ A implementação funcional da Fase 3 foi concluída e validada localmente em
 ```text
 feature/companion-v2-phase-3-commercial-config-ui
 
-## O que o vendedor consegue usar hoje
-
 O que existe para uso continua sendo o Companion V1:
 
 - conexão e resolução do lead;
@@ -207,10 +205,12 @@ Esse pacote reduz risco de banco, mas não cria os dados comerciais da Fase 2.
 - grants explícitos para a Data API;
 - chaves compostas contra vínculos entre empresas;
 - teste sintético e descartável aprovado;
-- migration `20260731000105` ainda não aplicada ao Supabase.
+- migration `20260731000105` aplicada ao Supabase;
+- schema remoto validado;
+- contrato e estrutura integrados na `main` pelo PR #146.
 
-Esse pacote é fundação técnica. A Fase 2 só poderá ser encerrada depois da
-revisão, aplicação controlada e validação do schema remoto.
+Esse pacote concluiu a fundação funcional e técnica da Fase 2. O motor ativo
+continua sendo o Companion V1.
 
 ### PT3-A — administração da configuração comercial
 
