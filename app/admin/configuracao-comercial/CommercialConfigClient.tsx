@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 
+import CommercialConfigDraftEditor from './CommercialConfigDraftEditor'
 import type {
   CommercialConfigBundle,
   CommercialConfigVersion,
@@ -954,7 +955,7 @@ export default function CommercialConfigClient() {
           ) : (
             <EmptyVersionCard
               title="Nenhum rascunho"
-              description="O formulário de criação será conectado no próximo bloco."
+              description="Use o editor ao lado para iniciar a primeira configuração comercial."
             />
           )}
 
@@ -1066,8 +1067,14 @@ export default function CommercialConfigClient() {
         </aside>
 
         <section>
-          {selectedVersion?.type === 'draft' ||
-          selectedVersion?.type === 'published' ? (
+          {selectedVersion?.type === 'draft' ? (
+            <CommercialConfigDraftEditor
+              workspace={workspace}
+              onSaved={async () => {
+                await loadWorkspace('refresh')
+              }}
+            />
+          ) : selectedVersion?.type === 'published' ? (
             <BundleSummary
               bundle={selectedVersion.bundle}
             />
@@ -1076,42 +1083,12 @@ export default function CommercialConfigClient() {
               version={selectedVersion.version}
             />
           ) : (
-            <div
-              style={{
-                ...cardStyle(),
-                alignItems: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                minHeight: 360,
-                padding: 30,
-                textAlign: 'center',
+            <CommercialConfigDraftEditor
+              workspace={workspace}
+              onSaved={async () => {
+                await loadWorkspace('refresh')
               }}
-            >
-              <div
-                style={{
-                  color: DS.textPrimary,
-                  fontSize: 16,
-                  fontWeight: 850,
-                }}
-              >
-                Configuração comercial ainda não iniciada
-              </div>
-
-              <div
-                style={{
-                  color: DS.textSecondary,
-                  fontSize: 12,
-                  lineHeight: 1.65,
-                  marginTop: 10,
-                  maxWidth: 520,
-                }}
-              >
-                No próximo bloco será conectado o editor que cria
-                o primeiro rascunho e permite preencher cada seção
-                da configuração.
-              </div>
-            </div>
+            />
           )}
         </section>
       </div>
