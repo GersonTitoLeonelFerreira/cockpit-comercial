@@ -69,10 +69,11 @@ type Feedback =
     }
   | null
 
-interface Props {
-  workspace: CommercialConfigWorkspace
-  onSaved: () => Promise<void> | void
-}
+  interface Props {
+    workspace: CommercialConfigWorkspace
+    onSaved: () => Promise<void> | void
+    onDirtyChange?: (dirty: boolean) => void
+  }
 
 function cardStyle(): React.CSSProperties {
   return {
@@ -326,6 +327,7 @@ function SectionHeader({
 export default function CommercialConfigDraftEditor({
   workspace,
   onSaved,
+  onDirtyChange,
 }: Props) {
   const [draft, setDraft] =
     React.useState<CommercialConfigDraftInput>(() =>
@@ -349,20 +351,28 @@ export default function CommercialConfigDraftEditor({
   const [feedback, setFeedback] =
     React.useState<Feedback>(null)
 
-  React.useEffect(() => {
-    const nextDraft = createDraftFromWorkspace(workspace)
-
-    setDraft(nextDraft)
-    setRequiredBehaviorsText(
-      itemsToLines(nextDraft.required_behaviors),
-    )
-    setProhibitedBehaviorsText(
-      itemsToLines(nextDraft.prohibited_behaviors),
-    )
-    setDirty(false)
-  }, [workspace])
-
-  const updateTextField = (
+    React.useEffect(() => {
+      const nextDraft = createDraftFromWorkspace(workspace)
+  
+      setDraft(nextDraft)
+      setRequiredBehaviorsText(
+        itemsToLines(nextDraft.required_behaviors),
+      )
+      setProhibitedBehaviorsText(
+        itemsToLines(nextDraft.prohibited_behaviors),
+      )
+      setDirty(false)
+    }, [workspace])
+  
+    React.useEffect(() => {
+      onDirtyChange?.(dirty)
+  
+      return () => {
+        onDirtyChange?.(false)
+      }
+    }, [dirty, onDirtyChange])
+  
+    const updateTextField = (
     field: EditableTextField,
     value: string,
   ) => {

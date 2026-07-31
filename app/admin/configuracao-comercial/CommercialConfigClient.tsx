@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 
+import CommercialConfigActions from './CommercialConfigActions'
 import CommercialConfigDraftEditor from './CommercialConfigDraftEditor'
 import type {
   CommercialConfigBundle,
@@ -626,9 +627,10 @@ export default function CommercialConfigClient() {
   const [selectedVersion, setSelectedVersion] =
     React.useState<SelectedVersion>(null)
 
-  const [loading, setLoading] = React.useState(true)
-  const [refreshing, setRefreshing] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+    const [loading, setLoading] = React.useState(true)
+    const [refreshing, setRefreshing] = React.useState(false)
+    const [draftDirty, setDraftDirty] = React.useState(false)
+    const [error, setError] = React.useState<string | null>(null)
 
   const loadWorkspace = React.useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
@@ -662,6 +664,7 @@ export default function CommercialConfigClient() {
         }
 
         setWorkspace(json.workspace)
+        setDraftDirty(false)
 
         if (json.workspace.draft) {
           setSelectedVersion({
@@ -1066,13 +1069,29 @@ export default function CommercialConfigClient() {
           )}
         </aside>
 
-        <section>
+        <section
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            minWidth: 0,
+          }}
+        >
+          <CommercialConfigActions
+            workspace={workspace}
+            draftDirty={draftDirty}
+            onCompleted={async () => {
+              await loadWorkspace('refresh')
+            }}
+          />
+
           {selectedVersion?.type === 'draft' ? (
             <CommercialConfigDraftEditor
               workspace={workspace}
               onSaved={async () => {
                 await loadWorkspace('refresh')
               }}
+              onDirtyChange={setDraftDirty}
             />
           ) : selectedVersion?.type === 'published' ? (
             <BundleSummary
@@ -1088,6 +1107,7 @@ export default function CommercialConfigClient() {
               onSaved={async () => {
                 await loadWorkspace('refresh')
               }}
+              onDirtyChange={setDraftDirty}
             />
           )}
         </section>
