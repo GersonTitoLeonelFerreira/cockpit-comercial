@@ -18,7 +18,7 @@
   function isYolenPage() {
     return (
       window.location.origin === 'http://localhost:3000' ||
-      window.location.origin === 'https://cockpit-commercial-vocn.vercel.app'
+      window.location.origin === 'https://cockpit-comercial-vocn.vercel.app'
     )
   }
 

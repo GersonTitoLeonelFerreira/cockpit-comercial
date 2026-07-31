@@ -1,7 +1,7 @@
 /* global browser, chrome */
 
 ;(function initYolenCompanionApi() {
-  const DEFAULT_BASE_URL = 'https://cockpit-commercial-vocn.vercel.app'
+  const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 
   function getRuntime() {
     if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {

@@ -6,7 +6,7 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://cockpit-commercial-vocn.vercel.app/*",
+    "https://cockpit-comercial-vocn.vercel.app/*",
     "http://localhost:3000/*"
   ],
   "background": {
@@ -25,7 +25,7 @@
     },
     {
       "matches": [
-        "https://cockpit-commercial-vocn.vercel.app/*",
+        "https://cockpit-comercial-vocn.vercel.app/*",
         "http://localhost:3000/*"
       ],
       "js": ["src/yolen-bridge.js"],
@@ -36,7 +36,7 @@
     {
       "resources": ["src/yolen-page-bridge.js"],
       "matches": [
-        "https://cockpit-commercial-vocn.vercel.app/*",
+        "https://cockpit-comercial-vocn.vercel.app/*",
         "http://localhost:3000/*"
       ]
     },

@@ -2731,7 +2731,7 @@
   function openYolen(path) {
     const baseUrl =
       window.YolenCompanionApi?.getBaseUrl?.() ||
-      'https://cockpit-commercial-vocn.vercel.app'
+      'https://cockpit-comercial-vocn.vercel.app'
 
     window.open(`${baseUrl}${path}`, '_blank', 'noopener,noreferrer')
   }

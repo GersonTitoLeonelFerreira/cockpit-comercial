@@ -1,7 +1,7 @@
 /* global browser, chrome */
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
-const DEFAULT_BASE_URL = 'https://cockpit-commercial-vocn.vercel.app'
+const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
