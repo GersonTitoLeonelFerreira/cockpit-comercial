@@ -10,18 +10,18 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 `PHASE_2_SCHEMA_BASELINE.md`, `PHASE_3_MESSAGE_LEDGER.md` e
 `PHASE_4_CAPTURE_STATE.md`.
 
-## Estado geral em 2026-07-30
+## Estado geral em 2026-07-31
 
 | Campo | Estado |
 |---|---|
-| Momento atual | Fase 1 concluída; modelo da Fase 2 aprovado e fundação técnica pronta para revisão |
+| Momento atual | Fases 1 e 2 concluídas; implementação da Fase 3 concluída na branch e pronta para pull request |
 | Motor ativo | `v1` |
-| Commit de produção | `e6af2e34b8973f01bc19421e8b1c4b7a629f54cb` |
-| Produção canônica | `READY`; `/login` respondeu HTTP 200 |
-| Supabase | Projeto saudável; PT4-A e PT4-B aplicadas; migration PT2-A ainda não aplicada |
-| Extensão V2 | Não integrada ao ledger |
-| Tabelas V2 | Ledger e cursor criados e vazios; cinco tabelas da Fase 2 ainda não aplicadas |
-| Interface nova V2 | Não existe |
+| Commit atual da `main` | `db01cc722da58217839caff9b90bfb15848e4a6d` |
+| Produção canônica | `READY`; a Fase 3 ainda não foi integrada nem publicada |
+| Supabase | Projeto saudável; PT2-A, operações administrativas da Fase 3, PT4-A e PT4-B aplicadas |
+| Extensão V2 | Ainda não integrada ao ledger |
+| Tabelas V2 | Ledger e cursor disponíveis; configuração comercial operacional e validada com rascunho V1 |
+| Interface nova V2 | `/admin/configuracao-comercial` funcional na branch da Fase 3 |
 | Fase 5 do produto | Não iniciada |
 
 ## Painel executivo por fase do produto
@@ -30,8 +30,8 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 |---|---|---|---|---|
 | 0 | Proteção do V1 e rollback | Concluída | Tag de baseline, flag padrão `v1`, rollback e produção validados | Nenhum |
 | 1 | Contrato da inteligência comercial | Concluída | Contrato `phase-1-v1`, 30 conversas sintéticas, 27 controles e PR #145 integrado | Nenhum |
-| 2 | Dados de método, produtos e configurações | Modelo aprovado; fundação técnica pronta | Contrato `phase-2-v1`, migration com cinco tabelas e teste descartável | Revisar, integrar e autorizar a aplicação remota |
-| 3 | Tela de configuração comercial | Não iniciada | Nenhuma entrega funcional | Depende da aplicação e validação da Fase 2 |
+| 2 | Dados de método, produtos e configurações | Concluída | Contrato `phase-2-v1`, cinco tabelas versionadas, RLS, testes e migrations aplicadas | Nenhum; fundação disponível para a Fase 3 |
+| 3 | Tela de configuração comercial | Implementação concluída na branch | Interface administrativa, validação, versionamento, rotas e operações transacionais com build aprovado | Abrir PR, integrar na `main` e validar o deployment |
 | 4 | Captura completa e demonstrável | Fundação parcial | Ledger e cursor criados, seguros e testados | Extensão não envia ao ledger; ingestão, reconciliação e prévia técnica não existem |
 | 5 | Motor de diagnóstico comercial V2 | Não iniciada | Contrato da Fase 1 define o comportamento futuro, mas nenhum motor V2 executa | Depende das Fases 2, 3 e 4 funcionalmente aceitas |
 
@@ -137,6 +137,14 @@ O contrato completo está em
 Não existe ligação automática entre o método comercial e as colunas do CRM.
 Nenhum dado real de empresa é criado por esta entrega.
 
+## Fase 3 — interface administrativa concluída na branch
+
+A implementação funcional da Fase 3 foi concluída e validada localmente em
+2026-07-31 na branch:
+
+```text
+feature/companion-v2-phase-3-commercial-config-ui
+
 ## O que o vendedor consegue usar hoje
 
 O que existe para uso continua sendo o Companion V1:
@@ -204,6 +212,22 @@ Esse pacote reduz risco de banco, mas não cria os dados comerciais da Fase 2.
 Esse pacote é fundação técnica. A Fase 2 só poderá ser encerrada depois da
 revisão, aplicação controlada e validação do schema remoto.
 
+### PT3-A — administração da configuração comercial
+
+- migration `20260731123000` com operações administrativas transacionais;
+- salvamento integral e atômico do rascunho;
+- clonagem integral de versão publicada ou arquivada;
+- publicação com arquivamento automático da versão anterior;
+- exclusão restrita a versões em rascunho;
+- autorização por administrador ativo e empresa;
+- teste transacional específico aprovado;
+- página administrativa completa;
+- validação prévia das exigências de publicação;
+- integração com o catálogo real de produtos;
+- build completo aprovado;
+- migration aplicada ao Supabase;
+- implementação ainda aguardando integração na `main`.
+
 ### PT4-A — ledger de mensagens
 
 - tabela `conversation_messages`;
@@ -239,6 +263,8 @@ Por isso, a Fase 4 do produto continua parcial.
 | Cursor PT4-B | #143 | `516dc92` | Integrado e aplicado no Supabase |
 | Realinhamento do roadmap | #144 | `1948546` | Integrado e em produção |
 | Contrato funcional da Fase 1 | #145 | `e6af2e3` | Integrado e em produção |
+| Configuração comercial versionada | #146 | `db01cc7` | Integrada e aplicada no Supabase |
+| Interface administrativa da Fase 3 | PR pendente | branch até `d3a0723` | Build aprovado; aguardando integração |
 
 ## Itens explicitamente não entregues
 
@@ -246,20 +272,22 @@ Por isso, a Fase 4 do produto continua parcial.
 - nenhuma rota V2 de ingestão;
 - nenhum `device_key` gerado pela extensão;
 - nenhuma prévia de mensagens capturadas;
-- nenhuma tabela da Fase 2 aplicada ao Supabase;
-- nenhum método, perfil de produto, fato ou objeção real cadastrado;
-- nenhuma tela de configuração comercial;
+- nenhuma versão comercial publicada para uso do motor V2;
 - nenhum diagnóstico executado pelo motor V2;
 - nenhuma alteração automática de estágio, agenda ou CRM pelo V2;
-- nenhum rollout para empresa piloto.
+- nenhuma integração da extensão com ledger e cursor;
+- nenhum rollout para empresa piloto;
+- interface da Fase 3 ainda não integrada na `main` nem publicada em produção.
 
 ## Próximo gate
 
-1. Revisar o contrato, a migration e os testes da Fase 2.
-2. Integrar o pacote PT2-A somente após aprovação explícita.
-3. Aplicar a migration no Supabase somente com autorização específica.
-4. Validar advisors, RLS, grants, imutabilidade e isolamento após a aplicação.
-5. Demonstrar o schema criado antes de iniciar a tela da Fase 3.
+1. Registrar esta validação final no GitHub.
+2. Abrir o pull request da Fase 3 contra a `main`.
+3. Revisar o diff e os checks do pull request.
+4. Integrar a branch somente após aprovação explícita.
+5. Validar o deployment da página e das rotas administrativas.
+6. Completar os perfis dos produtos ativos antes de publicar a V1 comercial.
+7. Manter o motor ativo em `v1` até a Fase 5 implementar e validar o diagnóstico.
 
-Nenhum motor V2, tela, dado real ou aplicação remota está autorizado por esta
-entrega técnica.
+A integração da Fase 3 não autoriza o motor V2, mudanças automáticas no CRM ou
+rollout para empresas clientes.
