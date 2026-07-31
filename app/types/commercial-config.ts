@@ -224,10 +224,20 @@ export interface CommercialConfigDeleteResult {
 // Estado utilizado pela futura interface administrativa
 // ============================================================================
 
+export interface CommercialConfigProductOption {
+  id: string
+  company_id: string
+  name: string
+  category: string
+  base_price: number
+  active: boolean
+}
+
 export interface CommercialConfigWorkspace {
   draft: CommercialConfigBundle | null
   published: CommercialConfigBundle | null
   archived_versions: CommercialConfigVersion[]
+  products: CommercialConfigProductOption[]
 }
 
 // ============================================================================
