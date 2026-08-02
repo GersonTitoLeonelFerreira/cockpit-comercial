@@ -105,7 +105,7 @@ async function getOrCreateDeviceKey() {
 }
 
 async function getCachedSession() {
-  
+
   const stored = await storageGet(SESSION_STORAGE_KEY)
   return stored?.[SESSION_STORAGE_KEY] ?? null
 }
