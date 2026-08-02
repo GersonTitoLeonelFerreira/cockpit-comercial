@@ -21,6 +21,7 @@
       "js": [
         "src/yolen-api.js",
         "src/message-mutations.js",
+        "src/capture-batch.js",
         "src/content-script.js"
       ],
       "css": ["src/styles.css"],
