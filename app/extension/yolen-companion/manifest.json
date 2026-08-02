@@ -10,7 +10,10 @@
     "http://localhost:3000/*"
   ],
   "background": {
-    "scripts": ["src/background.js"]
+    "scripts": [
+      "src/capture-transport.js",
+      "src/background.js"
+    ]
   },
   "content_scripts": [
     {

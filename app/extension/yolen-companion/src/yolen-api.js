@@ -101,6 +101,13 @@
     )
   }
 
+  async function ingestCapturedMessages(payload) {
+    return sendToBackground(
+      'INGEST_CAPTURE_MESSAGES',
+      payload,
+    )
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -112,5 +119,6 @@
     registerMessageAction,
     transcribeAudio,
     loadAudioTranscriptions,
+    ingestCapturedMessages,
   }
 })()
