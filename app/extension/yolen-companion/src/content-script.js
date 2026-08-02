@@ -1122,7 +1122,7 @@
             message.id,
           )
 
-          const messageWasDeleted =
+        const messageWasDeleted =
           deletedMessageIds.delete(
             message.id,
           )
@@ -1381,280 +1381,281 @@
       },
     )
 
-    function clearCaptureIngestionTimer() {
-      if (captureIngestionTimerId) {
-        window.clearTimeout(
-          captureIngestionTimerId,
-        )
-      }
+  }
 
-      captureIngestionTimerId = 0
-    }
-
-    function canIngestCurrentCapture() {
-      return Boolean(
-        state.connected &&
-        !state.isSelfConversation &&
-        state.conversationKey &&
-        state.leadResolution?.cycle?.id &&
-        window.YolenCompanionApi
-          ?.ingestCapturedMessages,
+  function clearCaptureIngestionTimer() {
+    if (captureIngestionTimerId) {
+      window.clearTimeout(
+        captureIngestionTimerId,
       )
     }
 
-    function getCurrentCaptureWindow() {
-      const activeMessages =
-        getSortedLedgerMessages()
+    captureIngestionTimerId = 0
+  }
 
-      const deletedMessages =
-        Array.from(
-          deletedMessageSnapshots.values(),
-        )
+  function canIngestCurrentCapture() {
+    return Boolean(
+      state.connected &&
+      !state.isSelfConversation &&
+      state.conversationKey &&
+      state.leadResolution?.cycle?.id &&
+      window.YolenCompanionApi
+        ?.ingestCapturedMessages,
+    )
+  }
 
-      const combinedMessages = [
-        ...activeMessages,
-        ...deletedMessages,
-      ].sort((first, second) => {
-        if (
-          first.timestampMs !==
+  function getCurrentCaptureWindow() {
+    const activeMessages =
+      getSortedLedgerMessages()
+
+    const deletedMessages =
+      Array.from(
+        deletedMessageSnapshots.values(),
+      )
+
+    const combinedMessages = [
+      ...activeMessages,
+      ...deletedMessages,
+    ].sort((first, second) => {
+      if (
+        first.timestampMs !==
+        second.timestampMs
+      ) {
+        return (
+          first.timestampMs -
           second.timestampMs
-        ) {
-          return (
-            first.timestampMs -
-            second.timestampMs
-          )
-        }
-
-        return first.id.localeCompare(
-          second.id,
         )
-      })
-
-      if (combinedMessages.length === 0) {
-        return {
-          activeMessages: [],
-          deletedMessages: [],
-        }
       }
 
-      const latestDateKey =
-        combinedMessages[
-          combinedMessages.length - 1
-        ].dateKey
-
-      return {
-        activeMessages:
-          activeMessages.filter(
-            (message) =>
-              message.dateKey ===
-              latestDateKey,
-          ),
-        deletedMessages:
-          deletedMessages.filter(
-            (message) =>
-              message.dateKey ===
-              latestDateKey,
-          ),
-      }
-    }
-
-    function buildCurrentCapturePlan() {
-      const cycleId =
-        state.leadResolution?.cycle?.id
-
-      const conversationKey =
-        state.conversationKey
-
-      if (!cycleId || !conversationKey) {
-        return null
-      }
-
-      const captureWindow =
-        getCurrentCaptureWindow()
-
-      return captureBatchTools
-        .buildCaptureIngestionPlan({
-          cycleId,
-          conversationKey,
-          activeMessages:
-            captureWindow.activeMessages,
-          deletedMessages:
-            captureWindow.deletedMessages,
-          transcriptionsByKey:
-            state.audioTranscriptionsByKey ||
-            {},
-        })
-    }
-
-    function rememberSuccessfulCapture(
-      contextKey,
-      snapshotKey,
-    ) {
-      lastIngestedCaptureKeys.set(
-        contextKey,
-        snapshotKey,
+      return first.id.localeCompare(
+        second.id,
       )
+    })
 
-      if (
-        lastIngestedCaptureKeys.size >
-        100
-      ) {
-        const oldestKey =
-          lastIngestedCaptureKeys
-            .keys()
-            .next()
-            .value
-
-        if (oldestKey) {
-          lastIngestedCaptureKeys.delete(
-            oldestKey,
-          )
-        }
+    if (combinedMessages.length === 0) {
+      return {
+        activeMessages: [],
+        deletedMessages: [],
       }
     }
 
-    async function runCaptureIngestion() {
-      clearCaptureIngestionTimer()
+    const latestDateKey =
+      combinedMessages[
+        combinedMessages.length - 1
+      ].dateKey
 
-      if (!canIngestCurrentCapture()) {
-        return
-      }
+    return {
+      activeMessages:
+        activeMessages.filter(
+          (message) =>
+            message.dateKey ===
+            latestDateKey,
+        ),
+      deletedMessages:
+        deletedMessages.filter(
+          (message) =>
+            message.dateKey ===
+            latestDateKey,
+        ),
+    }
+  }
 
-      if (captureIngestionInFlight) {
-        captureIngestionQueued = true
-        return
-      }
+  function buildCurrentCapturePlan() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
 
-      let plan
+    const conversationKey =
+      state.conversationKey
 
-      try {
-        plan =
-          buildCurrentCapturePlan()
-      } catch {
-        return
-      }
+    if (!cycleId || !conversationKey) {
+      return null
+    }
 
-      if (
-        !plan ||
-        plan.messages.length === 0
-      ) {
-        return
-      }
+    const captureWindow =
+      getCurrentCaptureWindow()
 
-      const cycleId =
-        state.leadResolution?.cycle?.id
-
-      const conversationKey =
-        state.conversationKey
-
-      const contextKey = [
+    return captureBatchTools
+      .buildCaptureIngestionPlan({
         cycleId,
         conversationKey,
-      ].join('::')
+        activeMessages:
+          captureWindow.activeMessages,
+        deletedMessages:
+          captureWindow.deletedMessages,
+        transcriptionsByKey:
+          state.audioTranscriptionsByKey ||
+          {},
+      })
+  }
 
-      if (
-        lastIngestedCaptureKeys.get(
-          contextKey,
-        ) === plan.snapshotKey
-      ) {
-        return
-      }
+  function rememberSuccessfulCapture(
+    contextKey,
+    snapshotKey,
+  ) {
+    lastIngestedCaptureKeys.set(
+      contextKey,
+      snapshotKey,
+    )
 
-      captureIngestionInFlight = true
-
-      let retryDelay = null
-
-      try {
-        for (const payload of plan.batches) {
-          const result =
-            await window
-              .YolenCompanionApi
-              .ingestCapturedMessages(
-                payload,
-              )
-
-          if (
-            !result?.ok ||
-            !result.payload?.ok
-          ) {
-            const statusCode =
-              Number(
-                result?.statusCode || 0,
-              )
-
-            const requestError =
-              new Error(
-                result?.payload?.error ||
-                  'Não foi possível persistir a captura na Yolen.',
-              )
-
-            requestError.retryable =
-              statusCode === 0 ||
-              statusCode === 401 ||
-              statusCode >= 500
-
-            throw requestError
-          }
-        }
-
-        rememberSuccessfulCapture(
-          contextKey,
-          plan.snapshotKey,
-        )
-
-        captureIngestionRetryAttempt = 0
-      } catch (error) {
-        if (error?.retryable === true) {
-          captureIngestionRetryAttempt +=
-            1
-
-          retryDelay = Math.min(
-            CAPTURE_INGESTION_MAX_RETRY_MS,
-            1000 *
-              2 **
-                Math.min(
-                  captureIngestionRetryAttempt,
-                  5,
-                ),
-          )
-        }
-      } finally {
-        captureIngestionInFlight = false
-
-        if (captureIngestionQueued) {
-          captureIngestionQueued = false
-
-          scheduleCaptureIngestion(
-            250,
-          )
-        } else if (retryDelay !== null) {
-          scheduleCaptureIngestion(
-            retryDelay,
-          )
-        }
-      }
-    }
-
-    function scheduleCaptureIngestion(
-      delayMs =
-        CAPTURE_INGESTION_DELAY_MS,
+    if (
+      lastIngestedCaptureKeys.size >
+      100
     ) {
-      clearCaptureIngestionTimer()
+      const oldestKey =
+        lastIngestedCaptureKeys
+          .keys()
+          .next()
+          .value
 
-      if (!canIngestCurrentCapture()) {
-        return
+      if (oldestKey) {
+        lastIngestedCaptureKeys.delete(
+          oldestKey,
+        )
       }
-
-      if (captureIngestionInFlight) {
-        captureIngestionQueued = true
-        return
-      }
-
-      captureIngestionTimerId =
-        window.setTimeout(() => {
-          runCaptureIngestion()
-        }, delayMs)
     }
+  }
+
+  async function runCaptureIngestion() {
+    clearCaptureIngestionTimer()
+
+    if (!canIngestCurrentCapture()) {
+      return
+    }
+
+    if (captureIngestionInFlight) {
+      captureIngestionQueued = true
+      return
+    }
+
+    let plan
+
+    try {
+      plan =
+        buildCurrentCapturePlan()
+    } catch {
+      return
+    }
+
+    if (
+      !plan ||
+      plan.messages.length === 0
+    ) {
+      return
+    }
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      state.conversationKey
+
+    const contextKey = [
+      cycleId,
+      conversationKey,
+    ].join('::')
+
+    if (
+      lastIngestedCaptureKeys.get(
+        contextKey,
+      ) === plan.snapshotKey
+    ) {
+      return
+    }
+
+    captureIngestionInFlight = true
+
+    let retryDelay = null
+
+    try {
+      for (const payload of plan.batches) {
+        const result =
+          await window
+            .YolenCompanionApi
+            .ingestCapturedMessages(
+              payload,
+            )
+
+        if (
+          !result?.ok ||
+          !result.payload?.ok
+        ) {
+          const statusCode =
+            Number(
+              result?.statusCode || 0,
+            )
+
+          const requestError =
+            new Error(
+              result?.payload?.error ||
+                'Não foi possível persistir a captura na Yolen.',
+            )
+
+          requestError.retryable =
+            statusCode === 0 ||
+            statusCode === 401 ||
+            statusCode >= 500
+
+          throw requestError
+        }
+      }
+
+      rememberSuccessfulCapture(
+        contextKey,
+        plan.snapshotKey,
+      )
+
+      captureIngestionRetryAttempt = 0
+    } catch (error) {
+      if (error?.retryable === true) {
+        captureIngestionRetryAttempt +=
+          1
+
+        retryDelay = Math.min(
+          CAPTURE_INGESTION_MAX_RETRY_MS,
+          1000 *
+            2 **
+              Math.min(
+                captureIngestionRetryAttempt,
+                5,
+              ),
+        )
+      }
+    } finally {
+      captureIngestionInFlight = false
+
+      if (captureIngestionQueued) {
+        captureIngestionQueued = false
+
+        scheduleCaptureIngestion(
+          250,
+        )
+      } else if (retryDelay !== null) {
+        scheduleCaptureIngestion(
+          retryDelay,
+        )
+      }
+    }
+  }
+
+  function scheduleCaptureIngestion(
+    delayMs =
+      CAPTURE_INGESTION_DELAY_MS,
+  ) {
+    clearCaptureIngestionTimer()
+
+    if (!canIngestCurrentCapture()) {
+      return
+    }
+
+    if (captureIngestionInFlight) {
+      captureIngestionQueued = true
+      return
+    }
+
+    captureIngestionTimerId =
+      window.setTimeout(() => {
+        runCaptureIngestion()
+      }, delayMs)
   }
 
   function buildConversationTextFromMessages(
@@ -5084,11 +5085,11 @@
         const messageMutationDetected =
           refreshConversationSnapshot()
 
-          checkPendingSuggestedMessageSentFromConversation()
+        checkPendingSuggestedMessageSentFromConversation()
 
-          scheduleCaptureIngestion()
+        scheduleCaptureIngestion()
 
-          if (messageMutationDetected) {
+        if (messageMutationDetected) {
           scheduleAutomaticAnalysis(
             'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
           )
