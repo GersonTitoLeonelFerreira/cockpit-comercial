@@ -217,10 +217,10 @@ test('captura usa corpo selecionável e chave estável', () => {
         /const conversationKey =\s*getCaptureConversationKey\(\)/g,
       ) || []
 
-    assert.equal(
-      stableConversationKeyUses.length,
-      2,
-    )
+      assert.equal(
+        stableConversationKeyUses.length,
+        1,
+      )
   })
 
   test('direção usa o contêiner visual atual do WhatsApp', () => {
@@ -430,5 +430,142 @@ test('captura usa corpo selecionável e chave estável', () => {
     assert.match(
       eligibilityBlock,
       /resolutionIsEligible/,
+    )
+  })
+
+  test('troca de conversa preserva o plano de captura já materializado', () => {
+    const resetStart =
+      contentScript.indexOf(
+        '  function resetConversationMessageLedger(',
+      )
+
+    const resetEnd =
+      contentScript.indexOf(
+        '\n  function rememberPendingCaptureMutation(',
+        resetStart,
+      )
+
+    assert.notEqual(
+      resetStart,
+      -1,
+    )
+
+    assert.notEqual(
+      resetEnd,
+      -1,
+    )
+
+    const resetBlock =
+      contentScript.slice(
+        resetStart,
+        resetEnd,
+      )
+
+    assert.doesNotMatch(
+      resetBlock,
+      /clearCaptureIngestionTimer/,
+    )
+
+    assert.doesNotMatch(
+      resetBlock,
+      /captureIngestionRetryAttempt/,
+    )
+
+    const scheduleStart =
+      contentScript.indexOf(
+        '  function scheduleCaptureIngestion(',
+      )
+
+    const scheduleEnd =
+      contentScript.indexOf(
+        '\n  function buildConversationTextFromMessages(',
+        scheduleStart,
+      )
+
+    const scheduleBlock =
+      contentScript.slice(
+        scheduleStart,
+        scheduleEnd,
+      )
+
+    assert.match(
+      scheduleBlock,
+      /buildCurrentCapturePlan\(\)/,
+    )
+
+    assert.match(
+      scheduleBlock,
+      /pendingCaptureIngestionPlans\.set\(/,
+    )
+
+    assert.match(
+      scheduleBlock,
+      /schedulePendingCaptureIngestion/,
+    )
+
+    const runStart =
+      contentScript.indexOf(
+        '  async function runCaptureIngestion()',
+      )
+
+    const runEnd =
+      contentScript.indexOf(
+        '\n  function schedulePendingCaptureIngestion(',
+        runStart,
+      )
+
+    const runBlock =
+      contentScript.slice(
+        runStart,
+        runEnd,
+      )
+
+    assert.match(
+      runBlock,
+      /pendingCaptureIngestionPlans\s*\.entries\(\)/,
+    )
+
+    assert.match(
+      runBlock,
+      /forgetPendingCapturePlan/,
+    )
+  })
+
+  test('captura usa texto renderizado para preservar elementos br', () => {
+    const bodyStart =
+      contentScript.indexOf(
+        '  function getCapturedMessageBodyText(',
+      )
+
+    const bodyEnd =
+      contentScript.indexOf(
+        '\n  function isDeletedMessageNode(',
+        bodyStart,
+      )
+
+    assert.notEqual(
+      bodyStart,
+      -1,
+    )
+
+    assert.notEqual(
+      bodyEnd,
+      -1,
+    )
+
+    const bodyBlock =
+      contentScript.slice(
+        bodyStart,
+        bodyEnd,
+      )
+
+    assert.match(
+      bodyBlock,
+      /readCapturedElementText/,
+    )
+
+    assert.doesNotMatch(
+      bodyBlock,
+      /element\.textContent/,
     )
   })

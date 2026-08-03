@@ -57,6 +57,8 @@
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
   const lastIngestedCaptureKeys = new Map()
+  const pendingCaptureIngestionPlans =
+    new Map()
 
   let state = {
     connected: false,
@@ -917,7 +919,10 @@
           text:
             belongsToAnotherMessage
               ? ''
-              : element.textContent,
+              : messageMutationTools
+                  .readCapturedElementText(
+                    element,
+                  ),
           isQuoted,
         }
       })
@@ -1076,7 +1081,7 @@
     messageWindowFloorTimestamp = null
     conversationMessageLedger =
       new Map()
-      deletedMessageIds =
+    deletedMessageIds =
       new Set()
     deletedMessageSnapshots =
       new Map()
@@ -1086,10 +1091,6 @@
       false
     messageLedgerMutationRevision =
       0
-    captureIngestionRetryAttempt =
-      0
-
-    clearCaptureIngestionTimer()
   }
 
   function rememberPendingCaptureMutation(
@@ -1548,7 +1549,7 @@
     const cycleId =
       state.leadResolution?.cycle?.id
 
-      const conversationKey =
+    const conversationKey =
       getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
@@ -1558,18 +1559,27 @@
     const captureWindow =
       getCurrentCaptureWindow()
 
-    return captureBatchTools
-      .buildCaptureIngestionPlan({
+    const plan =
+      captureBatchTools
+        .buildCaptureIngestionPlan({
+          cycleId,
+          conversationKey,
+          activeMessages:
+            captureWindow.activeMessages,
+          deletedMessages:
+            captureWindow.deletedMessages,
+          transcriptionsByKey:
+            state.audioTranscriptionsByKey ||
+            {},
+        })
+
+    return {
+      ...plan,
+      contextKey: [
         cycleId,
         conversationKey,
-        activeMessages:
-          captureWindow.activeMessages,
-        deletedMessages:
-          captureWindow.deletedMessages,
-        transcriptionsByKey:
-          state.audioTranscriptionsByKey ||
-          {},
-      })
+      ].join('::'),
+    }
   }
 
   function rememberSuccessfulCapture(
@@ -1599,15 +1609,193 @@
     }
   }
 
+  function forgetPendingCapturePlan(
+    contextKey,
+    snapshotKey,
+  ) {
+    const currentPlan =
+      pendingCaptureIngestionPlans.get(
+        contextKey,
+      )
+
+    if (
+      currentPlan?.snapshotKey ===
+      snapshotKey
+    ) {
+      pendingCaptureIngestionPlans.delete(
+        contextKey,
+      )
+    }
+  }
+
   async function runCaptureIngestion() {
     clearCaptureIngestionTimer()
 
-    if (!canIngestCurrentCapture()) {
+    if (captureIngestionInFlight) {
+      captureIngestionQueued = true
+      return
+    }
+
+    const pendingEntries =
+      Array.from(
+        pendingCaptureIngestionPlans
+          .entries(),
+      )
+
+    if (pendingEntries.length === 0) {
+      return
+    }
+
+    captureIngestionInFlight = true
+
+    let retryDelay = null
+
+    try {
+      for (
+        const [
+          contextKey,
+          plan,
+        ] of pendingEntries
+      ) {
+        if (
+          lastIngestedCaptureKeys.get(
+            contextKey,
+          ) === plan.snapshotKey
+        ) {
+          forgetPendingCapturePlan(
+            contextKey,
+            plan.snapshotKey,
+          )
+
+          continue
+        }
+
+        try {
+          for (
+            const payload of
+            plan.batches
+          ) {
+            const result =
+              await window
+                .YolenCompanionApi
+                .ingestCapturedMessages(
+                  payload,
+                )
+
+            if (
+              !result?.ok ||
+              !result.payload?.ok
+            ) {
+              const statusCode =
+                Number(
+                  result?.statusCode || 0,
+                )
+
+              const requestError =
+                new Error(
+                  result?.payload?.error ||
+                    'Não foi possível persistir a captura na Yolen.',
+                )
+
+              requestError.retryable =
+                statusCode === 0 ||
+                statusCode === 401 ||
+                statusCode >= 500
+
+              throw requestError
+            }
+          }
+
+          rememberSuccessfulCapture(
+            contextKey,
+            plan.snapshotKey,
+          )
+
+          forgetPendingCapturePlan(
+            contextKey,
+            plan.snapshotKey,
+          )
+        } catch (error) {
+          if (
+            error?.retryable === true
+          ) {
+            captureIngestionRetryAttempt +=
+              1
+
+            retryDelay = Math.min(
+              CAPTURE_INGESTION_MAX_RETRY_MS,
+              1000 *
+                2 **
+                  Math.min(
+                    captureIngestionRetryAttempt,
+                    5,
+                  ),
+            )
+          } else {
+            forgetPendingCapturePlan(
+              contextKey,
+              plan.snapshotKey,
+            )
+          }
+        }
+      }
+
+      if (
+        pendingCaptureIngestionPlans
+          .size === 0
+      ) {
+        captureIngestionRetryAttempt =
+          0
+      }
+    } finally {
+      captureIngestionInFlight = false
+
+      if (captureIngestionQueued) {
+        captureIngestionQueued = false
+
+        schedulePendingCaptureIngestion(
+          250,
+        )
+      } else if (
+        retryDelay !== null &&
+        pendingCaptureIngestionPlans
+          .size > 0
+      ) {
+        schedulePendingCaptureIngestion(
+          retryDelay,
+        )
+      }
+    }
+  }
+
+  function schedulePendingCaptureIngestion(
+    delayMs,
+  ) {
+    clearCaptureIngestionTimer()
+
+    if (
+      pendingCaptureIngestionPlans
+        .size === 0
+    ) {
       return
     }
 
     if (captureIngestionInFlight) {
       captureIngestionQueued = true
+      return
+    }
+
+    captureIngestionTimerId =
+      window.setTimeout(() => {
+        runCaptureIngestion()
+      }, delayMs)
+  }
+
+  function scheduleCaptureIngestion(
+    delayMs =
+      CAPTURE_INGESTION_DELAY_MS,
+  ) {
+    if (!canIngestCurrentCapture()) {
       return
     }
 
@@ -1622,124 +1810,28 @@
 
     if (
       !plan ||
+      !plan.contextKey ||
       plan.messages.length === 0
     ) {
       return
     }
 
-    const cycleId =
-      state.leadResolution?.cycle?.id
-
-      const conversationKey =
-      getCaptureConversationKey()
-
-    const contextKey = [
-      cycleId,
-      conversationKey,
-    ].join('::')
-
     if (
       lastIngestedCaptureKeys.get(
-        contextKey,
+        plan.contextKey,
       ) === plan.snapshotKey
     ) {
       return
     }
 
-    captureIngestionInFlight = true
+    pendingCaptureIngestionPlans.set(
+      plan.contextKey,
+      plan,
+    )
 
-    let retryDelay = null
-
-    try {
-      for (const payload of plan.batches) {
-        const result =
-          await window
-            .YolenCompanionApi
-            .ingestCapturedMessages(
-              payload,
-            )
-
-        if (
-          !result?.ok ||
-          !result.payload?.ok
-        ) {
-          const statusCode =
-            Number(
-              result?.statusCode || 0,
-            )
-
-          const requestError =
-            new Error(
-              result?.payload?.error ||
-                'Não foi possível persistir a captura na Yolen.',
-            )
-
-          requestError.retryable =
-            statusCode === 0 ||
-            statusCode === 401 ||
-            statusCode >= 500
-
-          throw requestError
-        }
-      }
-
-      rememberSuccessfulCapture(
-        contextKey,
-        plan.snapshotKey,
-      )
-
-      captureIngestionRetryAttempt = 0
-    } catch (error) {
-      if (error?.retryable === true) {
-        captureIngestionRetryAttempt +=
-          1
-
-        retryDelay = Math.min(
-          CAPTURE_INGESTION_MAX_RETRY_MS,
-          1000 *
-            2 **
-              Math.min(
-                captureIngestionRetryAttempt,
-                5,
-              ),
-        )
-      }
-    } finally {
-      captureIngestionInFlight = false
-
-      if (captureIngestionQueued) {
-        captureIngestionQueued = false
-
-        scheduleCaptureIngestion(
-          250,
-        )
-      } else if (retryDelay !== null) {
-        scheduleCaptureIngestion(
-          retryDelay,
-        )
-      }
-    }
-  }
-
-  function scheduleCaptureIngestion(
-    delayMs =
-      CAPTURE_INGESTION_DELAY_MS,
-  ) {
-    clearCaptureIngestionTimer()
-
-    if (!canIngestCurrentCapture()) {
-      return
-    }
-
-    if (captureIngestionInFlight) {
-      captureIngestionQueued = true
-      return
-    }
-
-    captureIngestionTimerId =
-      window.setTimeout(() => {
-        runCaptureIngestion()
-      }, delayMs)
+    schedulePendingCaptureIngestion(
+      delayMs,
+    )
   }
 
   function buildConversationTextFromMessages(

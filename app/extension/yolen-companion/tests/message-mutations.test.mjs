@@ -11,6 +11,7 @@ const {
   inferCapturedMessageDirection,
   isDeletedMessageText,
   pickCapturedMessageText,
+  readCapturedElementText,
 } = messageMutations
 
 function message(overrides = {}) {
@@ -26,6 +27,27 @@ function message(overrides = {}) {
     ...overrides,
   }
 }
+
+test('preserva quebras de linha internas da mensagem', () => {
+  assert.equal(
+    cleanCapturedMessageText(
+      'Primeira linha\n Segunda linha',
+    ),
+    'Primeira linha\nSegunda linha',
+  )
+})
+
+test('lê quebras renderizadas por elementos br', () => {
+  assert.equal(
+    readCapturedElementText({
+      innerText:
+        'Primeira linha\nSegunda linha',
+      textContent:
+        'Primeira linhaSegunda linha',
+    }),
+    'Primeira linha\nSegunda linha',
+  )
+})
 
 test('preserva horário legítimo no final da mensagem', () => {
   assert.equal(

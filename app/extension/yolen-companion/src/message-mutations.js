@@ -18,6 +18,53 @@
       .trim()
   }
 
+  function readCapturedElementText(
+    element,
+  ) {
+    if (!element) {
+      return ''
+    }
+
+    const renderedText =
+      typeof element.innerText ===
+      'string'
+        ? element.innerText
+        : ''
+
+    if (renderedText.trim()) {
+      return renderedText
+    }
+
+    if (
+      typeof element.cloneNode ===
+      'function'
+    ) {
+      const clone =
+        element.cloneNode(true)
+
+      clone
+        .querySelectorAll?.('br')
+        .forEach((lineBreak) => {
+          lineBreak.replaceWith?.(
+            '\n',
+          )
+        })
+
+      if (
+        typeof clone.textContent ===
+        'string'
+      ) {
+        return clone.textContent
+      }
+    }
+
+    return typeof element.textContent ===
+      'string'
+      ? element.textContent
+      : ''
+  }
+
+
   function cleanCapturedMessageText(value) {
     const text = normalizeText(value)
 
@@ -355,6 +402,7 @@
     inferCapturedMessageDirection,
     isDeletedMessageText,
     pickCapturedMessageText,
+    readCapturedElementText,
   })
 
   root.YolenCompanionMessageMutations =
