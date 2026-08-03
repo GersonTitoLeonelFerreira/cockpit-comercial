@@ -45,6 +45,8 @@
   let conversationMessageLedger = new Map()
   let deletedMessageIds = new Set()
   let deletedMessageSnapshots = new Map()
+  let pendingCaptureMutationIds =
+    new Set()
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
   let captureIngestionTimerId = 0
@@ -1074,10 +1076,12 @@
     messageWindowFloorTimestamp = null
     conversationMessageLedger =
       new Map()
-    deletedMessageIds =
+      deletedMessageIds =
       new Set()
     deletedMessageSnapshots =
       new Map()
+    pendingCaptureMutationIds =
+      new Set()
     messageLedgerRequiresRebase =
       false
     messageLedgerMutationRevision =
@@ -1086,6 +1090,42 @@
       0
 
     clearCaptureIngestionTimer()
+  }
+
+  function rememberPendingCaptureMutation(
+    messageId,
+  ) {
+    const normalizedMessageId =
+      String(messageId || '').trim()
+
+    if (!normalizedMessageId) {
+      return
+    }
+
+    pendingCaptureMutationIds.delete(
+      normalizedMessageId,
+    )
+
+    pendingCaptureMutationIds.add(
+      normalizedMessageId,
+    )
+
+    if (
+      pendingCaptureMutationIds.size >
+      MAX_MESSAGE_LEDGER_SIZE
+    ) {
+      const oldestMessageId =
+        pendingCaptureMutationIds
+          .values()
+          .next()
+          .value
+
+      if (oldestMessageId) {
+        pendingCaptureMutationIds.delete(
+          oldestMessageId,
+        )
+      }
+    }
   }
 
   function synchronizeConversationMessageLedger() {
@@ -1159,6 +1199,10 @@
               messageId,
             )
 
+            rememberPendingCaptureMutation(
+              messageId,
+            )
+
             detectedMessageMutation =
               true
           }
@@ -1200,6 +1244,10 @@
               )
           )
         ) {
+          rememberPendingCaptureMutation(
+            message.id,
+          )
+
           detectedMessageMutation =
             true
         }
@@ -1481,51 +1529,13 @@
         deletedMessageSnapshots.values(),
       )
 
-    const combinedMessages = [
-      ...activeMessages,
-      ...deletedMessages,
-    ].sort((first, second) => {
-      if (
-        first.timestampMs !==
-        second.timestampMs
-      ) {
-        return (
-          first.timestampMs -
-          second.timestampMs
-        )
-      }
-
-      return first.id.localeCompare(
-        second.id,
-      )
-    })
-
-    if (combinedMessages.length === 0) {
-      return {
-        activeMessages: [],
-        deletedMessages: [],
-      }
-    }
-
-    const latestDateKey =
-      combinedMessages[
-        combinedMessages.length - 1
-      ].dateKey
-
-    return {
-      activeMessages:
-        activeMessages.filter(
-          (message) =>
-            message.dateKey ===
-            latestDateKey,
-        ),
-      deletedMessages:
-        deletedMessages.filter(
-          (message) =>
-            message.dateKey ===
-            latestDateKey,
-        ),
-    }
+    return captureBatchTools
+      .selectCaptureWindow({
+        activeMessages,
+        deletedMessages,
+        pendingMutationKeys:
+          pendingCaptureMutationIds,
+      })
   }
 
   function buildCurrentCapturePlan() {
@@ -5217,13 +5227,15 @@
 
         checkPendingSuggestedMessageSentFromConversation()
 
-        scheduleCaptureIngestion()
-
         if (messageMutationDetected) {
+          scheduleCaptureIngestion(0)
+
           scheduleAutomaticAnalysis(
             'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
           )
         } else {
+          scheduleCaptureIngestion()
+
           handleConversationActivityForAutomaticAnalysis()
         }
       }, 600)

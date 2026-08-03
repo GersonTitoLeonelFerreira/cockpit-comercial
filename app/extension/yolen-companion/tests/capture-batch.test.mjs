@@ -4,9 +4,10 @@ import test from 'node:test'
 import captureBatch from '../src/capture-batch.js'
 
 const {
-  buildCaptureIngestionPlan,
-  buildCaptureMessages,
-} = captureBatch
+    selectCaptureWindow,
+    buildCaptureIngestionPlan,
+    buildCaptureMessages,
+  } = captureBatch
 
 function activeMessage(overrides = {}) {
   return {
@@ -24,6 +25,90 @@ function activeMessage(overrides = {}) {
     ...overrides,
   }
 }
+
+test('inclui mutações antigas junto da data mais recente', () => {
+    const editedFromOlderDate =
+      activeMessage({
+        id: 'older-edited',
+        timestampMs: Date.parse(
+          '2026-08-01T18:00:00.000Z',
+        ),
+        timestampLabel:
+          '01/08/2026 15:00',
+        dateKey: '2026-08-01',
+        text: 'Mensagem antiga editada.',
+      })
+
+    const unchangedFromOlderDate =
+      activeMessage({
+        id: 'older-unchanged',
+        timestampMs: Date.parse(
+          '2026-08-01T19:00:00.000Z',
+        ),
+        timestampLabel:
+          '01/08/2026 16:00',
+        dateKey: '2026-08-01',
+        text: 'Mensagem antiga inalterada.',
+      })
+
+    const deletedFromOlderDate =
+      activeMessage({
+        id: 'older-deleted',
+        timestampMs: Date.parse(
+          '2026-08-01T20:00:00.000Z',
+        ),
+        timestampLabel:
+          '01/08/2026 17:00',
+        dateKey: '2026-08-01',
+        text: '',
+      })
+
+    const latestMessage =
+      activeMessage({
+        id: 'latest-message',
+        timestampMs: Date.parse(
+          '2026-08-02T18:00:00.000Z',
+        ),
+        dateKey: '2026-08-02',
+      })
+
+    const captureWindow =
+      selectCaptureWindow({
+        activeMessages: [
+          editedFromOlderDate,
+          unchangedFromOlderDate,
+          latestMessage,
+        ],
+        deletedMessages: [
+          deletedFromOlderDate,
+        ],
+        pendingMutationKeys:
+          new Set([
+            'older-edited',
+            'older-deleted',
+          ]),
+      })
+
+    assert.deepEqual(
+      captureWindow.activeMessages.map(
+        (message) => message.id,
+      ),
+      [
+        'older-edited',
+        'latest-message',
+      ],
+    )
+
+    assert.deepEqual(
+      captureWindow.deletedMessages.map(
+        (message) => message.id,
+      ),
+      [
+        'older-deleted',
+      ],
+    )
+  })
+
 
 test('converte mensagens de texto e áudio para o contrato de ingestão', () => {
   const messages = buildCaptureMessages({

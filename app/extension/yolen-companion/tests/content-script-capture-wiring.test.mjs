@@ -332,3 +332,64 @@ test('captura usa corpo selecionável e chave estável', () => {
       /restoredCount/,
     )
   })
+
+  test('ingestão preserva mutações pendentes de datas anteriores', () => {
+    const captureWindowStart =
+      contentScript.indexOf(
+        '  function getCurrentCaptureWindow()',
+      )
+
+    const captureWindowEnd =
+      contentScript.indexOf(
+        '\n  function buildCurrentCapturePlan()',
+        captureWindowStart,
+      )
+
+    assert.notEqual(
+      captureWindowStart,
+      -1,
+    )
+
+    assert.notEqual(
+      captureWindowEnd,
+      -1,
+    )
+
+    const captureWindowBlock =
+      contentScript.slice(
+        captureWindowStart,
+        captureWindowEnd,
+      )
+
+    assert.match(
+      captureWindowBlock,
+      /selectCaptureWindow/,
+    )
+
+    assert.match(
+      captureWindowBlock,
+      /pendingMutationKeys:\s*pendingCaptureMutationIds/,
+    )
+
+    const observerStart =
+      contentScript.indexOf(
+        '  function observeWhatsAppChanges()',
+      )
+
+    const observerEnd =
+      contentScript.indexOf(
+        '\n  observeWhatsAppChanges.timeoutId = 0',
+        observerStart,
+      )
+
+    const observerBlock =
+      contentScript.slice(
+        observerStart,
+        observerEnd,
+      )
+
+    assert.match(
+      observerBlock,
+      /if \(messageMutationDetected\) \{\s*scheduleCaptureIngestion\(0\)/,
+    )
+  })

@@ -190,6 +190,88 @@
         }
       }
 
+      function selectCaptureWindow({
+        activeMessages = [],
+        deletedMessages = [],
+        pendingMutationKeys = [],
+      } = {}) {
+        const safeActiveMessages =
+          Array.isArray(activeMessages)
+            ? activeMessages
+            : []
+
+        const safeDeletedMessages =
+          Array.isArray(deletedMessages)
+            ? deletedMessages
+            : []
+
+        const combinedMessages = [
+          ...safeActiveMessages,
+          ...safeDeletedMessages,
+        ].sort((first, second) => {
+          if (
+            first.timestampMs !==
+            second.timestampMs
+          ) {
+            return (
+              first.timestampMs -
+              second.timestampMs
+            )
+          }
+
+          return String(
+            first.id || '',
+          ).localeCompare(
+            String(second.id || ''),
+          )
+        })
+
+        if (combinedMessages.length === 0) {
+          return {
+            activeMessages: [],
+            deletedMessages: [],
+          }
+        }
+
+        const latestDateKey =
+          combinedMessages[
+            combinedMessages.length - 1
+          ].dateKey
+
+        const pendingKeys =
+          new Set(
+            Array.from(
+              pendingMutationKeys || [],
+            )
+              .map((value) =>
+                normalizeRequiredText(value),
+              )
+              .filter(Boolean),
+          )
+
+        const shouldIncludeMessage =
+          (message) => {
+            return (
+              message?.dateKey ===
+                latestDateKey ||
+              pendingKeys.has(
+                message?.id,
+              )
+            )
+          }
+
+        return {
+          activeMessages:
+            safeActiveMessages.filter(
+              shouldIncludeMessage,
+            ),
+          deletedMessages:
+            safeDeletedMessages.filter(
+              shouldIncludeMessage,
+            ),
+        }
+      }
+
       function buildCaptureMessages({
         activeMessages = [],
         deletedMessages = [],
@@ -397,6 +479,7 @@
       return {
         CONTRACT_VERSION,
         DEFAULT_MAX_BATCH_SIZE,
+        selectCaptureWindow,
         buildCaptureMessages,
         splitCaptureMessages,
         buildCaptureSnapshotKey,
