@@ -222,3 +222,113 @@ test('captura usa corpo selecionável e chave estável', () => {
       2,
     )
   })
+
+  test('direção usa o contêiner visual atual do WhatsApp', () => {
+    const directionStart =
+      contentScript.indexOf(
+        '  function isOutgoingMessageNode(',
+      )
+
+    const directionEnd =
+      contentScript.indexOf(
+        '\n  function getLatestOutgoingVisibleMessageText(',
+        directionStart,
+      )
+
+    assert.notEqual(
+      directionStart,
+      -1,
+    )
+
+    assert.notEqual(
+      directionEnd,
+      -1,
+    )
+
+    const directionBlock =
+      contentScript.slice(
+        directionStart,
+        directionEnd,
+      )
+
+    assert.match(
+      directionBlock,
+      /\[data-testid="msg-container"\]/,
+    )
+
+    assert.match(
+      directionBlock,
+      /getBoundingClientRect/,
+    )
+
+    assert.match(
+      directionBlock,
+      /inferCapturedMessageDirection/,
+    )
+  })
+
+  test('restauração de transcrições agenda ingestão no escopo correto', () => {
+    const restoreStart =
+      contentScript.indexOf(
+        '  async function loadSavedAudioTranscriptionsForCurrentCycle()',
+      )
+
+    const restoreEnd =
+      contentScript.indexOf(
+        '\n  async function resolveCurrentLead()',
+        restoreStart,
+      )
+
+    const manualSendStart =
+      contentScript.indexOf(
+        '  async function registerManualSuggestedMessageSend(',
+      )
+
+    const manualSendEnd =
+      contentScript.indexOf(
+        '\n  function checkPendingSuggestedMessageSentFromConversation()',
+        manualSendStart,
+      )
+
+    assert.notEqual(
+      restoreStart,
+      -1,
+    )
+
+    assert.notEqual(
+      restoreEnd,
+      -1,
+    )
+
+    assert.notEqual(
+      manualSendStart,
+      -1,
+    )
+
+    assert.notEqual(
+      manualSendEnd,
+      -1,
+    )
+
+    const restoreBlock =
+      contentScript.slice(
+        restoreStart,
+        restoreEnd,
+      )
+
+    const manualSendBlock =
+      contentScript.slice(
+        manualSendStart,
+        manualSendEnd,
+      )
+
+    assert.match(
+      restoreBlock,
+      /if \(restoredCount > 0\)/,
+    )
+
+    assert.doesNotMatch(
+      manualSendBlock,
+      /restoredCount/,
+    )
+  })

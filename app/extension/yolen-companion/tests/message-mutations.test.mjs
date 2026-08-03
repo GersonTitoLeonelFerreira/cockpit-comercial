@@ -8,6 +8,7 @@ const {
   buildStableCaptureConversationKey,
   cleanCapturedMessageText,
   getLatestDateMessageBlock,
+  inferCapturedMessageDirection,
   isDeletedMessageText,
   pickCapturedMessageText,
 } = messageMutations
@@ -111,6 +112,64 @@ test('gera chave estável pelo telefone e não pelo avatar ou título', () => {
       title: 'Cliente Exemplo',
     }),
     'title:cliente exemplo',
+  )
+})
+
+test('preserva marcadores antigos de direção', () => {
+  assert.equal(
+    inferCapturedMessageDirection({
+      hasOutgoingClass: true,
+    }),
+    'outgoing',
+  )
+
+  assert.equal(
+    inferCapturedMessageDirection({
+      hasIncomingClass: true,
+    }),
+    'incoming',
+  )
+
+  assert.equal(
+    inferCapturedMessageDirection({
+      dataId:
+        'true_5511999999999_message',
+    }),
+    'outgoing',
+  )
+})
+
+test('classifica mensagens pela posição visual atual do WhatsApp', () => {
+  assert.equal(
+    inferCapturedMessageDirection({
+      messageLeft: 500,
+      messageWidth: 220,
+      conversationLeft: 0,
+      conversationWidth: 800,
+    }),
+    'outgoing',
+  )
+
+  assert.equal(
+    inferCapturedMessageDirection({
+      messageLeft: 62,
+      messageWidth: 220,
+      conversationLeft: 0,
+      conversationWidth: 800,
+    }),
+    'incoming',
+  )
+})
+
+test('usa incoming quando não há marcador ou geometria válida', () => {
+  assert.equal(
+    inferCapturedMessageDirection({
+      messageLeft: null,
+      messageWidth: null,
+      conversationLeft: null,
+      conversationWidth: null,
+    }),
+    'incoming',
   )
 })
 

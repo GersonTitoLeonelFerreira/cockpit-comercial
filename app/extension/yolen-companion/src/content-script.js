@@ -4297,6 +4297,10 @@
       }
 
       renderPanel()
+
+      if (restoredCount > 0) {
+        scheduleCaptureIngestion()
+      }
     } catch {
       if (
         state.conversationKey !==
@@ -4691,18 +4695,75 @@
   }
 
   function isOutgoingMessageNode(node) {
-    if (!node || typeof node.closest !== 'function') {
+    if (
+      !node ||
+      typeof node.closest !==
+        'function'
+    ) {
       return false
     }
 
-    if (node.closest('.message-out')) {
-      return true
-    }
+    const main =
+      getMainConversationRoot()
 
-    const dataIdElement = node.closest('[data-id]')
-    const dataId = dataIdElement?.getAttribute('data-id') || ''
+    const layoutContainer =
+      node.closest(
+        '[data-testid="msg-container"]',
+      ) ||
+      node.closest('[role="row"]') ||
+      getMessageContainer(node) ||
+      node
 
-    return dataId.startsWith('true_') || dataId.includes('_true_')
+    const dataIdElement =
+      node.closest('[data-id]') ||
+      node.querySelector?.('[data-id]')
+
+    const messageRect =
+      typeof layoutContainer
+        .getBoundingClientRect ===
+      'function'
+        ? layoutContainer
+            .getBoundingClientRect()
+        : null
+
+    const conversationRect =
+      typeof main
+        ?.getBoundingClientRect ===
+      'function'
+        ? main.getBoundingClientRect()
+        : null
+
+    const direction =
+      messageMutationTools
+        .inferCapturedMessageDirection({
+          hasOutgoingClass:
+            Boolean(
+              node.closest(
+                '.message-out',
+              ),
+            ),
+          hasIncomingClass:
+            Boolean(
+              node.closest(
+                '.message-in',
+              ),
+            ),
+          dataId:
+            dataIdElement
+              ?.getAttribute?.(
+                'data-id',
+              ) || '',
+          messageLeft:
+            messageRect?.left,
+          messageWidth:
+            messageRect?.width,
+          conversationLeft:
+            conversationRect?.left,
+          conversationWidth:
+            conversationRect?.width,
+        })
+
+    return direction === 'outgoing'
   }
 
   function getLatestOutgoingVisibleMessageText() {
@@ -4719,7 +4780,12 @@
         continue
       }
 
-      const text = normalizeMessageText(node.textContent)
+      const text =
+        normalizeMessageText(
+          getCapturedMessageBodyText(
+            node,
+          ),
+        )
 
       if (text && text.length >= 2) {
         return text
@@ -4837,10 +4903,6 @@
       }
 
       renderPanel()
-
-      if (restoredCount > 0) {
-        scheduleCaptureIngestion()
-      }
     } catch {
       state = {
         ...state,

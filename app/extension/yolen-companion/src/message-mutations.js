@@ -125,6 +125,81 @@
       : null
   }
 
+  function inferCapturedMessageDirection(
+    {
+      hasOutgoingClass = false,
+      hasIncomingClass = false,
+      dataId = '',
+      messageLeft,
+      messageWidth,
+      conversationLeft,
+      conversationWidth,
+    } = {},
+  ) {
+    if (hasOutgoingClass) {
+      return 'outgoing'
+    }
+
+    if (hasIncomingClass) {
+      return 'incoming'
+    }
+
+    const normalizedDataId =
+      String(dataId || '')
+
+    if (
+      normalizedDataId.startsWith(
+        'true_',
+      ) ||
+      normalizedDataId.includes(
+        '_true_',
+      )
+    ) {
+      return 'outgoing'
+    }
+
+    if (
+      normalizedDataId.startsWith(
+        'false_',
+      ) ||
+      normalizedDataId.includes(
+        '_false_',
+      )
+    ) {
+      return 'incoming'
+    }
+
+    const geometry = [
+      messageLeft,
+      messageWidth,
+      conversationLeft,
+      conversationWidth,
+    ].map(Number)
+
+    if (
+      geometry.every(
+        Number.isFinite,
+      ) &&
+      geometry[1] > 0 &&
+      geometry[3] > 0
+    ) {
+      const messageCenter =
+        geometry[0] +
+        geometry[1] / 2
+
+      const conversationCenter =
+        geometry[2] +
+        geometry[3] / 2
+
+      return messageCenter >
+        conversationCenter
+        ? 'outgoing'
+        : 'incoming'
+    }
+
+    return 'incoming'
+  }
+
   function isDeletedMessageText(value) {
     const text = normalizeText(
       value,
@@ -277,6 +352,7 @@
     buildStableCaptureConversationKey,
     cleanCapturedMessageText,
     getLatestDateMessageBlock,
+    inferCapturedMessageDirection,
     isDeletedMessageText,
     pickCapturedMessageText,
   })
