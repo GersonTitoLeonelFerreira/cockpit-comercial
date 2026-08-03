@@ -46,7 +46,7 @@ const ingestionHardeningMigrationPath =
 const reconciliationMigrationPath =
   fileURLToPath(
     new URL(
-      "../migrations/20260803215000_prevent_stale_companion_captures.sql",
+      "../migrations/20260803223345_prevent_stale_companion_captures.sql",
       import.meta.url,
     ),
   );
