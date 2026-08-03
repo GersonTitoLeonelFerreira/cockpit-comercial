@@ -863,9 +863,67 @@
     )
   }
 
-  function cleanCapturedMessageText(value) {
+  function getCapturedMessageBodyText(
+    node,
+  ) {
+    const container =
+      getMessageContainer(node) ||
+      node
+
+    const selector = [
+      '[data-testid="selectable-text"]',
+      'span.selectable-text.copyable-text',
+    ].join(',')
+
+    const elements = []
+
+    if (node.matches?.(selector)) {
+      elements.push(node)
+    }
+
+    container
+      .querySelectorAll?.(selector)
+      .forEach((element) => {
+        elements.push(element)
+      })
+
+    const candidates =
+      elements.map((element) => {
+        const owner =
+          element.closest?.(
+            '[data-pre-plain-text]',
+          )
+
+        const belongsToAnotherMessage =
+          owner &&
+          owner !== node &&
+          owner !== container
+
+        const isQuoted = Boolean(
+          element.closest?.(
+            [
+              '[data-testid*="quoted" i]',
+              '[data-testid*="reply" i]',
+              '[aria-label*="quoted" i]',
+              '[aria-label*="mensagem citada" i]',
+              '[aria-label*="resposta" i]',
+            ].join(','),
+          ),
+        )
+
+        return {
+          text:
+            belongsToAnotherMessage
+              ? ''
+              : element.textContent,
+          isQuoted,
+        }
+      })
+
     return messageMutationTools
-      .cleanCapturedMessageText(value)
+      .pickCapturedMessageText(
+        candidates,
+      )
   }
 
   function isDeletedMessageNode(node) {
@@ -922,9 +980,9 @@
     const hasAudio =
       messageContainerHasAudio(container)
 
-    const text =
-      cleanCapturedMessageText(
-        node.textContent,
+      const text =
+      getCapturedMessageBodyText(
+        node,
       )
 
     if (!text && !hasAudio) {
@@ -1393,11 +1451,21 @@
     captureIngestionTimerId = 0
   }
 
+  function getCaptureConversationKey() {
+    return messageMutationTools
+      .buildStableCaptureConversationKey({
+        phone:
+          state.conversationPhone,
+        title:
+          state.conversationTitle,
+      })
+  }
+
   function canIngestCurrentCapture() {
     return Boolean(
       state.connected &&
       !state.isSelfConversation &&
-      state.conversationKey &&
+      getCaptureConversationKey() &&
       state.leadResolution?.cycle?.id &&
       window.YolenCompanionApi
         ?.ingestCapturedMessages,
@@ -1464,8 +1532,8 @@
     const cycleId =
       state.leadResolution?.cycle?.id
 
-    const conversationKey =
-      state.conversationKey
+      const conversationKey =
+      getCaptureConversationKey()
 
     if (!cycleId || !conversationKey) {
       return null
@@ -1546,8 +1614,8 @@
     const cycleId =
       state.leadResolution?.cycle?.id
 
-    const conversationKey =
-      state.conversationKey
+      const conversationKey =
+      getCaptureConversationKey()
 
     const contextKey = [
       cycleId,

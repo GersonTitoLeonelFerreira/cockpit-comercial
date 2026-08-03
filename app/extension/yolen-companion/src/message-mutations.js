@@ -5,8 +5,16 @@
 
   function normalizeText(value) {
     return String(value || '')
-      .replace(/\s+/g, ' ')
+      .replace(/\r\n?/g, '\n')
       .replace(/\u200e/g, '')
+      .split('\n')
+      .map((line) => {
+        return line
+          .replace(/[ \t\f\v]+/g, ' ')
+          .trim()
+      })
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
       .trim()
   }
 
@@ -24,6 +32,97 @@
       0,
       MAX_CAPTURED_MESSAGE_LENGTH,
     )
+  }
+
+  function pickCapturedMessageText(
+    candidates,
+  ) {
+    if (!Array.isArray(candidates)) {
+      return ''
+    }
+
+    const normalizedCandidates =
+      candidates
+        .map((candidate) => {
+          if (
+            typeof candidate ===
+            'string'
+          ) {
+            return {
+              text:
+                cleanCapturedMessageText(
+                  candidate,
+                ),
+              isQuoted: false,
+            }
+          }
+
+          return {
+            text:
+              cleanCapturedMessageText(
+                candidate?.text,
+              ),
+            isQuoted:
+              candidate?.isQuoted ===
+              true,
+          }
+        })
+        .filter((candidate) => {
+          return (
+            !candidate.isQuoted &&
+            candidate.text
+          )
+        })
+
+    if (
+      normalizedCandidates.length === 0
+    ) {
+      return ''
+    }
+
+    const uniqueTexts =
+      Array.from(
+        new Set(
+          normalizedCandidates.map(
+            (candidate) =>
+              candidate.text,
+          ),
+        ),
+      )
+
+    uniqueTexts.sort(
+      (first, second) =>
+        second.length - first.length,
+    )
+
+    return uniqueTexts[0] || ''
+  }
+
+  function buildStableCaptureConversationKey(
+    {
+      phone,
+      title,
+    } = {},
+  ) {
+    const normalizedPhone =
+      String(phone || '')
+        .replace(/\D/g, '')
+
+    if (
+      normalizedPhone.length >= 10 &&
+      normalizedPhone.length <= 15
+    ) {
+      return `phone:${normalizedPhone}`
+    }
+
+    const normalizedTitle =
+      normalizeText(title)
+        .toLocaleLowerCase('pt-BR')
+        .slice(0, 200)
+
+    return normalizedTitle
+      ? `title:${normalizedTitle}`
+      : null
   }
 
   function isDeletedMessageText(value) {
@@ -175,9 +274,11 @@
   const api = Object.freeze({
     areCapturedMessagesEqual,
     buildMessageSnapshotFingerprint,
+    buildStableCaptureConversationKey,
     cleanCapturedMessageText,
     getLatestDateMessageBlock,
     isDeletedMessageText,
+    pickCapturedMessageText,
   })
 
   root.YolenCompanionMessageMutations =

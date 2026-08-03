@@ -168,3 +168,57 @@ test('observador agenda a ingestão depois de atualizar o ledger', () => {
       ingestionIndex,
   )
 })
+
+test('captura usa corpo selecionável e chave estável', () => {
+    const reliableMessageStart =
+      contentScript.indexOf(
+        '  function buildReliableMessageFromNode(',
+      )
+
+    const deletedMessageStart =
+      contentScript.indexOf(
+        '  function buildDeletedMessageSnapshotFromNode(',
+        reliableMessageStart,
+      )
+
+    assert.notEqual(
+      reliableMessageStart,
+      -1,
+    )
+
+    assert.notEqual(
+      deletedMessageStart,
+      -1,
+    )
+
+    const reliableMessageBlock =
+      contentScript.slice(
+        reliableMessageStart,
+        deletedMessageStart,
+      )
+
+    assert.match(
+      reliableMessageBlock,
+      /getCapturedMessageBodyText\(\s*node,\s*\)/,
+    )
+
+    assert.doesNotMatch(
+      reliableMessageBlock,
+      /node\.textContent/,
+    )
+
+    assert.match(
+      contentScript,
+      /buildStableCaptureConversationKey/,
+    )
+
+    const stableConversationKeyUses =
+      contentScript.match(
+        /const conversationKey =\s*getCaptureConversationKey\(\)/g,
+      ) || []
+
+    assert.equal(
+      stableConversationKeyUses.length,
+      2,
+    )
+  })

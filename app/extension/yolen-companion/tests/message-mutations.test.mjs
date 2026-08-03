@@ -5,9 +5,11 @@ import messageMutations from '../src/message-mutations.js'
 const {
   areCapturedMessagesEqual,
   buildMessageSnapshotFingerprint,
+  buildStableCaptureConversationKey,
   cleanCapturedMessageText,
   getLatestDateMessageBlock,
   isDeletedMessageText,
+  pickCapturedMessageText,
 } = messageMutations
 
 function message(overrides = {}) {
@@ -44,6 +46,71 @@ test('descarta apenas um nó que contém somente horário', () => {
   assert.equal(
     cleanCapturedMessageText('17:35'),
     '',
+  )
+})
+
+test('preserva quebras de linha internas da mensagem', () => {
+  assert.equal(
+    cleanCapturedMessageText(
+      'Primeira linha\n Segunda linha',
+    ),
+    'Primeira linha\nSegunda linha',
+  )
+})
+
+test('seleciona o corpo real e ignora conteúdo citado', () => {
+  assert.equal(
+    pickCapturedMessageText([
+      {
+        text: 'Mensagem citada',
+        isQuoted: true,
+      },
+      {
+        text:
+          'Resposta atual às 17:35',
+        isQuoted: false,
+      },
+      {
+        text:
+          'Resposta atual às 17:35',
+        isQuoted: false,
+      },
+    ]),
+    'Resposta atual às 17:35',
+  )
+})
+
+test('gera chave estável pelo telefone e não pelo avatar ou título', () => {
+  const firstKey =
+    buildStableCaptureConversationKey({
+      phone:
+        '+55 (47) 99999-0001',
+      title: 'Cliente',
+    })
+
+  const secondKey =
+    buildStableCaptureConversationKey({
+      phone:
+        '5547999990001',
+      title:
+        'Cliente com outro avatar',
+    })
+
+  assert.equal(
+    firstKey,
+    'phone:5547999990001',
+  )
+
+  assert.equal(
+    secondKey,
+    firstKey,
+  )
+
+  assert.equal(
+    buildStableCaptureConversationKey({
+      title: 'Cliente Exemplo',
+    }),
+    'title:cliente exemplo',
   )
 })
 
