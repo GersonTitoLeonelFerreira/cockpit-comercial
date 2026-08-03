@@ -270,6 +270,51 @@ test('preserva mensagem longa e detecta edição depois do caractere quatro mil'
     )
   })
 
+  test('preserva o instante original da observação sem alterar o fingerprint do estado', () => {
+    const firstObservation =
+      buildCaptureIngestionPlan({
+        cycleId:
+          '30000000-0000-4000-8000-000000000001',
+        conversationKey:
+          'phone:5511999990001',
+        observedAt:
+          '2026-08-03T20:00:00.000Z',
+        activeMessages: [
+          activeMessage(),
+        ],
+      })
+
+    const laterRetry =
+      buildCaptureIngestionPlan({
+        cycleId:
+          '30000000-0000-4000-8000-000000000001',
+        conversationKey:
+          'phone:5511999990001',
+        observedAt:
+          '2026-08-03T20:05:00.000Z',
+        activeMessages: [
+          activeMessage(),
+        ],
+      })
+
+    assert.equal(
+      firstObservation.observedAt,
+      '2026-08-03T20:00:00.000Z',
+    )
+
+    assert.equal(
+      firstObservation
+        .batches[0]
+        .observed_at,
+      firstObservation.observedAt,
+    )
+
+    assert.equal(
+      firstObservation.snapshotKey,
+      laterRetry.snapshotKey,
+    )
+  })
+
 test('mensagem excluída não preserva conteúdo ou transcrição', () => {
   const messages = buildCaptureMessages({
     deletedMessages: [

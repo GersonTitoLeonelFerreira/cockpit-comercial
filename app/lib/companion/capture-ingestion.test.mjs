@@ -32,6 +32,8 @@ function buildEnvelope(overrides = {}) {
     cycle_id: CYCLE_ID,
     conversation_key: 'Cliente Exemplo::data:5511999999999',
     device_key: DEVICE_ID,
+    observed_at:
+      '2026-08-03T20:00:00.000Z',
     messages: [buildTextMessage()],
     ...overrides,
   }
@@ -50,9 +52,13 @@ test('normaliza o envelope canônico da captura', () => {
     }),
   )
 
-  assert.equal(result.contract_version, 'pt4-c-v1')
+  assert.equal(result.contract_version, 'pt4-c-v2')
   assert.equal(result.cycle_id, CYCLE_ID)
   assert.equal(result.device_key, DEVICE_ID)
+  assert.equal(
+    result.observed_at,
+    '2026-08-03T20:00:00.000Z',
+  )
   assert.equal(
     result.conversation_key,
     'Cliente Exemplo::data:5511999999999',
@@ -67,6 +73,10 @@ test('normaliza o envelope canônico da captura', () => {
     'Olá, quero conhecer os planos.',
   )
 })
+assert.equal(
+  result.observed_at,
+  '2026-08-03T20:00:00.000Z',
+)
 
 test('preserva quebras de linha internas da mensagem', () => {
   const result = normalizeCaptureIngestionEnvelope(
@@ -256,6 +266,37 @@ test('rejeita device_key que não seja UUID', () => {
       assert.ok(error instanceof CaptureContractError)
       assert.equal(error.code, 'INVALID_UUID')
       assert.equal(error.path, 'device_key')
+      return true
+    },
+  )
+})
+
+test('rejeita instante de observação inválido', () => {
+  assert.throws(
+    () => {
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          observed_at:
+            'data-inválida',
+        }),
+      )
+    },
+    (error) => {
+      assert.ok(
+        error instanceof
+          CaptureContractError,
+      )
+
+      assert.equal(
+        error.code,
+        'INVALID_OCCURRED_AT',
+      )
+
+      assert.equal(
+        error.path,
+        'observed_at',
+      )
+
       return true
     },
   )

@@ -1565,11 +1565,13 @@
 
     const plan =
       captureBatchTools
-        .buildCaptureIngestionPlan({
-          cycleId,
-          conversationKey,
-          activeMessages:
-            captureWindow.activeMessages,
+      .buildCaptureIngestionPlan({
+        cycleId,
+        conversationKey,
+        observedAt:
+          new Date().toISOString(),
+        activeMessages:
+          captureWindow.activeMessages,
           deletedMessages:
             captureWindow.deletedMessages,
           transcriptionsByKey:

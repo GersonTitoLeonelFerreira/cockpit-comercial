@@ -139,6 +139,62 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     )
   })
 
+  test('materializa o instante da observação antes do retry', () => {
+    const buildPlanStart =
+      contentScript.indexOf(
+        '  function buildCurrentCapturePlan()',
+      )
+
+    const buildPlanEnd =
+      contentScript.indexOf(
+        '\n  function rememberSuccessfulCapture(',
+        buildPlanStart,
+      )
+
+    assert.notEqual(
+      buildPlanStart,
+      -1,
+    )
+
+    assert.notEqual(
+      buildPlanEnd,
+      -1,
+    )
+
+    const buildPlanBlock =
+      contentScript.slice(
+        buildPlanStart,
+        buildPlanEnd,
+      )
+
+    assert.match(
+      buildPlanBlock,
+      /observedAt:\s*new Date\(\)\.toISOString\(\)/,
+    )
+
+    const runIngestionStart =
+      contentScript.indexOf(
+        '  async function runCaptureIngestion()',
+      )
+
+    const runIngestionEnd =
+      contentScript.indexOf(
+        '\n  function schedulePendingCaptureIngestion(',
+        runIngestionStart,
+      )
+
+    const retryBlock =
+      contentScript.slice(
+        runIngestionStart,
+        runIngestionEnd,
+      )
+
+    assert.doesNotMatch(
+      retryBlock,
+      /observedAt:\s*new Date/,
+    )
+  })
+
 test('observador agenda a ingestão depois de atualizar o ledger', () => {
   const observerStart =
     contentScript.indexOf(

@@ -165,8 +165,15 @@ export async function POST(request: Request) {
         p_captured_by: tokenPayload.sub,
         p_conversation_key:
           envelope.conversation_key,
-        p_device_key: envelope.device_key,
-        p_messages: envelope.messages,
+          p_device_key: envelope.device_key,
+          p_messages:
+            envelope.messages.map(
+              (message) => ({
+                ...message,
+                observed_at:
+                  envelope.observed_at,
+              }),
+            ),
       },
     )
 
@@ -243,9 +250,11 @@ export async function POST(request: Request) {
         cycle_id: envelope.cycle_id,
         conversation_key:
           envelope.conversation_key,
-        device_key: envelope.device_key,
-        observed_count:
-          envelope.messages.length,
+          device_key: envelope.device_key,
+          observed_at:
+            envelope.observed_at,
+          observed_count:
+            envelope.messages.length,
         deleted_observed_count:
           envelope.messages.filter(
             (message) => message.is_deleted,

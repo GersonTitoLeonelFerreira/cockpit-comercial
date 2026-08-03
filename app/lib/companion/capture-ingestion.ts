@@ -1,4 +1,4 @@
-export const CAPTURE_INGESTION_CONTRACT_VERSION = 'pt4-c-v1' as const
+export const CAPTURE_INGESTION_CONTRACT_VERSION = 'pt4-c-v2' as const
 
 export const MAX_CAPTURE_BATCH_SIZE = 200
 export const MAX_CONVERSATION_KEY_LENGTH = 500
@@ -24,6 +24,7 @@ export type NormalizedCaptureIngestionEnvelope = {
   cycle_id: string
   conversation_key: string
   device_key: string
+  observed_at: string
   messages: NormalizedCaptureMessage[]
 }
 
@@ -307,6 +308,37 @@ function normalizeOccurredAt(value: unknown, path: string) {
   return new Date(timestamp).toISOString()
 }
 
+function normalizeObservedAt(
+  value: unknown,
+  path: string,
+) {
+  const normalized =
+    normalizeOccurredAt(
+      value,
+      path,
+    )
+
+  const timestamp =
+    Date.parse(normalized)
+
+  const maximumAllowedTimestamp =
+    Date.now() + 5 * 60 * 1000
+
+  if (
+    timestamp >
+    maximumAllowedTimestamp
+  ) {
+    fail({
+      code: 'OBSERVED_AT_IN_FUTURE',
+      path,
+      message:
+        `${path} não pode estar mais de cinco minutos no futuro.`,
+    })
+  }
+
+  return normalized
+}
+
 function normalizeCaptureMessage(
   value: unknown,
   index: number,
@@ -427,6 +459,12 @@ export function normalizeCaptureIngestionEnvelope(
 
   const deviceKey = normalizeUuid(value.device_key, 'device_key')
 
+  const observedAt =
+    normalizeObservedAt(
+      value.observed_at,
+      'observed_at',
+    )
+
   if (!Array.isArray(value.messages)) {
     fail({
       code: 'INVALID_MESSAGES',
@@ -474,6 +512,7 @@ export function normalizeCaptureIngestionEnvelope(
     cycle_id: cycleId,
     conversation_key: conversationKey,
     device_key: deviceKey,
+    observed_at: observedAt,
     messages,
   }
 }

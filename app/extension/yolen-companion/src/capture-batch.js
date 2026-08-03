@@ -14,7 +14,7 @@
       ? globalThis
       : this,
     function createYolenCompanionCaptureBatch() {
-      const CONTRACT_VERSION = 'pt4-c-v1'
+      const CONTRACT_VERSION = 'pt4-c-v2'
       const DEFAULT_MAX_BATCH_SIZE = 200
 
       function isRecord(value) {
@@ -446,6 +446,8 @@
       function buildCaptureIngestionPlan({
         cycleId,
         conversationKey,
+        observedAt =
+          new Date().toISOString(),
         activeMessages = [],
         deletedMessages = [],
         transcriptionsByKey = {},
@@ -455,9 +457,14 @@
         const normalizedCycleId =
           normalizeRequiredText(cycleId)
 
-        const normalizedConversationKey =
+          const normalizedConversationKey =
           normalizeRequiredText(
             conversationKey,
+          )
+
+        const normalizedObservedAt =
+          normalizeOccurredAt(
+            Date.parse(observedAt),
           )
 
         if (!normalizedCycleId) {
@@ -469,6 +476,12 @@
         if (!normalizedConversationKey) {
           throw new Error(
             'A chave da conversa da captura é obrigatória.',
+          )
+        }
+
+        if (!normalizedObservedAt) {
+          throw new Error(
+            'O instante da observação da captura é inválido.',
           )
         }
 
@@ -499,16 +512,20 @@
                 normalizedCycleId,
               conversation_key:
                 normalizedConversationKey,
+              observed_at:
+                normalizedObservedAt,
               messages:
                 batchMessages,
             }
           })
 
-        return {
-          snapshotKey,
-          messages,
-          batches,
-        }
+          return {
+            snapshotKey,
+            observedAt:
+              normalizedObservedAt,
+            messages,
+            batches,
+          }
       }
 
       return {
