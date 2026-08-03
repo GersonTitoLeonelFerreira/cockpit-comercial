@@ -4,6 +4,7 @@ import test from 'node:test'
 import captureBatch from '../src/capture-batch.js'
 
 const {
+    isCaptureResolutionEligible,
     selectCaptureWindow,
     buildCaptureIngestionPlan,
     buildCaptureMessages,
@@ -25,6 +26,63 @@ function activeMessage(overrides = {}) {
     ...overrides,
   }
 }
+
+test('permite captura somente com resolução habilitada e ciclo aberto', () => {
+    const eligibleResolution = {
+      status: 'OWNED_BY_ME',
+      cycle: {
+        id:
+          '30000000-0000-4000-8000-000000000001',
+      },
+      actions: {
+        can_analyze_conversation: true,
+      },
+      flags: {
+        is_closed: false,
+      },
+    }
+
+    assert.equal(
+      isCaptureResolutionEligible(
+        eligibleResolution,
+      ),
+      true,
+    )
+
+    assert.equal(
+      isCaptureResolutionEligible({
+        ...eligibleResolution,
+        status: 'CLOSED_CYCLE',
+        flags: {
+          is_closed: true,
+        },
+      }),
+      false,
+    )
+
+    assert.equal(
+      isCaptureResolutionEligible({
+        ...eligibleResolution,
+        actions: {
+          can_analyze_conversation: false,
+        },
+      }),
+      false,
+    )
+
+    assert.equal(
+      isCaptureResolutionEligible({
+        ...eligibleResolution,
+        cycle: null,
+      }),
+      false,
+    )
+
+    assert.equal(
+      isCaptureResolutionEligible(null),
+      false,
+    )
+  })
 
 test('inclui mutações antigas junto da data mais recente', () => {
     const editedFromOlderDate =

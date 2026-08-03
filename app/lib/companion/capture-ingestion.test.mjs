@@ -5,6 +5,7 @@ import {
   buildCaptureMessageStateKey,
   CAPTURE_INGESTION_CONTRACT_VERSION,
   CaptureContractError,
+  getCaptureRpcErrorHttpStatus,
   MAX_CAPTURE_BATCH_SIZE,
   normalizeCaptureIngestionEnvelope,
 } from './capture-ingestion.ts'
@@ -335,4 +336,78 @@ test('exclusão altera a chave e remove o conteúdo', () => {
 
   assert.equal(deleted.text_content, null)
   assert.equal(deleted.audio_transcription, null)
+})
+
+test('classifica erros conhecidos e mantém falhas transitórias como 5xx', () => {
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: 'P0001',
+      message:
+        'Usuário sem vínculo ativo com a empresa informada',
+    }),
+    403,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: 'P0001',
+      message:
+        'Vendedor não pode capturar mensagens de um ciclo pertencente a outro usuário',
+    }),
+    403,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: 'P0001',
+      message:
+        'Ciclo comercial não encontrado na empresa informada',
+    }),
+    404,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: 'P0001',
+      message:
+        'Ciclo comercial encerrado não aceita captura de mensagens',
+    }),
+    409,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: 'P0001',
+      message:
+        'A message_key duplicada apareceu mais de uma vez no mesmo lote',
+    }),
+    400,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: '57014',
+      message:
+        'canceling statement due to statement timeout',
+    }),
+    500,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: '08006',
+      message:
+        'temporary database connection failure',
+    }),
+    500,
+  )
+
+  assert.equal(
+    getCaptureRpcErrorHttpStatus({
+      code: 'P0001',
+      message:
+        'Falha inesperada durante a ingestão',
+    }),
+    500,
+  )
 })

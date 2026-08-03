@@ -1510,11 +1510,17 @@
   }
 
   function canIngestCurrentCapture() {
+    const resolutionIsEligible =
+      captureBatchTools
+        .isCaptureResolutionEligible(
+          state.leadResolution,
+        )
+
     return Boolean(
       state.connected &&
       !state.isSelfConversation &&
       getCaptureConversationKey() &&
-      state.leadResolution?.cycle?.id &&
+      resolutionIsEligible &&
       window.YolenCompanionApi
         ?.ingestCapturedMessages,
     )

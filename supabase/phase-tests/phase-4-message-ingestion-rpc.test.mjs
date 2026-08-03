@@ -35,6 +35,14 @@ const ingestionMigrationPath = fileURLToPath(
   ),
 );
 
+const ingestionHardeningMigrationPath =
+  fileURLToPath(
+    new URL(
+      "../migrations/20260803064000_harden_companion_message_ingestion_rpc.sql",
+      import.meta.url,
+    ),
+  );
+
 const ids = {
   companyA: "10000000-0000-4000-8000-000000000001",
   companyB: "10000000-0000-4000-8000-000000000002",
@@ -172,6 +180,12 @@ test(
       await db.exec(await readFile(ledgerMigrationPath, "utf8"));
       await db.exec(await readFile(captureStateMigrationPath, "utf8"));
       await db.exec(await readFile(ingestionMigrationPath, "utf8"));
+      await db.exec(
+        await readFile(
+          ingestionHardeningMigrationPath,
+          "utf8",
+        ),
+      );
       await db.exec(
         "set search_path = public, extensions, pg_catalog",
       );
@@ -766,6 +780,49 @@ test(
           messages: [buildTextMessage()],
         }),
         /permission denied/i,
+      );
+
+      const countBeforeClosedCycle =
+        await db.query(`
+          select count(*)::integer as total
+          from public.conversation_messages
+          where company_id = '${ids.companyA}'
+            and cycle_id = '${ids.cycleA}'
+        `);
+
+      await db.exec(`
+        update public.sales_cycles
+        set status = 'ganho'
+        where company_id = '${ids.companyA}'
+          and id = '${ids.cycleA}';
+      `);
+
+      await assert.rejects(
+        callIngestion(db, {
+          messages: [
+            buildTextMessage({
+              message_key:
+                "message-after-cycle-close",
+              text_content:
+                "Esta mensagem não pode entrar no ciclo encerrado.",
+            }),
+          ],
+        }),
+        /ciclo comercial encerrado/i,
+      );
+
+      const countAfterClosedCycle =
+        await db.query(`
+          select count(*)::integer as total
+          from public.conversation_messages
+          where company_id = '${ids.companyA}'
+            and cycle_id = '${ids.cycleA}'
+        `);
+
+      assert.equal(
+        countAfterClosedCycle.rows[0].total,
+        countBeforeClosedCycle.rows[0].total,
+        "Ciclo encerrado não pode receber novas versões de mensagens.",
       );
     } finally {
       await db.close();

@@ -393,3 +393,42 @@ test('captura usa corpo selecionável e chave estável', () => {
       /if \(messageMutationDetected\) \{\s*scheduleCaptureIngestion\(0\)/,
     )
   })
+
+  test('captura consulta a elegibilidade do ciclo antes da ingestão', () => {
+    const eligibilityStart =
+      contentScript.indexOf(
+        '  function canIngestCurrentCapture()',
+      )
+
+    const eligibilityEnd =
+      contentScript.indexOf(
+        '\n  function getCurrentCaptureWindow()',
+        eligibilityStart,
+      )
+
+    assert.notEqual(
+      eligibilityStart,
+      -1,
+    )
+
+    assert.notEqual(
+      eligibilityEnd,
+      -1,
+    )
+
+    const eligibilityBlock =
+      contentScript.slice(
+        eligibilityStart,
+        eligibilityEnd,
+      )
+
+    assert.match(
+      eligibilityBlock,
+      /isCaptureResolutionEligible\(\s*state\.leadResolution,\s*\)/,
+    )
+
+    assert.match(
+      eligibilityBlock,
+      /resolutionIsEligible/,
+    )
+  })

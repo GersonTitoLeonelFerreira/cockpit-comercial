@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 
 import {
   CaptureContractError,
+  getCaptureRpcErrorHttpStatus,
   normalizeCaptureIngestionEnvelope,
 } from '@/app/lib/companion/capture-ingestion'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
@@ -86,27 +87,6 @@ function normalizeBigintString(
   throw new Error(
     `Resultado inválido da RPC: ${fieldName}.`,
   )
-}
-
-function getRpcErrorStatus(message: string) {
-  const normalized = message.toLowerCase()
-
-  if (
-    normalized.includes('sem vínculo ativo') ||
-    normalized.includes('não pode capturar')
-  ) {
-    return 403
-  }
-
-  if (
-    normalized.includes(
-      'ciclo comercial não encontrado',
-    )
-  ) {
-    return 404
-  }
-
-  return 400
 }
 
 export async function OPTIONS(request: Request) {
@@ -198,9 +178,10 @@ export async function POST(request: Request) {
           error: error.message,
         },
         {
-          status: getRpcErrorStatus(
-            error.message,
-          ),
+          status:
+            getCaptureRpcErrorHttpStatus(
+              error,
+            ),
           headers: corsHeaders,
         },
       )

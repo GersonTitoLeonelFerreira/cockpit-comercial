@@ -72,6 +72,41 @@
           : 'incoming'
       }
 
+      function isCaptureResolutionEligible(
+        resolution,
+      ) {
+        if (!isRecord(resolution)) {
+          return false
+        }
+
+        const cycle =
+          isRecord(resolution.cycle)
+            ? resolution.cycle
+            : null
+
+        const actions =
+          isRecord(resolution.actions)
+            ? resolution.actions
+            : null
+
+        const flags =
+          isRecord(resolution.flags)
+            ? resolution.flags
+            : null
+
+        return Boolean(
+          normalizeRequiredText(
+            cycle?.id,
+          ) &&
+          actions
+            ?.can_analyze_conversation ===
+            true &&
+          flags?.is_closed !== true &&
+          resolution.status !==
+            'CLOSED_CYCLE',
+        )
+      }
+
       function getAudioTranscription(
         messageKey,
         transcriptionsByKey,
@@ -479,6 +514,7 @@
       return {
         CONTRACT_VERSION,
         DEFAULT_MAX_BATCH_SIZE,
+        isCaptureResolutionEligible,
         selectCaptureWindow,
         buildCaptureMessages,
         splitCaptureMessages,

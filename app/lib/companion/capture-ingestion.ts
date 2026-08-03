@@ -54,6 +54,82 @@ function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const CAPTURE_RPC_VALIDATION_ERROR_MARKERS = [
+  'é obrigatório',
+  'é obrigatória',
+  'não pode ficar vazio',
+  'não pode ficar vazia',
+  'ultrapassa',
+  'deve possuir um uuid válido',
+  'deve ser uma lista json',
+  'precisa possuir pelo menos uma mensagem',
+  'pode possuir no máximo',
+  'cada item de messages deve ser um objeto',
+  'toda mensagem precisa de',
+  'apareceu mais de uma vez no mesmo lote',
+  'direction deve ser incoming ou outgoing',
+  'occurred_at contém uma data inválida',
+  'content_type deve ser text ou audio',
+  'text_content deve ser um texto ou null',
+  'audio_transcription deve ser um texto ou null',
+  'mensagem de texto ativa precisa possuir conteúdo',
+  'mensagem de texto não pode possuir transcrição de áudio',
+  'nenhuma mensagem válida foi persistida ou localizada',
+] as const
+
+export function getCaptureRpcErrorHttpStatus(
+  error: unknown,
+) {
+  const message =
+    isRecord(error) &&
+    typeof error.message === 'string'
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : ''
+
+  const normalized =
+    message.trim().toLowerCase()
+
+  if (
+    normalized.includes(
+      'sem vínculo ativo',
+    ) ||
+    normalized.includes(
+      'não pode capturar',
+    )
+  ) {
+    return 403
+  }
+
+  if (
+    normalized.includes(
+      'ciclo comercial não encontrado',
+    )
+  ) {
+    return 404
+  }
+
+  if (
+    normalized.includes(
+      'ciclo comercial encerrado',
+    )
+  ) {
+    return 409
+  }
+
+  if (
+    CAPTURE_RPC_VALIDATION_ERROR_MARKERS.some(
+      (marker) =>
+        normalized.includes(marker),
+    )
+  ) {
+    return 400
+  }
+
+  return 500
+}
+
 function fail({
   code,
   path,
