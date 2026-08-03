@@ -54,6 +54,7 @@ const expectedCanonicalTables = [
 const forbiddenV2Tables = [
   "conversation_analysis_runs",
   "conversation_capture_state",
+  "conversation_message_reconciliation_state",
   "conversation_coaching_outputs",
   "conversation_decisions",
   "conversation_messages",

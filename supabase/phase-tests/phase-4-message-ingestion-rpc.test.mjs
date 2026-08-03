@@ -43,6 +43,14 @@ const ingestionHardeningMigrationPath =
     ),
   );
 
+const reconciliationMigrationPath =
+  fileURLToPath(
+    new URL(
+      "../migrations/20260803215000_prevent_stale_companion_captures.sql",
+      import.meta.url,
+    ),
+  );
+
 const ids = {
   companyA: "10000000-0000-4000-8000-000000000001",
   companyB: "10000000-0000-4000-8000-000000000002",
@@ -95,6 +103,7 @@ function buildTextMessage(overrides = {}) {
     message_key: "message-001",
     direction: "incoming",
     occurred_at: "2026-07-31T15:20:00-03:00",
+    observed_at: "2026-08-03T20:00:00.000Z",
     content_type: "text",
     text_content: "Olá, quero conhecer os planos.",
     audio_transcription: null,
@@ -108,6 +117,7 @@ function buildAudioMessage(overrides = {}) {
     message_key: "audio-001",
     direction: "outgoing",
     occurred_at: "2026-07-31T15:22:00-03:00",
+    observed_at: "2026-08-03T20:00:00.000Z",
     content_type: "audio",
     text_content: null,
     audio_transcription: "Vou explicar as opções disponíveis.",
@@ -187,6 +197,12 @@ test(
         ),
       );
       await db.exec(
+        await readFile(
+          reconciliationMigrationPath,
+          "utf8",
+        ),
+      );
+      await db.exec(
         "set search_path = public, extensions, pg_catalog",
       );
 
@@ -254,6 +270,76 @@ test(
           privilege_type: "EXECUTE",
         },
       ]);
+
+      const reconciliationSecurity =
+        await db.query(`
+          select
+            relation.relrowsecurity as rls_enabled,
+            relation.relforcerowsecurity as rls_forced
+          from pg_class relation
+          join pg_namespace namespace
+            on namespace.oid =
+              relation.relnamespace
+          where namespace.nspname = 'public'
+            and relation.relname =
+              'conversation_message_reconciliation_state'
+        `);
+
+      assert.deepEqual(
+        reconciliationSecurity.rows,
+        [
+          {
+            rls_enabled: true,
+            rls_forced: true,
+          },
+        ],
+      );
+
+      const reconciliationGrants =
+        await db.query(`
+          select
+            role.rolname as grantee,
+            privilege.privilege_type
+          from pg_class relation
+          join pg_namespace namespace
+            on namespace.oid =
+              relation.relnamespace
+          cross join lateral
+            aclexplode(relation.relacl)
+              privilege
+          join pg_roles role
+            on role.oid =
+              privilege.grantee
+          where namespace.nspname = 'public'
+            and relation.relname =
+              'conversation_message_reconciliation_state'
+            and role.rolname in (
+              'anon',
+              'authenticated',
+              'service_role'
+            )
+          order by
+            role.rolname,
+            privilege.privilege_type
+        `);
+
+      assert.deepEqual(
+        reconciliationGrants.rows,
+        [
+          {
+            grantee: "service_role",
+            privilege_type: "INSERT",
+          },
+          {
+            grantee: "service_role",
+            privilege_type: "SELECT",
+          },
+          {
+            grantee: "service_role",
+            privilege_type: "UPDATE",
+          },
+        ],
+      );
 
       await db.exec(`
         insert into auth.users (id, email)
@@ -507,6 +593,8 @@ test(
 
       const editedMessages = [
         buildTextMessage({
+          observed_at:
+            "2026-08-03T20:10:00.000Z",
           text_content:
             "Olá, quero conhecer especificamente o Plano Open.",
         }),
@@ -565,6 +653,8 @@ test(
       );
 
       const deletedMessage = buildTextMessage({
+        observed_at:
+          "2026-08-03T20:20:00.000Z",
         text_content:
           "Este conteúdo não pode permanecer na versão apagada.",
         is_deleted: true,
@@ -621,6 +711,67 @@ test(
         },
       );
 
+      const staleAfterDeletion =
+        await callIngestion(db, {
+          deviceKey: ids.deviceB,
+          messages: [
+            buildTextMessage({
+              observed_at:
+                "2026-08-03T20:05:00.000Z",
+              text_content:
+                "Olá, quero conhecer os planos.",
+            }),
+          ],
+        });
+
+      assert.equal(
+        numberValue(
+          staleAfterDeletion.inserted_count,
+        ),
+        0,
+      );
+
+      assert.equal(
+        numberValue(
+          staleAfterDeletion.unchanged_count,
+        ),
+        1,
+      );
+
+      const currentAfterStale =
+        await db.query(`
+          select
+            version,
+            text_content,
+            is_deleted
+          from public.conversation_messages
+          where company_id = '${ids.companyA}'
+            and conversation_key =
+              '${conversationA}'
+            and message_key = 'message-001'
+          order by version desc
+          limit 1
+        `);
+
+      assert.deepEqual(
+        {
+          version: numberValue(
+            currentAfterStale.rows[0].version,
+          ),
+          text_content:
+            currentAfterStale.rows[0]
+              .text_content,
+          is_deleted:
+            currentAfterStale.rows[0]
+              .is_deleted,
+        },
+        {
+          version: 3,
+          text_content: null,
+          is_deleted: true,
+        },
+      );
+
       const secondDeviceIngestion = await callIngestion(db, {
         deviceKey: ids.deviceB,
         messages: [
@@ -640,6 +791,113 @@ test(
       assert.equal(
         numberValue(secondDeviceIngestion.state_version),
         1,
+      );
+
+      const sameDeletedStateLater =
+        await callIngestion(db, {
+          deviceKey: ids.deviceB,
+          messages: [
+            buildTextMessage({
+              observed_at:
+                "2026-08-03T20:30:00.000Z",
+              text_content:
+                "Conteúdo removido.",
+              is_deleted: true,
+            }),
+          ],
+        });
+
+      assert.equal(
+        numberValue(
+          sameDeletedStateLater.inserted_count,
+        ),
+        0,
+      );
+
+      assert.equal(
+        numberValue(
+          sameDeletedStateLater.unchanged_count,
+        ),
+        1,
+      );
+
+      const delayedDifferentState =
+        await callIngestion(db, {
+          deviceKey: ids.deviceB,
+          messages: [
+            buildTextMessage({
+              observed_at:
+                "2026-08-03T20:25:00.000Z",
+              text_content:
+                "Estado diferente observado antes.",
+              is_deleted: false,
+            }),
+          ],
+        });
+
+      assert.equal(
+        numberValue(
+          delayedDifferentState.inserted_count,
+        ),
+        0,
+      );
+
+      assert.equal(
+        numberValue(
+          delayedDifferentState.unchanged_count,
+        ),
+        1,
+      );
+
+      const reconciliationState =
+        await db.query(`
+          select
+            reconciliation.last_observed_at,
+            reconciliation.state_version,
+            message.version,
+            message.is_deleted
+          from
+            public.conversation_message_reconciliation_state
+              reconciliation
+          join public.conversation_messages message
+            on message.id =
+              reconciliation.current_message_id
+          where reconciliation.company_id =
+              '${ids.companyA}'
+            and reconciliation.conversation_key =
+              '${conversationA}'
+            and reconciliation.message_key =
+              'message-001'
+        `);
+
+      assert.equal(
+        new Date(
+          reconciliationState.rows[0]
+            .last_observed_at,
+        ).toISOString(),
+        "2026-08-03T20:30:00.000Z",
+      );
+
+      assert.equal(
+        numberValue(
+          reconciliationState.rows[0]
+            .state_version,
+        ),
+        4,
+      );
+
+      assert.equal(
+        numberValue(
+          reconciliationState.rows[0]
+            .version,
+        ),
+        3,
+      );
+
+      assert.equal(
+        reconciliationState.rows[0]
+          .is_deleted,
+        true,
       );
 
       const deviceStates = await db.query(`
