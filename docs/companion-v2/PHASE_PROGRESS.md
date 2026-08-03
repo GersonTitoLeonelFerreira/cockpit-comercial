@@ -10,7 +10,88 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 `PHASE_2_SCHEMA_BASELINE.md`, `PHASE_3_MESSAGE_LEDGER.md` e
 `PHASE_4_CAPTURE_STATE.md`.
 
-## Estado geral em 2026-07-31
+## Estado geral em 2026-08-03
+
+| Campo | Estado |
+|---|---|
+| Momento atual | Fases 1, 2 e 3 concluídas; implementação da Fase 4 validada na branch e pronta para pull request |
+| Motor ativo | `v1` |
+| Commit atual da `main` | `6bbbcdab20be409a7c993cded37d9d0745b775cc` |
+| Commit validado da Fase 4 | `a190fb5` |
+| Produção canônica | `READY`; Fase 3 integrada e publicada; Fase 4 ainda não integrada |
+| Supabase | Ledger, cursor, configuração comercial e RPC de ingestão aplicados |
+| Extensão V2 | Integrada ao ledger na branch da Fase 4 |
+| Captura real | Chave estável, texto limpo, direção e idempotência validados no Firefox |
+| Pendência operacional | Teste real de criar, editar e excluir mensagem adiado |
+| Fase 5 do produto | Não iniciada |
+
+## Atualização da Fase 4 em 2026-08-03
+
+A implementação da captura confiável foi concluída na branch:
+
+```text
+feature/companion-v2-phase-4-reliable-capture
+```
+
+A extensão agora:
+
+- gera identidade pseudônima por instalação;
+- resolve a conversa por telefone normalizado;
+- captura o corpo real das mensagens;
+- preserva quebras de linha legítimas;
+- classifica mensagens recebidas e enviadas;
+- produz lotes canônicos de até duzentas mensagens;
+- envia os lotes para uma rota autenticada;
+- persiste versões imutáveis no ledger;
+- avança o cursor observado de forma transacional;
+- evita versões idênticas duplicadas;
+- reage a novas mensagens, edições, exclusões e transcrições.
+
+A validação final aprovou:
+
+```text
+Companion: 82/82
+RPC de ingestão: 1/1
+Ledger: 1/1
+Capture State: 1/1
+Schema baseline: 1/1
+TypeScript: aprovado
+Build: 110/110
+```
+
+No teste real com Firefox foram confirmados:
+
+```text
+POST /api/companion/capture/messages 200
+conversation_key estável baseada em telefone
+texto sem horário anexado
+quebras de linha preservadas
+4 mensagens incoming
+11 mensagens outgoing
+0 estados idênticos duplicados
+cursor observado avançado
+```
+
+O teste real de criação, edição e exclusão de uma mensagem foi adiado porque não
+era possível enviar mensagens durante a validação. Esse comportamento continua
+coberto pelos testes automatizados e permanece declarado como pendência
+operacional.
+
+O relatório detalhado está em:
+
+```text
+docs/companion-v2/PHASE_4_RELIABLE_CAPTURE_VALIDATION.md
+```
+
+A Fase 4 ainda depende de pull request, revisão, aprovação explícita, integração
+na `main` e validação do deployment.
+
+A Fase 5 não está autorizada por esta atualização. O motor ativo continua em
+`v1`.
+
+## Snapshot histórico em 2026-07-31
+
+
 
 | Campo | Estado |
 |---|---|
@@ -337,7 +418,7 @@ Por isso, a Fase 4 do produto continua parcial.
 | Configuração comercial versionada | #146 | `db01cc7` | Integrada e aplicada no Supabase |
 | Interface administrativa da Fase 3 | PR pendente | `feature/companion-v2-phase-3-commercial-config-ui` | Build aprovado; aguardando integração |
 
-## Itens explicitamente não entregues
+## Itens explicitamente não entregues no snapshot de 2026-07-31
 
 - nenhuma mensagem real gravada no ledger V2;
 - nenhuma rota V2 de ingestão;
@@ -350,7 +431,7 @@ Por isso, a Fase 4 do produto continua parcial.
 - nenhum rollout para empresa piloto;
 - interface da Fase 3 ainda não integrada na `main` nem publicada em produção.
 
-## Próximo gate
+## Próximo gate registrado no snapshot de 2026-07-31
 
 1. Registrar esta validação final no GitHub.
 2. Abrir o pull request da Fase 3 contra a `main`.
