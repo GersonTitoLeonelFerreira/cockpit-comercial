@@ -1476,7 +1476,11 @@
           direction:
             message.direction,
           sender: message.sender,
-          text: message.text,
+          text:
+            messageMutationTools
+              .prepareCapturedMessageTextForAnalysis(
+                message.text,
+              ),
           has_audio:
             message.hasAudio,
           audio_transcription:

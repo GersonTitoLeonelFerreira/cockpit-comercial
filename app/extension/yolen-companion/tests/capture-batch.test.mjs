@@ -217,6 +217,59 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
   ])
 })
 
+test('preserva mensagem longa e detecta edição depois do caractere quatro mil', () => {
+    const prefix =
+      'A'.repeat(4500)
+
+    const originalText =
+      `${prefix}final-original`
+
+    const editedText =
+      `${prefix}final-editado`
+
+    const originalPlan =
+      buildCaptureIngestionPlan({
+        cycleId:
+          '30000000-0000-4000-8000-000000000001',
+        conversationKey:
+          'phone:5511999990001',
+        activeMessages: [
+          activeMessage({
+            text: originalText,
+          }),
+        ],
+      })
+
+    const editedPlan =
+      buildCaptureIngestionPlan({
+        cycleId:
+          '30000000-0000-4000-8000-000000000001',
+        conversationKey:
+          'phone:5511999990001',
+        activeMessages: [
+          activeMessage({
+            text: editedText,
+          }),
+        ],
+      })
+
+    assert.equal(
+      originalPlan.messages[0]
+        .text_content,
+      originalText,
+    )
+
+    assert.ok(
+      originalPlan.messages[0]
+        .text_content.length > 4000,
+    )
+
+    assert.notEqual(
+      originalPlan.snapshotKey,
+      editedPlan.snapshotKey,
+    )
+  })
+
 test('mensagem excluída não preserva conteúdo ou transcrição', () => {
   const messages = buildCaptureMessages({
     deletedMessages: [

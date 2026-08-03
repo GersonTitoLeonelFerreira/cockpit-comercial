@@ -11,6 +11,7 @@ const {
   inferCapturedMessageDirection,
   isDeletedMessageText,
   pickCapturedMessageText,
+  prepareCapturedMessageTextForAnalysis,
   readCapturedElementText,
 } = messageMutations
 
@@ -34,6 +35,57 @@ test('preserva quebras de linha internas da mensagem', () => {
       'Primeira linha\n Segunda linha',
     ),
     'Primeira linha\nSegunda linha',
+  )
+})
+
+test('preserva conteúdo completo e limita somente a análise', () => {
+  const prefix =
+    'A'.repeat(4500)
+
+  const originalText =
+    `${prefix}final-original`
+
+  const editedText =
+    `${prefix}final-editado`
+
+  const cleanedOriginal =
+    cleanCapturedMessageText(
+      originalText,
+    )
+
+  const cleanedEdited =
+    cleanCapturedMessageText(
+      editedText,
+    )
+
+  assert.equal(
+    cleanedOriginal,
+    originalText,
+  )
+
+  assert.equal(
+    cleanedOriginal.length,
+    originalText.length,
+  )
+
+  assert.equal(
+    prepareCapturedMessageTextForAnalysis(
+      cleanedOriginal,
+    ),
+    'A'.repeat(4000),
+  )
+
+  assert.notEqual(
+    buildMessageSnapshotFingerprint([
+      message({
+        text: cleanedOriginal,
+      }),
+    ]),
+    buildMessageSnapshotFingerprint([
+      message({
+        text: cleanedEdited,
+      }),
+    ]),
   )
 })
 

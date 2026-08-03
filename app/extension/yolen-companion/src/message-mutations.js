@@ -1,7 +1,8 @@
 /* global module */
 
 ;(function initYolenCompanionMessageMutations(root) {
-  const MAX_CAPTURED_MESSAGE_LENGTH = 4000
+  const MAX_CAPTURED_MESSAGE_LENGTH = 100000
+  const MAX_ANALYSIS_MESSAGE_LENGTH = 4000
 
   function normalizeText(value) {
     return String(value || '')
@@ -78,6 +79,17 @@
     return text.slice(
       0,
       MAX_CAPTURED_MESSAGE_LENGTH,
+    )
+  }
+
+  function prepareCapturedMessageTextForAnalysis(
+    value,
+  ) {
+    return cleanCapturedMessageText(
+      value,
+    ).slice(
+      0,
+      MAX_ANALYSIS_MESSAGE_LENGTH,
     )
   }
 
@@ -402,6 +414,7 @@
     inferCapturedMessageDirection,
     isDeletedMessageText,
     pickCapturedMessageText,
+    prepareCapturedMessageTextForAnalysis,
     readCapturedElementText,
   })
 

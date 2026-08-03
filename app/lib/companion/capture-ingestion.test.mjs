@@ -85,6 +85,34 @@ test('preserva quebras de linha internas da mensagem', () => {
   )
 })
 
+test('preserva conteúdo acima de quatro mil caracteres no contrato', () => {
+  const longText =
+    `${'A'.repeat(4500)}final-da-mensagem`
+
+  const result =
+    normalizeCaptureIngestionEnvelope(
+      buildEnvelope({
+        messages: [
+          buildTextMessage({
+            text_content:
+              longText,
+          }),
+        ],
+      }),
+    )
+
+  assert.equal(
+    result.messages[0]
+      .text_content,
+    longText,
+  )
+
+  assert.ok(
+    result.messages[0]
+      .text_content.length > 4000,
+  )
+})
+
 test('aceita mensagem de áudio sem transcrição', () => {
   const result = normalizeCaptureIngestionEnvelope(
     buildEnvelope({

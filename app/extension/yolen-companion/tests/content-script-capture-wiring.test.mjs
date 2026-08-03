@@ -100,6 +100,45 @@ test('funções de ingestão permanecem no escopo principal do content script', 
   )
 })
 
+test('limita o texto somente ao preparar mensagens para análise', () => {
+    const structuredMessagesStart =
+      contentScript.indexOf(
+        '  function getStructuredMessagesForAnalysis(',
+      )
+
+    const structuredMessagesEnd =
+      contentScript.indexOf(
+        '\n  function clearCaptureIngestionTimer()',
+        structuredMessagesStart,
+      )
+
+    assert.notEqual(
+      structuredMessagesStart,
+      -1,
+    )
+
+    assert.notEqual(
+      structuredMessagesEnd,
+      -1,
+    )
+
+    const structuredMessagesBlock =
+      contentScript.slice(
+        structuredMessagesStart,
+        structuredMessagesEnd,
+      )
+
+    assert.match(
+      structuredMessagesBlock,
+      /prepareCapturedMessageTextForAnalysis/,
+    )
+
+    assert.doesNotMatch(
+      structuredMessagesBlock,
+      /text:\s*message\.text,/,
+    )
+  })
+
 test('observador agenda a ingestão depois de atualizar o ledger', () => {
   const observerStart =
     contentScript.indexOf(
