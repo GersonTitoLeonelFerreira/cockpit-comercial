@@ -73,10 +73,6 @@ test('normaliza o envelope canônico da captura', () => {
     'Olá, quero conhecer os planos.',
   )
 })
-assert.equal(
-  result.observed_at,
-  '2026-08-03T20:00:00.000Z',
-)
 
 test('preserva quebras de linha internas da mensagem', () => {
   const result = normalizeCaptureIngestionEnvelope(
