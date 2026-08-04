@@ -12,6 +12,9 @@ const COMPANY_ID =
 const CYCLE_ID =
   '123e4567-e89b-42d3-a456-426614174000'
 
+const PREVIOUS_CYCLE_ID =
+  '923e4567-e89b-42d3-a456-426614174000'
+
 const CONFIG_VERSION_ID =
   '223e4567-e89b-42d3-a456-426614174000'
 
@@ -534,6 +537,110 @@ test(
         .messages[0]
         .version,
       1,
+    )
+  },
+)
+
+test(
+  'ignora estados canônicos de outros ciclos da mesma conversa',
+  async () => {
+    const {
+      snapshot,
+      calls,
+    } = await loadSnapshot({
+      conversation_message_reconciliation_state:
+        ok([
+          {
+            current_message_id:
+              '11',
+            message_key:
+              'message-001',
+          },
+
+          {
+            current_message_id:
+              '12',
+            message_key:
+              'message-previous-cycle',
+          },
+        ]),
+
+      conversation_messages:
+        ok([
+          buildMessage(),
+
+          buildMessage({
+            id: '12',
+
+            cycle_id:
+              PREVIOUS_CYCLE_ID,
+
+            message_key:
+              'message-previous-cycle',
+
+            version: 1,
+
+            occurred_at:
+              '2026-07-01T18:00:00.000Z',
+
+            observed_at:
+              '2026-07-01T18:00:02.000Z',
+
+            text_content:
+              'Mensagem pertencente ao ciclo anterior.',
+          }),
+        ]),
+    })
+
+    assert.deepEqual(
+      snapshot.input
+        .conversation
+        .active_message_ids,
+      ['11'],
+    )
+
+    assert.equal(
+      snapshot.source
+        .canonical_message_count,
+      1,
+    )
+
+    const messageCall =
+      calls.find(
+        (call) =>
+          call.table ===
+          'conversation_messages',
+      )
+
+    const inOperation =
+      messageCall.operations.find(
+        (operation) =>
+          operation.type === 'in',
+      )
+
+    assert.deepEqual(
+      inOperation,
+      {
+        type: 'in',
+        column: 'id',
+        values: [
+          '11',
+          '12',
+        ],
+      },
+    )
+
+    const prematureCycleFilter =
+      messageCall.operations.find(
+        (operation) =>
+          operation.type === 'eq' &&
+          operation.column ===
+            'cycle_id',
+      )
+
+    assert.equal(
+      prematureCycleFilter,
+      undefined,
     )
   },
 )

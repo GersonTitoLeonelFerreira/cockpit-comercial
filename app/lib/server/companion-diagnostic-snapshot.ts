@@ -592,7 +592,7 @@ function validateCanonicalMessages({
   companyId: string
   cycleId: string
   conversationKey: string
-}) {
+}): JsonRecord[] {
   const stateByMessageId =
     new Map<string, string>()
 
@@ -675,8 +675,6 @@ function validateCanonicalMessages({
     if (
       message.company_id !==
         companyId ||
-      message.cycle_id !==
-        cycleId ||
       message.conversation_key !==
         conversationKey
     ) {
@@ -730,6 +728,11 @@ function validateCanonicalMessages({
       retryable: true,
     })
   }
+
+  return messages.filter(
+    (message) =>
+      message.cycle_id === cycleId,
+  )
 }
 
 async function loadCommercialConfig({
@@ -1168,10 +1171,6 @@ export async function loadCompanionDiagnosticSnapshot({
           companyId,
         )
         .eq(
-          'cycle_id',
-          cycleId,
-        )
-        .eq(
           'conversation_key',
           conversationKey,
         )
@@ -1187,13 +1186,14 @@ export async function loadCompanionDiagnosticSnapshot({
       )
   }
 
-  validateCanonicalMessages({
-    messages,
-    reconciliationRows,
-    companyId,
-    cycleId,
-    conversationKey,
-  })
+  const cycleMessages =
+    validateCanonicalMessages({
+      messages,
+      reconciliationRows,
+      companyId,
+      cycleId,
+      conversationKey,
+    })
 
   const {
     bundle,
@@ -1220,7 +1220,8 @@ export async function loadCompanionDiagnosticSnapshot({
       reference_time:
         referenceTime,
 
-      messages,
+      messages:
+        cycleMessages,
 
       commercial_config:
         bundle,
