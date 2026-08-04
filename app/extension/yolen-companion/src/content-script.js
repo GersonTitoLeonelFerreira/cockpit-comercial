@@ -7,11 +7,19 @@
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
+  const CAPTURE_INGESTION_DELAY_MS = 1200
+  const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
+  const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
+
   const messageMutationTools =
     globalThis
       .YolenCompanionMessageMutations
+
+  const captureBatchTools =
+    globalThis
+      .YolenCompanionCaptureBatch
 
   if (!messageMutationTools) {
     throw new Error(
@@ -19,9 +27,17 @@
     )
   }
 
+  if (!captureBatchTools) {
+    throw new Error(
+      'Módulo de construção dos lotes de captura não carregado.',
+    )
+  }
+
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
-  let leadResolutionInFlight = false
+
+  const leadResolutionInFlightKeys =
+    new Set()
   let autoContactLookupInFlight = false
   let capturedAudioBlobEntries = []
   let automaticAnalysisTimerId = 0
@@ -31,11 +47,28 @@
   let messageWindowFloorTimestamp = null
   let conversationMessageLedger = new Map()
   let deletedMessageIds = new Set()
+  let deletedMessageSnapshots = new Map()
+  let pendingCaptureMutationIds =
+    new Set()
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
+  let captureIngestionTimerId = 0
+  let captureIngestionInFlight = false
+  let captureIngestionQueued = false
+  let captureIngestionRetryAttempt = 0
 
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
+  const lastIngestedCaptureKeys = new Map()
+
+  const confirmedCaptureVersionsByConversation =
+    new Map()
+
+  const pendingCaptureIngestionPlans =
+    new Map()
+
+  const retainedPreResolutionCaptures =
+    new Map()
 
   let state = {
     connected: false,
@@ -844,9 +877,70 @@
     )
   }
 
-  function cleanCapturedMessageText(value) {
+  function getCapturedMessageBodyText(
+    node,
+  ) {
+    const container =
+      getMessageContainer(node) ||
+      node
+
+    const selector = [
+      '[data-testid="selectable-text"]',
+      'span.selectable-text.copyable-text',
+    ].join(',')
+
+    const elements = []
+
+    if (node.matches?.(selector)) {
+      elements.push(node)
+    }
+
+    container
+      .querySelectorAll?.(selector)
+      .forEach((element) => {
+        elements.push(element)
+      })
+
+    const candidates =
+      elements.map((element) => {
+        const owner =
+          element.closest?.(
+            '[data-pre-plain-text]',
+          )
+
+        const belongsToAnotherMessage =
+          owner &&
+          owner !== node &&
+          owner !== container
+
+        const isQuoted = Boolean(
+          element.closest?.(
+            [
+              '[data-testid*="quoted" i]',
+              '[data-testid*="reply" i]',
+              '[aria-label*="quoted" i]',
+              '[aria-label*="mensagem citada" i]',
+              '[aria-label*="resposta" i]',
+            ].join(','),
+          ),
+        )
+
+        return {
+          text:
+            belongsToAnotherMessage
+              ? ''
+              : messageMutationTools
+                  .readCapturedElementText(
+                    element,
+                  ),
+          isQuoted,
+        }
+      })
+
     return messageMutationTools
-      .cleanCapturedMessageText(value)
+      .pickCapturedMessageText(
+        candidates,
+      )
   }
 
   function isDeletedMessageNode(node) {
@@ -876,8 +970,9 @@
       1
   }
 
-  function buildReliableMessageFromNode(
+    function buildReliableMessageFromNode(
     node,
+    observedAt,
   ) {
     const id = getMessageDataId(node)
 
@@ -903,9 +998,9 @@
     const hasAudio =
       messageContainerHasAudio(container)
 
-    const text =
-      cleanCapturedMessageText(
-        node.textContent,
+      const text =
+      getCapturedMessageBodyText(
+        node,
       )
 
     if (!text && !hasAudio) {
@@ -929,8 +1024,66 @@
         getMessageSenderFromPrePlainText(
           prePlainText,
         ),
-      text,
-      hasAudio,
+        text,
+        hasAudio,
+        observedAt,
+      }
+  }
+
+  function buildDeletedMessageSnapshotFromNode(
+    node,
+    previousMessage = null,
+    observedAt,
+  ) {
+    if (previousMessage) {
+      return {
+        ...previousMessage,
+        observedAt,
+      }
+    }
+
+    const id =
+      getMessageDataId(node)
+
+    const prePlainText =
+      getMessagePrePlainText(node)
+
+    const timestamp =
+      parseWhatsAppMessageTimestamp(
+        prePlainText,
+      )
+
+    if (!id || !timestamp) {
+      return null
+    }
+
+    const container =
+      getMessageContainer(node)
+
+    return {
+      id,
+      timestampMs:
+        timestamp.timestampMs,
+      timestampLabel:
+        timestamp.timestampLabel,
+      dateKey:
+        timestamp.dateKey,
+      direction:
+        isOutgoingMessageNode(
+          container || node,
+        )
+          ? 'outgoing'
+          : 'incoming',
+      sender:
+        getMessageSenderFromPrePlainText(
+          prePlainText,
+        ),
+      text: '',
+      hasAudio:
+        messageContainerHasAudio(
+          container,
+        ),
+      observedAt,
     }
   }
 
@@ -945,10 +1098,50 @@
       new Map()
     deletedMessageIds =
       new Set()
+    deletedMessageSnapshots =
+      new Map()
+    pendingCaptureMutationIds =
+      new Set()
     messageLedgerRequiresRebase =
       false
     messageLedgerMutationRevision =
       0
+  }
+
+  function rememberPendingCaptureMutation(
+    messageId,
+  ) {
+    const normalizedMessageId =
+      String(messageId || '').trim()
+
+    if (!normalizedMessageId) {
+      return
+    }
+
+    pendingCaptureMutationIds.delete(
+      normalizedMessageId,
+    )
+
+    pendingCaptureMutationIds.add(
+      normalizedMessageId,
+    )
+
+    if (
+      pendingCaptureMutationIds.size >
+      MAX_MESSAGE_LEDGER_SIZE
+    ) {
+      const oldestMessageId =
+        pendingCaptureMutationIds
+          .values()
+          .next()
+          .value
+
+      if (oldestMessageId) {
+        pendingCaptureMutationIds.delete(
+          oldestMessageId,
+        )
+      }
+    }
   }
 
   function synchronizeConversationMessageLedger() {
@@ -971,12 +1164,15 @@
     const main =
       getMainConversationRoot()
 
-    if (!main) {
-      return false
-    }
+      if (!main) {
+        return false
+      }
 
-    let detectedMessageMutation =
-      false
+      const observedAt =
+        new Date().toISOString()
+
+      let detectedMessageMutation =
+        false
 
     main
       .querySelectorAll(
@@ -991,16 +1187,48 @@
         }
 
         if (isDeletedMessageNode(node)) {
+          const messageWasAlreadyDeleted =
+            deletedMessageIds.has(
+              messageId,
+            )
+
+          const previousMessage =
+            conversationMessageLedger.get(
+              messageId,
+            )
+
+          const previousDeletedSnapshot =
+            deletedMessageSnapshots.get(
+              messageId,
+            )
+
+          const deletedSnapshot =
+            messageWasAlreadyDeleted &&
+            previousDeletedSnapshot
+              ? previousDeletedSnapshot
+              : buildDeletedMessageSnapshotFromNode(
+                  node,
+                  previousMessage,
+                  observedAt,
+                )
+
           conversationMessageLedger.delete(
             messageId,
           )
 
-          if (
-            !deletedMessageIds.has(
+          if (deletedSnapshot) {
+            deletedMessageSnapshots.set(
+              messageId,
+              deletedSnapshot,
+            )
+          }
+
+          if (!messageWasAlreadyDeleted) {
+            deletedMessageIds.add(
               messageId,
             )
-          ) {
-            deletedMessageIds.add(
+
+            rememberPendingCaptureMutation(
               messageId,
             )
 
@@ -1014,6 +1242,7 @@
         const message =
           buildReliableMessageFromNode(
             node,
+            observedAt,
           )
 
         if (!message) {
@@ -1030,24 +1259,46 @@
             message.id,
           )
 
-        if (
-          messageWasDeleted ||
-          (
+        const messageChanged =
+          Boolean(
             currentMessage &&
             !messageMutationTools
               .areCapturedMessagesEqual(
                 currentMessage,
                 message,
-              )
+              ),
           )
+
+        deletedMessageSnapshots.delete(
+          message.id,
+        )
+
+        if (
+          messageWasDeleted ||
+          messageChanged
         ) {
+          rememberPendingCaptureMutation(
+            message.id,
+          )
+
           detectedMessageMutation =
             true
         }
 
+        const messageToStore =
+          currentMessage &&
+          !messageWasDeleted &&
+          !messageChanged
+            ? {
+                ...message,
+                observedAt:
+                  currentMessage.observedAt,
+              }
+            : message
+
         conversationMessageLedger.set(
           message.id,
-          message,
+          messageToStore,
         )
       })
 
@@ -1084,6 +1335,58 @@
               message.id,
               message,
             ],
+          ),
+        )
+    }
+
+    if (
+      deletedMessageSnapshots.size >
+      MAX_MESSAGE_LEDGER_SIZE
+    ) {
+      const retainedSnapshots =
+        Array.from(
+          deletedMessageSnapshots.values(),
+        )
+          .sort((first, second) => {
+            if (
+              first.timestampMs !==
+              second.timestampMs
+            ) {
+              return (
+                first.timestampMs -
+                second.timestampMs
+              )
+            }
+
+            return first.id.localeCompare(
+              second.id,
+            )
+          })
+          .slice(
+            -MAX_MESSAGE_LEDGER_SIZE,
+          )
+
+      deletedMessageSnapshots =
+        new Map(
+          retainedSnapshots.map(
+            (message) => [
+              message.id,
+              message,
+            ],
+          ),
+        )
+    }
+
+    if (
+      deletedMessageIds.size >
+      MAX_MESSAGE_LEDGER_SIZE
+    ) {
+      deletedMessageIds =
+        new Set(
+          Array.from(
+            deletedMessageIds,
+          ).slice(
+            -MAX_MESSAGE_LEDGER_SIZE,
           ),
         )
     }
@@ -1216,7 +1519,11 @@
           direction:
             message.direction,
           sender: message.sender,
-          text: message.text,
+          text:
+            messageMutationTools
+              .prepareCapturedMessageTextForAnalysis(
+                message.text,
+              ),
           has_audio:
             message.hasAudio,
           audio_transcription:
@@ -1226,6 +1533,785 @@
             ),
         }
       },
+    )
+
+  }
+
+  function clearCaptureIngestionTimer() {
+    if (captureIngestionTimerId) {
+      window.clearTimeout(
+        captureIngestionTimerId,
+      )
+    }
+
+    captureIngestionTimerId = 0
+  }
+
+  function getCaptureConversationKey() {
+    return messageMutationTools
+      .buildStableCaptureConversationKey({
+        phone:
+          state.conversationPhone,
+        title:
+          state.conversationTitle,
+      })
+  }
+
+  function canIngestCurrentCapture() {
+    const resolutionIsEligible =
+      captureBatchTools
+        .isCaptureResolutionEligible(
+          state.leadResolution,
+        )
+
+    return Boolean(
+      state.connected &&
+      !state.isSelfConversation &&
+      getCaptureConversationKey() &&
+      resolutionIsEligible &&
+      window.YolenCompanionApi
+        ?.ingestCapturedMessages,
+    )
+  }
+
+  function getCurrentCaptureWindow() {
+    const activeMessages =
+      getSortedLedgerMessages()
+
+    const deletedMessages =
+      Array.from(
+        deletedMessageSnapshots.values(),
+      )
+
+    return captureBatchTools
+      .selectCaptureWindow({
+        activeMessages,
+        deletedMessages,
+        pendingMutationKeys:
+          pendingCaptureMutationIds,
+      })
+  }
+
+  function cloneCaptureTranscriptions(
+    transcriptionsByKey,
+  ) {
+    return Object.fromEntries(
+      Object.entries(
+        transcriptionsByKey || {},
+      ).map(([key, value]) => {
+        return [
+          key,
+          value &&
+          typeof value === 'object'
+            ? {
+                ...value,
+              }
+            : value,
+        ]
+      }),
+    )
+  }
+
+  function getConfirmedCaptureVersions(
+    conversationKey,
+  ) {
+    const versions =
+      confirmedCaptureVersionsByConversation
+        .get(conversationKey)
+
+    return versions
+      ? Object.fromEntries(
+          versions.entries(),
+        )
+      : {}
+  }
+
+  function rememberConfirmedCaptureVersions(
+    conversationKey,
+    messageResults,
+  ) {
+    if (
+      !conversationKey ||
+      !Array.isArray(messageResults)
+    ) {
+      return false
+    }
+
+    let versions =
+      confirmedCaptureVersionsByConversation
+        .get(conversationKey)
+
+    if (!versions) {
+      versions = new Map()
+
+      confirmedCaptureVersionsByConversation
+        .set(
+          conversationKey,
+          versions,
+        )
+    }
+
+    let hasConflict = false
+
+    messageResults.forEach((result) => {
+      const messageKey =
+        typeof result?.message_key === 'string'
+          ? result.message_key.trim()
+          : ''
+
+      const canonicalVersion =
+        typeof result
+          ?.canonical_version === 'string'
+          ? result.canonical_version.trim()
+          : ''
+
+      if (result?.synced !== true) {
+        hasConflict = true
+        return
+      }
+
+      if (
+        !messageKey ||
+        !/^[1-9][0-9]*$/.test(
+          canonicalVersion,
+        )
+      ) {
+        return
+      }
+
+      versions.set(
+        messageKey,
+        canonicalVersion,
+      )
+    })
+
+    if (
+      confirmedCaptureVersionsByConversation
+        .size > 100
+    ) {
+      const oldestConversationKey =
+        confirmedCaptureVersionsByConversation
+          .keys()
+          .next()
+          .value
+
+      if (oldestConversationKey) {
+        confirmedCaptureVersionsByConversation
+          .delete(oldestConversationKey)
+      }
+    }
+
+    return hasConflict
+  }
+
+  function rememberCurrentPreResolutionCapture() {
+    const conversationKey =
+      state.conversationKey
+
+    const captureConversationKey =
+      getCaptureConversationKey()
+
+    const resolutionIsEligible =
+      captureBatchTools
+        .isCaptureResolutionEligible(
+          state.leadResolution,
+        )
+
+    if (
+      !conversationKey ||
+      !captureConversationKey ||
+      resolutionIsEligible
+    ) {
+      return
+    }
+
+    const activeMessages =
+      Array.from(
+        conversationMessageLedger.values(),
+      ).map((message) => {
+        return {
+          ...message,
+        }
+      })
+
+    const deletedMessages =
+      Array.from(
+        deletedMessageSnapshots.values(),
+      ).map((message) => {
+        return {
+          ...message,
+        }
+      })
+
+    if (
+      activeMessages.length === 0 &&
+      deletedMessages.length === 0
+    ) {
+      return
+    }
+
+    retainedPreResolutionCaptures.delete(
+      conversationKey,
+    )
+
+    retainedPreResolutionCaptures.set(
+      conversationKey,
+      {
+        conversationKey,
+        captureConversationKey,
+        activeMessages,
+        deletedMessages,
+        pendingMutationKeys:
+          Array.from(
+            pendingCaptureMutationIds,
+          ),
+        transcriptionsByKey:
+          cloneCaptureTranscriptions(
+            state.audioTranscriptionsByKey,
+          ),
+      },
+    )
+
+    if (
+      retainedPreResolutionCaptures.size >
+      MAX_RETAINED_PRE_RESOLUTION_CAPTURES
+    ) {
+      const oldestConversationKey =
+        retainedPreResolutionCaptures
+          .keys()
+          .next()
+          .value
+
+      if (oldestConversationKey) {
+        retainedPreResolutionCaptures.delete(
+          oldestConversationKey,
+        )
+      }
+    }
+  }
+
+  function enqueueRetainedPreResolutionCapture(
+    conversationKey,
+    resolution,
+  ) {
+    const snapshot =
+      retainedPreResolutionCaptures.get(
+        conversationKey,
+      )
+
+    if (!snapshot) {
+      return false
+    }
+
+    const resolutionIsEligible =
+      captureBatchTools
+        .isCaptureResolutionEligible(
+          resolution,
+        )
+
+    const cycleId =
+      resolution?.cycle?.id
+
+    if (
+      !resolutionIsEligible ||
+      !cycleId
+    ) {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    const captureWindow =
+      captureBatchTools
+        .selectCaptureWindow({
+          activeMessages:
+            snapshot.activeMessages,
+          deletedMessages:
+            snapshot.deletedMessages,
+          pendingMutationKeys:
+            snapshot.pendingMutationKeys,
+        })
+
+    let plan
+
+    try {
+      plan =
+        captureBatchTools
+          .buildCaptureIngestionPlan({
+            cycleId,
+            conversationKey:
+              snapshot.captureConversationKey,
+            activeMessages:
+              captureWindow.activeMessages,
+            deletedMessages:
+              captureWindow.deletedMessages,
+            transcriptionsByKey:
+              snapshot.transcriptionsByKey,
+            baseVersionsByMessageKey:
+              getConfirmedCaptureVersions(
+                snapshot.captureConversationKey,
+              ),
+          })
+    } catch {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    if (
+      !plan ||
+      plan.messages.length === 0
+    ) {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    const capturedMessageKeys =
+      new Set(
+        plan.messages.map((message) => {
+          return message.message_key
+        }),
+      )
+
+    const pendingMutationKeys =
+      snapshot.pendingMutationKeys.filter(
+        (messageId) => {
+          return capturedMessageKeys.has(
+            messageId,
+          )
+        },
+      )
+
+    const contextKey = [
+      cycleId,
+      snapshot.captureConversationKey,
+    ].join('::')
+
+    if (
+      lastIngestedCaptureKeys.get(
+        contextKey,
+      ) === plan.snapshotKey
+    ) {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    pendingCaptureIngestionPlans.set(
+      contextKey,
+      {
+        ...plan,
+        contextKey,
+        pendingMutationKeys,
+      },
+    )
+
+    retainedPreResolutionCaptures.delete(
+      conversationKey,
+    )
+
+    schedulePendingCaptureIngestion(
+      CAPTURE_INGESTION_DELAY_MS,
+    )
+
+    return true
+  }
+
+  function buildCurrentCapturePlan() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return null
+    }
+
+    const captureWindow =
+      getCurrentCaptureWindow()
+
+    const plan =
+      captureBatchTools
+      .buildCaptureIngestionPlan({
+        cycleId,
+        conversationKey,
+        activeMessages:
+          captureWindow.activeMessages,
+          deletedMessages:
+            captureWindow.deletedMessages,
+          transcriptionsByKey:
+            state.audioTranscriptionsByKey ||
+            {},
+          baseVersionsByMessageKey:
+            getConfirmedCaptureVersions(
+              conversationKey,
+            ),
+        })
+
+        const capturedMessageKeys =
+        new Set(
+          plan.messages.map(
+            (message) =>
+              message.message_key,
+          ),
+        )
+
+      const pendingMutationKeys =
+        Array.from(
+          pendingCaptureMutationIds,
+        ).filter((messageId) => {
+          return capturedMessageKeys.has(
+            messageId,
+          )
+        })
+
+      return {
+        ...plan,
+        contextKey: [
+          cycleId,
+          conversationKey,
+        ].join('::'),
+        pendingMutationKeys,
+      }
+  }
+
+  function rememberSuccessfulCapture(
+    contextKey,
+    snapshotKey,
+  ) {
+    lastIngestedCaptureKeys.set(
+      contextKey,
+      snapshotKey,
+    )
+
+    if (
+      lastIngestedCaptureKeys.size >
+      100
+    ) {
+      const oldestKey =
+        lastIngestedCaptureKeys
+          .keys()
+          .next()
+          .value
+
+      if (oldestKey) {
+        lastIngestedCaptureKeys.delete(
+          oldestKey,
+        )
+      }
+    }
+  }
+
+  function forgetPendingCapturePlan(
+    contextKey,
+    snapshotKey,
+  ) {
+    const currentPlan =
+      pendingCaptureIngestionPlans.get(
+        contextKey,
+      )
+
+    if (
+      currentPlan?.snapshotKey ===
+      snapshotKey
+    ) {
+      pendingCaptureIngestionPlans.delete(
+        contextKey,
+      )
+    }
+  }
+
+  function forgetCapturedMutationKeys(
+    contextKey,
+    plan,
+  ) {
+    const currentPlan =
+      pendingCaptureIngestionPlans.get(
+        contextKey,
+      )
+
+    if (
+      currentPlan?.snapshotKey !==
+        plan.snapshotKey ||
+      currentPlan?.observedAt !==
+        plan.observedAt
+    ) {
+      return
+    }
+
+    const currentCycleId =
+      state.leadResolution?.cycle?.id
+
+    const currentConversationKey =
+      getCaptureConversationKey()
+
+    const currentContextKey =
+      currentCycleId &&
+      currentConversationKey
+        ? [
+            currentCycleId,
+            currentConversationKey,
+          ].join('::')
+        : null
+
+    if (
+      currentContextKey !== contextKey ||
+      !Array.isArray(
+        plan.pendingMutationKeys,
+      )
+    ) {
+      return
+    }
+
+    plan.pendingMutationKeys.forEach(
+      (messageId) => {
+        pendingCaptureMutationIds.delete(
+          messageId,
+        )
+      },
+    )
+  }
+
+  async function runCaptureIngestion() {
+    clearCaptureIngestionTimer()
+
+    if (captureIngestionInFlight) {
+      captureIngestionQueued = true
+      return
+    }
+
+    const pendingEntries =
+      Array.from(
+        pendingCaptureIngestionPlans
+          .entries(),
+      )
+
+    if (pendingEntries.length === 0) {
+      return
+    }
+
+    captureIngestionInFlight = true
+
+    let retryDelay = null
+
+    try {
+      for (
+        const [
+          contextKey,
+          plan,
+        ] of pendingEntries
+      ) {
+        if (
+          lastIngestedCaptureKeys.get(
+            contextKey,
+          ) === plan.snapshotKey
+        ) {
+          forgetPendingCapturePlan(
+            contextKey,
+            plan.snapshotKey,
+          )
+
+          continue
+        }
+
+        try {
+          let planHasConflict = false
+
+          for (
+            const payload of
+            plan.batches
+          ) {
+            const result =
+              await window
+                .YolenCompanionApi
+                .ingestCapturedMessages(
+                  payload,
+                )
+
+            if (
+              !result?.ok ||
+              !result.payload?.ok
+            ) {
+              const statusCode =
+                Number(
+                  result?.statusCode || 0,
+                )
+
+              const requestError =
+                new Error(
+                  result?.payload?.error ||
+                    'Não foi possível persistir a captura na Yolen.',
+                )
+
+              requestError.retryable =
+                statusCode === 0 ||
+                statusCode === 401 ||
+                statusCode >= 500
+
+              throw requestError
+            }
+
+            const responseHasConflict =
+              rememberConfirmedCaptureVersions(
+                payload.conversation_key,
+                result.payload
+                  .message_results,
+              )
+
+            if (responseHasConflict) {
+              planHasConflict = true
+            }
+          }
+
+          if (planHasConflict) {
+            forgetPendingCapturePlan(
+              contextKey,
+              plan.snapshotKey,
+            )
+
+            continue
+          }
+
+          forgetCapturedMutationKeys(
+            contextKey,
+            plan,
+          )
+
+          rememberSuccessfulCapture(
+            contextKey,
+            plan.snapshotKey,
+          )
+
+          forgetPendingCapturePlan(
+            contextKey,
+            plan.snapshotKey,
+          )
+        } catch (error) {
+          if (
+            error?.retryable === true
+          ) {
+            captureIngestionRetryAttempt +=
+              1
+
+            retryDelay = Math.min(
+              CAPTURE_INGESTION_MAX_RETRY_MS,
+              1000 *
+                2 **
+                  Math.min(
+                    captureIngestionRetryAttempt,
+                    5,
+                  ),
+            )
+          } else {
+            forgetPendingCapturePlan(
+              contextKey,
+              plan.snapshotKey,
+            )
+          }
+        }
+      }
+
+      if (
+        pendingCaptureIngestionPlans
+          .size === 0
+      ) {
+        captureIngestionRetryAttempt =
+          0
+      }
+    } finally {
+      captureIngestionInFlight = false
+
+      if (captureIngestionQueued) {
+        captureIngestionQueued = false
+
+        schedulePendingCaptureIngestion(
+          250,
+        )
+      } else if (
+        retryDelay !== null &&
+        pendingCaptureIngestionPlans
+          .size > 0
+      ) {
+        schedulePendingCaptureIngestion(
+          retryDelay,
+        )
+      }
+    }
+  }
+
+  function schedulePendingCaptureIngestion(
+    delayMs,
+  ) {
+    clearCaptureIngestionTimer()
+
+    if (
+      pendingCaptureIngestionPlans
+        .size === 0
+    ) {
+      return
+    }
+
+    if (captureIngestionInFlight) {
+      captureIngestionQueued = true
+      return
+    }
+
+    captureIngestionTimerId =
+      window.setTimeout(() => {
+        runCaptureIngestion()
+      }, delayMs)
+  }
+
+  function scheduleCaptureIngestion(
+    delayMs =
+      CAPTURE_INGESTION_DELAY_MS,
+  ) {
+    if (!canIngestCurrentCapture()) {
+      return
+    }
+
+    let plan
+
+    try {
+      plan =
+        buildCurrentCapturePlan()
+    } catch {
+      return
+    }
+
+    if (
+      !plan ||
+      !plan.contextKey ||
+      plan.messages.length === 0
+    ) {
+      return
+    }
+
+    if (
+      lastIngestedCaptureKeys.get(
+        plan.contextKey,
+      ) === plan.snapshotKey
+    ) {
+      return
+    }
+
+    pendingCaptureIngestionPlans.set(
+      plan.contextKey,
+      plan,
+    )
+
+    schedulePendingCaptureIngestion(
+      delayMs,
     )
   }
 
@@ -2021,7 +3107,9 @@
           targetKey: nextTarget.key,
           capturedBlobId: audioCapture.capturedBlobId,
           text: result.payload.data.text,
-          occurredAt: result.payload.data.occurred_at || null,
+          occurredAt:
+            result.payload.data.occurred_at ||
+            new Date().toISOString(),
         },
       }
 
@@ -2043,6 +3131,8 @@
       }
 
       renderPanel()
+
+      scheduleCaptureIngestion()
 
       if (remainingAudioCount === 0) {
         scheduleAutomaticAnalysis(
@@ -2530,15 +3620,17 @@
       previousConversationKey !==
       conversationKey
 
-    if (conversationChanged) {
-      lastResolvedConversationKey = null
+      if (conversationChanged) {
+        rememberCurrentPreResolutionCapture()
 
-      resetConversationMessageLedger(
-        conversationKey,
-      )
+        lastResolvedConversationKey = null
 
-      clearLeadStateForNewConversation()
-    }
+        resetConversationMessageLedger(
+          conversationKey,
+        )
+
+        clearLeadStateForNewConversation()
+      }
 
     state = {
       ...state,
@@ -2553,6 +3645,8 @@
 
     const messageMutationDetected =
       synchronizeConversationMessageLedger()
+
+    rememberCurrentPreResolutionCapture()
 
     state = {
       ...state,
@@ -2731,7 +3825,7 @@
   function openYolen(path) {
     const baseUrl =
       window.YolenCompanionApi?.getBaseUrl?.() ||
-      'https://cockpit-commercial-vocn.vercel.app'
+      'https://cockpit-comercial-vocn.vercel.app'
 
     window.open(`${baseUrl}${path}`, '_blank', 'noopener,noreferrer')
   }
@@ -3317,7 +4411,7 @@
         totalAudioCount,
         transcribedAudioCount + 1,
       )
-  
+
       const transcribeAudioButton = pendingAudioCount > 0
         ? `
           <button
@@ -3338,7 +4432,7 @@
         if (isCurrentAnalysisOutdated()) {
           return `
             ${transcribeAudioButton}
-  
+
             <button
               class="yolen-primary-button"
               type="button"
@@ -3798,6 +4892,10 @@
       }
 
       renderPanel()
+
+      if (restoredCount > 0) {
+        scheduleCaptureIngestion()
+      }
     } catch {
       if (
         state.conversationKey !==
@@ -3816,11 +4914,10 @@
   }
 
   async function resolveCurrentLead() {
-    if (leadResolutionInFlight) {
-      return
-    }
-
-    if (!state.connected || state.isSelfConversation) {
+    if (
+      !state.connected ||
+      state.isSelfConversation
+    ) {
       return
     }
 
@@ -3836,10 +4933,27 @@
       return
     }
 
-    const phoneAtRequest = state.conversationPhone
-    const keyAtRequest = state.conversationKey
+    const phoneAtRequest =
+      state.conversationPhone
 
-    leadResolutionInFlight = true
+    const keyAtRequest =
+      state.conversationKey
+
+    const titleAtRequest =
+      state.conversationTitle
+
+    if (
+      !keyAtRequest ||
+      leadResolutionInFlightKeys.has(
+        keyAtRequest,
+      )
+    ) {
+      return
+    }
+
+    leadResolutionInFlightKeys.add(
+      keyAtRequest,
+    )
 
     state = {
       ...state,
@@ -3850,17 +4964,35 @@
 
     renderPanel()
 
+    const requestStillCurrent = () => {
+      return (
+        state.conversationPhone ===
+          phoneAtRequest &&
+        state.conversationKey ===
+          keyAtRequest
+      )
+    }
+
     try {
-      const result = await window.YolenCompanionApi.resolveLead({
-        phone: phoneAtRequest,
-        display_name: state.conversationTitle,
-      })
+      const result =
+        await window.YolenCompanionApi
+          .resolveLead({
+            phone: phoneAtRequest,
+            display_name: titleAtRequest,
+          })
 
-      if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
-        return
-      }
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        retainedPreResolutionCaptures.delete(
+          keyAtRequest,
+        )
 
-      if (!result?.ok || !result.payload?.ok) {
+        if (!requestStillCurrent()) {
+          return
+        }
+
         state = {
           ...state,
           leadResolutionLoading: false,
@@ -3871,6 +5003,15 @@
         }
 
         renderPanel()
+        return
+      }
+
+      enqueueRetainedPreResolutionCapture(
+        keyAtRequest,
+        result.payload,
+      )
+
+      if (!requestStillCurrent()) {
         return
       }
 
@@ -3888,12 +5029,18 @@
           lockCurrentMessageWindow()
           refreshConversationSnapshot()
 
+          scheduleCaptureIngestion()
+
           scheduleAutomaticAnalysis(
             'Lead localizado. A conversa será analisada automaticamente em 8 segundos.',
           )
         })
     } catch (error) {
-      if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
+      retainedPreResolutionCaptures.delete(
+        keyAtRequest,
+      )
+
+      if (!requestStillCurrent()) {
         return
       }
 
@@ -3902,14 +5049,17 @@
         leadResolutionLoading: false,
         leadResolution: null,
         leadResolutionError:
-          error instanceof Error && error.message
+          error instanceof Error &&
+          error.message
             ? error.message
             : 'Erro ao localizar lead na Yolen.',
       }
 
       renderPanel()
     } finally {
-      leadResolutionInFlight = false
+      leadResolutionInFlightKeys.delete(
+        keyAtRequest,
+      )
     }
   }
 
@@ -4190,18 +5340,75 @@
   }
 
   function isOutgoingMessageNode(node) {
-    if (!node || typeof node.closest !== 'function') {
+    if (
+      !node ||
+      typeof node.closest !==
+        'function'
+    ) {
       return false
     }
 
-    if (node.closest('.message-out')) {
-      return true
-    }
+    const main =
+      getMainConversationRoot()
 
-    const dataIdElement = node.closest('[data-id]')
-    const dataId = dataIdElement?.getAttribute('data-id') || ''
+    const layoutContainer =
+      node.closest(
+        '[data-testid="msg-container"]',
+      ) ||
+      node.closest('[role="row"]') ||
+      getMessageContainer(node) ||
+      node
 
-    return dataId.startsWith('true_') || dataId.includes('_true_')
+    const dataIdElement =
+      node.closest('[data-id]') ||
+      node.querySelector?.('[data-id]')
+
+    const messageRect =
+      typeof layoutContainer
+        .getBoundingClientRect ===
+      'function'
+        ? layoutContainer
+            .getBoundingClientRect()
+        : null
+
+    const conversationRect =
+      typeof main
+        ?.getBoundingClientRect ===
+      'function'
+        ? main.getBoundingClientRect()
+        : null
+
+    const direction =
+      messageMutationTools
+        .inferCapturedMessageDirection({
+          hasOutgoingClass:
+            Boolean(
+              node.closest(
+                '.message-out',
+              ),
+            ),
+          hasIncomingClass:
+            Boolean(
+              node.closest(
+                '.message-in',
+              ),
+            ),
+          dataId:
+            dataIdElement
+              ?.getAttribute?.(
+                'data-id',
+              ) || '',
+          messageLeft:
+            messageRect?.left,
+          messageWidth:
+            messageRect?.width,
+          conversationLeft:
+            conversationRect?.left,
+          conversationWidth:
+            conversationRect?.width,
+        })
+
+    return direction === 'outgoing'
   }
 
   function getLatestOutgoingVisibleMessageText() {
@@ -4218,7 +5425,12 @@
         continue
       }
 
-      const text = normalizeMessageText(node.textContent)
+      const text =
+        normalizeMessageText(
+          getCapturedMessageBodyText(
+            node,
+          ),
+        )
 
       if (text && text.length >= 2) {
         return text
@@ -4651,10 +5863,14 @@
         checkPendingSuggestedMessageSentFromConversation()
 
         if (messageMutationDetected) {
+          scheduleCaptureIngestion(0)
+
           scheduleAutomaticAnalysis(
             'Mensagem editada ou apagada detectada. A Yolen atualizará a análise em 8 segundos.',
           )
         } else {
+          scheduleCaptureIngestion()
+
           handleConversationActivityForAutomaticAnalysis()
         }
       }, 600)

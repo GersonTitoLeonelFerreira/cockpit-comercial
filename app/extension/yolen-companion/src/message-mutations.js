@@ -1,14 +1,70 @@
 /* global module */
 
 ;(function initYolenCompanionMessageMutations(root) {
-  const MAX_CAPTURED_MESSAGE_LENGTH = 4000
+  const MAX_CAPTURED_MESSAGE_LENGTH = 100000
+  const MAX_ANALYSIS_MESSAGE_LENGTH = 4000
 
   function normalizeText(value) {
     return String(value || '')
-      .replace(/\s+/g, ' ')
+      .replace(/\r\n?/g, '\n')
       .replace(/\u200e/g, '')
+      .split('\n')
+      .map((line) => {
+        return line
+          .replace(/[ \t\f\v]+/g, ' ')
+          .trim()
+      })
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
       .trim()
   }
+
+  function readCapturedElementText(
+    element,
+  ) {
+    if (!element) {
+      return ''
+    }
+
+    const renderedText =
+      typeof element.innerText ===
+      'string'
+        ? element.innerText
+        : ''
+
+    if (renderedText.trim()) {
+      return renderedText
+    }
+
+    if (
+      typeof element.cloneNode ===
+      'function'
+    ) {
+      const clone =
+        element.cloneNode(true)
+
+      clone
+        .querySelectorAll?.('br')
+        .forEach((lineBreak) => {
+          lineBreak.replaceWith?.(
+            '\n',
+          )
+        })
+
+      if (
+        typeof clone.textContent ===
+        'string'
+      ) {
+        return clone.textContent
+      }
+    }
+
+    return typeof element.textContent ===
+      'string'
+      ? element.textContent
+      : ''
+  }
+
 
   function cleanCapturedMessageText(value) {
     const text = normalizeText(value)
@@ -24,6 +80,183 @@
       0,
       MAX_CAPTURED_MESSAGE_LENGTH,
     )
+  }
+
+  function prepareCapturedMessageTextForAnalysis(
+    value,
+  ) {
+    return cleanCapturedMessageText(
+      value,
+    ).slice(
+      0,
+      MAX_ANALYSIS_MESSAGE_LENGTH,
+    )
+  }
+
+  function pickCapturedMessageText(
+    candidates,
+  ) {
+    if (!Array.isArray(candidates)) {
+      return ''
+    }
+
+    const normalizedCandidates =
+      candidates
+        .map((candidate) => {
+          if (
+            typeof candidate ===
+            'string'
+          ) {
+            return {
+              text:
+                cleanCapturedMessageText(
+                  candidate,
+                ),
+              isQuoted: false,
+            }
+          }
+
+          return {
+            text:
+              cleanCapturedMessageText(
+                candidate?.text,
+              ),
+            isQuoted:
+              candidate?.isQuoted ===
+              true,
+          }
+        })
+        .filter((candidate) => {
+          return (
+            !candidate.isQuoted &&
+            candidate.text
+          )
+        })
+
+    if (
+      normalizedCandidates.length === 0
+    ) {
+      return ''
+    }
+
+    const uniqueTexts =
+      Array.from(
+        new Set(
+          normalizedCandidates.map(
+            (candidate) =>
+              candidate.text,
+          ),
+        ),
+      )
+
+    uniqueTexts.sort(
+      (first, second) =>
+        second.length - first.length,
+    )
+
+    return uniqueTexts[0] || ''
+  }
+
+  function buildStableCaptureConversationKey(
+    {
+      phone,
+      title,
+    } = {},
+  ) {
+    const normalizedPhone =
+      String(phone || '')
+        .replace(/\D/g, '')
+
+    if (
+      normalizedPhone.length >= 10 &&
+      normalizedPhone.length <= 15
+    ) {
+      return `phone:${normalizedPhone}`
+    }
+
+    const normalizedTitle =
+      normalizeText(title)
+        .toLocaleLowerCase('pt-BR')
+        .slice(0, 200)
+
+    return normalizedTitle
+      ? `title:${normalizedTitle}`
+      : null
+  }
+
+  function inferCapturedMessageDirection(
+    {
+      hasOutgoingClass = false,
+      hasIncomingClass = false,
+      dataId = '',
+      messageLeft,
+      messageWidth,
+      conversationLeft,
+      conversationWidth,
+    } = {},
+  ) {
+    if (hasOutgoingClass) {
+      return 'outgoing'
+    }
+
+    if (hasIncomingClass) {
+      return 'incoming'
+    }
+
+    const normalizedDataId =
+      String(dataId || '')
+
+    if (
+      normalizedDataId.startsWith(
+        'true_',
+      ) ||
+      normalizedDataId.includes(
+        '_true_',
+      )
+    ) {
+      return 'outgoing'
+    }
+
+    if (
+      normalizedDataId.startsWith(
+        'false_',
+      ) ||
+      normalizedDataId.includes(
+        '_false_',
+      )
+    ) {
+      return 'incoming'
+    }
+
+    const geometry = [
+      messageLeft,
+      messageWidth,
+      conversationLeft,
+      conversationWidth,
+    ].map(Number)
+
+    if (
+      geometry.every(
+        Number.isFinite,
+      ) &&
+      geometry[1] > 0 &&
+      geometry[3] > 0
+    ) {
+      const messageCenter =
+        geometry[0] +
+        geometry[1] / 2
+
+      const conversationCenter =
+        geometry[2] +
+        geometry[3] / 2
+
+      return messageCenter >
+        conversationCenter
+        ? 'outgoing'
+        : 'incoming'
+    }
+
+    return 'incoming'
   }
 
   function isDeletedMessageText(value) {
@@ -175,9 +408,14 @@
   const api = Object.freeze({
     areCapturedMessagesEqual,
     buildMessageSnapshotFingerprint,
+    buildStableCaptureConversationKey,
     cleanCapturedMessageText,
     getLatestDateMessageBlock,
+    inferCapturedMessageDirection,
     isDeletedMessageText,
+    pickCapturedMessageText,
+    prepareCapturedMessageTextForAnalysis,
+    readCapturedElementText,
   })
 
   root.YolenCompanionMessageMutations =

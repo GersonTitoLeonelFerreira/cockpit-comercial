@@ -81,7 +81,7 @@ function getCorsHeaders(request: Request) {
 
   const allowedOrigins = [
     'https://web.whatsapp.com',
-    'https://cockpit-commercial-vocn.vercel.app',
+    'https://cockpit-comercial-vocn.vercel.app',
     'http://localhost:3000',
   ]
 
@@ -92,7 +92,7 @@ function getCorsHeaders(request: Request) {
   const allowOrigin =
     allowedOrigins.includes(origin) || isExtensionOrigin
       ? origin
-      : 'https://cockpit-commercial-vocn.vercel.app'
+      : 'https://cockpit-comercial-vocn.vercel.app'
 
   return {
     'Access-Control-Allow-Origin': allowOrigin,

@@ -1,10 +1,12 @@
-import { createHmac } from 'crypto'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
+import {
+  createCompanionToken,
+  type CompanionRole,
+} from '@/app/lib/server/companion-token'
 import { getAuthedSupabase } from '@/app/lib/supabase/server'
 
-type CompanionRole = 'admin' | 'manager' | 'member'
 
 type CompanyMembershipRow = {
   company_id: string
@@ -24,14 +26,6 @@ type CompanyMembershipRow = {
     | null
 }
 
-type CompanionTokenPayload = {
-  sub: string
-  company_id: string
-  role: CompanionRole
-  iat: number
-  exp: number
-}
-
 function getCompanyName(membership: CompanyMembershipRow) {
   const rawCompany = Array.isArray(membership.companies)
     ? membership.companies[0] ?? null
@@ -43,38 +37,6 @@ function getCompanyName(membership: CompanyMembershipRow) {
     rawCompany?.legal_name ||
     'Empresa sem nome'
   )
-}
-
-function getTokenSecret() {
-  const secret =
-    process.env.COMPANION_TOKEN_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!secret) {
-    throw new Error(
-      'ENV faltando: COMPANION_TOKEN_SECRET, SUPABASE_SERVICE_ROLE_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY.',
-    )
-  }
-
-  return secret
-}
-
-function encodeBase64Url(value: unknown) {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
-}
-
-function signPayload(encodedPayload: string) {
-  return createHmac('sha256', getTokenSecret())
-    .update(encodedPayload)
-    .digest('base64url')
-}
-
-function createCompanionToken(payload: CompanionTokenPayload) {
-  const encodedPayload = encodeBase64Url(payload)
-  const signature = signPayload(encodedPayload)
-
-  return `${encodedPayload}.${signature}`
 }
 
 export async function GET() {

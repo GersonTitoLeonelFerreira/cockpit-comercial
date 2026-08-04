@@ -5,9 +5,14 @@ import messageMutations from '../src/message-mutations.js'
 const {
   areCapturedMessagesEqual,
   buildMessageSnapshotFingerprint,
+  buildStableCaptureConversationKey,
   cleanCapturedMessageText,
   getLatestDateMessageBlock,
+  inferCapturedMessageDirection,
   isDeletedMessageText,
+  pickCapturedMessageText,
+  prepareCapturedMessageTextForAnalysis,
+  readCapturedElementText,
 } = messageMutations
 
 function message(overrides = {}) {
@@ -23,6 +28,78 @@ function message(overrides = {}) {
     ...overrides,
   }
 }
+
+test('preserva quebras de linha internas da mensagem', () => {
+  assert.equal(
+    cleanCapturedMessageText(
+      'Primeira linha\n Segunda linha',
+    ),
+    'Primeira linha\nSegunda linha',
+  )
+})
+
+test('preserva conteúdo completo e limita somente a análise', () => {
+  const prefix =
+    'A'.repeat(4500)
+
+  const originalText =
+    `${prefix}final-original`
+
+  const editedText =
+    `${prefix}final-editado`
+
+  const cleanedOriginal =
+    cleanCapturedMessageText(
+      originalText,
+    )
+
+  const cleanedEdited =
+    cleanCapturedMessageText(
+      editedText,
+    )
+
+  assert.equal(
+    cleanedOriginal,
+    originalText,
+  )
+
+  assert.equal(
+    cleanedOriginal.length,
+    originalText.length,
+  )
+
+  assert.equal(
+    prepareCapturedMessageTextForAnalysis(
+      cleanedOriginal,
+    ),
+    'A'.repeat(4000),
+  )
+
+  assert.notEqual(
+    buildMessageSnapshotFingerprint([
+      message({
+        text: cleanedOriginal,
+      }),
+    ]),
+    buildMessageSnapshotFingerprint([
+      message({
+        text: cleanedEdited,
+      }),
+    ]),
+  )
+})
+
+test('lê quebras renderizadas por elementos br', () => {
+  assert.equal(
+    readCapturedElementText({
+      innerText:
+        'Primeira linha\nSegunda linha',
+      textContent:
+        'Primeira linhaSegunda linha',
+    }),
+    'Primeira linha\nSegunda linha',
+  )
+})
 
 test('preserva horário legítimo no final da mensagem', () => {
   assert.equal(
@@ -44,6 +121,129 @@ test('descarta apenas um nó que contém somente horário', () => {
   assert.equal(
     cleanCapturedMessageText('17:35'),
     '',
+  )
+})
+
+test('preserva quebras de linha internas da mensagem', () => {
+  assert.equal(
+    cleanCapturedMessageText(
+      'Primeira linha\n Segunda linha',
+    ),
+    'Primeira linha\nSegunda linha',
+  )
+})
+
+test('seleciona o corpo real e ignora conteúdo citado', () => {
+  assert.equal(
+    pickCapturedMessageText([
+      {
+        text: 'Mensagem citada',
+        isQuoted: true,
+      },
+      {
+        text:
+          'Resposta atual às 17:35',
+        isQuoted: false,
+      },
+      {
+        text:
+          'Resposta atual às 17:35',
+        isQuoted: false,
+      },
+    ]),
+    'Resposta atual às 17:35',
+  )
+})
+
+test('gera chave estável pelo telefone e não pelo avatar ou título', () => {
+  const firstKey =
+    buildStableCaptureConversationKey({
+      phone:
+        '+55 (47) 99999-0001',
+      title: 'Cliente',
+    })
+
+  const secondKey =
+    buildStableCaptureConversationKey({
+      phone:
+        '5547999990001',
+      title:
+        'Cliente com outro avatar',
+    })
+
+  assert.equal(
+    firstKey,
+    'phone:5547999990001',
+  )
+
+  assert.equal(
+    secondKey,
+    firstKey,
+  )
+
+  assert.equal(
+    buildStableCaptureConversationKey({
+      title: 'Cliente Exemplo',
+    }),
+    'title:cliente exemplo',
+  )
+})
+
+test('preserva marcadores antigos de direção', () => {
+  assert.equal(
+    inferCapturedMessageDirection({
+      hasOutgoingClass: true,
+    }),
+    'outgoing',
+  )
+
+  assert.equal(
+    inferCapturedMessageDirection({
+      hasIncomingClass: true,
+    }),
+    'incoming',
+  )
+
+  assert.equal(
+    inferCapturedMessageDirection({
+      dataId:
+        'true_5511999999999_message',
+    }),
+    'outgoing',
+  )
+})
+
+test('classifica mensagens pela posição visual atual do WhatsApp', () => {
+  assert.equal(
+    inferCapturedMessageDirection({
+      messageLeft: 500,
+      messageWidth: 220,
+      conversationLeft: 0,
+      conversationWidth: 800,
+    }),
+    'outgoing',
+  )
+
+  assert.equal(
+    inferCapturedMessageDirection({
+      messageLeft: 62,
+      messageWidth: 220,
+      conversationLeft: 0,
+      conversationWidth: 800,
+    }),
+    'incoming',
+  )
+})
+
+test('usa incoming quando não há marcador ou geometria válida', () => {
+  assert.equal(
+    inferCapturedMessageDirection({
+      messageLeft: null,
+      messageWidth: null,
+      conversationLeft: null,
+      conversationWidth: null,
+    }),
+    'incoming',
   )
 })
 

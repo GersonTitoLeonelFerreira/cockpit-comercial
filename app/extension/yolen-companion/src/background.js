@@ -1,10 +1,23 @@
-/* global browser, chrome */
+/* global browser, chrome, YolenCompanionCaptureTransport */
 
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
-const DEFAULT_BASE_URL = 'https://cockpit-commercial-vocn.vercel.app'
+const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
+const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
+
+const captureTransportTools =
+  globalThis.YolenCompanionCaptureTransport ||
+  YolenCompanionCaptureTransport
+
+if (!captureTransportTools) {
+  throw new Error(
+    'Módulo de transporte da captura do Companion não carregado.',
+  )
+}
+
+let deviceKeyPromise = null
 
 function getAllowedBaseUrl(baseUrl) {
   if (baseUrl === LOCAL_BASE_URL) {
@@ -48,7 +61,51 @@ function storageRemove(key) {
   })
 }
 
+async function getOrCreateDeviceKey() {
+  if (deviceKeyPromise) {
+    return deviceKeyPromise
+  }
+
+  deviceKeyPromise = (async () => {
+    const stored =
+      await storageGet(DEVICE_STORAGE_KEY)
+
+    const existing =
+      stored?.[DEVICE_STORAGE_KEY]
+
+    if (
+      captureTransportTools.isUuid(
+        existing,
+      )
+    ) {
+      return existing
+        .trim()
+        .toLowerCase()
+    }
+
+    const generated =
+      captureTransportTools
+        .createDeviceKey(
+          globalThis.crypto,
+        )
+
+    await storageSet({
+      [DEVICE_STORAGE_KEY]:
+        generated,
+    })
+
+    return generated
+  })()
+
+  try {
+    return await deviceKeyPromise
+  } finally {
+    deviceKeyPromise = null
+  }
+}
+
 async function getCachedSession() {
+
   const stored = await storageGet(SESSION_STORAGE_KEY)
   return stored?.[SESSION_STORAGE_KEY] ?? null
 }
@@ -181,6 +238,41 @@ async function requestYolenWithToken(message, path, body) {
   }
 }
 
+async function handleCaptureIngestion(message) {
+  try {
+    const deviceKey =
+      await getOrCreateDeviceKey()
+
+    const requestBody =
+      captureTransportTools
+        .buildIngestionRequestBody(
+          message.payload,
+          deviceKey,
+        )
+
+    return requestYolenWithToken(
+      message,
+      '/api/companion/capture/messages',
+      requestBody,
+    )
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 400,
+      payload: {
+        ok: false,
+        status:
+          'INVALID_CAPTURE_TRANSPORT',
+        error:
+          error instanceof Error &&
+          error.message
+            ? error.message
+            : 'Não foi possível preparar a ingestão das mensagens.',
+      },
+    }
+  }
+}
+
 async function handleCompanionMessage(message) {
   if (message.action === 'GET_ME') {
     const cachedSession = await getValidCachedSession()
@@ -215,6 +307,15 @@ async function handleCompanionMessage(message) {
         status: 'SESSION_CLEARED',
       },
     }
+  }
+
+  if (
+    message.action ===
+    'INGEST_CAPTURE_MESSAGES'
+  ) {
+    return handleCaptureIngestion(
+      message,
+    )
   }
 
   if (message.action === 'RESOLVE_LEAD') {
