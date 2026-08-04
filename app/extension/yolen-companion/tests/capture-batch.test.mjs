@@ -201,6 +201,7 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
         '2026-08-02T18:00:00.000Z',
       observed_at:
         '2026-08-03T20:00:00.000Z',
+      base_version: null,
       content_type: 'text',
       text_content:
         'Olá, quero conhecer os planos.',
@@ -214,6 +215,7 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
         '2026-08-02T18:01:00.000Z',
       observed_at:
         '2026-08-03T20:00:00.000Z',
+      base_version: null,
       content_type: 'audio',
       text_content: null,
       audio_transcription:
@@ -221,6 +223,22 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
       is_deleted: false,
     },
   ])
+})
+
+test('inclui a versão causal confirmada por mensagem', () => {
+  const messages = buildCaptureMessages({
+    activeMessages: [
+      activeMessage(),
+    ],
+    baseVersionsByMessageKey: {
+      'message-001': '7',
+    },
+  })
+
+  assert.equal(
+    messages[0].base_version,
+    '7',
+  )
 })
 
 test('preserva mensagem longa e detecta edição depois do caractere quatro mil', () => {
@@ -371,6 +389,7 @@ test('mensagem excluída não preserva conteúdo ou transcrição', () => {
         '2026-08-02T18:00:00.000Z',
       observed_at:
         '2026-08-03T20:00:00.000Z',
+      base_version: null,
       content_type: 'audio',
       text_content: null,
       audio_transcription: null,
@@ -412,6 +431,7 @@ test('mensagem restaurada ativa prevalece sobre a fotografia excluída', () => {
         '2026-08-02T18:00:00.000Z',
       observed_at:
         '2026-08-03T20:00:00.000Z',
+      base_version: null,
       content_type: 'text',
       text_content:
         'Mensagem restaurada.',

@@ -14,7 +14,7 @@
       ? globalThis
       : this,
     function createYolenCompanionCaptureBatch() {
-      const CONTRACT_VERSION = 'pt4-c-v3'
+      const CONTRACT_VERSION = 'pt4-c-v4'
       const DEFAULT_MAX_BATCH_SIZE = 200
 
       function isRecord(value) {
@@ -74,6 +74,20 @@
         return normalizeOccurredAt(
           Date.parse(value),
         )
+      }
+
+      function normalizeBaseVersion(value) {
+        if (typeof value !== 'string') {
+          return null
+        }
+
+        const normalized = value.trim()
+
+        return /^[1-9][0-9]*$/.test(
+          normalized,
+        )
+          ? normalized
+          : null
       }
 
       function normalizeDirection(value) {
@@ -366,6 +380,7 @@
         activeMessages = [],
         deletedMessages = [],
         transcriptionsByKey = {},
+        baseVersionsByMessageKey = {},
       } = {}) {
         const messagesByKey = new Map()
 
@@ -378,9 +393,20 @@
                 )
 
               if (normalized) {
+                const messageWithBaseVersion = {
+                  ...normalized,
+                  base_version:
+                    normalizeBaseVersion(
+                      baseVersionsByMessageKey[
+                        normalized.message_key
+                      ],
+                    ),
+                }
+
                 messagesByKey.set(
-                  normalized.message_key,
-                  normalized,
+                  messageWithBaseVersion
+                    .message_key,
+                  messageWithBaseVersion,
                 )
               }
             },
@@ -397,9 +423,20 @@
                 )
 
               if (normalized) {
+                const messageWithBaseVersion = {
+                  ...normalized,
+                  base_version:
+                    normalizeBaseVersion(
+                      baseVersionsByMessageKey[
+                        normalized.message_key
+                      ],
+                    ),
+                }
+
                 messagesByKey.set(
-                  normalized.message_key,
-                  normalized,
+                  messageWithBaseVersion
+                    .message_key,
+                  messageWithBaseVersion,
                 )
               }
             },
@@ -496,6 +533,7 @@
                   message.message_key,
                   message.direction,
                   message.occurred_at,
+                  message.base_version,
                   message.content_type,
                   message.text_content,
                   message.audio_transcription,
@@ -519,6 +557,7 @@
         activeMessages = [],
         deletedMessages = [],
         transcriptionsByKey = {},
+        baseVersionsByMessageKey = {},
         maxBatchSize =
           DEFAULT_MAX_BATCH_SIZE,
       } = {}) {
@@ -547,6 +586,7 @@
             activeMessages,
             deletedMessages,
             transcriptionsByKey,
+            baseVersionsByMessageKey,
           })
 
         const normalizedObservedAt =

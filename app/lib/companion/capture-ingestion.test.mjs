@@ -20,6 +20,7 @@ function buildTextMessage(overrides = {}) {
     occurred_at: '2026-07-31T15:20:00-03:00',
     observed_at:
       '2026-08-03T19:59:00.000Z',
+    base_version: null,
     content_type: 'text',
     text_content: 'Olá, quero conhecer os planos.',
     audio_transcription: null,
@@ -54,7 +55,7 @@ test('normaliza o envelope canônico da captura', () => {
     }),
   )
 
-  assert.equal(result.contract_version, 'pt4-c-v3')
+  assert.equal(result.contract_version, 'pt4-c-v4')
   assert.equal(result.cycle_id, CYCLE_ID)
   assert.equal(result.device_key, DEVICE_ID)
   assert.equal(
@@ -77,6 +78,63 @@ test('normaliza o envelope canônico da captura', () => {
   assert.equal(
     result.messages[0].text_content,
     'Olá, quero conhecer os planos.',
+  )
+
+  assert.equal(
+    result.messages[0].base_version,
+    null,
+  )
+})
+
+test('normaliza base_version causal válida', () => {
+  const result =
+    normalizeCaptureIngestionEnvelope(
+      buildEnvelope({
+        messages: [
+          buildTextMessage({
+            base_version: ' 7 ',
+          }),
+        ],
+      }),
+    )
+
+  assert.equal(
+    result.messages[0].base_version,
+    '7',
+  )
+})
+
+test('rejeita base_version causal inválida', () => {
+  assert.throws(
+    () => {
+      normalizeCaptureIngestionEnvelope(
+        buildEnvelope({
+          messages: [
+            buildTextMessage({
+              base_version: '0',
+            }),
+          ],
+        }),
+      )
+    },
+    (error) => {
+      assert.ok(
+        error instanceof
+          CaptureContractError,
+      )
+
+      assert.equal(
+        error.code,
+        'INVALID_BASE_VERSION',
+      )
+
+      assert.equal(
+        error.path,
+        'messages[0].base_version',
+      )
+
+      return true
+    },
   )
 })
 

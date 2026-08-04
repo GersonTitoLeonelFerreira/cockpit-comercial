@@ -13,6 +13,7 @@
     "test:companion-ledger": "node --test supabase/phase-tests/phase-3-message-ledger.test.mjs",
     "test:companion-capture-state": "node --test supabase/phase-tests/phase-4-capture-state.test.mjs",
     "test:companion-ingestion-rpc": "node --test supabase/phase-tests/phase-4-message-ingestion-rpc.test.mjs",
+    "test:companion-causal": "node --test supabase/phase-tests/phase-4-causal-message-version.test.mjs",
     "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs"
   },
   "dependencies": {

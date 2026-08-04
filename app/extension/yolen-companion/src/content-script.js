@@ -61,6 +61,9 @@
   const cachedPhonesByConversationKey = new Map()
   const lastIngestedCaptureKeys = new Map()
 
+  const confirmedCaptureVersionsByConversation =
+    new Map()
+
   const pendingCaptureIngestionPlans =
     new Map()
 
@@ -1609,6 +1612,98 @@
     )
   }
 
+  function getConfirmedCaptureVersions(
+    conversationKey,
+  ) {
+    const versions =
+      confirmedCaptureVersionsByConversation
+        .get(conversationKey)
+
+    return versions
+      ? Object.fromEntries(
+          versions.entries(),
+        )
+      : {}
+  }
+
+  function rememberConfirmedCaptureVersions(
+    conversationKey,
+    messageResults,
+  ) {
+    if (
+      !conversationKey ||
+      !Array.isArray(messageResults)
+    ) {
+      return false
+    }
+
+    let versions =
+      confirmedCaptureVersionsByConversation
+        .get(conversationKey)
+
+    if (!versions) {
+      versions = new Map()
+
+      confirmedCaptureVersionsByConversation
+        .set(
+          conversationKey,
+          versions,
+        )
+    }
+
+    let hasConflict = false
+
+    messageResults.forEach((result) => {
+      const messageKey =
+        typeof result?.message_key === 'string'
+          ? result.message_key.trim()
+          : ''
+
+      const canonicalVersion =
+        typeof result
+          ?.canonical_version === 'string'
+          ? result.canonical_version.trim()
+          : ''
+
+      if (result?.synced !== true) {
+        hasConflict = true
+        return
+      }
+
+      if (
+        !messageKey ||
+        !/^[1-9][0-9]*$/.test(
+          canonicalVersion,
+        )
+      ) {
+        return
+      }
+
+      versions.set(
+        messageKey,
+        canonicalVersion,
+      )
+    })
+
+    if (
+      confirmedCaptureVersionsByConversation
+        .size > 100
+    ) {
+      const oldestConversationKey =
+        confirmedCaptureVersionsByConversation
+          .keys()
+          .next()
+          .value
+
+      if (oldestConversationKey) {
+        confirmedCaptureVersionsByConversation
+          .delete(oldestConversationKey)
+      }
+    }
+
+    return hasConflict
+  }
+
   function rememberCurrentPreResolutionCapture() {
     const conversationKey =
       state.conversationKey
@@ -1754,6 +1849,10 @@
               captureWindow.deletedMessages,
             transcriptionsByKey:
               snapshot.transcriptionsByKey,
+            baseVersionsByMessageKey:
+              getConfirmedCaptureVersions(
+                snapshot.captureConversationKey,
+              ),
           })
     } catch {
       retainedPreResolutionCaptures.delete(
@@ -1853,6 +1952,10 @@
           transcriptionsByKey:
             state.audioTranscriptionsByKey ||
             {},
+          baseVersionsByMessageKey:
+            getConfirmedCaptureVersions(
+              conversationKey,
+            ),
         })
 
         const capturedMessageKeys =
@@ -2022,6 +2125,8 @@
         }
 
         try {
+          let planHasConflict = false
+
           for (
             const payload of
             plan.batches
@@ -2055,6 +2160,26 @@
 
               throw requestError
             }
+
+            const responseHasConflict =
+              rememberConfirmedCaptureVersions(
+                payload.conversation_key,
+                result.payload
+                  .message_results,
+              )
+
+            if (responseHasConflict) {
+              planHasConflict = true
+            }
+          }
+
+          if (planHasConflict) {
+            forgetPendingCapturePlan(
+              contextKey,
+              plan.snapshotKey,
+            )
+
+            continue
           }
 
           forgetCapturedMutationKeys(

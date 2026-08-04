@@ -1,4 +1,4 @@
-export const CAPTURE_INGESTION_CONTRACT_VERSION = 'pt4-c-v3' as const
+export const CAPTURE_INGESTION_CONTRACT_VERSION = 'pt4-c-v4' as const
 
 export const MAX_CAPTURE_BATCH_SIZE = 200
 export const MAX_CONVERSATION_KEY_LENGTH = 500
@@ -14,6 +14,7 @@ export type NormalizedCaptureMessage = {
   direction: CaptureDirection
   occurred_at: string
   observed_at: string
+  base_version: string | null
   content_type: CaptureContentType
   text_content: string | null
   audio_transcription: string | null
@@ -71,6 +72,7 @@ const CAPTURE_RPC_VALIDATION_ERROR_MARKERS = [
   'apareceu mais de uma vez no mesmo lote',
   'direction deve ser incoming ou outgoing',
   'occurred_at contém uma data inválida',
+  'base_version deve ser null ou um inteiro positivo em texto',
   'content_type deve ser text ou audio',
   'text_content deve ser um texto ou null',
   'audio_transcription deve ser um texto ou null',
@@ -287,6 +289,59 @@ function normalizeBoolean(value: unknown, path: string) {
   return value
 }
 
+function normalizeBaseVersion(
+  value: unknown,
+  path: string,
+) {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (typeof value !== 'string') {
+    fail({
+      code: 'INVALID_BASE_VERSION',
+      path,
+      message:
+        `${path} deve ser null ou um inteiro positivo em texto.`,
+    })
+  }
+
+  const normalized = value.trim()
+
+  if (!/^[1-9][0-9]*$/.test(normalized)) {
+    fail({
+      code: 'INVALID_BASE_VERSION',
+      path,
+      message:
+        `${path} deve ser null ou um inteiro positivo em texto.`,
+    })
+  }
+
+  try {
+    const parsed = BigInt(normalized)
+    const maximumPostgresBigint =
+      BigInt('9223372036854775807')
+
+    if (parsed > maximumPostgresBigint) {
+      fail({
+        code: 'INVALID_BASE_VERSION',
+        path,
+        message:
+          `${path} deve ser null ou um inteiro positivo em texto.`,
+      })
+    }
+  } catch {
+    fail({
+      code: 'INVALID_BASE_VERSION',
+      path,
+      message:
+        `${path} deve ser null ou um inteiro positivo em texto.`,
+    })
+  }
+
+  return normalized
+}
+
 function normalizeOccurredAt(value: unknown, path: string) {
   if (typeof value !== 'string') {
     fail({
@@ -375,6 +430,11 @@ function normalizeCaptureMessage(
     `${path}.observed_at`,
   )
 
+  const baseVersion = normalizeBaseVersion(
+    value.base_version,
+    `${path}.base_version`,
+  )
+
   const contentType = normalizeContentType(
     value.content_type,
     `${path}.content_type`,
@@ -403,6 +463,7 @@ function normalizeCaptureMessage(
       direction,
       occurred_at: occurredAt,
       observed_at: observedAt,
+      base_version: baseVersion,
       content_type: contentType,
       text_content: null,
       audio_transcription: null,
@@ -431,6 +492,7 @@ function normalizeCaptureMessage(
     direction,
     occurred_at: occurredAt,
     observed_at: observedAt,
+    base_version: baseVersion,
     content_type: contentType,
     text_content: textContent,
     audio_transcription: audioTranscription,

@@ -8,11 +8,20 @@ import {
 } from '@/app/lib/companion/capture-ingestion'
 import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 
+type IngestionRpcMessageResult = {
+  message_key?: unknown
+  synced?: unknown
+  canonical_version?: unknown
+  reason?: unknown
+}
+
 type IngestionRpcRow = {
   inserted_count?: unknown
   unchanged_count?: unknown
+  conflict_count?: unknown
   last_observed_message_id?: unknown
   state_version?: unknown
+  message_results?: unknown
 }
 
 function getCorsHeaders(request: Request) {
@@ -87,6 +96,119 @@ function normalizeBigintString(
   throw new Error(
     `Resultado inválido da RPC: ${fieldName}.`,
   )
+}
+
+function normalizePositiveBigintString(
+  value: unknown,
+  fieldName: string,
+) {
+  const normalized =
+    normalizeBigintString(
+      value,
+      fieldName,
+    )
+
+  if (!/^[1-9][0-9]*$/.test(normalized)) {
+    throw new Error(
+      `Resultado inválido da RPC: ${fieldName}.`,
+    )
+  }
+
+  return normalized
+}
+
+function normalizeMessageResults(
+  value: unknown,
+) {
+  if (!Array.isArray(value)) {
+    throw new Error(
+      'Resultado inválido da RPC: message_results.',
+    )
+  }
+
+  return value.map((item, index) => {
+    const result = item as
+      | IngestionRpcMessageResult
+      | null
+
+    if (
+      !result ||
+      typeof result !== 'object'
+    ) {
+      throw new Error(
+        `Resultado inválido da RPC: message_results[${index}].`,
+      )
+    }
+
+    const messageKey =
+      typeof result.message_key === 'string'
+        ? result.message_key.trim()
+        : ''
+
+    if (!messageKey) {
+      throw new Error(
+        `Resultado inválido da RPC: message_results[${index}].message_key.`,
+      )
+    }
+
+    if (typeof result.synced !== 'boolean') {
+      throw new Error(
+        `Resultado inválido da RPC: message_results[${index}].synced.`,
+      )
+    }
+
+    const canonicalVersion =
+      normalizePositiveBigintString(
+        result.canonical_version,
+        `message_results[${index}].canonical_version`,
+      )
+
+    let reason:
+      | 'VERSION_CONFLICT'
+      | null = null
+
+    if (
+      result.reason !== null &&
+      result.reason !== undefined
+    ) {
+      if (
+        result.reason !==
+        'VERSION_CONFLICT'
+      ) {
+        throw new Error(
+          `Resultado inválido da RPC: message_results[${index}].reason.`,
+        )
+      }
+
+      reason = 'VERSION_CONFLICT'
+    }
+
+    if (
+      result.synced === false &&
+      reason !== 'VERSION_CONFLICT'
+    ) {
+      throw new Error(
+        `Resultado inválido da RPC: message_results[${index}].reason.`,
+      )
+    }
+
+    if (
+      result.synced === true &&
+      reason !== null
+    ) {
+      throw new Error(
+        `Resultado inválido da RPC: message_results[${index}].reason.`,
+      )
+    }
+
+    return {
+      message_key: messageKey,
+      synced: result.synced,
+      canonical_version:
+        canonicalVersion,
+      reason,
+    }
+  })
 }
 
 export async function OPTIONS(request: Request) {
@@ -223,6 +345,16 @@ export async function POST(request: Request) {
       'unchanged_count',
     )
 
+    const conflictCount = normalizeCount(
+      result.conflict_count,
+      'conflict_count',
+    )
+
+    const messageResults =
+      normalizeMessageResults(
+        result.message_results,
+      )
+
     const lastObservedMessageId =
       normalizeBigintString(
         result.last_observed_message_id,
@@ -234,6 +366,46 @@ export async function POST(request: Request) {
         result.state_version,
         'state_version',
       )
+
+    if (
+      messageResults.length !==
+      envelope.messages.length
+    ) {
+      throw new Error(
+        'Resultado inválido da RPC: quantidade de message_results.',
+      )
+    }
+
+    const requestedMessageKeys =
+      new Set(
+        envelope.messages.map(
+          (message) =>
+            message.message_key,
+        ),
+      )
+
+    const returnedMessageKeys =
+      new Set(
+        messageResults.map(
+          (message) =>
+            message.message_key,
+        ),
+      )
+
+    if (
+      returnedMessageKeys.size !==
+        messageResults.length ||
+      messageResults.some(
+        (message) =>
+          !requestedMessageKeys.has(
+            message.message_key,
+          ),
+      )
+    ) {
+      throw new Error(
+        'Resultado inválido da RPC: message_results não corresponde ao lote enviado.',
+      )
+    }
 
     return NextResponse.json(
       {
@@ -247,19 +419,21 @@ export async function POST(request: Request) {
           device_key: envelope.device_key,
           observed_at:
             envelope.observed_at,
-          observed_count:
-            envelope.messages.length,
+        observed_count:
+          envelope.messages.length,
         deleted_observed_count:
           envelope.messages.filter(
             (message) => message.is_deleted,
           ).length,
         inserted_count: insertedCount,
         unchanged_count: unchangedCount,
+        conflict_count: conflictCount,
+        message_results: messageResults,
         cursor: {
           last_observed_message_id:
             lastObservedMessageId,
           state_version: stateVersion,
-        },
+          },
       },
       {
         status: 200,
