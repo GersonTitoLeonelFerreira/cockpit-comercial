@@ -360,6 +360,47 @@ test(
 )
 
 test(
+  'mascara a chave da conversa somente na resposta externa',
+  async () => {
+    const {
+      dependencies,
+      engineCalls,
+    } = createPreviewDependencies()
+
+    const {
+      promise,
+    } = runPreview({
+      dependencies,
+    })
+
+    const result =
+      await promise
+
+    assert.equal(
+      result.engine
+        .source
+        .conversation_key,
+      'whatsapp:********9999',
+    )
+
+    assert.equal(
+      JSON.stringify(
+        result,
+      ).includes(
+        CONVERSATION_KEY,
+      ),
+      false,
+    )
+
+    assert.equal(
+      engineCalls[0]
+        .conversation_key,
+      CONVERSATION_KEY,
+    )
+  },
+)
+
+test(
   'administrador pode visualizar ciclo de outro vendedor',
   async () => {
     const {

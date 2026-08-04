@@ -43,6 +43,9 @@ const TERMINAL_STATUSES =
     'perdido',
   ])
 
+const SAFE_CONVERSATION_NAMESPACE_PATTERN =
+  /^[a-z0-9_-]{1,32}$/i
+
 type JsonRecord =
   Record<string, unknown>
 
@@ -216,6 +219,41 @@ function normalizeConversationKey(
   }
 
   return normalized
+}
+
+function maskConversationKeyForPreview(
+  value: string,
+): string {
+  const separatorIndex =
+    value.indexOf(':')
+
+  const rawNamespace =
+    separatorIndex > 0
+      ? value.slice(
+          0,
+          separatorIndex,
+        )
+      : 'conversation'
+
+  const namespace =
+    SAFE_CONVERSATION_NAMESPACE_PATTERN
+      .test(rawNamespace)
+      ? rawNamespace.toLowerCase()
+      : 'conversation'
+
+  const identifier =
+    separatorIndex > 0
+      ? value.slice(
+          separatorIndex + 1,
+        )
+      : value
+
+  const visibleSuffix =
+    identifier.length > 4
+      ? identifier.slice(-4)
+      : ''
+
+  return `${namespace}:********${visibleSuffix}`
 }
 
 function normalizeReferenceTime(
@@ -627,6 +665,21 @@ export async function runCompanionDiagnosticPreview({
           .engine_dependencies,
     })
 
+  const previewEngine:
+    CompanionDiagnosticEngineResult = {
+    ...engine,
+
+    source: {
+      ...engine.source,
+
+      conversation_key:
+        maskConversationKeyForPreview(
+          engine.source
+            .conversation_key,
+        ),
+    },
+  }
+
   return {
     preview: {
       read_only: true,
@@ -635,6 +688,7 @@ export async function runCompanionDiagnosticPreview({
       cursor_advanced: false,
     },
 
-    engine,
+    engine:
+      previewEngine,
   }
 }
