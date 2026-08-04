@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v2',
+      'phase-5-prompt-v3',
     )
 
     assert.equal(
@@ -306,6 +306,61 @@ test(
 )
 
 test(
+  'prompt obriga consistência entre status limitações e confiança',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /pode usar somente analysis_status=complete ou analysis_status=limited/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Nunca use analysis_status=blocked nesta execução/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Limitações estruturais obrigatórias da entrada: nenhuma/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /analysis_status=complete, analysis_limitations precisa ser \[\]/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /analysis_status=limited, analysis_limitations não pode ser \[\]/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /conversation_context_insufficient/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /confidence=high somente é permitido quando analysis_status=complete/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Quando analysis_status=limited, confidence precisa ser medium ou low/,
+    )
+  },
+)
+
+test(
   'entrada limitada obriga preservação das limitações no prompt',
   () => {
     const plan =
@@ -338,7 +393,22 @@ test(
 
     assert.match(
       plan.request.system_prompt,
-      /não pode usar analysis_status=complete/,
+      /Limitações estruturais obrigatórias da entrada: method_not_configured, product_information_missing/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Copie todas as limitações estruturais obrigatórias/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /analysis_status=limited, analysis_limitations não pode ser \[\]/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Quando analysis_status=limited, confidence precisa ser medium ou low/,
     )
   },
 )

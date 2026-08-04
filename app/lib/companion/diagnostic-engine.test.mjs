@@ -245,7 +245,7 @@ function createDependencies({
 
     request: {
       prompt_version:
-        'phase-5-prompt-v2',
+        'phase-5-prompt-v3',
 
       diagnostic_contract_version:
         'phase-1-v1',

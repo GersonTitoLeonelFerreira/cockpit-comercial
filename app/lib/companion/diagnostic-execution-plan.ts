@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v2' as const
+  'phase-5-prompt-v3' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -269,24 +269,43 @@ export function buildBlockedCompanionDiagnostic(
 function buildRequiredLimitationsRule(
   input: CompanionDiagnosticInput,
 ): string {
-  const limitations =
-    input.analysis_precondition
-      .limitations
+  const requiredLimitations =
+    uniqueStrings(
+      input.analysis_precondition
+        .limitations,
+    )
 
-  if (limitations.length === 0) {
-    return [
-      'A entrada não possui limitações estruturais previamente identificadas.',
-      'Mesmo assim, use analysis_status=limited quando o conteúdo comercial não sustentar todas as conclusões.',
-      'Nunca transforme ausência de informação em fato.',
-    ].join(' ')
-  }
+  const requiredList =
+    requiredLimitations.length > 0
+      ? requiredLimitations.join(
+          ', ',
+        )
+      : 'nenhuma'
 
   return [
-    'A entrada possui as seguintes limitações obrigatórias:',
-    limitations.join(', '),
-    '. Todas elas precisam aparecer em analysis_limitations.',
-    'A saída não pode usar analysis_status=complete enquanto essas limitações existirem.',
-    'A confiança não pode ser high.',
+    'A saída executada pelo modelo pode usar somente analysis_status=complete ou analysis_status=limited.',
+
+    'Nunca use analysis_status=blocked nesta execução; entradas bloqueadas são resolvidas de forma determinística antes da chamada ao modelo.',
+
+    `Limitações estruturais obrigatórias da entrada: ${requiredList}.`,
+
+    'Copie todas as limitações estruturais obrigatórias para analysis_limitations, sem remover nenhuma.',
+
+    'Use analysis_status=complete se, e somente se, analysis_limitations for exatamente [].',
+
+    'Use analysis_status=limited se, e somente se, analysis_limitations contiver pelo menos um texto não vazio.',
+
+    'Se não houver limitação estrutural, mas o conteúdo não sustentar todas as conclusões, use analysis_status=limited e inclua conversation_context_insufficient em analysis_limitations.',
+
+    'Se analysis_status=complete, analysis_limitations precisa ser [].',
+
+    'Se analysis_status=limited, analysis_limitations não pode ser [].',
+
+    'confidence=high somente é permitido quando analysis_status=complete e analysis_limitations=[].',
+
+    'Quando analysis_status=limited, confidence precisa ser medium ou low.',
+
+    'Nunca transforme ausência de informação em fato.',
   ].join(' ')
 }
 
