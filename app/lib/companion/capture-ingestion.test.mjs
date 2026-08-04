@@ -18,6 +18,8 @@ function buildTextMessage(overrides = {}) {
     message_key: 'message-001',
     direction: 'incoming',
     occurred_at: '2026-07-31T15:20:00-03:00',
+    observed_at:
+      '2026-08-03T19:59:00.000Z',
     content_type: 'text',
     text_content: 'Olá, quero conhecer os planos.',
     audio_transcription: null,
@@ -52,7 +54,7 @@ test('normaliza o envelope canônico da captura', () => {
     }),
   )
 
-  assert.equal(result.contract_version, 'pt4-c-v2')
+  assert.equal(result.contract_version, 'pt4-c-v3')
   assert.equal(result.cycle_id, CYCLE_ID)
   assert.equal(result.device_key, DEVICE_ID)
   assert.equal(
@@ -69,8 +71,38 @@ test('normaliza o envelope canônico da captura', () => {
     '2026-07-31T18:20:00.000Z',
   )
   assert.equal(
+    result.messages[0].observed_at,
+    '2026-08-03T19:59:00.000Z',
+  )
+  assert.equal(
     result.messages[0].text_content,
     'Olá, quero conhecer os planos.',
+  )
+})
+
+test('preserva o horário individual mesmo quando difere do envelope', () => {
+  const result =
+    normalizeCaptureIngestionEnvelope(
+      buildEnvelope({
+        observed_at:
+          '2026-08-03T20:05:00.000Z',
+        messages: [
+          buildTextMessage({
+            observed_at:
+              '2026-08-03T20:00:00.000Z',
+          }),
+        ],
+      }),
+    )
+
+  assert.equal(
+    result.observed_at,
+    '2026-08-03T20:05:00.000Z',
+  )
+
+  assert.equal(
+    result.messages[0].observed_at,
+    '2026-08-03T20:00:00.000Z',
   )
 })
 
@@ -127,6 +159,8 @@ test('aceita mensagem de áudio sem transcrição', () => {
           message_key: 'audio-001',
           direction: 'incoming',
           occurred_at: '2026-07-31T18:21:00.000Z',
+          observed_at:
+          '2026-08-03T19:59:00.000Z',
           content_type: 'audio',
           text_content: null,
           audio_transcription: null,
@@ -149,6 +183,8 @@ test('aceita mensagem de áudio com legenda e transcrição', () => {
           message_key: 'audio-002',
           direction: 'outgoing',
           occurred_at: '2026-07-31T18:22:00.000Z',
+          observed_at:
+          '2026-08-03T19:59:00.000Z',
           content_type: 'audio',
           text_content: 'Explicação do plano',
           audio_transcription: 'Aqui está a explicação completa.',

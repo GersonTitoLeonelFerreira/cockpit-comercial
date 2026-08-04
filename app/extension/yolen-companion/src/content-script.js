@@ -960,8 +960,9 @@
       1
   }
 
-  function buildReliableMessageFromNode(
+    function buildReliableMessageFromNode(
     node,
+    observedAt,
   ) {
     const id = getMessageDataId(node)
 
@@ -1013,18 +1014,21 @@
         getMessageSenderFromPrePlainText(
           prePlainText,
         ),
-      text,
-      hasAudio,
-    }
+        text,
+        hasAudio,
+        observedAt,
+      }
   }
 
   function buildDeletedMessageSnapshotFromNode(
     node,
     previousMessage = null,
+    observedAt,
   ) {
     if (previousMessage) {
       return {
         ...previousMessage,
+        observedAt,
       }
     }
 
@@ -1069,6 +1073,7 @@
         messageContainerHasAudio(
           container,
         ),
+      observedAt,
     }
   }
 
@@ -1149,12 +1154,15 @@
     const main =
       getMainConversationRoot()
 
-    if (!main) {
-      return false
-    }
+      if (!main) {
+        return false
+      }
 
-    let detectedMessageMutation =
-      false
+      const observedAt =
+        new Date().toISOString()
+
+      let detectedMessageMutation =
+        false
 
     main
       .querySelectorAll(
@@ -1169,16 +1177,30 @@
         }
 
         if (isDeletedMessageNode(node)) {
+          const messageWasAlreadyDeleted =
+            deletedMessageIds.has(
+              messageId,
+            )
+
           const previousMessage =
             conversationMessageLedger.get(
               messageId,
             )
 
-          const deletedSnapshot =
-            buildDeletedMessageSnapshotFromNode(
-              node,
-              previousMessage,
+          const previousDeletedSnapshot =
+            deletedMessageSnapshots.get(
+              messageId,
             )
+
+          const deletedSnapshot =
+            messageWasAlreadyDeleted &&
+            previousDeletedSnapshot
+              ? previousDeletedSnapshot
+              : buildDeletedMessageSnapshotFromNode(
+                  node,
+                  previousMessage,
+                  observedAt,
+                )
 
           conversationMessageLedger.delete(
             messageId,
@@ -1191,11 +1213,7 @@
             )
           }
 
-          if (
-            !deletedMessageIds.has(
-              messageId,
-            )
-          ) {
+          if (!messageWasAlreadyDeleted) {
             deletedMessageIds.add(
               messageId,
             )
@@ -1214,6 +1232,7 @@
         const message =
           buildReliableMessageFromNode(
             node,
+            observedAt,
           )
 
         if (!message) {
@@ -1230,20 +1249,23 @@
             message.id,
           )
 
+        const messageChanged =
+          Boolean(
+            currentMessage &&
+            !messageMutationTools
+              .areCapturedMessagesEqual(
+                currentMessage,
+                message,
+              ),
+          )
+
         deletedMessageSnapshots.delete(
           message.id,
         )
 
         if (
           messageWasDeleted ||
-          (
-            currentMessage &&
-            !messageMutationTools
-              .areCapturedMessagesEqual(
-                currentMessage,
-                message,
-              )
-          )
+          messageChanged
         ) {
           rememberPendingCaptureMutation(
             message.id,
@@ -1253,9 +1275,20 @@
             true
         }
 
+        const messageToStore =
+          currentMessage &&
+          !messageWasDeleted &&
+          !messageChanged
+            ? {
+                ...message,
+                observedAt:
+                  currentMessage.observedAt,
+              }
+            : message
+
         conversationMessageLedger.set(
           message.id,
-          message,
+          messageToStore,
         )
       })
 
@@ -1568,8 +1601,6 @@
       .buildCaptureIngestionPlan({
         cycleId,
         conversationKey,
-        observedAt:
-          new Date().toISOString(),
         activeMessages:
           captureWindow.activeMessages,
           deletedMessages:
@@ -1579,13 +1610,31 @@
             {},
         })
 
-    return {
-      ...plan,
-      contextKey: [
-        cycleId,
-        conversationKey,
-      ].join('::'),
-    }
+        const capturedMessageKeys =
+        new Set(
+          plan.messages.map(
+            (message) =>
+              message.message_key,
+          ),
+        )
+
+      const pendingMutationKeys =
+        Array.from(
+          pendingCaptureMutationIds,
+        ).filter((messageId) => {
+          return capturedMessageKeys.has(
+            messageId,
+          )
+        })
+
+      return {
+        ...plan,
+        contextKey: [
+          cycleId,
+          conversationKey,
+        ].join('::'),
+        pendingMutationKeys,
+      }
   }
 
   function rememberSuccessfulCapture(
@@ -1632,6 +1681,57 @@
         contextKey,
       )
     }
+  }
+
+  function forgetCapturedMutationKeys(
+    contextKey,
+    plan,
+  ) {
+    const currentPlan =
+      pendingCaptureIngestionPlans.get(
+        contextKey,
+      )
+
+    if (
+      currentPlan?.snapshotKey !==
+        plan.snapshotKey ||
+      currentPlan?.observedAt !==
+        plan.observedAt
+    ) {
+      return
+    }
+
+    const currentCycleId =
+      state.leadResolution?.cycle?.id
+
+    const currentConversationKey =
+      getCaptureConversationKey()
+
+    const currentContextKey =
+      currentCycleId &&
+      currentConversationKey
+        ? [
+            currentCycleId,
+            currentConversationKey,
+          ].join('::')
+        : null
+
+    if (
+      currentContextKey !== contextKey ||
+      !Array.isArray(
+        plan.pendingMutationKeys,
+      )
+    ) {
+      return
+    }
+
+    plan.pendingMutationKeys.forEach(
+      (messageId) => {
+        pendingCaptureMutationIds.delete(
+          messageId,
+        )
+      },
+    )
   }
 
   async function runCaptureIngestion() {
@@ -1711,6 +1811,11 @@
               throw requestError
             }
           }
+
+          forgetCapturedMutationKeys(
+            contextKey,
+            plan,
+          )
 
           rememberSuccessfulCapture(
             contextKey,
@@ -2632,7 +2737,9 @@
           targetKey: nextTarget.key,
           capturedBlobId: audioCapture.capturedBlobId,
           text: result.payload.data.text,
-          occurredAt: result.payload.data.occurred_at || null,
+          occurredAt:
+            result.payload.data.occurred_at ||
+            new Date().toISOString(),
         },
       }
 

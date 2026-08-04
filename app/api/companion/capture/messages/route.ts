@@ -167,13 +167,7 @@ export async function POST(request: Request) {
           envelope.conversation_key,
           p_device_key: envelope.device_key,
           p_messages:
-            envelope.messages.map(
-              (message) => ({
-                ...message,
-                observed_at:
-                  envelope.observed_at,
-              }),
-            ),
+            envelope.messages,
       },
     )
 

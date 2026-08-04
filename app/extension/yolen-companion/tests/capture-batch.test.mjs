@@ -23,6 +23,8 @@ function activeMessage(overrides = {}) {
     sender: 'Lead',
     text: 'Olá, quero conhecer os planos.',
     hasAudio: false,
+    observedAt:
+      '2026-08-03T20:00:00.000Z',
     ...overrides,
   }
 }
@@ -197,6 +199,8 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
       direction: 'incoming',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
+      observed_at:
+        '2026-08-03T20:00:00.000Z',
       content_type: 'text',
       text_content:
         'Olá, quero conhecer os planos.',
@@ -208,6 +212,8 @@ test('converte mensagens de texto e áudio para o contrato de ingestão', () => 
       direction: 'outgoing',
       occurred_at:
         '2026-08-02T18:01:00.000Z',
+      observed_at:
+        '2026-08-03T20:00:00.000Z',
       content_type: 'audio',
       text_content: null,
       audio_transcription:
@@ -270,48 +276,78 @@ test('preserva mensagem longa e detecta edição depois do caractere quatro mil'
     )
   })
 
-  test('preserva o instante original da observação sem alterar o fingerprint do estado', () => {
+  test('preserva a observação individual sem alterar o fingerprint do estado', () => {
     const firstObservation =
       buildCaptureIngestionPlan({
         cycleId:
           '30000000-0000-4000-8000-000000000001',
         conversationKey:
           'phone:5511999990001',
-        observedAt:
-          '2026-08-03T20:00:00.000Z',
         activeMessages: [
-          activeMessage(),
+          activeMessage({
+            observedAt:
+              '2026-08-03T20:00:00.000Z',
+          }),
+          activeMessage({
+            id: 'message-002',
+            timestampMs: Date.parse(
+              '2026-08-02T18:01:00.000Z',
+            ),
+            observedAt:
+              '2026-08-03T20:05:00.000Z',
+          }),
         ],
       })
 
-    const laterRetry =
+    const laterObservation =
       buildCaptureIngestionPlan({
         cycleId:
           '30000000-0000-4000-8000-000000000001',
         conversationKey:
           'phone:5511999990001',
-        observedAt:
-          '2026-08-03T20:05:00.000Z',
         activeMessages: [
-          activeMessage(),
+          activeMessage({
+            observedAt:
+              '2026-08-03T20:10:00.000Z',
+          }),
+          activeMessage({
+            id: 'message-002',
+            timestampMs: Date.parse(
+              '2026-08-02T18:01:00.000Z',
+            ),
+            observedAt:
+              '2026-08-03T20:10:00.000Z',
+          }),
         ],
       })
 
     assert.equal(
-      firstObservation.observedAt,
+      firstObservation.messages[0]
+        .observed_at,
       '2026-08-03T20:00:00.000Z',
+    )
+
+    assert.equal(
+      firstObservation.messages[1]
+        .observed_at,
+      '2026-08-03T20:05:00.000Z',
+    )
+
+    assert.equal(
+      firstObservation.observedAt,
+      '2026-08-03T20:05:00.000Z',
     )
 
     assert.equal(
       firstObservation
         .batches[0]
         .observed_at,
-      firstObservation.observedAt,
+      '2026-08-03T20:05:00.000Z',
     )
 
     assert.equal(
       firstObservation.snapshotKey,
-      laterRetry.snapshotKey,
+      laterObservation.snapshotKey,
     )
   })
 
@@ -333,6 +369,8 @@ test('mensagem excluída não preserva conteúdo ou transcrição', () => {
       direction: 'incoming',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
+      observed_at:
+        '2026-08-03T20:00:00.000Z',
       content_type: 'audio',
       text_content: null,
       audio_transcription: null,
@@ -372,6 +410,8 @@ test('mensagem restaurada ativa prevalece sobre a fotografia excluída', () => {
       direction: 'incoming',
       occurred_at:
         '2026-08-02T18:00:00.000Z',
+      observed_at:
+        '2026-08-03T20:00:00.000Z',
       content_type: 'text',
       text_content:
         'Mensagem restaurada.',

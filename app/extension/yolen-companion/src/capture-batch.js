@@ -14,7 +14,7 @@
       ? globalThis
       : this,
     function createYolenCompanionCaptureBatch() {
-      const CONTRACT_VERSION = 'pt4-c-v2'
+      const CONTRACT_VERSION = 'pt4-c-v3'
       const DEFAULT_MAX_BATCH_SIZE = 200
 
       function isRecord(value) {
@@ -66,6 +66,16 @@
         return date.toISOString()
       }
 
+      function normalizeObservedAt(value) {
+        if (typeof value !== 'string') {
+          return null
+        }
+
+        return normalizeOccurredAt(
+          Date.parse(value),
+        )
+      }
+
       function normalizeDirection(value) {
         return value === 'outgoing'
           ? 'outgoing'
@@ -107,7 +117,7 @@
         )
       }
 
-      function getAudioTranscription(
+      function getAudioTranscriptionEntry(
         messageKey,
         transcriptionsByKey,
       ) {
@@ -124,9 +134,26 @@
           )
         })
 
-        return normalizeNullableText(
-          entry?.text,
-        )
+        return isRecord(entry)
+          ? entry
+          : null
+      }
+
+      function getLatestObservedAt(
+        ...values
+      ) {
+        const normalizedValues = values
+          .map((value) =>
+            normalizeObservedAt(value),
+          )
+          .filter(Boolean)
+          .sort()
+
+        return normalizedValues.length > 0
+          ? normalizedValues[
+              normalizedValues.length - 1
+            ]
+          : null
       }
 
       function buildActiveCaptureMessage(
@@ -147,12 +174,30 @@
             message.timestampMs,
           )
 
-        if (!messageKey || !occurredAt) {
-          return null
-        }
-
         const hasAudio =
           message.hasAudio === true
+
+        const transcriptionEntry =
+          hasAudio
+            ? getAudioTranscriptionEntry(
+                messageKey,
+                transcriptionsByKey,
+              )
+            : null
+
+        const observedAt =
+          getLatestObservedAt(
+            message.observedAt,
+            transcriptionEntry?.occurredAt,
+          )
+
+        if (
+          !messageKey ||
+          !occurredAt ||
+          !observedAt
+        ) {
+          return null
+        }
 
         const textContent =
           normalizeNullableText(
@@ -161,9 +206,8 @@
 
         const audioTranscription =
           hasAudio
-            ? getAudioTranscription(
-                messageKey,
-                transcriptionsByKey,
+            ? normalizeNullableText(
+                transcriptionEntry?.text,
               )
             : null
 
@@ -178,6 +222,7 @@
               message.direction,
             ),
           occurred_at: occurredAt,
+          observed_at: observedAt,
           content_type:
             hasAudio ? 'audio' : 'text',
           text_content: textContent,
@@ -204,7 +249,16 @@
             message.timestampMs,
           )
 
-        if (!messageKey || !occurredAt) {
+        const observedAt =
+          normalizeObservedAt(
+            message.observedAt,
+          )
+
+        if (
+          !messageKey ||
+          !occurredAt ||
+          !observedAt
+        ) {
           return null
         }
 
@@ -215,6 +269,7 @@
               message.direction,
             ),
           occurred_at: occurredAt,
+          observed_at: observedAt,
           content_type:
             message.hasAudio === true
               ? 'audio'
@@ -434,11 +489,26 @@
         conversationKey,
         messages,
       }) {
+        const messageStates =
+          Array.isArray(messages)
+            ? messages.map((message) => {
+                return [
+                  message.message_key,
+                  message.direction,
+                  message.occurred_at,
+                  message.content_type,
+                  message.text_content,
+                  message.audio_transcription,
+                  message.is_deleted,
+                ]
+              })
+            : []
+
         return fingerprintText(
           JSON.stringify([
             cycleId,
             conversationKey,
-            messages,
+            messageStates,
           ]),
         )
       }
@@ -446,8 +516,6 @@
       function buildCaptureIngestionPlan({
         cycleId,
         conversationKey,
-        observedAt =
-          new Date().toISOString(),
         activeMessages = [],
         deletedMessages = [],
         transcriptionsByKey = {},
@@ -457,14 +525,9 @@
         const normalizedCycleId =
           normalizeRequiredText(cycleId)
 
-          const normalizedConversationKey =
+        const normalizedConversationKey =
           normalizeRequiredText(
             conversationKey,
-          )
-
-        const normalizedObservedAt =
-          normalizeOccurredAt(
-            Date.parse(observedAt),
           )
 
         if (!normalizedCycleId) {
@@ -479,18 +542,46 @@
           )
         }
 
-        if (!normalizedObservedAt) {
-          throw new Error(
-            'O instante da observação da captura é inválido.',
-          )
-        }
-
         const messages =
           buildCaptureMessages({
             activeMessages,
             deletedMessages,
             transcriptionsByKey,
           })
+
+        const normalizedObservedAt =
+          messages.reduce(
+            (latestObservedAt, message) => {
+              const messageObservedAt =
+                normalizeObservedAt(
+                  message.observed_at,
+                )
+
+              if (!messageObservedAt) {
+                return latestObservedAt
+              }
+
+              if (
+                !latestObservedAt ||
+                messageObservedAt >
+                  latestObservedAt
+              ) {
+                return messageObservedAt
+              }
+
+              return latestObservedAt
+            },
+            null,
+          )
+
+        if (
+          messages.length > 0 &&
+          !normalizedObservedAt
+        ) {
+          throw new Error(
+            'As mensagens da captura precisam possuir um instante de observação válido.',
+          )
+        }
 
         const snapshotKey =
           buildCaptureSnapshotKey({
@@ -519,13 +610,13 @@
             }
           })
 
-          return {
-            snapshotKey,
-            observedAt:
-              normalizedObservedAt,
-            messages,
-            batches,
-          }
+        return {
+          snapshotKey,
+          observedAt:
+            normalizedObservedAt,
+          messages,
+          batches,
+        }
       }
 
       return {

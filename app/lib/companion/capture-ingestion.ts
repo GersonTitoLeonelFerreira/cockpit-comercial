@@ -1,4 +1,4 @@
-export const CAPTURE_INGESTION_CONTRACT_VERSION = 'pt4-c-v2' as const
+export const CAPTURE_INGESTION_CONTRACT_VERSION = 'pt4-c-v3' as const
 
 export const MAX_CAPTURE_BATCH_SIZE = 200
 export const MAX_CONVERSATION_KEY_LENGTH = 500
@@ -13,6 +13,7 @@ export type NormalizedCaptureMessage = {
   message_key: string
   direction: CaptureDirection
   occurred_at: string
+  observed_at: string
   content_type: CaptureContentType
   text_content: string | null
   audio_transcription: string | null
@@ -369,6 +370,11 @@ function normalizeCaptureMessage(
     `${path}.occurred_at`,
   )
 
+  const observedAt = normalizeObservedAt(
+    value.observed_at,
+    `${path}.observed_at`,
+  )
+
   const contentType = normalizeContentType(
     value.content_type,
     `${path}.content_type`,
@@ -396,6 +402,7 @@ function normalizeCaptureMessage(
       message_key: messageKey,
       direction,
       occurred_at: occurredAt,
+      observed_at: observedAt,
       content_type: contentType,
       text_content: null,
       audio_transcription: null,
@@ -423,6 +430,7 @@ function normalizeCaptureMessage(
     message_key: messageKey,
     direction,
     occurred_at: occurredAt,
+    observed_at: observedAt,
     content_type: contentType,
     text_content: textContent,
     audio_transcription: audioTranscription,

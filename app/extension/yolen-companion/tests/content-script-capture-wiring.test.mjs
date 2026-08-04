@@ -139,7 +139,49 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     )
   })
 
-  test('materializa o instante da observação antes do retry', () => {
+  test('materializa o instante quando cada mensagem é observada no DOM', () => {
+    const synchronizeStart =
+      contentScript.indexOf(
+        '  function synchronizeConversationMessageLedger()',
+      )
+
+    const synchronizeEnd =
+      contentScript.indexOf(
+        '\n  function getSortedLedgerMessages()',
+        synchronizeStart,
+      )
+
+    assert.notEqual(
+      synchronizeStart,
+      -1,
+    )
+
+    assert.notEqual(
+      synchronizeEnd,
+      -1,
+    )
+
+    const synchronizeBlock =
+      contentScript.slice(
+        synchronizeStart,
+        synchronizeEnd,
+      )
+
+    assert.match(
+      synchronizeBlock,
+      /const observedAt =\s*new Date\(\)\.toISOString\(\)/,
+    )
+
+    assert.match(
+      synchronizeBlock,
+      /buildReliableMessageFromNode\(\s*node,\s*observedAt,\s*\)/,
+    )
+
+    assert.match(
+      synchronizeBlock,
+      /buildDeletedMessageSnapshotFromNode\(\s*node,\s*previousMessage,\s*observedAt,\s*\)/,
+    )
+
     const buildPlanStart =
       contentScript.indexOf(
         '  function buildCurrentCapturePlan()',
@@ -151,25 +193,15 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
         buildPlanStart,
       )
 
-    assert.notEqual(
-      buildPlanStart,
-      -1,
-    )
-
-    assert.notEqual(
-      buildPlanEnd,
-      -1,
-    )
-
     const buildPlanBlock =
       contentScript.slice(
         buildPlanStart,
         buildPlanEnd,
       )
 
-    assert.match(
+    assert.doesNotMatch(
       buildPlanBlock,
-      /observedAt:\s*new Date\(\)\.toISOString\(\)/,
+      /observedAt:\s*new Date/,
     )
 
     const runIngestionStart =
@@ -192,6 +224,101 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     assert.doesNotMatch(
       retryBlock,
       /observedAt:\s*new Date/,
+    )
+  })
+
+  test('mensagem inalterada preserva o instante observado anteriormente', () => {
+    const synchronizeStart =
+      contentScript.indexOf(
+        '  function synchronizeConversationMessageLedger()',
+      )
+
+    const synchronizeEnd =
+      contentScript.indexOf(
+        '\n  function getSortedLedgerMessages()',
+        synchronizeStart,
+      )
+
+    const synchronizeBlock =
+      contentScript.slice(
+        synchronizeStart,
+        synchronizeEnd,
+      )
+
+    assert.match(
+      synchronizeBlock,
+      /observedAt:\s*currentMessage\.observedAt/,
+    )
+
+    assert.match(
+      synchronizeBlock,
+      /messageWasAlreadyDeleted\s*&&\s*previousDeletedSnapshot/,
+    )
+  })
+
+  test('mutações confirmadas são removidas somente do plano atual', () => {
+    const helperStart =
+      contentScript.indexOf(
+        '  function forgetCapturedMutationKeys(',
+      )
+
+    const helperEnd =
+      contentScript.indexOf(
+        '\n  async function runCaptureIngestion()',
+        helperStart,
+      )
+
+    assert.notEqual(
+      helperStart,
+      -1,
+    )
+
+    assert.notEqual(
+      helperEnd,
+      -1,
+    )
+
+    const helperBlock =
+      contentScript.slice(
+        helperStart,
+        helperEnd,
+      )
+
+    assert.match(
+      helperBlock,
+      /currentPlan\?\.snapshotKey\s*!==\s*plan\.snapshotKey/,
+    )
+
+    assert.match(
+      helperBlock,
+      /currentPlan\?\.observedAt\s*!==\s*plan\.observedAt/,
+    )
+
+    assert.match(
+      helperBlock,
+      /pendingCaptureMutationIds\.delete/,
+    )
+
+    const runStart =
+      contentScript.indexOf(
+        '  async function runCaptureIngestion()',
+      )
+
+    const runEnd =
+      contentScript.indexOf(
+        '\n  function schedulePendingCaptureIngestion(',
+        runStart,
+      )
+
+    const runBlock =
+      contentScript.slice(
+        runStart,
+        runEnd,
+      )
+
+    assert.match(
+      runBlock,
+      /forgetCapturedMutationKeys\(\s*contextKey,\s*plan,\s*\)/,
     )
   })
 
