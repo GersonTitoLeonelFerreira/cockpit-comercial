@@ -212,6 +212,11 @@ test(
     )
 
     assert.equal(
+      COMPANION_DIAGNOSTIC_PROMPT_VERSION,
+      'phase-5-prompt-v2',
+    )
+
+    assert.equal(
       plan.request
         .diagnostic_contract_version,
       'phase-1-v1',
@@ -236,6 +241,66 @@ test(
       payload.input.conversation
         .active_message_ids,
       ['1', '2'],
+    )
+  },
+)
+
+test(
+  'prompt descreve a estrutura exata dos blocos aninhados',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"guidance": \{/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"intervention_required": false/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"next_move": null/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"recommended_question": null/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"suggested_message": null/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /guidance precisa ser sempre um objeto/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"crm_suggestion": \{/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"requires_human_confirmation": true/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não remova campos/,
     )
   },
 )

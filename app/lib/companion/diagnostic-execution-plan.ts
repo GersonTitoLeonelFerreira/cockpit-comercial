@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v1' as const
+  'phase-5-prompt-v2' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -290,6 +290,120 @@ function buildRequiredLimitationsRule(
   ].join(' ')
 }
 
+function buildRequiredOutputShape(
+  input: CompanionDiagnosticInput,
+): string {
+  const hasRequiredLimitations =
+    input.analysis_precondition
+      .limitations.length > 0
+
+  return JSON.stringify(
+    {
+      contract_version:
+        COMPANION_DIAGNOSTIC_CONTRACT_VERSION,
+
+      analysis_status:
+        hasRequiredLimitations
+          ? 'limited'
+          : 'complete',
+
+      analysis_limitations:
+        input.analysis_precondition
+          .limitations,
+
+      commercial_relevance:
+        'uncertain',
+
+      confidence:
+        hasRequiredLimitations
+          ? 'low'
+          : 'medium',
+
+      customer_intent:
+        null,
+
+      needs: [],
+
+      missing_information: [],
+
+      unanswered_questions: [],
+
+      active_objections: [],
+
+      seller_assessment: {
+        strengths: [],
+        risks: [],
+      },
+
+      sales_method: {
+        configured:
+          input.commercial_context
+            .sales_method
+            .configured,
+
+        current_step:
+          null,
+
+        completed_steps: [],
+
+        skipped_steps: [],
+
+        evidence_message_ids: [],
+      },
+
+      solution_fit: {
+        status:
+          'unknown',
+
+        rationale:
+          null,
+
+        evidence_message_ids: [],
+      },
+
+      guidance: {
+        intervention_required:
+          false,
+
+        next_move:
+          null,
+
+        recommended_question:
+          null,
+
+        suggested_message:
+          null,
+      },
+
+      crm_suggestion: {
+        should_change_crm_stage:
+          false,
+
+        recommended_status:
+          null,
+
+        next_action_required:
+          false,
+
+        expected_next_action_at:
+          null,
+
+        prohibited_statuses: [
+          'ganho',
+          'perdido',
+        ],
+
+        requires_human_confirmation:
+          true,
+      },
+
+      evidence_message_ids: [],
+    },
+    null,
+    2,
+  )
+}
+
 function buildSystemPrompt(
   input: CompanionDiagnosticInput,
 ): string {
@@ -359,6 +473,32 @@ function buildSystemPrompt(
     buildRequiredLimitationsRule(
       input,
     ),
+
+    'Use exatamente a estrutura JSON abaixo.',
+
+    'Preserve todos os campos, objetos, listas, booleanos e valores null.',
+
+    'Os valores apresentados são somente um exemplo estrutural. Substitua-os conforme a conversa e somente quando houver evidência.',
+
+    buildRequiredOutputShape(
+      input,
+    ),
+
+    'guidance precisa ser sempre um objeto. Nunca retorne guidance como texto, lista, booleano ou null.',
+
+    'guidance precisa conter exatamente intervention_required, next_move, recommended_question e suggested_message.',
+
+    'customer_intent, quando não for null, precisa ser um objeto com summary e evidence_message_ids.',
+
+    'Cada item de needs, unanswered_questions, active_objections e seller_assessment.strengths precisa conter summary e evidence_message_ids.',
+
+    'Cada item de missing_information precisa conter summary e reason.',
+
+    'Cada item de seller_assessment.risks precisa conter type, summary e evidence_message_ids.',
+
+    'sales_method, solution_fit, seller_assessment, guidance e crm_suggestion precisam ser objetos JSON, nunca textos ou listas.',
+
+    'Não remova campos mesmo quando o valor correto for null, false ou uma lista vazia.',
 
     'O JSON precisa conter todos estes blocos:',
 
