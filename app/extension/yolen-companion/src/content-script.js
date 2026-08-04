@@ -11,6 +11,7 @@
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
+  const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
 
   const messageMutationTools =
     globalThis
@@ -34,7 +35,9 @@
 
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
-  let leadResolutionInFlight = false
+
+  const leadResolutionInFlightKeys =
+    new Set()
   let autoContactLookupInFlight = false
   let capturedAudioBlobEntries = []
   let automaticAnalysisTimerId = 0
@@ -57,7 +60,11 @@
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
   const lastIngestedCaptureKeys = new Map()
+
   const pendingCaptureIngestionPlans =
+    new Map()
+
+  const retainedPreResolutionCaptures =
     new Map()
 
   let state = {
@@ -1580,6 +1587,244 @@
         pendingMutationKeys:
           pendingCaptureMutationIds,
       })
+  }
+
+  function cloneCaptureTranscriptions(
+    transcriptionsByKey,
+  ) {
+    return Object.fromEntries(
+      Object.entries(
+        transcriptionsByKey || {},
+      ).map(([key, value]) => {
+        return [
+          key,
+          value &&
+          typeof value === 'object'
+            ? {
+                ...value,
+              }
+            : value,
+        ]
+      }),
+    )
+  }
+
+  function rememberCurrentPreResolutionCapture() {
+    const conversationKey =
+      state.conversationKey
+
+    const captureConversationKey =
+      getCaptureConversationKey()
+
+    const resolutionIsEligible =
+      captureBatchTools
+        .isCaptureResolutionEligible(
+          state.leadResolution,
+        )
+
+    if (
+      !conversationKey ||
+      !captureConversationKey ||
+      resolutionIsEligible
+    ) {
+      return
+    }
+
+    const activeMessages =
+      Array.from(
+        conversationMessageLedger.values(),
+      ).map((message) => {
+        return {
+          ...message,
+        }
+      })
+
+    const deletedMessages =
+      Array.from(
+        deletedMessageSnapshots.values(),
+      ).map((message) => {
+        return {
+          ...message,
+        }
+      })
+
+    if (
+      activeMessages.length === 0 &&
+      deletedMessages.length === 0
+    ) {
+      return
+    }
+
+    retainedPreResolutionCaptures.delete(
+      conversationKey,
+    )
+
+    retainedPreResolutionCaptures.set(
+      conversationKey,
+      {
+        conversationKey,
+        captureConversationKey,
+        activeMessages,
+        deletedMessages,
+        pendingMutationKeys:
+          Array.from(
+            pendingCaptureMutationIds,
+          ),
+        transcriptionsByKey:
+          cloneCaptureTranscriptions(
+            state.audioTranscriptionsByKey,
+          ),
+      },
+    )
+
+    if (
+      retainedPreResolutionCaptures.size >
+      MAX_RETAINED_PRE_RESOLUTION_CAPTURES
+    ) {
+      const oldestConversationKey =
+        retainedPreResolutionCaptures
+          .keys()
+          .next()
+          .value
+
+      if (oldestConversationKey) {
+        retainedPreResolutionCaptures.delete(
+          oldestConversationKey,
+        )
+      }
+    }
+  }
+
+  function enqueueRetainedPreResolutionCapture(
+    conversationKey,
+    resolution,
+  ) {
+    const snapshot =
+      retainedPreResolutionCaptures.get(
+        conversationKey,
+      )
+
+    if (!snapshot) {
+      return false
+    }
+
+    const resolutionIsEligible =
+      captureBatchTools
+        .isCaptureResolutionEligible(
+          resolution,
+        )
+
+    const cycleId =
+      resolution?.cycle?.id
+
+    if (
+      !resolutionIsEligible ||
+      !cycleId
+    ) {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    const captureWindow =
+      captureBatchTools
+        .selectCaptureWindow({
+          activeMessages:
+            snapshot.activeMessages,
+          deletedMessages:
+            snapshot.deletedMessages,
+          pendingMutationKeys:
+            snapshot.pendingMutationKeys,
+        })
+
+    let plan
+
+    try {
+      plan =
+        captureBatchTools
+          .buildCaptureIngestionPlan({
+            cycleId,
+            conversationKey:
+              snapshot.captureConversationKey,
+            activeMessages:
+              captureWindow.activeMessages,
+            deletedMessages:
+              captureWindow.deletedMessages,
+            transcriptionsByKey:
+              snapshot.transcriptionsByKey,
+          })
+    } catch {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    if (
+      !plan ||
+      plan.messages.length === 0
+    ) {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    const capturedMessageKeys =
+      new Set(
+        plan.messages.map((message) => {
+          return message.message_key
+        }),
+      )
+
+    const pendingMutationKeys =
+      snapshot.pendingMutationKeys.filter(
+        (messageId) => {
+          return capturedMessageKeys.has(
+            messageId,
+          )
+        },
+      )
+
+    const contextKey = [
+      cycleId,
+      snapshot.captureConversationKey,
+    ].join('::')
+
+    if (
+      lastIngestedCaptureKeys.get(
+        contextKey,
+      ) === plan.snapshotKey
+    ) {
+      retainedPreResolutionCaptures.delete(
+        conversationKey,
+      )
+
+      return false
+    }
+
+    pendingCaptureIngestionPlans.set(
+      contextKey,
+      {
+        ...plan,
+        contextKey,
+        pendingMutationKeys,
+      },
+    )
+
+    retainedPreResolutionCaptures.delete(
+      conversationKey,
+    )
+
+    schedulePendingCaptureIngestion(
+      CAPTURE_INGESTION_DELAY_MS,
+    )
+
+    return true
   }
 
   function buildCurrentCapturePlan() {
@@ -3250,15 +3495,17 @@
       previousConversationKey !==
       conversationKey
 
-    if (conversationChanged) {
-      lastResolvedConversationKey = null
+      if (conversationChanged) {
+        rememberCurrentPreResolutionCapture()
 
-      resetConversationMessageLedger(
-        conversationKey,
-      )
+        lastResolvedConversationKey = null
 
-      clearLeadStateForNewConversation()
-    }
+        resetConversationMessageLedger(
+          conversationKey,
+        )
+
+        clearLeadStateForNewConversation()
+      }
 
     state = {
       ...state,
@@ -3273,6 +3520,8 @@
 
     const messageMutationDetected =
       synchronizeConversationMessageLedger()
+
+    rememberCurrentPreResolutionCapture()
 
     state = {
       ...state,
@@ -4540,11 +4789,10 @@
   }
 
   async function resolveCurrentLead() {
-    if (leadResolutionInFlight) {
-      return
-    }
-
-    if (!state.connected || state.isSelfConversation) {
+    if (
+      !state.connected ||
+      state.isSelfConversation
+    ) {
       return
     }
 
@@ -4560,10 +4808,27 @@
       return
     }
 
-    const phoneAtRequest = state.conversationPhone
-    const keyAtRequest = state.conversationKey
+    const phoneAtRequest =
+      state.conversationPhone
 
-    leadResolutionInFlight = true
+    const keyAtRequest =
+      state.conversationKey
+
+    const titleAtRequest =
+      state.conversationTitle
+
+    if (
+      !keyAtRequest ||
+      leadResolutionInFlightKeys.has(
+        keyAtRequest,
+      )
+    ) {
+      return
+    }
+
+    leadResolutionInFlightKeys.add(
+      keyAtRequest,
+    )
 
     state = {
       ...state,
@@ -4574,17 +4839,35 @@
 
     renderPanel()
 
+    const requestStillCurrent = () => {
+      return (
+        state.conversationPhone ===
+          phoneAtRequest &&
+        state.conversationKey ===
+          keyAtRequest
+      )
+    }
+
     try {
-      const result = await window.YolenCompanionApi.resolveLead({
-        phone: phoneAtRequest,
-        display_name: state.conversationTitle,
-      })
+      const result =
+        await window.YolenCompanionApi
+          .resolveLead({
+            phone: phoneAtRequest,
+            display_name: titleAtRequest,
+          })
 
-      if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
-        return
-      }
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        retainedPreResolutionCaptures.delete(
+          keyAtRequest,
+        )
 
-      if (!result?.ok || !result.payload?.ok) {
+        if (!requestStillCurrent()) {
+          return
+        }
+
         state = {
           ...state,
           leadResolutionLoading: false,
@@ -4595,6 +4878,15 @@
         }
 
         renderPanel()
+        return
+      }
+
+      enqueueRetainedPreResolutionCapture(
+        keyAtRequest,
+        result.payload,
+      )
+
+      if (!requestStillCurrent()) {
         return
       }
 
@@ -4619,7 +4911,11 @@
           )
         })
     } catch (error) {
-      if (state.conversationPhone !== phoneAtRequest || state.conversationKey !== keyAtRequest) {
+      retainedPreResolutionCaptures.delete(
+        keyAtRequest,
+      )
+
+      if (!requestStillCurrent()) {
         return
       }
 
@@ -4628,14 +4924,17 @@
         leadResolutionLoading: false,
         leadResolution: null,
         leadResolutionError:
-          error instanceof Error && error.message
+          error instanceof Error &&
+          error.message
             ? error.message
             : 'Erro ao localizar lead na Yolen.',
       }
 
       renderPanel()
     } finally {
-      leadResolutionInFlight = false
+      leadResolutionInFlightKeys.delete(
+        keyAtRequest,
+      )
     }
   }
 

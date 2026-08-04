@@ -322,7 +322,178 @@ test('limita o texto somente ao preparar mensagens para análise', () => {
     )
   })
 
-test('observador agenda a ingestão depois de atualizar o ledger', () => {
+  test('retém capturas pré-resolução por conversa até a resolução correspondente', () => {
+    const helperStart =
+      contentScript.indexOf(
+        '  function rememberCurrentPreResolutionCapture()',
+      )
+
+    const helperEnd =
+      contentScript.indexOf(
+        '\n  function buildCurrentCapturePlan()',
+        helperStart,
+      )
+
+    assert.notEqual(
+      helperStart,
+      -1,
+    )
+
+    assert.notEqual(
+      helperEnd,
+      -1,
+    )
+
+    const helperBlock =
+      contentScript.slice(
+        helperStart,
+        helperEnd,
+      )
+
+    assert.match(
+      helperBlock,
+      /retainedPreResolutionCaptures\.set/,
+    )
+
+    assert.match(
+      helperBlock,
+      /activeMessages/,
+    )
+
+    assert.match(
+      helperBlock,
+      /deletedMessages/,
+    )
+
+    assert.match(
+      helperBlock,
+      /pendingMutationKeys/,
+    )
+
+    assert.match(
+      helperBlock,
+      /transcriptionsByKey/,
+    )
+
+    assert.match(
+      helperBlock,
+      /MAX_RETAINED_PRE_RESOLUTION_CAPTURES/,
+    )
+
+    const refreshStart =
+      contentScript.indexOf(
+        '  function refreshConversationSnapshot()',
+      )
+
+    const refreshEnd =
+      contentScript.indexOf(
+        '\n  function getConnectionLabel()',
+        refreshStart,
+      )
+
+    const refreshBlock =
+      contentScript.slice(
+        refreshStart,
+        refreshEnd,
+      )
+
+    const conversationChangedIndex =
+      refreshBlock.indexOf(
+        'if (conversationChanged)',
+      )
+
+    const rememberBeforeResetIndex =
+      refreshBlock.indexOf(
+        'rememberCurrentPreResolutionCapture()',
+        conversationChangedIndex,
+      )
+
+    const resetIndex =
+      refreshBlock.indexOf(
+        'resetConversationMessageLedger(',
+        conversationChangedIndex,
+      )
+
+    assert.notEqual(
+      rememberBeforeResetIndex,
+      -1,
+    )
+
+    assert.notEqual(
+      resetIndex,
+      -1,
+    )
+
+    assert.ok(
+      rememberBeforeResetIndex <
+        resetIndex,
+    )
+
+    assert.match(
+      refreshBlock,
+      /synchronizeConversationMessageLedger\(\)[\s\S]*rememberCurrentPreResolutionCapture\(\)/,
+    )
+
+    const resolveStart =
+      contentScript.indexOf(
+        '  async function resolveCurrentLead()',
+      )
+
+    const resolveEnd =
+      contentScript.indexOf(
+        '\n  async function analyzeCurrentConversation(',
+        resolveStart,
+      )
+
+    const resolveBlock =
+      contentScript.slice(
+        resolveStart,
+        resolveEnd,
+      )
+
+    assert.match(
+      resolveBlock,
+      /leadResolutionInFlightKeys\.has/,
+    )
+
+    assert.match(
+      resolveBlock,
+      /leadResolutionInFlightKeys\.add/,
+    )
+
+    assert.match(
+      resolveBlock,
+      /leadResolutionInFlightKeys\.delete/,
+    )
+
+    const enqueueIndex =
+      resolveBlock.indexOf(
+        'enqueueRetainedPreResolutionCapture(',
+      )
+
+    const currentConversationGuardIndex =
+      resolveBlock.indexOf(
+        'if (!requestStillCurrent())',
+        enqueueIndex,
+      )
+
+    assert.notEqual(
+      enqueueIndex,
+      -1,
+    )
+
+    assert.notEqual(
+      currentConversationGuardIndex,
+      -1,
+    )
+
+    assert.ok(
+      enqueueIndex <
+        currentConversationGuardIndex,
+    )
+  })
+
+  test('observador agenda a ingestão depois de atualizar o ledger', () => {
   const observerStart =
     contentScript.indexOf(
       '  function observeWhatsAppChanges()',
