@@ -2,6 +2,71 @@ import { readFile } from 'node:fs/promises'
 
 import ts from 'typescript'
 
+function isModuleNotFoundError(error) {
+  return (
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'ERR_MODULE_NOT_FOUND'
+  )
+}
+
+export async function resolve(
+  specifier,
+  context,
+  nextResolve,
+) {
+  try {
+    return await nextResolve(
+      specifier,
+      context,
+    )
+  } catch (error) {
+    const isRelativeSpecifier =
+      specifier.startsWith('./') ||
+      specifier.startsWith('../')
+
+    const alreadyHasExtension =
+      /\.[a-z0-9]+$/i.test(
+        specifier,
+      )
+
+    if (
+      !isModuleNotFoundError(error) ||
+      !isRelativeSpecifier ||
+      alreadyHasExtension
+    ) {
+      throw error
+    }
+
+    const candidates = [
+      `${specifier}.ts`,
+      `${specifier}.tsx`,
+      `${specifier}/index.ts`,
+      `${specifier}/index.tsx`,
+    ]
+
+    for (const candidate of candidates) {
+      try {
+        return await nextResolve(
+          candidate,
+          context,
+        )
+      } catch (candidateError) {
+        if (
+          !isModuleNotFoundError(
+            candidateError,
+          )
+        ) {
+          throw candidateError
+        }
+      }
+    }
+
+    throw error
+  }
+}
+
 export async function load(
   url,
   context,
