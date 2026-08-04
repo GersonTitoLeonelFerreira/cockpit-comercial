@@ -24,6 +24,10 @@ import {
 } from '@/app/lib/server/companion-diagnostic-snapshot'
 
 import {
+  getSafeCompanionDiagnosticErrorDetails,
+} from '@/app/lib/server/companion-diagnostic-error-response'
+
+import {
   verifyCompanionRequestToken,
 } from '@/app/lib/server/companion-token'
 
@@ -269,6 +273,11 @@ export async function POST(
 
           retryable:
             error.retryable,
+
+          details:
+            getSafeCompanionDiagnosticErrorDetails(
+              error,
+            ),
         },
         {
           status:
