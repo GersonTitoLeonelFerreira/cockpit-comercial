@@ -651,7 +651,7 @@ test(
                   {
                     error: {
                       message:
-                        'Rate limit exceeded.',
+                        'segredo-interno-do-provedor',
                     },
                   },
                   {
@@ -687,6 +687,106 @@ test(
             'token-nao-pode-aparecer',
           ),
           false,
+        )
+
+        assert.equal(
+          error.message.includes(
+            'segredo-interno-do-provedor',
+          ),
+          false,
+        )
+
+        assert.equal(
+          error.message,
+          'O provedor atingiu o limite temporário de solicitações.',
+        )
+
+        assert.deepEqual(
+          error.details,
+          {
+            provider_status:
+              429,
+          },
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'classifica falha de leitura sem expor conteúdo interno da resposta',
+  async () => {
+    const input =
+      buildInput()
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    await assert.rejects(
+      () =>
+        executeCompanionDiagnosticPlan({
+          plan,
+          input,
+
+          options: {
+            api_key:
+              'test-key',
+
+            fetch_impl:
+              async () => ({
+                ok: true,
+                status: 200,
+
+                headers:
+                  new Headers(),
+
+                async text() {
+                  throw new Error(
+                    'conteúdo interno da resposta',
+                  )
+                },
+              }),
+          },
+        }),
+
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticModelError,
+        )
+
+        assert.equal(
+          error.code,
+          'MODEL_RESPONSE_READ_FAILED',
+        )
+
+        assert.equal(
+          error.status_code,
+          502,
+        )
+
+        assert.equal(
+          error.retryable,
+          true,
+        )
+
+        assert.equal(
+          error.message.includes(
+            'conteúdo interno da resposta',
+          ),
+          false,
+        )
+
+        assert.deepEqual(
+          error.details,
+          {
+            provider_status:
+              200,
+          },
         )
 
         return true

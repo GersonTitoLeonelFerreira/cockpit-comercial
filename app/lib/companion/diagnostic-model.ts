@@ -322,28 +322,26 @@ function parseProviderEnvelope(
   return parsed
 }
 
-function getProviderErrorMessage(
-  payload: JsonRecord,
+function getProviderHttpErrorMessage(
   status: number,
 ): string {
-  const error =
-    isRecord(payload.error)
-      ? payload.error
-      : null
-
-  const providerMessage =
-    normalizeOptionalString(
-      error?.message,
-    )
-
-  if (providerMessage) {
-    return providerMessage.slice(
-      0,
-      500,
-    )
+  if (status === 401) {
+    return 'A autenticação com o provedor do diagnóstico falhou.'
   }
 
-  return `O provedor retornou HTTP ${status}.`
+  if (status === 403) {
+    return 'O provedor recusou o acesso ao diagnóstico.'
+  }
+
+  if (status === 429) {
+    return 'O provedor atingiu o limite temporário de solicitações.'
+  }
+
+  if (status >= 500) {
+    return 'O provedor do diagnóstico está temporariamente indisponível.'
+  }
+
+  return 'O provedor rejeitou a solicitação do diagnóstico.'
 }
 
 function getProviderHttpErrorCode(
@@ -840,8 +838,28 @@ export async function executeCompanionDiagnosticPlan({
     )
   }
 
-  const responseText =
-    await response.text()
+  let responseText: string
+
+  try {
+    responseText =
+      await response.text()
+  } catch {
+    fail({
+      code:
+        'MODEL_RESPONSE_READ_FAILED',
+
+      message:
+        'Não foi possível ler a resposta do provedor do diagnóstico.',
+
+      status_code: 502,
+      retryable: true,
+
+      details: {
+        provider_status:
+          response.status,
+      },
+    })
+  }
 
   const payload =
     parseProviderEnvelope(
@@ -856,8 +874,7 @@ export async function executeCompanionDiagnosticPlan({
         ),
 
       message:
-        getProviderErrorMessage(
-          payload,
+        getProviderHttpErrorMessage(
           response.status,
         ),
 
