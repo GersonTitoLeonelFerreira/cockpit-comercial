@@ -262,6 +262,38 @@ function requireNullableString(
   )
 }
 
+function normalizeNullableIsoTimestamp(
+  record: JsonRecord,
+  key: string,
+  path: string,
+): string | null {
+  const value =
+    requireNullableString(
+      record,
+      key,
+      path,
+    )
+
+  if (value === null) {
+    return null
+  }
+
+  const timestamp =
+    Date.parse(value)
+
+  if (!Number.isFinite(timestamp)) {
+    fail(
+      'INVALID_REFERENCE_TIME',
+      `${path}.${key}`,
+      `${path}.${key} precisa ser uma data válida.`,
+    )
+  }
+
+  return new Date(
+    timestamp,
+  ).toISOString()
+}
+
 function requireBoolean(
   value: unknown,
   path: string,
@@ -1039,7 +1071,7 @@ export function normalizeCompanionDiagnostic(
         )
 
   const expectedNextActionAt =
-    requireNullableString(
+    normalizeNullableIsoTimestamp(
       crmSuggestion,
       'expected_next_action_at',
       'crm_suggestion',
@@ -1227,11 +1259,7 @@ export function normalizeCompanionDiagnostic(
         ),
 
       expected_next_action_at:
-        expectedNextActionAt === null
-          ? null
-          : new Date(
-              expectedNextActionAt,
-            ).toISOString(),
+        expectedNextActionAt,
 
       prohibited_statuses:
         normalizeLeadStatusArray(

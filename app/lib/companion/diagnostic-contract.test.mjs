@@ -350,6 +350,58 @@ test(
 )
 
 test(
+  'rejeita próxima ação com data inválida como erro contratual',
+  () => {
+    assert.throws(
+      () =>
+        normalizeCompanionDiagnostic(
+          buildDiagnostic({
+            crm_suggestion: {
+              should_change_crm_stage:
+                false,
+
+              recommended_status:
+                'respondeu',
+
+              next_action_required:
+                true,
+
+              expected_next_action_at:
+                'data-inválida',
+
+              prohibited_statuses: [
+                'ganho',
+              ],
+
+              requires_human_confirmation:
+                true,
+            },
+          }),
+          CONTEXT,
+        ),
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticContractError,
+        )
+
+        assert.equal(
+          error.code,
+          'INVALID_REFERENCE_TIME',
+        )
+
+        assert.equal(
+          error.path,
+          'crm_suggestion.expected_next_action_at',
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+test(
   'próxima ação com data precisa estar no futuro',
   () => {
     assertContractError(
