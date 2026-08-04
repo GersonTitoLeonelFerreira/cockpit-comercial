@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Yolen Companion",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Camada de leitura assistida da Yolen para WhatsApp Web.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -23,6 +23,7 @@
         "src/message-mutations.js",
         "src/capture-batch.js",
         "src/capture-resilience.js",
+        "src/capture-resilience-null-base.js",
         "src/content-script.js"
       ],
       "css": ["src/styles.css"],
