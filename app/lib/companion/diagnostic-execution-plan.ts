@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v3' as const
+  'phase-5-prompt-v4' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -480,6 +480,10 @@ function buildSystemPrompt(
     'Não invente etapa do método quando sales_method.configured=false.',
 
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',
+
+    'Quando guidance.intervention_required=false, guidance.next_move, guidance.recommended_question e guidance.suggested_message precisam ser exatamente null.',
+
+    'Somente preencha guidance.next_move, guidance.recommended_question ou guidance.suggested_message quando guidance.intervention_required=true.',
 
     'CRM é apenas sugestão. Nunca aplique alteração.',
 

@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v3',
+      'phase-5-prompt-v4',
     )
 
     assert.equal(
@@ -356,6 +356,31 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Quando analysis_status=limited, confidence precisa ser medium ou low/,
+    )
+  },
+)
+
+test(
+  'prompt obriga consistência entre intervenção e conteúdo da orientação',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Quando guidance\.intervention_required=false, guidance\.next_move, guidance\.recommended_question e guidance\.suggested_message precisam ser exatamente null/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Somente preencha guidance\.next_move, guidance\.recommended_question ou guidance\.suggested_message quando guidance\.intervention_required=true/,
     )
   },
 )
