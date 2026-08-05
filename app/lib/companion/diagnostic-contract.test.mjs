@@ -455,6 +455,59 @@ test(
 )
 
 test(
+  'etapa proibida não pode ser recomendada pelo CRM',
+  () => {
+    assert.throws(
+      () =>
+        normalizeCompanionDiagnostic(
+          buildDiagnostic({
+            crm_suggestion: {
+              should_change_crm_stage:
+                true,
+
+              recommended_status:
+                'ganho',
+
+              next_action_required:
+                false,
+
+              expected_next_action_at:
+                null,
+
+              prohibited_statuses: [
+                'ganho',
+                'perdido',
+              ],
+
+              requires_human_confirmation:
+                true,
+            },
+          }),
+          CONTEXT,
+        ),
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticContractError,
+        )
+
+        assert.equal(
+          error.code,
+          'INVARIANT_VIOLATION',
+        )
+
+        assert.equal(
+          error.path,
+          'crm_suggestion.recommended_status',
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+test(
   'mudança de CRM precisa recomendar etapa diferente da atual',
   () => {
     assertContractError(

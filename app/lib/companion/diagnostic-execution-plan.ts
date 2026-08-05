@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v4' as const
+  'phase-5-prompt-v5' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -445,9 +445,17 @@ function buildSystemPrompt(
 
     'Toda evidence_message_ids deve apontar exclusivamente para um ID presente em conversation.active_message_ids.',
 
-    'A direção incoming representa a fala do cliente. A direção outgoing representa a fala do vendedor.',
+    'A direção incoming representa a fala do contato externo. A direção outgoing representa a fala do usuário da empresa.',
 
-    'Mensagem do vendedor não prova aceite, pagamento, recusa, agenda ou intenção do cliente.',
+    'Incoming e outgoing identificam somente quem enviou a mensagem. Essas direções não provam que o contato externo seja comprador, cliente ou oportunidade comercial.',
+
+    'Considere commercial_relevance=commercial somente quando o contato externo estiver avaliando, comprando, renovando, contratando ou negociando uma oferta da empresa descrita no contexto comercial.',
+
+    'Se o usuário da empresa estiver comprando, solicitando ou agendando um serviço oferecido pelo contato externo, o contato atua como fornecedor ou prestador, não como potencial comprador da empresa.',
+
+    'Quando o contato atuar como fornecedor ou prestador, use commercial_relevance=non_commercial ou uncertain conforme a evidência, mantenha customer_intent=null, solution_fit.status=unknown e desative a sugestão de CRM.',
+
+    'Mensagem do usuário da empresa não prova aceite, pagamento, recusa, agenda ou intenção comercial do contato externo.',
 
     'Analise obrigatoriamente nesta ordem: relevância comercial, intenção, necessidades, informações ausentes, perguntas ignoradas, objeções, avaliação do vendedor, método comercial, adequação da solução, orientação e somente depois sugestão de CRM.',
 
@@ -463,9 +471,13 @@ function buildSystemPrompt(
 
     'Convite feito somente pelo vendedor não cria Agenda.',
 
-    'Ganho exige evidência explícita do cliente sobre compra, pagamento, assinatura ou matrícula concluída.',
+    'Ganho exige evidência explícita do contato externo comprando, pagando, assinando ou concluindo a contratação de uma oferta da empresa configurada.',
 
-    'Perda exige recusa, encerramento ou desinteresse definitivo explicitado pelo cliente.',
+    'A palavra "Agendado", a confirmação de horário ou a conclusão de um serviço prestado pelo contato externo nunca provam ganho para a empresa.',
+
+    'Nunca recomende em crm_suggestion.recommended_status uma etapa presente em crm_suggestion.prohibited_statuses.',
+
+    'Perda exige recusa, encerramento ou desinteresse definitivo do contato externo em relação à oferta da empresa configurada.',
 
     'Agenda exige aceite do cliente e data, horário ou período futuro concreto.',
 
@@ -480,6 +492,8 @@ function buildSystemPrompt(
     'Não invente etapa do método quando sales_method.configured=false.',
 
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',
+
+    'solution_fit avalia somente se os produtos ou serviços configurados da empresa atendem à necessidade de um potencial comprador. Agendamento bem-sucedido de um serviço oferecido pelo contato externo não prova adequação da solução da empresa.',
 
     'Quando guidance.intervention_required=false, guidance.next_move, guidance.recommended_question e guidance.suggested_message precisam ser exatamente null.',
 

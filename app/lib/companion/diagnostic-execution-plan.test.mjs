@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v4',
+      'phase-5-prompt-v5',
     )
 
     assert.equal(
@@ -381,6 +381,46 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Somente preencha guidance\.next_move, guidance\.recommended_question ou guidance\.suggested_message quando guidance\.intervention_required=true/,
+    )
+  },
+)
+
+test(
+  'prompt diferencia comprador de fornecedor e respeita etapas proibidas',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Incoming e outgoing identificam somente quem enviou a mensagem/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /o contato atua como fornecedor ou prestador, não como potencial comprador/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Agendamento bem-sucedido de um serviço oferecido pelo contato externo não prova adequação/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /A palavra "Agendado".*nunca provam ganho/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Nunca recomende em crm_suggestion\.recommended_status uma etapa presente em crm_suggestion\.prohibited_statuses/,
     )
   },
 )

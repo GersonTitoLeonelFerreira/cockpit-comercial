@@ -887,6 +887,21 @@ function validateCrmSuggestion(
     )
   }
 
+  if (
+    suggestion.recommended_status !==
+      null &&
+    suggestion.prohibited_statuses
+      .includes(
+        suggestion.recommended_status,
+      )
+  ) {
+    fail(
+      'INVARIANT_VIOLATION',
+      'crm_suggestion.recommended_status',
+      'Uma etapa proibida não pode ser recomendada pelo diagnóstico.',
+    )
+  }
+
   const crmMustBeDisabled =
     diagnostic.analysis_status ===
       'blocked' ||
