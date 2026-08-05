@@ -146,6 +146,15 @@ function buildValidDiagnostic(
     contract_version:
       'phase-1-v1',
 
+    commercial_role: {
+      external_contact_role:
+        'buyer',
+
+      evidence_message_ids: [
+        '1',
+      ],
+    },
+
     analysis_status:
       'complete',
 
@@ -531,6 +540,208 @@ test(
       result.diagnostic
         .customer_intent.summary,
       'O cliente quer conhecer os planos.',
+    )
+  },
+)
+
+test(
+  'aceita provider somente com todos os blocos comerciais desativados',
+  async () => {
+    const input =
+      buildInput()
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const providerDiagnostic =
+      buildValidDiagnostic({
+        commercial_role: {
+          external_contact_role:
+            'provider',
+
+          evidence_message_ids: [
+            '1',
+          ],
+        },
+
+        commercial_relevance:
+          'non_commercial',
+
+        customer_intent:
+          null,
+      })
+
+    const result =
+      await executeCompanionDiagnosticPlan({
+        plan,
+        input,
+
+        options: {
+          api_key:
+            'test-key',
+
+          fetch_impl:
+            async () =>
+              jsonResponse(
+                buildProviderResponse(
+                  providerDiagnostic,
+                ),
+              ),
+        },
+      })
+
+    assert.equal(
+      result.diagnostic
+        .commercial_relevance,
+      'non_commercial',
+    )
+
+    assert.equal(
+      'commercial_role' in
+        result.diagnostic,
+      false,
+    )
+
+    assert.equal(
+      result.diagnostic
+        .crm_suggestion
+        .should_change_crm_stage,
+      false,
+    )
+  },
+)
+
+test(
+  'rejeita provider tratado como comprador comercial',
+  async () => {
+    const input =
+      buildInput()
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const invalidDiagnostic =
+      buildValidDiagnostic({
+        commercial_role: {
+          external_contact_role:
+            'provider',
+
+          evidence_message_ids: [
+            '1',
+          ],
+        },
+      })
+
+    await assert.rejects(
+      () =>
+        executeCompanionDiagnosticPlan({
+          plan,
+          input,
+
+          options: {
+            api_key:
+              'test-key',
+
+            fetch_impl:
+              async () =>
+                jsonResponse(
+                  buildProviderResponse(
+                    invalidDiagnostic,
+                  ),
+                ),
+          },
+        }),
+
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticModelError,
+        )
+
+        assert.equal(
+          error.code,
+          'INVALID_MODEL_OUTPUT',
+        )
+
+        assert.equal(
+          error.details
+            ?.contract_error_path,
+          'commercial_relevance',
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+test(
+  'rejeita papel desconhecido com confiança ou CRM conclusivos',
+  async () => {
+    const input =
+      buildInput()
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const invalidDiagnostic =
+      buildValidDiagnostic({
+        commercial_role: {
+          external_contact_role:
+            'unknown',
+
+          evidence_message_ids: [],
+        },
+
+        commercial_relevance:
+          'uncertain',
+      })
+
+    await assert.rejects(
+      () =>
+        executeCompanionDiagnosticPlan({
+          plan,
+          input,
+
+          options: {
+            api_key:
+              'test-key',
+
+            fetch_impl:
+              async () =>
+                jsonResponse(
+                  buildProviderResponse(
+                    invalidDiagnostic,
+                  ),
+                ),
+          },
+        }),
+
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticModelError,
+        )
+
+        assert.equal(
+          error.code,
+          'INVALID_MODEL_OUTPUT',
+        )
+
+        assert.equal(
+          error.details
+            ?.contract_error_path,
+          'analysis_status',
+        )
+
+        return true
+      },
     )
   },
 )

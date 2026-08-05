@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v5' as const
+  'phase-5-prompt-v6' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -321,6 +321,13 @@ function buildRequiredOutputShape(
       contract_version:
         COMPANION_DIAGNOSTIC_CONTRACT_VERSION,
 
+      commercial_role: {
+        external_contact_role:
+          'unknown',
+
+        evidence_message_ids: [],
+      },
+
       analysis_status:
         hasRequiredLimitations
           ? 'limited'
@@ -449,11 +456,25 @@ function buildSystemPrompt(
 
     'Incoming e outgoing identificam somente quem enviou a mensagem. Essas direções não provam que o contato externo seja comprador, cliente ou oportunidade comercial.',
 
-    'Considere commercial_relevance=commercial somente quando o contato externo estiver avaliando, comprando, renovando, contratando ou negociando uma oferta da empresa descrita no contexto comercial.',
+    'O bloco commercial_role é um gate interno obrigatório e precisa ser preenchido antes de qualquer outro bloco comercial.',
 
-    'Se o usuário da empresa estiver comprando, solicitando ou agendando um serviço oferecido pelo contato externo, o contato atua como fornecedor ou prestador, não como potencial comprador da empresa.',
+    'commercial_role.external_contact_role aceita exclusivamente buyer, provider ou unknown.',
 
-    'Quando o contato atuar como fornecedor ou prestador, use commercial_relevance=non_commercial ou uncertain conforme a evidência, mantenha customer_intent=null, solution_fit.status=unknown e desative a sugestão de CRM.',
+    'Use buyer somente quando mensagens incoming demonstrarem que o contato externo está avaliando, comprando, renovando, contratando ou negociando uma oferta da empresa configurada.',
+
+    'Use provider quando o usuário da empresa estiver solicitando, comprando ou agendando algo oferecido pelo contato externo.',
+
+    'Use unknown quando as mensagens não permitirem comprovar com segurança quem está comprando de quem.',
+
+    'commercial_role.evidence_message_ids precisa conter as mensagens que comprovam a classificação buyer ou provider.',
+
+    'Se external_contact_role=buyer, commercial_relevance precisa ser commercial.',
+
+    'Se external_contact_role=provider, commercial_relevance precisa ser non_commercial, customer_intent precisa ser null e todos os blocos de venda, método, orientação e CRM precisam permanecer desativados.',
+
+    'Se external_contact_role=unknown, commercial_relevance precisa ser uncertain, analysis_status precisa ser limited, analysis_limitations precisa incluir conversation_context_insufficient e nenhum avanço de CRM pode ser sugerido.',
+
+    'Exemplo obrigatório: outgoing "Consigo agendar para hoje?" seguido de incoming "Qual horário?", "Temos apenas 16:45h" ou "Agendado" significa que o contato externo é provider, pois ele está oferecendo e confirmando o serviço solicitado pelo usuário da empresa.',
 
     'Mensagem do usuário da empresa não prova aceite, pagamento, recusa, agenda ou intenção comercial do contato externo.',
 
@@ -539,7 +560,7 @@ function buildSystemPrompt(
 
     'O JSON precisa conter todos estes blocos:',
 
-    'contract_version, analysis_status, analysis_limitations, commercial_relevance, confidence, customer_intent, needs, missing_information, unanswered_questions, active_objections, seller_assessment, sales_method, solution_fit, guidance, crm_suggestion e evidence_message_ids.',
+    'contract_version, commercial_role, analysis_status, analysis_limitations, commercial_relevance, confidence, customer_intent, needs, missing_information, unanswered_questions, active_objections, seller_assessment, sales_method, solution_fit, guidance, crm_suggestion e evidence_message_ids.',
 
     'Valores permitidos:',
 

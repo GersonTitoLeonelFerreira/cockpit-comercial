@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v5',
+      'phase-5-prompt-v6',
     )
 
     assert.equal(
@@ -256,6 +256,21 @@ test(
     assert.equal(
       plan.mode,
       'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"commercial_role": \{/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /"external_contact_role": "unknown"/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /contract_version, commercial_role, analysis_status/,
     )
 
     assert.match(
@@ -405,7 +420,7 @@ test(
 
     assert.match(
       plan.request.system_prompt,
-      /o contato atua como fornecedor ou prestador, não como potencial comprador/,
+      /Use provider quando o usuário da empresa estiver solicitando, comprando ou agendando algo oferecido pelo contato externo/,
     )
 
     assert.match(
@@ -421,6 +436,21 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Nunca recomende em crm_suggestion\.recommended_status uma etapa presente em crm_suggestion\.prohibited_statuses/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /O bloco commercial_role é um gate interno obrigatório/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /external_contact_role aceita exclusivamente buyer, provider ou unknown/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /outgoing "Consigo agendar para hoje\?".*incoming "Qual horário\?".*provider/,
     )
   },
 )

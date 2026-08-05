@@ -528,13 +528,416 @@ function parseModelDiagnostic(
   return parsed
 }
 
+const COMMERCIAL_ROLE_VALUES = [
+  'buyer',
+  'provider',
+  'unknown',
+] as const
+
+type CommercialRole =
+  typeof COMMERCIAL_ROLE_VALUES[number]
+
+function failCommercialRole(
+  path: string,
+  message: string,
+): never {
+  fail({
+    code:
+      'INVALID_MODEL_OUTPUT',
+
+    message:
+      'O modelo retornou um diagnóstico que viola o gate de papel comercial.',
+
+    status_code: 502,
+    retryable: false,
+
+    details: {
+      contract_error_code:
+        'INVARIANT_VIOLATION',
+
+      contract_error_path:
+        path,
+
+      commercial_role_error:
+        message,
+    },
+  })
+}
+
+function requireEmptyCommercialArray(
+  record: JsonRecord,
+  key: string,
+  path: string,
+) {
+  const value =
+    record[key]
+
+  if (
+    !Array.isArray(value) ||
+    value.length > 0
+  ) {
+    failCommercialRole(
+      path,
+      `${path} precisa ser uma lista vazia quando o contato não é comprador.`,
+    )
+  }
+}
+
+function validateCommercialRoleGate(
+  value: JsonRecord,
+  input: CompanionDiagnosticInput,
+) {
+  const roleRecord =
+    value.commercial_role
+
+  if (!isRecord(roleRecord)) {
+    failCommercialRole(
+      'commercial_role',
+      'commercial_role precisa ser um objeto.',
+    )
+  }
+
+  const rawRole =
+    roleRecord
+      .external_contact_role
+
+  if (
+    typeof rawRole !==
+      'string' ||
+    !COMMERCIAL_ROLE_VALUES
+      .includes(
+        rawRole as CommercialRole,
+      )
+  ) {
+    failCommercialRole(
+      'commercial_role.external_contact_role',
+      'O papel comercial precisa ser buyer, provider ou unknown.',
+    )
+  }
+
+  const role =
+    rawRole as CommercialRole
+
+  const evidence =
+    roleRecord
+      .evidence_message_ids
+
+  if (!Array.isArray(evidence)) {
+    failCommercialRole(
+      'commercial_role.evidence_message_ids',
+      'As evidências do papel comercial precisam ser uma lista.',
+    )
+  }
+
+  const availableMessageIds =
+    new Set(
+      input.conversation
+        .active_message_ids,
+    )
+
+  const normalizedEvidence:
+    string[] = []
+
+  for (
+    let index = 0;
+    index < evidence.length;
+    index += 1
+  ) {
+    const evidenceId =
+      evidence[index]
+
+    if (
+      typeof evidenceId !==
+        'string' ||
+      !evidenceId.trim()
+    ) {
+      failCommercialRole(
+        `commercial_role.evidence_message_ids[${index}]`,
+        'A evidência precisa possuir um ID textual válido.',
+      )
+    }
+
+    const normalizedId =
+      evidenceId.trim()
+
+    if (
+      !availableMessageIds.has(
+        normalizedId,
+      )
+    ) {
+      failCommercialRole(
+        `commercial_role.evidence_message_ids[${index}]`,
+        'A evidência do papel comercial não pertence à fotografia canônica.',
+      )
+    }
+
+    if (
+      !normalizedEvidence.includes(
+        normalizedId,
+      )
+    ) {
+      normalizedEvidence.push(
+        normalizedId,
+      )
+    }
+  }
+
+  if (
+    role !== 'unknown' &&
+    normalizedEvidence.length ===
+      0
+  ) {
+    failCommercialRole(
+      'commercial_role.evidence_message_ids',
+      'Buyer e provider exigem evidência explícita.',
+    )
+  }
+
+  if (role === 'buyer') {
+    if (
+      value.commercial_relevance !==
+      'commercial'
+    ) {
+      failCommercialRole(
+        'commercial_relevance',
+        'Buyer exige commercial_relevance=commercial.',
+      )
+    }
+
+    return
+  }
+
+  const expectedRelevance =
+    role === 'provider'
+      ? 'non_commercial'
+      : 'uncertain'
+
+  if (
+    value.commercial_relevance !==
+    expectedRelevance
+  ) {
+    failCommercialRole(
+      'commercial_relevance',
+      `O papel ${role} exige commercial_relevance=${expectedRelevance}.`,
+    )
+  }
+
+  if (
+    role === 'unknown' &&
+    (
+      value.analysis_status !==
+        'limited' ||
+      !Array.isArray(
+        value.analysis_limitations,
+      ) ||
+      !value.analysis_limitations
+        .includes(
+          'conversation_context_insufficient',
+        ) ||
+      value.confidence ===
+        'high'
+    )
+  ) {
+    failCommercialRole(
+      'analysis_status',
+      'Papel desconhecido exige análise limitada, contexto insuficiente e confiança não alta.',
+    )
+  }
+
+  if (
+    value.customer_intent !==
+    null
+  ) {
+    failCommercialRole(
+      'customer_intent',
+      'Provider ou papel desconhecido não podem possuir intenção de compra.',
+    )
+  }
+
+  requireEmptyCommercialArray(
+    value,
+    'needs',
+    'needs',
+  )
+
+  requireEmptyCommercialArray(
+    value,
+    'unanswered_questions',
+    'unanswered_questions',
+  )
+
+  requireEmptyCommercialArray(
+    value,
+    'active_objections',
+    'active_objections',
+  )
+
+  const sellerAssessment =
+    value.seller_assessment
+
+  if (!isRecord(sellerAssessment)) {
+    failCommercialRole(
+      'seller_assessment',
+      'seller_assessment precisa ser um objeto.',
+    )
+  }
+
+  requireEmptyCommercialArray(
+    sellerAssessment,
+    'strengths',
+    'seller_assessment.strengths',
+  )
+
+  requireEmptyCommercialArray(
+    sellerAssessment,
+    'risks',
+    'seller_assessment.risks',
+  )
+
+  const salesMethod =
+    value.sales_method
+
+  if (!isRecord(salesMethod)) {
+    failCommercialRole(
+      'sales_method',
+      'sales_method precisa ser um objeto.',
+    )
+  }
+
+  if (
+    salesMethod.current_step !==
+    null
+  ) {
+    failCommercialRole(
+      'sales_method.current_step',
+      'Provider ou papel desconhecido não podem possuir etapa atual do método.',
+    )
+  }
+
+  requireEmptyCommercialArray(
+    salesMethod,
+    'completed_steps',
+    'sales_method.completed_steps',
+  )
+
+  requireEmptyCommercialArray(
+    salesMethod,
+    'skipped_steps',
+    'sales_method.skipped_steps',
+  )
+
+  requireEmptyCommercialArray(
+    salesMethod,
+    'evidence_message_ids',
+    'sales_method.evidence_message_ids',
+  )
+
+  const solutionFit =
+    value.solution_fit
+
+  if (!isRecord(solutionFit)) {
+    failCommercialRole(
+      'solution_fit',
+      'solution_fit precisa ser um objeto.',
+    )
+  }
+
+  if (
+    solutionFit.status !==
+      'unknown' ||
+    solutionFit.rationale !==
+      null
+  ) {
+    failCommercialRole(
+      'solution_fit',
+      'Provider ou papel desconhecido exigem adequação desconhecida.',
+    )
+  }
+
+  requireEmptyCommercialArray(
+    solutionFit,
+    'evidence_message_ids',
+    'solution_fit.evidence_message_ids',
+  )
+
+  const guidance =
+    value.guidance
+
+  if (!isRecord(guidance)) {
+    failCommercialRole(
+      'guidance',
+      'guidance precisa ser um objeto.',
+    )
+  }
+
+  if (
+    guidance
+      .intervention_required !==
+      false ||
+    guidance.next_move !== null ||
+    guidance
+      .recommended_question !==
+      null ||
+    guidance.suggested_message !==
+      null
+  ) {
+    failCommercialRole(
+      'guidance',
+      'Provider ou papel desconhecido não podem gerar orientação comercial.',
+    )
+  }
+
+  const crmSuggestion =
+    value.crm_suggestion
+
+  if (!isRecord(crmSuggestion)) {
+    failCommercialRole(
+      'crm_suggestion',
+      'crm_suggestion precisa ser um objeto.',
+    )
+  }
+
+  if (
+    crmSuggestion
+      .should_change_crm_stage !==
+      false ||
+    crmSuggestion
+      .recommended_status !==
+      null ||
+    crmSuggestion
+      .next_action_required !==
+      false ||
+    crmSuggestion
+      .expected_next_action_at !==
+      null
+  ) {
+    failCommercialRole(
+      'crm_suggestion',
+      'Provider ou papel desconhecido não podem gerar mudança de CRM ou Agenda.',
+    )
+  }
+}
+
 function validateModelDiagnostic(
   value: JsonRecord,
   input: CompanionDiagnosticInput,
 ): CompanionDiagnostic {
+  validateCommercialRoleGate(
+    value,
+    input,
+  )
+
+  const diagnosticValue:
+    JsonRecord = {
+      ...value,
+    }
+
+  delete diagnosticValue
+    .commercial_role
+
   try {
     return normalizeCompanionDiagnostic(
-      value,
+      diagnosticValue,
       buildValidationContext(
         input,
       ),
