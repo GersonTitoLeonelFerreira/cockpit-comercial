@@ -1,0 +1,707 @@
+{
+  "corpus_version": "phase-5.1-stateful-copilot-corpus-v1",
+  "status": "draft",
+  "purpose": "Avaliar atualização contextual, aplicação do método comercial e estratégia integrada sem transformar sinais isolados em ordens absolutas.",
+  "cases": [
+    {
+      "id": "price_after_confirmed_demo",
+      "title": "Preço e orçamento após demonstração confirmada",
+      "coverage": [
+        "simultaneous_truths",
+        "price_question",
+        "declared_budget",
+        "confirmed_commitment",
+        "method_application"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "price_handling": "Acolher a pergunta, considerar o orçamento, contextualizar o investimento e preservar a demonstração. Não inventar preço."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "Cliente possui quatro vendedores, utiliza WhatsApp, perde acompanhamentos e confirmou uma demonstração.",
+        "commitments": [
+          {
+            "id": "demo-1",
+            "type": "demonstration",
+            "status": "confirmed",
+            "scheduled_local": "2026-08-06T15:00:00-03:00",
+            "evidence_message_ids": [
+              "m6",
+              "m7"
+            ]
+          }
+        ]
+      },
+      "new_messages": [
+        {
+          "id": "m8",
+          "direction": "incoming",
+          "text": "Antes da demonstração, preciso saber quanto custa a Yolen. Hoje meu orçamento é de até R$ 300 por mês."
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [
+          "demo-1"
+        ],
+        "changed_commitments": [],
+        "new_open_loops": [
+          {
+            "type": "price_information",
+            "summary": "Cliente quer entender o preço antes da demonstração.",
+            "evidence_message_ids": [
+              "m8"
+            ]
+          }
+        ],
+        "new_signals": [
+          {
+            "type": "declared_budget",
+            "summary": "Orçamento máximo informado de R$ 300 por mês.",
+            "confidence": "high",
+            "evidence_message_ids": [
+              "m8"
+            ]
+          },
+          {
+            "type": "possible_price_sensitivity",
+            "summary": "O orçamento declarado pode influenciar a decisão.",
+            "confidence": "medium",
+            "evidence_message_ids": [
+              "m8"
+            ]
+          }
+        ],
+        "uncertainties": [
+          {
+            "summary": "Ainda não está comprovado que o orçamento representa uma objeção definitiva.",
+            "evidence_message_ids": [
+              "m8"
+            ]
+          }
+        ],
+        "current_priority": {
+          "summary": "Tratar a preocupação com preço de forma consultiva sem abandonar a demonstração confirmada.",
+          "rationale": "A cliente acrescentou uma condição financeira, mas não cancelou o compromisso nem perdeu o interesse.",
+          "evidence_message_ids": [
+            "m7",
+            "m8"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Acolher a pergunta, demonstrar que o orçamento foi considerado, explicar por que a demonstração ajuda a definir a solução e o investimento corretos e preservar o encontro.",
+          "actions": [
+            "Reconhecer a pergunta de preço.",
+            "Considerar explicitamente o orçamento informado.",
+            "Não inventar valor ou condição comercial.",
+            "Reforçar a utilidade da demonstração.",
+            "Preservar o compromisso confirmado sem pedir nova confirmação."
+          ],
+          "evidence_message_ids": [
+            "m7",
+            "m8"
+          ]
+        },
+        "forbidden_outcomes": [
+          "ignore_price",
+          "answer_price_only",
+          "reconfirm_confirmed_demo",
+          "invent_price",
+          "cancel_demo_without_evidence"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "explicit_demo_cancellation",
+      "title": "Cliente cancela explicitamente a demonstração",
+      "coverage": [
+        "cancellation",
+        "commitment_change",
+        "context_update"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "cancellation_handling": "Acolher, entender o motivo sem pressionar e avaliar se existe abertura para novo contato."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "Demonstração estava confirmada.",
+        "commitments": [
+          {
+            "id": "demo-2",
+            "type": "demonstration",
+            "status": "confirmed",
+            "scheduled_local": "2026-08-07T10:00:00-03:00",
+            "evidence_message_ids": [
+              "c2"
+            ]
+          }
+        ]
+      },
+      "new_messages": [
+        {
+          "id": "c3",
+          "direction": "incoming",
+          "text": "Não vou conseguir participar amanhã. Pode cancelar por enquanto."
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [],
+        "changed_commitments": [
+          {
+            "id": "demo-2",
+            "status": "cancelled",
+            "evidence_message_ids": [
+              "c3"
+            ]
+          }
+        ],
+        "new_open_loops": [
+          {
+            "type": "future_interest",
+            "summary": "Ainda não está claro se o cliente deseja reagendar futuramente.",
+            "evidence_message_ids": [
+              "c3"
+            ]
+          }
+        ],
+        "new_signals": [],
+        "uncertainties": [
+          {
+            "summary": "O cancelamento do horário não prova perda definitiva da oportunidade.",
+            "evidence_message_ids": [
+              "c3"
+            ]
+          }
+        ],
+        "current_priority": {
+          "summary": "Acolher o cancelamento e verificar sem pressão se existe interesse em retomar depois.",
+          "rationale": "O compromisso foi cancelado explicitamente, mas o interesse comercial não foi encerrado definitivamente.",
+          "evidence_message_ids": [
+            "c3"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Respeitar o cancelamento, evitar pressão e abrir espaço para uma retomada futura.",
+          "actions": [
+            "Confirmar o cancelamento.",
+            "Não tratar automaticamente como oportunidade perdida.",
+            "Perguntar com leveza se o cliente prefere retomar em outro momento."
+          ],
+          "evidence_message_ids": [
+            "c3"
+          ]
+        },
+        "forbidden_outcomes": [
+          "keep_cancelled_commitment_active",
+          "mark_lost_automatically",
+          "ignore_cancellation"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "demo_reschedule_request",
+      "title": "Cliente solicita outro horário",
+      "coverage": [
+        "reschedule",
+        "commitment_change",
+        "human_confirmation"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "schedule_handling": "Preservar o avanço e confirmar claramente o novo horário antes de atualizar a Agenda."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "Demonstração confirmada para quinta-feira às 15h.",
+        "commitments": [
+          {
+            "id": "demo-3",
+            "type": "demonstration",
+            "status": "confirmed",
+            "scheduled_local": "2026-08-06T15:00:00-03:00",
+            "evidence_message_ids": [
+              "r2"
+            ]
+          }
+        ]
+      },
+      "new_messages": [
+        {
+          "id": "r3",
+          "direction": "incoming",
+          "text": "Amanhã às 15h não vou conseguir. Pode ser sexta às 10h?"
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [],
+        "changed_commitments": [
+          {
+            "id": "demo-3",
+            "status": "reschedule_requested",
+            "proposed_local": "2026-08-07T10:00:00-03:00",
+            "evidence_message_ids": [
+              "r3"
+            ]
+          }
+        ],
+        "new_open_loops": [
+          {
+            "type": "schedule_confirmation",
+            "summary": "O novo horário de sexta-feira às 10h ainda precisa ser confirmado pelo vendedor.",
+            "evidence_message_ids": [
+              "r3"
+            ]
+          }
+        ],
+        "new_signals": [],
+        "uncertainties": [],
+        "current_priority": {
+          "summary": "Confirmar a disponibilidade para o novo horário solicitado.",
+          "rationale": "O cliente não cancelou a demonstração; pediu uma alteração concreta.",
+          "evidence_message_ids": [
+            "r3"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Preservar o avanço da oportunidade e responder objetivamente ao pedido de alteração.",
+          "actions": [
+            "Confirmar ou negociar o novo horário.",
+            "Não considerar o compromisso cancelado definitivamente.",
+            "Atualizar a Agenda somente após confirmação humana."
+          ],
+          "evidence_message_ids": [
+            "r3"
+          ]
+        },
+        "forbidden_outcomes": [
+          "keep_old_time_as_confirmed",
+          "mark_lost_automatically",
+          "write_schedule_without_confirmation"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "official_price_can_be_shared",
+      "title": "Método permite informar preço oficial imediatamente",
+      "coverage": [
+        "method_variation",
+        "price_question",
+        "confirmed_commitment"
+      ],
+      "method_policy": {
+        "name": "Venda transparente",
+        "price_handling": "Informar o preço oficial disponível, explicar o que está incluído e preservar a demonstração."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "Cliente possui demonstração confirmada e ainda não recebeu o preço oficial.",
+        "commitments": [
+          {
+            "id": "demo-4",
+            "type": "demonstration",
+            "status": "confirmed",
+            "scheduled_local": "2026-08-08T11:00:00-03:00",
+            "evidence_message_ids": [
+              "p2"
+            ]
+          }
+        ]
+      },
+      "new_messages": [
+        {
+          "id": "p3",
+          "direction": "incoming",
+          "text": "Pode me dizer o valor mensal antes da demonstração?"
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [
+          "demo-4"
+        ],
+        "changed_commitments": [],
+        "new_open_loops": [
+          {
+            "type": "price_information",
+            "summary": "Cliente solicitou o valor mensal oficial.",
+            "evidence_message_ids": [
+              "p3"
+            ]
+          }
+        ],
+        "new_signals": [],
+        "uncertainties": [],
+        "current_priority": {
+          "summary": "Informar o preço oficial conforme a política comercial e manter a demonstração.",
+          "rationale": "O método da empresa autoriza a divulgação direta do preço oficial.",
+          "evidence_message_ids": [
+            "p3"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Compartilhar somente o preço oficial configurado, explicar o escopo e manter o encontro.",
+          "actions": [
+            "Informar o preço oficial disponível.",
+            "Explicar resumidamente o que está incluído.",
+            "Preservar a demonstração confirmada."
+          ],
+          "evidence_message_ids": [
+            "p2",
+            "p3"
+          ]
+        },
+        "forbidden_outcomes": [
+          "hide_price_against_method",
+          "invent_price",
+          "cancel_demo_without_evidence"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "multiple_open_questions",
+      "title": "Cliente faz várias perguntas na mesma mensagem",
+      "coverage": [
+        "multi_question",
+        "simultaneous_truths",
+        "response_planning"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "question_handling": "Responder de maneira organizada, sem reduzir a mensagem a um único tema."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "Cliente está avaliando a solução.",
+        "commitments": []
+      },
+      "new_messages": [
+        {
+          "id": "q2",
+          "direction": "incoming",
+          "text": "Integra com WhatsApp? Quanto tempo leva para implantar? E qual é o valor para cinco vendedores?"
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [],
+        "changed_commitments": [],
+        "new_open_loops": [
+          {
+            "type": "integration",
+            "summary": "Cliente perguntou sobre integração com WhatsApp.",
+            "evidence_message_ids": [
+              "q2"
+            ]
+          },
+          {
+            "type": "implementation",
+            "summary": "Cliente perguntou sobre prazo de implantação.",
+            "evidence_message_ids": [
+              "q2"
+            ]
+          },
+          {
+            "type": "price_information",
+            "summary": "Cliente perguntou o valor para cinco vendedores.",
+            "evidence_message_ids": [
+              "q2"
+            ]
+          }
+        ],
+        "new_signals": [
+          {
+            "type": "team_size",
+            "summary": "A avaliação considera uma equipe com cinco vendedores.",
+            "confidence": "high",
+            "evidence_message_ids": [
+              "q2"
+            ]
+          }
+        ],
+        "uncertainties": [],
+        "current_priority": {
+          "summary": "Responder de forma organizada às três questões apresentadas.",
+          "rationale": "A mensagem contém integração, implantação e preço; nenhum tema deve apagar os demais.",
+          "evidence_message_ids": [
+            "q2"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Responder os temas em sequência lógica e fazer nova pergunta somente quando faltar informação oficial.",
+          "actions": [
+            "Responder sobre integração.",
+            "Responder sobre implantação.",
+            "Responder sobre preço ou explicar qual informação oficial ainda falta.",
+            "Não reduzir a resposta a apenas um dos temas."
+          ],
+          "evidence_message_ids": [
+            "q2"
+          ]
+        },
+        "forbidden_outcomes": [
+          "answer_only_one_question",
+          "invent_product_capability",
+          "invent_implementation_time",
+          "invent_price"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "ambiguous_short_reply",
+      "title": "Resposta curta com referência ambígua",
+      "coverage": [
+        "uncertainty",
+        "ambiguity",
+        "no_false_commitment"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "ambiguity_handling": "Confirmar o significado antes de assumir decisão ou compromisso."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "O vendedor perguntou na mesma mensagem se o cliente prefere plano anual e se pode falar amanhã.",
+        "commitments": []
+      },
+      "new_messages": [
+        {
+          "id": "a1",
+          "direction": "outgoing",
+          "text": "Você prefere o plano anual? E posso te ligar amanhã às 10h?"
+        },
+        {
+          "id": "a2",
+          "direction": "incoming",
+          "text": "Acho que sim."
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [],
+        "changed_commitments": [],
+        "new_open_loops": [
+          {
+            "type": "clarification",
+            "summary": "Não está claro a qual pergunta a resposta se refere.",
+            "evidence_message_ids": [
+              "a1",
+              "a2"
+            ]
+          }
+        ],
+        "new_signals": [],
+        "uncertainties": [
+          {
+            "summary": "A resposta pode se referir ao plano anual, à ligação de amanhã ou a ambos.",
+            "evidence_message_ids": [
+              "a1",
+              "a2"
+            ]
+          }
+        ],
+        "current_priority": {
+          "summary": "Confirmar a qual ponto o cliente respondeu.",
+          "rationale": "A resposta curta não autoriza inferir escolha de plano ou compromisso de Agenda.",
+          "evidence_message_ids": [
+            "a1",
+            "a2"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Fazer uma pergunta curta e específica para eliminar a ambiguidade sem pressionar.",
+          "actions": [
+            "Não assumir contratação do plano anual.",
+            "Não criar compromisso de Agenda.",
+            "Perguntar a qual dos dois pontos o cliente respondeu."
+          ],
+          "evidence_message_ids": [
+            "a1",
+            "a2"
+          ]
+        },
+        "forbidden_outcomes": [
+          "infer_purchase",
+          "infer_schedule",
+          "change_crm_stage_conclusively",
+          "create_agenda_without_confirmation"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "objection_with_confirmed_commitment",
+      "title": "Objeção coexistindo com compromisso confirmado",
+      "coverage": [
+        "objection_with_commitment",
+        "simultaneous_truths",
+        "method_application",
+        "confirmed_commitment"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "objection_handling": "Acolher a preocupação, investigar a causa e utilizar o encontro confirmado para esclarecer a objeção."
+      },
+      "prior_state": {
+        "role": "buyer",
+        "summary": "Uma demonstração foi proposta para quinta-feira às 15h.",
+        "commitments": [
+          {
+            "id": "demo-5",
+            "type": "demonstration",
+            "status": "proposed",
+            "scheduled_local": "2026-08-06T15:00:00-03:00",
+            "evidence_message_ids": [
+              "o1"
+            ]
+          }
+        ]
+      },
+      "new_messages": [
+        {
+          "id": "o2",
+          "direction": "incoming",
+          "text": "15h está confirmado, mas tenho receio de a implantação ser complicada para a equipe."
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [],
+        "changed_commitments": [
+          {
+            "id": "demo-5",
+            "status": "confirmed",
+            "evidence_message_ids": [
+              "o2"
+            ]
+          }
+        ],
+        "new_open_loops": [
+          {
+            "type": "implementation_objection",
+            "summary": "Cliente tem receio de dificuldade na implantação.",
+            "evidence_message_ids": [
+              "o2"
+            ]
+          }
+        ],
+        "new_signals": [],
+        "uncertainties": [
+          {
+            "summary": "Ainda não está claro qual aspecto da implantação gera maior preocupação.",
+            "evidence_message_ids": [
+              "o2"
+            ]
+          }
+        ],
+        "current_priority": {
+          "summary": "Preservar a demonstração e explorar a preocupação com a implantação.",
+          "rationale": "O cliente confirmou o horário e apresentou simultaneamente uma objeção.",
+          "evidence_message_ids": [
+            "o2"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "Reconhecer a confirmação, acolher a preocupação, investigar sua origem e utilizar a demonstração para esclarecer a implantação.",
+          "actions": [
+            "Reconhecer que a demonstração foi confirmada.",
+            "Acolher a preocupação sem minimizá-la.",
+            "Perguntar qual dificuldade o cliente antecipa.",
+            "Conectar o esclarecimento à demonstração.",
+            "Não tratar a objeção como cancelamento ou perda."
+          ],
+          "evidence_message_ids": [
+            "o2"
+          ]
+        },
+        "forbidden_outcomes": [
+          "ignore_objection",
+          "cancel_confirmed_demo",
+          "treat_confirmation_as_purchase",
+          "mark_lost_automatically",
+          "focus_only_on_schedule"
+        ],
+        "crm_write_allowed": false
+      }
+    },
+    {
+      "id": "external_contact_is_provider",
+      "title": "Contato externo está fornecendo um serviço à empresa",
+      "coverage": [
+        "non_commercial",
+        "provider_role",
+        "no_sales_guidance",
+        "role_classification"
+      ],
+      "method_policy": {
+        "name": "Venda consultiva",
+        "non_buyer_handling": "Não aplicar o método comercial de venda quando a empresa está comprando um serviço do contato externo."
+      },
+      "prior_state": {
+        "role": "unknown",
+        "summary": "O usuário da empresa perguntou se o contato conseguiria realizar uma manutenção.",
+        "commitments": []
+      },
+      "new_messages": [
+        {
+          "id": "v1",
+          "direction": "outgoing",
+          "text": "Você consegue fazer a manutenção do ar-condicionado da unidade?"
+        },
+        {
+          "id": "v2",
+          "direction": "incoming",
+          "text": "Consigo sim. Tenho horário amanhã às 16h e o serviço fica em R$ 250."
+        }
+      ],
+      "expected_transition": {
+        "preserved_commitment_ids": [],
+        "changed_commitments": [],
+        "new_open_loops": [],
+        "new_signals": [
+          {
+            "type": "provider_role",
+            "summary": "O contato externo está oferecendo um serviço à empresa.",
+            "confidence": "high",
+            "evidence_message_ids": [
+              "v1",
+              "v2"
+            ]
+          }
+        ],
+        "uncertainties": [],
+        "current_priority": {
+          "summary": "Classificar a conversa como relação com fornecedor, sem orientação comercial de venda.",
+          "rationale": "A empresa está avaliando um serviço oferecido pelo contato externo.",
+          "evidence_message_ids": [
+            "v1",
+            "v2"
+          ]
+        },
+        "integrated_strategy": {
+          "method_application": "O método de venda da empresa não se aplica a esta conversa.",
+          "actions": [
+            "Não orientar abordagem comercial de venda.",
+            "Não sugerir avanço de oportunidade.",
+            "Não interpretar o preço informado como intenção de compra do contato.",
+            "Não criar Agenda comercial automaticamente.",
+            "Não gerar mensagem persuasiva de venda."
+          ],
+          "evidence_message_ids": [
+            "v1",
+            "v2"
+          ]
+        },
+        "forbidden_outcomes": [
+          "classify_as_buyer",
+          "recommend_sales_stage",
+          "generate_sales_message",
+          "treat_service_price_as_customer_budget",
+          "create_commercial_agenda"
+        ],
+        "crm_write_allowed": false
+      }
+    }
+  ]
+}
