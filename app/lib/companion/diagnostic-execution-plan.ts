@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v7' as const
+  'phase-5-prompt-v8' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -519,6 +519,10 @@ function buildSystemPrompt(
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',
 
     'solution_fit avalia somente se os produtos ou serviços configurados da empresa atendem à necessidade de um potencial comprador. Agendamento bem-sucedido de um serviço oferecido pelo contato externo não prova adequação da solução da empresa.',
+
+    'Quando solution_fit.status for fit, partial_fit ou misfit, solution_fit.evidence_message_ids precisa conter pelo menos um conversation.messages[].id válido.',
+
+    'Se não houver evidência válida para adequação, use solution_fit.status=unknown, solution_fit.rationale=null e solution_fit.evidence_message_ids=[].',
 
     'Quando guidance.intervention_required=false, guidance.next_move, guidance.recommended_question e guidance.suggested_message precisam ser exatamente null.',
 

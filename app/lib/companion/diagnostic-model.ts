@@ -673,6 +673,53 @@ function normalizeModelEvidenceReferences(
   ) as JsonRecord
 }
 
+function normalizeUnsubstantiatedSolutionFit(
+  value: JsonRecord,
+): JsonRecord {
+  const solutionFit =
+    value.solution_fit
+
+  if (!isRecord(solutionFit)) {
+    return value
+  }
+
+  const isConclusiveStatus =
+    solutionFit.status === 'fit' ||
+    solutionFit.status ===
+      'partial_fit' ||
+    solutionFit.status === 'misfit'
+
+  const evidenceMessageIds =
+    solutionFit
+      .evidence_message_ids
+
+  if (
+    !isConclusiveStatus ||
+    !Array.isArray(
+      evidenceMessageIds,
+    ) ||
+    evidenceMessageIds.length > 0
+  ) {
+    return value
+  }
+
+  return {
+    ...value,
+
+    solution_fit: {
+      ...solutionFit,
+
+      status:
+        'unknown',
+
+      rationale:
+        null,
+
+      evidence_message_ids: [],
+    },
+  }
+}
+
 const COMMERCIAL_ROLE_VALUES = [
   'buyer',
   'provider',
@@ -1067,10 +1114,15 @@ function validateModelDiagnostic(
   value: JsonRecord,
   input: CompanionDiagnosticInput,
 ): CompanionDiagnostic {
-  const normalizedValue =
+  const normalizedEvidenceValue =
     normalizeModelEvidenceReferences(
       value,
       input,
+    )
+
+  const normalizedValue =
+    normalizeUnsubstantiatedSolutionFit(
+      normalizedEvidenceValue,
     )
 
   validateCommercialRoleGate(

@@ -545,6 +545,65 @@ test(
 )
 
 test(
+  'rebaixa adequação conclusiva sem evidência para desconhecida',
+  async () => {
+    const input =
+      buildInput()
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const diagnostic =
+      buildValidDiagnostic({
+        solution_fit: {
+          status:
+            'fit',
+
+          rationale:
+            'A solução atende à necessidade informada.',
+
+          evidence_message_ids: [],
+        },
+      })
+
+    const result =
+      await executeCompanionDiagnosticPlan({
+        plan,
+        input,
+
+        options: {
+          api_key:
+            'test-key',
+
+          fetch_impl:
+            async () =>
+              jsonResponse(
+                buildProviderResponse(
+                  diagnostic,
+                ),
+              ),
+        },
+      })
+
+    assert.deepEqual(
+      result.diagnostic
+        .solution_fit,
+      {
+        status:
+          'unknown',
+
+        rationale:
+          null,
+
+        evidence_message_ids: [],
+      },
+    )
+  },
+)
+
+test(
   'converte sequência única em ID canônico de evidência',
   async () => {
     const input =

@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v7',
+      'phase-5-prompt-v8',
     )
 
     assert.equal(
@@ -401,6 +401,36 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Quando analysis_status=limited, confidence precisa ser medium ou low/,
+    )
+  },
+)
+
+test(
+  'prompt exige evidência para adequação conclusiva',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Quando solution_fit\.status for fit, partial_fit ou misfit/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /solution_fit\.evidence_message_ids precisa conter pelo menos um conversation\.messages\[\]\.id válido/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /use solution_fit\.status=unknown, solution_fit\.rationale=null e solution_fit\.evidence_message_ids=\[\]/,
     )
   },
 )
