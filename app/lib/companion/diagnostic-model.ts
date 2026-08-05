@@ -1047,6 +1047,449 @@ function normalizeExpectedNextActionAt(
   }
 }
 
+type DiagnosticConversationMessage =
+  CompanionDiagnosticInput[
+    'conversation'
+  ]['messages'][number]
+
+function getDiagnosticMessageContent(
+  message: DiagnosticConversationMessage,
+): string {
+  return [
+    message.text_content,
+    message.audio_transcription,
+  ]
+    .filter(
+      (
+        value,
+      ): value is string =>
+        typeof value ===
+          'string' &&
+        Boolean(
+          value.trim(),
+        ),
+    )
+    .map(
+      (value) =>
+        value.trim(),
+    )
+    .join(' ')
+    .replace(
+      /\s+/g,
+      ' ',
+    )
+    .trim()
+}
+
+function normalizeForCommercialPriority(
+  value: string,
+): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(
+      /[\u0300-\u036f]/g,
+      '',
+    )
+    .replace(
+      /\s+/g,
+      ' ',
+    )
+    .trim()
+}
+
+function isDirectCustomerRequest(
+  value: string,
+): boolean {
+  const text =
+    value.trim()
+
+  if (!text) {
+    return false
+  }
+
+  if (text.includes('?')) {
+    return true
+  }
+
+  const normalized =
+    normalizeForCommercialPriority(
+      text,
+    )
+
+  const directRequestPatterns = [
+    /\bquanto custa\b/,
+    /\bquanto fica\b/,
+    /\bqual(?: e)? o preco\b/,
+    /\bqual(?: e)? o valor\b/,
+    /\bpreciso saber\b/,
+    /\bgostaria de saber\b/,
+    /\bquero saber\b/,
+    /\btem como\b/,
+    /\bcomo funciona\b/,
+    /\bpode me (?:dizer|informar|explicar|passar)\b/,
+    /\bme (?:diga|informe|explique|passe)\b/,
+  ]
+
+  return directRequestPatterns.some(
+    (pattern) =>
+      pattern.test(
+        normalized,
+      ),
+  )
+}
+
+function isPriceOrBudgetRequest(
+  value: string,
+): boolean {
+  const normalized =
+    normalizeForCommercialPriority(
+      value,
+    )
+
+  const commercialTerms = [
+    'quanto custa',
+    'quanto fica',
+    'preco',
+    'valor',
+    'orcamento',
+    'mensalidade',
+    'investimento',
+    'condicao de pagamento',
+    'forma de pagamento',
+  ]
+
+  return commercialTerms.some(
+    (term) =>
+      normalized.includes(
+        term,
+      ),
+  )
+}
+
+function getActiveDiagnosticMessages(
+  input: CompanionDiagnosticInput,
+): DiagnosticConversationMessage[] {
+  const activeMessageIds =
+    new Set(
+      input.conversation
+        .active_message_ids,
+    )
+
+  return input.conversation
+    .messages
+    .filter(
+      (message) =>
+        activeMessageIds.has(
+          message.id,
+        ) &&
+        Boolean(
+          getDiagnosticMessageContent(
+            message,
+          ),
+        ),
+    )
+    .sort(
+      (
+        first,
+        second,
+      ) => {
+        const firstTimestamp =
+          Date.parse(
+            first.occurred_at,
+          )
+
+        const secondTimestamp =
+          Date.parse(
+            second.occurred_at,
+          )
+
+        if (
+          Number.isFinite(
+            firstTimestamp,
+          ) &&
+          Number.isFinite(
+            secondTimestamp,
+          ) &&
+          firstTimestamp !==
+            secondTimestamp
+        ) {
+          return (
+            firstTimestamp -
+            secondTimestamp
+          )
+        }
+
+        if (
+          first.sequence !==
+          second.sequence
+        ) {
+          return (
+            first.sequence -
+            second.sequence
+          )
+        }
+
+        return first.id
+          .localeCompare(
+            second.id,
+          )
+      },
+    )
+}
+
+function findLatestUnansweredIncomingRequest(
+  input: CompanionDiagnosticInput,
+): {
+  message:
+    DiagnosticConversationMessage
+
+  text: string
+  is_price_or_budget: boolean
+} | null {
+  const messages =
+    getActiveDiagnosticMessages(
+      input,
+    )
+
+  if (messages.length === 0) {
+    return null
+  }
+
+  let latestOutgoingIndex =
+    -1
+
+  for (
+    let index = 0;
+    index < messages.length;
+    index += 1
+  ) {
+    if (
+      messages[index]
+        .direction ===
+      'outgoing'
+    ) {
+      latestOutgoingIndex =
+        index
+    }
+  }
+
+  for (
+    let index =
+      messages.length - 1;
+
+    index >
+    latestOutgoingIndex;
+
+    index -= 1
+  ) {
+    const message =
+      messages[index]
+
+    if (
+      message.direction !==
+      'incoming'
+    ) {
+      continue
+    }
+
+    const text =
+      getDiagnosticMessageContent(
+        message,
+      )
+
+    if (
+      !isDirectCustomerRequest(
+        text,
+      )
+    ) {
+      continue
+    }
+
+    return {
+      message,
+      text,
+
+      is_price_or_budget:
+        isPriceOrBudgetRequest(
+          text,
+        ),
+    }
+  }
+
+  return null
+}
+
+function buildUnansweredRequestSummary({
+  text,
+  is_price_or_budget,
+}: {
+  text: string
+  is_price_or_budget: boolean
+}): string {
+  const normalizedText =
+    text
+      .replace(
+        /\s+/g,
+        ' ',
+      )
+      .trim()
+
+  const excerpt =
+    normalizedText.length >
+    420
+      ? `${normalizedText.slice(
+          0,
+          417,
+        )}...`
+      : normalizedText
+
+  return is_price_or_budget
+    ? `Pergunta de preço e orçamento ainda sem resposta: ${excerpt}`
+    : `Pergunta mais recente ainda sem resposta: ${excerpt}`
+}
+
+function normalizeLatestUnansweredCustomerRequest(
+  value: JsonRecord,
+  input: CompanionDiagnosticInput,
+): JsonRecord {
+  const commercialRole =
+    value.commercial_role
+
+  if (
+    !isRecord(
+      commercialRole,
+    ) ||
+    commercialRole
+      .external_contact_role !==
+      'buyer'
+  ) {
+    return value
+  }
+
+  const pendingRequest =
+    findLatestUnansweredIncomingRequest(
+      input,
+    )
+
+  if (!pendingRequest) {
+    return value
+  }
+
+  const unansweredQuestions =
+    value.unanswered_questions
+
+  const guidance =
+    value.guidance
+
+  if (
+    !Array.isArray(
+      unansweredQuestions,
+    ) ||
+    !isRecord(
+      guidance,
+    )
+  ) {
+    return value
+  }
+
+  const alreadyIncluded =
+    unansweredQuestions.some(
+      (item) => {
+        if (!isRecord(item)) {
+          return false
+        }
+
+        const evidence =
+          item.evidence_message_ids
+
+        return (
+          Array.isArray(
+            evidence,
+          ) &&
+          evidence.includes(
+            pendingRequest
+              .message
+              .id,
+          )
+        )
+      },
+    )
+
+  const nextUnansweredQuestions =
+    alreadyIncluded
+      ? unansweredQuestions
+      : [
+          ...unansweredQuestions,
+
+          {
+            summary:
+              buildUnansweredRequestSummary(
+                pendingRequest,
+              ),
+
+            evidence_message_ids: [
+              pendingRequest
+                .message
+                .id,
+            ],
+          },
+        ]
+
+  const globalEvidence =
+    value.evidence_message_ids
+
+  const nextGlobalEvidence =
+    Array.isArray(
+      globalEvidence,
+    ) &&
+    !globalEvidence.includes(
+      pendingRequest
+        .message
+        .id,
+    )
+      ? [
+          ...globalEvidence,
+
+          pendingRequest
+            .message
+            .id,
+        ]
+      : globalEvidence
+
+  const nextMove =
+    pendingRequest
+      .is_price_or_budget
+      ? 'Responder primeiro à pergunta sobre preço e ao limite de orçamento informado, usando somente valores e condições comerciais publicados. Se não houver preço oficial configurado, confirmar a informação antes de responder. Depois, manter o compromisso comercial já agendado.'
+      : 'Responder primeiro à pergunta mais recente do cliente. Depois, retomar o próximo passo comercial já combinado.'
+
+  return {
+    ...value,
+
+    unanswered_questions:
+      nextUnansweredQuestions,
+
+    guidance: {
+      ...guidance,
+
+      intervention_required:
+        true,
+
+      next_move:
+        nextMove,
+
+      recommended_question:
+        null,
+
+      suggested_message:
+        null,
+    },
+
+    evidence_message_ids:
+      nextGlobalEvidence,
+  }
+}
+
 const COMMERCIAL_ROLE_VALUES = [
   'buyer',
   'provider',
@@ -1452,9 +1895,15 @@ function validateModelDiagnostic(
       normalizedEvidenceValue,
     )
 
-  const normalizedValue =
+  const normalizedScheduleValue =
     normalizeExpectedNextActionAt(
       normalizedSolutionFitValue,
+      input,
+    )
+
+  const normalizedValue =
+    normalizeLatestUnansweredCustomerRequest(
+      normalizedScheduleValue,
       input,
     )
 

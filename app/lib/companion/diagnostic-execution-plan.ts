@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v9' as const
+  'phase-5-prompt-v10' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -507,6 +507,18 @@ function buildSystemPrompt(
     'Agenda exige aceite do cliente e data, horário ou período futuro concreto.',
 
     'Pergunta do cliente ainda sem resposta deve aparecer em unanswered_questions e deve ser tratada antes de retomar a venda.',
+
+    'Uma mensagem incoming recente que contenha pergunta ou solicitação objetiva e não possua nenhuma mensagem outgoing posterior tem prioridade sobre orientações comerciais anteriores.',
+
+    'Quando existir uma pergunta recente ainda sem resposta, guidance.next_move deve orientar o vendedor a responder primeiro essa pergunta.',
+
+    'Um compromisso futuro já confirmado deve permanecer em crm_suggestion.expected_next_action_at, mas não pode substituir a resposta pendente em guidance.',
+
+    'Não recomende confirmar novamente um agendamento que já foi aceito e confirmado pelas mensagens da conversa.',
+
+    'Nunca invente preço, desconto, mensalidade, condição de pagamento ou informação comercial. Use somente informações publicadas no contexto comercial.',
+
+    'Quando a pergunta exigir uma informação comercial que não está configurada, oriente o vendedor a confirmar a informação oficial antes de responder e não produza uma mensagem com valor inventado.',
 
     'Objeção resolvida não permanece em active_objections.',
 

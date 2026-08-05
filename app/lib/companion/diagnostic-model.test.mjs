@@ -545,6 +545,312 @@ test(
 )
 
 test(
+  'prioriza pergunta recente de preço sem perder a Agenda',
+  async () => {
+    const input =
+      buildInput()
+
+    input.reference_time =
+      '2026-08-05T22:00:00.000Z'
+
+    input.conversation = {
+      ...input.conversation,
+
+      active_message_ids: [
+        '10',
+        '11',
+        '12',
+        '13',
+      ],
+
+      messages: [
+        {
+          id:
+            '10',
+
+          message_key:
+            'initial-interest',
+
+          version:
+            1,
+
+          sequence:
+            10,
+
+          direction:
+            'incoming',
+
+          occurred_at:
+            '2026-08-04T22:00:00.000Z',
+
+          observed_at:
+            '2026-08-04T22:00:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Quero conhecer a Yolen.',
+
+          audio_transcription:
+            null,
+        },
+
+        {
+          id:
+            '11',
+
+          message_key:
+            'schedule-confirmation',
+
+          version:
+            1,
+
+          sequence:
+            11,
+
+          direction:
+            'incoming',
+
+          occurred_at:
+            '2026-08-05T03:01:00.000Z',
+
+          observed_at:
+            '2026-08-05T03:01:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Funciona. Pode deixar agendado para amanhã às 15h.',
+
+          audio_transcription:
+            null,
+        },
+
+        {
+          id:
+            '12',
+
+          message_key:
+            'seller-confirmation',
+
+          version:
+            1,
+
+          sequence:
+            12,
+
+          direction:
+            'outgoing',
+
+          occurred_at:
+            '2026-08-05T03:02:00.000Z',
+
+          observed_at:
+            '2026-08-05T03:02:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Perfeito. A demonstração está confirmada para amanhã às 15h.',
+
+          audio_transcription:
+            null,
+        },
+
+        {
+          id:
+            '13',
+
+          message_key:
+            'latest-price-question',
+
+          version:
+            1,
+
+          sequence:
+            13,
+
+          direction:
+            'incoming',
+
+          occurred_at:
+            '2026-08-05T21:55:00.000Z',
+
+          observed_at:
+            '2026-08-05T21:55:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Antes da demonstração, preciso saber quanto custa a Yolen. Hoje meu orçamento é de até R$ 300 por mês.',
+
+          audio_transcription:
+            null,
+        },
+      ],
+    }
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const diagnostic =
+      buildValidDiagnostic({
+        commercial_role: {
+          external_contact_role:
+            'buyer',
+
+          evidence_message_ids: [
+            '13',
+          ],
+        },
+
+        customer_intent: {
+          summary:
+            'O cliente quer conhecer a Yolen e participar da demonstração.',
+
+          evidence_message_ids: [
+            '10',
+            '11',
+          ],
+        },
+
+        unanswered_questions: [],
+
+        guidance: {
+          intervention_required:
+            true,
+
+          next_move:
+            'Confirmar novamente a demonstração de amanhã às 15h.',
+
+          recommended_question:
+            'Posso confirmar a demonstração de amanhã às 15h?',
+
+          suggested_message:
+            'Sua demonstração está confirmada para amanhã às 15h.',
+        },
+
+        crm_suggestion: {
+          should_change_crm_stage:
+            true,
+
+          recommended_status:
+            'negociacao',
+
+          next_action_required:
+            true,
+
+          expected_next_action_at:
+            '2026-08-06T15:00:00.000Z',
+
+          prohibited_statuses: [
+            'ganho',
+            'perdido',
+          ],
+
+          requires_human_confirmation:
+            true,
+        },
+
+        evidence_message_ids: [
+          '10',
+          '11',
+        ],
+      })
+
+    const result =
+      await executeCompanionDiagnosticPlan({
+        plan,
+        input,
+
+        options: {
+          api_key:
+            'test-key',
+
+          fetch_impl:
+            async () =>
+              jsonResponse(
+                buildProviderResponse(
+                  diagnostic,
+                ),
+              ),
+        },
+      })
+
+    assert.equal(
+      result.diagnostic
+        .unanswered_questions
+        .length,
+      1,
+    )
+
+    assert.match(
+      result.diagnostic
+        .unanswered_questions[0]
+        .summary,
+      /R\$ 300 por mês/,
+    )
+
+    assert.deepEqual(
+      result.diagnostic
+        .unanswered_questions[0]
+        .evidence_message_ids,
+      [
+        '13',
+      ],
+    )
+
+    assert.equal(
+      result.diagnostic
+        .guidance
+        .intervention_required,
+      true,
+    )
+
+    assert.match(
+      result.diagnostic
+        .guidance
+        .next_move,
+      /Responder primeiro à pergunta sobre preço/,
+    )
+
+    assert.equal(
+      result.diagnostic
+        .guidance
+        .recommended_question,
+      null,
+    )
+
+    assert.equal(
+      result.diagnostic
+        .guidance
+        .suggested_message,
+      null,
+    )
+
+    assert.equal(
+      result.diagnostic
+        .crm_suggestion
+        .recommended_status,
+      'negociacao',
+    )
+
+    assert.equal(
+      result.diagnostic
+        .crm_suggestion
+        .expected_next_action_at,
+      '2026-08-06T18:00:00.000Z',
+    )
+  },
+)
+
+test(
   'converte o horário confirmado usando a mesma regra da Agenda',
   async () => {
     const input =

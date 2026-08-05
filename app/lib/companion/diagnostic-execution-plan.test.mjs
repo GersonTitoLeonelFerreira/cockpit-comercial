@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v9',
+      'phase-5-prompt-v10',
     )
 
     assert.equal(
@@ -431,6 +431,46 @@ test(
     assert.match(
       plan.request.system_prompt,
       /use solution_fit\.status=unknown, solution_fit\.rationale=null e solution_fit\.evidence_message_ids=\[\]/,
+    )
+  },
+)
+
+test(
+  'prompt prioriza a pergunta recente ainda sem resposta',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /mensagem incoming recente que contenha pergunta ou solicitação objetiva/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /guidance\.next_move deve orientar o vendedor a responder primeiro essa pergunta/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /compromisso futuro já confirmado deve permanecer em crm_suggestion\.expected_next_action_at/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não recomende confirmar novamente um agendamento que já foi aceito e confirmado/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Nunca invente preço, desconto, mensalidade, condição de pagamento/,
     )
   },
 )
