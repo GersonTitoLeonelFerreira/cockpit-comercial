@@ -545,6 +545,124 @@ test(
 )
 
 test(
+  'converte sequência única em ID canônico de evidência',
+  async () => {
+    const input =
+      buildInput()
+
+    input.conversation = {
+      ...input.conversation,
+
+      active_message_ids: [
+        '11',
+      ],
+
+      messages:
+        input.conversation
+          .messages
+          .map(
+            (message) => ({
+              ...message,
+
+              id:
+                '11',
+
+              sequence:
+                1,
+            }),
+          ),
+    }
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const diagnostic =
+      buildValidDiagnostic({
+        commercial_role: {
+          external_contact_role:
+            'buyer',
+
+          evidence_message_ids: [
+            '1',
+          ],
+        },
+
+        customer_intent: {
+          summary:
+            'O contato quer conhecer a solução.',
+
+          evidence_message_ids: [
+            '1',
+          ],
+        },
+
+        solution_fit: {
+          status:
+            'fit',
+
+          rationale:
+            'A necessidade informada é atendida pela solução configurada.',
+
+          evidence_message_ids: [
+            '1',
+          ],
+        },
+
+        evidence_message_ids: [
+          '1',
+        ],
+      })
+
+    const result =
+      await executeCompanionDiagnosticPlan({
+        plan,
+        input,
+
+        options: {
+          api_key:
+            'test-key',
+
+          fetch_impl:
+            async () =>
+              jsonResponse(
+                buildProviderResponse(
+                  diagnostic,
+                ),
+              ),
+        },
+      })
+
+    assert.deepEqual(
+      result.diagnostic
+        .customer_intent
+        .evidence_message_ids,
+      [
+        '11',
+      ],
+    )
+
+    assert.deepEqual(
+      result.diagnostic
+        .solution_fit
+        .evidence_message_ids,
+      [
+        '11',
+      ],
+    )
+
+    assert.deepEqual(
+      result.diagnostic
+        .evidence_message_ids,
+      [
+        '11',
+      ],
+    )
+  },
+)
+
+test(
   'aceita provider somente com todos os blocos comerciais desativados',
   async () => {
     const input =

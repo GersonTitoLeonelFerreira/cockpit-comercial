@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v6' as const
+  'phase-5-prompt-v7' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -451,6 +451,10 @@ function buildSystemPrompt(
     'Nunca utilize excluded_messages ou excluded_message_ids como evidência.',
 
     'Toda evidence_message_ids deve apontar exclusivamente para um ID presente em conversation.active_message_ids.',
+
+    'Em evidence_message_ids, use sempre o valor exato do campo conversation.messages[].id. Nunca use sequence, message_key, posição, índice, product_id ou qualquer outro identificador.',
+
+    'Antes de concluir o JSON, confira que cada valor de evidence_message_ids existe literalmente em conversation.active_message_ids.',
 
     'A direção incoming representa a fala do contato externo. A direção outgoing representa a fala do usuário da empresa.',
 

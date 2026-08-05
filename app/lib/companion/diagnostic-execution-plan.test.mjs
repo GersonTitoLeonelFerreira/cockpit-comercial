@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v6',
+      'phase-5-prompt-v7',
     )
 
     assert.equal(
@@ -316,6 +316,36 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Não remova campos/,
+    )
+  },
+)
+
+test(
+  'prompt exige IDs canônicos e proíbe sequências como evidência',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /use sempre o valor exato do campo conversation\.messages\[\]\.id/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Nunca use sequence, message_key, posição, índice, product_id/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /existe literalmente em conversation\.active_message_ids/,
     )
   },
 )

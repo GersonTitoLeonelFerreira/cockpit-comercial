@@ -528,6 +528,151 @@ function parseModelDiagnostic(
   return parsed
 }
 
+function normalizeModelEvidenceReferences(
+  value: JsonRecord,
+  input: CompanionDiagnosticInput,
+): JsonRecord {
+  const activeMessageIds =
+    new Set(
+      input.conversation
+        .active_message_ids,
+    )
+
+  const sequenceToMessageId =
+    new Map<
+      string,
+      string | null
+    >()
+
+  for (
+    const message of
+    input.conversation.messages
+  ) {
+    if (
+      !activeMessageIds.has(
+        message.id,
+      )
+    ) {
+      continue
+    }
+
+    const sequenceKey =
+      String(
+        message.sequence,
+      )
+
+    const existingMessageId =
+      sequenceToMessageId.get(
+        sequenceKey,
+      )
+
+    if (
+      existingMessageId ===
+      undefined
+    ) {
+      sequenceToMessageId.set(
+        sequenceKey,
+        message.id,
+      )
+
+      continue
+    }
+
+    if (
+      existingMessageId !==
+      message.id
+    ) {
+      sequenceToMessageId.set(
+        sequenceKey,
+        null,
+      )
+    }
+  }
+
+  function normalizeEvidenceReference(
+    reference: unknown,
+  ): unknown {
+    if (
+      typeof reference !==
+      'string'
+    ) {
+      return reference
+    }
+
+    const normalizedReference =
+      reference.trim()
+
+    if (
+      activeMessageIds.has(
+        normalizedReference,
+      )
+    ) {
+      return normalizedReference
+    }
+
+    const canonicalMessageId =
+      sequenceToMessageId.get(
+        normalizedReference,
+      )
+
+    return (
+      canonicalMessageId ??
+      reference
+    )
+  }
+
+  function normalizeNode(
+    current: unknown,
+    key: string | null = null,
+  ): unknown {
+    if (Array.isArray(current)) {
+      if (
+        key ===
+        'evidence_message_ids'
+      ) {
+        return current.map(
+          normalizeEvidenceReference,
+        )
+      }
+
+      return current.map(
+        (item) =>
+          normalizeNode(
+            item,
+          ),
+      )
+    }
+
+    if (!isRecord(current)) {
+      return current
+    }
+
+    const normalizedRecord:
+      JsonRecord = {}
+
+    for (
+      const [
+        entryKey,
+        entryValue,
+      ] of Object.entries(
+        current,
+      )
+    ) {
+      normalizedRecord[entryKey] =
+        normalizeNode(
+          entryValue,
+          entryKey,
+        )
+    }
+
+    return normalizedRecord
+  }
+
+  return normalizeNode(
+    value,
+  ) as JsonRecord
+}
+
 const COMMERCIAL_ROLE_VALUES = [
   'buyer',
   'provider',
@@ -922,14 +1067,20 @@ function validateModelDiagnostic(
   value: JsonRecord,
   input: CompanionDiagnosticInput,
 ): CompanionDiagnostic {
+  const normalizedValue =
+    normalizeModelEvidenceReferences(
+      value,
+      input,
+    )
+
   validateCommercialRoleGate(
-    value,
+    normalizedValue,
     input,
   )
 
   const diagnosticValue:
     JsonRecord = {
-      ...value,
+      ...normalizedValue,
     }
 
   delete diagnosticValue
