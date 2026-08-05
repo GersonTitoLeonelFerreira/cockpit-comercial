@@ -7,6 +7,10 @@ import {
   runCompanionDiagnosticEngine,
 } from '../server/companion-diagnostic-engine.ts'
 
+import {
+  CompanionDiagnosticModelError,
+} from './diagnostic-model.ts'
+
 const COMPANY_ID =
   '40fb91ee-f998-4d98-acdf-7d0794369ccf'
 
@@ -360,6 +364,175 @@ function assertEngineError(
     },
   )
 }
+
+function buildControlledModelError({
+  code =
+    'INVALID_MODEL_OUTPUT',
+
+  retryable =
+    false,
+} = {}) {
+  return new CompanionDiagnosticModelError({
+    code,
+
+    message:
+      'Erro controlado do modelo.',
+
+    status_code:
+      502,
+
+    retryable,
+
+    details: {
+      contract_error_code:
+        'INVARIANT_VIOLATION',
+
+      contract_error_path:
+        'guidance',
+    },
+  })
+}
+
+test(
+  'repete uma vez quando a primeira saída do modelo viola o contrato',
+  async () => {
+    const {
+      dependencies,
+    } = createDependencies()
+
+    const originalExecutePlan =
+      dependencies.execute_plan
+
+    const executionInputs = []
+
+    let attempts = 0
+
+    dependencies.execute_plan =
+      async (args) => {
+        attempts += 1
+
+        executionInputs.push(
+          args.input,
+        )
+
+        if (attempts === 1) {
+          throw buildControlledModelError()
+        }
+
+        return originalExecutePlan(
+          args,
+        )
+      }
+
+    const result =
+      await runWithDependencies(
+        dependencies,
+      )
+
+    assert.equal(
+      attempts,
+      2,
+    )
+
+    assert.equal(
+      executionInputs[0],
+      executionInputs[1],
+    )
+
+    assert.equal(
+      result.execution.provider,
+      'openai',
+    )
+  },
+)
+
+test(
+  'limita a recuperação de saída inválida a duas tentativas',
+  async () => {
+    const {
+      dependencies,
+    } = createDependencies()
+
+    const controlledError =
+      buildControlledModelError()
+
+    let attempts = 0
+
+    dependencies.execute_plan =
+      async () => {
+        attempts += 1
+
+        throw controlledError
+      }
+
+    await assert.rejects(
+      () =>
+        runWithDependencies(
+          dependencies,
+        ),
+      (error) => {
+        assert.equal(
+          error,
+          controlledError,
+        )
+
+        return true
+      },
+    )
+
+    assert.equal(
+      attempts,
+      2,
+    )
+  },
+)
+
+test(
+  'não repete falhas de rede do modelo',
+  async () => {
+    const {
+      dependencies,
+    } = createDependencies()
+
+    const networkError =
+      buildControlledModelError({
+        code:
+          'MODEL_NETWORK_ERROR',
+
+        retryable:
+          true,
+      })
+
+    let attempts = 0
+
+    dependencies.execute_plan =
+      async () => {
+        attempts += 1
+
+        throw networkError
+      }
+
+    await assert.rejects(
+      () =>
+        runWithDependencies(
+          dependencies,
+        ),
+      (error) => {
+        assert.equal(
+          error,
+          networkError,
+        )
+
+        return true
+      },
+    )
+
+    assert.equal(
+      attempts,
+      1,
+    )
+  },
+)
 
 test(
   'executa o pipeline completo na ordem correta',

@@ -8,6 +8,7 @@ import {
 } from '../companion/diagnostic-execution-plan'
 
 import {
+  CompanionDiagnosticModelError,
   executeCompanionDiagnosticPlan,
   type CompanionDiagnosticExecutionResult,
   type CompanionDiagnosticModelOptions,
@@ -43,6 +44,26 @@ type PlanBuilder =
 
 type PlanExecutor =
   typeof executeCompanionDiagnosticPlan
+
+const RETRYABLE_MODEL_OUTPUT_CODES =
+  new Set([
+    'EMPTY_MODEL_OUTPUT',
+    'INVALID_MODEL_JSON',
+    'INVALID_MODEL_OUTPUT',
+  ])
+
+function shouldRetryInvalidModelOutput(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof
+      CompanionDiagnosticModelError &&
+    RETRYABLE_MODEL_OUTPUT_CODES
+      .has(
+        error.code,
+      )
+  )
+}
 
 export type CompanionDiagnosticEngineDependencies = {
   load_snapshot?: SnapshotLoader
@@ -318,14 +339,39 @@ export async function runCompanionDiagnosticEngine({
     plan,
   })
 
-  const execution =
-    await executePlan({
-      plan,
-      input:
-        snapshot.input,
-      options:
-        model_options,
-    })
+  const executionArguments = {
+    plan,
+
+    input:
+      snapshot.input,
+
+    options:
+      model_options,
+  }
+
+  let execution:
+    CompanionDiagnosticExecutionResult
+
+  try {
+    execution =
+      await executePlan(
+        executionArguments,
+      )
+  } catch (error) {
+    if (
+      plan.mode !== 'model' ||
+      !shouldRetryInvalidModelOutput(
+        error,
+      )
+    ) {
+      throw error
+    }
+
+    execution =
+      await executePlan(
+        executionArguments,
+      )
+  }
 
   validateExecutionAgainstPlan({
     plan,
