@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v8',
+      'phase-5-prompt-v9',
     )
 
     assert.equal(
@@ -431,6 +431,41 @@ test(
     assert.match(
       plan.request.system_prompt,
       /use solution_fit\.status=unknown, solution_fit\.rationale=null e solution_fit\.evidence_message_ids=\[\]/,
+    )
+  },
+)
+
+test(
+  'prompt usa o mesmo fuso comercial da Agenda',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /America\/Sao_Paulo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /expected_next_action_at precisa ser um instante ISO UTC/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /06\/08\/2026 às 15:00.*2026-08-06T18:00:00\.000Z/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Nunca trate 15:00.*como 15:00Z/,
     )
   },
 )

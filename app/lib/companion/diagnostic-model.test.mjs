@@ -545,6 +545,204 @@ test(
 )
 
 test(
+  'converte o horário confirmado usando a mesma regra da Agenda',
+  async () => {
+    const input =
+      buildInput()
+
+    input.reference_time =
+      '2026-08-05T06:30:00.000Z'
+
+    input.conversation = {
+      ...input.conversation,
+
+      active_message_ids: [
+        '10',
+        '11',
+        '12',
+      ],
+
+      messages: [
+        {
+          id:
+            '10',
+
+          message_key:
+            'message-old',
+
+          version:
+            1,
+
+          sequence:
+            10,
+
+          direction:
+            'incoming',
+
+          occurred_at:
+            '2026-08-04T14:00:00.000Z',
+
+          observed_at:
+            '2026-08-04T14:00:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Pode ser amanhã às 10h.',
+
+          audio_transcription:
+            null,
+        },
+
+        {
+          id:
+            '11',
+
+          message_key:
+            'message-proposal',
+
+          version:
+            1,
+
+          sequence:
+            11,
+
+          direction:
+            'outgoing',
+
+          occurred_at:
+            '2026-08-05T04:35:00.000Z',
+
+          observed_at:
+            '2026-08-05T04:35:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Posso deixar a demonstração para amanhã às 14h?',
+
+          audio_transcription:
+            null,
+        },
+
+        {
+          id:
+            '12',
+
+          message_key:
+            'message-confirmation',
+
+          version:
+            1,
+
+          sequence:
+            12,
+
+          direction:
+            'incoming',
+
+          occurred_at:
+            '2026-08-05T04:40:00.000Z',
+
+          observed_at:
+            '2026-08-05T04:40:02.000Z',
+
+          content_type:
+            'text',
+
+          text_content:
+            'Funciona. Pode deixar agendado para amanhã às 15h.',
+
+          audio_transcription:
+            null,
+        },
+      ],
+    }
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    const diagnostic =
+      buildValidDiagnostic({
+        commercial_role: {
+          external_contact_role:
+            'buyer',
+
+          evidence_message_ids: [
+            '12',
+          ],
+        },
+
+        customer_intent: {
+          summary:
+            'O cliente confirmou a demonstração.',
+
+          evidence_message_ids: [
+            '12',
+          ],
+        },
+
+        crm_suggestion: {
+          should_change_crm_stage:
+            true,
+
+          recommended_status:
+            'negociacao',
+
+          next_action_required:
+            true,
+
+          expected_next_action_at:
+            '2026-08-06T15:00:00.000Z',
+
+          prohibited_statuses: [
+            'ganho',
+            'perdido',
+          ],
+
+          requires_human_confirmation:
+            true,
+        },
+
+        evidence_message_ids: [
+          '12',
+        ],
+      })
+
+    const result =
+      await executeCompanionDiagnosticPlan({
+        plan,
+        input,
+
+        options: {
+          api_key:
+            'test-key',
+
+          fetch_impl:
+            async () =>
+              jsonResponse(
+                buildProviderResponse(
+                  diagnostic,
+                ),
+              ),
+        },
+      })
+
+    assert.equal(
+      result.diagnostic
+        .crm_suggestion
+        .expected_next_action_at,
+
+      '2026-08-06T18:00:00.000Z',
+    )
+  },
+)
+
+test(
   'rebaixa adequação conclusiva sem evidência para desconhecida',
   async () => {
     const input =

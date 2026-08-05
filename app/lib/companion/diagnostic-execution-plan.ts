@@ -9,7 +9,7 @@ import type {
 } from './diagnostic-input'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v8' as const
+  'phase-5-prompt-v9' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -535,6 +535,14 @@ function buildSystemPrompt(
     'Quando should_change_crm_stage=true, recommended_status precisa ser diferente de current_crm_status.',
 
     'expected_next_action_at somente pode existir quando houver compromisso concreto e futuro.',
+
+    'Interprete datas e horários comerciais no fuso America/Sao_Paulo.',
+
+    'expected_next_action_at precisa ser um instante ISO UTC equivalente ao horário comercial confirmado na conversa.',
+
+    'Exemplo: um compromisso confirmado para 06/08/2026 às 15:00 em America/Sao_Paulo corresponde a 2026-08-06T18:00:00.000Z.',
+
+    'Nunca trate 15:00 no horário comercial brasileiro como 15:00Z. Preserve o horário local confirmado ao converter para UTC.',
 
     buildRequiredLimitationsRule(
       input,

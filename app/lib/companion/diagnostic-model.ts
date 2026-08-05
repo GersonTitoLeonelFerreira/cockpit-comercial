@@ -1,4 +1,8 @@
 import {
+  extractSuggestedDateFromText,
+} from '../ai/sales-copilot-transcript'
+
+import {
   COMPANION_DIAGNOSTIC_CONTRACT_VERSION,
   CompanionDiagnosticContractError,
   normalizeCompanionDiagnostic,
@@ -720,6 +724,329 @@ function normalizeUnsubstantiatedSolutionFit(
   }
 }
 
+const DIAGNOSTIC_SCHEDULE_TIME_ZONE =
+  'America/Sao_Paulo'
+
+function getDiagnosticBusinessDateKey(
+  value: string,
+): string | null {
+  const timestamp =
+    Date.parse(value)
+
+  if (!Number.isFinite(timestamp)) {
+    return null
+  }
+
+  const parts =
+    new Intl.DateTimeFormat(
+      'en-US',
+      {
+        timeZone:
+          DIAGNOSTIC_SCHEDULE_TIME_ZONE,
+
+        year:
+          'numeric',
+
+        month:
+          '2-digit',
+
+        day:
+          '2-digit',
+      },
+    ).formatToParts(
+      new Date(timestamp),
+    )
+
+  const year =
+    parts.find(
+      (part) =>
+        part.type === 'year',
+    )?.value
+
+  const month =
+    parts.find(
+      (part) =>
+        part.type === 'month',
+    )?.value
+
+  const day =
+    parts.find(
+      (part) =>
+        part.type === 'day',
+    )?.value
+
+  if (
+    !year ||
+    !month ||
+    !day
+  ) {
+    return null
+  }
+
+  return [
+    year,
+    month,
+    day,
+  ].join('-')
+}
+
+function buildLatestScheduleConversation(
+  input: CompanionDiagnosticInput,
+): {
+  text: string
+  reference_date: Date
+} | null {
+  const activeMessageIds =
+    new Set(
+      input.conversation
+        .active_message_ids,
+    )
+
+  const messages: Array<{
+    message:
+      CompanionDiagnosticInput[
+        'conversation'
+      ]['messages'][number]
+
+    timestamp: number
+    date_key: string
+  }> = []
+
+  for (
+    const message of
+    input.conversation.messages
+  ) {
+    if (
+      !activeMessageIds.has(
+        message.id,
+      )
+    ) {
+      continue
+    }
+
+    const textContent =
+      message.text_content
+        ?.trim() ||
+      ''
+
+    const transcription =
+      message.audio_transcription
+        ?.trim() ||
+      ''
+
+    if (
+      !textContent &&
+      !transcription
+    ) {
+      continue
+    }
+
+    const timestamp =
+      Date.parse(
+        message.occurred_at,
+      )
+
+    const dateKey =
+      getDiagnosticBusinessDateKey(
+        message.occurred_at,
+      )
+
+    if (
+      !Number.isFinite(timestamp) ||
+      !dateKey
+    ) {
+      continue
+    }
+
+    messages.push({
+      message,
+      timestamp,
+      date_key:
+        dateKey,
+    })
+  }
+
+  if (messages.length === 0) {
+    return null
+  }
+
+  const latestDateKey =
+    messages.reduce(
+      (latest, item) =>
+        item.date_key > latest
+          ? item.date_key
+          : latest,
+
+      messages[0].date_key,
+    )
+
+  const latestMessages =
+    messages
+      .filter(
+        (item) =>
+          item.date_key ===
+          latestDateKey,
+      )
+      .sort(
+        (first, second) => {
+          if (
+            first.timestamp !==
+            second.timestamp
+          ) {
+            return (
+              second.timestamp -
+              first.timestamp
+            )
+          }
+
+          if (
+            first.message.sequence !==
+            second.message.sequence
+          ) {
+            return (
+              second.message.sequence -
+              first.message.sequence
+            )
+          }
+
+          return second.message.id
+            .localeCompare(
+              first.message.id,
+            )
+        },
+      )
+
+  const text =
+    latestMessages
+      .map(({ message }) => {
+        const contents: string[] =
+          []
+
+        if (
+          message.text_content
+            ?.trim()
+        ) {
+          contents.push(
+            message.text_content
+              .trim(),
+          )
+        }
+
+        if (
+          message.audio_transcription
+            ?.trim()
+        ) {
+          contents.push(
+            message
+              .audio_transcription
+              .trim(),
+          )
+        }
+
+        const actor =
+          message.direction ===
+          'incoming'
+            ? 'Cliente'
+            : 'Vendedor'
+
+        return `${actor}: ${contents.join(
+          ' ',
+        )}`
+      })
+      .join('\n')
+      .trim()
+
+  if (!text) {
+    return null
+  }
+
+  return {
+    text,
+
+    reference_date:
+      new Date(
+        latestMessages[0]
+          .timestamp,
+      ),
+  }
+}
+
+function normalizeExpectedNextActionAt(
+  value: JsonRecord,
+  input: CompanionDiagnosticInput,
+): JsonRecord {
+  const crmSuggestion =
+    value.crm_suggestion
+
+  if (
+    !isRecord(crmSuggestion) ||
+    crmSuggestion
+      .next_action_required !==
+      true
+  ) {
+    return value
+  }
+
+  const conversation =
+    buildLatestScheduleConversation(
+      input,
+    )
+
+  if (!conversation) {
+    return value
+  }
+
+  const extractedDate =
+    extractSuggestedDateFromText(
+      conversation.text,
+      conversation.reference_date,
+    )
+
+  if (!extractedDate) {
+    return value
+  }
+
+  const extractedTimestamp =
+    Date.parse(extractedDate)
+
+  const currentReferenceTimestamp =
+    Date.parse(
+      input.reference_time,
+    )
+
+  if (
+    !Number.isFinite(
+      extractedTimestamp,
+    ) ||
+    !Number.isFinite(
+      currentReferenceTimestamp,
+    ) ||
+    extractedTimestamp <=
+      currentReferenceTimestamp
+  ) {
+    return value
+  }
+
+  if (
+    crmSuggestion
+      .expected_next_action_at ===
+    extractedDate
+  ) {
+    return value
+  }
+
+  return {
+    ...value,
+
+    crm_suggestion: {
+      ...crmSuggestion,
+
+      expected_next_action_at:
+        extractedDate,
+    },
+  }
+}
+
 const COMMERCIAL_ROLE_VALUES = [
   'buyer',
   'provider',
@@ -1120,9 +1447,15 @@ function validateModelDiagnostic(
       input,
     )
 
-  const normalizedValue =
+  const normalizedSolutionFitValue =
     normalizeUnsubstantiatedSolutionFit(
       normalizedEvidenceValue,
+    )
+
+  const normalizedValue =
+    normalizeExpectedNextActionAt(
+      normalizedSolutionFitValue,
+      input,
     )
 
   validateCommercialRoleGate(
