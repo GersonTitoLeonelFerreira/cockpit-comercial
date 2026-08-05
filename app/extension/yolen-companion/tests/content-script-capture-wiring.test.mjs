@@ -605,15 +605,57 @@ test('captura usa corpo selecionável e chave estável', () => {
       /buildStableCaptureConversationKey/,
     )
 
+    const capturePlanStart =
+      contentScript.indexOf(
+        '  function buildCurrentCapturePlan()',
+      )
+
+    assert.notEqual(
+      capturePlanStart,
+      -1,
+    )
+
+    const nextFunctionIndexes = [
+      contentScript.indexOf(
+        '\n  function ',
+        capturePlanStart + 1,
+      ),
+
+      contentScript.indexOf(
+        '\n  async function ',
+        capturePlanStart + 1,
+      ),
+    ].filter(
+      (index) =>
+        index >
+        capturePlanStart,
+    )
+
+    assert.ok(
+      nextFunctionIndexes.length >
+        0,
+    )
+
+    const capturePlanEnd =
+      Math.min(
+        ...nextFunctionIndexes,
+      )
+
+    const capturePlanBlock =
+      contentScript.slice(
+        capturePlanStart,
+        capturePlanEnd,
+      )
+
     const stableConversationKeyUses =
-      contentScript.match(
+      capturePlanBlock.match(
         /const conversationKey =\s*getCaptureConversationKey\(\)/g,
       ) || []
 
-      assert.equal(
-        stableConversationKeyUses.length,
-        1,
-      )
+    assert.equal(
+      stableConversationKeyUses.length,
+      1,
+    )
   })
 
   test('direção usa o contêiner visual atual do WhatsApp', () => {

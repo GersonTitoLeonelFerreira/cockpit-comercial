@@ -347,6 +347,17 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (
+    message.action ===
+    'DIAGNOSTIC_PREVIEW_V2'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/v2/diagnostic-preview',
+      message.payload,
+    )
+  }
+
   if (message.action === 'APPLY_SUGGESTION') {
     return requestYolenWithToken(
       message,
