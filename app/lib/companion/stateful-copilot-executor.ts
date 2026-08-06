@@ -535,7 +535,14 @@ export async function executeStatefulCopilotModelAttempt({
       await provider(
         providerRequest,
       )
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof
+      StatefulCopilotExecutionError
+    ) {
+      throw error
+    }
+
     fail({
       code:
         'PROVIDER_REQUEST_FAILED',
