@@ -520,6 +520,55 @@ function normalizeMemoryIds(
   return ids
 }
 
+function normalizeNullablePatchMemoryId(
+  value: unknown,
+  path: string,
+  availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
+): string | null {
+  if (value === null) {
+    return null
+  }
+
+  const memoryId =
+    requireString(
+      value,
+      path,
+      500,
+    )
+
+  if (
+    !availableMemoryIds.has(
+      memoryId,
+    )
+  ) {
+    fail(
+      'UNKNOWN_MEMORY_REFERENCE',
+      path,
+      `${path} referencia a memória indisponível ${memoryId}.`,
+    )
+  }
+
+  if (
+    !activeMemoryIds.has(
+      memoryId,
+    )
+  ) {
+    fail(
+      'INACTIVE_MEMORY_REFERENCE',
+      path,
+      `${path} referencia a memória inativa ${memoryId}.`,
+    )
+  }
+
+  collectedMemoryIds.add(
+    memoryId,
+  )
+
+  return memoryId
+}
+
 function requireContextualGrounding(
   evidenceMessageIds: string[],
   memoryIds: string[],
@@ -739,6 +788,9 @@ function normalizeCommitmentPatch(
   path: string,
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
+  availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
 ): StatefulCopilotCommitmentPatch {
   const record =
     requireRecord(
@@ -758,10 +810,12 @@ function normalizeCommitmentPatch(
     ...evidence,
 
     commitment_id:
-      requireNullableString(
+      normalizeNullablePatchMemoryId(
         record.commitment_id,
         `${path}.commitment_id`,
-        500,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
 
     kind:
@@ -816,6 +870,9 @@ function normalizeStatePatch(
   path: string,
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
+  availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
 ): StatefulCopilotStatePatch {
   const record =
     requireRecord(
@@ -838,9 +895,12 @@ function normalizeStatePatch(
       ),
 
     fact_ids_to_supersede:
-      requireUniqueStringArray(
+      normalizeMemoryIds(
         record.fact_ids_to_supersede,
         `${path}.fact_ids_to_supersede`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
 
     needs_to_add:
@@ -857,9 +917,12 @@ function normalizeStatePatch(
       ),
 
     need_ids_to_resolve:
-      requireUniqueStringArray(
+      normalizeMemoryIds(
         record.need_ids_to_resolve,
         `${path}.need_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
 
     open_loops_to_add:
@@ -876,9 +939,12 @@ function normalizeStatePatch(
       ),
 
     open_loop_ids_to_resolve:
-      requireUniqueStringArray(
+      normalizeMemoryIds(
         record.open_loop_ids_to_resolve,
         `${path}.open_loop_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
 
     objections_to_add:
@@ -895,9 +961,12 @@ function normalizeStatePatch(
       ),
 
     objection_ids_to_resolve:
-      requireUniqueStringArray(
+      normalizeMemoryIds(
         record.objection_ids_to_resolve,
         `${path}.objection_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
 
     commitments_to_upsert:
@@ -910,6 +979,9 @@ function normalizeStatePatch(
             itemPath,
             analyzedMessageIds,
             collectedEvidenceIds,
+            availableMemoryIds,
+            activeMemoryIds,
+            collectedMemoryIds,
           ),
       ),
 
@@ -927,9 +999,12 @@ function normalizeStatePatch(
       ),
 
     signal_ids_to_resolve:
-      requireUniqueStringArray(
+      normalizeMemoryIds(
         record.signal_ids_to_resolve,
         `${path}.signal_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
 
     uncertainties_to_add:
@@ -946,9 +1021,12 @@ function normalizeStatePatch(
       ),
 
     uncertainty_ids_to_resolve:
-      requireUniqueStringArray(
+      normalizeMemoryIds(
         record.uncertainty_ids_to_resolve,
         `${path}.uncertainty_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
       ),
   }
 }
@@ -1473,6 +1551,9 @@ export function normalizeStatefulCopilotOutput(
       'output.state_patch',
       analyzedMessageIdSet,
       collectedEvidenceIds,
+      availableMemoryIds,
+      activeMemoryIds,
+      collectedMemoryIds,
     )
 
   const strategy =

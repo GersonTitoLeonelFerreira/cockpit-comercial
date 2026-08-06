@@ -346,6 +346,12 @@ function buildSecondOutput() {
       'm3',
     ],
 
+    memoryIds: [
+      'facts-1-1',
+      'open_loops-1-1',
+      'commitments-1-1',
+    ],
+
     patch,
 
     currentMoment:

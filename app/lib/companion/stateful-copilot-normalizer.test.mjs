@@ -721,3 +721,171 @@ test(
     )
   },
 )
+
+
+test(
+  'patch de estado exige memória ativa e declarada globalmente',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .state_patch
+      .need_ids_to_resolve = [
+        'need-active-1',
+      ]
+
+    const context = {
+      ...normalizationContext,
+
+      available_memory_ids: [
+        ...normalizationContext
+          .available_memory_ids,
+
+        'need-active-1',
+      ],
+
+      active_memory_ids: [
+        ...normalizationContext
+          .active_memory_ids,
+
+        'need-active-1',
+      ],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          context,
+        ),
+      'MISSING_GLOBAL_MEMORY_REFERENCE',
+    )
+
+    candidate.memory_ids.push(
+      'need-active-1',
+    )
+
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        context,
+      )
+
+    assert.deepEqual(
+      normalized
+        .state_patch
+        .need_ids_to_resolve,
+      [
+        'need-active-1',
+      ],
+    )
+  },
+)
+
+test(
+  'patch de estado rejeita memória inexistente',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .state_patch
+      .fact_ids_to_supersede = [
+        'memory-inexistente',
+      ]
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'UNKNOWN_MEMORY_REFERENCE',
+    )
+  },
+)
+
+test(
+  'patch de estado rejeita memória inativa',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .state_patch
+      .signal_ids_to_resolve = [
+        'signal-resolved-1',
+      ]
+
+    const context = {
+      ...normalizationContext,
+
+      available_memory_ids: [
+        ...normalizationContext
+          .available_memory_ids,
+
+        'signal-resolved-1',
+      ],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          context,
+        ),
+      'INACTIVE_MEMORY_REFERENCE',
+    )
+  },
+)
+
+test(
+  'atualização de compromisso exige memória ativa',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .state_patch
+      .commitments_to_upsert = [
+        {
+          commitment_id:
+            'commitment-demo-1',
+
+          kind:
+            'demonstration',
+
+          status:
+            'confirmed',
+
+          scheduled_at:
+            null,
+
+          proposed_at:
+            null,
+
+          summary:
+            'A cliente confirmou a demonstração.',
+
+          evidence_message_ids: [
+            'm8',
+          ],
+        },
+      ]
+
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.equal(
+      normalized
+        .state_patch
+        .commitments_to_upsert[0]
+        .commitment_id,
+      'commitment-demo-1',
+    )
+  },
+)
