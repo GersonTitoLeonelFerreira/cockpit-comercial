@@ -1416,6 +1416,34 @@ export function normalizeStatefulCopilotOutput(
   const analyzedMessageIdSet =
     new Set(analyzedMessageIds)
 
+  if (
+    analyzedMessageIdSet.size !==
+    availableMessageIds.size
+  ) {
+    fail(
+      'ANALYZED_MESSAGE_SET_MISMATCH',
+      'output.analyzed_message_ids',
+      'As mensagens analisadas precisam coincidir com a fotografia atual.',
+    )
+  }
+
+  for (
+    const messageId of
+    availableMessageIds
+  ) {
+    if (
+      !analyzedMessageIdSet.has(
+        messageId,
+      )
+    ) {
+      fail(
+        'ANALYZED_MESSAGE_SET_MISMATCH',
+        'output.analyzed_message_ids',
+        `A mensagem atual ${messageId} não foi analisada.`,
+      )
+    }
+  }
+
   const collectedEvidenceIds =
     new Set<string>()
 

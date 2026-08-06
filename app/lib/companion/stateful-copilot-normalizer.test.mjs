@@ -381,6 +381,27 @@ test(
 )
 
 test(
+  'rejeita omissão de mensagem da fotografia atual',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate.analyzed_message_ids = [
+      'm8',
+    ]
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'ANALYZED_MESSAGE_SET_MISMATCH',
+    )
+  },
+)
+
+test(
   'rejeita evidência que não pertence às mensagens analisadas',
   () => {
     const candidate =
