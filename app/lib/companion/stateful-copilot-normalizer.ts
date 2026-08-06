@@ -9,6 +9,7 @@ import {
   STATEFUL_COPILOT_COMMERCIAL_ROLES,
   type StatefulCopilotAgendaSuggestion,
   type StatefulCopilotCommitmentPatch,
+  type StatefulCopilotContextualEvidence,
   type StatefulCopilotCrmSuggestion,
   type StatefulCopilotEvidence,
   type StatefulCopilotInterpretation,
@@ -36,6 +37,8 @@ type JsonRecord =
 
 export type StatefulCopilotNormalizationContext = {
   available_message_ids: string[]
+
+  available_memory_ids: string[]
 
   expected_previous_state_version:
     number | null
@@ -420,12 +423,13 @@ function normalizeEvidenceIds(
   path: string,
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
+  allowEmpty = false,
 ): string[] {
   const ids =
     requireUniqueStringArray(
       value,
       path,
-      false,
+      allowEmpty,
     )
 
   for (const id of ids) {
@@ -472,6 +476,126 @@ function normalizeEvidence(
         collectedEvidenceIds,
       ),
   }
+}
+
+function normalizeMemoryIds(
+  value: unknown,
+  path: string,
+  availableMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
+): string[] {
+  const ids =
+    requireUniqueStringArray(
+      value,
+      path,
+    )
+
+  for (const id of ids) {
+    if (
+      !availableMemoryIds.has(id)
+    ) {
+      fail(
+        'UNKNOWN_MEMORY_REFERENCE',
+        path,
+        `${path} referencia a memória indisponível ${id}.`,
+      )
+    }
+
+    collectedMemoryIds.add(id)
+  }
+
+  return ids
+}
+
+function requireContextualGrounding(
+  evidenceMessageIds: string[],
+  memoryIds: string[],
+  path: string,
+): void {
+  if (
+    evidenceMessageIds.length === 0 &&
+    memoryIds.length === 0
+  ) {
+    fail(
+      'EMPTY_CONTEXTUAL_GROUNDING',
+      path,
+      'A conclusão contextual precisa possuir evidência atual ou referência à memória anterior.',
+    )
+  }
+}
+
+function normalizeContextualEvidence(
+  value: unknown,
+  path: string,
+  analyzedMessageIds: Set<string>,
+  collectedEvidenceIds: Set<string>,
+  availableMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
+): StatefulCopilotContextualEvidence {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  const evidenceMessageIds =
+    normalizeEvidenceIds(
+      record.evidence_message_ids,
+      `${path}.evidence_message_ids`,
+      analyzedMessageIds,
+      collectedEvidenceIds,
+      true,
+    )
+
+  const memoryIds =
+    normalizeMemoryIds(
+      record.memory_ids,
+      `${path}.memory_ids`,
+      availableMemoryIds,
+      collectedMemoryIds,
+    )
+
+  requireContextualGrounding(
+    evidenceMessageIds,
+    memoryIds,
+    path,
+  )
+
+  return {
+    summary:
+      requireString(
+        record.summary,
+        `${path}.summary`,
+      ),
+
+    evidence_message_ids:
+      evidenceMessageIds,
+
+    memory_ids:
+      memoryIds,
+  }
+}
+
+function normalizeNullableContextualEvidence(
+  value: unknown,
+  path: string,
+  analyzedMessageIds: Set<string>,
+  collectedEvidenceIds: Set<string>,
+  availableMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
+): StatefulCopilotContextualEvidence | null {
+  if (value === null) {
+    return null
+  }
+
+  return normalizeContextualEvidence(
+    value,
+    path,
+    analyzedMessageIds,
+    collectedEvidenceIds,
+    availableMemoryIds,
+    collectedMemoryIds,
+  )
 }
 
 function normalizeNullableEvidence(
@@ -817,6 +941,8 @@ function normalizeInterpretation(
   path: string,
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
+  availableMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
 ): StatefulCopilotInterpretation {
   const record =
     requireRecord(
@@ -838,28 +964,34 @@ function normalizeInterpretation(
         record.what_remains_valid,
         `${path}.what_remains_valid`,
         (item, itemPath) =>
-          normalizeEvidence(
+          normalizeContextualEvidence(
             item,
             itemPath,
             analyzedMessageIds,
             collectedEvidenceIds,
+            availableMemoryIds,
+            collectedMemoryIds,
           ),
       ),
 
     current_moment:
-      normalizeEvidence(
+      normalizeContextualEvidence(
         record.current_moment,
         `${path}.current_moment`,
         analyzedMessageIds,
         collectedEvidenceIds,
+        availableMemoryIds,
+        collectedMemoryIds,
       ),
 
     customer_need:
-      normalizeNullableEvidence(
+      normalizeNullableContextualEvidence(
         record.customer_need,
         `${path}.customer_need`,
         analyzedMessageIds,
         collectedEvidenceIds,
+        availableMemoryIds,
+        collectedMemoryIds,
       ),
 
     uncertainties:
@@ -867,11 +999,13 @@ function normalizeInterpretation(
         record.uncertainties,
         `${path}.uncertainties`,
         (item, itemPath) =>
-          normalizeEvidence(
+          normalizeContextualEvidence(
             item,
             itemPath,
             analyzedMessageIds,
             collectedEvidenceIds,
+            availableMemoryIds,
+            collectedMemoryIds,
           ),
       ),
   }
@@ -882,12 +1016,37 @@ function normalizeStrategy(
   path: string,
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
+  availableMemoryIds: Set<string>,
+  collectedMemoryIds: Set<string>,
 ): StatefulCopilotStrategy {
   const record =
     requireRecord(
       value,
       path,
     )
+
+  const evidenceMessageIds =
+    normalizeEvidenceIds(
+      record.evidence_message_ids,
+      `${path}.evidence_message_ids`,
+      analyzedMessageIds,
+      collectedEvidenceIds,
+      true,
+    )
+
+  const memoryIds =
+    normalizeMemoryIds(
+      record.memory_ids,
+      `${path}.memory_ids`,
+      availableMemoryIds,
+      collectedMemoryIds,
+    )
+
+  requireContextualGrounding(
+    evidenceMessageIds,
+    memoryIds,
+    path,
+  )
 
   return {
     method_application:
@@ -921,12 +1080,10 @@ function normalizeStrategy(
       ),
 
     evidence_message_ids:
-      normalizeEvidenceIds(
-        record.evidence_message_ids,
-        `${path}.evidence_message_ids`,
-        analyzedMessageIds,
-        collectedEvidenceIds,
-      ),
+      evidenceMessageIds,
+
+    memory_ids:
+      memoryIds,
   }
 }
 
@@ -1181,6 +1338,11 @@ export function normalizeStatefulCopilotOutput(
       context.available_message_ids,
     )
 
+  const availableMemoryIds =
+    new Set(
+      context.available_memory_ids,
+    )
+
   const analyzedMessageIds =
     requireUniqueStringArray(
       root.analyzed_message_ids,
@@ -1211,6 +1373,9 @@ export function normalizeStatefulCopilotOutput(
   const collectedEvidenceIds =
     new Set<string>()
 
+  const collectedMemoryIds =
+    new Set<string>()
+
   const commercialRole =
     requireCommercialRole(
       root.commercial_role,
@@ -1223,6 +1388,8 @@ export function normalizeStatefulCopilotOutput(
       'output.interpretation',
       analyzedMessageIdSet,
       collectedEvidenceIds,
+      availableMemoryIds,
+      collectedMemoryIds,
     )
 
   const statePatch =
@@ -1239,6 +1406,8 @@ export function normalizeStatefulCopilotOutput(
       'output.strategy',
       analyzedMessageIdSet,
       collectedEvidenceIds,
+      availableMemoryIds,
+      collectedMemoryIds,
     )
 
   const operationalRecord =
@@ -1333,6 +1502,49 @@ export function normalizeStatefulCopilotOutput(
     }
   }
 
+  const globalMemoryIds =
+    requireUniqueStringArray(
+      root.memory_ids,
+      'output.memory_ids',
+    )
+
+  for (
+    const memoryId of
+    globalMemoryIds
+  ) {
+    if (
+      !availableMemoryIds.has(
+        memoryId,
+      )
+    ) {
+      fail(
+        'UNKNOWN_GLOBAL_MEMORY_REFERENCE',
+        'output.memory_ids',
+        `A memória global ${memoryId} não pertence ao estado comercial disponível.`,
+      )
+    }
+  }
+
+  const globalMemoryIdSet =
+    new Set(globalMemoryIds)
+
+  for (
+    const memoryId of
+    collectedMemoryIds
+  ) {
+    if (
+      !globalMemoryIdSet.has(
+        memoryId,
+      )
+    ) {
+      fail(
+        'MISSING_GLOBAL_MEMORY_REFERENCE',
+        'output.memory_ids',
+        `A memória ${memoryId} foi utilizada, mas não está declarada no conjunto global.`,
+      )
+    }
+  }
+
   return {
     contract_version:
       STATEFUL_COPILOT_CONTRACT_VERSION,
@@ -1360,5 +1572,8 @@ export function normalizeStatefulCopilotOutput(
 
     evidence_message_ids:
       globalEvidenceIds,
+
+    memory_ids:
+      globalMemoryIds,
   }
 }

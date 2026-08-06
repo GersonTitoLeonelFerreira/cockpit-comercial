@@ -3,7 +3,7 @@ import type {
 } from './diagnostic-contract'
 
 export const STATEFUL_COPILOT_CONTRACT_VERSION =
-  'phase-5.1-stateful-copilot-v1' as const
+  'phase-5.1-stateful-copilot-v2' as const
 
 export const STATEFUL_COPILOT_COMMERCIAL_ROLES = [
   'buyer',
@@ -38,6 +38,11 @@ export type StatefulCopilotEvidence = {
   summary: string
   evidence_message_ids: string[]
 }
+
+export type StatefulCopilotContextualEvidence =
+  StatefulCopilotEvidence & {
+    memory_ids: string[]
+  }
 
 export type StatefulCopilotObservedItem =
   StatefulCopilotEvidence & {
@@ -110,16 +115,16 @@ export type StatefulCopilotInterpretation = {
     StatefulCopilotEvidence | null
 
   what_remains_valid:
-    StatefulCopilotEvidence[]
+    StatefulCopilotContextualEvidence[]
 
   current_moment:
-    StatefulCopilotEvidence
+    StatefulCopilotContextualEvidence
 
   customer_need:
-    StatefulCopilotEvidence | null
+    StatefulCopilotContextualEvidence | null
 
   uncertainties:
-    StatefulCopilotEvidence[]
+    StatefulCopilotContextualEvidence[]
 }
 
 export type StatefulCopilotStrategy = {
@@ -134,6 +139,9 @@ export type StatefulCopilotStrategy = {
     string | null
 
   evidence_message_ids:
+    string[]
+
+  memory_ids:
     string[]
 }
 
@@ -194,6 +202,9 @@ export type StatefulCopilotOutput = {
   }
 
   evidence_message_ids:
+    string[]
+
+  memory_ids:
     string[]
 }
 

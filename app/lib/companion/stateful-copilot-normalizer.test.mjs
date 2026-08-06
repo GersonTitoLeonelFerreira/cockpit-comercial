@@ -16,6 +16,10 @@ const normalizationContext = {
     'm8',
   ],
 
+  available_memory_ids: [
+    'commitment-demo-1',
+  ],
+
   expected_previous_state_version:
     3,
 
@@ -62,8 +66,10 @@ function buildValidOutput() {
           summary:
             'A demonstração permanece confirmada para o horário combinado.',
 
-          evidence_message_ids: [
-            'm7',
+          evidence_message_ids: [],
+
+          memory_ids: [
+            'commitment-demo-1',
           ],
         },
       ],
@@ -73,8 +79,11 @@ function buildValidOutput() {
           'A cliente mantém a demonstração e quer compreender o investimento antes do encontro.',
 
         evidence_message_ids: [
-          'm7',
           'm8',
+        ],
+
+        memory_ids: [
+          'commitment-demo-1',
         ],
       },
 
@@ -85,6 +94,8 @@ function buildValidOutput() {
         evidence_message_ids: [
           'm8',
         ],
+
+        memory_ids: [],
       },
 
       uncertainties: [
@@ -95,6 +106,8 @@ function buildValidOutput() {
           evidence_message_ids: [
             'm8',
           ],
+
+          memory_ids: [],
         },
       ],
     },
@@ -202,8 +215,11 @@ function buildValidOutput() {
         'Entendi, Larissa. Vou considerar esse limite e, na demonstração, te mostrar de forma objetiva qual formato atende melhor à operação de vocês e qual é o investimento correspondente.',
 
       evidence_message_ids: [
-        'm7',
         'm8',
+      ],
+
+      memory_ids: [
+        'commitment-demo-1',
       ],
     },
 
@@ -238,8 +254,11 @@ function buildValidOutput() {
     },
 
     evidence_message_ids: [
-      'm7',
       'm8',
+    ],
+
+    memory_ids: [
+      'commitment-demo-1',
     ],
   }
 }
@@ -299,6 +318,24 @@ test(
         .what_remains_valid
         .length,
       1,
+    )
+
+    assert.deepEqual(
+      normalized
+        .interpretation
+        .what_remains_valid[0]
+        .evidence_message_ids,
+      [],
+    )
+
+    assert.deepEqual(
+      normalized
+        .interpretation
+        .what_remains_valid[0]
+        .memory_ids,
+      [
+        'commitment-demo-1',
+      ],
     )
 
     assert.equal(
@@ -497,13 +534,83 @@ test(
 )
 
 test(
+  'rejeita referência a memória inexistente',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .interpretation
+      .what_remains_valid[0]
+      .memory_ids = [
+        'memory-inexistente',
+      ]
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'UNKNOWN_MEMORY_REFERENCE',
+    )
+  },
+)
+
+test(
+  'conclusão contextual exige evidência atual ou memória anterior',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .interpretation
+      .what_remains_valid[0]
+      .evidence_message_ids = []
+
+    candidate
+      .interpretation
+      .what_remains_valid[0]
+      .memory_ids = []
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'EMPTY_CONTEXTUAL_GROUNDING',
+    )
+  },
+)
+
+test(
+  'toda memória utilizada precisa aparecer no conjunto global',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate.memory_ids = []
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'MISSING_GLOBAL_MEMORY_REFERENCE',
+    )
+  },
+)
+
+test(
   'toda evidência utilizada precisa aparecer no conjunto global',
   () => {
     const candidate =
       buildValidOutput()
 
     candidate.evidence_message_ids = [
-      'm8',
+      'm7',
     ]
 
     expectContractError(
