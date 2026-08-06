@@ -6,6 +6,10 @@ import {
 } from './stateful-copilot-contract.ts'
 
 import {
+  normalizeStatefulCopilotOutput,
+} from './stateful-copilot-normalizer.ts'
+
+import {
   StatefulCommercialStateReductionError,
   reduceStatefulCommercialState,
 } from './stateful-commercial-state-reducer.ts'
@@ -44,6 +48,7 @@ function buildOutput({
   patch = emptyPatch(),
   currentMoment =
     'Cliente está avaliando a solução.',
+  memoryIds = [],
   nextMove =
     'Conduzir o próximo passo de forma consultiva.',
 } = {}) {
@@ -77,6 +82,9 @@ function buildOutput({
 
         evidence_message_ids:
           evidenceMessageIds,
+
+        memory_ids:
+          memoryIds,
       },
 
       customer_need:
@@ -106,6 +114,9 @@ function buildOutput({
 
       evidence_message_ids:
         evidenceMessageIds,
+
+      memory_ids:
+        memoryIds,
     },
 
     operational_suggestions: {
@@ -140,6 +151,9 @@ function buildOutput({
 
     evidence_message_ids:
       evidenceMessageIds,
+
+    memory_ids:
+      memoryIds,
   }
 }
 
@@ -400,6 +414,95 @@ function expectReductionError(
     },
   )
 }
+
+test(
+  'fixtures do redutor respeitam o contrato stateful v2',
+  () => {
+    const initialOutput =
+      buildInitialOutput()
+
+    const normalizedInitialOutput =
+      normalizeStatefulCopilotOutput(
+        initialOutput,
+        {
+          available_message_ids: [
+            'm1',
+            'm2',
+          ],
+
+          available_memory_ids: [],
+          active_memory_ids: [],
+
+          expected_previous_state_version:
+            null,
+
+          current_crm_status:
+            'respondeu',
+
+          prohibited_statuses: [
+            'ganho',
+            'perdido',
+          ],
+
+          reference_time:
+            '2026-08-05T21:00:00-03:00',
+        },
+      )
+
+    assert.deepEqual(
+      normalizedInitialOutput,
+      initialOutput,
+    )
+
+    const secondOutput =
+      buildSecondOutput()
+
+    const normalizedSecondOutput =
+      normalizeStatefulCopilotOutput(
+        secondOutput,
+        {
+          available_message_ids: [
+            'm3',
+          ],
+
+          available_memory_ids: [
+            'facts-1-1',
+            'open_loops-1-1',
+            'commitments-1-1',
+            'signals-1-1',
+            'uncertainties-1-1',
+          ],
+
+          active_memory_ids: [
+            'facts-1-1',
+            'open_loops-1-1',
+            'commitments-1-1',
+            'signals-1-1',
+            'uncertainties-1-1',
+          ],
+
+          expected_previous_state_version:
+            1,
+
+          current_crm_status:
+            'negociacao',
+
+          prohibited_statuses: [
+            'ganho',
+            'perdido',
+          ],
+
+          reference_time:
+            '2026-08-05T22:00:00-03:00',
+        },
+      )
+
+    assert.deepEqual(
+      normalizedSecondOutput,
+      secondOutput,
+    )
+  },
+)
 
 test(
   'cria a primeira versão preservando verdades simultâneas',
