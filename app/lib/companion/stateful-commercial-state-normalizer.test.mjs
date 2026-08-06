@@ -287,7 +287,56 @@ test(
 )
 
 test(
-  'momento atual não pode usar evidência histórica inativa',
+  'estado anterior preserva momento sustentado por evidência histórica conhecida',
+  () => {
+    const candidate =
+      buildValidState()
+
+    candidate.last_analyzed_message_ids = [
+      'm1',
+    ]
+
+    candidate.last_evidence_message_ids = [
+      'm1',
+    ]
+
+    candidate
+      .current_moment
+      .evidence_message_ids = [
+        'm1',
+      ]
+
+    candidate
+      .current_priority
+      .evidence_message_ids = [
+        'm1',
+      ]
+
+    const normalized =
+      normalizeStatefulCommercialState(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.deepEqual(
+      normalized
+        .current_moment
+        .evidence_message_ids,
+      [
+        'm1',
+      ],
+    )
+
+    assert.ok(
+      !normalizationContext
+        .active_message_ids
+        .includes('m1'),
+    )
+  },
+)
+
+test(
+  'momento do estado anterior não pode citar mensagem desconhecida',
   () => {
     const candidate =
       buildValidState()
@@ -295,7 +344,7 @@ test(
     candidate
       .current_moment
       .evidence_message_ids = [
-        'm1',
+        'm9',
       ]
 
     expectContractError(

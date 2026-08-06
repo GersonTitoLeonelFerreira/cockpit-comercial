@@ -879,7 +879,7 @@ export function normalizeStatefulCommercialState(
     normalizeEvidenceIds(
       state.last_analyzed_message_ids,
       'state.last_analyzed_message_ids',
-      activeMessageIds,
+      knownMessageIds,
     )
 
   const lastAnalyzedMessageIdSet =
@@ -891,7 +891,7 @@ export function normalizeStatefulCommercialState(
     normalizeEvidenceIds(
       state.last_evidence_message_ids,
       'state.last_evidence_message_ids',
-      activeMessageIds,
+      knownMessageIds,
     )
 
   ensureSubset(
@@ -910,7 +910,7 @@ export function normalizeStatefulCommercialState(
     normalizeEvidence(
       state.current_moment,
       'state.current_moment',
-      activeMessageIds,
+      knownMessageIds,
     )
 
   ensureSubset(
@@ -924,7 +924,7 @@ export function normalizeStatefulCommercialState(
     normalizeEvidence(
       state.current_priority,
       'state.current_priority',
-      activeMessageIds,
+      knownMessageIds,
     )
 
   ensureSubset(
