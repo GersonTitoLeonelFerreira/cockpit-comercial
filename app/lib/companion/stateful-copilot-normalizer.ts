@@ -40,6 +40,8 @@ export type StatefulCopilotNormalizationContext = {
 
   available_memory_ids: string[]
 
+  active_memory_ids: string[]
+
   expected_previous_state_version:
     number | null
 
@@ -482,6 +484,7 @@ function normalizeMemoryIds(
   value: unknown,
   path: string,
   availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
   collectedMemoryIds: Set<string>,
 ): string[] {
   const ids =
@@ -498,6 +501,16 @@ function normalizeMemoryIds(
         'UNKNOWN_MEMORY_REFERENCE',
         path,
         `${path} referencia a memória indisponível ${id}.`,
+      )
+    }
+
+    if (
+      !activeMemoryIds.has(id)
+    ) {
+      fail(
+        'INACTIVE_MEMORY_REFERENCE',
+        path,
+        `${path} referencia a memória inativa ${id}.`,
       )
     }
 
@@ -530,6 +543,7 @@ function normalizeContextualEvidence(
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
   availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
   collectedMemoryIds: Set<string>,
 ): StatefulCopilotContextualEvidence {
   const record =
@@ -552,6 +566,7 @@ function normalizeContextualEvidence(
       record.memory_ids,
       `${path}.memory_ids`,
       availableMemoryIds,
+      activeMemoryIds,
       collectedMemoryIds,
     )
 
@@ -582,6 +597,7 @@ function normalizeNullableContextualEvidence(
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
   availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
   collectedMemoryIds: Set<string>,
 ): StatefulCopilotContextualEvidence | null {
   if (value === null) {
@@ -594,6 +610,7 @@ function normalizeNullableContextualEvidence(
     analyzedMessageIds,
     collectedEvidenceIds,
     availableMemoryIds,
+    activeMemoryIds,
     collectedMemoryIds,
   )
 }
@@ -942,6 +959,7 @@ function normalizeInterpretation(
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
   availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
   collectedMemoryIds: Set<string>,
 ): StatefulCopilotInterpretation {
   const record =
@@ -970,6 +988,7 @@ function normalizeInterpretation(
             analyzedMessageIds,
             collectedEvidenceIds,
             availableMemoryIds,
+            activeMemoryIds,
             collectedMemoryIds,
           ),
       ),
@@ -981,6 +1000,7 @@ function normalizeInterpretation(
         analyzedMessageIds,
         collectedEvidenceIds,
         availableMemoryIds,
+        activeMemoryIds,
         collectedMemoryIds,
       ),
 
@@ -991,6 +1011,7 @@ function normalizeInterpretation(
         analyzedMessageIds,
         collectedEvidenceIds,
         availableMemoryIds,
+        activeMemoryIds,
         collectedMemoryIds,
       ),
 
@@ -1005,6 +1026,7 @@ function normalizeInterpretation(
             analyzedMessageIds,
             collectedEvidenceIds,
             availableMemoryIds,
+            activeMemoryIds,
             collectedMemoryIds,
           ),
       ),
@@ -1017,6 +1039,7 @@ function normalizeStrategy(
   analyzedMessageIds: Set<string>,
   collectedEvidenceIds: Set<string>,
   availableMemoryIds: Set<string>,
+  activeMemoryIds: Set<string>,
   collectedMemoryIds: Set<string>,
 ): StatefulCopilotStrategy {
   const record =
@@ -1039,6 +1062,7 @@ function normalizeStrategy(
       record.memory_ids,
       `${path}.memory_ids`,
       availableMemoryIds,
+      activeMemoryIds,
       collectedMemoryIds,
     )
 
@@ -1343,6 +1367,28 @@ export function normalizeStatefulCopilotOutput(
       context.available_memory_ids,
     )
 
+  const activeMemoryIds =
+    new Set(
+      context.active_memory_ids,
+    )
+
+  for (
+    const memoryId of
+    activeMemoryIds
+  ) {
+    if (
+      !availableMemoryIds.has(
+        memoryId,
+      )
+    ) {
+      fail(
+        'ACTIVE_MEMORY_NOT_AVAILABLE',
+        'context.active_memory_ids',
+        `A memória ativa ${memoryId} não pertence ao estado comercial disponível.`,
+      )
+    }
+  }
+
   const analyzedMessageIds =
     requireUniqueStringArray(
       root.analyzed_message_ids,
@@ -1389,6 +1435,7 @@ export function normalizeStatefulCopilotOutput(
       analyzedMessageIdSet,
       collectedEvidenceIds,
       availableMemoryIds,
+      activeMemoryIds,
       collectedMemoryIds,
     )
 
@@ -1407,6 +1454,7 @@ export function normalizeStatefulCopilotOutput(
       analyzedMessageIdSet,
       collectedEvidenceIds,
       availableMemoryIds,
+      activeMemoryIds,
       collectedMemoryIds,
     )
 
@@ -1521,6 +1569,18 @@ export function normalizeStatefulCopilotOutput(
         'UNKNOWN_GLOBAL_MEMORY_REFERENCE',
         'output.memory_ids',
         `A memória global ${memoryId} não pertence ao estado comercial disponível.`,
+      )
+    }
+
+    if (
+      !activeMemoryIds.has(
+        memoryId,
+      )
+    ) {
+      fail(
+        'INACTIVE_GLOBAL_MEMORY_REFERENCE',
+        'output.memory_ids',
+        `A memória global ${memoryId} não está ativa no estado comercial.`,
       )
     }
   }

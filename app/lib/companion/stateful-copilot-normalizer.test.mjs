@@ -20,6 +20,10 @@ const normalizationContext = {
     'commitment-demo-1',
   ],
 
+  active_memory_ids: [
+    'commitment-demo-1',
+  ],
+
   expected_previous_state_version:
     3,
 
@@ -529,6 +533,79 @@ test(
           invalidContext,
         ),
       'INVALID_REFERENCE_TIME',
+    )
+  },
+)
+
+test(
+  'rejeita memória ativa ausente do estado disponível',
+  () => {
+    const invalidContext = {
+      ...normalizationContext,
+
+      active_memory_ids: [
+        'commitment-demo-1',
+        'memory-inexistente',
+      ],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          buildValidOutput(),
+          invalidContext,
+        ),
+      'ACTIVE_MEMORY_NOT_AVAILABLE',
+    )
+  },
+)
+
+test(
+  'rejeita memória inativa sustentando o contexto atual',
+  () => {
+    const inactiveContext = {
+      ...normalizationContext,
+
+      active_memory_ids: [],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          buildValidOutput(),
+          inactiveContext,
+        ),
+      'INACTIVE_MEMORY_REFERENCE',
+    )
+  },
+)
+
+test(
+  'rejeita memória global inativa mesmo quando conhecida',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate.memory_ids.push(
+      'resolved-memory-1',
+    )
+
+    const context = {
+      ...normalizationContext,
+
+      available_memory_ids: [
+        'commitment-demo-1',
+        'resolved-memory-1',
+      ],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          context,
+        ),
+      'INACTIVE_GLOBAL_MEMORY_REFERENCE',
     )
   },
 )
