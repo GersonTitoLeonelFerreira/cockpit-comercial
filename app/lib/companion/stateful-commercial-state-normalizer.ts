@@ -821,7 +821,6 @@ export function normalizeStatefulCommercialState(
       requireUniqueStringArray(
         context.active_message_ids,
         'context.active_message_ids',
-        false,
       ),
     )
 

@@ -511,6 +511,37 @@ test(
 )
 
 test(
+  'aceita fotografia atual sem mensagens ativas quando o histórico permanece conhecido',
+  () => {
+    const context = {
+      ...normalizationContext,
+
+      active_message_ids: [],
+    }
+
+    const normalized =
+      normalizeStatefulCommercialState(
+        buildValidState(),
+        context,
+      )
+
+    assert.equal(
+      normalized.version,
+      2,
+    )
+
+    assert.deepEqual(
+      normalized
+        .current_moment
+        .evidence_message_ids,
+      [
+        'm3',
+      ],
+    )
+  },
+)
+
+test(
   'rejeita cronologia inválida do estado',
   () => {
     const candidate =
