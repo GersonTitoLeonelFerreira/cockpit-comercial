@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
@@ -1827,40 +1827,121 @@ export async function POST(request: Request) {
 
     /*
      * Fase 5.2:
-     * o runtime stateful roda como sidecar.
      *
-     * Mesmo em shadow, a resposta operacional
-     * desta rota continua sendo o V1.
-     *
-     * A exposição do V2 será autorizada
-     * somente em um gate futuro.
+     * O V1 continua sendo a resposta operacional.
+     * O stateful roda após a resposta, em shadow,
+     * sem acrescentar sua latência ao vendedor.
      */
-    try {
-      await runStatefulCopilotRuntime({
-        company_id:
-          tokenPayload.company_id,
+    after(async () => {
+      const startedAt =
+        Date.now()
 
-        cycle_id:
-          cycleId,
+      try {
+        const statefulResult =
+          await runStatefulCopilotRuntime({
+            company_id:
+              tokenPayload.company_id,
 
-        conversation_key:
-          conversationKey,
+            cycle_id:
+              cycleId,
 
-        device_key:
-          deviceKey,
+            conversation_key:
+              conversationKey,
 
-        reference_time:
-          new Date().toISOString(),
+            device_key:
+              deviceKey,
 
-        v1_response:
-          v1ResponseData,
-      })
-    } catch {
-      /*
-       * Shadow nunca pode interromper
-       * o fluxo operacional V1.
-       */
-    }
+            reference_time:
+              new Date().toISOString(),
+
+            v1_response:
+              v1ResponseData,
+          })
+
+        if (
+          statefulResult
+            .activation
+            .mode ===
+          'disabled'
+        ) {
+          return
+        }
+
+        console.info(
+          'YOLEN_COMPANION_STATEFUL_SHADOW',
+          JSON.stringify({
+            event:
+              'stateful_shadow_completed',
+
+            company_id:
+              tokenPayload.company_id,
+
+            cycle_id:
+              cycleId,
+
+            activation_mode:
+              statefulResult
+                .activation
+                .mode,
+
+            runtime_mode:
+              statefulResult.mode,
+
+            response_source:
+              statefulResult
+                .response_source,
+
+            stateful_executed:
+              statefulResult
+                .stateful_executed,
+
+            duration_ms:
+              Math.max(
+                0,
+                Date.now() -
+                  startedAt,
+              ),
+
+            execution:
+              statefulResult
+                .stateful_execution,
+
+            failure:
+              statefulResult
+                .stateful_failure,
+
+            automatic_crm_write:
+              statefulResult
+                .automatic_crm_write,
+
+            automatic_agenda_write:
+              statefulResult
+                .automatic_agenda_write,
+          }),
+        )
+      } catch {
+        console.warn(
+          'YOLEN_COMPANION_STATEFUL_SHADOW',
+          JSON.stringify({
+            event:
+              'stateful_shadow_unhandled_failure',
+
+            company_id:
+              tokenPayload.company_id,
+
+            cycle_id:
+              cycleId,
+
+            duration_ms:
+              Math.max(
+                0,
+                Date.now() -
+                  startedAt,
+              ),
+          }),
+        )
+      }
+    })
 
     return NextResponse.json<AnalyzeConversationResponse>(
       {

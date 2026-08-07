@@ -102,12 +102,32 @@ test(
 
     assert.match(
       analyzeRoute,
+      /import \{ after, NextResponse \} from 'next\/server'/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /after\(async \(\) => \{/,
+    )
+
+    assert.match(
+      analyzeRoute,
       /await runStatefulCopilotRuntime\(\{/,
     )
 
     assert.match(
       analyzeRoute,
       /v1_response:\s*v1ResponseData/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /stateful_shadow_completed/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /duration_ms:/,
     )
 
     assert.match(
