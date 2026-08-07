@@ -3,6 +3,8 @@
 const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
 const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
+const PHASE_5_2_PREVIEW_BASE_URL =
+  'https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
@@ -26,6 +28,13 @@ function getAllowedBaseUrl(baseUrl) {
 
   if (baseUrl === DEFAULT_BASE_URL) {
     return DEFAULT_BASE_URL
+  }
+
+  if (
+    baseUrl ===
+    PHASE_5_2_PREVIEW_BASE_URL
+  ) {
+    return PHASE_5_2_PREVIEW_BASE_URL
   }
 
   return DEFAULT_BASE_URL
@@ -205,7 +214,9 @@ async function requestYolenWithToken(message, path, body) {
     cachedSession.origin ===
       LOCAL_BASE_URL ||
     cachedSession.origin ===
-      DEFAULT_BASE_URL
+      DEFAULT_BASE_URL ||
+    cachedSession.origin ===
+      PHASE_5_2_PREVIEW_BASE_URL
       ? cachedSession.origin
       : null
 
