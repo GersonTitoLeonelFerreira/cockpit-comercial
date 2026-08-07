@@ -10,7 +10,79 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 `PHASE_2_SCHEMA_BASELINE.md`, `PHASE_3_MESSAGE_LEDGER.md` e
 `PHASE_4_CAPTURE_STATE.md`.
 
-## Estado geral em 2026-08-03
+## Estado atual em 2026-08-07 — Fase 5.1
+
+| Campo | Estado |
+|---|---|
+| Momento atual | Fase 5.1 — Núcleo Stateful tecnicamente concluída; registro final aguardando commit e publicação |
+| Motor operacional | `v1` |
+| Gate stateful padrão | `disabled` |
+| Allowlist stateful padrão | vazia |
+| Branch | `feature/companion-v2-phase-5-1-stateful-copilot` |
+| Commit funcional de referência | `566b0a2c4a2bdaee4f2cef79356420d53cdc1675` |
+| Persistência stateful | Implementada, versionada e validada |
+| Contexto real | Implementado e validado |
+| Orquestrador server-only | Implementado e validado |
+| Companion geral | 404/404 |
+| Contexto real stateful | 6/6 |
+| Orquestrador server-only | 9/9 |
+| TypeScript | Aprovado |
+| Build Next.js | Aprovado; 111/111 páginas geradas |
+| Integração do orquestrador em rota operacional | Nenhuma |
+| Escrita automática em CRM ou Agenda | Proibida |
+| Rollout do V2 | Não autorizado |
+
+### Resultado da Fase 5.1
+
+O núcleo stateful do Motor de Diagnóstico Comercial V2 está implementado.
+
+A arquitetura concluída inclui:
+
+- contrato e normalização do estado comercial acumulado;
+- redutor versionado;
+- corpus de regressão comercial;
+- interpretação contextual estruturada;
+- provider server-side;
+- leitor e escritor Supabase;
+- persistência com trava de versão, auditoria e idempotência;
+- serviço integrado;
+- gate de ativação por empresa;
+- composição server-only;
+- carregador de contexto real;
+- orquestrador server-only.
+
+O fluxo preserva o Companion V1 durante o rollout.
+
+Em `shadow`, o núcleo stateful pode executar e persistir sem substituir a
+resposta operacional do V1.
+
+Em `active`, a exposição do V2 exige engine `v2`, empresa autorizada e
+persistência confirmada.
+
+Bloqueio, conflito ou falha preservam a resposta V1.
+
+### Guardrails preservados
+
+```text
+COMPANION_ENGINE_VERSION="v1"
+COMPANION_STATEFUL_MODE="disabled"
+COMPANION_STATEFUL_COMPANY_IDS=""
+```
+
+Nenhuma rota operacional utiliza o novo orquestrador neste fechamento.
+
+Nenhuma interpretação do V2 altera automaticamente CRM, Agenda, ganho ou perda.
+
+O encerramento técnico detalhado está em:
+
+```text
+docs/companion-v2/PHASE_5_1_TECHNICAL_CLOSURE.md
+```
+
+As seções datadas de 2026-08-03 e 2026-07-31 abaixo são snapshots históricos
+e não representam o estado atual da Fase 5.1.
+
+## Snapshot histórico em 2026-08-03
 
 | Campo | Estado |
 |---|---|
@@ -105,7 +177,7 @@ A Fase 5 não está autorizada por esta atualização. O motor ativo continua em
 | Interface nova V2 | `/admin/configuracao-comercial` funcional na branch da Fase 3 |
 | Fase 5 do produto | Não iniciada |
 
-## Painel executivo por fase do produto
+## Painel executivo histórico do snapshot de 2026-07-31
 
 | Fase | Entrega | Estado | Evidência existente | Próximo gate |
 |---|---|---|---|---|
