@@ -21,6 +21,13 @@ const migrationPath = fileURLToPath(
   ),
 );
 
+const correctiveMigrationPath = fileURLToPath(
+  new URL(
+    "../migrations/20260806214500_align_stateful_contract_versions.sql",
+    import.meta.url,
+  ),
+);
+
 const supabaseBootstrap = `
   create role anon nologin;
   create role authenticated nologin;
@@ -71,7 +78,7 @@ function buildState({
 }) {
   return {
     contract_version:
-      "stateful-commercial-state-v1",
+      "phase-5.1-commercial-state-v1",
 
     cycle_id:
       cycleId,
@@ -162,7 +169,7 @@ function buildAudit({
 
     normalized_output: {
       contract_version:
-        "stateful-copilot-v2",
+        "phase-5.1-stateful-copilot-v2",
     },
 
     execution: {
@@ -265,6 +272,13 @@ test(
       await db.exec(
         await readFile(
           migrationPath,
+          "utf8",
+        ),
+      );
+
+      await db.exec(
+        await readFile(
+          correctiveMigrationPath,
           "utf8",
         ),
       );
@@ -684,7 +698,7 @@ test(
         currentState
           .rows[0]
           .contract_version,
-        "stateful-commercial-state-v1",
+        "phase-5.1-commercial-state-v1",
       );
 
       const eventHistory =
