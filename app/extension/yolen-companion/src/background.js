@@ -290,6 +290,45 @@ async function handleCaptureIngestion(message) {
   }
 }
 
+async function handleConversationAnalysis(message) {
+  try {
+    const deviceKey =
+      await getOrCreateDeviceKey()
+
+    const payload =
+      message.payload &&
+      typeof message.payload === 'object' &&
+      !Array.isArray(message.payload)
+        ? message.payload
+        : {}
+
+    return requestYolenWithToken(
+      message,
+      '/api/companion/analyze-conversation',
+      {
+        ...payload,
+        device_key:
+          deviceKey,
+      },
+    )
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 400,
+      payload: {
+        ok: false,
+        status:
+          'INVALID_ANALYSIS_TRANSPORT',
+        error:
+          error instanceof Error &&
+          error.message
+            ? error.message
+            : 'Não foi possível preparar a análise do Companion.',
+      },
+    }
+  }
+}
+
 async function handleCompanionMessage(message) {
   if (message.action === 'GET_ME') {
     const cachedSession = await getValidCachedSession()
@@ -340,10 +379,8 @@ async function handleCompanionMessage(message) {
   }
 
   if (message.action === 'ANALYZE_CONVERSATION') {
-    return requestYolenWithToken(
+    return handleConversationAnalysis(
       message,
-      '/api/companion/analyze-conversation',
-      message.payload,
     )
   }
 

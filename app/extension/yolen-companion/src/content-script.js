@@ -6112,6 +6112,8 @@
         await window.YolenCompanionApi
           .analyzeConversation({
             cycle_id: cycleId,
+            conversation_key:
+              getCaptureConversationKey(),
             conversation_text:
               conversationText,
             messages:

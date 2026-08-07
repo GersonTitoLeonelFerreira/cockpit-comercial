@@ -6,6 +6,9 @@ import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copil
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
 import { resolveCompanionEngineVersion } from '@/app/lib/companion/engine-version'
 import {
+  createStatefulCopilotServerRuntimeOrchestrator,
+} from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
+import {
   selectStructuredMessageBatch,
   shouldForceReanalysis,
 } from '@/app/lib/companion/message-selection'
@@ -31,6 +34,8 @@ type CompanionTokenPayload = {
 
 type AnalyzeCompanionBody = {
   cycle_id?: unknown
+  conversation_key?: unknown
+  device_key?: unknown
   conversation_text?: unknown
   messages?: unknown
   source?: unknown
@@ -38,6 +43,9 @@ type AnalyzeCompanionBody = {
   force_reanalysis?: unknown
   message_snapshot_hash?: unknown
 }
+
+const runStatefulCopilotRuntime =
+  createStatefulCopilotServerRuntimeOrchestrator()
 
 type CompanionMessageDirection =
   | 'incoming'
@@ -1241,6 +1249,16 @@ export async function POST(request: Request) {
     const cycleId =
       getString(body.cycle_id)
 
+    const conversationKey =
+      getString(
+        body.conversation_key,
+      )?.trim() || null
+
+    const deviceKey =
+      getString(
+        body.device_key,
+      )?.trim() || null
+
     const legacyConversationText =
       cleanConversationText(
         body.conversation_text,
@@ -1793,16 +1811,62 @@ export async function POST(request: Request) {
       yolenDecision,
     })
 
+    const v1ResponseData = {
+      context,
+      suggestion:
+        result.suggestion,
+      diagnostics:
+        result.diagnostics,
+      saved_coaching:
+        savedCoaching,
+      coaching:
+        buildResponseCoaching(
+          coaching,
+        ),
+    }
+
+    /*
+     * Fase 5.2:
+     * o runtime stateful roda como sidecar.
+     *
+     * Mesmo em shadow, a resposta operacional
+     * desta rota continua sendo o V1.
+     *
+     * A exposição do V2 será autorizada
+     * somente em um gate futuro.
+     */
+    try {
+      await runStatefulCopilotRuntime({
+        company_id:
+          tokenPayload.company_id,
+
+        cycle_id:
+          cycleId,
+
+        conversation_key:
+          conversationKey,
+
+        device_key:
+          deviceKey,
+
+        reference_time:
+          new Date().toISOString(),
+
+        v1_response:
+          v1ResponseData,
+      })
+    } catch {
+      /*
+       * Shadow nunca pode interromper
+       * o fluxo operacional V1.
+       */
+    }
+
     return NextResponse.json<AnalyzeConversationResponse>(
       {
         ok: true,
-        data: {
-          context,
-          suggestion: result.suggestion,
-          diagnostics: result.diagnostics,
-          saved_coaching: savedCoaching,
-          coaching: buildResponseCoaching(coaching),
-        },
+        data:
+          v1ResponseData,
       },
       {
         headers: corsHeaders,
