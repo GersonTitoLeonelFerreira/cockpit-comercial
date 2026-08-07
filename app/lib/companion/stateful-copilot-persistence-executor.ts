@@ -1,3 +1,7 @@
+import {
+  createHash,
+} from 'node:crypto'
+
 import type {
   StatefulCopilotBlockedPersistencePlan,
   StatefulCopilotModelPersistencePlan,
@@ -307,18 +311,67 @@ function buildOperationKey(
   plan:
     StatefulCopilotModelPersistencePlan,
 ): string {
+  const fingerprint =
+    createHash(
+      'sha256',
+    )
+      .update(
+        JSON.stringify({
+          conversation_key:
+            plan.conversation_key,
+
+          expected_previous_state_version:
+            plan
+              .write_guard
+              .expected_previous_state_version,
+
+          expected_previous_state_updated_at:
+            plan
+              .write_guard
+              .expected_previous_state_updated_at,
+
+          state_snapshot:
+            plan.state_snapshot,
+
+          normalized_output:
+            plan
+              .audit_event
+              .normalized_output,
+
+          analyzed_message_ids:
+            plan
+              .audit_event
+              .analyzed_message_ids,
+
+          evidence_message_ids:
+            plan
+              .audit_event
+              .evidence_message_ids,
+
+          memory_ids:
+            plan
+              .audit_event
+              .memory_ids,
+        }),
+      )
+      .digest(
+        'hex',
+      )
+
   const values = [
     'stateful-copilot',
     plan.company_id,
     plan.cycle_id,
-    plan.conversation_key,
     `v${plan.write_guard.candidate_state_version}`,
+    fingerprint,
   ]
 
   return values
     .map(
       (value) =>
-        encodeURIComponent(value),
+        encodeURIComponent(
+          value,
+        ),
     )
     .join(':')
 }

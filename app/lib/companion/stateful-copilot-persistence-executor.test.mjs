@@ -530,6 +530,74 @@ test(
 )
 
 test(
+  'planos divergentes da mesma versão geram chaves de operação diferentes',
+  async () => {
+    const firstPlan =
+      buildModelPlan()
+
+    const secondPlan =
+      buildModelPlan()
+
+    secondPlan
+      .state_snapshot
+      .current_priority
+      .summary =
+        'Outra prioridade comercial.'
+
+    secondPlan
+      .audit_event
+      .normalized_output
+      .strategy
+      .next_move =
+        'Executar outro próximo movimento.'
+
+    const operationKeys = []
+
+    const writer =
+      async (request) => {
+        operationKeys.push(
+          request.operation_key,
+        )
+
+        return {
+          status:
+            'conflict',
+
+          current_state_version:
+            2,
+
+          current_state_updated_at:
+            '2026-08-06T18:00:02-03:00',
+        }
+      }
+
+    await executeStatefulCopilotPersistence({
+      plan:
+        firstPlan,
+
+      writer,
+    })
+
+    await executeStatefulCopilotPersistence({
+      plan:
+        secondPlan,
+
+      writer,
+    })
+
+    assert.equal(
+      operationKeys.length,
+      2,
+    )
+
+    assert.notEqual(
+      operationKeys[0],
+      operationKeys[1],
+    )
+  },
+)
+
+test(
   'conflito de versão não tenta gravar novamente',
   async () => {
     let writerCalls = 0

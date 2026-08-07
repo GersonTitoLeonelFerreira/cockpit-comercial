@@ -1302,6 +1302,128 @@ test(
 )
 
 test(
+  'mantém timeout ativo durante a leitura do corpo da resposta',
+  async () => {
+    const input =
+      buildInput()
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    await assert.rejects(
+      () =>
+        executeCompanionDiagnosticPlan({
+          plan,
+          input,
+
+          options: {
+            api_key:
+              'test-key',
+
+            timeout_ms:
+              10,
+
+            fetch_impl:
+              async (
+                _url,
+                init,
+              ) => {
+                const signal =
+                  init.signal
+
+                return {
+                  ok:
+                    true,
+
+                  status:
+                    200,
+
+                  headers:
+                    new Headers(),
+
+                  async text() {
+                    return await new Promise(
+                      (
+                        resolve,
+                        reject,
+                      ) => {
+                        const fallbackHandle =
+                          setTimeout(
+                            () => {
+                              resolve(
+                                '{}',
+                              )
+                            },
+                            100,
+                          )
+
+                        const abort =
+                          () => {
+                            clearTimeout(
+                              fallbackHandle,
+                            )
+
+                            reject(
+                              new DOMException(
+                                'Aborted',
+                                'AbortError',
+                              ),
+                            )
+                          }
+
+                        if (
+                          signal.aborted
+                        ) {
+                          abort()
+                          return
+                        }
+
+                        signal.addEventListener(
+                          'abort',
+                          abort,
+                          {
+                            once:
+                              true,
+                          },
+                        )
+                      },
+                    )
+                  },
+                }
+              },
+          },
+        }),
+
+      (error) => {
+        assert.ok(
+          error instanceof
+            CompanionDiagnosticModelError,
+        )
+
+        assert.equal(
+          error.code,
+          'MODEL_TIMEOUT',
+        )
+
+        assert.equal(
+          error.status_code,
+          504,
+        )
+
+        assert.equal(
+          error.retryable,
+          true,
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+test(
   'classifica falha de leitura sem expor conteúdo interno da resposta',
   async () => {
     const input =

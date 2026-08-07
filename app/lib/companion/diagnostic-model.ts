@@ -1692,112 +1692,129 @@ export async function executeCompanionDiagnosticPlan({
     )
 
   let response: Response
+  let responseText: string
 
   try {
-    response =
-      await fetchImpl(
-        OPENAI_CHAT_COMPLETIONS_URL,
-        {
-          method: 'POST',
+    try {
+      response =
+        await fetchImpl(
+          OPENAI_CHAT_COMPLETIONS_URL,
+          {
+            method: 'POST',
 
-          headers: {
-            'Content-Type':
-              'application/json',
+            headers: {
+              'Content-Type':
+                'application/json',
 
-            Authorization:
-              `Bearer ${apiKey}`,
-          },
-
-          signal:
-            controller.signal,
-
-          body: JSON.stringify({
-            model,
-
-            temperature:
-              0.1,
-
-            response_format: {
-              type:
-                'json_object',
+              Authorization:
+                `Bearer ${apiKey}`,
             },
 
-            messages: [
-              {
-                role:
-                  'system',
+            signal:
+              controller.signal,
 
-                content:
-                  plan.request
-                    .system_prompt,
+            body: JSON.stringify({
+              model,
+
+              temperature:
+                0.1,
+
+              response_format: {
+                type:
+                  'json_object',
               },
 
-              {
-                role:
-                  'user',
+              messages: [
+                {
+                  role:
+                    'system',
 
-                content:
-                  plan.request
-                    .user_prompt,
-              },
-            ],
-          }),
-        },
-      )
-  } catch (error) {
-    if (
-      controller.signal.aborted ||
-      isAbortError(error)
-    ) {
+                  content:
+                    plan.request
+                      .system_prompt,
+                },
+
+                {
+                  role:
+                    'user',
+
+                  content:
+                    plan.request
+                      .user_prompt,
+                },
+              ],
+            }),
+          },
+        )
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        isAbortError(error)
+      ) {
+        fail({
+          code:
+            'MODEL_TIMEOUT',
+
+          message:
+            'O diagnóstico excedeu o tempo máximo de execução.',
+
+          status_code: 504,
+          retryable: true,
+        })
+      }
+
       fail({
         code:
-          'MODEL_TIMEOUT',
+          'MODEL_NETWORK_ERROR',
 
         message:
-          'O diagnóstico excedeu o tempo máximo de execução.',
+          'Não foi possível acessar o provedor do diagnóstico.',
 
-        status_code: 504,
+        status_code: 502,
         retryable: true,
       })
     }
 
-    fail({
-      code:
-        'MODEL_NETWORK_ERROR',
+    try {
+      responseText =
+        await response.text()
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        isAbortError(error)
+      ) {
+        fail({
+          code:
+            'MODEL_TIMEOUT',
 
-      message:
-        'Não foi possível acessar o provedor do diagnóstico.',
+          message:
+            'O diagnóstico excedeu o tempo máximo de execução.',
 
-      status_code: 502,
-      retryable: true,
-    })
+          status_code: 504,
+          retryable: true,
+        })
+      }
+
+      fail({
+        code:
+          'MODEL_RESPONSE_READ_FAILED',
+
+        message:
+          'Não foi possível ler a resposta do provedor do diagnóstico.',
+
+        status_code: 502,
+        retryable: true,
+
+        details: {
+          provider_status:
+            response.status,
+        },
+      })
+    }
   } finally {
     clearTimeout(
       timeoutHandle,
     )
-  }
-
-  let responseText: string
-
-  try {
-    responseText =
-      await response.text()
-  } catch {
-    fail({
-      code:
-        'MODEL_RESPONSE_READ_FAILED',
-
-      message:
-        'Não foi possível ler a resposta do provedor do diagnóstico.',
-
-      status_code: 502,
-      retryable: true,
-
-      details: {
-        provider_status:
-          response.status,
-      },
-    })
   }
 
   const payload =

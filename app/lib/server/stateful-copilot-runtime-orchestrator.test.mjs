@@ -393,6 +393,74 @@ test(
 )
 
 test(
+  'configuração inválida do gate preserva V1 sem criar runtime stateful',
+  async () => {
+    let contextFactoryCalls =
+      0
+
+    const orchestrator =
+      createStatefulCopilotServerRuntimeOrchestrator({
+        configured_mode:
+          'modo-invalido',
+
+        configured_company_ids:
+          companyId,
+
+        configured_engine_version:
+          'v1',
+
+        dependencies: {
+          create_context_loader() {
+            contextFactoryCalls +=
+              1
+
+            throw new Error(
+              'Runtime stateful não deveria ser criado.',
+            )
+          },
+
+          create_composition() {
+            throw new Error(
+              'Composition stateful não deveria ser criada.',
+            )
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'v1',
+    )
+
+    assert.equal(
+      result.response,
+      v1Response,
+    )
+
+    assert.equal(
+      result.stateful_executed,
+      false,
+    )
+
+    assert.equal(
+      result.activation
+        .preserve_v1_response,
+      true,
+    )
+
+    assert.equal(
+      contextFactoryCalls,
+      0,
+    )
+  },
+)
+
+test(
   'empresa fora da allowlist preserva V1 sem criar runtime',
   async () => {
     const {

@@ -907,19 +907,74 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
   }: RunStatefulCopilotServerRuntimeArgs<TV1Response>): Promise<
     StatefulCopilotServerRuntimeResult<TV1Response>
   > => {
-    const activation =
-      resolveGate({
-        company_id,
+    let activation:
+      StatefulCopilotActivationDecision
 
-        configured_mode:
-          options.configured_mode,
+    try {
+      activation =
+        resolveGate({
+          company_id,
 
-        configured_company_ids:
-          options.configured_company_ids,
+          configured_mode:
+            options.configured_mode,
 
-        configured_engine_version:
-          options.configured_engine_version,
+          configured_company_ids:
+            options.configured_company_ids,
+
+          configured_engine_version:
+            options.configured_engine_version,
+        })
+    } catch {
+      activation = {
+        mode:
+          'disabled',
+
+        company_id:
+          typeof company_id ===
+          'string'
+            ? company_id
+                .trim()
+                .toLowerCase()
+            : '',
+
+        allowed_company_ids:
+          [],
+
+        engine_version:
+          null,
+
+        enabled:
+          false,
+
+        should_execute_stateful:
+          false,
+
+        should_persist_stateful_state:
+          false,
+
+        should_expose_stateful_result:
+          false,
+
+        preserve_v1_response:
+          true,
+
+        automatic_crm_write:
+          false,
+
+        automatic_agenda_write:
+          false,
+
+        reason:
+          'globally_disabled',
+      }
+
+      return buildV1Result({
+        activation,
+
+        response:
+          v1_response,
       })
+    }
 
     if (
       activation.should_execute_stateful !==
