@@ -82,6 +82,13 @@
     return sendToBackground('ANALYZE_CONVERSATION', payload)
   }
 
+  async function diagnosticPreview(payload) {
+    return sendToBackground(
+      'DIAGNOSTIC_PREVIEW_V2',
+      payload,
+    )
+  }
+
   async function applySuggestion(payload) {
     return sendToBackground('APPLY_SUGGESTION', payload)
   }
@@ -115,6 +122,7 @@
     clearSession,
     resolveLead,
     analyzeConversation,
+    diagnosticPreview,
     applySuggestion,
     registerMessageAction,
     transcribeAudio,

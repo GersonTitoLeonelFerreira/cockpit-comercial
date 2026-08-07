@@ -201,8 +201,25 @@ async function requestYolenWithToken(message, path, body) {
     }
   }
 
-  const baseUrl = getAllowedBaseUrl(message.baseUrl || DEFAULT_BASE_URL)
-  const token = cachedSession.payload.companion_token
+  const sessionBaseUrl =
+    cachedSession.origin ===
+      LOCAL_BASE_URL ||
+    cachedSession.origin ===
+      DEFAULT_BASE_URL
+      ? cachedSession.origin
+      : null
+
+  const baseUrl =
+    getAllowedBaseUrl(
+      sessionBaseUrl ||
+        message.baseUrl ||
+        DEFAULT_BASE_URL,
+    )
+
+  const token =
+    cachedSession
+      .payload
+      .companion_token
 
   try {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -326,6 +343,17 @@ async function handleCompanionMessage(message) {
     return requestYolenWithToken(
       message,
       '/api/companion/analyze-conversation',
+      message.payload,
+    )
+  }
+
+  if (
+    message.action ===
+    'DIAGNOSTIC_PREVIEW_V2'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/v2/diagnostic-preview',
       message.payload,
     )
   }

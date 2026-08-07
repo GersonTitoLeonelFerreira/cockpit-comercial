@@ -1,5 +1,5 @@
 import { createHmac } from 'crypto'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import Link from 'next/link'
 
 import { getAuthedSupabase } from '@/app/lib/supabase/server'
@@ -39,6 +39,62 @@ type ConnectResult =
       status: string
       error: string
     }
+
+const PRODUCTION_COMPANION_BASE_URL =
+  'https://cockpit-comercial-vocn.vercel.app'
+
+const LOCAL_COMPANION_BASE_URL =
+  'http://localhost:3000'
+
+async function getCompanionBaseUrl() {
+  const headerStore =
+    await headers()
+
+  const forwardedHost =
+    headerStore
+      .get('x-forwarded-host')
+      ?.split(',')[0]
+      ?.trim()
+
+  const host =
+    forwardedHost ||
+    headerStore
+      .get('host')
+      ?.trim() ||
+    ''
+
+  const forwardedProtocol =
+    headerStore
+      .get('x-forwarded-proto')
+      ?.split(',')[0]
+      ?.trim()
+
+  const protocol =
+    forwardedProtocol ||
+    (
+      host.startsWith(
+        'localhost:',
+      )
+        ? 'http'
+        : 'https'
+    )
+
+  const candidate =
+    host
+      ? `${protocol}://${host}`
+      : ''
+
+  if (
+    candidate ===
+      LOCAL_COMPANION_BASE_URL ||
+    candidate ===
+      PRODUCTION_COMPANION_BASE_URL
+  ) {
+    return candidate
+  }
+
+  return PRODUCTION_COMPANION_BASE_URL
+}
 
 function getTokenSecret() {
   const secret =
@@ -93,9 +149,22 @@ function getCompanyName(membership: CompanyMembershipRow) {
 
 async function buildCompanionConnection(): Promise<ConnectResult> {
   try {
-    const { supabase, user } = await getAuthedSupabase()
-    const cookieStore = await cookies()
-    const activeCompanyId = cookieStore.get('cockpit_active_company_id')?.value ?? null
+    const { supabase, user } =
+      await getAuthedSupabase()
+
+    const cookieStore =
+      await cookies()
+
+    const companionBaseUrl =
+      await getCompanionBaseUrl()
+
+    const activeCompanyId =
+      cookieStore
+        .get(
+          'cockpit_active_company_id',
+        )
+        ?.value ??
+      null
 
     if (!activeCompanyId) {
       return {
@@ -202,7 +271,8 @@ async function buildCompanionConnection(): Promise<ConnectResult> {
           can_apply_cycle_action_without_approval: false,
         },
       },
-      origin: 'yolen-connect-page',
+      origin:
+        companionBaseUrl,
       capturedAt: new Date().toISOString(),
     }
 

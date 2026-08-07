@@ -7,14 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:companion": "node --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
+    "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
     "test:companion-commercial-config": "node --test supabase/phase-tests/phase-2-commercial-config.test.mjs",
     "test:companion-commercial-config-admin": "node --test supabase/phase-tests/phase-3-commercial-config-admin.test.mjs",
     "test:companion-ledger": "node --test supabase/phase-tests/phase-3-message-ledger.test.mjs",
     "test:companion-capture-state": "node --test supabase/phase-tests/phase-4-capture-state.test.mjs",
     "test:companion-ingestion-rpc": "node --test supabase/phase-tests/phase-4-message-ingestion-rpc.test.mjs",
     "test:companion-causal": "node --test supabase/phase-tests/phase-4-causal-message-version.test.mjs",
-    "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs"
+    "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs",
+    "test:companion-stateful-persistence": "node --test supabase/phase-tests/phase-5-stateful-persistence.test.mjs",
+    "test:companion-stateful-context": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/stateful-copilot-real-context-loader.test.mjs",
+    "test:companion-stateful-runtime": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/server/stateful-copilot-runtime-orchestrator.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -30,6 +33,7 @@
     "react-window": "^2.2.7",
     "recharts": "^3.8.0",
     "resend": "^6.9.2",
+    "server-only": "0.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
