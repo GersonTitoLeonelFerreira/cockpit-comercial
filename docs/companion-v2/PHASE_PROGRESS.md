@@ -10,7 +10,40 @@ O detalhamento histórico dos pacotes anteriores permanece nos documentos
 `PHASE_2_SCHEMA_BASELINE.md`, `PHASE_3_MESSAGE_LEDGER.md` e
 `PHASE_4_CAPTURE_STATE.md`.
 
-## Estado atual em 2026-08-07 — Fase 5.1
+## Estado atual em 2026-08-07 — Fase 5.2
+
+| Campo | Estado |
+|---|---|
+| Momento atual | Fase 5.2 — Validação do Motor V2 em shadow |
+| Motor operacional | `v1` |
+| Gate padrão | `disabled` |
+| Allowlist padrão | vazia |
+| Branch | `feature/companion-v2-phase-5-2-shadow-validation` |
+| Base na `main` | `b2b49bb` — Fase 5.1 integrada |
+| Wiring operacional | `e5ba65c` |
+| Shadow pós-resposta | `a4cd7ab` |
+| Rota | `POST /api/companion/analyze-conversation` |
+| Resposta canônica | V1 |
+| Execução V2 | pós-resposta via `after()` e sujeita ao gate |
+| Companion | 409/409 |
+| Runtime stateful | 10/10 |
+| TypeScript | aprovado |
+| Build | aprovado; 111/111 |
+| Escrita automática em CRM/Agenda | proibida |
+| Empresa real em shadow | ainda não autorizada |
+| Próximo gate | relatório V1 x V2 e seleção explícita da empresa piloto |
+
+A Fase 5.2 mede qualidade comercial, divergências V1 x V2, tokens, custo,
+latência, retries, estabilidade e segurança antes de qualquer `active`.
+
+Documento operacional:
+
+```text
+docs/companion-v2/PHASE_5_2_SHADOW_VALIDATION.md
+```
+
+
+## Snapshot histórico em 2026-08-07 — Fase 5.1
 
 | Campo | Estado |
 |---|---|
