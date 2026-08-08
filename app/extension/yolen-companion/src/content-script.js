@@ -378,12 +378,21 @@
   }
 
   function isProfileOrContactPanelText(value) {
-    const normalized = String(value || '').trim().toLowerCase()
+    const normalized = String(value || '')
+      .replace(/[\\u200e\\u200f]/g, '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .toLowerCase()
 
     return (
       normalized === 'dados do contato' ||
+      normalized === 'informações do contato' ||
+      normalized === 'informacoes do contato' ||
       normalized === 'dados do perfil' ||
+      normalized === 'informações do perfil' ||
+      normalized === 'informacoes do perfil' ||
       normalized === 'contact info' ||
+      normalized === 'contact information' ||
       normalized === 'profile'
     )
   }
@@ -3373,25 +3382,114 @@
     )
   }
 
-  function getClickableHeaderTarget() {
+  function getClickableHeaderTarget(title = null) {
     const header = getMainHeader()
 
     if (!header) {
       return null
     }
 
-    const roleButton = header.querySelector('[role="button"]')
+    const explicitContactTarget =
+      header.querySelector(
+        [
+          '[aria-label*="dados do contato" i]',
+          '[aria-label*="informações do contato" i]',
+          '[aria-label*="informacoes do contato" i]',
+          '[aria-label*="contact info" i]',
+          '[aria-label*="contact information" i]',
+        ].join(','),
+      )
+
+    if (explicitContactTarget) {
+      return explicitContactTarget
+    }
+
+    const normalizeIdentityText = (value) => {
+      return String(value || '')
+        .replace(/[\\u200e\\u200f]/g, '')
+        .replace(/\\s+/g, ' ')
+        .trim()
+    }
+
+    const expectedTitle =
+      normalizeIdentityText(title)
+
+    if (expectedTitle) {
+      const titleElement =
+        Array.from(
+          header.querySelectorAll(
+            '[title], [dir="auto"], span, div',
+          ),
+        ).find((element) => {
+          const elementTitle =
+            normalizeIdentityText(
+              element.getAttribute?.('title'),
+            )
+
+          const elementText =
+            normalizeIdentityText(
+              element.textContent,
+            )
+
+          return (
+            elementTitle === expectedTitle ||
+            elementText === expectedTitle
+          )
+        })
+
+      if (titleElement) {
+        const identityButton =
+          titleElement.closest(
+            '[role="button"], button, [tabindex="0"]',
+          )
+
+        if (
+          identityButton &&
+          header.contains(identityButton)
+        ) {
+          return identityButton
+        }
+
+        /*
+         * O WhatsApp também usa handlers de clique
+         * em ancestrais sem role/button.
+         *
+         * O evento disparado no próprio nome sobe
+         * normalmente até esse handler.
+         */
+        return titleElement
+      }
+    }
+
+    const avatar =
+      header.querySelector('img')
+
+    if (avatar) {
+      const avatarButton =
+        avatar.closest(
+          '[role="button"], button, [tabindex="0"]',
+        )
+
+      return avatarButton || avatar
+    }
+
+    /*
+     * Último fallback.
+     *
+     * Só usamos o primeiro role=button depois
+     * de falharem identificação explícita,
+     * nome e avatar.
+     */
+    const roleButton =
+      header.querySelector(
+        '[role="button"]',
+      )
 
     if (roleButton) {
       return roleButton
     }
 
-    const clickable = Array.from(header.querySelectorAll('div, span, button')).find((element) => {
-      const rect = element.getBoundingClientRect()
-      return rect.width > 80 && rect.height > 20
-    })
-
-    return clickable || header
+    return header
   }
 
   function clickElement(element) {
@@ -3508,7 +3606,12 @@
 
     try {
       if (!hadContactPanelOpen) {
-        const clicked = clickElement(getClickableHeaderTarget())
+        const clicked =
+          clickElement(
+            getClickableHeaderTarget(
+              lookupTitle,
+            ),
+          )
 
         if (!clicked) {
           state = {
