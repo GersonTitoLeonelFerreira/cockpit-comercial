@@ -613,11 +613,48 @@
       : ''
   }
 
+  function getMainHeaderStableIdentity() {
+    const header =
+      getMainHeader()
+
+    if (!header) {
+      return ''
+    }
+
+    /*
+     * A identidade provisória da conversa
+     * precisa vir do próprio cabeçalho aberto,
+     * não dos filtros/seleção da lista lateral.
+     */
+    const avatarSource =
+      header
+        .querySelector?.('img[src]')
+        ?.getAttribute?.('src')
+        ?.trim() || ''
+
+    if (avatarSource) {
+      return `header-avatar:${avatarSource}`
+    }
+
+    const titleElement =
+      header.querySelector?.('[title]')
+
+    const headerTitle =
+      titleElement
+        ?.getAttribute?.('title')
+        ?.trim() || ''
+
+    return headerTitle
+      ? `header-title:${headerTitle}`
+      : ''
+  }
+
   function getConversationKey(title) {
     const safeTitle =
       String(title || '').trim()
 
     const stableIdentity =
+      getMainHeaderStableIdentity() ||
       getSelectedChatStableIdentity()
 
     if (stableIdentity) {
@@ -3602,29 +3639,37 @@
       return false
     }
 
-    const rect = element.getBoundingClientRect()
-    const clientX = rect.left + rect.width / 2
-    const clientY = rect.top + rect.height / 2
+    /*
+     * Preferimos o click nativo do DOM.
+     *
+     * Ele preserva o bubbling esperado pelos
+     * handlers atuais do WhatsApp e evita
+     * depender da sequência artificial
+     * mousedown/mouseup usada anteriormente.
+     */
+    if (
+      typeof element.click ===
+      'function'
+    ) {
+      try {
+        element.click()
+        return true
+      } catch {
+        /*
+         * Se o elemento não aceitar click(),
+         * usamos o fallback por MouseEvent.
+         */
+      }
+    }
 
-    element.dispatchEvent(
-      new MouseEvent('mousedown', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX,
-        clientY,
-      }),
-    )
+    const rect =
+      element.getBoundingClientRect()
 
-    element.dispatchEvent(
-      new MouseEvent('mouseup', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX,
-        clientY,
-      }),
-    )
+    const clientX =
+      rect.left + rect.width / 2
+
+    const clientY =
+      rect.top + rect.height / 2
 
     element.dispatchEvent(
       new MouseEvent('click', {
@@ -3685,6 +3730,24 @@
 
   async function runAutomaticContactLookup(conversationKey) {
     if (autoContactLookupInFlight) {
+      /*
+       * Pode existir uma tentativa anterior
+       * terminando enquanto o WhatsApp muda
+       * o DOM. Não perdemos a nova tentativa.
+       */
+      window.setTimeout(() => {
+        if (
+          state.connected &&
+          !state.conversationPhone &&
+          state.conversationKey ===
+            conversationKey
+        ) {
+          runAutomaticContactLookup(
+            conversationKey,
+          )
+        }
+      }, 500)
+
       return
     }
 
@@ -3733,7 +3796,20 @@
 
       const phone = await waitForContactPanelPhone(AUTO_CONTACT_LOOKUP_TIMEOUT_MS)
 
-      if (state.conversationKey !== conversationKey || state.conversationTitle !== lookupTitle) {
+      /*
+       * Abrir Dados do contato pode alterar
+       * elementos internos usados pelo WhatsApp.
+       *
+       * A mesma conversa continua válida quando
+       * o título permanece o mesmo.
+       */
+      if (
+        state.conversationTitle !==
+        lookupTitle
+      ) {
+        autoLookupAttemptedKeys.delete(
+          conversationKey,
+        )
         return
       }
 
@@ -3748,7 +3824,27 @@
         return
       }
 
-      cachedPhonesByConversationKey.set(conversationKey, phone)
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        phone,
+      )
+
+      /*
+       * Se o WhatsApp recriou algum nó enquanto
+       * o painel estava aberto, preservamos o
+       * telefone também na chave atualmente
+       * observada da mesma conversa.
+       */
+      if (
+        state.conversationKey &&
+        state.conversationKey !==
+          conversationKey
+      ) {
+        cachedPhonesByConversationKey.set(
+          state.conversationKey,
+          phone,
+        )
+      }
 
       state = {
         ...state,

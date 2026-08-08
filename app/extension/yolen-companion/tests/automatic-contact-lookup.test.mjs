@@ -82,3 +82,98 @@ test(
     )
   },
 )
+
+test(
+  'busca automática permanece estável durante mutações do painel de contato',
+  () => {
+    assert.match(
+      contentScript,
+      /function getMainHeaderStableIdentity\(\)/,
+    )
+
+    const keyStart =
+      contentScript.indexOf(
+        'function getConversationKey(title)',
+      )
+
+    const keyEnd =
+      contentScript.indexOf(
+        'function findContactInfoPanel()',
+        keyStart,
+      )
+
+    const keyBlock =
+      contentScript.slice(
+        keyStart,
+        keyEnd,
+      )
+
+    assert.match(
+      keyBlock,
+      /getMainHeaderStableIdentity\(\)/,
+    )
+
+    assert.ok(
+      keyBlock.indexOf(
+        'getMainHeaderStableIdentity()',
+      ) <
+        keyBlock.indexOf(
+          'getSelectedChatStableIdentity()',
+        ),
+    )
+
+    const clickStart =
+      contentScript.indexOf(
+        'function clickElement(element)',
+      )
+
+    const clickEnd =
+      contentScript.indexOf(
+        'function closeContactInfoPanel()',
+        clickStart,
+      )
+
+    const clickBlock =
+      contentScript.slice(
+        clickStart,
+        clickEnd,
+      )
+
+    assert.match(
+      clickBlock,
+      /element\.click\(\)/,
+    )
+
+    const lookupStart =
+      contentScript.indexOf(
+        'async function runAutomaticContactLookup(conversationKey)',
+      )
+
+    const lookupEnd =
+      contentScript.indexOf(
+        'function clearLeadStateForNewConversation()',
+        lookupStart,
+      )
+
+    const lookupBlock =
+      contentScript.slice(
+        lookupStart,
+        lookupEnd,
+      )
+
+    assert.match(
+      lookupBlock,
+      /state\.conversationTitle !==\s*lookupTitle/,
+    )
+
+    assert.doesNotMatch(
+      lookupBlock,
+      /state\.conversationKey !== conversationKey \|\| state\.conversationTitle !== lookupTitle/,
+    )
+
+    assert.match(
+      lookupBlock,
+      /cachedPhonesByConversationKey\.set\(\s*state\.conversationKey,\s*phone/,
+    )
+  },
+)
