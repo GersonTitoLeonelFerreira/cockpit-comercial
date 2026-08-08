@@ -615,16 +615,14 @@
   }
 
   function getConversationTitle() {
-    const selectedTitle = getSelectedChatTitle()
-
-    if (selectedTitle) {
-      return selectedTitle
-    }
-
     const headerCandidates = getMainHeaderTextCandidates()
     const headerTitle = headerCandidates.find((candidate) => !isIgnoredHeaderText(candidate))
 
-    return headerTitle || null
+    if (headerTitle) {
+      return headerTitle
+    }
+
+    return getSelectedChatTitle() || null
   }
 
   function getConversationPhone(title, conversationKey) {
