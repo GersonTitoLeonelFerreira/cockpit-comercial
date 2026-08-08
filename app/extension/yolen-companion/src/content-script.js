@@ -378,21 +378,12 @@
   }
 
   function isProfileOrContactPanelText(value) {
-    const normalized = String(value || '')
-      .replace(/[\\u200e\\u200f]/g, '')
-      .replace(/\\s+/g, ' ')
-      .trim()
-      .toLowerCase()
+    const normalized = String(value || '').trim().toLowerCase()
 
     return (
       normalized === 'dados do contato' ||
-      normalized === 'informações do contato' ||
-      normalized === 'informacoes do contato' ||
       normalized === 'dados do perfil' ||
-      normalized === 'informações do perfil' ||
-      normalized === 'informacoes do perfil' ||
       normalized === 'contact info' ||
-      normalized === 'contact information' ||
       normalized === 'profile'
     )
   }
@@ -418,71 +409,13 @@
   }
 
   function getMainHeader() {
-    const main =
-      getMainConversationRoot()
+    const main = getMainConversationRoot()
 
-    const mainHeader =
-      main?.querySelector?.('header')
-
-    if (mainHeader) {
-      return mainHeader
+    if (!main) {
+      return null
     }
 
-    /*
-     * O WhatsApp muda frequentemente
-     * a estrutura externa da conversa.
-     *
-     * Quando #main/data-testid não existem,
-     * localizamos o cabeçalho real da conversa
-     * pela combinação de visibilidade + avatar.
-     */
-    const visibleHeaders =
-      Array.from(
-        document.querySelectorAll(
-          'header',
-        ),
-      ).filter((header) => {
-        if (
-          header.closest(
-            `#${PANEL_ID}`,
-          )
-        ) {
-          return false
-        }
-
-        const rect =
-          header.getBoundingClientRect()
-
-        if (
-          rect.width <= 0 ||
-          rect.height <= 0
-        ) {
-          return false
-        }
-
-        const style =
-          window.getComputedStyle(
-            header,
-          )
-
-        return (
-          style.display !== 'none' &&
-          style.visibility !== 'hidden'
-        )
-      })
-
-    const conversationHeader =
-      visibleHeaders.find(
-        (header) => {
-          return Boolean(
-            header.querySelector(
-              'img[src]',
-            ),
-          )
-        },
-      )
-
-    return conversationHeader || null
+    return main.querySelector('header')
   }
 
   function getMainHeaderTextCandidates() {
@@ -515,33 +448,7 @@
   }
 
   function getSelectedChatElement() {
-    const selectedCandidates =
-      Array.from(
-        document.querySelectorAll(
-          '[aria-selected="true"]',
-        ),
-      )
-
-    /*
-     * Filtros como Tudo, Não lidas,
-     * Favoritas e Grupos também podem possuir
-     * aria-selected=true.
-     *
-     * Uma conversa precisa possuir identidade
-     * visual ou estrutural própria.
-     */
-    return (
-      selectedCandidates.find(
-        (element) => {
-          return Boolean(
-            element.querySelector?.(
-              'img[src], [data-id]',
-            ),
-          )
-        },
-      ) ||
-      null
-    )
+    return document.querySelector('[aria-selected="true"]')
   }
 
   function getSelectedChatTitle() {
@@ -613,48 +520,11 @@
       : ''
   }
 
-  function getMainHeaderStableIdentity() {
-    const header =
-      getMainHeader()
-
-    if (!header) {
-      return ''
-    }
-
-    /*
-     * A identidade provisória da conversa
-     * precisa vir do próprio cabeçalho aberto,
-     * não dos filtros/seleção da lista lateral.
-     */
-    const avatarSource =
-      header
-        .querySelector?.('img[src]')
-        ?.getAttribute?.('src')
-        ?.trim() || ''
-
-    if (avatarSource) {
-      return `header-avatar:${avatarSource}`
-    }
-
-    const titleElement =
-      header.querySelector?.('[title]')
-
-    const headerTitle =
-      titleElement
-        ?.getAttribute?.('title')
-        ?.trim() || ''
-
-    return headerTitle
-      ? `header-title:${headerTitle}`
-      : ''
-  }
-
   function getConversationKey(title) {
     const safeTitle =
       String(title || '').trim()
 
     const stableIdentity =
-      getMainHeaderStableIdentity() ||
       getSelectedChatStableIdentity()
 
     if (stableIdentity) {
@@ -745,37 +615,16 @@
   }
 
   function getConversationTitle() {
-    /*
-     * A fonte primária da identidade é
-     * o cabeçalho da conversa aberta.
-     *
-     * Isso evita confundir filtros da lista
-     * lateral com o contato atual.
-     */
-    const headerCandidates =
-      getMainHeaderTextCandidates()
+    const selectedTitle = getSelectedChatTitle()
 
-    const headerTitle =
-      headerCandidates.find(
-        (candidate) =>
-          !isIgnoredHeaderText(
-            candidate,
-          ),
-      )
-
-    if (headerTitle) {
-      return headerTitle
+    if (selectedTitle) {
+      return selectedTitle
     }
 
-    /*
-     * Seleção lateral permanece somente
-     * como fallback para versões antigas
-     * do WhatsApp.
-     */
-    const selectedTitle =
-      getSelectedChatTitle()
+    const headerCandidates = getMainHeaderTextCandidates()
+    const headerTitle = headerCandidates.find((candidate) => !isIgnoredHeaderText(candidate))
 
-    return selectedTitle || null
+    return headerTitle || null
   }
 
   function getConversationPhone(title, conversationKey) {
@@ -3524,114 +3373,25 @@
     )
   }
 
-  function getClickableHeaderTarget(title = null) {
+  function getClickableHeaderTarget() {
     const header = getMainHeader()
 
     if (!header) {
       return null
     }
 
-    const explicitContactTarget =
-      header.querySelector(
-        [
-          '[aria-label*="dados do contato" i]',
-          '[aria-label*="informações do contato" i]',
-          '[aria-label*="informacoes do contato" i]',
-          '[aria-label*="contact info" i]',
-          '[aria-label*="contact information" i]',
-        ].join(','),
-      )
-
-    if (explicitContactTarget) {
-      return explicitContactTarget
-    }
-
-    const normalizeIdentityText = (value) => {
-      return String(value || '')
-        .replace(/[\\u200e\\u200f]/g, '')
-        .replace(/\\s+/g, ' ')
-        .trim()
-    }
-
-    const expectedTitle =
-      normalizeIdentityText(title)
-
-    if (expectedTitle) {
-      const titleElement =
-        Array.from(
-          header.querySelectorAll(
-            '[title], [dir="auto"], span, div',
-          ),
-        ).find((element) => {
-          const elementTitle =
-            normalizeIdentityText(
-              element.getAttribute?.('title'),
-            )
-
-          const elementText =
-            normalizeIdentityText(
-              element.textContent,
-            )
-
-          return (
-            elementTitle === expectedTitle ||
-            elementText === expectedTitle
-          )
-        })
-
-      if (titleElement) {
-        const identityButton =
-          titleElement.closest(
-            '[role="button"], button, [tabindex="0"]',
-          )
-
-        if (
-          identityButton &&
-          header.contains(identityButton)
-        ) {
-          return identityButton
-        }
-
-        /*
-         * O WhatsApp também usa handlers de clique
-         * em ancestrais sem role/button.
-         *
-         * O evento disparado no próprio nome sobe
-         * normalmente até esse handler.
-         */
-        return titleElement
-      }
-    }
-
-    const avatar =
-      header.querySelector('img')
-
-    if (avatar) {
-      const avatarButton =
-        avatar.closest(
-          '[role="button"], button, [tabindex="0"]',
-        )
-
-      return avatarButton || avatar
-    }
-
-    /*
-     * Último fallback.
-     *
-     * Só usamos o primeiro role=button depois
-     * de falharem identificação explícita,
-     * nome e avatar.
-     */
-    const roleButton =
-      header.querySelector(
-        '[role="button"]',
-      )
+    const roleButton = header.querySelector('[role="button"]')
 
     if (roleButton) {
       return roleButton
     }
 
-    return header
+    const clickable = Array.from(header.querySelectorAll('div, span, button')).find((element) => {
+      const rect = element.getBoundingClientRect()
+      return rect.width > 80 && rect.height > 20
+    })
+
+    return clickable || header
   }
 
   function clickElement(element) {
@@ -3639,37 +3399,29 @@
       return false
     }
 
-    /*
-     * Preferimos o click nativo do DOM.
-     *
-     * Ele preserva o bubbling esperado pelos
-     * handlers atuais do WhatsApp e evita
-     * depender da sequência artificial
-     * mousedown/mouseup usada anteriormente.
-     */
-    if (
-      typeof element.click ===
-      'function'
-    ) {
-      try {
-        element.click()
-        return true
-      } catch {
-        /*
-         * Se o elemento não aceitar click(),
-         * usamos o fallback por MouseEvent.
-         */
-      }
-    }
+    const rect = element.getBoundingClientRect()
+    const clientX = rect.left + rect.width / 2
+    const clientY = rect.top + rect.height / 2
 
-    const rect =
-      element.getBoundingClientRect()
+    element.dispatchEvent(
+      new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+      }),
+    )
 
-    const clientX =
-      rect.left + rect.width / 2
-
-    const clientY =
-      rect.top + rect.height / 2
+    element.dispatchEvent(
+      new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+      }),
+    )
 
     element.dispatchEvent(
       new MouseEvent('click', {
@@ -3730,24 +3482,6 @@
 
   async function runAutomaticContactLookup(conversationKey) {
     if (autoContactLookupInFlight) {
-      /*
-       * Pode existir uma tentativa anterior
-       * terminando enquanto o WhatsApp muda
-       * o DOM. Não perdemos a nova tentativa.
-       */
-      window.setTimeout(() => {
-        if (
-          state.connected &&
-          !state.conversationPhone &&
-          state.conversationKey ===
-            conversationKey
-        ) {
-          runAutomaticContactLookup(
-            conversationKey,
-          )
-        }
-      }, 500)
-
       return
     }
 
@@ -3774,12 +3508,7 @@
 
     try {
       if (!hadContactPanelOpen) {
-        const clicked =
-          clickElement(
-            getClickableHeaderTarget(
-              lookupTitle,
-            ),
-          )
+        const clicked = clickElement(getClickableHeaderTarget())
 
         if (!clicked) {
           state = {
@@ -3796,20 +3525,7 @@
 
       const phone = await waitForContactPanelPhone(AUTO_CONTACT_LOOKUP_TIMEOUT_MS)
 
-      /*
-       * Abrir Dados do contato pode alterar
-       * elementos internos usados pelo WhatsApp.
-       *
-       * A mesma conversa continua válida quando
-       * o título permanece o mesmo.
-       */
-      if (
-        state.conversationTitle !==
-        lookupTitle
-      ) {
-        autoLookupAttemptedKeys.delete(
-          conversationKey,
-        )
+      if (state.conversationKey !== conversationKey || state.conversationTitle !== lookupTitle) {
         return
       }
 
@@ -3824,27 +3540,7 @@
         return
       }
 
-      cachedPhonesByConversationKey.set(
-        conversationKey,
-        phone,
-      )
-
-      /*
-       * Se o WhatsApp recriou algum nó enquanto
-       * o painel estava aberto, preservamos o
-       * telefone também na chave atualmente
-       * observada da mesma conversa.
-       */
-      if (
-        state.conversationKey &&
-        state.conversationKey !==
-          conversationKey
-      ) {
-        cachedPhonesByConversationKey.set(
-          state.conversationKey,
-          phone,
-        )
-      }
+      cachedPhonesByConversationKey.set(conversationKey, phone)
 
       state = {
         ...state,
