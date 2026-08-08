@@ -418,13 +418,71 @@
   }
 
   function getMainHeader() {
-    const main = getMainConversationRoot()
+    const main =
+      getMainConversationRoot()
 
-    if (!main) {
-      return null
+    const mainHeader =
+      main?.querySelector?.('header')
+
+    if (mainHeader) {
+      return mainHeader
     }
 
-    return main.querySelector('header')
+    /*
+     * O WhatsApp muda frequentemente
+     * a estrutura externa da conversa.
+     *
+     * Quando #main/data-testid não existem,
+     * localizamos o cabeçalho real da conversa
+     * pela combinação de visibilidade + avatar.
+     */
+    const visibleHeaders =
+      Array.from(
+        document.querySelectorAll(
+          'header',
+        ),
+      ).filter((header) => {
+        if (
+          header.closest(
+            `#${PANEL_ID}`,
+          )
+        ) {
+          return false
+        }
+
+        const rect =
+          header.getBoundingClientRect()
+
+        if (
+          rect.width <= 0 ||
+          rect.height <= 0
+        ) {
+          return false
+        }
+
+        const style =
+          window.getComputedStyle(
+            header,
+          )
+
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        )
+      })
+
+    const conversationHeader =
+      visibleHeaders.find(
+        (header) => {
+          return Boolean(
+            header.querySelector(
+              'img[src]',
+            ),
+          )
+        },
+      )
+
+    return conversationHeader || null
   }
 
   function getMainHeaderTextCandidates() {
@@ -457,7 +515,33 @@
   }
 
   function getSelectedChatElement() {
-    return document.querySelector('[aria-selected="true"]')
+    const selectedCandidates =
+      Array.from(
+        document.querySelectorAll(
+          '[aria-selected="true"]',
+        ),
+      )
+
+    /*
+     * Filtros como Tudo, Não lidas,
+     * Favoritas e Grupos também podem possuir
+     * aria-selected=true.
+     *
+     * Uma conversa precisa possuir identidade
+     * visual ou estrutural própria.
+     */
+    return (
+      selectedCandidates.find(
+        (element) => {
+          return Boolean(
+            element.querySelector?.(
+              'img[src], [data-id]',
+            ),
+          )
+        },
+      ) ||
+      null
+    )
   }
 
   function getSelectedChatTitle() {
@@ -624,16 +708,37 @@
   }
 
   function getConversationTitle() {
-    const selectedTitle = getSelectedChatTitle()
+    /*
+     * A fonte primária da identidade é
+     * o cabeçalho da conversa aberta.
+     *
+     * Isso evita confundir filtros da lista
+     * lateral com o contato atual.
+     */
+    const headerCandidates =
+      getMainHeaderTextCandidates()
 
-    if (selectedTitle) {
-      return selectedTitle
+    const headerTitle =
+      headerCandidates.find(
+        (candidate) =>
+          !isIgnoredHeaderText(
+            candidate,
+          ),
+      )
+
+    if (headerTitle) {
+      return headerTitle
     }
 
-    const headerCandidates = getMainHeaderTextCandidates()
-    const headerTitle = headerCandidates.find((candidate) => !isIgnoredHeaderText(candidate))
+    /*
+     * Seleção lateral permanece somente
+     * como fallback para versões antigas
+     * do WhatsApp.
+     */
+    const selectedTitle =
+      getSelectedChatTitle()
 
-    return headerTitle || null
+    return selectedTitle || null
   }
 
   function getConversationPhone(title, conversationKey) {
