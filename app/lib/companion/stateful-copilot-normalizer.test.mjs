@@ -889,3 +889,47 @@ test(
     )
   },
 )
+
+
+test(
+  'rejeita current_moment sustentado somente por memoria historica',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .interpretation
+      .current_moment
+      .evidence_message_ids = []
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+    )
+  },
+)
+
+test(
+  'rejeita estrategia sustentada somente por memoria historica',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .strategy
+      .evidence_message_ids = []
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+    )
+  },
+)

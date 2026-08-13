@@ -29,6 +29,12 @@ const MAX_LEDGER_ROWS =
 const MAX_CANONICAL_MESSAGES =
   1000
 
+const STATEFUL_DIAGNOSTIC_SESSION_GAP_MS =
+  4 * 60 * 60 * 1000
+
+const STATEFUL_DIAGNOSTIC_MAX_MESSAGES =
+  80
+
 const COMPANY_FIELDS = `
   id,
   name,
@@ -1382,6 +1388,105 @@ function buildCanonicalLedger({
   }
 }
 
+export function selectStatefulDiagnosticMessages(
+  canonicalMessages:
+    NormalizedLedgerMessage[],
+): NormalizedLedgerMessage[] {
+  if (
+    canonicalMessages.length === 0
+  ) {
+    return []
+  }
+
+  const orderedByActivity =
+    canonicalMessages
+      .map((message) => ({
+        message,
+        activity_timestamp:
+          Math.max(
+            Date.parse(
+              message.occurred_at,
+            ),
+            Date.parse(
+              message.observed_at,
+            ),
+          ),
+      }))
+      .sort((left, right) => {
+        if (
+          left.activity_timestamp !==
+          right.activity_timestamp
+        ) {
+          return (
+            left.activity_timestamp -
+            right.activity_timestamp
+          )
+        }
+
+        return left.message.id.localeCompare(
+          right.message.id,
+          'en',
+          {
+            numeric: true,
+          },
+        )
+      })
+
+  const selected:
+    NormalizedLedgerMessage[] = []
+
+  let newerActivityTimestamp:
+    number | null = null
+
+  for (
+    let index =
+      orderedByActivity.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const current =
+      orderedByActivity[index]
+
+    if (
+      newerActivityTimestamp !== null &&
+      newerActivityTimestamp -
+        current.activity_timestamp >
+        STATEFUL_DIAGNOSTIC_SESSION_GAP_MS
+    ) {
+      break
+    }
+
+    selected.push(
+      current.message,
+    )
+
+    newerActivityTimestamp =
+      current.activity_timestamp
+
+    if (
+      selected.length >=
+      STATEFUL_DIAGNOSTIC_MAX_MESSAGES
+    ) {
+      break
+    }
+  }
+
+  const selectedIds =
+    new Set(
+      selected.map(
+        message =>
+          message.id,
+      ),
+    )
+
+  return canonicalMessages.filter(
+    message =>
+      selectedIds.has(
+        message.id,
+      ),
+  )
+}
+
 function normalizeCursor({
   value,
   companyId,
@@ -2284,6 +2389,11 @@ export function createStatefulCopilotRealContextLoader(
         conversationKey,
       })
 
+    const diagnosticMessages =
+      selectStatefulDiagnosticMessages(
+        canonicalMessages,
+      )
+
     const diagnosticInput =
       buildCompanionDiagnosticInput({
         company_id:
@@ -2302,7 +2412,7 @@ export function createStatefulCopilotRealContextLoader(
           referenceTime,
 
         messages:
-          canonicalMessages,
+          diagnosticMessages,
 
         commercial_config:
           commercialConfig,

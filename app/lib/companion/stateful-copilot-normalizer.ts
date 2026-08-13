@@ -1046,6 +1046,29 @@ function normalizeInterpretation(
       path,
     )
 
+  const currentMoment =
+    normalizeContextualEvidence(
+      record.current_moment,
+      `${path}.current_moment`,
+      analyzedMessageIds,
+      collectedEvidenceIds,
+      availableMemoryIds,
+      activeMemoryIds,
+      collectedMemoryIds,
+    )
+
+  if (
+    currentMoment
+      .evidence_message_ids
+      .length === 0
+  ) {
+    fail(
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+      `${path}.current_moment.evidence_message_ids`,
+      'O momento atual precisa possuir evidência da sessão temporal atual.',
+    )
+  }
+
   return {
     what_changed:
       normalizeNullableEvidence(
@@ -1072,15 +1095,7 @@ function normalizeInterpretation(
       ),
 
     current_moment:
-      normalizeContextualEvidence(
-        record.current_moment,
-        `${path}.current_moment`,
-        analyzedMessageIds,
-        collectedEvidenceIds,
-        availableMemoryIds,
-        activeMemoryIds,
-        collectedMemoryIds,
-      ),
+      currentMoment,
 
     customer_need:
       normalizeNullableContextualEvidence(
@@ -1149,6 +1164,16 @@ function normalizeStrategy(
     memoryIds,
     path,
   )
+
+  if (
+    evidenceMessageIds.length === 0
+  ) {
+    fail(
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+      `${path}.evidence_message_ids`,
+      'A estratégia precisa possuir evidência da sessão temporal atual.',
+    )
+  }
 
   return {
     method_application:

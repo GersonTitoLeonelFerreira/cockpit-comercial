@@ -1111,3 +1111,42 @@ test(
     )
   },
 )
+
+
+test(
+  'prompt 5.2 prioriza sessao atual e impede memoria antiga de dominar o momento',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          continuation:
+            true,
+        }),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.equal(
+      STATEFUL_COPILOT_PROMPT_VERSION,
+      'phase-5.2-stateful-prompt-v2',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /sessão temporal atual selecionada pela Yolen/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não ressuscite compromisso comercial antigo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /current_moment e strategy precisam usar pelo menos uma evidence_message_ids/,
+    )
+  },
+)
