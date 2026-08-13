@@ -3555,10 +3555,22 @@
       }
 
       if (state.connected) {
+        lastResolvedConversationKey =
+          conversationKey
+
         resolveCurrentLead()
       }
     } finally {
       autoContactLookupInFlight = false
+
+      window.clearTimeout(
+        observeWhatsAppChanges.timeoutId,
+      )
+
+      observeWhatsAppChanges.timeoutId =
+        window.setTimeout(() => {
+          refreshConversationSnapshot()
+        }, 100)
     }
   }
 
@@ -6809,6 +6821,10 @@
 
       observeWhatsAppChanges.timeoutId =
       window.setTimeout(() => {
+        if (autoContactLookupInFlight) {
+          return
+        }
+
         const messageMutationDetected =
           refreshConversationSnapshot()
 
