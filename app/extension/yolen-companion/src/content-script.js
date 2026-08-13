@@ -35,6 +35,7 @@
 
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
+  let lastResolvedContactLookupIdentity = null
 
   const leadResolutionInFlightKeys =
     new Set()
@@ -59,6 +60,7 @@
 
   const autoLookupAttemptedKeys = new Set()
   const cachedPhonesByConversationKey = new Map()
+  const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
 
   const confirmedCaptureVersionsByConversation =
@@ -80,7 +82,9 @@
     conversationKey: null,
     conversationPhone: null,
     phoneSource: null,
+    contactLookupIdentity: null,
     isSelfConversation: false,
+    isGroupConversation: false,
     messageCount: 0,
     audioCount: 0,
     lastError: null,
@@ -534,6 +538,46 @@
     return safeTitle
   }
 
+  function getAutomaticContactLookupIdentity(title) {
+    return String(title || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLocaleLowerCase('pt-BR')
+  }
+
+  function isGroupConversationHeader() {
+    const header = getMainHeader()
+
+    if (!header) {
+      return false
+    }
+
+    const ariaLabels =
+      Array.from(
+        header.querySelectorAll('[aria-label]'),
+      )
+        .map((element) =>
+          String(
+            element.getAttribute('aria-label') || '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLocaleLowerCase('pt-BR'),
+        )
+        .filter(Boolean)
+
+    return ariaLabels.some((label) => {
+      return (
+        label.includes('em grupo') ||
+        label.includes('group video call') ||
+        label.includes('video call in group') ||
+        label.includes('group voice call') ||
+        label.includes('voice call in group') ||
+        label === 'group call'
+      )
+    })
+  }
+
   function findContactInfoPanel() {
     const possibleTitles = Array.from(document.querySelectorAll('span, div, h1, h2, header'))
 
@@ -653,7 +697,25 @@
       }
     }
 
-    const cachedPhone = cachedPhonesByConversationKey.get(conversationKey)
+    const lookupIdentity =
+      getAutomaticContactLookupIdentity(title)
+
+    const cachedPhoneByLookupIdentity =
+      cachedPhonesByLookupIdentity.get(
+        lookupIdentity,
+      )
+
+    if (cachedPhoneByLookupIdentity) {
+      return {
+        phone: cachedPhoneByLookupIdentity,
+        source: 'Dados do contato automático',
+      }
+    }
+
+    const cachedPhone =
+      cachedPhonesByConversationKey.get(
+        conversationKey,
+      )
 
     if (cachedPhone) {
       return {
@@ -3483,19 +3545,40 @@
       return
     }
 
-    if (!state.connected || state.isSelfConversation || state.conversationPhone) {
+    if (
+      !state.connected ||
+      state.isSelfConversation ||
+      state.isGroupConversation ||
+      state.conversationPhone
+    ) {
       return
     }
 
-    if (!conversationKey || autoLookupAttemptedKeys.has(conversationKey)) {
+    const lookupTitle =
+      state.conversationTitle
+
+    const lookupIdentity =
+      getAutomaticContactLookupIdentity(
+        lookupTitle,
+      )
+
+    if (
+      !conversationKey ||
+      !lookupIdentity ||
+      autoLookupAttemptedKeys.has(
+        lookupIdentity,
+      )
+    ) {
       return
     }
 
-    autoLookupAttemptedKeys.add(conversationKey)
+    autoLookupAttemptedKeys.add(
+      lookupIdentity,
+    )
     autoContactLookupInFlight = true
 
-    const lookupTitle = state.conversationTitle
-    const hadContactPanelOpen = Boolean(findContactInfoPanel())
+    const hadContactPanelOpen =
+      Boolean(findContactInfoPanel())
 
     state = {
       ...state,
@@ -3521,9 +3604,20 @@
         await sleep(AUTO_CONTACT_LOOKUP_DELAY_MS)
       }
 
-      const phone = await waitForContactPanelPhone(AUTO_CONTACT_LOOKUP_TIMEOUT_MS)
+      const phone =
+        await waitForContactPanelPhone(
+          AUTO_CONTACT_LOOKUP_TIMEOUT_MS,
+        )
 
-      if (state.conversationKey !== conversationKey || state.conversationTitle !== lookupTitle) {
+      const currentLookupIdentity =
+        getAutomaticContactLookupIdentity(
+          getConversationTitle(),
+        )
+
+      if (
+        currentLookupIdentity !==
+        lookupIdentity
+      ) {
         return
       }
 
@@ -3538,7 +3632,15 @@
         return
       }
 
-      cachedPhonesByConversationKey.set(conversationKey, phone)
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        phone,
+      )
+
+      cachedPhonesByLookupIdentity.set(
+        lookupIdentity,
+        phone,
+      )
 
       state = {
         ...state,
@@ -3549,18 +3651,20 @@
 
       renderPanel()
 
-      if (!hadContactPanelOpen) {
-        await sleep(250)
-        closeContactInfoPanel()
-      }
-
       if (state.connected) {
         lastResolvedConversationKey =
           conversationKey
+        lastResolvedContactLookupIdentity =
+          lookupIdentity
 
         resolveCurrentLead()
       }
     } finally {
+      if (!hadContactPanelOpen) {
+        await sleep(100)
+        closeContactInfoPanel()
+      }
+
       autoContactLookupInFlight = false
 
       window.clearTimeout(
@@ -3622,11 +3726,31 @@
         conversationTitle,
       )
 
-    const phoneResult =
-      getConversationPhone(
+    const isGroupConversation =
+      isGroupConversationHeader()
+
+    const contactLookupIdentity =
+      getAutomaticContactLookupIdentity(
         conversationTitle,
-        conversationKey,
       )
+
+    const phoneResult =
+      isGroupConversation
+        ? {
+            phone: null,
+            source: null,
+          }
+        : getConversationPhone(
+            conversationTitle,
+            conversationKey,
+          )
+
+    const previousContactLookupIdentity =
+      state.contactLookupIdentity
+
+    const contactLookupChanged =
+      previousContactLookupIdentity !==
+      contactLookupIdentity
 
     const previousConversationKey =
       state.conversationKey
@@ -3634,6 +3758,11 @@
     const conversationChanged =
       previousConversationKey !==
       conversationKey
+
+      if (contactLookupChanged) {
+        lastResolvedContactLookupIdentity =
+          null
+      }
 
       if (conversationChanged) {
         rememberCurrentPreResolutionCapture()
@@ -3655,7 +3784,9 @@
         phoneResult.phone,
       phoneSource:
         phoneResult.source,
+      contactLookupIdentity,
       isSelfConversation,
+      isGroupConversation,
     }
 
     const messageMutationDetected =
@@ -3673,6 +3804,17 @@
 
     if (isSelfConversation) {
       lastResolvedConversationKey = null
+      lastResolvedContactLookupIdentity =
+        null
+      clearLeadStateForNewConversation()
+      renderPanel()
+      return messageMutationDetected
+    }
+
+    if (isGroupConversation) {
+      lastResolvedConversationKey = null
+      lastResolvedContactLookupIdentity =
+        null
       clearLeadStateForNewConversation()
       renderPanel()
       return messageMutationDetected
@@ -3683,11 +3825,14 @@
     if (
       state.connected &&
       phoneResult.phone &&
-      lastResolvedConversationKey !==
-        conversationKey
+      contactLookupIdentity &&
+      lastResolvedContactLookupIdentity !==
+        contactLookupIdentity
     ) {
       lastResolvedConversationKey =
         conversationKey
+      lastResolvedContactLookupIdentity =
+        contactLookupIdentity
 
       resolveCurrentLead()
       return messageMutationDetected
@@ -3696,7 +3841,11 @@
     if (
       state.connected &&
       !phoneResult.phone &&
-      conversationKey
+      conversationKey &&
+      contactLookupIdentity &&
+      !autoLookupAttemptedKeys.has(
+        contactLookupIdentity,
+      )
     ) {
       window.setTimeout(() => {
         runAutomaticContactLookup(
@@ -3767,6 +3916,10 @@
       return 'Conversa do próprio usuário'
     }
 
+    if (state.isGroupConversation) {
+      return 'Conversa em grupo'
+    }
+
     if (state.leadResolutionLoading) {
       return 'Localizando lead...'
     }
@@ -3789,6 +3942,10 @@
   function getLeadStatusDescription() {
     if (state.isSelfConversation) {
       return 'O Companion não vincula conversa com você mesmo a um lead comercial.'
+    }
+
+    if (state.isGroupConversation) {
+      return 'Grupos não são vinculados a leads. O Companion não abrirá os participantes nem procurará telefone.'
     }
 
     if (state.leadResolutionLoading) {
