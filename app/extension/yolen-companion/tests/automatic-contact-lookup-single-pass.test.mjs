@@ -1,18 +1,18 @@
-import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
-import test from "node:test"
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
 
 const contentScript = readFileSync(
-  new URL("../src/content-script.js", import.meta.url),
-  "utf8",
+  new URL('../src/content-script.js', import.meta.url),
+  'utf8',
 )
 
-test("busca automatica do contato executa um unico ciclo visual", () => {
+test('busca automatica do contato executa um unico ciclo visual', () => {
   const lookupStart = contentScript.indexOf(
-    "async function runAutomaticContactLookup(conversationKey)",
+    'async function runAutomaticContactLookup(conversationKey)',
   )
   const lookupEnd = contentScript.indexOf(
-    "function clearLeadStateForNewConversation()",
+    'function clearLeadStateForNewConversation()',
     lookupStart,
   )
 
@@ -24,35 +24,34 @@ test("busca automatica do contato executa um unico ciclo visual", () => {
     lookupEnd,
   )
 
+  const closeIndex = lookupBlock.indexOf(
+    'closeContactInfoPanelAndWait()',
+  )
   const resolvedKeyIndex = lookupBlock.indexOf(
-    "lastResolvedConversationKey =",
+    'lastResolvedConversationKey =',
   )
   const resolveLeadIndex = lookupBlock.indexOf(
-    "resolveCurrentLead()",
+    'resolveCurrentLead()',
   )
   const finishLookupIndex = lookupBlock.indexOf(
-    "autoContactLookupInFlight = false",
-  )
-  const clearObserverIndex = lookupBlock.indexOf(
-    "window.clearTimeout(",
-    finishLookupIndex,
-  )
-  const finalRefreshIndex = lookupBlock.indexOf(
-    "refreshConversationSnapshot()",
-    clearObserverIndex,
+    'autoContactLookupInFlight = false',
   )
 
-  assert.ok(resolvedKeyIndex >= 0)
+  assert.ok(closeIndex >= 0)
+  assert.ok(resolvedKeyIndex > closeIndex)
   assert.ok(resolveLeadIndex > resolvedKeyIndex)
   assert.ok(finishLookupIndex > resolveLeadIndex)
-  assert.ok(clearObserverIndex > finishLookupIndex)
-  assert.ok(finalRefreshIndex > clearObserverIndex)
+
+  assert.doesNotMatch(
+    lookupBlock,
+    /refreshConversationSnapshot\(\)/,
+  )
 
   const observerStart = contentScript.indexOf(
-    "function observeWhatsAppChanges()",
+    'function observeWhatsAppChanges()',
   )
   const observerEnd = contentScript.indexOf(
-    "observeWhatsAppChanges.timeoutId = 0",
+    'observeWhatsAppChanges.timeoutId = 0',
     observerStart,
   )
 
@@ -65,10 +64,10 @@ test("busca automatica do contato executa um unico ciclo visual", () => {
   )
 
   const suppressionIndex = observerBlock.indexOf(
-    "if (autoContactLookupInFlight) {",
+    'if (autoContactLookupInFlight) {',
   )
   const observerRefreshIndex = observerBlock.indexOf(
-    "refreshConversationSnapshot()",
+    'refreshConversationSnapshot()',
   )
 
   assert.ok(suppressionIndex >= 0)

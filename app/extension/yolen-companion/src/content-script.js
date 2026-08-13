@@ -545,6 +545,38 @@
       .toLocaleLowerCase('pt-BR')
   }
 
+  function getMainHeaderPrimaryTitle() {
+    const header = getMainHeader()
+
+    if (!header) {
+      return null
+    }
+
+    const lines =
+      String(
+        header.innerText ||
+        header.textContent ||
+        '',
+      )
+        .split('\n')
+        .map((value) =>
+          value
+            .replace(/\s+/g, ' ')
+            .trim(),
+        )
+        .filter(Boolean)
+
+    const primaryTitle =
+      lines.find((value) => {
+        return (
+          !isIgnoredHeaderText(value) &&
+          value.length < 120
+        )
+      })
+
+    return primaryTitle || null
+  }
+
   function isGroupConversationHeader() {
     const header = getMainHeader()
 
@@ -659,8 +691,21 @@
   }
 
   function getConversationTitle() {
-    const headerCandidates = getMainHeaderTextCandidates()
-    const headerTitle = headerCandidates.find((candidate) => !isIgnoredHeaderText(candidate))
+    const primaryHeaderTitle =
+      getMainHeaderPrimaryTitle()
+
+    if (primaryHeaderTitle) {
+      return primaryHeaderTitle
+    }
+
+    const headerCandidates =
+      getMainHeaderTextCandidates()
+
+    const headerTitle =
+      headerCandidates.find(
+        (candidate) =>
+          !isIgnoredHeaderText(candidate),
+      )
 
     if (headerTitle) {
       return headerTitle
@@ -3496,22 +3541,89 @@
     return true
   }
 
-  function closeContactInfoPanel() {
-    const panel = findContactInfoPanel()
+  function findContactInfoHeader() {
+    const headers =
+      Array.from(
+        document.querySelectorAll('header'),
+      )
 
-    if (!panel) {
-      return
+    return (
+      headers.find((header) => {
+        if (header.closest?.(`#${PANEL_ID}`)) {
+          return false
+        }
+
+        const text =
+          String(
+            header.innerText ||
+            header.textContent ||
+            '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLocaleLowerCase('pt-BR')
+
+        return (
+          text.includes('dados do contato') ||
+          text.includes('dados do perfil') ||
+          text.includes('contact info') ||
+          text === 'profile'
+        )
+      }) ||
+      null
+    )
+  }
+
+  function closeContactInfoPanel() {
+    const header =
+      findContactInfoHeader()
+
+    const panel =
+      findContactInfoPanel()
+
+    if (!header && !panel) {
+      return true
     }
 
     const closeButton =
-      panel.querySelector('[aria-label*="Fechar" i]') ||
-      panel.querySelector('[aria-label*="Close" i]') ||
-      panel.querySelector('[data-icon="x"]')?.closest('button')
+      header?.querySelector(
+        '[aria-label*="Fechar" i], [aria-label*="Close" i]',
+      ) ||
+      header
+        ?.querySelector('[data-icon="x"]')
+        ?.closest(
+          'button,[role="button"]',
+        ) ||
+      header?.querySelector(
+        'button,[role="button"]',
+      ) ||
+      panel?.querySelector(
+        '[aria-label*="Fechar" i], [aria-label*="Close" i]',
+      ) ||
+      panel
+        ?.querySelector('[data-icon="x"]')
+        ?.closest(
+          'button,[role="button"]',
+        )
 
     if (closeButton) {
-      clickElement(closeButton)
-      return
+      return clickElement(
+        closeButton,
+      )
     }
+
+    const escapeEvent =
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        keyCode: 27,
+        which: 27,
+        bubbles: true,
+      })
+
+    window.dispatchEvent(
+      escapeEvent,
+    )
 
     document.dispatchEvent(
       new KeyboardEvent('keydown', {
@@ -3522,6 +3634,35 @@
         bubbles: true,
       }),
     )
+
+    return true
+  }
+
+  async function closeContactInfoPanelAndWait() {
+    const closeTriggered =
+      closeContactInfoPanel()
+
+    if (!closeTriggered) {
+      return false
+    }
+
+    for (
+      let attempt = 0;
+      attempt < 12;
+      attempt += 1
+    ) {
+      await sleep(100)
+
+      if (
+        !findContactInfoHeader() &&
+        !findContactInfoPanel()
+      ) {
+        await sleep(100)
+        return true
+      }
+    }
+
+    return false
   }
 
   async function waitForContactPanelPhone(timeoutMs) {
@@ -3609,9 +3750,26 @@
           AUTO_CONTACT_LOOKUP_TIMEOUT_MS,
         )
 
+      if (!hadContactPanelOpen) {
+        const panelClosed =
+          await closeContactInfoPanelAndWait()
+
+        if (!panelClosed) {
+          state = {
+            ...state,
+            autoLookupStatus:
+              'Não consegui fechar os dados do contato automaticamente.',
+          }
+
+          renderPanel()
+          return
+        }
+      }
+
       const currentLookupIdentity =
         getAutomaticContactLookupIdentity(
-          getConversationTitle(),
+          getMainHeaderPrimaryTitle() ||
+          state.conversationTitle,
         )
 
       if (
@@ -3660,21 +3818,7 @@
         resolveCurrentLead()
       }
     } finally {
-      if (!hadContactPanelOpen) {
-        await sleep(100)
-        closeContactInfoPanel()
-      }
-
       autoContactLookupInFlight = false
-
-      window.clearTimeout(
-        observeWhatsAppChanges.timeoutId,
-      )
-
-      observeWhatsAppChanges.timeoutId =
-        window.setTimeout(() => {
-          refreshConversationSnapshot()
-        }, 100)
     }
   }
 

@@ -53,7 +53,77 @@ test('grupo e bloqueado antes da busca automatica de telefone', () => {
 
   assert.match(
     lookupBlock,
-    /if \(!hadContactPanelOpen\) \{[\s\S]*closeContactInfoPanel\(\)/,
+    /if \(!hadContactPanelOpen\) \{[\s\S]*closeContactInfoPanelAndWait\(\)/,
+  )
+
+  assert.doesNotMatch(
+    lookupBlock,
+    /refreshConversationSnapshot\(\)/,
+  )
+})
+
+test('titulo principal do header nao vira lista de participantes do grupo', () => {
+  assert.match(
+    contentScript,
+    /function getMainHeaderPrimaryTitle\(\)/,
+  )
+
+  const titleStart = contentScript.indexOf(
+    'function getConversationTitle()',
+  )
+  const titleEnd = contentScript.indexOf(
+    'function getConversationPhone(',
+    titleStart,
+  )
+
+  const titleBlock = contentScript.slice(
+    titleStart,
+    titleEnd,
+  )
+
+  const primaryIndex = titleBlock.indexOf(
+    'getMainHeaderPrimaryTitle()',
+  )
+  const candidatesIndex = titleBlock.indexOf(
+    'getMainHeaderTextCandidates()',
+  )
+
+  assert.ok(primaryIndex >= 0)
+  assert.ok(candidatesIndex > primaryIndex)
+
+  assert.match(
+    contentScript,
+    /\.split\('\\n'\)/,
+  )
+})
+
+test('fechamento do perfil usa o header Dados do contato e espera restaurar a conversa', () => {
+  assert.match(
+    contentScript,
+    /function findContactInfoHeader\(\)/,
+  )
+
+  assert.match(
+    contentScript,
+    /async function closeContactInfoPanelAndWait\(\)/,
+  )
+
+  const closeStart = contentScript.indexOf(
+    'function closeContactInfoPanel()',
+  )
+  const closeEnd = contentScript.indexOf(
+    'async function closeContactInfoPanelAndWait()',
+    closeStart,
+  )
+
+  const closeBlock = contentScript.slice(
+    closeStart,
+    closeEnd,
+  )
+
+  assert.match(
+    closeBlock,
+    /header\?\.querySelector\([\s\S]*button,\[role="button"\]/,
   )
 })
 
