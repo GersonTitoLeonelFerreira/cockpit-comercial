@@ -1,3 +1,8 @@
+.viewport {
+  min-width: 0;
+  container-type: inline-size;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(270px, 330px);
@@ -152,6 +157,9 @@
 
 .leadIdentity,
 .nextAction {
+  display: grid;
+  align-content: center;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -165,7 +173,6 @@
 }
 
 .secondaryText {
-  margin-top: 4px;
   overflow: hidden;
   color: #546070;
   font-size: 10.5px;
@@ -400,19 +407,56 @@
   background: var(--stage-accent);
 }
 
-@media (max-width: 1050px) {
+@container (max-width: 1050px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .radarPanel {
-    display: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+    gap: 16px;
+  }
+
+  .radarTitle {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+  }
+
+  .radarList {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-self: start;
+  }
+
+  .radarItem {
+    grid-template-columns: 34px 28px minmax(0, 1fr) auto;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .radarIcon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .radarLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stageSection {
+    margin-top: 0;
+    padding-top: 0;
+    padding-left: 16px;
+    border-top: 0;
+    border-left: 1px solid #1a1d2e;
   }
 }
 
-@media (max-width: 760px) {
+@container (max-width: 760px) {
   .layout {
-    padding: 10px;
+    padding: 10px 0;
   }
 
   .mainPanel {
@@ -430,5 +474,25 @@
 
   .owner {
     display: none;
+  }
+
+  .radarPanel {
+    display: block;
+  }
+
+  .radarTitle {
+    margin-bottom: 12px;
+  }
+
+  .radarList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stageSection {
+    margin-top: 16px;
+    padding-top: 15px;
+    padding-left: 0;
+    border-top: 1px solid #1a1d2e;
+    border-left: 0;
   }
 }

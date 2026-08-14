@@ -136,8 +136,9 @@ export default function CockpitPrioritiesView({
   const largestStageTotal = Math.max(1, ...STAGE_ORDER.map((status) => totals[status] ?? 0))
 
   return (
-    <div className={styles.layout}>
-      <section className={`${styles.panel} ${styles.mainPanel}`} aria-labelledby="priorities-title">
+    <div className={styles.viewport}>
+      <div className={styles.layout}>
+        <section className={`${styles.panel} ${styles.mainPanel}`} aria-labelledby="priorities-title">
         <div className={styles.headingRow}>
           <div>
             <h2 id="priorities-title" className={styles.title}>
@@ -237,9 +238,9 @@ export default function CockpitPrioritiesView({
             Exibindo as 12 prioridades mais antigas de {buckets[activeBucket].length}.
           </div>
         ) : null}
-      </section>
+        </section>
 
-      <aside className={`${styles.panel} ${styles.radarPanel}`} aria-labelledby="radar-title">
+        <aside className={`${styles.panel} ${styles.radarPanel}`} aria-labelledby="radar-title">
         <h2 id="radar-title" className={styles.radarTitle}>
           Radar da operação
         </h2>
@@ -293,8 +294,8 @@ export default function CockpitPrioritiesView({
             })}
           </div>
         </div>
-      </aside>
+        </aside>
+      </div>
     </div>
   )
 }
-
