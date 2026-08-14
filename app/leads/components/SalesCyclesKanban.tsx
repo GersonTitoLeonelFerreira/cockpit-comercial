@@ -22,6 +22,7 @@ import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { adminListSellersStats } from '@/app/lib/services/admin-sellers'
 
 import CreateLeadModal from './CreateLeadModal'
+import CockpitPrioritiesView from './CockpitPrioritiesView'
 import SellerMicroKPIs from './SellerMicroKPIs'
 import StageCheckpointModal, { CheckpointPayload } from './StageCheckpointModal'
 import { ToastContainer, useToast } from './Toast'
@@ -65,6 +66,7 @@ type KanbanScope = 'mine' | 'seller' | 'company'
 type SLALevel = 'ok' | 'warn' | 'danger'
 type AgendaState = 'none' | 'today' | 'overdue' | 'future'
 type PendingMove = { cycleId: string; fromStatus: Status; toStatus: Status } | null
+export type CockpitViewMode = 'funil' | 'prioridades'
 
 type SLARuleDB = {
   id: string
@@ -2251,12 +2253,14 @@ export default function SalesCyclesKanban({
   isAdmin,
   defaultOwnerId,
   onShowCreateLeadModal,
+  viewMode = 'funil',
 }: {
   userId: string
   companyId: string
   isAdmin: boolean
   defaultOwnerId?: string
   onShowCreateLeadModal?: () => void
+  viewMode?: CockpitViewMode
 }) {
   const supabase = useMemo(() => supabaseBrowser(), [])
   const { toasts, addToast, dismissToast } = useToast()
@@ -2356,6 +2360,7 @@ export default function SalesCyclesKanban({
 
   const [insightsExpanded, setInsightsExpanded] = useState(false)
   const [focusMode, setFocusMode] = useState(false)
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState('')
   const [isSearching, setIsSearching] = useState(false)
@@ -2462,8 +2467,11 @@ export default function SalesCyclesKanban({
       : null
 
 
-  const allItems = Object.values(items).flat()
-  const operationalItems = allItems.filter((item) => supportsOperationalAgenda(item.status))
+  const allItems = useMemo(() => Object.values(items).flat(), [items])
+  const operationalItems = useMemo(
+    () => allItems.filter((item) => supportsOperationalAgenda(item.status)),
+    [allItems],
+  )
 
   const todayCount = operationalItems.filter((item) => getAgendaState(item.next_action_date) === 'today').length
   const overdueCount = operationalItems.filter((item) => getAgendaState(item.next_action_date) === 'overdue').length
@@ -3116,6 +3124,14 @@ export default function SalesCyclesKanban({
     })
   }, [])
 
+  const openPriorityCycle = useCallback((cycleId: string) => {
+    const cycle = allItems.find((item) => item.id === cycleId)
+
+    if (cycle) {
+      openQuickDrawer(cycle)
+    }
+  }, [allItems, openQuickDrawer])
+
   const visibleKanbanItems = useMemo(() => {
     return Object.values(items).flat().filter((item) => {
       if (slaFilter !== 'all') {
@@ -3297,22 +3313,54 @@ export default function SalesCyclesKanban({
           ))}
         </select>
 
-        <div style={dividerStyle} />
+        {viewMode === 'funil' ? (
+          <>
+            <div style={dividerStyle} />
 
-        {/* Zona 2 — Filtros */}
-        <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle} title="Filtrar por SLA">
-          <option value="all">SLA: Todos</option>
-          <option value="ok">SLA: OK</option>
-          <option value="warn">SLA: Atenção</option>
-          <option value="danger">SLA: Estourado</option>
-        </select>
+            {/* Zona 2 — filtros operacionais recolhíveis */}
+            <button
+              type="button"
+              onClick={() => setFiltersExpanded((value) => !value)}
+              style={{
+                ...pillStyle,
+                color:
+                  slaFilter !== 'all' || agendaFilter !== 'all'
+                    ? DS.blueSoft
+                    : DS.textSecondary,
+                borderColor:
+                  slaFilter !== 'all' || agendaFilter !== 'all'
+                    ? 'rgba(59,130,246,0.4)'
+                    : DS.border,
+              }}
+              aria-expanded={filtersExpanded}
+              title="Mostrar ou ocultar filtros operacionais"
+            >
+              Filtros
+              {slaFilter !== 'all' || agendaFilter !== 'all'
+                ? ` (${Number(slaFilter !== 'all') + Number(agendaFilter !== 'all')})`
+                : ''}
+              {filtersExpanded ? ' ▴' : ' ▾'}
+            </button>
 
-        <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle} title="Filtrar por agenda">
-          <option value="all">Agenda: Todos</option>
-          <option value="today">Hoje ({todayCount})</option>
-          <option value="overdue">Atrasados ({overdueCount})</option>
-          <option value="next7">Próximos 7d ({next7Count})</option>
-        </select>
+            {filtersExpanded ? (
+              <>
+                <select value={slaFilter} onChange={(e) => setSLAFilter(e.target.value as 'all' | 'ok' | 'warn' | 'danger')} style={pillStyle} title="Filtrar por SLA">
+                  <option value="all">SLA: Todos</option>
+                  <option value="ok">SLA: OK</option>
+                  <option value="warn">SLA: Atenção</option>
+                  <option value="danger">SLA: Estourado</option>
+                </select>
+
+                <select value={agendaFilter} onChange={(e) => setAgendaFilter(e.target.value as 'all' | 'today' | 'overdue' | 'next7')} style={pillStyle} title="Filtrar por agenda">
+                  <option value="all">Agenda: Todos</option>
+                  <option value="today">Hoje ({todayCount})</option>
+                  <option value="overdue">Atrasados ({overdueCount})</option>
+                  <option value="next7">Próximos 7d ({next7Count})</option>
+                </select>
+              </>
+            ) : null}
+          </>
+        ) : null}
 
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <input
@@ -3343,7 +3391,7 @@ export default function SalesCyclesKanban({
 
         {/* Zona 3 — Ações */}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
-          {selectedIds.size > 0 && (
+          {viewMode === 'funil' && selectedIds.size > 0 && (
             <>
               <button
                 onClick={() => setShowBulkModal(true)}
@@ -3360,13 +3408,15 @@ export default function SalesCyclesKanban({
             </>
           )}
 
-          <button
-            onClick={toggleSelectAllKanban}
-            style={pillStyle}
-            title={allKanbanSelected ? 'Desmarcar todos' : `Selecionar todos (${allKanbanItems.length})`}
-          >
-            {allKanbanSelected ? 'Desmarcar' : 'Selecionar tudo'}
-          </button>
+          {viewMode === 'funil' ? (
+            <button
+              onClick={toggleSelectAllKanban}
+              style={pillStyle}
+              title={allKanbanSelected ? 'Desmarcar todos' : `Selecionar todos (${allKanbanItems.length})`}
+            >
+              {allKanbanSelected ? 'Desmarcar' : 'Selecionar tudo'}
+            </button>
+          ) : null}
 
           <button
             onClick={() => {
@@ -3379,17 +3429,19 @@ export default function SalesCyclesKanban({
             ↻
           </button>
 
-          <button
-            onClick={() => setFocusMode((v) => !v)}
-            style={{
-              ...iconButtonStyle,
-              color: focusMode ? DS.blueSoft : DS.textSecondary,
-              borderColor: focusMode ? 'rgba(59,130,246,0.4)' : DS.border,
-            }}
-            title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
-          >
-            {focusMode ? '⊡' : '⊞'}
-          </button>
+          {viewMode === 'funil' ? (
+            <button
+              onClick={() => setFocusMode((v) => !v)}
+              style={{
+                ...iconButtonStyle,
+                color: focusMode ? DS.blueSoft : DS.textSecondary,
+                borderColor: focusMode ? 'rgba(59,130,246,0.4)' : DS.border,
+              }}
+              title={focusMode ? 'Sair do modo foco' : 'Modo foco'}
+            >
+              {focusMode ? '⊡' : '⊞'}
+            </button>
+          ) : null}
 
           <div style={dividerStyle} />
 
@@ -3412,36 +3464,38 @@ export default function SalesCyclesKanban({
         </div>
       </div>
 
-      <SellerMicroKPIs
-        scope={selectedScope}
-        ownerUserId={
-          selectedScope === 'mine'
-            ? userId
-            : selectedScope === 'seller'
-              ? selectedOwnerId
-              : null
-        }
-        groupId={selectedGroupId}
-        supabase={supabase}
-        refreshKey={kpiRefreshKey}
-        alerts={[
-          { key: 'overdue', label: 'Atrasados', value: overdueCount, active: agendaFilter === 'overdue' },
-          { key: 'danger', label: 'SLA estourado', value: dangerCount, active: slaFilter === 'danger' },
-          { key: 'today', label: 'Agenda hoje', value: todayCount, active: agendaFilter === 'today' },
-          { key: 'next7', label: 'Próximos 7d', value: next7Count, active: agendaFilter === 'next7' },
-        ]}
-        onAlertClick={(key) => {
-          if (key === 'danger') {
-            setSLAFilter((prev) => (prev === 'danger' ? 'all' : 'danger'))
-          } else {
-            setAgendaFilter((prev) => (prev === key ? 'all' : key))
+      {viewMode === 'funil' ? (
+        <SellerMicroKPIs
+          scope={selectedScope}
+          ownerUserId={
+            selectedScope === 'mine'
+              ? userId
+              : selectedScope === 'seller'
+                ? selectedOwnerId
+                : null
           }
-        }}
-        onToggleInsights={() => setInsightsExpanded((v) => !v)}
-        insightsExpanded={insightsExpanded}
-      />
+          groupId={selectedGroupId}
+          supabase={supabase}
+          refreshKey={kpiRefreshKey}
+          alerts={[
+            { key: 'overdue', label: 'Atrasados', value: overdueCount, active: agendaFilter === 'overdue' },
+            { key: 'danger', label: 'SLA estourado', value: dangerCount, active: slaFilter === 'danger' },
+            { key: 'today', label: 'Agenda hoje', value: todayCount, active: agendaFilter === 'today' },
+            { key: 'next7', label: 'Próximos 7d', value: next7Count, active: agendaFilter === 'next7' },
+          ]}
+          onAlertClick={(key) => {
+            if (key === 'danger') {
+              setSLAFilter((prev) => (prev === 'danger' ? 'all' : 'danger'))
+            } else {
+              setAgendaFilter((prev) => (prev === key ? 'all' : key))
+            }
+          }}
+          onToggleInsights={() => setInsightsExpanded((v) => !v)}
+          insightsExpanded={insightsExpanded}
+        />
+      ) : null}
 
-      {insightsExpanded && (
+      {viewMode === 'funil' && insightsExpanded ? (
         <div style={{ background: DS.contentBg, borderBottom: `1px solid ${DS.border}`, padding: '10px 16px 14px', maxHeight: 320, overflowY: 'auto' }}>
           {(() => {
             const overdueItems = operationalItems.filter((c) => getAgendaState(c.next_action_date) === 'overdue')
@@ -3503,9 +3557,9 @@ export default function SalesCyclesKanban({
             )
           })()}
         </div>
-      )}
+      ) : null}
 
-<div
+      <div
         style={{
           position: 'relative',
           flex: 1,
@@ -3515,74 +3569,91 @@ export default function SalesCyclesKanban({
           background: DS.contentBg,
         }}
       >
+        {viewMode === 'prioridades' ? (
+          <div style={{ position: 'relative', flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: '3px solid #ef4444', fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
 
-        <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: `3px solid #ef4444`, fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
+            ) : (
+              <CockpitPrioritiesView
+                items={allItems}
+                totals={totals}
+                sellers={sellers}
+                now={nowTick}
+                onOpenCycle={openPriorityCycle}
+              />
+            )}
+          </div>
+        ) : (
+          <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {error && <div style={{ background: DS.redBg, color: DS.redText, padding: '8px 16px', borderLeft: '3px solid #ef4444', fontSize: 12, border: `1px solid ${DS.redBorder}` }}>{error}</div>}
 
-          {loading ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
-          ) : (
-            <div
-              ref={kanbanScrollRef}
-              className="kanban-column-scroll"
-              onDragOver={handleKanbanDragOver}
-              onDragEnd={stopKanbanAutoScroll}
-              onDrop={stopKanbanAutoScroll}
-              onDragLeave={(event) => {
-                const nextTarget = event.relatedTarget
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: DS.textMuted, fontSize: 13 }}>Carregando...</div>
+            ) : (
+              <div
+                ref={kanbanScrollRef}
+                className="kanban-column-scroll"
+                onDragOver={handleKanbanDragOver}
+                onDragEnd={stopKanbanAutoScroll}
+                onDrop={stopKanbanAutoScroll}
+                onDragLeave={(event) => {
+                  const nextTarget = event.relatedTarget
 
-                if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-                  return
-                }
+                  if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+                    return
+                  }
 
-                stopKanbanAutoScroll()
-              }}
-              style={{
-                flex: 1,
-                overflowX: 'auto',
-                overflowY: 'hidden',
-                padding: '12px 16px 16px',
-                display: 'flex',
-                gap: 8,
-                alignItems: 'flex-start',
-              }}
-            >
-              {STATUSES.map((status) => (
-  <VirtualizedStatusColumn
-    key={status}
-    status={status}
-    cycles={items[status]}
-    totalCount={totals[status] ?? 0}
-    savingId={savingId}
-    onDrop={handleDrop}
-    selectedIds={selectedIds}
-    onToggleSelect={toggleSelect}
-    slaRules={slaRules}
-    nowTick={nowTick}
-    slaFilter={slaFilter}
-    agendaFilter={agendaFilter}
-    onReturnToPool={(cycleId, cycleName) => {
-      setReturnCycleId(cycleId)
-      setReturnCycleName(cycleName)
-      setReturnReasonModalOpen(true)
-    }}
-    onOpenQuickDrawer={openQuickDrawer}
-    onReassign={reassignCycle}
-    onSetGroup={setGroupForCycle}
-    onCreateGroup={handleCreateGroupInline}
-    groups={groups}
-    sellers={sellers}
-    isAdmin={isAdmin}
-    onMoveItem={handleDrop}
-    onCopilotSaved={handleCopilotSaved}
-    supabase={supabase}
-    companyId={companyId}
-    currentUserId={userId}
-  />
-))}
-            </div>
-          )}
-        </div>
+                  stopKanbanAutoScroll()
+                }}
+                style={{
+                  flex: 1,
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  padding: '12px 16px 16px',
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'flex-start',
+                }}
+              >
+                {STATUSES.map((status) => (
+                  <VirtualizedStatusColumn
+                    key={status}
+                    status={status}
+                    cycles={items[status]}
+                    totalCount={totals[status] ?? 0}
+                    savingId={savingId}
+                    onDrop={handleDrop}
+                    selectedIds={selectedIds}
+                    onToggleSelect={toggleSelect}
+                    slaRules={slaRules}
+                    nowTick={nowTick}
+                    slaFilter={slaFilter}
+                    agendaFilter={agendaFilter}
+                    onReturnToPool={(cycleId, cycleName) => {
+                      setReturnCycleId(cycleId)
+                      setReturnCycleName(cycleName)
+                      setReturnReasonModalOpen(true)
+                    }}
+                    onOpenQuickDrawer={openQuickDrawer}
+                    onReassign={reassignCycle}
+                    onSetGroup={setGroupForCycle}
+                    onCreateGroup={handleCreateGroupInline}
+                    groups={groups}
+                    sellers={sellers}
+                    isAdmin={isAdmin}
+                    onMoveItem={handleDrop}
+                    onCopilotSaved={handleCopilotSaved}
+                    supabase={supabase}
+                    companyId={companyId}
+                    currentUserId={userId}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <LeadQuickDrawer

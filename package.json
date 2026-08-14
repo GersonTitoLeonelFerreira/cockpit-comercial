@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:cockpit-priorities": "node --test app/leads/components/cockpit-priorities.test.mjs",
     "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
     "test:companion-commercial-config": "node --test supabase/phase-tests/phase-2-commercial-config.test.mjs",
     "test:companion-commercial-config-admin": "node --test supabase/phase-tests/phase-3-commercial-config-admin.test.mjs",

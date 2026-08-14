@@ -5,7 +5,10 @@ import Link from 'next/link'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
-import MetaSummaryHeader, { buildMetaSummaryKpis } from '@/app/components/meta/MetaSummaryCard'
+import {
+  CompactMetaSummaryHeader,
+  buildMetaSummaryKpis,
+} from '@/app/components/meta/MetaSummaryCard'
 
 function toYMD(v: string) {
   return (v ?? '').split('T')[0].split(' ')[0]
@@ -89,6 +92,7 @@ function countBusinessDaysRemaining(endYMD: string) {
 }
 
 type GoalView = 'company' | 'mine'
+type CockpitView = 'funil' | 'prioridades'
 
 export default function LeadsClient({
   userId,
@@ -108,11 +112,12 @@ export default function LeadsClient({
   void userLabel
 
   const isAdmin = role === 'admin'
-const canManageReactivation = role === 'admin' || role === 'manager'
+  const canManageReactivation = role === 'admin' || role === 'manager'
 
   const [period, setPeriod] = React.useState<{ start: string; end: string } | null>(null)
 
   const [goalView, setGoalView] = React.useState<GoalView>('company')
+  const [cockpitView, setCockpitView] = React.useState<CockpitView>('funil')
 
   const [goalCompany, setGoalCompany] = React.useState<number>(0)
   const [goalMine, setGoalMine] = React.useState<number>(0)
@@ -126,6 +131,17 @@ const canManageReactivation = role === 'admin' || role === 'manager'
   const [revenueBDRemaining, setRevenueBDRemaining] = React.useState<number>(0)
   const [revenueLoading, setRevenueLoading] = React.useState(false)
   const [revenueError, setRevenueError] = React.useState<string | null>(null)
+
+  const metaKpis = React.useMemo(
+    () =>
+      buildMetaSummaryKpis(
+        revenueTotalReal,
+        activeGoal,
+        revenueBDRemaining,
+        revenueProjection,
+      ),
+    [revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection],
+  )
 
   React.useEffect(() => {
     async function loadCompetency() {
@@ -223,42 +239,83 @@ const canManageReactivation = role === 'admin' || role === 'manager'
   }, [companyId, period])
 
   return (
-    <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '20px 24px' }}>
-     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-  {canManageReactivation ? (
-    <Link
-      href="/leads/reativacao"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 34,
-        padding: '0 12px',
-        borderRadius: 7,
-        border: '1px solid rgba(59,130,246,0.36)',
-        background: 'rgba(59,130,246,0.10)',
-        color: '#93c5fd',
-        fontSize: 12,
-        fontWeight: 800,
-        textDecoration: 'none',
-      }}
-    >
-      Reativar oportunidades
-    </Link>
-  ) : null}
+    <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '12px 24px 20px' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div
+          role="tablist"
+          aria-label="Visualização do Cockpit Comercial"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: 3,
+            borderRadius: 9,
+            border: '1px solid #1a1d2e',
+            background: '#0d0f14',
+          }}
+        >
+          {(['funil', 'prioridades'] as CockpitView[]).map((view) => {
+            const active = cockpitView === view
+            const label = view === 'funil' ? 'Funil' : 'Prioridades'
 
-<div
-  style={{
-    marginLeft: 'auto',
-    fontSize: 11,
-    fontWeight: 700,
-    color: '#546070',
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase',
-  }}
->
-  Meta exibida:
-</div>
+            return (
+              <button
+                key={view}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setCockpitView(view)}
+                style={{
+                  minHeight: 30,
+                  padding: '0 14px',
+                  borderRadius: 7,
+                  border: active ? '1px solid rgba(59,130,246,0.45)' : '1px solid transparent',
+                  background: active ? 'rgba(59,130,246,0.12)' : 'transparent',
+                  color: active ? '#93c5fd' : '#738096',
+                  fontSize: 11.5,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+
+        {canManageReactivation ? (
+          <Link
+            href="/leads/reativacao"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: 34,
+              padding: '0 12px',
+              borderRadius: 7,
+              border: '1px solid rgba(59,130,246,0.36)',
+              background: 'rgba(59,130,246,0.10)',
+              color: '#93c5fd',
+              fontSize: 12,
+              fontWeight: 800,
+              textDecoration: 'none',
+            }}
+          >
+            Reativar oportunidades
+          </Link>
+        ) : null}
+
+        <div
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#546070',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Meta exibida:
+        </div>
         <select
           value={goalView}
           onChange={(e) => setGoalView(e.target.value as GoalView)}
@@ -287,7 +344,7 @@ const canManageReactivation = role === 'admin' || role === 'manager'
         ) : null}
       </div>
 
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12 }}>
         {revenueError ? (
           <div
             style={{
@@ -304,21 +361,20 @@ const canManageReactivation = role === 'admin' || role === 'manager'
         ) : revenueLoading ? (
           <div style={{ fontSize: 12, color: '#546070' }}>Carregando faturamento do período...</div>
         ) : (
-          <MetaSummaryHeader
+          <CompactMetaSummaryHeader
             title={goalView === 'mine' ? 'Minha meta (comparada ao Real da empresa)' : 'Empresa (todos)'}
-            kpis={buildMetaSummaryKpis(revenueTotalReal, activeGoal, revenueBDRemaining, revenueProjection)}
+            kpis={metaKpis}
           />
         )}
       </div>
-
-
       <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
-      <SalesCyclesKanban
-        userId={userId}
-        companyId={companyId}
-        isAdmin={isAdmin}
-        defaultOwnerId={defaultOwnerId ?? undefined}
-      />
+        <SalesCyclesKanban
+          userId={userId}
+          companyId={companyId}
+          isAdmin={isAdmin}
+          defaultOwnerId={defaultOwnerId ?? undefined}
+          viewMode={cockpitView}
+        />
       </div>
     </div>
   )
