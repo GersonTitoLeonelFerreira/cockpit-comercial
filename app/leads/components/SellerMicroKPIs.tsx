@@ -127,14 +127,17 @@ export default function SellerMicroKPIs({
   return (
     <div
       style={{
-        background: DS.panelBg,
-        borderBottom: `1px solid ${DS.border}`,
-        padding: '6px 16px',
+        background: 'linear-gradient(145deg, rgba(17,21,29,0.92), rgba(13,15,20,0.96))',
+        border: '1px solid #1f2635',
+        borderRadius: 11,
+        padding: '8px 12px',
+        marginTop: 10,
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        minHeight: 36,
+        gap: 12,
+        minHeight: 42,
         flexWrap: 'wrap',
+        boxShadow: '0 8px 22px rgba(0,0,0,0.14)',
       }}
     >
       {/* Produtividade */}
@@ -171,8 +174,8 @@ export default function SellerMicroKPIs({
               style={{
                 background: isActive ? `${color}15` : 'transparent',
                 border: `1px solid ${isActive ? color : DS.border}`,
-                borderRadius: 4,
-                padding: '3px 8px',
+                borderRadius: 7,
+                padding: '4px 9px',
                 fontSize: 10.5,
                 color: chip.value > 0 ? color : DS.textMuted,
                 fontWeight: 600,

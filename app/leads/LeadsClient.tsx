@@ -239,8 +239,20 @@ export default function LeadsClient({
   }, [companyId, period])
 
   return (
-    <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '12px 24px 20px' }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+    <div style={{ color: '#edf2f7', background: '#090b0f', minHeight: '100vh', padding: '16px 24px 24px' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 9,
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          marginBottom: 10,
+          padding: '8px 10px',
+          border: '1px solid #1f2635',
+          borderRadius: 12,
+          background: 'linear-gradient(145deg, rgba(17,21,29,0.94), rgba(13,15,20,0.96))',
+        }}
+      >
         <div
           role="tablist"
           aria-label="Visualização do Cockpit Comercial"
@@ -249,8 +261,8 @@ export default function LeadsClient({
             alignItems: 'center',
             padding: 3,
             borderRadius: 9,
-            border: '1px solid #1a1d2e',
-            background: '#0d0f14',
+            border: '1px solid #22293a',
+            background: '#0a0d13',
           }}
         >
           {(['funil', 'prioridades'] as CockpitView[]).map((view) => {
@@ -268,8 +280,8 @@ export default function LeadsClient({
                   minHeight: 30,
                   padding: '0 14px',
                   borderRadius: 7,
-                  border: active ? '1px solid rgba(59,130,246,0.45)' : '1px solid transparent',
-                  background: active ? 'rgba(59,130,246,0.12)' : 'transparent',
+                  border: active ? '1px solid rgba(59,130,246,0.5)' : '1px solid transparent',
+                  background: active ? 'linear-gradient(145deg, rgba(59,130,246,0.2), rgba(59,130,246,0.08))' : 'transparent',
                   color: active ? '#93c5fd' : '#738096',
                   fontSize: 11.5,
                   fontWeight: 800,
@@ -291,9 +303,9 @@ export default function LeadsClient({
               justifyContent: 'center',
               minHeight: 34,
               padding: '0 12px',
-              borderRadius: 7,
-              border: '1px solid rgba(59,130,246,0.36)',
-              background: 'rgba(59,130,246,0.10)',
+              borderRadius: 9,
+              border: '1px solid #253047',
+              background: '#111722',
               color: '#93c5fd',
               fontSize: 12,
               fontWeight: 800,
@@ -309,7 +321,7 @@ export default function LeadsClient({
             marginLeft: 'auto',
             fontSize: 11,
             fontWeight: 700,
-            color: '#546070',
+            color: '#65738a',
             letterSpacing: '0.06em',
             textTransform: 'uppercase',
           }}
@@ -321,9 +333,9 @@ export default function LeadsClient({
           onChange={(e) => setGoalView(e.target.value as GoalView)}
           style={{
             padding: '8px 12px',
-            borderRadius: 7,
-            border: '1px solid #1a1d2e',
-            background: '#111318',
+            borderRadius: 9,
+            border: '1px solid #22293a',
+            background: '#0c0f15',
             color: '#edf2f7',
             minWidth: 220,
             fontWeight: 700,
@@ -367,7 +379,7 @@ export default function LeadsClient({
           />
         )}
       </div>
-      <div style={{ marginTop: 0, marginLeft: -24, marginRight: -24 }}>
+      <div style={{ marginTop: 0 }}>
         <SalesCyclesKanban
           userId={userId}
           companyId={companyId}

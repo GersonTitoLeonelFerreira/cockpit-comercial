@@ -2,7 +2,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(270px, 330px);
   gap: 14px;
-  padding: 14px 16px 18px;
+  padding: 14px 0 18px;
   min-height: 0;
   overflow: auto;
   background: #090b0f;
@@ -432,4 +432,3 @@
     display: none;
   }
 }
-
