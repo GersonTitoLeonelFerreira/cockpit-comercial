@@ -301,11 +301,11 @@ export function CompactMetaSummaryHeader({
       <div style={{ width: 1, height: 42, background: '#1f2330' }} />
 
       <div style={{ minWidth: 125 }}>
-        <div style={{ color: '#edf2f7', fontSize: 13, fontWeight: 850 }}>
-          {toBRL(kpis.requiredPerBD)}/dia
-        </div>
-        <div style={{ marginTop: 4, color: '#546070', fontSize: 10 }}>
+        <div style={{ color: '#738096', fontSize: 10 }}>
           {kpis.businessDaysRemaining} dias restantes
+        </div>
+        <div style={{ marginTop: 4, color: '#edf2f7', fontSize: 13, fontWeight: 850 }}>
+          {toBRL(kpis.requiredPerBD)}/dia
         </div>
       </div>
 
