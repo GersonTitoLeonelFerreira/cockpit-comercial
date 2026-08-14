@@ -2642,7 +2642,15 @@ function SimulatorTopControls({
   const hasUnsavedGoal = Math.abs(goalInputValue - revenueGoalSavedValue) > 0.009
   const hasConfiguredGoal = revenueGoalSavedValue > 0
 
-  const goalStatus = goalSaving
+  const goalStatus = goalLoading
+    ? {
+        label: 'Carregando meta...',
+        description: 'Buscando o valor salvo para este escopo e período.',
+        color: '#93c5fd',
+        border: 'rgba(59, 130, 246, 0.26)',
+        background: 'rgba(59, 130, 246, 0.08)',
+      }
+    : goalSaving
     ? {
         label: 'Salvando meta...',
         description: 'Aguarde enquanto os dados são gravados.',
