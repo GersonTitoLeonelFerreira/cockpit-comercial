@@ -1682,7 +1682,7 @@ function ExecutionCalendarSummaryStrip({
               lineHeight: 1.2,
             }}
           >
-            Calendário operacional
+            Calendário operacional <span style={{ color: SIMULATOR_UI.textSubtle }}>(opcional)</span>
           </div>
 
           <div
@@ -1693,7 +1693,7 @@ function ExecutionCalendarSummaryStrip({
               lineHeight: 1.45,
             }}
           >
-            Define quais datas realmente contam como dias de execução para metas, ritmo diário e projeções.
+            Use somente quando houver feriados, pausas ou exceções. Sem ajustes, o padrão semanal já é aplicado.
           </div>
         </div>
 
@@ -1772,7 +1772,7 @@ function ExecutionCalendarSummaryStrip({
               whiteSpace: 'nowrap',
             }}
           >
-            Abrir calendário
+            Revisar calendário
           </button>
         </div>
       </div>
@@ -2513,6 +2513,7 @@ function SimulatorTopControls({
   setMode,
   revenueGoalContextLabel,
   revenueGoalInputText,
+  revenueGoalSavedValue,
   setRevenueGoalInputText,
   goalLoading,
   goalSaving,
@@ -2555,6 +2556,7 @@ function SimulatorTopControls({
   setMode: (value: SimulatorMode) => void
   revenueGoalContextLabel: string
   revenueGoalInputText: string
+  revenueGoalSavedValue: number
   setRevenueGoalInputText: (value: string) => void
   goalLoading: boolean
   goalSaving: boolean
@@ -2636,40 +2638,91 @@ function SimulatorTopControls({
 
   const scenarioSummary = `${selectedScopeLabel} · ${modeLabel} · ${formattedPeriodStart} até ${formattedPeriodEnd} · Meta ${formattedGoalValue}`
 
-    return (
-      <div
-        style={{
-          marginBottom: 14,
-          border: `1px solid ${SIMULATOR_UI.borderSoft}`,
-          background: 'rgba(13, 15, 20, 0.88)',
-          borderRadius: 18,
-          padding: 16,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
-        }}
-      >
+  const goalInputValue = Math.max(0, safeNumber(revenueGoalInputText))
+  const hasUnsavedGoal = Math.abs(goalInputValue - revenueGoalSavedValue) > 0.009
+  const hasConfiguredGoal = revenueGoalSavedValue > 0
+
+  const goalStatus = goalSaving
+    ? {
+        label: 'Salvando meta...',
+        description: 'Aguarde enquanto os dados são gravados.',
+        color: '#fbbf24',
+        border: 'rgba(245, 158, 11, 0.26)',
+        background: 'rgba(245, 158, 11, 0.08)',
+      }
+    : goalError
+      ? {
+          label: 'Não foi possível salvar',
+          description: goalError,
+          color: '#fca5a5',
+          border: 'rgba(239, 68, 68, 0.28)',
+          background: 'rgba(239, 68, 68, 0.08)',
+        }
+      : goalSuccess
+        ? {
+            label: 'Meta configurada',
+            description: goalSuccess,
+            color: '#86efac',
+            border: 'rgba(34, 197, 94, 0.26)',
+            background: 'rgba(34, 197, 94, 0.08)',
+          }
+        : hasUnsavedGoal
+          ? {
+              label: 'Alterações não salvas',
+              description: 'Revise o valor e clique em Salvar meta para concluir.',
+              color: '#fbbf24',
+              border: 'rgba(245, 158, 11, 0.26)',
+              background: 'rgba(245, 158, 11, 0.08)',
+            }
+          : hasConfiguredGoal
+            ? {
+                label: 'Meta configurada',
+                description: 'O valor salvo já está sendo usado nos cálculos.',
+                color: '#86efac',
+                border: 'rgba(34, 197, 94, 0.26)',
+                background: 'rgba(34, 197, 94, 0.08)',
+              }
+            : {
+                label: 'Meta ainda não configurada',
+                description: 'Informe o valor e salve para concluir a configuração.',
+                color: '#93c5fd',
+                border: 'rgba(59, 130, 246, 0.26)',
+                background: 'rgba(59, 130, 246, 0.08)',
+              }
+
+  return (
+    <div
+      style={{
+        marginBottom: 14,
+        border: `1px solid ${SIMULATOR_UI.borderSoft}`,
+        background:
+          'linear-gradient(145deg, rgba(17, 21, 31, 0.96) 0%, rgba(10, 12, 17, 0.98) 58%, rgba(8, 10, 14, 0.99) 100%)',
+        borderRadius: 20,
+        padding: 16,
+        boxShadow: '0 18px 46px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.035)',
+      }}
+    >
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
+          alignItems: 'flex-start',
+          gap: 14,
           flexWrap: 'wrap',
-          marginBottom: 14,
-          paddingBottom: 12,
-          borderBottom: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          marginBottom: 16,
         }}
       >
         <div style={{ minWidth: 0 }}>
           <div
             style={{
-              color: SIMULATOR_UI.textSecondary,
-              fontSize: 13,
-              fontWeight: 850,
-              letterSpacing: -0.1,
+              color: SIMULATOR_UI.textPrimary,
+              fontSize: 16,
+              fontWeight: 950,
+              letterSpacing: -0.25,
               lineHeight: 1.2,
             }}
           >
-            Cenário da simulação
+            Configure a meta
           </div>
 
           <div
@@ -2677,15 +2730,11 @@ function SimulatorTopControls({
               marginTop: 5,
               color: SIMULATOR_UI.textMuted,
               fontSize: 12.5,
-              lineHeight: 1.4,
-              maxWidth: 760,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              lineHeight: 1.45,
+              maxWidth: 700,
             }}
-            title={scenarioSummary}
           >
-            {scenarioSummary}
+            Conclua as etapas 1 e 2. Os parâmetros da etapa 3 são opcionais e servem apenas para refinar o plano.
           </div>
         </div>
 
@@ -2694,7 +2743,7 @@ function SimulatorTopControls({
             border: `1px solid ${SIMULATOR_UI.borderMuted}`,
             background: 'rgba(59, 130, 246, 0.10)',
             borderRadius: 999,
-            padding: '6px 10px',
+            padding: '7px 11px',
             color: '#bfdbfe',
             fontSize: 12,
             fontWeight: 850,
@@ -2706,209 +2755,475 @@ function SimulatorTopControls({
       </div>
 
       <div
+        aria-label="Etapas para configurar a meta"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 14,
-          alignItems: 'end',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))',
+          gap: 8,
+          marginBottom: 14,
         }}
       >
-        <div>
-          <FieldLabel>Escopo da análise</FieldLabel>
-
-          {isAdmin ? (
-            <select
-              value={selectedSellerId ?? 'empresa'}
-              onChange={(event) => {
-                const value = event.target.value
-                setSelectedSellerId(value === 'empresa' ? null : value)
-              }}
-              style={controlBaseStyle()}
-            >
-              <option value="empresa">{companyScopeLabel}</option>
-              {sellers.map((seller) => (
-                <option key={seller.id} value={seller.id}>
-                  {seller.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={sellerGoalScope}
-              onChange={(event) => setSellerGoalScope(event.target.value as 'company' | 'mine')}
-              style={controlBaseStyle()}
-            >
-              <option value="company">{companyScopeLabel}</option>
-              <option value="mine">Minha meta</option>
-            </select>
-          )}
-        </div>
-
-        <div>
-          <FieldLabel>Período</FieldLabel>
-
+        {[
+          ['1', 'Quem e quando', 'Obrigatório'],
+          ['2', 'Valor da meta', 'Obrigatório'],
+          ['3', 'Parâmetros do plano', 'Opcional'],
+        ].map(([number, label, status]) => (
           <div
+            key={number}
             style={{
               display: 'flex',
-              gap: 8,
               alignItems: 'center',
-              flexWrap: 'wrap',
+              gap: 9,
+              minWidth: 0,
+              border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+              background: number === '3' ? 'rgba(9, 11, 15, 0.42)' : 'rgba(59, 130, 246, 0.055)',
+              borderRadius: 12,
+              padding: '8px 10px',
             }}
           >
-            <select
-              value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
-              onChange={(event) => {
-                const currentMonthKey = getMonthKeyFromDate(periodStart)
-                const currentYear = getYearFromMonthKey(currentMonthKey)
-                const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
-                const period = getMonthPeriod(selectedMonthKey)
-
-                setPeriodStart(period.start)
-                setPeriodEnd(period.end)
-              }}
+            <span
               style={{
-                ...controlBaseStyle(),
-                width: 140,
+                width: 24,
+                height: 24,
+                borderRadius: 8,
+                display: 'grid',
+                placeItems: 'center',
+                flex: '0 0 auto',
+                border: '1px solid rgba(59, 130, 246, 0.34)',
+                background: 'rgba(59, 130, 246, 0.14)',
+                color: '#93c5fd',
+                fontSize: 11.5,
+                fontWeight: 950,
               }}
             >
-              {MONTH_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              {number}
+            </span>
 
-            <input
-              type="number"
-              value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
-              onChange={(event) => {
-                const currentMonthKey = getMonthKeyFromDate(periodStart)
-                const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
-                const selectedYear = Number(event.target.value)
-                const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
-                const period = getMonthPeriod(selectedMonthKey)
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: 850,
+                  lineHeight: 1.2,
+                }}
+              >
+                {label}
+              </div>
+              <div
+                style={{
+                  marginTop: 2,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 10.5,
+                  fontWeight: 750,
+                  lineHeight: 1.2,
+                }}
+              >
+                {status}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
-                setPeriodStart(period.start)
-                setPeriodEnd(period.end)
-              }}
-              min={1900}
-              max={2200}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
+          gap: 12,
+          alignItems: 'stretch',
+        }}
+      >
+        <section
+          style={{
+            border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+            background: 'rgba(8, 10, 15, 0.58)',
+            borderRadius: 16,
+            padding: 14,
+            display: 'grid',
+            alignContent: 'start',
+            gap: 14,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div
               style={{
-                ...controlBaseStyle(),
-                width: 96,
+                width: 28,
+                height: 28,
+                borderRadius: 9,
+                display: 'grid',
+                placeItems: 'center',
+                flex: '0 0 auto',
+                background: 'rgba(59, 130, 246, 0.16)',
+                border: '1px solid rgba(59, 130, 246, 0.34)',
+                color: '#93c5fd',
+                fontSize: 12,
+                fontWeight: 950,
               }}
-            />
+            >
+              1
+            </div>
+
+            <div>
+              <div
+                style={{
+                  color: SIMULATOR_UI.textPrimary,
+                  fontSize: 14,
+                  fontWeight: 900,
+                  lineHeight: 1.2,
+                }}
+              >
+                Quem e quando
+              </div>
+              <div
+                style={{
+                  marginTop: 3,
+                  color: SIMULATOR_UI.textSubtle,
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                }}
+              >
+                Escolha para quem a meta vale e o mês de referência.
+              </div>
+            </div>
           </div>
 
-          <div
-            style={{
-              marginTop: 7,
-              color: SIMULATOR_UI.textSubtle,
-              fontSize: 12,
-              lineHeight: 1.35,
-            }}
-          >
-            {formatMonthLabelBR(getMonthKeyFromDate(periodStart))} · {formatDateBR(periodStart)} até{' '}
-            {formatDateBR(periodEnd)}
+          <div>
+            <FieldLabel>Aplicar meta para</FieldLabel>
+
+            {isAdmin ? (
+              <select
+                value={selectedSellerId ?? 'empresa'}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setSelectedSellerId(value === 'empresa' ? null : value)
+                }}
+                style={{ ...controlBaseStyle(), height: 40 }}
+              >
+                <option value="empresa">{companyScopeLabel}</option>
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={sellerGoalScope}
+                onChange={(event) => setSellerGoalScope(event.target.value as 'company' | 'mine')}
+                style={{ ...controlBaseStyle(), height: 40 }}
+              >
+                <option value="company">{companyScopeLabel}</option>
+                <option value="mine">Minha meta</option>
+              </select>
+            )}
           </div>
-        </div>
 
-        <div>
-          <FieldLabel>Meta ativa</FieldLabel>
+          <div>
+            <FieldLabel>Mês de referência</FieldLabel>
 
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) 104px',
+                gap: 8,
+              }}
+            >
+              <select
+                value={getMonthNumberFromMonthKey(getMonthKeyFromDate(periodStart))}
+                onChange={(event) => {
+                  const currentMonthKey = getMonthKeyFromDate(periodStart)
+                  const currentYear = getYearFromMonthKey(currentMonthKey)
+                  const selectedMonthKey = buildMonthKey(currentYear, event.target.value)
+                  const period = getMonthPeriod(selectedMonthKey)
+
+                  setPeriodStart(period.start)
+                  setPeriodEnd(period.end)
+                }}
+                style={{ ...controlBaseStyle(), height: 40 }}
+              >
+                {MONTH_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                aria-label="Ano da meta"
+                type="number"
+                value={getYearFromMonthKey(getMonthKeyFromDate(periodStart))}
+                onChange={(event) => {
+                  const currentMonthKey = getMonthKeyFromDate(periodStart)
+                  const currentMonth = getMonthNumberFromMonthKey(currentMonthKey)
+                  const selectedYear = Number(event.target.value)
+                  const selectedMonthKey = buildMonthKey(selectedYear, currentMonth)
+                  const period = getMonthPeriod(selectedMonthKey)
+
+                  setPeriodStart(period.start)
+                  setPeriodEnd(period.end)
+                }}
+                min={1900}
+                max={2200}
+                style={{ ...controlBaseStyle(), height: 40 }}
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 11.5,
+                lineHeight: 1.35,
+              }}
+            >
+              Período completo: {formatDateBR(periodStart)} até {formatDateBR(periodEnd)}
+            </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            border: `1px solid ${hasUnsavedGoal ? 'rgba(245, 158, 11, 0.24)' : SIMULATOR_UI.borderMuted}`,
+            background: hasUnsavedGoal ? 'rgba(245, 158, 11, 0.025)' : 'rgba(8, 10, 15, 0.58)',
+            borderRadius: 16,
+            padding: 14,
+            display: 'grid',
+            alignContent: 'start',
+            gap: 14,
+          }}
+        >
           <div
             style={{
               display: 'flex',
-              gap: 8,
-              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              gap: 10,
+              alignItems: 'flex-start',
             }}
           >
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9,
+                  display: 'grid',
+                  placeItems: 'center',
+                  flex: '0 0 auto',
+                  background: 'rgba(59, 130, 246, 0.16)',
+                  border: '1px solid rgba(59, 130, 246, 0.34)',
+                  color: '#93c5fd',
+                  fontSize: 12,
+                  fontWeight: 950,
+                }}
+              >
+                2
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    color: SIMULATOR_UI.textPrimary,
+                    fontSize: 14,
+                    fontWeight: 900,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Valor da meta
+                </div>
+                <div
+                  style={{
+                    marginTop: 3,
+                    color: SIMULATOR_UI.textSubtle,
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Informe o faturamento esperado para o período.
+                </div>
+              </div>
+            </div>
+
             <ModePill active onClick={() => setMode('faturamento')}>
               Faturamento
             </ModePill>
           </div>
 
-          <div
-            style={{
-              marginTop: 7,
-              color: SIMULATOR_UI.textSubtle,
-              fontSize: 12,
-              lineHeight: 1.35,
-            }}
-          >
-            Meta ativa no momento. Novos modelos de meta serão adicionados em breve.
-          </div>
-        </div>
+          <div>
+            <FieldLabel>{revenueGoalContextLabel}</FieldLabel>
 
-        <div>
-          <FieldLabel>{revenueGoalContextLabel}</FieldLabel>
+            <div style={{ position: 'relative' }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#93c5fd',
+                  fontSize: 13,
+                  fontWeight: 900,
+                  pointerEvents: 'none',
+                }}
+              >
+                R$
+              </span>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr auto auto',
-              gap: 8,
-            }}
-          >
-            <input
-              type="text"
-              value={revenueGoalInputText}
-              onChange={(event) => setRevenueGoalInputText(event.target.value)}
-              disabled={!isAdmin || goalLoading || goalSaving}
-              placeholder="Ex.: 200000"
+              <input
+                aria-label={revenueGoalContextLabel}
+                type="text"
+                inputMode="decimal"
+                value={revenueGoalInputText}
+                onChange={(event) => setRevenueGoalInputText(event.target.value)}
+                disabled={!isAdmin || goalLoading || goalSaving}
+                placeholder="Ex.: 245000"
+                style={{
+                  ...controlBaseStyle(),
+                  height: 44,
+                  paddingLeft: 38,
+                  fontSize: 15,
+                  fontWeight: 850,
+                  opacity: goalLoading || goalSaving ? 0.7 : 1,
+                }}
+              />
+            </div>
+
+            <div
               style={{
-                ...controlBaseStyle(),
-                opacity: goalLoading || goalSaving ? 0.7 : 1,
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 11.5,
+                lineHeight: 1.35,
               }}
-            />
-
-            {isAdmin ? (
-              <>
-                <SmallActionButton
-                  tone="primary"
-                  onClick={onSaveGoal}
-                  disabled={goalLoading || goalSaving}
-                >
-                  {goalSaving ? 'Salvando...' : 'Salvar'}
-                </SmallActionButton>
-
-                <SmallActionButton onClick={onUndoGoal} disabled={goalSaving || goalLoading}>
-                  Desfazer
-                </SmallActionButton>
-              </>
-            ) : null}
+            >
+              Valor interpretado: {formattedGoalValue}
+            </div>
           </div>
 
-        </div>
+          {isAdmin ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={onSaveGoal}
+                disabled={goalLoading || goalSaving}
+                style={{
+                  height: 40,
+                  borderRadius: 11,
+                  border: '1px solid rgba(59, 130, 246, 0.48)',
+                  background:
+                    'linear-gradient(135deg, rgba(37, 99, 235, 0.90) 0%, rgba(59, 130, 246, 0.72) 100%)',
+                  color: '#eff6ff',
+                  padding: '0 16px',
+                  fontSize: 12.5,
+                  fontWeight: 900,
+                  cursor: goalLoading || goalSaving ? 'not-allowed' : 'pointer',
+                  opacity: goalLoading || goalSaving ? 0.58 : 1,
+                  whiteSpace: 'nowrap',
+                  boxShadow: hasUnsavedGoal ? '0 10px 24px rgba(37, 99, 235, 0.22)' : 'none',
+                }}
+              >
+                {goalSaving ? 'Salvando...' : 'Salvar meta'}
+              </button>
+
+              <SmallActionButton
+                onClick={onUndoGoal}
+                disabled={goalSaving || goalLoading}
+              >
+                Restaurar valor
+              </SmallActionButton>
+            </div>
+          ) : null}
+
+          <div
+            role="status"
+            style={{
+              border: `1px solid ${goalStatus.border}`,
+              background: goalStatus.background,
+              borderRadius: 12,
+              padding: '10px 11px',
+            }}
+          >
+            <div
+              style={{
+                color: goalStatus.color,
+                fontSize: 12.5,
+                fontWeight: 900,
+                lineHeight: 1.25,
+              }}
+            >
+              {goalStatus.label}
+            </div>
+            <div
+              style={{
+                marginTop: 3,
+                color: SIMULATOR_UI.textMuted,
+                fontSize: 11.5,
+                lineHeight: 1.4,
+              }}
+            >
+              {goalStatus.description}
+            </div>
+          </div>
+        </section>
       </div>
 
-      {goalError ? (
-        <div
-          style={{
-            marginTop: 12,
-            color: '#fecaca',
-            fontSize: 13,
-            fontWeight: 700,
-          }}
-        >
-          {goalError}
-        </div>
-      ) : null}
+      <div
+        title={scenarioSummary}
+        style={{
+          marginTop: 12,
+          border: `1px solid ${SIMULATOR_UI.borderMuted}`,
+          background: 'rgba(59, 130, 246, 0.045)',
+          borderRadius: 14,
+          padding: '11px 12px',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {[
+          ['Escopo', selectedScopeLabel],
+          ['Período', formatMonthLabelBR(getMonthKeyFromDate(periodStart))],
+          ['Tipo', modeLabel],
+          ['Meta informada', formattedGoalValue],
+        ].map(([label, value]) => (
+          <div key={label} style={{ minWidth: 0 }}>
+            <div
+              style={{
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 10.5,
+                fontWeight: 800,
+                letterSpacing: 0.45,
+                lineHeight: 1.2,
+                textTransform: 'uppercase',
+              }}
+            >
+              {label}
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                color: SIMULATOR_UI.textSecondary,
+                fontSize: 12.5,
+                fontWeight: 850,
+                lineHeight: 1.25,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
 
-      {goalSuccess ? (
-        <div
-          style={{
-            marginTop: 12,
-            color: '#bbf7d0',
-            fontSize: 13,
-            fontWeight: 700,
-          }}
-        >
-          {goalSuccess}
-        </div>
-      ) : null}
-
-<details
+      <details
         style={{
           marginTop: 14,
           border: `1px solid ${SIMULATOR_UI.borderMuted}`,
@@ -2934,7 +3249,26 @@ function SimulatorTopControls({
               flexWrap: 'wrap',
             }}
           >
-            <div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9,
+                  display: 'grid',
+                  placeItems: 'center',
+                  flex: '0 0 auto',
+                  background: 'rgba(59, 130, 246, 0.10)',
+                  border: '1px solid rgba(59, 130, 246, 0.24)',
+                  color: '#93c5fd',
+                  fontSize: 12,
+                  fontWeight: 950,
+                }}
+              >
+                3
+              </div>
+
+              <div>
               <div
                 style={{
                   color: SIMULATOR_UI.textSecondary,
@@ -2943,7 +3277,7 @@ function SimulatorTopControls({
                   lineHeight: 1.2,
                 }}
               >
-                Ajustes avançados
+                Parâmetros do plano
               </div>
 
               <div
@@ -2954,7 +3288,8 @@ function SimulatorTopControls({
                   lineHeight: 1.35,
                 }}
               >
-                Ticket médio, taxa de conversão e calendário de execução.
+                Opcional. Ajuste somente se quiser refinar as projeções e o ritmo de execução.
+              </div>
               </div>
             </div>
 
@@ -2970,7 +3305,7 @@ function SimulatorTopControls({
                 whiteSpace: 'nowrap',
               }}
             >
-              Ajustar parâmetros
+              Opcional · Revisar
             </div>
           </div>
         </summary>
@@ -3025,7 +3360,7 @@ function SimulatorTopControls({
                 lineHeight: 1.35,
               }}
             >
-              Origem atual: {ticketSource === 'historico' ? 'histórico' : 'manual'}.
+              Origem atual: {ticketSource === 'historico' ? 'histórico' : 'manual'}. O ticket é salvo junto com a meta.
             </div>
           </div>
 
@@ -3094,7 +3429,8 @@ function SimulatorTopControls({
                 ? 'Carregando taxa real...'
                 : realRatePercent !== null
                   ? `Taxa real ${realRateScopeLabel} encontrada: ${realRatePercent}%.`
-                  : 'Sem taxa real suficiente para este escopo e período. A taxa planejada será usada como fallback.'}
+                  : 'Sem taxa real suficiente para este escopo e período. A taxa planejada será usada como fallback.'}{' '}
+              A alteração recalcula a simulação imediatamente.
             </div>
           </div>
 
@@ -3149,6 +3485,19 @@ function SimulatorTopControls({
               />
               Recalcular dias restantes automaticamente
             </label>
+
+            <div
+              style={{
+                marginTop: 7,
+                color: SIMULATOR_UI.textSubtle,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              {isAdmin
+                ? 'Alterações nos dias padrão são salvas automaticamente no calendário operacional.'
+                : 'Somente administradores podem alterar os dias padrão de execução.'}
+            </div>
           </div>
         </div>
       </details>
@@ -4925,6 +5274,7 @@ function handleUndoGoalFromTop() {
         }}
         revenueGoalContextLabel={revenueGoalContextLabel}
         revenueGoalInputText={revenueGoalInputText}
+        revenueGoalSavedValue={revenueGoalDb}
         setRevenueGoalInputText={setRevenueGoalInputText}
         goalLoading={goalLoading}
         goalSaving={goalSaving}
