@@ -1,0 +1,74 @@
+{
+  "corpus_version": "phase-5.2-shadow-regressions-v1",
+  "status": "active",
+  "purpose": "Preservar regressões reais em respostas curtas que dependem do contexto anterior.",
+  "cases": [
+    {
+      "id": "short_reply_viu",
+      "context": [
+        {
+          "id": "v1",
+          "direction": "outgoing",
+          "text": "Expliquei o funcionamento e pedi retorno sobre o ponto apresentado."
+        }
+      ],
+      "new_message": {
+        "id": "v2",
+        "direction": "incoming",
+        "text": "Viu"
+      },
+      "expected": {
+        "context_required": true,
+        "must_not_change_crm": true,
+        "must_not_change_agenda": true,
+        "must_not_invent_commitment": true,
+        "meaning": "acknowledgement_or_context_dependent_reply"
+      }
+    },
+    {
+      "id": "short_reply_pode_ser",
+      "context": [
+        {
+          "id": "p1",
+          "direction": "outgoing",
+          "text": "Quer que eu te mostre como isso funcionaria na prática no acompanhamento dos vendedores?"
+        }
+      ],
+      "new_message": {
+        "id": "p2",
+        "direction": "incoming",
+        "text": "Pode ser"
+      },
+      "expected": {
+        "context_required": true,
+        "must_not_change_crm": true,
+        "must_not_change_agenda": true,
+        "must_not_invent_commitment": true,
+        "meaning": "acceptance_to_continue_explanation"
+      }
+    },
+    {
+      "id": "short_reply_os_parados",
+      "context": [
+        {
+          "id": "o1",
+          "direction": "outgoing",
+          "text": "Entre leads parados e acompanhar o que cada vendedor está negociando, qual deles mais te atrapalha hoje?"
+        }
+      ],
+      "new_message": {
+        "id": "o2",
+        "direction": "incoming",
+        "text": "Os parados"
+      },
+      "expected": {
+        "context_required": true,
+        "must_not_change_crm": true,
+        "must_not_change_agenda": true,
+        "must_not_invent_commitment": true,
+        "must_not_ask_meaning_again": true,
+        "meaning": "leads_parados_are_current_priority"
+      }
+    }
+  ]
+}
