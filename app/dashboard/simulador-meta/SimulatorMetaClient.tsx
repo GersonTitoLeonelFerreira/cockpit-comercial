@@ -11,6 +11,7 @@ import {
     getRevenueGoal,
     upsertRevenueGoal,
     getHistoricalTicket,
+    getSalesCycleMetrics,
   } from '@/app/lib/services/simulator'
 import { getCloseRateReal, percentToRate } from '@/app/lib/services/simulatorRateReal'
 import type {
@@ -38,13 +39,14 @@ import {
 } from '@/app/lib/services/executionDayCalendar'
 import {
   countExecutionDaysInRange as countWorkDaysInRange,
-  countExecutionDaysUntilToday as countWorkDaysUntilToday,
   countRemainingExecutionDays,
+  getBusinessDateKey,
   getDefaultWorkDays as defaultWorkDays,
   isExecutionDay,
   type ExecutionDayOverrides,
   type WorkDays,
 } from '@/app/lib/services/executionDayMath'
+import { buildRevenuePacing } from '@/app/lib/services/revenuePacing'
 import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
 import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
 import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
@@ -167,14 +169,14 @@ function getYearFromMonthKey(monthKey: string) {
   const year = Number(yearText)
 
   if (!Number.isFinite(year)) {
-    return new Date().getFullYear()
+    return Number(getBusinessDateKey().slice(0, 4))
   }
 
   return year
 }
 
 function buildMonthKey(year: number, month: string) {
-  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear()
+  const safeYear = Number.isFinite(year) ? year : Number(getBusinessDateKey().slice(0, 4))
   const safeMonth = MONTH_OPTIONS.some((option) => option.value === month) ? month : '01'
 
   return `${safeYear}-${safeMonth}`
@@ -3590,8 +3592,8 @@ function ExecutionPlanPanel({
             title="Calendário operacional"
             value={
               remainingBusinessDays > 0
-                ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia útil' : 'dias úteis'}`
-                : 'Sem dias úteis'
+                ? `${remainingBusinessDays} ${remainingBusinessDays === 1 ? 'dia de execução' : 'dias de execução'}`
+                : 'Sem dias de execução'
             }
             subtitle="Base usada para calcular a pressão diária."
             tone={remainingBusinessDays > 0 ? 'neutral' : 'bad'}
@@ -3627,7 +3629,7 @@ function ExecutionPlanPanel({
     plan.meta_atingida
       ? 'A meta financeira já foi atingida. A decisão agora é proteger o resultado, evitar perda de oportunidades abertas e sustentar a cadência até o fim do período.'
       : remainingBusinessDays <= 0
-        ? 'Não há dias úteis restantes no calendário operacional. A decisão executiva é revisar o calendário, reprogramar prazo ou tratar a meta como exceção gerencial.'
+        ? 'Não há dias de execução restantes no calendário operacional. A decisão executiva é revisar o calendário, reprogramar prazo ou tratar a meta como exceção gerencial.'
         : dailyCycles >= 40
           ? 'O plano está sob pressão crítica. A decisão recomendada é aumentar base disponível, redistribuir carteira, reforçar capacidade de abordagem ou revisar a premissa de taxa/ticket.'
           : dailyCycles >= 20
@@ -3901,7 +3903,7 @@ function ExecutionPlanPanel({
                   lineHeight: 1.4,
                 }}
               >
-                oportunidades por dia útil restante
+                oportunidades por dia de execução restante
               </div>
             </div>
 
@@ -3973,7 +3975,7 @@ function ExecutionPlanPanel({
                   lineHeight: 1.4,
                 }}
               >
-                {remainingBusinessDays === 1 ? 'dia útil restante' : 'dias úteis restantes'}
+                {remainingBusinessDays === 1 ? 'dia de execução restante' : 'dias de execução restantes'}
               </div>
             </div>
           </div>
@@ -4012,113 +4014,6 @@ type ActiveCompanyMembership = {
     full_name: string | null
   }
   
-  type SalesCycleMetricRow = {
-    id: string
-    status: 'novo' | 'contato' | 'respondeu' | 'negociacao' | 'ganho' | 'perdido' | string
-    owner_user_id: string | null
-    created_at: string
-    updated_at: string
-    won_at: string | null
-    lost_at: string | null
-    first_worked_at: string | null
-  }
-  
-  function getStatusCounter(status: string) {
-    if (status === 'negociação') return 'negociacao'
-    return status
-  }
-  
-  async function getSalesCycleMetricsForCompany({
-    companyId,
-    ownerUserId,
-    month,
-    isAdmin,
-  }: {
-    companyId: string
-    ownerUserId: string | null
-    month: string
-    isAdmin: boolean
-  }): Promise<SimulatorMetrics> {
-    const supabase = supabaseBrowser()
-    const period = getMonthPeriod(getMonthKeyFromDate(month))
-  
-    let query = supabase
-      .from('sales_cycles')
-      .select('id, status, owner_user_id, created_at, updated_at, won_at, lost_at, first_worked_at')
-      .eq('company_id', companyId)
-  
-    if (ownerUserId) {
-      query = query.eq('owner_user_id', ownerUserId)
-    }
-  
-    const { data, error } = await query
-  
-    if (error) throw error
-  
-    const rows = (data ?? []) as SalesCycleMetricRow[]
-  
-    const counts = {
-      novo: 0,
-      contato: 0,
-      respondeu: 0,
-      negociacao: 0,
-      ganho: 0,
-      perdido: 0,
-    }
-  
-    let currentWins = 0
-    let workedCount = 0
-    let totalOpen = 0
-    let totalPool = 0
-  
-    const periodStart = new Date(`${period.start}T00:00:00`)
-    const periodEnd = new Date(`${period.end}T23:59:59`)
-  
-    for (const row of rows) {
-      const normalizedStatus = getStatusCounter(row.status)
-  
-      if (normalizedStatus in counts) {
-        counts[normalizedStatus as keyof typeof counts] += 1
-      }
-  
-      if (!row.owner_user_id) {
-        totalPool += 1
-      }
-  
-      if (!['ganho', 'perdido'].includes(normalizedStatus)) {
-        totalOpen += 1
-      }
-  
-      if (
-        row.first_worked_at ||
-        ['contato', 'respondeu', 'negociacao', 'ganho', 'perdido'].includes(normalizedStatus)
-      ) {
-        workedCount += 1
-      }
-  
-      if (normalizedStatus === 'ganho') {
-        const wonDate = row.won_at ? new Date(row.won_at) : null
-  
-        if (wonDate && wonDate >= periodStart && wonDate <= periodEnd) {
-          currentWins += 1
-        }
-      }
-    }
-  
-    return {
-      company_id: companyId,
-      month_start: period.start,
-      month_end: period.end,
-      owner_user_id: ownerUserId,
-      is_admin: isAdmin,
-      current_wins: currentWins,
-      worked_count: workedCount,
-      total_open: totalOpen,
-      total_pool: totalPool,
-      counts_by_status: counts,
-    }
-  }
-
 export default function SimulatorMetaClient({
     activeCompanyId,
   }: {
@@ -4312,11 +4207,10 @@ export default function SimulatorMetaClient({
             setSelectedSellerId(uid)
           }
 
-          const m = await getSalesCycleMetricsForCompany({
+          const m = await getSalesCycleMetrics({
             companyId: activeCompanyId,
             ownerUserId: isAdminUser ? null : uid,
             month: comp.month_start,
-            isAdmin: isAdminUser,
           })
         setMetrics(m)
 
@@ -4429,11 +4323,10 @@ export default function SimulatorMetaClient({
 
     async function refetch() {
       try {
-        const newMetrics = await getSalesCycleMetricsForCompany({
+        const newMetrics = await getSalesCycleMetrics({
           companyId: companyId!,
           ownerUserId: analysisOwnerId,
           month: periodStart,
-          isAdmin,
         })
 
         setMetrics(newMetrics)
@@ -4443,7 +4336,7 @@ export default function SimulatorMetaClient({
     }
 
     void refetch()
-  }, [periodStart, analysisOwnerId, companyId, isAdmin])
+  }, [periodStart, analysisOwnerId, companyId])
 
   // conversão por grupo
   useEffect(() => {
@@ -4892,51 +4785,26 @@ function handleUndoGoalFromTop() {
   )
 
   function buildRevenueKpis(totalReal: number, goal: number) {
-    const safeGoal = Math.max(0, Number(goal) || 0)
-
-    const calendarDays = buildExecutionCalendarDays(
-      revenueDates.start,
-      revenueDates.end,
+    const pacing = buildRevenuePacing({
+      totalReal,
+      goal,
+      periodStart: revenueDates.start,
+      periodEnd: revenueDates.end,
       workDays,
       executionDayOverrides,
-    )
-
-    const calendarSummary = getExecutionCalendarSummary(calendarDays)
-
-    const businessDaysTotal = calendarSummary.totalExecutionDays
-    const businessDaysElapsed = countWorkDaysUntilToday(
-      revenueDates.start,
-      revenueDates.end,
-      workDays,
-      executionDayOverrides,
-    )
-
-    const businessDaysRemaining = countRemainingExecutionDays(
-      revenueDates.end,
-      workDays,
-      executionDayOverrides,
-    )
-
-    const gap = Math.max(0, safeGoal - totalReal)
-    const requiredPerBD = businessDaysRemaining > 0 ? gap / businessDaysRemaining : gap
-
-    const avgDaily = businessDaysElapsed > 0 ? totalReal / businessDaysElapsed : 0
-    const projection = avgDaily * Math.max(1, businessDaysTotal)
-
-    const pacingRatio = safeGoal > 0 ? projection / safeGoal : 0
-    const status = getRevenueStatus(pacingRatio)
+    })
 
     return {
-      goal: safeGoal,
-      businessDaysTotal,
-      businessDaysElapsed,
-      businessDaysRemaining,
-      totalReal,
-      gap,
-      required_per_business_day: requiredPerBD,
-      projection,
-      pacingRatio,
-      status,
+      goal: pacing.goal,
+      businessDaysTotal: pacing.totalExecutionDays,
+      businessDaysElapsed: pacing.elapsedExecutionDays,
+      businessDaysRemaining: pacing.remainingExecutionDays,
+      totalReal: pacing.totalReal,
+      gap: pacing.gap,
+      required_per_business_day: pacing.requiredPerRemainingExecutionDay,
+      projection: pacing.projection,
+      pacingRatio: pacing.pacingRatio,
+      status: getRevenueStatus(pacing.pacingRatio),
     }
   }
 
@@ -5405,6 +5273,8 @@ function handleUndoGoalFromTop() {
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
                 endDate={revenueDates.end}
+                workDays={workDays}
+                executionDayOverrides={executionDayOverrides}
               />
             ) : null}
 
@@ -5415,6 +5285,8 @@ function handleUndoGoalFromTop() {
                 goal={activeGoalForKpis}
                 startDate={revenueDates.start}
                 endDate={revenueDates.end}
+                workDays={workDays}
+                executionDayOverrides={executionDayOverrides}
               />
             ) : null}
 

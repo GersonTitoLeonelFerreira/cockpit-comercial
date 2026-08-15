@@ -4,8 +4,9 @@
 // Fonte oficial:
 // - Ações comerciais: cycle_events classificados como activity
 // - Avanços: cycle_events classificados como stage_move
-// - Vendas e faturamento: sales_cycles com status ganho
-// - Data financeira: revenue_seller_ref_date -> won_at -> closed_at
+// - Vendas: sales_cycles com status ganho
+// - Faturamento: v_revenue_daily_seller + v_revenue_daily_extra
+// - Data financeira oficial: ref_date
 // - Perdas: sales_cycles.lost_at
 //
 // Não existe taxa de ganho.
@@ -14,6 +15,7 @@
 
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { classifyEvent } from '@/app/config/eventClassification'
+import { getOfficialRevenueDays } from '@/app/lib/services/reportingRevenue'
 import type {
   MonthWeekFilters,
   MonthWeekIndex,
@@ -74,7 +76,6 @@ type RawCycle = {
   owner_user_id: string | null
   won_owner_user_id: string | null
   lost_owner_user_id: string | null
-  won_total: number | string | null
   won_at: string | null
   closed_at: string | null
   lost_at: string | null
@@ -96,13 +97,8 @@ type WeekAccumulator = {
   ganhos: number
   perdidos: number
   faturamento: number
+  faturamento_vendas: number
   sample_months: Set<string>
-}
-
-function toNumber(value: number | string | null | undefined): number {
-  const parsed = Number(value ?? 0)
-
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function isDateKey(value: string | null | undefined): value is string {
@@ -231,11 +227,11 @@ async function fetchAllCycles(companyId: string): Promise<RawCycle[]> {
     const { data, error } = await supabase
       .from('sales_cycles')
       .select(
-        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_total, won_at, closed_at, lost_at, revenue_seller_ref_date',
+        'id, status, owner_user_id, won_owner_user_id, lost_owner_user_id, won_at, closed_at, lost_at, revenue_seller_ref_date',
       )
       .eq('company_id', companyId)
       .in('status', ['ganho', 'perdido'])
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (error) {
@@ -277,6 +273,7 @@ async function fetchAllEvents(
       .gte('occurred_at', `${dateStart}T00:00:00-03:00`)
       .lt('occurred_at', `${nextDay}T00:00:00-03:00`)
       .order('occurred_at', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
 
     if (ownerId) {
@@ -419,7 +416,7 @@ function buildLeituraResumida(
 export async function getMonthWeekPerformance(
   filters: MonthWeekFilters,
 ): Promise<MonthWeekPerformanceSummary> {
-  const [cycles, events] = await Promise.all([
+  const [cycles, events, revenueDays] = await Promise.all([
     fetchAllCycles(filters.companyId),
     fetchAllEvents(
       filters.companyId,
@@ -427,6 +424,12 @@ export async function getMonthWeekPerformance(
       filters.dateEnd,
       filters.ownerId,
     ),
+    getOfficialRevenueDays({
+      companyId: filters.companyId,
+      ownerId: filters.ownerId,
+      dateStart: filters.dateStart,
+      dateEnd: filters.dateEnd,
+    }),
   ])
 
   const accumulators: Record<MonthWeekIndex, WeekAccumulator> = {
@@ -436,6 +439,7 @@ export async function getMonthWeekPerformance(
       ganhos: 0,
       perdidos: 0,
       faturamento: 0,
+      faturamento_vendas: 0,
       sample_months: new Set<string>(),
     },
     2: {
@@ -444,6 +448,7 @@ export async function getMonthWeekPerformance(
       ganhos: 0,
       perdidos: 0,
       faturamento: 0,
+      faturamento_vendas: 0,
       sample_months: new Set<string>(),
     },
     3: {
@@ -452,6 +457,7 @@ export async function getMonthWeekPerformance(
       ganhos: 0,
       perdidos: 0,
       faturamento: 0,
+      faturamento_vendas: 0,
       sample_months: new Set<string>(),
     },
     4: {
@@ -460,6 +466,7 @@ export async function getMonthWeekPerformance(
       ganhos: 0,
       perdidos: 0,
       faturamento: 0,
+      faturamento_vendas: 0,
       sample_months: new Set<string>(),
     },
     5: {
@@ -468,6 +475,7 @@ export async function getMonthWeekPerformance(
       ganhos: 0,
       perdidos: 0,
       faturamento: 0,
+      faturamento_vendas: 0,
       sample_months: new Set<string>(),
     },
   }
@@ -514,7 +522,6 @@ export async function getMonthWeekPerformance(
         const accumulator = accumulators[week]
 
         accumulator.ganhos += 1
-        accumulator.faturamento += toNumber(cycle.won_total)
         accumulator.sample_months.add(saleDate.slice(0, 7))
       }
     }
@@ -537,6 +544,17 @@ export async function getMonthWeekPerformance(
     }
   }
 
+  for (const revenueDay of revenueDays) {
+    const week = getMonthWeek(revenueDay.date)
+    const accumulator = accumulators[week]
+
+    accumulator.faturamento += revenueDay.value
+    if (revenueDay.sourceKind === 'seller') {
+      accumulator.faturamento_vendas += revenueDay.value
+    }
+    accumulator.sample_months.add(revenueDay.date.slice(0, 7))
+  }
+
   const indexes: MonthWeekIndex[] = [1, 2, 3, 4, 5]
 
   const rows: MonthWeekPerformanceRow[] = indexes.map((week) => {
@@ -554,7 +572,7 @@ export async function getMonthWeekPerformance(
       faturamento: accumulator.faturamento,
       ticket_medio:
         accumulator.ganhos > 0
-          ? accumulator.faturamento / accumulator.ganhos
+          ? accumulator.faturamento_vendas / accumulator.ganhos
           : 0,
       meses_com_dados: accumulator.sample_months.size,
     }
@@ -598,9 +616,11 @@ export async function getMonthWeekPerformance(
       ? [...rowsComGanhos].sort((a, b) => b.ganhos - a.ganhos)[0]
       : null
 
+  const rowsComFaturamento = rows.filter((row) => row.faturamento > 0)
+
   const melhorSemanaFaturamento =
-    rowsComGanhos.length > 0
-      ? [...rowsComGanhos].sort(
+    rowsComFaturamento.length > 0
+      ? [...rowsComFaturamento].sort(
           (a, b) => b.faturamento - a.faturamento,
         )[0]
       : null

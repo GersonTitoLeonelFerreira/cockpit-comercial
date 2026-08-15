@@ -5,6 +5,7 @@ import ReportNavDropdown from '@/app/relatorios/components/ReportNavDropdown'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import { getSellers } from '@/app/lib/services/faturamento'
 import { getPeriodRadar } from '@/app/lib/services/periodRadar'
+import { getBusinessDateKey } from '@/app/lib/services/executionDayMath'
 import type {
   PeriodRadarSignal,
   PeriodRadarStatus,
@@ -100,15 +101,13 @@ function toDateInputValue(date: Date) {
 }
 
 function getHistoryStart() {
-  const now = new Date()
+  const today = getBusinessDateKey()
 
-  return toDateInputValue(
-    new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()),
-  )
+  return `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`
 }
 
 function getTodayDate() {
-  return toDateInputValue(new Date())
+  return getBusinessDateKey()
 }
 
 function getDirectionStyle(direction: SignalDirection) {

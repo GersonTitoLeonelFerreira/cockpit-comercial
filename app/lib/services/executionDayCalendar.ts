@@ -1,6 +1,7 @@
 import { supabaseBrowser } from '../supabaseBrowser'
 import {
-  getDefaultWorkDays,
+  normalizeExecutionDayOverrides,
+  normalizeWorkDays,
   type ExecutionDayOverrides,
   type WorkDays,
 } from './executionDayMath'
@@ -18,45 +19,6 @@ export type ExecutionDayCalendarRecord = {
   updated_by: string | null
   created_at: string
   updated_at: string
-}
-
-function normalizeWorkDays(value: unknown): WorkDays {
-  const fallback = getDefaultWorkDays()
-
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return fallback
-  }
-
-  const source = value as Record<string, unknown>
-  const normalized: WorkDays = { ...fallback }
-
-  for (const key of Object.keys(fallback)) {
-    const valueForDay = source[key]
-
-    if (typeof valueForDay === 'boolean') {
-      normalized[Number(key)] = valueForDay
-    }
-  }
-
-  return normalized
-}
-
-function normalizeExecutionDayOverrides(value: unknown): ExecutionDayOverrides {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
-  }
-
-  const normalized: ExecutionDayOverrides = {}
-
-  for (const [date, enabled] of Object.entries(value as Record<string, unknown>)) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
-
-    if (typeof enabled === 'boolean') {
-      normalized[date] = enabled
-    }
-  }
-
-  return normalized
 }
 
 export async function getExecutionDayCalendar(params: {
@@ -102,6 +64,50 @@ export async function getExecutionDayCalendar(params: {
     created_at: data.created_at,
     updated_at: data.updated_at,
   }
+}
+
+export async function getExecutionDayCalendarsForRange(params: {
+  companyId: string
+  dateStart: string
+  dateEnd: string
+}): Promise<ExecutionDayCalendarRecord[]> {
+  const supabase = supabaseBrowser()
+
+  const { data, error } = await supabase
+    .from('execution_day_calendars')
+    .select(
+      `
+        id,
+        company_id,
+        period_start,
+        period_end,
+        work_days,
+        execution_day_overrides,
+        created_by,
+        updated_by,
+        created_at,
+        updated_at
+      `,
+    )
+    .eq('company_id', params.companyId)
+    .lte('period_start', params.dateEnd)
+    .gte('period_end', params.dateStart)
+    .order('period_start', { ascending: false })
+
+  if (error) throw error
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    company_id: row.company_id,
+    period_start: row.period_start,
+    period_end: row.period_end,
+    work_days: normalizeWorkDays(row.work_days),
+    execution_day_overrides: normalizeExecutionDayOverrides(row.execution_day_overrides),
+    created_by: row.created_by,
+    updated_by: row.updated_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }))
 }
 
 export async function saveExecutionDayCalendar(params: {

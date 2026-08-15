@@ -26,6 +26,7 @@ export type WorklistItem = {
 
 type LeadQuickDrawerProps = {
   item: WorklistItem | null
+  companyId: string
   onClose: () => void
   supabase: any
   onSaved?: () => void
@@ -106,7 +107,7 @@ function getQuickDrawerPulse(item: WorklistItem | null) {
   return calculateCyclePulse(row)
 }
 
-export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: LeadQuickDrawerProps) {
+export default function LeadQuickDrawer({ item, companyId, onClose, supabase, onSaved }: LeadQuickDrawerProps) {
   const [nextAction, setNextAction] = useState('')
   const [nextActionDate, setNextActionDate] = useState('')
   const [saving, setSaving] = useState(false)
@@ -149,6 +150,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.id)
+        .eq('company_id', companyId)
 
       if (error) throw error
 
@@ -160,7 +162,7 @@ export default function LeadQuickDrawer({ item, onClose, supabase, onSaved }: Le
     } finally {
       setSaving(false)
     }
-  }, [item, nextAction, nextActionDate, supabase, onSaved])
+  }, [item, companyId, nextAction, nextActionDate, supabase, onSaved])
 
   const handleCopyPhone = useCallback(() => {
     if (item?.phone) {

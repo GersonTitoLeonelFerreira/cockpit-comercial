@@ -8,6 +8,10 @@ import {
   getRevenueSummary,
   getSalesCycleMetrics,
 } from '@/app/lib/services/simulator'
+import {
+  getOfficialRevenueDays,
+  type OfficialRevenueDay,
+} from '@/app/lib/services/reportingRevenue'
 import type {
   ActiveCompetency,
   GroupConversionRow,
@@ -67,6 +71,7 @@ type SalesCycle = {
   updated_at: string | null
   closed_at: string | null
   won_at: string | null
+  revenue_seller_ref_date: string | null
   lost_at: string | null
   won_owner_user_id: string | null
   lost_owner_user_id: string | null
@@ -113,6 +118,7 @@ type DashboardState = {
   poolOperationalTotal: number | null
   inProgressOperationalTotal: number | null
   operationalFunnelCounts: DashboardStatusCounts | null
+  sellerRevenueDays: OfficialRevenueDay[]
 }
 
 const STATUS_ORDER: Array<keyof DashboardStatusCounts> = [
@@ -247,7 +253,9 @@ function isLostCycle(cycle: SalesCycle) {
 }
 
 function getCyclePeriodDate(cycle: SalesCycle) {
-  if (isWonCycle(cycle)) return cycle.won_at
+  if (isWonCycle(cycle)) {
+    return cycle.revenue_seller_ref_date || cycle.won_at || cycle.closed_at
+  }
   if (isLostCycle(cycle)) return cycle.lost_at || cycle.closed_at
   return cycle.created_at
 }
@@ -498,6 +506,7 @@ export default function DashboardPage() {
     poolOperationalTotal: null,
     inProgressOperationalTotal: null,
     operationalFunnelCounts: null,
+    sellerRevenueDays: [],
   })
 
   const [loading, setLoading] = useState(true)
@@ -558,6 +567,7 @@ export default function DashboardPage() {
         poolOperationalTotal,
         inProgressOperationalTotal,
         operationalFunnelCounts,
+        sellerRevenueDays,
       ] = await Promise.all([
         getSalesCycleMetrics({
           companyId,
@@ -594,15 +604,19 @@ export default function DashboardPage() {
               return Number(json.total ?? 0)
             })
           : Promise.resolve(null),
-        supabase
-          .from('v_pipeline_items')
-          .select('id', { head: true, count: 'exact' })
-          .eq('company_id', companyId)
-          .not('owner_id', 'is', null)
-          .neq('status', 'ganho')
-          .neq('status', 'perdido')
-          .neq('status', 'cancelado')
-          .then(
+        (() => {
+          let query = supabase
+            .from('v_pipeline_items')
+            .select('id', { head: true, count: 'exact' })
+            .eq('company_id', companyId)
+            .not('owner_id', 'is', null)
+            .neq('status', 'ganho')
+            .neq('status', 'perdido')
+            .neq('status', 'cancelado')
+
+          if (ownerScope) query = query.eq('owner_id', ownerScope)
+
+          return query.then(
             (result: {
               count: number | null
               error: { message: string } | null
@@ -617,43 +631,62 @@ export default function DashboardPage() {
 
               return count ?? 0
             }
-          ),
-        supabase
-          .from('v_pipeline_items')
-          .select('status')
-          .eq('company_id', companyId)
-          .not('owner_id', 'is', null)
-          .then(
-            (result: {
-              data: Array<{ status: string | null }> | null
-              error: { message: string } | null
-            }) => {
-              const { data, error: funnelError } = result
+          )
+        })(),
+        (async () => {
+          const counts: DashboardStatusCounts = { ...EMPTY_STATUS_COUNTS }
 
-              if (funnelError) {
-                throw new Error(
-                  `Erro ao carregar funil dos vendedores: ${funnelError.message}`
-                )
-              }
+          for (let from = 0; ; from += 1000) {
+            let query = supabase
+              .from('v_pipeline_items')
+              .select('id, status')
+              .eq('company_id', companyId)
+              .not('owner_id', 'is', null)
+              .neq('status', 'ganho')
+              .neq('status', 'perdido')
+              .neq('status', 'cancelado')
+              .order('id', { ascending: true })
+              .range(from, from + 999)
 
-              const counts: DashboardStatusCounts = { ...EMPTY_STATUS_COUNTS }
+            if (ownerScope) query = query.eq('owner_id', ownerScope)
 
-              for (const row of data ?? []) {
-                const status = normalizeStatus(row.status)
+            const { data, error: funnelError } = await query
 
-                if (status in counts) {
-                  counts[status as keyof DashboardStatusCounts] += 1
-                }
-              }
-
-              return counts
+            if (funnelError) {
+              throw new Error(
+                `Erro ao carregar funil dos vendedores: ${funnelError.message}`,
+              )
             }
-          ),
+
+            for (const row of data ?? []) {
+              const status = normalizeStatus(row.status)
+
+              if (status in counts) {
+                counts[status as keyof DashboardStatusCounts] += 1
+              }
+            }
+
+            if ((data ?? []).length < 1000) break
+          }
+
+          return counts
+        })(),
+        getOfficialRevenueDays({
+          companyId,
+          ownerId: ownerScope,
+          dateStart: startDate,
+          dateEnd: endDate,
+          includeExtras: false,
+        }),
       ])
 
-      let operationalQuery = supabase
-        .from('v_pipeline_items')
-        .select(`
+      const operationalData: PipelineItemRow[] = []
+      let operationalError: { message: string } | null = null
+
+      for (let from = 0; ; from += 1000) {
+        let operationalQuery = supabase
+          .from('v_pipeline_items')
+          .select(`
           id,
           company_id,
           lead_id,
@@ -667,26 +700,37 @@ export default function DashboardPage() {
           next_action,
           next_action_date,
           created_at
-        `)
-        .eq('company_id', companyId)
-        .not('owner_id', 'is', null)
-        .neq('status', 'ganho')
-        .neq('status', 'perdido')
-        .neq('status', 'cancelado')
-        .order('stage_entered_at', { ascending: false })
-        .range(0, 999)
+          `)
+          .eq('company_id', companyId)
+          .not('owner_id', 'is', null)
+          .neq('status', 'ganho')
+          .neq('status', 'perdido')
+          .neq('status', 'cancelado')
+          .order('id', { ascending: true })
+          .range(from, from + 999)
 
-      if (!isAdmin) {
-        operationalQuery = operationalQuery.eq('owner_id', userId)
+        if (!isAdmin) {
+          operationalQuery = operationalQuery.eq('owner_id', userId)
+        }
+
+        const { data, error } = await operationalQuery
+
+        if (error) {
+          operationalError = error
+          break
+        }
+
+        const page = (data ?? []) as PipelineItemRow[]
+        operationalData.push(...page)
+
+        if (page.length < 1000) break
       }
-
-      const { data: operationalData, error: operationalError } = await operationalQuery
 
       if (operationalError) {
         setError(`Erro ao carregar oportunidades operacionais: ${operationalError.message}`)
       }
 
-      const operationalCycles: SalesCycle[] = ((operationalData || []) as PipelineItemRow[]).map((item) => ({
+      const operationalCycles: SalesCycle[] = operationalData.map((item) => ({
         id: item.id,
         company_id: item.company_id,
         lead_id: item.lead_id,
@@ -701,6 +745,7 @@ export default function DashboardPage() {
         updated_at: null,
         closed_at: null,
         won_at: null,
+        revenue_seller_ref_date: null,
         lost_at: null,
         won_owner_user_id: null,
         lost_owner_user_id: null,
@@ -716,9 +761,13 @@ export default function DashboardPage() {
         },
       }))
 
-      let closedQuery = supabase
-        .from('sales_cycles')
-        .select(`
+      const closedData: SalesCycle[] = []
+      let closedError: { message: string } | null = null
+
+      for (let from = 0; ; from += 1000) {
+        let closedQuery = supabase
+          .from('sales_cycles')
+          .select(`
           id,
           company_id,
           lead_id,
@@ -733,6 +782,7 @@ export default function DashboardPage() {
           updated_at,
           closed_at,
           won_at,
+          revenue_seller_ref_date,
           lost_at,
           won_owner_user_id,
           lost_owner_user_id,
@@ -740,35 +790,57 @@ export default function DashboardPage() {
           won_total,
           paused_at,
           canceled_at
-        `)
-        .eq('company_id', companyId)
-        .in('status', ['ganho', 'perdido'])
-        .gte('closed_at', startDate)
-        .lte('closed_at', `${endDate}T23:59:59.999Z`)
-        .order('closed_at', { ascending: false })
-        .range(0, 999)
+          `)
+          .eq('company_id', companyId)
+          .in('status', ['ganho', 'perdido'])
+          .order('id', { ascending: true })
+          .range(from, from + 999)
 
-      if (!isAdmin) {
-        closedQuery = closedQuery.or(`owner_user_id.eq.${userId},won_owner_user_id.eq.${userId},lost_owner_user_id.eq.${userId}`)
+        if (!isAdmin) {
+          closedQuery = closedQuery.or(
+            `owner_user_id.eq.${userId},won_owner_user_id.eq.${userId},lost_owner_user_id.eq.${userId}`,
+          )
+        }
+
+        const { data, error } = await closedQuery
+
+        if (error) {
+          closedError = error
+          break
+        }
+
+        const page = (data ?? []) as SalesCycle[]
+        closedData.push(...page)
+
+        if (page.length < 1000) break
       }
-
-      const { data: closedData, error: closedError } = await closedQuery
 
       if (closedError) {
         console.warn('Erro ao carregar ciclos fechados do Dashboard:', closedError.message)
       }
 
-      const closedCycles = (closedData || []) as SalesCycle[]
+      const closedCycles = closedData.filter((cycle) => {
+        if (!isCycleInsideCompetency(cycle, competency)) return false
+        if (isAdmin) return true
+
+        const terminalOwnerId = isWonCycle(cycle)
+          ? cycle.won_owner_user_id ?? cycle.owner_user_id
+          : cycle.lost_owner_user_id ?? cycle.owner_user_id
+
+        return terminalOwnerId === userId
+      })
       const cycles = [...operationalCycles, ...closedCycles]
 
       const ownerIds = Array.from(
         new Set(
-          cycles
-            .flatMap((cycle) => [
+          [
+            ...cycles.flatMap((cycle) => [
               cycle.owner_user_id,
               cycle.won_owner_user_id,
               cycle.lost_owner_user_id,
-            ])
+            ]),
+            ...sellerRevenueDays.map((day) => day.sourceId),
+          ]
             .filter(Boolean)
         )
       ) as string[]
@@ -801,6 +873,7 @@ export default function DashboardPage() {
         poolOperationalTotal,
         inProgressOperationalTotal,
         operationalFunnelCounts,
+        sellerRevenueDays,
       })
 
       setUpdatedAt(new Date().toISOString())
@@ -832,16 +905,20 @@ export default function DashboardPage() {
       state.operationalFunnelCounts ?? {
         ...EMPTY_STATUS_COUNTS,
       }
+    const coherentFunnelCounts: DashboardStatusCounts = {
+      ...operationalCounts,
+      ganho: periodCounts.ganho,
+      perdido: periodCounts.perdido,
+    }
 
       const worked = metrics?.worked_count ?? periodCycles.length
       const wins = metrics?.current_wins ?? periodCounts.ganho
       const losses = periodCounts.perdido
       const revenue = Number(state.revenueSummary?.total_real || 0)
   
-      const wonCycles = periodCycles.filter(isWonCycle)
-      const productSalesRevenue = wonCycles.reduce(
-        (total, cycle) => total + Number(cycle.won_total || 0),
-        0
+      const officialSellerRevenue = state.sellerRevenueDays.reduce(
+        (total, day) => total + (day.sourceKind === 'seller' ? day.value : 0),
+        0,
       )
   
       const totalInProgress =
@@ -855,11 +932,10 @@ export default function DashboardPage() {
   
       const conversion = worked > 0 ? (wins / worked) * 100 : 0
       const closingRate = wins + losses > 0 ? (wins / (wins + losses)) * 100 : 0
-      const averageTicket =
-        wonCycles.length > 0 ? productSalesRevenue / wonCycles.length : 0
+      const averageTicket = wins > 0 ? officialSellerRevenue / wins : 0
 
     return {
-      counts: operationalCounts,
+      counts: coherentFunnelCounts,
       periodCounts,
       worked,
       wins,
@@ -877,6 +953,7 @@ export default function DashboardPage() {
     state.operationalFunnelCounts,
     state.poolOperationalTotal,
     state.revenueSummary,
+    state.sellerRevenueDays,
     state.simulatorMetrics,
   ])
 
@@ -994,12 +1071,28 @@ export default function DashboardPage() {
 
       if (isWonCycle(cycle) && isCycleInsideCompetency(cycle, state.competency)) {
         current.wins += 1
-        current.revenue += Number(cycle.won_total || 0)
       }
 
       if (isLostCycle(cycle) && isCycleInsideCompetency(cycle, state.competency)) {
         current.losses += 1
       }
+    }
+
+    for (const revenueDay of state.sellerRevenueDays) {
+      if (revenueDay.sourceKind !== 'seller' || !revenueDay.sourceId) continue
+
+      if (!map.has(revenueDay.sourceId)) {
+        map.set(revenueDay.sourceId, {
+          ownerId: revenueDay.sourceId,
+          label: getOwnerLabel(revenueDay.sourceId, state.owners),
+          worked: 0,
+          wins: 0,
+          losses: 0,
+          revenue: 0,
+        })
+      }
+
+      map.get(revenueDay.sourceId)!.revenue += revenueDay.value
     }
 
     return Array.from(map.values())
@@ -1010,7 +1103,7 @@ export default function DashboardPage() {
         return b.worked - a.worked
       })
       .slice(0, 8)
-  }, [state.cycles, state.competency, state.owners])
+  }, [state.cycles, state.competency, state.owners, state.sellerRevenueDays])
 
   const lostReasons = useMemo(() => {
     const map = new Map<string, number>()
@@ -1364,7 +1457,7 @@ export default function DashboardPage() {
                       <th style={{ padding: '0 0 10px' }}>Trab.</th>
                       <th style={{ padding: '0 0 10px' }}>Ganhos</th>
                       <th style={{ padding: '0 0 10px' }}>Perdidos</th>
-                      <th style={{ padding: '0 0 10px' }}>Won Total</th>
+                      <th style={{ padding: '0 0 10px' }}>Faturamento oficial</th>
                     </tr>
                   </thead>
 

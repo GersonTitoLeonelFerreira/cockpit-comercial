@@ -166,19 +166,32 @@ export async function getRevenueDailySellers(
   companyId: string,
   sellerId?: string,
 ) {
-  let query = supabase
-    .from('v_revenue_daily_seller')
-    .select('*')
-    .eq('company_id', companyId)
+  const rows: RevenueDailySeller[] = []
 
-  if (sellerId) {
-    query = query.eq('seller_id', sellerId)
+  for (let from = 0; ; from += 1000) {
+    let query = supabase
+      .from('v_revenue_daily_seller')
+      .select('*')
+      .eq('company_id', companyId)
+
+    if (sellerId) {
+      query = query.eq('seller_id', sellerId)
+    }
+
+    const { data, error } = await query
+      .order('ref_date', { ascending: false })
+      .order('seller_id', { ascending: true })
+      .range(from, from + 999)
+
+    if (error) throw error
+
+    const page = (data ?? []) as RevenueDailySeller[]
+    rows.push(...page)
+
+    if (page.length < 1000) break
   }
 
-  const { data, error } = await query.order('ref_date', { ascending: false })
-
-  if (error) throw error
-  return (data ?? []) as RevenueDailySeller[]
+  return rows
 }
 
 /**
@@ -190,19 +203,32 @@ export async function getRevenueDailyExtras(
   companyId: string,
   extraId?: string,
 ) {
-  let query = supabase
-    .from('v_revenue_daily_extra')
-    .select('*')
-    .eq('company_id', companyId)
+  const rows: RevenueDailyExtra[] = []
 
-  if (extraId) {
-    query = query.eq('extra_id', extraId)
+  for (let from = 0; ; from += 1000) {
+    let query = supabase
+      .from('v_revenue_daily_extra')
+      .select('*')
+      .eq('company_id', companyId)
+
+    if (extraId) {
+      query = query.eq('extra_id', extraId)
+    }
+
+    const { data, error } = await query
+      .order('ref_date', { ascending: false })
+      .order('extra_id', { ascending: true })
+      .range(from, from + 999)
+
+    if (error) throw error
+
+    const page = (data ?? []) as RevenueDailyExtra[]
+    rows.push(...page)
+
+    if (page.length < 1000) break
   }
 
-  const { data, error } = await query.order('ref_date', { ascending: false })
-
-  if (error) throw error
-  return (data ?? []) as RevenueDailyExtra[]
+  return rows
 }
 
 /**

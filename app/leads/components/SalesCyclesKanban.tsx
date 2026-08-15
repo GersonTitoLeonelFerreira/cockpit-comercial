@@ -3473,6 +3473,7 @@ export default function SalesCyclesKanban({
       {viewMode === 'funil' ? (
         <SellerMicroKPIs
           scope={selectedScope}
+          companyId={companyId}
           ownerUserId={
             selectedScope === 'mine'
               ? userId
@@ -3664,6 +3665,7 @@ export default function SalesCyclesKanban({
 
       <LeadQuickDrawer
         item={quickDrawerItem}
+        companyId={companyId}
         onClose={() => setQuickDrawerItem(null)}
         supabase={supabase}
         onSaved={() => {

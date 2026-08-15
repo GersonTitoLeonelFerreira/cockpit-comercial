@@ -6,12 +6,8 @@ import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
 import { getExecutionDayCalendar } from '@/app/lib/services/executionDayCalendar'
-import {
-  countExecutionDaysInRange,
-  countExecutionDaysUntilToday,
-  countRemainingExecutionDays,
-  getDefaultWorkDays,
-} from '@/app/lib/services/executionDayMath'
+import { getDefaultWorkDays } from '@/app/lib/services/executionDayMath'
+import { buildRevenuePacing } from '@/app/lib/services/revenuePacing'
 import {
   CompactMetaSummaryHeader,
   buildMetaSummaryKpis,
@@ -171,16 +167,18 @@ export default function LeadsClient({
         const workDays = executionCalendar?.work_days ?? getDefaultWorkDays()
         const overrides = executionCalendar?.execution_day_overrides ?? {}
 
-        const bdTotal = countExecutionDaysInRange(start, end, workDays, overrides)
-        const bdElapsed = countExecutionDaysUntilToday(start, end, workDays, overrides)
-        const bdRemaining = countRemainingExecutionDays(end, workDays, overrides)
-
-        const avgDaily = bdElapsed > 0 ? totalReal / bdElapsed : 0
-        const projection = avgDaily * Math.max(1, bdTotal)
+        const pacing = buildRevenuePacing({
+          totalReal,
+          goal: 0,
+          periodStart: start,
+          periodEnd: end,
+          workDays,
+          executionDayOverrides: overrides,
+        })
 
         setRevenueTotalReal(totalReal)
-        setRevenueProjection(projection)
-        setRevenueBDRemaining(bdRemaining)
+        setRevenueProjection(pacing.projection)
+        setRevenueBDRemaining(pacing.remainingExecutionDays)
       } catch (e: unknown) {
         setRevenueError(getErrorMessage(e, 'Erro ao carregar faturamento do período.'))
         setRevenueTotalReal(0)

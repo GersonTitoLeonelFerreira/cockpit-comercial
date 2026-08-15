@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import React, { useCallback, useEffect, useState } from 'react'
+import { getBusinessDateKey, shiftDateKey } from '@/app/lib/services/executionDayMath'
 
 type MicroKPIs = {
   worked_today: number
@@ -24,8 +25,11 @@ export type AlertChip = {
 
 type KanbanScope = 'mine' | 'seller' | 'company'
 
+const EVENT_PAGE_SIZE = 1000
+
 type SellerMicroKPIsProps = {
   scope: KanbanScope
+  companyId: string
   ownerUserId: string | null
   groupId?: string | null
   supabase: any
@@ -51,6 +55,7 @@ const DS = {
 
 export default function SellerMicroKPIs({
   scope,
+  companyId,
   ownerUserId,
   supabase,
   refreshKey,
@@ -72,21 +77,67 @@ export default function SellerMicroKPIs({
     setLoading(true)
 
     try {
-      const { data, error } = await supabase.rpc('rpc_seller_micro_kpis', {
-        p_owner_user_id: ownerUserId,
-        p_days: 7,
+      const periodDays = 7
+      const todayKey = getBusinessDateKey()
+      const periodStartKey = shiftDateKey(todayKey, -(periodDays - 1))
+      const todayStart = new Date(`${todayKey}T00:00:00-03:00`).toISOString()
+      const todayEnd = new Date(`${todayKey}T23:59:59.999-03:00`).toISOString()
+      const periodStart = new Date(`${periodStartKey}T00:00:00-03:00`).toISOString()
+
+      const rows: Array<{
+        id: string
+        cycle_id: string | null
+        event_type: string
+        occurred_at: string
+      }> = []
+      let from = 0
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('cycle_events')
+          .select('id, cycle_id, event_type, occurred_at')
+          .eq('company_id', companyId)
+          .eq('created_by', ownerUserId)
+          .gte('occurred_at', periodStart)
+          .lte('occurred_at', todayEnd)
+          .order('occurred_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + EVENT_PAGE_SIZE - 1)
+
+        if (error) throw error
+
+        const page = (data ?? []) as typeof rows
+        rows.push(...page)
+
+        if (page.length < EVENT_PAGE_SIZE) break
+        from += EVENT_PAGE_SIZE
+      }
+      const movedTypes = new Set(['stage_checkpoint', 'stage_changed', 'stage_moved'])
+      const workedPeriod = new Set(rows.map((row) => row.cycle_id).filter(Boolean)).size
+      const advancedPeriod = new Set(
+        rows.filter((row) => movedTypes.has(row.event_type)).map((row) => row.cycle_id).filter(Boolean),
+      ).size
+      const todayRows = rows.filter(
+        (row) => row.occurred_at >= todayStart && row.occurred_at <= todayEnd,
+      )
+
+      setKpis({
+        worked_today: new Set(todayRows.map((row) => row.cycle_id).filter(Boolean)).size,
+        overdue_count: 0,
+        scheduled_today: 0,
+        stage_moves_today: todayRows.filter((row) => movedTypes.has(row.event_type)).length,
+        worked_period: workedPeriod,
+        won_period: advancedPeriod,
+        advance_rate: workedPeriod > 0 ? Number(((advancedPeriod / workedPeriod) * 100).toFixed(1)) : 0,
+        period_days: periodDays,
       })
-
-      if (error) throw error
-
-      setKpis(data as MicroKPIs)
     } catch (e: any) {
       console.error('SellerMicroKPIs error:', e)
       setKpis(null)
     } finally {
       setLoading(false)
     }
-  }, [scope, ownerUserId, supabase])
+  }, [scope, companyId, ownerUserId, supabase])
 
   useEffect(() => {
     void load()
@@ -102,10 +153,10 @@ export default function SellerMicroKPIs({
         { label: 'Trabalhados', value: kpis.worked_today ?? 0, title: 'Ciclos com atividade hoje' },
         { label: 'Movidos', value: kpis.stage_moves_today ?? 0, title: 'Movimentos de etapa hoje' },
         {
-          label: `Conversão ${periodDays}d`,
+          label: `Avanço ${periodDays}d`,
           value: hasConv ? `${kpis!.advance_rate}%` : '—',
           accent: conversionAccent,
-          title: `${kpis.won_period ?? 0} de ${kpis.worked_period ?? 0} leads convertidos nos últimos ${periodDays} dias`,
+          title: `${kpis.won_period ?? 0} de ${kpis.worked_period ?? 0} oportunidades tiveram avanço nos últimos ${periodDays} dias`,
         },
       ]
     : []
