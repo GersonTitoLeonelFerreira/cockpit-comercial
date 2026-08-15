@@ -1789,10 +1789,15 @@
   }
 
   function getCaptureConversationKey() {
+    const canonicalPhone =
+      state.leadResolution?.phone ||
+      state.leadResolution?.lead?.phone ||
+      state.conversationPhone
+
     return messageMutationTools
       .buildStableCaptureConversationKey({
         phone:
-          state.conversationPhone,
+          canonicalPhone,
         title:
           state.conversationTitle,
       })
