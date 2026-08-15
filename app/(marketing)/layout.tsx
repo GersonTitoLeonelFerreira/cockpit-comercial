@@ -8,7 +8,7 @@ import {
 
 export const metadata: Metadata = {
   title: {
-    default: 'Yolen | Inteligência e execução comercial',
+    default: 'Inteligência e execução comercial',
     template: '%s | Yolen',
   },
   description:
