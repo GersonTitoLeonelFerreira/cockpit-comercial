@@ -3522,9 +3522,24 @@
   }
 
   function scheduleAutomaticAnalysis(message) {
+    const scheduledKey =
+      getAutomaticAnalysisKey()
+
+    if (
+      automaticAnalysisTimerId &&
+      scheduledKey &&
+      automaticAnalysisScheduledKey ===
+        scheduledKey
+    ) {
+      return
+    }
+
     clearAutomaticAnalysisTimer()
 
-    if (!canScheduleAutomaticAnalysis()) {
+    if (
+      !scheduledKey ||
+      !canScheduleAutomaticAnalysis()
+    ) {
       if (
         state.automaticAnalysisStatus &&
         !state.conversationAnalysisLoading
@@ -3537,13 +3552,6 @@
         renderPanel()
       }
 
-      return
-    }
-
-    const scheduledKey =
-      getAutomaticAnalysisKey()
-
-    if (!scheduledKey) {
       return
     }
 
@@ -7408,7 +7416,9 @@
         } else {
           scheduleCaptureIngestion()
 
-          handleConversationActivityForAutomaticAnalysis()
+          scheduleAutomaticAnalysis(
+            'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
+          )
         }
       }, 600)
     })

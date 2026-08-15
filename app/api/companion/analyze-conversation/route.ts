@@ -6,6 +6,9 @@ import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copil
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
 import { resolveCompanionEngineVersion } from '@/app/lib/companion/engine-version'
 import {
+  resolveStatefulCopilotActivationGate,
+} from '@/app/lib/companion/stateful-copilot-activation-gate'
+import {
   createStatefulCopilotServerRuntimeOrchestrator,
 } from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
 import {
@@ -311,6 +314,50 @@ function getAudioCount(value: unknown) {
   }
 
   return 0
+}
+
+function getStatefulActivationAudit(
+  companyId: string,
+) {
+  try {
+    const activation =
+      resolveStatefulCopilotActivationGate({
+        company_id:
+          companyId,
+      })
+
+    return {
+      mode:
+        activation.mode,
+      reason:
+        activation.reason,
+      engine_version:
+        activation.engine_version,
+      enabled:
+        activation.enabled,
+      should_execute_stateful:
+        activation
+          .should_execute_stateful,
+      should_persist_stateful_state:
+        activation
+          .should_persist_stateful_state,
+    }
+  } catch {
+    return {
+      mode:
+        'invalid',
+      reason:
+        'activation_gate_error',
+      engine_version:
+        null,
+      enabled:
+        false,
+      should_execute_stateful:
+        false,
+      should_persist_stateful_state:
+        false,
+    }
+  }
 }
 
 function getCompanionRecordFromDecision(value: unknown) {
@@ -947,6 +994,7 @@ function buildYolenDecision({
   latestDecision,
   messageSnapshotHash,
   forceReanalysis,
+  companyId,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
@@ -961,6 +1009,7 @@ function buildYolenDecision({
   latestDecision: JsonRecord | null
   messageSnapshotHash: string | null
   forceReanalysis: boolean
+  companyId: string
 }) {
   const messageCursor =
     buildNextMessageCursor({
@@ -1027,6 +1076,10 @@ function buildYolenDecision({
         messageSnapshotHash,
       force_reanalysis:
         forceReanalysis,
+      stateful_activation:
+        getStatefulActivationAudit(
+          companyId,
+        ),
       saved_without_applying: true,
     },
   }
@@ -1801,6 +1854,8 @@ export async function POST(request: Request) {
             ?.yolenDecision ?? null,
         messageSnapshotHash,
         forceReanalysis,
+        companyId:
+          tokenPayload.company_id,
       })
 
     const savedCoaching = await saveCompanionCoachingNote({
