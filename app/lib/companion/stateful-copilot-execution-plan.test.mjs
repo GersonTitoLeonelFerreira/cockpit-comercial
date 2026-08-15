@@ -1114,7 +1114,7 @@ test(
 
 
 test(
-  'prompt 5.2 prioriza sessao atual e impede memoria antiga de dominar o momento',
+  'prompt 5.2 v3 prioriza sessao atual e usa ponte anterior sem ressuscitar memoria',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1131,12 +1131,17 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v2',
+      'phase-5.2-stateful-prompt-v3',
     )
 
     assert.match(
       plan.request.system_prompt,
-      /sessão temporal atual selecionada pela Yolen/,
+      /podem incluir uma ponte curta com até seis mensagens/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Mensagens dessa ponte anterior existem apenas para resolver referência e continuidade/,
     )
 
     assert.match(

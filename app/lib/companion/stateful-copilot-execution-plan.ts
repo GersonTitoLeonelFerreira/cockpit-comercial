@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v2' as const
+  'phase-5.2-stateful-prompt-v3' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -493,7 +493,9 @@ function buildSystemPrompt(): string {
 
     'Princípio central: uma mensagem nova não substitui automaticamente o contexto anterior, e o contexto anterior não pode apagar o que mudou agora.',
 
-    'As mensagens em diagnostic_input.conversation representam somente a sessão temporal atual selecionada pela Yolen, e não o histórico bruto completo.',
+    'As mensagens em diagnostic_input.conversation representam a sessão temporal atual e podem incluir uma ponte curta com até seis mensagens imediatamente anteriores ao último intervalo superior a quatro horas.',
+
+    'Mensagens dessa ponte anterior existem apenas para resolver referência e continuidade. Use occurred_at e observed_at para distingui-las e nunca trate conteúdo anterior ao intervalo como mudança ocorrida agora.',
 
     'Trate previous_state como memória histórica. Nunca use memória anterior para substituir, reescrever ou dominar o que a sessão temporal atual demonstra.',
 

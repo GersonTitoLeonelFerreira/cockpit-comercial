@@ -28,7 +28,7 @@ function buildMessage({
 }
 
 test(
-  'bootstrap usa somente a sessao mais recente apos intervalo superior a quatro horas',
+  'bootstrap preserva a sessao atual e inclui uma ponte curta do contexto anterior',
   () => {
     const selected =
       selectStatefulDiagnosticMessages([
@@ -39,7 +39,42 @@ test(
 
     assert.deepEqual(
       selected.map(message => message.id),
-      ['2', '3'],
+      ['1', '2', '3'],
+    )
+  },
+)
+
+test(
+  'ponte de contexto anterior fica limitada a seis mensagens',
+  () => {
+    const oldSession = Array.from(
+      { length: 10 },
+      (_, index) =>
+        buildMessage({
+          id: index + 1,
+          occurred_at: new Date(
+            Date.parse('2026-08-05T08:00:00.000Z') +
+              index * 60_000,
+          ).toISOString(),
+        }),
+    )
+
+    const selected =
+      selectStatefulDiagnosticMessages([
+        ...oldSession,
+        buildMessage({
+          id: 11,
+          occurred_at: '2026-08-05T18:00:00.000Z',
+        }),
+        buildMessage({
+          id: 12,
+          occcurred_at: '2026-08-05T18:05:00.000Z',
+        }),
+      ])
+
+    assert.deepEqual(
+      selected.map(message => message.id),
+      ['5', '6', '7', '8', '9', '10', '11', '12'],
     )
   },
 )

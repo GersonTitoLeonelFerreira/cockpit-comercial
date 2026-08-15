@@ -35,6 +35,9 @@ const STATEFUL_DIAGNOSTIC_SESSION_GAP_MS =
 const STATEFUL_DIAGNOSTIC_MAX_MESSAGES =
   80
 
+const STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES =
+  6
+
 const COMPANY_FIELDS = `
   id,
   name,
@@ -1432,11 +1435,14 @@ export function selectStatefulDiagnosticMessages(
         )
       })
 
-  const selected:
+  const currentSession:
     NormalizedLedgerMessage[] = []
 
   let newerActivityTimestamp:
     number | null = null
+
+  let bridgeEndIndex =
+    -1
 
   for (
     let index =
@@ -1453,10 +1459,12 @@ export function selectStatefulDiagnosticMessages(
         current.activity_timestamp >
         STATEFUL_DIAGNOSTIC_SESSION_GAP_MS
     ) {
+      bridgeEndIndex =
+        index
       break
     }
 
-    selected.push(
+    currentSession.push(
       current.message,
     )
 
@@ -1464,16 +1472,51 @@ export function selectStatefulDiagnosticMessages(
       current.activity_timestamp
 
     if (
-      selected.length >=
+      currentSession.length >=
       STATEFUL_DIAGNOSTIC_MAX_MESSAGES
     ) {
       break
     }
   }
 
+  const remainingCapacity =
+    Math.max(
+      0,
+      STATEFUL_DIAGNOSTIC_MAX_MESSAGES -
+        currentSession.length,
+    )
+
+  const bridgeCount =
+    Math.min(
+      STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES,
+      remainingCapacity,
+    )
+
+  const bridgeMessages =
+    bridgeEndIndex >= 0 &&
+    bridgeCount > 0
+      ? orderedByActivity
+          .slice(
+            Math.max(
+              0,
+              bridgeEndIndex -
+                bridgeCount +
+                1,
+            ),
+            bridgeEndIndex + 1,
+          )
+          .map(
+            item =>
+              item.message,
+          )
+      : []
+
   const selectedIds =
     new Set(
-      selected.map(
+      [
+        ...bridgeMessages,
+        ...currentSession,
+      ].map(
         message =>
           message.id,
       ),
