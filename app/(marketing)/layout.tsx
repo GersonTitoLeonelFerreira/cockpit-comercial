@@ -8,11 +8,11 @@ import {
 
 export const metadata: Metadata = {
   title: {
-    default: 'Yolen | Execução comercial com previsibilidade',
+    default: 'Yolen | Inteligência e execução comercial',
     template: '%s | Yolen',
   },
   description:
-    'O Yolen organiza prioridades, follow-up, operação e meta para equipes comerciais que precisam executar com método e previsibilidade.',
+    'A Yolen conecta inteligência artificial, execução, metas, faturamento e gestão para orientar cada venda e melhorar decisões comerciais.',
 }
 
 export default function MarketingLayout({ children }: { children: ReactNode }) {

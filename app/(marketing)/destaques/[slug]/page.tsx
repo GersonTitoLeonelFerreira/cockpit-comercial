@@ -72,8 +72,8 @@ export default async function DestaqueArticlePage({ params }: Props) {
         ))}
 
         <div className={styles.articleCta}>
-          <strong>Quer ver essa lógica aplicada à sua operação?</strong>
-          <p>A demonstração do Yolen parte do processo e do gargalo comercial da sua empresa.</p>
+          <strong>Quer ver a Yolen aplicada à sua operação?</strong>
+          <p>A demonstração conecta seu desafio ao Copiloto, ao plano de meta e à inteligência gerencial.</p>
           <Link href="/cadastro">Solicitar demonstração</Link>
         </div>
       </article>

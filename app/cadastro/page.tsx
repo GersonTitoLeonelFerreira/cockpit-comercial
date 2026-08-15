@@ -9,8 +9,8 @@ import {
 } from '../components/marketing/MarketingChrome'
 import {
   IconArrowRight,
+  IconBrain,
   IconCircleCheck,
-  IconClipboard,
   IconTarget,
 } from '../components/icons/UiIcons'
 import styles from './cadastro.module.css'
@@ -115,30 +115,30 @@ export default function CadastroLeadPage() {
       <main className={styles.main}>
         <div className={styles.layout}>
           <section className={styles.pitch}>
-            <div className={styles.eyebrow}>Demonstração orientada ao seu cenário</div>
-            <h1>Não mostramos apenas telas. Mostramos onde sua operação pode avançar.</h1>
+            <div className={styles.eyebrow}>Demonstração aplicada à sua operação</div>
+            <h1>Veja a Yolen trabalhando sobre o desafio real da sua equipe.</h1>
             <p>
-              Responda duas perguntas sobre o comercial e deixe um contato. A apresentação do Yolen será conduzida
-              pelo problema que mais compromete seu resultado hoje.
+              Conte qual resultado precisa destravar. A demonstração conecta seu cenário à inteligência do
+              Copiloto, ao plano de meta e à visão gerencial da plataforma.
             </p>
 
             <div className={styles.valueList}>
               <div>
                 <span className={styles.valueIcon}>
-                  <IconTarget size={20} />
+                  <IconBrain size={20} />
                 </span>
                 <div>
-                  <strong>Diagnóstico antes da demonstração</strong>
-                  <p>O encontro começa pelo seu gargalo, não por uma sequência genérica de funcionalidades.</p>
+                  <strong>Inteligência aplicada à sua venda</strong>
+                  <p>Veja como o Copiloto interpreta oportunidades e ajuda o vendedor a preparar a próxima abordagem.</p>
                 </div>
               </div>
               <div>
                 <span className={styles.valueIcon}>
-                  <IconClipboard size={20} />
+                  <IconTarget size={20} />
                 </span>
                 <div>
-                  <strong>Aplicação ao processo real</strong>
-                  <p>Funil, prioridades, gestão e meta são apresentados dentro do contexto da sua equipe.</p>
+                  <strong>Meta transformada em plano</strong>
+                  <p>Entenda como objetivo, realizado, gap e capacidade viram ritmo e decisão durante o período.</p>
                 </div>
               </div>
               <div>
@@ -146,8 +146,8 @@ export default function CadastroLeadPage() {
                   <IconCircleCheck size={20} />
                 </span>
                 <div>
-                  <strong>Próximo passo objetivo</strong>
-                  <p>Você entende onde o Yolen gera valor e o que seria necessário para avançar.</p>
+                  <strong>Resultado transformado em direção</strong>
+                  <p>Faturamento e relatórios mostram onde a gestão pode atuar para melhorar o desempenho comercial.</p>
                 </div>
               </div>
             </div>
@@ -164,7 +164,7 @@ export default function CadastroLeadPage() {
                   <IconCircleCheck size={30} />
                 </span>
                 <div className={styles.formKicker}>Solicitação concluída</div>
-                <h2 id="demo-form-title">Seu contexto já está com a Yolen.</h2>
+                <h2 id="demo-form-title">Sua demonstração já começa com contexto.</h2>
                 <p>{doneMessage}</p>
                 <Link href="/" className={styles.secondaryButton}>
                   Voltar à página inicial
@@ -176,7 +176,9 @@ export default function CadastroLeadPage() {
                   <div>
                     <div className={styles.formKicker}>Solicitar demonstração</div>
                     <h2 id="demo-form-title">
-                      {step === 1 ? 'Vamos entender sua operação.' : 'Agora, como falamos com você?'}
+                      {step === 1
+                        ? 'Qual resultado sua operação precisa destravar?'
+                        : 'Como podemos continuar esta conversa?'}
                     </h2>
                   </div>
                   <span>Etapa {step} de 2</span>
@@ -211,12 +213,12 @@ export default function CadastroLeadPage() {
                       <span>Qual é o principal gargalo comercial? *</span>
                       <select value={mainBottleneck} onChange={(event) => setMainBottleneck(event.target.value)}>
                         <option value="">Selecione</option>
-                        <option value="Falta de follow-up">Falta de follow-up</option>
+                        <option value="Vendedores sem orientação">Vendedores sem orientação</option>
+                        <option value="Meta sem plano de execução">Meta sem plano de execução</option>
+                        <option value="Gestão sem visão do resultado">Gestão sem visão do resultado</option>
                         <option value="Baixa conversão">Baixa conversão</option>
-                        <option value="Falta de gestão do funil">Falta de gestão do funil</option>
-                        <option value="Time sem padrão">Time sem padrão</option>
-                        <option value="Falta de previsibilidade">Falta de previsibilidade</option>
-                        <option value="Leads parados">Leads parados</option>
+                        <option value="Oportunidades sem próxima ação">Oportunidades sem próxima ação</option>
+                        <option value="Faturamento sem acompanhamento">Faturamento sem acompanhamento</option>
                       </select>
                     </label>
 
@@ -330,7 +332,7 @@ export default function CadastroLeadPage() {
                           <textarea
                             value={message}
                             onChange={(event) => setMessage(event.target.value)}
-                            placeholder="Conte rapidamente onde os leads travam ou o que mais compromete a conversão."
+                            placeholder="Conte o que sua equipe precisa melhorar ou qual decisão comercial precisa de mais clareza."
                           />
                         </label>
                       </div>

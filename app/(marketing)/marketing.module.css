@@ -373,6 +373,76 @@
   background: rgba(37, 99, 235, 0.1);
 }
 
+.featureHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.statusBadge {
+  min-height: 27px;
+  padding: 0 9px;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.08);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.statusBadgeEvolution {
+  border-color: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.showcaseGrid {
+  margin-top: 48px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.showcaseCard {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 26px;
+  background: rgba(10, 13, 19, 0.76);
+}
+
+.showcaseCopy {
+  padding: 24px 18px 20px;
+}
+
+.showcaseCopy > span {
+  color: #60a5fa;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.showcaseCopy h3 {
+  margin: 10px 0 0;
+  color: #edf2f7;
+  font-size: 20px;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+}
+
+.showcaseCopy p {
+  margin: 10px 0 0;
+  color: #7f90a5;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .pillarGrid,
 .audienceGrid,
 .securityGrid {
@@ -655,6 +725,16 @@
     grid-template-columns: 1fr;
   }
 
+  .showcaseGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .showcaseCard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 0.62fr);
+    align-items: center;
+  }
+
   .stepList {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -710,6 +790,10 @@
 
   .roleGrid {
     grid-template-columns: 1fr;
+  }
+
+  .showcaseCard {
+    display: block;
   }
 
   .ctaPanel {

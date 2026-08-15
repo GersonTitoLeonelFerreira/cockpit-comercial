@@ -26,7 +26,7 @@ export function PublicHeader({ compact = false }: { compact?: boolean }) {
             priority
             className={styles.brandLogo}
           />
-          {!compact ? <span className={styles.brandDescriptor}>Execução comercial</span> : null}
+          {!compact ? <span className={styles.brandDescriptor}>Inteligência e execução comercial</span> : null}
         </Link>
 
         <nav className={styles.desktopNav} aria-label="Navegação principal">
@@ -77,15 +77,15 @@ export function PublicFooter() {
             height={32}
             className={styles.footerLogo}
           />
-          <p>Execução comercial com prioridade, método e previsibilidade.</p>
+          <p>Inteligência comercial para orientar vendas, executar metas e liderar com evidência.</p>
         </div>
 
         <div className={styles.footerLinks}>
           <div>
             <strong>Produto</strong>
-            <Link href="/como-funciona">Como funciona</Link>
+            <Link href="/como-funciona">Plataforma</Link>
             <Link href="/cadastro">Demonstração</Link>
-            <Link href="/login">Acessar o Yolen</Link>
+            <Link href="/login">Acessar a Yolen</Link>
           </div>
           <div>
             <strong>Conteúdo</strong>
@@ -94,17 +94,17 @@ export function PublicFooter() {
             <Link href="/destaques?categoria=produto">Novidades do produto</Link>
           </div>
           <div>
-            <strong>Confiança</strong>
-            <Link href="/seguranca">Segurança e dados</Link>
+            <strong>Segurança</strong>
+            <Link href="/seguranca">Acesso e dados</Link>
             <span>Ambiente autenticado</span>
-            <span>Acesso por empresa</span>
+            <span>Contexto separado por empresa</span>
           </div>
         </div>
       </div>
 
       <div className={styles.footerBottom}>
         <span>© {new Date().getFullYear()} Yolen.</span>
-        <span>Construído para operações comerciais que querem executar melhor.</span>
+        <span>Construído para ampliar a capacidade de vendedores, gestores e operações comerciais.</span>
       </div>
     </footer>
   )

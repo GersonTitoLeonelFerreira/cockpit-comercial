@@ -12,7 +12,7 @@ import styles from './destaques.module.css'
 export const metadata: Metadata = {
   title: 'Destaques',
   description:
-    'Conteúdos sobre gestão comercial, Método Yolen e novidades do produto para equipes que querem executar melhor.',
+    'Conteúdos sobre inteligência comercial, gestão, Método Yolen e evolução da plataforma.',
 }
 
 type Props = {
@@ -35,11 +35,11 @@ export default async function DestaquesPage({ searchParams }: Props) {
     <main className={styles.main}>
       <section className={styles.hero}>
         <div className={styles.container}>
-          <div className={styles.eyebrow}>Conteúdo para execução comercial</div>
-          <h1 className={styles.title}>Ideias que ajudam a equipe a vender com mais método.</h1>
+          <div className={styles.eyebrow}>Inteligência para vender e liderar</div>
+          <h1 className={styles.title}>Conteúdo que transforma análise em decisão comercial.</h1>
           <p className={styles.subtitle}>
-            Análises de mercado, práticas de gestão e novidades do Yolen — sem conteúdo genérico criado apenas para
-            preencher calendário.
+            Leituras de mercado, práticas de gestão, Método Yolen e novidades da plataforma para ampliar a
+            capacidade de vendedores e gestores.
           </p>
 
           <nav className={styles.filters} aria-label="Categorias dos destaques">

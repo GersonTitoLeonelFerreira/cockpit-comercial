@@ -103,37 +103,38 @@ export const HIGHLIGHT_ARTICLES: HighlightArticle[] = [
     ],
   },
   {
-    slug: 'prioridades-do-cockpit-yolen',
+    slug: 'copiloto-comercial-contexto-proxima-abordagem',
     category: 'produto',
     categoryLabel: 'Produto e novidades',
-    title: 'Por que o Yolen mostra o que exige atenção antes da carteira inteira',
+    title: 'Copiloto Comercial: inteligência que trabalha dentro da oportunidade',
     summary:
-      'A visão de Prioridades complementa o Kanban e ajuda a equipe a começar pelo risco operacional, sem perder a liberdade de movimentar o funil.',
+      'Como a Yolen transforma o contexto de uma conversa em sinais, coaching e uma próxima abordagem que o vendedor pode revisar.',
     publishedAt: '2026-08-10',
     readingTime: '4 min de leitura',
     sections: [
       {
-        title: 'O Kanban continua sendo o centro',
+        title: 'Uma conversa contém mais sinais do que parece',
         paragraphs: [
-          'A visão de Prioridades não substitui o funil. O Kanban continua sendo a representação completa da carteira e mantém a movimentação dos leads entre etapas.',
-          'A nova leitura funciona como uma camada de foco: ela reduz o esforço de procurar manualmente quais cards precisam de ação imediata.',
+          'Interesse, dúvida, objeção, urgência, necessidade de outro decisor e compromisso aparecem ao longo da interação. Na rotina, parte desse contexto pode se perder entre mensagens, anotações e memória.',
+          'O Copiloto Comercial organiza essa leitura dentro da oportunidade para ajudar o vendedor a entender o momento da venda antes de decidir o próximo movimento.',
         ],
       },
       {
-        title: 'Três sinais operacionais',
+        title: 'Da análise à próxima abordagem',
         paragraphs: [
-          'O radar destaca compromissos atrasados, ações previstas para hoje e oportunidades sem próximo movimento definido.',
+          'A inteligência identifica sinais, interesses, riscos e pontos de melhoria. A partir deles, pode sugerir estágio, próxima ação, mensagem e uma abordagem mais adequada ao contexto do cliente.',
         ],
         bullets: [
-          'Atrasados: algo combinado não aconteceu no prazo.',
-          'Para hoje: existe uma execução prevista para o dia.',
-          'Sem próxima ação: a oportunidade ficou sem direção operacional.',
+          'Resumo comercial do que aconteceu na interação.',
+          'Objeções e riscos que exigem atenção.',
+          'Pontos bem conduzidos e oportunidades de coaching.',
+          'Próximo movimento sugerido para a oportunidade.',
         ],
       },
       {
-        title: 'Menos ruído, mesma profundidade',
+        title: 'Inteligência ao lado do vendedor',
         paragraphs: [
-          'O objetivo é fazer a equipe agir mais rápido sem esconder o restante da operação. O usuário pode alternar entre foco e visão completa conforme a decisão que precisa tomar.',
+          'A orientação não retira a autonomia comercial. O vendedor revisa o conteúdo e decide o que será aplicado. O objetivo é ampliar sua capacidade de interpretar e conduzir cada venda com mais contexto.',
         ],
       },
     ],

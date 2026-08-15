@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Yolen | Execução comercial com previsibilidade',
+    default: 'Yolen | Inteligência e execução comercial',
     template: '%s | Yolen',
   },
   description:
-    'Sistema operacional comercial para organizar prioridades, follow-up, gestão e meta em uma única rotina.',
+    'Plataforma de inteligência e execução comercial com Copiloto, metas, faturamento e gestão conectados à rotina de vendas.',
 }
 
 export default function RootLayout({

@@ -1,59 +1,40 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import {
   IconAlertTriangle,
   IconArrowRight,
   IconBrain,
   IconCalendar,
-  IconCircleCheck,
-  IconClipboard,
-  IconTarget,
   IconUser,
   IconZap,
 } from '../components/icons/UiIcons'
+import {
+  CopilotStoryVisual,
+  GoalStoryVisual,
+  IntelligenceHeroVisual,
+  ManagementStoryVisual,
+} from '../components/marketing/ProductStoryVisuals'
 import styles from './marketing.module.css'
 
 const OUTCOMES = [
   {
-    title: 'Prioridade clara todos os dias',
-    description: 'O time sabe quais oportunidades exigem ação agora — e por quê.',
+    title: 'Orientação para cada oportunidade',
+    description: 'A inteligência interpreta o contexto e ajuda o vendedor a escolher a melhor próxima abordagem.',
   },
   {
-    title: 'Gestão antes do atraso virar perda',
-    description: 'SLA, agenda e gargalos ficam visíveis para uma intervenção mais rápida.',
+    title: 'Meta convertida em ação diária',
+    description: 'O objetivo financeiro se transforma em ritmo, volume necessário e decisões para o período.',
   },
   {
-    title: 'Meta conectada à execução',
-    description: 'O resultado esperado deixa de ser um número isolado e orienta a rotina comercial.',
-  },
-]
-
-const PILLARS = [
-  {
-    icon: <IconTarget size={22} />,
-    title: 'Priorize o que move o resultado',
-    description:
-      'Atrasos, compromissos e oportunidades sem próxima ação ganham visibilidade operacional.',
-  },
-  {
-    icon: <IconZap size={22} />,
-    title: 'Transforme processo em ritmo',
-    description:
-      'O funil organiza o trabalho, enquanto agenda, SLA e método mantêm a equipe em movimento.',
-  },
-  {
-    icon: <IconBrain size={22} />,
-    title: 'Decida com contexto',
-    description:
-      'Gestores acompanham avanço, perdas, execução e meta sem montar a história em várias planilhas.',
+    title: 'Gestão com visão do resultado',
+    description: 'Execução, faturamento e indicadores mostram ao gestor onde agir enquanto ainda há tempo.',
   },
 ]
 
 const STEPS = [
-  ['Entrada organizada', 'Leads chegam ao lugar certo, com responsável, grupo e contexto preservados.'],
-  ['Prioridade operacional', 'O Yolen evidencia o que está atrasado, parado ou precisa de decisão.'],
-  ['Execução orientada', 'Próxima ação, agenda e método comercial guiam o trabalho do vendedor.'],
-  ['Gestão previsível', 'O gestor acompanha ritmo, funil e meta para agir antes do fechamento do período.'],
+  ['Contexto reunido', 'Oportunidade, histórico, conversa, método e produto formam uma visão comercial única.'],
+  ['Inteligência aplicada', 'O Copiloto identifica sinais, riscos, objeções e caminhos possíveis para a venda.'],
+  ['Vendedor no comando', 'A pessoa revisa a orientação, decide a abordagem e confirma qualquer atualização.'],
+  ['Gestão conectada', 'Meta, faturamento e relatórios transformam a execução do time em decisão gerencial.'],
 ]
 
 export default function MarketingHomePage() {
@@ -64,61 +45,41 @@ export default function MarketingHomePage() {
           <div className={styles.heroCopy}>
             <div className={styles.eyebrow}>
               <span className={styles.eyebrowDot} />
-              Sistema operacional comercial
+              Inteligência e execução comercial
             </div>
 
             <h1 className={styles.heroTitle}>
-              Menos lead esquecido. <span className={styles.gradientText}>Mais execução.</span>
+              Cada venda acompanhada. <span className={styles.gradientText}>Cada decisão melhor orientada.</span>
             </h1>
 
             <p className={styles.heroText}>
-              O Yolen transforma pipeline, follow-up e meta em uma rotina comercial clara — para o time agir
-              melhor e o gestor decidir antes.
+              A Yolen conecta inteligência artificial, método, metas, faturamento e gestão para trabalhar ao lado
+              do vendedor em cada oportunidade — e dar ao gestor clareza para agir antes do resultado.
             </p>
 
             <div className={styles.actions}>
               <Link href="/cadastro" className={styles.primaryButton}>
-                Solicitar demonstração <IconArrowRight size={18} />
+                Ver a Yolen em ação <IconArrowRight size={18} />
               </Link>
               <Link href="/como-funciona" className={styles.secondaryButton}>
-                Entender como funciona
+                Conhecer a plataforma
               </Link>
             </div>
 
-            <div className={styles.heroProof} aria-label="Diferenciais do Yolen">
-              <span>Implantação orientada</span>
-              <span>Operação por empresa</span>
-              <span>Sem promessa genérica</span>
+            <div className={styles.heroProof} aria-label="Princípios da Yolen">
+              <span>IA com contexto comercial</span>
+              <span>Decisão final sempre humana</span>
+              <span>Gestão do lead ao faturamento</span>
             </div>
           </div>
 
           <div className={styles.productVisual}>
             <div className={styles.visualGlow} />
-            <div className={styles.visualFrame}>
-              <div className={styles.visualTopbar}>
-                <i />
-                <i />
-                <i />
-                <span>Cockpit comercial</span>
-              </div>
-              <Image
-                src="/branding/login-kanban.png"
-                alt="Fluxo visual do Yolen conectando a operação comercial à previsibilidade"
-                width={1672}
-                height={941}
-                className={styles.visualImage}
-                priority
-                sizes="(max-width: 1020px) 100vw, 54vw"
-              />
-              <div className={styles.visualSignal}>
-                <strong>Operação com próximo passo</strong>
-                <span>Prioridade visível para vendedor e gestor</span>
-              </div>
-            </div>
+            <IntelligenceHeroVisual />
           </div>
         </section>
 
-        <section className={styles.outcomeStrip} aria-label="Resultados operacionais">
+        <section className={styles.outcomeStrip} aria-label="Resultados que a Yolen conecta">
           {OUTCOMES.map((outcome) => (
             <div key={outcome.title} className={styles.outcomeItem}>
               <strong>{outcome.title}</strong>
@@ -131,41 +92,46 @@ export default function MarketingHomePage() {
       <section className={`${styles.section} ${styles.sectionMuted}`}>
         <div className={styles.container}>
           <div className={styles.sectionHeader}>
-            <div className={styles.sectionLabel}>Uma categoria diferente</div>
-            <h2 className={styles.sectionTitle}>Seu CRM registra. O Yolen organiza a execução.</h2>
+            <div className={styles.sectionLabel}>Inteligência aplicada à venda</div>
+            <h2 className={styles.sectionTitle}>Não é IA falando sobre vendas. É IA trabalhando dentro delas.</h2>
             <p className={styles.sectionText}>
-              Registrar dados é necessário, mas não resolve sozinho o problema comercial. A Yolen foi desenhada
-              para transformar informação em prioridade, rotina e decisão gerencial.
+              A inteligência da Yolen usa o contexto da oportunidade para apoiar a condução comercial. Ela não
+              substitui o vendedor: amplia sua capacidade de entender, decidir e agir.
             </p>
           </div>
 
           <div className={styles.contrastGrid}>
-            <article className={styles.contrastCard}>
-              <div className={styles.iconBox}>
-                <IconClipboard size={22} />
+            <article className={`${styles.contrastCard} ${styles.contrastCardFeatured}`}>
+              <div className={styles.featureHeading}>
+                <div className={styles.iconBox}><IconBrain size={22} /></div>
+                <span className={styles.statusBadge}>Disponível</span>
               </div>
-              <h3>Quando o sistema apenas registra</h3>
-              <p>O time alimenta dados, mas ainda depende de memória, cobrança e planilhas paralelas.</p>
+              <h3>Copiloto Comercial</h3>
+              <p>
+                Analisa conversas e resumos de atendimento para transformar sinais dispersos em uma orientação
+                comercial que o vendedor consegue revisar e usar.
+              </p>
               <ul className={styles.contrastList}>
-                <li>Leads ficam parados sem sinalização clara.</li>
-                <li>A próxima ação depende da disciplina individual.</li>
-                <li>O gestor descobre o problema depois do resultado.</li>
+                <li>Identifica interesses, objeções, riscos e pontos fortes da abordagem.</li>
+                <li>Sugere próxima ação, estágio, mensagem e melhor caminho para retomar.</li>
+                <li>Gera coaching comercial e preserva a decisão final com o vendedor.</li>
               </ul>
             </article>
 
-            <article className={`${styles.contrastCard} ${styles.contrastCardFeatured}`}>
-              <div className={styles.iconBox}>
-                <IconCircleCheck size={22} />
+            <article className={styles.contrastCard}>
+              <div className={styles.featureHeading}>
+                <div className={styles.iconBox}><IconZap size={22} /></div>
+                <span className={`${styles.statusBadge} ${styles.statusBadgeEvolution}`}>Em evolução</span>
               </div>
-              <h3>Quando a operação trabalha com orientação</h3>
+              <h3>Yolen Companion</h3>
               <p>
-                O funil continua visual e movimentável, mas passa a mostrar onde agir, o que está atrasado e como a
-                execução conversa com a meta.
+                É a evolução que aproxima a inteligência do ambiente onde a conversa acontece. O Companion está
+                sendo desenvolvido para acompanhar o contexto comercial no WhatsApp Web e reduzir trabalho manual.
               </p>
               <ul className={styles.contrastList}>
-                <li>Prioridades do dia aparecem antes da lista inteira.</li>
-                <li>Agenda, SLA e método comercial operam no mesmo fluxo.</li>
-                <li>Gestão acompanha ritmo e intervém enquanto ainda há tempo.</li>
+                <li>Captura estruturada do histórico relevante da conversa.</li>
+                <li>Continuidade do contexto entre atendimentos e análises.</li>
+                <li>Orientação cada vez mais próxima do momento real da venda.</li>
               </ul>
             </article>
           </div>
@@ -175,18 +141,41 @@ export default function MarketingHomePage() {
       <section className={styles.section}>
         <div className={styles.container}>
           <div className={styles.sectionHeader}>
-            <div className={styles.sectionLabel}>O que muda na prática</div>
-            <h2 className={styles.sectionTitle}>Três capacidades. Uma operação mais madura.</h2>
+            <div className={styles.sectionLabel}>Uma plataforma conectada</div>
+            <h2 className={styles.sectionTitle}>A orientação não termina na conversa. Ela chega ao resultado.</h2>
+            <p className={styles.sectionText}>
+              A Yolen une três níveis que normalmente ficam separados: a venda que está acontecendo, o plano que
+              precisa ser executado e a leitura que permite ao gestor corrigir a rota.
+            </p>
           </div>
 
-          <div className={styles.pillarGrid}>
-            {PILLARS.map((pillar) => (
-              <article key={pillar.title} className={styles.pillarCard}>
-                <div className={styles.iconBox}>{pillar.icon}</div>
-                <h3>{pillar.title}</h3>
-                <p>{pillar.description}</p>
-              </article>
-            ))}
+          <div className={styles.showcaseGrid}>
+            <article className={styles.showcaseCard}>
+              <CopilotStoryVisual />
+              <div className={styles.showcaseCopy}>
+                <span>Para conduzir melhor</span>
+                <h3>Copiloto que lê a oportunidade com o vendedor</h3>
+                <p>Menos improviso na abordagem e mais clareza sobre o que o cliente demonstrou, o que falta descobrir e como avançar.</p>
+              </div>
+            </article>
+
+            <article className={styles.showcaseCard}>
+              <GoalStoryVisual />
+              <div className={styles.showcaseCopy}>
+                <span>Para transformar objetivo em execução</span>
+                <h3>Simulador de Meta que mostra o esforço necessário</h3>
+                <p>Meta, realizado, gap, ticket, conversão e calendário viram um plano diário com leitura de risco e decisão recomendada.</p>
+              </div>
+            </article>
+
+            <article className={styles.showcaseCard}>
+              <ManagementStoryVisual />
+              <div className={styles.showcaseCopy}>
+                <span>Para decidir com evidência</span>
+                <h3>Faturamento e relatórios que revelam o que move o resultado</h3>
+                <p>Acompanhe vendas por produto, vendedor e período e investigue gargalos, perdas, canais, cadência, desempenho e aderência.</p>
+              </div>
+            </article>
           </div>
         </div>
       </section>
@@ -194,10 +183,11 @@ export default function MarketingHomePage() {
       <section className={`${styles.section} ${styles.sectionMuted}`}>
         <div className={styles.container}>
           <div className={styles.sectionHeader}>
-            <div className={styles.sectionLabel}>Da entrada à decisão</div>
-            <h2 className={styles.sectionTitle}>Um fluxo que conecta vendedor, gerente e meta.</h2>
+            <div className={styles.sectionLabel}>Como a Yolen trabalha</div>
+            <h2 className={styles.sectionTitle}>Uma jornada contínua entre cliente, vendedor e gestão.</h2>
             <p className={styles.sectionText}>
-              A experiência foi desenhada para reduzir improviso sem engessar a operação.
+              Cada interação fortalece a leitura da oportunidade. Cada execução atualiza a visão do gestor. Cada
+              resultado ajuda a empresa a decidir o próximo movimento comercial.
             </p>
           </div>
 
@@ -213,7 +203,7 @@ export default function MarketingHomePage() {
 
           <div className={styles.actions}>
             <Link href="/como-funciona" className={styles.secondaryButton}>
-              Ver o funcionamento completo <IconArrowRight size={17} />
+              Explorar todas as capacidades <IconArrowRight size={17} />
             </Link>
           </div>
         </div>
@@ -222,31 +212,25 @@ export default function MarketingHomePage() {
       <section className={styles.section}>
         <div className={styles.container}>
           <div className={styles.sectionHeader}>
-            <div className={styles.sectionLabel}>Para quem faz sentido</div>
-            <h2 className={styles.sectionTitle}>Feito para operações que precisam ganhar consistência.</h2>
+            <div className={styles.sectionLabel}>Valor para toda a operação</div>
+            <h2 className={styles.sectionTitle}>Mais capacidade para quem vende. Mais poder de decisão para quem lidera.</h2>
           </div>
 
           <div className={styles.audienceGrid}>
             <article className={styles.audienceCard}>
-              <div className={styles.iconBox}>
-                <IconUser size={22} />
-              </div>
-              <h3>Gerentes comerciais</h3>
-              <p>Que precisam enxergar atrasos, ritmo e gargalos sem microgerenciar cada vendedor.</p>
+              <div className={styles.iconBox}><IconUser size={22} /></div>
+              <h3>Vendedores mais bem orientados</h3>
+              <p>Recebem apoio para interpretar a conversa, preparar a próxima abordagem e manter cada oportunidade em movimento.</p>
             </article>
             <article className={styles.audienceCard}>
-              <div className={styles.iconBox}>
-                <IconCalendar size={22} />
-              </div>
-              <h3>Equipes com alto volume de follow-up</h3>
-              <p>Que trabalham com WhatsApp, agenda e múltiplas prioridades ao longo do dia.</p>
+              <div className={styles.iconBox}><IconCalendar size={22} /></div>
+              <h3>Gerentes presentes sem microgerenciar</h3>
+              <p>Enxergam risco, ritmo, desempenho e oportunidades de coaching para atuar no ponto que realmente precisa de liderança.</p>
             </article>
             <article className={styles.audienceCard}>
-              <div className={styles.iconBox}>
-                <IconAlertTriangle size={22} />
-              </div>
-              <h3>Operações presas em planilhas</h3>
-              <p>Que já perceberam que controle manual não escala com pessoas, unidades e metas.</p>
+              <div className={styles.iconBox}><IconAlertTriangle size={22} /></div>
+              <h3>Empresas com mais previsibilidade</h3>
+              <p>Conectam processo, pessoas, produtos, faturamento e meta em uma operação capaz de aprender com o próprio resultado.</p>
             </article>
           </div>
         </div>
@@ -256,10 +240,10 @@ export default function MarketingHomePage() {
         <div className={styles.container}>
           <div className={styles.ctaPanel}>
             <div>
-              <h2>A demonstração começa pelo seu gargalo, não por um roteiro genérico.</h2>
+              <h2>Veja a Yolen trabalhando sobre o desafio real da sua operação.</h2>
               <p>
-                Conte como sua operação funciona hoje. A apresentação do Yolen será direcionada ao problema que
-                mais compromete sua execução comercial.
+                A demonstração conecta seu cenário às capacidades da plataforma: orientação com IA, plano de meta,
+                faturamento, gestão e inteligência sobre o que está acontecendo nas vendas.
               </p>
             </div>
             <Link href="/cadastro" className={styles.primaryButton}>

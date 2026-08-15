@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 export const metadata: Metadata = {
   title: 'Solicitar demonstração',
   description:
-    'Conte seu cenário comercial e receba uma demonstração do Yolen orientada ao gargalo da sua operação.',
+    'Veja a Yolen aplicada ao seu desafio comercial, com inteligência, meta, faturamento e gestão conectados à sua operação.',
 }
 
 export default function CadastroLayout({ children }: { children: ReactNode }) {

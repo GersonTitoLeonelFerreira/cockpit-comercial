@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 export const metadata: Metadata = {
   title: 'Entrar',
-  description: 'Acesse sua operação comercial no Yolen.',
+  description: 'Acesse a inteligência e a operação comercial da sua empresa na Yolen.',
 }
 
 export default function LoginLayout({ children }: { children: ReactNode }) {
