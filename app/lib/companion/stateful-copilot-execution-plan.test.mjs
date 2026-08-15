@@ -1131,7 +1131,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v3',
+      'phase-5.2-stateful-prompt-v4',
     )
 
     assert.match(
@@ -1152,6 +1152,87 @@ test(
     assert.match(
       plan.request.system_prompt,
       /current_moment e strategy precisam usar pelo menos uma evidence_message_ids/,
+    )
+  },
+)
+
+test(
+  'ponte anterior fica visivel ao modelo mas nao pode virar evidencia do momento atual',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[0]
+      .occurred_at =
+        '2026-08-05T10:00:00-03:00'
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[0]
+      .observed_at =
+        '2026-08-05T10:00:01-03:00'
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[1]
+      .occurred_at =
+        '2026-08-05T22:15:00-03:00'
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[1]
+      .observed_at =
+        '2026-08-05T22:15:01-03:00'
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    assert.deepEqual(
+      payload
+        .required_analyzed_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    assert.deepEqual(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .active_message_ids,
+      [
+        'm2',
+        'm3',
+      ],
     )
   },
 )

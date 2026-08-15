@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v3' as const
+  'phase-5.2-stateful-prompt-v4' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -37,6 +37,9 @@ const ANALYSIS_PRECONDITION_STATUSES = [
 
 type AnalysisPreconditionStatus =
   (typeof ANALYSIS_PRECONDITION_STATUSES)[number]
+
+const CURRENT_SESSION_GAP_MS =
+  4 * 60 * 60 * 1000
 
 export type StatefulCopilotModelRequest = {
   prompt_version:
@@ -413,17 +416,109 @@ function ensureInputInvariants(
   }
 }
 
+function selectCurrentSessionMessageIds(
+  input: StatefulCopilotInput,
+): string[] {
+  const orderedByActivity =
+    input
+      .diagnostic_input
+      .conversation
+      .messages
+      .map((message) => ({
+        id:
+          message.id,
+
+        activity_timestamp:
+          Math.max(
+            Date.parse(
+              message.occurred_at,
+            ),
+            Date.parse(
+              message.observed_at,
+            ),
+          ),
+      }))
+      .sort((left, right) => {
+        if (
+          left.activity_timestamp !==
+          right.activity_timestamp
+        ) {
+          return (
+            left.activity_timestamp -
+            right.activity_timestamp
+          )
+        }
+
+        return left.id.localeCompare(
+          right.id,
+          'en',
+          {
+            numeric: true,
+          },
+        )
+      })
+
+  if (orderedByActivity.length === 0) {
+    return []
+  }
+
+  const currentSessionIds: string[] = []
+
+  let newerActivityTimestamp:
+    number | null = null
+
+  for (
+    let index =
+      orderedByActivity.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const current =
+      orderedByActivity[index]
+
+    if (
+      newerActivityTimestamp !== null &&
+      newerActivityTimestamp -
+        current.activity_timestamp >
+        CURRENT_SESSION_GAP_MS
+    ) {
+      break
+    }
+
+    currentSessionIds.push(
+      current.id,
+    )
+
+    newerActivityTimestamp =
+      current.activity_timestamp
+  }
+
+  const selected =
+    new Set(
+      currentSessionIds,
+    )
+
+  return input
+    .diagnostic_input
+    .conversation
+    .active_message_ids
+    .filter(
+      messageId =>
+        selected.has(
+          messageId,
+        ),
+    )
+}
+
 function buildNormalizationContext(
   input: StatefulCopilotInput,
   memoryContext: MemoryContext,
 ): StatefulCopilotNormalizationContext {
   return {
-    available_message_ids: [
-      ...input
-        .diagnostic_input
-        .conversation
-        .active_message_ids,
-    ],
+    available_message_ids:
+      selectCurrentSessionMessageIds(
+        input,
+      ),
 
     available_memory_ids: [
       ...memoryContext
@@ -496,6 +591,8 @@ function buildSystemPrompt(): string {
     'As mensagens em diagnostic_input.conversation representam a sessão temporal atual e podem incluir uma ponte curta com até seis mensagens imediatamente anteriores ao último intervalo superior a quatro horas.',
 
     'Mensagens dessa ponte anterior existem apenas para resolver referência e continuidade. Use occurred_at e observed_at para distingui-las e nunca trate conteúdo anterior ao intervalo como mudança ocorrida agora.',
+
+    'required_analyzed_message_ids contém somente as mensagens da sessão temporal atual. Mensagens da ponte podem ser lidas como contexto, mas nunca podem aparecer em analyzed_message_ids ou evidence_message_ids.',
 
     'Trate previous_state como memória histórica. Nunca use memória anterior para substituir, reescrever ou dominar o que a sessão temporal atual demonstra.',
 
