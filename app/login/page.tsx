@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
+import { PublicHeader } from '../components/marketing/MarketingChrome'
 
 function useIsMobile(breakpoint = 980) {
   const [isMobile, setIsMobile] = useState(false)
@@ -279,11 +280,13 @@ export default function LoginPage() {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
+      <PublicHeader compact />
+
       <div
         style={{
           maxWidth: 1320,
           margin: '0 auto',
-          minHeight: '100%',
+          minHeight: 'calc(100% - 72px)',
           padding: isMobile ? 20 : 28,
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : '1.2fr 0.8fr',
@@ -301,20 +304,6 @@ export default function LoginPage() {
               alignSelf: 'start',
             }}
           >
-            <Image
-              src="/branding/yolen-logo-principal.png"
-              alt="Yolen"
-              width={340}
-              height={82}
-              priority
-              style={{
-                width: isMobile ? 200 : 340,
-                height: 'auto',
-                display: 'block',
-                objectFit: 'contain',
-              }}
-            />
-
             <div
               style={{
                 width: 56,
@@ -334,7 +323,7 @@ export default function LoginPage() {
                 marginLeft: 2,
               }}
             >
-              Cockpit comercial para equipes de vendas
+              Da rotina comercial à decisão gerencial
             </div>
           </div>
 
@@ -349,7 +338,7 @@ export default function LoginPage() {
                 maxWidth: 760,
               }}
             >
-              Pare de perder lead na operação.
+              Cada lead com direção. Cada gestor com visão.
             </h1>
 
             <p
@@ -362,7 +351,8 @@ export default function LoginPage() {
                 color: DS.textSecondary,
               }}
             >
-              O Yolen organiza sua operação, orienta a próxima ação e conecta a rotina da equipe com a meta.
+              O Yolen transforma pipeline, follow-up e meta em uma operação comercial clara — para o time executar
+              melhor e o gerente agir antes.
             </p>
           </div>
 
@@ -376,6 +366,50 @@ export default function LoginPage() {
             <Chip>IA que orienta a próxima ação</Chip>
             <Chip>SLA e follow-up sob controle</Chip>
             <Chip>Meta conectada à execução</Chip>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <Link
+              href="/como-funciona"
+              style={{
+                minHeight: 40,
+                padding: '0 14px',
+                borderRadius: 12,
+                border: `1px solid ${DS.border}`,
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: DS.textPrimary,
+                background: 'rgba(17,19,24,0.72)',
+                fontSize: 12,
+                fontWeight: 800,
+                textDecoration: 'none',
+              }}
+            >
+              Entender como funciona
+            </Link>
+            <Link
+              href="/destaques"
+              style={{
+                minHeight: 40,
+                padding: '0 14px',
+                borderRadius: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: DS.textSecondary,
+                fontSize: 12,
+                fontWeight: 800,
+                textDecoration: 'none',
+              }}
+            >
+              Conteúdos e novidades →
+            </Link>
           </div>
 
           <div
