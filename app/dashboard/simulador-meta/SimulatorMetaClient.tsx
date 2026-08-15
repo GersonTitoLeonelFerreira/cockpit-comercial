@@ -36,6 +36,15 @@ import {
   getExecutionDayCalendar,
   saveExecutionDayCalendar,
 } from '@/app/lib/services/executionDayCalendar'
+import {
+  countExecutionDaysInRange as countWorkDaysInRange,
+  countExecutionDaysUntilToday as countWorkDaysUntilToday,
+  countRemainingExecutionDays,
+  getDefaultWorkDays as defaultWorkDays,
+  isExecutionDay,
+  type ExecutionDayOverrides,
+  type WorkDays,
+} from '@/app/lib/services/executionDayMath'
 import type { DailyGoalDistribution, DistributionInputSignals } from '@/app/types/distribution'
 import SimulatorDistributionSummary from './components/SimulatorDistributionSummary'
 import SimulatorDailyDistributionTable from './components/SimulatorDailyDistributionTable'
@@ -192,116 +201,8 @@ function getErrorMessage(error: unknown, fallback: string) {
 // Calendário operacional
 // ============================
 
-// 0=Dom,1=Seg,...6=Sáb
-type WorkDays = Record<number, boolean>
-
-// Chave: YYYY-MM-DD
-// Valor true = trabalha nessa data
-// Valor false = não trabalha nessa data
-type ExecutionDayOverrides = Record<string, boolean>
-
-function defaultWorkDays(): WorkDays {
-  return {
-    0: false, // Dom
-    1: true, // Seg
-    2: true, // Ter
-    3: true, // Qua
-    4: true, // Qui
-    5: true, // Sex
-    6: false, // Sáb
-  }
-}
-
 function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10)
-}
-
-function isExecutionDay(
-  date: Date,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): boolean {
-  const key = dateKey(date)
-
-  if (Object.prototype.hasOwnProperty.call(overrides, key)) {
-    return Boolean(overrides[key])
-  }
-
-  return Boolean(workDays[date.getDay()])
-}
-
-function countRemainingWorkDays(
-  endDate: Date,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): number {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  endDate.setHours(0, 0, 0, 0)
-
-  if (endDate < today) return 0
-
-  let count = 0
-  const cur = new Date(today)
-
-  while (cur <= endDate) {
-    if (isExecutionDay(cur, workDays, overrides)) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
-}
-
-function countWorkDaysInRange(
-  start: string,
-  end: string,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): number {
-  const s = new Date(toYMD(start) + 'T00:00:00')
-  const e = new Date(toYMD(end) + 'T00:00:00')
-  s.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  if (e < s) return 0
-
-  let count = 0
-  const cur = new Date(s)
-
-  while (cur <= e) {
-    if (isExecutionDay(cur, workDays, overrides)) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
-}
-
-function countWorkDaysUntilToday(
-  start: string,
-  end: string,
-  workDays: WorkDays,
-  overrides: ExecutionDayOverrides = {},
-): number {
-  const s = new Date(toYMD(start) + 'T00:00:00')
-  const e = new Date(toYMD(end) + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  s.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  const last = today < e ? today : e
-  if (last < s) return 0
-
-  let count = 0
-  const cur = new Date(s)
-
-  while (cur <= last) {
-    if (isExecutionDay(cur, workDays, overrides)) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
 }
 
 type ExecutionCalendarDay = {
@@ -4363,8 +4264,11 @@ export default function SimulatorMetaClient({
         setPeriodStart(initialPeriodStart)
         setPeriodEnd(initialPeriodEnd)
 
-        const endDate = new Date(initialPeriodEnd + 'T00:00:00')
-        const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
+        const remainingDays = countRemainingExecutionDays(
+          initialPeriodEnd,
+          workDays,
+          executionDayOverrides,
+        )
         setRemainingBusinessDays(remainingDays)
 
         if (isAdminUser) {
@@ -4445,8 +4349,11 @@ export default function SimulatorMetaClient({
     if (!periodEnd) return
     if (!autoRemainingDays) return
 
-    const endDate = new Date(periodEnd + 'T00:00:00')
-    const remainingDays = countRemainingWorkDays(endDate, workDays, executionDayOverrides)
+    const remainingDays = countRemainingExecutionDays(
+      periodEnd,
+      workDays,
+      executionDayOverrides,
+    )
     setRemainingBusinessDays(remainingDays)
   }, [periodEnd, workDays, executionDayOverrides, autoRemainingDays])
 
@@ -5004,9 +4911,8 @@ function handleUndoGoalFromTop() {
       executionDayOverrides,
     )
 
-    const endDate = new Date(toYMD(revenueDates.end) + 'T00:00:00')
-    const businessDaysRemaining = countRemainingWorkDays(
-      endDate,
+    const businessDaysRemaining = countRemainingExecutionDays(
+      revenueDates.end,
       workDays,
       executionDayOverrides,
     )

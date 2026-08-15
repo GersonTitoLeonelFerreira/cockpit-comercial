@@ -1,7 +1,11 @@
 import { supabaseBrowser } from '../supabaseBrowser'
+import {
+  getDefaultWorkDays,
+  type ExecutionDayOverrides,
+  type WorkDays,
+} from './executionDayMath'
 
-export type ExecutionDayOverrides = Record<string, boolean>
-export type WorkDays = Record<number, boolean>
+export type { ExecutionDayOverrides, WorkDays } from './executionDayMath'
 
 export type ExecutionDayCalendarRecord = {
   id: string
@@ -16,20 +20,8 @@ export type ExecutionDayCalendarRecord = {
   updated_at: string
 }
 
-function defaultWorkDays(): WorkDays {
-  return {
-    0: false,
-    1: true,
-    2: true,
-    3: true,
-    4: true,
-    5: true,
-    6: false,
-  }
-}
-
 function normalizeWorkDays(value: unknown): WorkDays {
-  const fallback = defaultWorkDays()
+  const fallback = getDefaultWorkDays()
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return fallback

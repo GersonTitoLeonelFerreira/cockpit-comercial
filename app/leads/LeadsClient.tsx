@@ -5,6 +5,13 @@ import Link from 'next/link'
 import SalesCyclesKanban from './components/SalesCyclesKanban'
 import { supabaseBrowser } from '../lib/supabaseBrowser'
 import { getActiveCompetency, getRevenueGoal, getRevenueSummary } from '@/app/lib/services/simulator'
+import { getExecutionDayCalendar } from '@/app/lib/services/executionDayCalendar'
+import {
+  countExecutionDaysInRange,
+  countExecutionDaysUntilToday,
+  countRemainingExecutionDays,
+  getDefaultWorkDays,
+} from '@/app/lib/services/executionDayMath'
 import {
   CompactMetaSummaryHeader,
   buildMetaSummaryKpis,
@@ -29,66 +36,6 @@ function getErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback
-}
-
-function countBusinessDaysInRange(startYMD: string, endYMD: string) {
-  const s = new Date(toYMD(startYMD) + 'T00:00:00')
-  const e = new Date(toYMD(endYMD) + 'T00:00:00')
-  s.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  if (e < s) return 0
-  let count = 0
-  const cur = new Date(s)
-  while (cur <= e) {
-    const dow = cur.getDay()
-    if (dow !== 0 && dow !== 6) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-  return count
-}
-
-function countBusinessDaysUntilToday(startYMD: string, endYMD: string) {
-  const s = new Date(toYMD(startYMD) + 'T00:00:00')
-  const e = new Date(toYMD(endYMD) + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  s.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  const last = today < e ? today : e
-  if (last < s) return 0
-
-  let count = 0
-  const cur = new Date(s)
-  while (cur <= last) {
-    const dow = cur.getDay()
-    if (dow !== 0 && dow !== 6) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-  return count
-}
-
-function countBusinessDaysRemaining(endYMD: string) {
-  const today = new Date()
-  const e = new Date(toYMD(endYMD) + 'T00:00:00')
-
-  today.setHours(0, 0, 0, 0)
-  e.setHours(0, 0, 0, 0)
-
-  if (e < today) return 0
-
-  let count = 0
-  const cur = new Date(today)
-
-  while (cur <= e) {
-    const dow = cur.getDay()
-    if (dow !== 0 && dow !== 6) count++
-    cur.setDate(cur.getDate() + 1)
-  }
-
-  return count
 }
 
 type GoalView = 'company' | 'mine'
@@ -205,19 +152,28 @@ export default function LeadsClient({
       setRevenueError(null)
 
       try {
-        const res = await getRevenueSummary({
-          companyId,
-          ownerId: null,
-          startDate: start,
-          endDate: end,
-          metric: 'faturamento',
-        })
+        const [res, executionCalendar] = await Promise.all([
+          getRevenueSummary({
+            companyId,
+            ownerId: null,
+            startDate: start,
+            endDate: end,
+            metric: 'faturamento',
+          }),
+          getExecutionDayCalendar({
+            companyId,
+            periodStart: start,
+            periodEnd: end,
+          }),
+        ])
 
         const totalReal = Number(res?.total_real || 0)
+        const workDays = executionCalendar?.work_days ?? getDefaultWorkDays()
+        const overrides = executionCalendar?.execution_day_overrides ?? {}
 
-        const bdTotal = countBusinessDaysInRange(start, end)
-        const bdElapsed = countBusinessDaysUntilToday(start, end)
-        const bdRemaining = countBusinessDaysRemaining(end)
+        const bdTotal = countExecutionDaysInRange(start, end, workDays, overrides)
+        const bdElapsed = countExecutionDaysUntilToday(start, end, workDays, overrides)
+        const bdRemaining = countRemainingExecutionDays(end, workDays, overrides)
 
         const avgDaily = bdElapsed > 0 ? totalReal / bdElapsed : 0
         const projection = avgDaily * Math.max(1, bdTotal)
