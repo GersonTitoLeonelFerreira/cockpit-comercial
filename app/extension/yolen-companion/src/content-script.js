@@ -5,7 +5,9 @@
   const SESSION_REFRESH_INTERVAL_MS = 60000
   const HASH_SESSION_KEY = 'yolen_companion_session'
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
-  const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
+  const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 6000
+  const AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS = 500
+  const AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES = 4
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   const CAPTURE_INGESTION_DELAY_MS = 1200
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
@@ -59,6 +61,7 @@
   let captureIngestionRetryAttempt = 0
 
   const autoLookupAttemptedKeys = new Set()
+  const autoLookupPrepareRetryCounts = new Map()
   const cachedPhonesByConversationKey = new Map()
   const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
@@ -3713,9 +3716,6 @@
       return
     }
 
-    autoLookupAttemptedKeys.add(
-      lookupIdentity,
-    )
     autoContactLookupInFlight = true
 
     const hadContactPanelOpen =
@@ -3733,17 +3733,71 @@
         const clicked = clickElement(getClickableHeaderTarget())
 
         if (!clicked) {
+          const retryCount =
+            autoLookupPrepareRetryCounts.get(
+              lookupIdentity,
+            ) || 0
+
+          if (
+            retryCount <
+            AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES
+          ) {
+            autoLookupPrepareRetryCounts.set(
+              lookupIdentity,
+              retryCount + 1,
+            )
+
+            state = {
+              ...state,
+              autoLookupStatus:
+                'Preparando os dados do contato...',
+            }
+
+            renderPanel()
+
+            window.setTimeout(() => {
+              if (
+                state.connected &&
+                !state.conversationPhone &&
+                state.contactLookupIdentity ===
+                  lookupIdentity &&
+                !autoLookupAttemptedKeys.has(
+                  lookupIdentity,
+                )
+              ) {
+                runAutomaticContactLookup(
+                  conversationKey,
+                )
+              }
+            }, AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS)
+
+            return
+          }
+
+          autoLookupAttemptedKeys.add(
+            lookupIdentity,
+          )
+
           state = {
             ...state,
-            autoLookupStatus: 'Não consegui abrir os dados do contato automaticamente.',
+            autoLookupStatus:
+              'Não consegui abrir os dados do contato nesta tentativa. Troque de conversa e volte para tentar novamente.',
           }
 
           renderPanel()
           return
         }
 
+        autoLookupPrepareRetryCounts.delete(
+          lookupIdentity,
+        )
+
         await sleep(AUTO_CONTACT_LOOKUP_DELAY_MS)
       }
+
+      autoLookupAttemptedKeys.add(
+        lookupIdentity,
+      )
 
       const phone =
         await waitForContactPanelPhone(
@@ -3906,6 +3960,16 @@
       if (contactLookupChanged) {
         lastResolvedContactLookupIdentity =
           null
+
+        if (contactLookupIdentity) {
+          autoLookupAttemptedKeys.delete(
+            contactLookupIdentity,
+          )
+
+          autoLookupPrepareRetryCounts.delete(
+            contactLookupIdentity,
+          )
+        }
       }
 
       if (conversationChanged) {
