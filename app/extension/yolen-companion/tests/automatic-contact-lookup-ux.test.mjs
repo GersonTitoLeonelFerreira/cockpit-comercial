@@ -122,8 +122,13 @@ test('fechamento do perfil usa o header Dados do contato e espera restaurar a co
   )
 
   assert.match(
+    contentScript,
+    /function getContactInfoCloseControl\(\)/,
+  )
+
+  assert.match(
     closeBlock,
-    /header\?\.querySelector\([\s\S]*button,\[role="button"\]/,
+    /getContactInfoCloseControl\(\)/,
   )
 })
 

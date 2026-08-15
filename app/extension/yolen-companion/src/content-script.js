@@ -650,30 +650,50 @@
     return null
   }
 
-  function getContactPanelPhone() {
-    const panel = findContactInfoPanel()
-
-    if (!panel) {
-      return null
+  function collectContactPhoneCandidate(
+    candidates,
+    element,
+  ) {
+    if (!element) {
+      return
     }
 
-    const candidates = []
+    const title =
+      element
+        .getAttribute?.('title')
+        ?.trim()
 
-    panel.querySelectorAll('[title], span, div, a').forEach((element) => {
-      const title = element.getAttribute?.('title')?.trim()
-      const text = element.textContent?.trim()
+    const text =
+      element
+        .textContent
+        ?.trim()
 
-      if (title && title.length < 140) {
-        candidates.push(title)
-      }
+    if (
+      title &&
+      title.length < 140
+    ) {
+      candidates.push(title)
+    }
 
-      if (text && text.length < 220) {
-        candidates.push(text)
-      }
-    })
+    if (
+      text &&
+      text.length < 220
+    ) {
+      candidates.push(text)
+    }
+  }
 
-    for (const candidate of Array.from(new Set(candidates))) {
-      const phone = extractPhoneFromText(candidate)
+  function findPhoneInContactCandidates(
+    candidates,
+  ) {
+    for (
+      const candidate of
+      Array.from(new Set(candidates))
+    ) {
+      const phone =
+        extractPhoneFromText(
+          candidate,
+        )
 
       if (phone) {
         return phone
@@ -681,6 +701,114 @@
     }
 
     return null
+  }
+
+  function getContactPanelPhone() {
+    const header =
+      findContactInfoHeader()
+
+    const panel =
+      findContactInfoPanel()
+
+    if (!header && !panel) {
+      return null
+    }
+
+    const candidates = []
+
+    if (panel) {
+      panel
+        .querySelectorAll(
+          '[title], span, div, a',
+        )
+        .forEach((element) => {
+          collectContactPhoneCandidate(
+            candidates,
+            element,
+          )
+        })
+    }
+
+    const panelPhone =
+      findPhoneInContactCandidates(
+        candidates,
+      )
+
+    if (panelPhone) {
+      return panelPhone
+    }
+
+    if (!header) {
+      return null
+    }
+
+    const headerRect =
+      header.getBoundingClientRect()
+
+    const companionPanel =
+      document.getElementById(
+        PANEL_ID,
+      )
+
+    const companionRect =
+      companionPanel
+        ?.getBoundingClientRect?.()
+
+    const rightBoundary =
+      companionRect &&
+      companionRect.left >
+        headerRect.left
+        ? companionRect.left
+        : window.innerWidth
+
+    const bottomBoundary =
+      Math.min(
+        window.innerHeight,
+        headerRect.bottom + 650,
+      )
+
+    document
+      .querySelectorAll(
+        '[title], span, div, a',
+      )
+      .forEach((element) => {
+        if (
+          element.closest?.(
+            `#${PANEL_ID}`,
+          ) ||
+          !isVisibleDomElement(
+            element,
+          )
+        ) {
+          return
+        }
+
+        const rect =
+          element
+            .getBoundingClientRect()
+
+        if (
+          rect.left <
+            headerRect.left - 24 ||
+          rect.left >=
+            rightBoundary ||
+          rect.top <
+            headerRect.bottom - 8 ||
+          rect.top >
+            bottomBoundary
+        ) {
+          return
+        }
+
+        collectContactPhoneCandidate(
+          candidates,
+          element,
+        )
+      })
+
+    return findPhoneInContactCandidates(
+      candidates,
+    )
   }
 
   function isSelfConversationTitle(title) {
@@ -3577,6 +3705,94 @@
     )
   }
 
+  function getContactInfoCloseControl() {
+    const header =
+      findContactInfoHeader()
+
+    const panel =
+      findContactInfoPanel()
+
+    const roots =
+      [header, panel]
+        .filter(Boolean)
+
+    for (const root of roots) {
+      const labeledControl =
+        root.querySelector(
+          '[aria-label*="Fechar" i], [aria-label*="Close" i]',
+        )
+
+      if (labeledControl) {
+        return labeledControl
+      }
+
+      const closeIcon =
+        root.querySelector(
+          '[data-icon="x"]',
+        )
+
+      if (closeIcon) {
+        return (
+          closeIcon.closest(
+            'button,[role="button"],[tabindex]',
+          ) ||
+          closeIcon
+        )
+      }
+    }
+
+    return (
+      header?.querySelector(
+        'button,[role="button"],[tabindex]',
+      ) ||
+      null
+    )
+  }
+
+  function activateContactInfoCloseControl(
+    element,
+  ) {
+    if (!element) {
+      return false
+    }
+
+    if (
+      typeof element.click ===
+      'function'
+    ) {
+      try {
+        element.click()
+        return true
+      } catch {
+        // Usa o fallback visual abaixo.
+      }
+    }
+
+    return clickElement(element)
+  }
+
+  function dispatchContactInfoEscape() {
+    const buildEscapeEvent = () =>
+      new KeyboardEvent(
+        'keydown',
+        {
+          key: 'Escape',
+          code: 'Escape',
+          keyCode: 27,
+          which: 27,
+          bubbles: true,
+        },
+      )
+
+    window.dispatchEvent(
+      buildEscapeEvent(),
+    )
+
+    document.dispatchEvent(
+      buildEscapeEvent(),
+    )
+  }
+
   function closeContactInfoPanel() {
     const header =
       findContactInfoHeader()
@@ -3588,70 +3804,27 @@
       return true
     }
 
-    const closeButton =
-      header?.querySelector(
-        '[aria-label*="Fechar" i], [aria-label*="Close" i]',
-      ) ||
-      header
-        ?.querySelector('[data-icon="x"]')
-        ?.closest(
-          'button,[role="button"]',
-        ) ||
-      header?.querySelector(
-        'button,[role="button"]',
-      ) ||
-      panel?.querySelector(
-        '[aria-label*="Fechar" i], [aria-label*="Close" i]',
-      ) ||
-      panel
-        ?.querySelector('[data-icon="x"]')
-        ?.closest(
-          'button,[role="button"]',
-        )
+    const closeControl =
+      getContactInfoCloseControl()
 
-    if (closeButton) {
-      return clickElement(
-        closeButton,
+    if (closeControl) {
+      return (
+        activateContactInfoCloseControl(
+          closeControl,
+        )
       )
     }
 
-    const escapeEvent =
-      new KeyboardEvent('keydown', {
-        key: 'Escape',
-        code: 'Escape',
-        keyCode: 27,
-        which: 27,
-        bubbles: true,
-      })
-
-    window.dispatchEvent(
-      escapeEvent,
-    )
-
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 'Escape',
-        code: 'Escape',
-        keyCode: 27,
-        which: 27,
-        bubbles: true,
-      }),
-    )
-
+    dispatchContactInfoEscape()
     return true
   }
 
-  async function closeContactInfoPanelAndWait() {
-    const closeTriggered =
-      closeContactInfoPanel()
-
-    if (!closeTriggered) {
-      return false
-    }
-
+  async function waitForContactInfoPanelClosed(
+    attempts,
+  ) {
     for (
       let attempt = 0;
-      attempt < 12;
+      attempt < attempts;
       attempt += 1
     ) {
       await sleep(100)
@@ -3666,6 +3839,30 @@
     }
 
     return false
+  }
+
+  async function closeContactInfoPanelAndWait() {
+    const closeTriggered =
+      closeContactInfoPanel()
+
+    if (!closeTriggered) {
+      return false
+    }
+
+    const closedAfterControl =
+      await waitForContactInfoPanelClosed(
+        10,
+      )
+
+    if (closedAfterControl) {
+      return true
+    }
+
+    dispatchContactInfoEscape()
+
+    return waitForContactInfoPanelClosed(
+      12,
+    )
   }
 
   async function waitForContactPanelPhone(timeoutMs) {
