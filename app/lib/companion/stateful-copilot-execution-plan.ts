@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v4' as const
+  'phase-5.2-stateful-prompt-v5' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -613,6 +613,9 @@ function buildSystemPrompt(): string {
     'Nunca use mensagem excluída, message_key, sequence, posição, índice, product_id ou texto livre como evidence_message_ids.',
 
     'memory_ids representa somente memórias ativas do estado anterior.',
+
+    'Para interpretation.what_remains_valid, customer_need e uncertainties: quando uma conclusão continuar válida por causa de previous_state, cite os memory_ids correspondentes. Nunca copie evidence_message_ids históricos guardados dentro da memória para evidence_message_ids da saída. Se não houver sustentação na sessão temporal atual, evidence_message_ids deve ficar vazio nesse bloco.',
+
 
     'Nunca trate uma memória anterior como se ela fosse uma mensagem analisada agora.',
 
