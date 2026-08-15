@@ -6233,10 +6233,12 @@
       renderPanel()
 
       if (options.resolveLeadAfterLoad === true && !state.isSelfConversation) {
-        resolveCurrentLead()
-
-        if (!state.conversationPhone && state.conversationKey) {
-          runAutomaticContactLookup(state.conversationKey)
+        if (state.conversationPhone) {
+          resolveCurrentLead()
+        } else if (state.conversationKey) {
+          runAutomaticContactLookup(
+            state.conversationKey,
+          )
         }
       }
     } catch (error) {
