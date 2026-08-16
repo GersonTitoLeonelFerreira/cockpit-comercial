@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v8' as const
+  'phase-5.2-stateful-prompt-v9' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -674,6 +674,12 @@ function buildSystemPrompt(): string {
     'Princípio central: uma mensagem nova não substitui automaticamente o contexto anterior, e o contexto anterior não pode apagar o que mudou agora.',
 
     'diagnostic_input.conversation.messages contém somente as mensagens da sessão temporal atual e preserva seus IDs canônicos.',
+
+    'Nas mensagens, direction="outgoing" significa mensagem enviada pelo usuário/vendedor da empresa para o contato externo; direction="incoming" significa mensagem enviada pelo contato externo para o usuário/vendedor da empresa.',
+
+    'commercial_role descreve sempre o papel do contato externo em relação à empresa usuária da Yolen. Não inverta comprador e fornecedor ao interpretar quem iniciou uma solicitação, compra, contratação ou agendamento.',
+
+    'Se a empresa usuária estiver solicitando, comprando, contratando ou agendando um produto ou serviço oferecido pelo contato externo, o contato externo é provider. Se o contato externo estiver avaliando ou comprando uma oferta da empresa usuária, ele é buyer.',
 
     'diagnostic_input.conversation.context_bridge_messages pode conter uma ponte curta com até seis mensagens imediatamente anteriores ao último intervalo superior a quatro horas. Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos.',
 

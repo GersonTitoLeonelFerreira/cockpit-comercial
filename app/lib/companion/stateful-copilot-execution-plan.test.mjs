@@ -1272,7 +1272,22 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v8',
+      'phase-5.2-stateful-prompt-v9',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /direction="outgoing" significa mensagem enviada pelo usuário\/vendedor da empresa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /direction="incoming" significa mensagem enviada pelo contato externo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /commercial_role descreve sempre o papel do contato externo/,
     )
 
     assert.match(
