@@ -172,7 +172,7 @@ test(
 )
 
 test(
-  'modelos configurados explicitamente no ambiente vencem o fallback do preview',
+  'preview da branch Companion força gpt-5.6 no diagnóstico mesmo com modelo global configurado',
   () =>
     withEnvironment(
       {
@@ -183,7 +183,7 @@ test(
           COMPANION_VALIDATION_BRANCH,
 
         OPENAI_STATEFUL_COPILOT_MODEL:
-          'diagnostic-model-configured',
+          'diagnostic-model-global',
 
         OPENAI_STATEFUL_COMMUNICATION_MODEL:
           'communication-model-configured',
@@ -194,7 +194,7 @@ test(
 
         assert.equal(
           options.model,
-          'diagnostic-model-configured',
+          'gpt-5.6',
         )
 
         assert.equal(
