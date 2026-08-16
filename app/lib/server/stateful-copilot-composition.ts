@@ -269,10 +269,18 @@ export function createStatefulCopilotServerComposition(
         'OPENAI_API_KEY',
     })
 
-  const previewCommunicationModel =
+  const isCompanionValidationPreview =
     process.env.VERCEL_ENV === 'preview' &&
     process.env.VERCEL_GIT_COMMIT_REF ===
       'feature/companion-v2-phase-5-2-shadow-validation'
+
+  const previewDiagnosticModel =
+    isCompanionValidationPreview
+      ? 'gpt-5.6'
+      : null
+
+  const previewCommunicationModel =
+    isCompanionValidationPreview
       ? 'gpt-5.6'
       : null
 
@@ -298,7 +306,8 @@ export function createStatefulCopilotServerComposition(
         normalizeOptionalText(
           options.openai_model ??
           process.env
-            .OPENAI_STATEFUL_COPILOT_MODEL,
+            .OPENAI_STATEFUL_COPILOT_MODEL ??
+          previewDiagnosticModel,
         ),
 
       communication_model:
