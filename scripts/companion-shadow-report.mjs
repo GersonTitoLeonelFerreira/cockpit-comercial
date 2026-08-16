@@ -28,6 +28,31 @@ const pct = (values, ratio) => {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1))]
 }
 
+function executionLayers(execution) {
+  if (
+    record(execution?.diagnostic) ||
+    record(execution?.communication)
+  ) {
+    return [
+      ['diagnostic', execution.diagnostic],
+      ['communication', execution.communication],
+    ].filter(([, value]) => record(value))
+  }
+
+  return record(execution)
+    ? [['legacy', execution]]
+    : []
+}
+
+function emptyTokenMetrics() {
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    measured_events: 0,
+  }
+}
+
 function pairRuns(events, notes) {
   const used = new Set()
   const pairs = []
@@ -74,7 +99,12 @@ export function buildShadowReport({
   const notes = Array.isArray(v1_notes) ? v1_notes : []
   const pairing = pairRuns(events, notes)
   const latencies = []
-  const tokens = { input_tokens: 0, output_tokens: 0, total_tokens: 0, measured_events: 0 }
+  const tokens = emptyTokenMetrics()
+  const layerTokens = {
+    diagnostic: emptyTokenMetrics(),
+    communication: emptyTokenMetrics(),
+    legacy: emptyTokenMetrics(),
+  }
   const models = {}
   let retried = 0
   let recovered = 0
@@ -88,21 +118,41 @@ export function buildShadowReport({
       latencies.push(persisted - generated)
     }
 
-    const execution = record(event.execution) ? event.execution : {}
-    const usage = record(execution.usage) ? execution.usage : {}
-    const input = num(usage.input_tokens)
-    const output = num(usage.output_tokens)
-    const total = num(usage.total_tokens)
+    const layers = executionLayers(event.execution)
+    let eventMeasured = false
+    let eventRetried = false
+    let eventRecovered = false
 
-    tokens.input_tokens += input || 0
-    tokens.output_tokens += output || 0
-    tokens.total_tokens += total ?? ((input || 0) + (output || 0))
-    if (input !== null || output !== null || total !== null) tokens.measured_events += 1
+    for (const [layerName, execution] of layers) {
+      const usage = record(execution.usage) ? execution.usage : {}
+      const input = num(usage.input_tokens)
+      const output = num(usage.output_tokens)
+      const total = num(usage.total_tokens)
+      const measured = input !== null || output !== null || total !== null
+      const layer = layerTokens[layerName]
 
-    const model = text(execution.model) || 'unknown'
-    models[model] = (models[model] || 0) + 1
-    if ((num(execution.attempts) || 0) > 1) retried += 1
-    if (execution.recovered_after_retry === true) recovered += 1
+      tokens.input_tokens += input || 0
+      tokens.output_tokens += output || 0
+      tokens.total_tokens += total ?? ((input || 0) + (output || 0))
+      layer.input_tokens += input || 0
+      layer.output_tokens += output || 0
+      layer.total_tokens += total ?? ((input || 0) + (output || 0))
+
+      if (measured) {
+        eventMeasured = true
+        layer.measured_events += 1
+      }
+
+      const model = text(execution.model) || 'unknown'
+      const modelKey = layerName === 'legacy' ? model : `${layerName}:${model}`
+      models[modelKey] = (models[modelKey] || 0) + 1
+      if ((num(execution.attempts) || 0) > 1) eventRetried = true
+      if (execution.recovered_after_retry === true) eventRecovered = true
+    }
+
+    if (eventMeasured) tokens.measured_events += 1
+    if (eventRetried) retried += 1
+    if (eventRecovered) recovered += 1
     if (event.automatic_crm_write === true) crmWrites += 1
     if (event.automatic_agenda_write === true) agendaWrites += 1
   }
@@ -128,7 +178,7 @@ export function buildShadowReport({
     : null
 
   return {
-    report_version: 'phase-5.2-shadow-report-v1',
+    report_version: 'phase-5.2-shadow-report-v2',
     totals: {
       v1_analyses: notes.length,
       v2_persisted_analyses: events.length,
@@ -144,6 +194,7 @@ export function buildShadowReport({
       max: latencies.length ? Math.max(...latencies) : null,
     },
     tokens,
+    layer_tokens: layerTokens,
     estimated_cost_usd: cost,
     pricing: { input_usd_per_1m: inputRate, output_usd_per_1m: outputRate },
     models,

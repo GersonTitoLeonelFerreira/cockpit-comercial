@@ -37,6 +37,9 @@ function buildRequest() {
 
     user_prompt:
       'USER PROMPT STATEFUL',
+
+    structured_output_format:
+      STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
   }
 }
 

@@ -43,7 +43,7 @@ export const STATEFUL_COPILOT_PROJECT_PHASE =
   'phase-5' as const
 
 export const STATEFUL_COPILOT_PROJECT_SUBPHASE =
-  'phase-5.1' as const
+  'phase-5.2' as const
 
 export const STATEFUL_COPILOT_RUNTIME_STAGE =
   'server-only-orchestrator' as const
@@ -88,6 +88,18 @@ export type StatefulCopilotRuntimeExecutionSummary = {
 
   output_contract_version:
     string | null
+
+  communication_contract_version:
+    string | null
+
+  communication_intervention_needed:
+    boolean | null
+
+  communication_message_present:
+    boolean | null
+
+  communication_attempts:
+    1 | 2 | null
 
   known_message_count:
     number
@@ -550,6 +562,34 @@ function buildExecutionSummary({
         ? engineResult
             .output
             .contract_version
+        : null,
+
+    communication_contract_version:
+      engineResult.mode === 'model'
+        ? engineResult
+            .communication_output
+            .contract_version
+        : null,
+
+    communication_intervention_needed:
+      engineResult.mode === 'model'
+        ? engineResult
+            .communication_output
+            .intervention_needed
+        : null,
+
+    communication_message_present:
+      engineResult.mode === 'model'
+        ? engineResult
+            .communication_output
+            .suggested_message !== null
+        : null,
+
+    communication_attempts:
+      engineResult.mode === 'model'
+        ? engineResult
+            .communication_execution
+            .attempts
         : null,
 
     known_message_count:

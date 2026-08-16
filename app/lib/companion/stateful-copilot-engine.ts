@@ -35,6 +35,19 @@ import type {
   StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import {
+  buildStatefulCommunicationExecutionPlan,
+} from './stateful-communication-execution-plan'
+
+import {
+  executeStatefulCommunicationPlan,
+  type StatefulCommunicationExecution,
+} from './stateful-communication-executor'
+
+import type {
+  StatefulCommunicationOutput,
+} from './stateful-communication-contract'
+
 type StatefulCopilotBlockedPlan =
   Extract<
     StatefulCopilotExecutionPlan,
@@ -63,6 +76,12 @@ type StatefulCopilotPlanExecutor =
 type StatefulCommercialStateReducer =
   typeof reduceStatefulCommercialState
 
+type StatefulCommunicationPlanBuilder =
+  typeof buildStatefulCommunicationExecutionPlan
+
+type StatefulCommunicationPlanExecutor =
+  typeof executeStatefulCommunicationPlan
+
 export type StatefulCopilotEngineDependencies = {
   build_input?:
     StatefulCopilotInputBuilder
@@ -72,6 +91,12 @@ export type StatefulCopilotEngineDependencies = {
 
   execute_plan?:
     StatefulCopilotPlanExecutor
+
+  build_communication_plan?:
+    StatefulCommunicationPlanBuilder
+
+  execute_communication?:
+    StatefulCommunicationPlanExecutor
 
   reduce_state?:
     StatefulCommercialStateReducer
@@ -114,6 +139,10 @@ export type StatefulCopilotEngineBlockedResult =
 
     output: null
 
+    communication_output: null
+
+    communication_execution: null
+
     candidate_state: null
 
     limitations:
@@ -132,6 +161,12 @@ export type StatefulCopilotEngineModelResult =
 
     output:
       StatefulCopilotOutput
+
+    communication_output:
+      StatefulCommunicationOutput
+
+    communication_execution:
+      StatefulCommunicationExecution
 
     candidate_state:
       StatefulCommercialState
@@ -192,6 +227,14 @@ export async function runStatefulCopilotEngine({
     dependencies.execute_plan ??
     executeStatefulCopilotPlan
 
+  const buildCommunicationPlan =
+    dependencies.build_communication_plan ??
+    buildStatefulCommunicationExecutionPlan
+
+  const executeCommunication =
+    dependencies.execute_communication ??
+    executeStatefulCommunicationPlan
+
   const reduceState =
     dependencies.reduce_state ??
     reduceStatefulCommercialState
@@ -239,6 +282,12 @@ export async function runStatefulCopilotEngine({
       output:
         null,
 
+      communication_output:
+        null,
+
+      communication_execution:
+        null,
+
       previous_state:
         input
           .state_context
@@ -266,6 +315,58 @@ export async function runStatefulCopilotEngine({
     )
   }
 
+  const communicationPlan =
+    buildCommunicationPlan({
+      input,
+
+      diagnostic_output:
+        orchestration.output,
+    })
+
+  const communication =
+    await executeCommunication({
+      plan:
+        communicationPlan,
+
+      provider,
+    })
+
+  const output:
+    StatefulCopilotOutput = {
+      ...orchestration.output,
+
+      strategy: {
+        ...orchestration
+          .output
+          .strategy,
+
+        method_application:
+          communication
+            .output
+            .method_application,
+
+        rationale:
+          communication
+            .output
+            .guidance,
+
+        next_move:
+          communication
+            .output
+            .guidance,
+
+        recommended_question:
+          communication
+            .output
+            .recommended_question,
+
+        suggested_message:
+          communication
+            .output
+            .suggested_message,
+      },
+    }
+
   const candidateState =
     reduceState({
       previous_state:
@@ -274,7 +375,7 @@ export async function runStatefulCopilotEngine({
           .previous_state,
 
       output:
-        orchestration.output,
+        output,
 
       cycle_id:
         input
@@ -298,7 +399,13 @@ export async function runStatefulCopilotEngine({
     plan,
 
     output:
-      orchestration.output,
+      output,
+
+    communication_output:
+      communication.output,
+
+    communication_execution:
+      communication.execution,
 
     previous_state:
       input

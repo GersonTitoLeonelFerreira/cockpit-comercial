@@ -10,25 +10,54 @@ import type {
   StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import type {
+  StatefulCommunicationOutput,
+} from './stateful-communication-contract'
+
 export const STATEFUL_COPILOT_PERSISTENCE_PLAN_VERSION =
-  'phase-5.1-persistence-plan-v1' as const
+  'phase-5.2-persistence-plan-v1' as const
 
 export type StatefulCopilotPersistenceExecution = {
-  provider: string
-  model: string | null
-  request_id: string | null
+  diagnostic: {
+    provider: string
+    model: string | null
+    request_id: string | null
 
-  usage: {
-    input_tokens: number | null
-    output_tokens: number | null
-    total_tokens: number | null
-  } | null
+    usage: {
+      input_tokens: number | null
+      output_tokens: number | null
+      total_tokens: number | null
+    } | null
 
-  attempts: 1 | 2
+    attempts: 1 | 2
 
-  recovered_after_retry:
-    boolean
+    recovered_after_retry:
+      boolean
+  }
+
+  communication: {
+    provider: string
+    model: string | null
+    request_id: string | null
+
+    usage: {
+      input_tokens: number | null
+      output_tokens: number | null
+      total_tokens: number | null
+    } | null
+
+    attempts: 1 | 2
+
+    recovered_after_retry:
+      boolean
+  }
 }
+
+export type StatefulCopilotPersistedOutput =
+  StatefulCopilotOutput & {
+    communication:
+      StatefulCommunicationOutput
+  }
 
 export type StatefulCopilotPersistenceWriteGuard = {
   company_id: string
@@ -77,7 +106,7 @@ export type StatefulCopilotPersistenceAuditEvent = {
     string[]
 
   normalized_output:
-    StatefulCopilotOutput
+    StatefulCopilotPersistedOutput
 
   execution:
     StatefulCopilotPersistenceExecution
@@ -560,10 +589,14 @@ export function buildStatefulCopilotPersistencePlan(
       result.candidate_state,
     )
 
-  const normalizedOutput =
-    cloneValue(
-      result.output,
-    )
+  const normalizedOutput:
+    StatefulCopilotPersistedOutput =
+    cloneValue({
+      ...result.output,
+
+      communication:
+        result.communication_output,
+    })
 
   return {
     plan_version:
@@ -658,9 +691,13 @@ export function buildStatefulCopilotPersistencePlan(
         normalizedOutput,
 
       execution:
-        cloneValue(
-          result.execution,
-        ),
+        cloneValue({
+          diagnostic:
+            result.execution,
+
+          communication:
+            result.communication_execution,
+        }),
 
       automatic_crm_write:
         false,
