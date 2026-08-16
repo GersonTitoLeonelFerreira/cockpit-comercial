@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v7' as const
+  'phase-5.2-stateful-prompt-v8' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -767,6 +767,8 @@ function buildSystemPrompt(): string {
     'Nunca aplique alteração no CRM, na Agenda ou no estado persistido.',
 
     'Nunca recomende etapa de CRM presente em prohibited_crm_statuses.',
+
+    'Ganho e perda explícitos não são uma simples troca de etapa de CRM: eles exigem um fechamento estruturado que só o vendedor pode confirmar em outra tela do sistema, com motivo e evidências. Quando identificar ganho ou perda explícitos, mantenha should_change_crm_stage=false e, em vez disso, registre o desfecho em interpretation e oriente em strategy.next_move que o vendedor confirme o fechamento (ganho ou perda) na tela apropriada do CRM.',
 
     'Quando should_change_crm_stage=false, recommended_status e rationale precisam ser null.',
 
