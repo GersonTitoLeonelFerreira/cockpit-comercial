@@ -25,7 +25,7 @@ test(
 
     assert.equal(
       definition.version,
-      'phase-18a-dynamic-dialogues-v1',
+      'phase-18a-dynamic-dialogues-v2',
     )
 
     assert.equal(
@@ -194,5 +194,48 @@ test(
         )
       }
     }
+  },
+)
+
+
+test(
+  'não transforma proposta em confirmação nem obriga silêncio absoluto na perda',
+  async () => {
+    const definition =
+      await loadDefinition()
+
+    const byId =
+      new Map(
+        definition.scenarios.map(
+          (scenario) => [
+            scenario.id,
+            scenario,
+          ],
+        ),
+      )
+
+    const appointment =
+      byId.get(
+        'confirmed-demo-appointment',
+      )
+
+    const loss =
+      byId.get(
+        'explicit-loss-competitor',
+      )
+
+    assert.equal(
+      appointment
+        .hard_gates
+        .expected_final_agenda_change,
+      false,
+    )
+
+    assert.equal(
+      loss
+        .hard_gates
+        .expected_final_intervention_needed,
+      null,
+    )
   },
 )

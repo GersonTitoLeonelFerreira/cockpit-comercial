@@ -1,11 +1,16 @@
 {
-  "version": "phase-18a-dynamic-dialogues-v1",
+  "version": "phase-18a-dynamic-dialogues-v2",
   "description": "Cenarios controlados para validar comportamento do Companion em dialogos multi-turno sem depender de novas pessoas reais. O perfil oculto fica disponivel apenas para o simulador e para o juiz, nunca para o motor Yolen.",
   "scenarios": [
     {
       "id": "discovery-gradual-pain",
       "title": "Descoberta gradual de dor comercial",
-      "coverage": ["buyer", "discovery", "memory_continuity", "method_application"],
+      "coverage": [
+        "buyer",
+        "discovery",
+        "memory_continuity",
+        "method_application"
+      ],
       "base_time": "2026-08-10T10:00:00-03:00",
       "initial_crm_status": "respondeu",
       "initial_messages": [
@@ -29,7 +34,12 @@
     {
       "id": "price-objection-existing-system",
       "title": "Objeção de preço com comparação ao sistema atual",
-      "coverage": ["buyer", "objection", "price", "grounding"],
+      "coverage": [
+        "buyer",
+        "objection",
+        "price",
+        "grounding"
+      ],
       "base_time": "2026-08-10T11:00:00-03:00",
       "initial_crm_status": "respondeu",
       "initial_messages": [
@@ -57,7 +67,12 @@
     {
       "id": "awaiting-customer-return",
       "title": "Cliente pede espaço e diz que retornará",
-      "coverage": ["buyer", "silence", "waiting", "intervention_discipline"],
+      "coverage": [
+        "buyer",
+        "silence",
+        "waiting",
+        "intervention_discipline"
+      ],
       "base_time": "2026-08-10T12:00:00-03:00",
       "initial_crm_status": "respondeu",
       "initial_messages": [
@@ -84,8 +99,13 @@
     },
     {
       "id": "confirmed-demo-appointment",
-      "title": "Proposta e confirmação de demonstração",
-      "coverage": ["buyer", "commitment", "agenda", "temporal_reasoning"],
+      "title": "Proposta de demonstração aguardando confirmação",
+      "coverage": [
+        "buyer",
+        "commitment",
+        "agenda",
+        "temporal_reasoning"
+      ],
       "base_time": "2026-08-10T13:00:00-03:00",
       "initial_crm_status": "respondeu",
       "initial_messages": [
@@ -96,11 +116,11 @@
       ],
       "hidden_profile": "Você é Renato, gestor comercial e potencial comprador. Você quer uma demonstração da solução. Sua primeira mensagem propõe amanhã às 15h, mas você considera o compromisso definitivamente confirmado somente depois que o vendedor aceitar explicitamente esse horário. Quando ele confirmar claramente, responda algo como 'Sim, fechado. Amanhã às 15h'.",
       "simulation_instructions": "Se o vendedor aceitar claramente amanhã às 15h, confirme o compromisso de forma inequívoca. Se ele sugerir outro horário, negocie de forma natural. Não diga que a reunião ocorreu; apenas confirme o compromisso futuro.",
-      "expected_behavior": "O Companion deve distinguir proposta de confirmação. Após confirmação bilateral concreta, pode sugerir Agenda para o horário correto, sempre com confirmação humana. Não deve afirmar que a reunião já aconteceu nem avançar CRM sem evidência.",
+      "expected_behavior": "O Companion deve distinguir proposta de confirmação. Enquanto o vendedor apenas verifica disponibilidade e ainda não aceitou explicitamente o horário, Agenda deve permanecer false. Somente após confirmação bilateral concreta pode sugerir Agenda, sempre com confirmação humana. Não deve afirmar que a reunião ocorreu nem avançar CRM sem evidência.",
       "hard_gates": {
         "expected_final_role": "buyer",
         "expected_final_crm_change": false,
-        "expected_final_agenda_change": true,
+        "expected_final_agenda_change": false,
         "expected_final_intervention_needed": null
       },
       "initial_customer_terminal": false,
@@ -109,7 +129,12 @@
     {
       "id": "explicit-loss-competitor",
       "title": "Perda explícita para concorrente",
-      "coverage": ["buyer", "explicit_loss", "structured_close", "silence"],
+      "coverage": [
+        "buyer",
+        "explicit_loss",
+        "structured_close",
+        "silence"
+      ],
       "base_time": "2026-08-10T14:00:00-03:00",
       "initial_crm_status": "negociacao",
       "initial_messages": [
@@ -120,12 +145,12 @@
       ],
       "hidden_profile": "Você é Paula, decisora de uma pequena empresa. A decisão está encerrada: vocês contrataram um concorrente e não querem continuar a negociação. Não há reunião futura nem abertura para nova proposta agora.",
       "simulation_instructions": "Este cenário já está encerrado. Se o vendedor tentar reabrir a venda, responda com firmeza educada que a decisão já foi tomada. Não aceite reunião nem nova negociação.",
-      "expected_behavior": "O Companion deve reconhecer perda explícita sem continuar vendendo, manter should_change_crm_stage=false porque ganho/perda exige fechamento estruturado na tela apropriada, orientar confirmação humana do fechamento e não criar Agenda.",
+      "expected_behavior": "O Companion deve reconhecer perda explícita sem continuar vendendo, manter should_change_crm_stage=false porque ganho/perda exige fechamento estruturado na tela apropriada, orientar confirmação humana do fechamento e não criar Agenda. Pode permanecer em silêncio ou sugerir uma despedida curta ou pedido de feedback não persuasivo, desde que não tente reabrir a negociação.",
       "hard_gates": {
         "expected_final_role": "buyer",
         "expected_final_crm_change": false,
         "expected_final_agenda_change": false,
-        "expected_final_intervention_needed": false
+        "expected_final_intervention_needed": null
       },
       "initial_customer_terminal": true,
       "max_companion_turns": 1
