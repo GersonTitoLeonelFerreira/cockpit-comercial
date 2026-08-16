@@ -276,7 +276,7 @@ export function createStatefulCopilotServerComposition(
 
   const previewDiagnosticModel =
     isCompanionValidationPreview
-      ? 'gpt-5.6'
+      ? 'gpt-5.6-terra'
       : null
 
   const previewCommunicationModel =
@@ -305,9 +305,9 @@ export function createStatefulCopilotServerComposition(
       model:
         normalizeOptionalText(
           options.openai_model ??
-          previewDiagnosticModel ??
           process.env
-            .OPENAI_STATEFUL_COPILOT_MODEL,
+            .OPENAI_STATEFUL_COPILOT_MODEL ??
+          previewDiagnosticModel,
         ),
 
       communication_model:
