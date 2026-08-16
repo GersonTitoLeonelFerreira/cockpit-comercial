@@ -6,13 +6,16 @@ import {
 import {
   STATEFUL_COPILOT_PROMPT_VERSION,
   type StatefulCopilotExecutionPlan,
-  type StatefulCopilotModelRequest,
 } from './stateful-copilot-execution-plan'
 
 import {
   StatefulCopilotContractError,
   normalizeStatefulCopilotOutput,
 } from './stateful-copilot-normalizer'
+
+import {
+  STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+} from './stateful-copilot-json-schema'
 
 const MAX_MODEL_CONTENT_LENGTH =
   1_000_000
@@ -29,14 +32,15 @@ type StatefulCopilotModelPlan =
   >
 
 export type StatefulCopilotProviderRequest = {
-  prompt_version:
-    StatefulCopilotModelRequest['prompt_version']
+  prompt_version: string
 
-  output_contract_version:
-    StatefulCopilotModelRequest['output_contract_version']
+  output_contract_version: string
 
   system_prompt: string
   user_prompt: string
+
+  structured_output_format:
+    JsonRecord
 }
 
 export type StatefulCopilotUsage = {
@@ -350,6 +354,9 @@ function buildProviderRequest(
 
     user_prompt:
       plan.request.user_prompt,
+
+    structured_output_format:
+      STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
   })
 }
 

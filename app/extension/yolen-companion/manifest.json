@@ -3,11 +3,14 @@
   "name": "Yolen Companion",
   "version": "0.1.7",
   "description": "Camada de leitura assistida da Yolen para WhatsApp Web.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
-    "http://localhost:3000/*"
+    "http://localhost:3000/*",
+    "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
   ],
   "background": {
     "scripts": [
@@ -17,7 +20,9 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://web.whatsapp.com/*"],
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
       "js": [
         "src/yolen-api.js",
         "src/message-mutations.js",
@@ -26,29 +31,41 @@
         "src/capture-resilience-null-base.js",
         "src/content-script.js"
       ],
-      "css": ["src/styles.css"],
+      "css": [
+        "src/styles.css"
+      ],
       "run_at": "document_idle"
     },
     {
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
       ],
-      "js": ["src/yolen-bridge.js"],
+      "js": [
+        "src/yolen-bridge.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/yolen-page-bridge.js"],
+      "resources": [
+        "src/yolen-page-bridge.js"
+      ],
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
       ]
     },
     {
-      "resources": ["src/whatsapp-audio-bridge.js"],
-      "matches": ["https://web.whatsapp.com/*"]
+      "resources": [
+        "src/whatsapp-audio-bridge.js"
+      ],
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ]
     }
   ],
   "browser_specific_settings": {

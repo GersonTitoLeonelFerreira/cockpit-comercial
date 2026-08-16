@@ -137,6 +137,22 @@ function buildIntegratedResult({
           output:
             statefulOutput,
 
+          communication_output: {
+            contract_version:
+              'phase-5.2-communication-v1',
+
+            intervention_needed:
+              true,
+
+            suggested_message:
+              'Resposta stateful.',
+          },
+
+          communication_execution: {
+            attempts:
+              1,
+          },
+
           candidate_state: {
             version:
               1,
@@ -357,7 +373,7 @@ test(
 
     assert.equal(
       result.project_subphase,
-      'phase-5.1',
+      'phase-5.2',
     )
 
     assert.equal(
@@ -595,6 +611,13 @@ test(
     assert.equal(
       result.stateful_execution.persisted,
       true,
+    )
+
+    assert.equal(
+      result
+        .stateful_execution
+        .communication_contract_version,
+      'phase-5.2-communication-v1',
     )
 
     assert.equal(

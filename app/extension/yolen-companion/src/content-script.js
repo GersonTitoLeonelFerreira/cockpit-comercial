@@ -5,10 +5,13 @@
   const SESSION_REFRESH_INTERVAL_MS = 60000
   const HASH_SESSION_KEY = 'yolen_companion_session'
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
-  const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 3500
+  const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 6000
+  const AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS = 500
+  const AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES = 4
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   const CAPTURE_INGESTION_DELAY_MS = 1200
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
+  const DISAPPEARED_MESSAGE_SCROLL_GUARD_MS = 2000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
   const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
@@ -35,6 +38,7 @@
 
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
+  let lastResolvedContactLookupIdentity = null
 
   const leadResolutionInFlightKeys =
     new Set()
@@ -50,6 +54,9 @@
   let deletedMessageSnapshots = new Map()
   let pendingCaptureMutationIds =
     new Set()
+  let lastVisibleMessageSnapshots =
+    new Map()
+  let lastConversationScrollAt = 0
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
   let captureIngestionTimerId = 0
@@ -58,7 +65,9 @@
   let captureIngestionRetryAttempt = 0
 
   const autoLookupAttemptedKeys = new Set()
+  const autoLookupPrepareRetryCounts = new Map()
   const cachedPhonesByConversationKey = new Map()
+  const cachedPhonesByLookupIdentity = new Map()
   const lastIngestedCaptureKeys = new Map()
 
   const confirmedCaptureVersionsByConversation =
@@ -80,7 +89,9 @@
     conversationKey: null,
     conversationPhone: null,
     phoneSource: null,
+    contactLookupIdentity: null,
     isSelfConversation: false,
+    isGroupConversation: false,
     messageCount: 0,
     audioCount: 0,
     lastError: null,
@@ -534,6 +545,78 @@
     return safeTitle
   }
 
+  function getAutomaticContactLookupIdentity(title) {
+    return String(title || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLocaleLowerCase('pt-BR')
+  }
+
+  function getMainHeaderPrimaryTitle() {
+    const header = getMainHeader()
+
+    if (!header) {
+      return null
+    }
+
+    const lines =
+      String(
+        header.innerText ||
+        header.textContent ||
+        '',
+      )
+        .split('\n')
+        .map((value) =>
+          value
+            .replace(/\s+/g, ' ')
+            .trim(),
+        )
+        .filter(Boolean)
+
+    const primaryTitle =
+      lines.find((value) => {
+        return (
+          !isIgnoredHeaderText(value) &&
+          value.length < 120
+        )
+      })
+
+    return primaryTitle || null
+  }
+
+  function isGroupConversationHeader() {
+    const header = getMainHeader()
+
+    if (!header) {
+      return false
+    }
+
+    const ariaLabels =
+      Array.from(
+        header.querySelectorAll('[aria-label]'),
+      )
+        .map((element) =>
+          String(
+            element.getAttribute('aria-label') || '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLocaleLowerCase('pt-BR'),
+        )
+        .filter(Boolean)
+
+    return ariaLabels.some((label) => {
+      return (
+        label.includes('em grupo') ||
+        label.includes('group video call') ||
+        label.includes('video call in group') ||
+        label.includes('group voice call') ||
+        label.includes('voice call in group') ||
+        label === 'group call'
+      )
+    })
+  }
+
   function findContactInfoPanel() {
     const possibleTitles = Array.from(document.querySelectorAll('span, div, h1, h2, header'))
 
@@ -571,30 +654,50 @@
     return null
   }
 
-  function getContactPanelPhone() {
-    const panel = findContactInfoPanel()
-
-    if (!panel) {
-      return null
+  function collectContactPhoneCandidate(
+    candidates,
+    element,
+  ) {
+    if (!element) {
+      return
     }
 
-    const candidates = []
+    const title =
+      element
+        .getAttribute?.('title')
+        ?.trim()
 
-    panel.querySelectorAll('[title], span, div, a').forEach((element) => {
-      const title = element.getAttribute?.('title')?.trim()
-      const text = element.textContent?.trim()
+    const text =
+      element
+        .textContent
+        ?.trim()
 
-      if (title && title.length < 140) {
-        candidates.push(title)
-      }
+    if (
+      title &&
+      title.length < 140
+    ) {
+      candidates.push(title)
+    }
 
-      if (text && text.length < 220) {
-        candidates.push(text)
-      }
-    })
+    if (
+      text &&
+      text.length < 220
+    ) {
+      candidates.push(text)
+    }
+  }
 
-    for (const candidate of Array.from(new Set(candidates))) {
-      const phone = extractPhoneFromText(candidate)
+  function findPhoneInContactCandidates(
+    candidates,
+  ) {
+    for (
+      const candidate of
+      Array.from(new Set(candidates))
+    ) {
+      const phone =
+        extractPhoneFromText(
+          candidate,
+        )
 
       if (phone) {
         return phone
@@ -602,6 +705,114 @@
     }
 
     return null
+  }
+
+  function getContactPanelPhone() {
+    const header =
+      findContactInfoHeader()
+
+    const panel =
+      findContactInfoPanel()
+
+    if (!header && !panel) {
+      return null
+    }
+
+    const candidates = []
+
+    if (panel) {
+      panel
+        .querySelectorAll(
+          '[title], span, div, a',
+        )
+        .forEach((element) => {
+          collectContactPhoneCandidate(
+            candidates,
+            element,
+          )
+        })
+    }
+
+    const panelPhone =
+      findPhoneInContactCandidates(
+        candidates,
+      )
+
+    if (panelPhone) {
+      return panelPhone
+    }
+
+    if (!header) {
+      return null
+    }
+
+    const headerRect =
+      header.getBoundingClientRect()
+
+    const companionPanel =
+      document.getElementById(
+        PANEL_ID,
+      )
+
+    const companionRect =
+      companionPanel
+        ?.getBoundingClientRect?.()
+
+    const rightBoundary =
+      companionRect &&
+      companionRect.left >
+        headerRect.left
+        ? companionRect.left
+        : window.innerWidth
+
+    const bottomBoundary =
+      Math.min(
+        window.innerHeight,
+        headerRect.bottom + 650,
+      )
+
+    document
+      .querySelectorAll(
+        '[title], span, div, a',
+      )
+      .forEach((element) => {
+        if (
+          element.closest?.(
+            `#${PANEL_ID}`,
+          ) ||
+          !isVisibleDomElement(
+            element,
+          )
+        ) {
+          return
+        }
+
+        const rect =
+          element
+            .getBoundingClientRect()
+
+        if (
+          rect.left <
+            headerRect.left - 24 ||
+          rect.left >=
+            rightBoundary ||
+          rect.top <
+            headerRect.bottom - 8 ||
+          rect.top >
+            bottomBoundary
+        ) {
+          return
+        }
+
+        collectContactPhoneCandidate(
+          candidates,
+          element,
+        )
+      })
+
+    return findPhoneInContactCandidates(
+      candidates,
+    )
   }
 
   function isSelfConversationTitle(title) {
@@ -615,16 +826,27 @@
   }
 
   function getConversationTitle() {
-    const selectedTitle = getSelectedChatTitle()
+    const primaryHeaderTitle =
+      getMainHeaderPrimaryTitle()
 
-    if (selectedTitle) {
-      return selectedTitle
+    if (primaryHeaderTitle) {
+      return primaryHeaderTitle
     }
 
-    const headerCandidates = getMainHeaderTextCandidates()
-    const headerTitle = headerCandidates.find((candidate) => !isIgnoredHeaderText(candidate))
+    const headerCandidates =
+      getMainHeaderTextCandidates()
 
-    return headerTitle || null
+    const headerTitle =
+      headerCandidates.find(
+        (candidate) =>
+          !isIgnoredHeaderText(candidate),
+      )
+
+    if (headerTitle) {
+      return headerTitle
+    }
+
+    return getSelectedChatTitle() || null
   }
 
   function getConversationPhone(title, conversationKey) {
@@ -655,7 +877,25 @@
       }
     }
 
-    const cachedPhone = cachedPhonesByConversationKey.get(conversationKey)
+    const lookupIdentity =
+      getAutomaticContactLookupIdentity(title)
+
+    const cachedPhoneByLookupIdentity =
+      cachedPhonesByLookupIdentity.get(
+        lookupIdentity,
+      )
+
+    if (cachedPhoneByLookupIdentity) {
+      return {
+        phone: cachedPhoneByLookupIdentity,
+        source: 'Dados do contato automático',
+      }
+    }
+
+    const cachedPhone =
+      cachedPhonesByConversationKey.get(
+        conversationKey,
+      )
 
     if (cachedPhone) {
       return {
@@ -1107,6 +1347,9 @@
       new Map()
     pendingCaptureMutationIds =
       new Set()
+    lastVisibleMessageSnapshots =
+      new Map()
+    lastConversationScrollAt = 0
     messageLedgerRequiresRebase =
       false
     messageLedgerMutationRevision =
@@ -1178,6 +1421,22 @@
 
       let detectedMessageMutation =
         false
+
+      const previousVisibleMessages =
+        Array.from(
+          lastVisibleMessageSnapshots
+            .values(),
+        )
+
+      const currentVisibleMessageSnapshots =
+        new Map()
+
+      const recentConversationScroll =
+        (
+          Date.now() -
+          lastConversationScrollAt
+        ) <
+        DISAPPEARED_MESSAGE_SCROLL_GUARD_MS
 
     main
       .querySelectorAll(
@@ -1305,7 +1564,74 @@
           message.id,
           messageToStore,
         )
+
+        currentVisibleMessageSnapshots.set(
+          message.id,
+          messageToStore,
+        )
       })
+
+    const safelyDisappearedMessageIds =
+      messageMutationTools
+        .findSafeDisappearedMessageIds({
+          previousVisibleMessages,
+          currentVisibleMessages:
+            Array.from(
+              currentVisibleMessageSnapshots
+                .values(),
+            ),
+          recentScroll:
+            recentConversationScroll,
+        })
+
+    safelyDisappearedMessageIds
+      .forEach((messageId) => {
+        if (
+          deletedMessageIds.has(
+            messageId,
+          )
+        ) {
+          return
+        }
+
+        const previousMessage =
+          conversationMessageLedger.get(
+            messageId,
+          ) ||
+          lastVisibleMessageSnapshots.get(
+            messageId,
+          )
+
+        if (!previousMessage) {
+          return
+        }
+
+        conversationMessageLedger.delete(
+          messageId,
+        )
+
+        deletedMessageIds.add(
+          messageId,
+        )
+
+        deletedMessageSnapshots.set(
+          messageId,
+          {
+            ...previousMessage,
+            observedAt,
+          },
+        )
+
+        rememberPendingCaptureMutation(
+          messageId,
+        )
+
+        detectedMessageMutation =
+          true
+      })
+
+    lastVisibleMessageSnapshots =
+      currentVisibleMessageSnapshots
 
     const sortedMessages =
       Array.from(
@@ -1553,10 +1879,15 @@
   }
 
   function getCaptureConversationKey() {
+    const canonicalPhone =
+      state.leadResolution?.phone ||
+      state.leadResolution?.lead?.phone ||
+      state.conversationPhone
+
     return messageMutationTools
       .buildStableCaptureConversationKey({
         phone:
-          state.conversationPhone,
+          canonicalPhone,
         title:
           state.conversationTitle,
       })
@@ -3281,9 +3612,24 @@
   }
 
   function scheduleAutomaticAnalysis(message) {
+    const scheduledKey =
+      getAutomaticAnalysisKey()
+
+    if (
+      automaticAnalysisTimerId &&
+      scheduledKey &&
+      automaticAnalysisScheduledKey ===
+        scheduledKey
+    ) {
+      return
+    }
+
     clearAutomaticAnalysisTimer()
 
-    if (!canScheduleAutomaticAnalysis()) {
+    if (
+      !scheduledKey ||
+      !canScheduleAutomaticAnalysis()
+    ) {
       if (
         state.automaticAnalysisStatus &&
         !state.conversationAnalysisLoading
@@ -3296,13 +3642,6 @@
         renderPanel()
       }
 
-      return
-    }
-
-    const scheduledKey =
-      getAutomaticAnalysisKey()
-
-    if (!scheduledKey) {
       return
     }
 
@@ -3436,31 +3775,196 @@
     return true
   }
 
-  function closeContactInfoPanel() {
-    const panel = findContactInfoPanel()
+  function findContactInfoHeader() {
+    const headers =
+      Array.from(
+        document.querySelectorAll('header'),
+      )
 
-    if (!panel) {
-      return
+    return (
+      headers.find((header) => {
+        if (header.closest?.(`#${PANEL_ID}`)) {
+          return false
+        }
+
+        const text =
+          String(
+            header.innerText ||
+            header.textContent ||
+            '',
+          )
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLocaleLowerCase('pt-BR')
+
+        return (
+          text.includes('dados do contato') ||
+          text.includes('dados do perfil') ||
+          text.includes('contact info') ||
+          text === 'profile'
+        )
+      }) ||
+      null
+    )
+  }
+
+  function getContactInfoCloseControl() {
+    const header =
+      findContactInfoHeader()
+
+    const panel =
+      findContactInfoPanel()
+
+    const roots =
+      [header, panel]
+        .filter(Boolean)
+
+    for (const root of roots) {
+      const labeledControl =
+        root.querySelector(
+          '[aria-label*="Fechar" i], [aria-label*="Close" i]',
+        )
+
+      if (labeledControl) {
+        return labeledControl
+      }
+
+      const closeIcon =
+        root.querySelector(
+          '[data-icon="x"]',
+        )
+
+      if (closeIcon) {
+        return (
+          closeIcon.closest(
+            'button,[role="button"],[tabindex]',
+          ) ||
+          closeIcon
+        )
+      }
     }
 
-    const closeButton =
-      panel.querySelector('[aria-label*="Fechar" i]') ||
-      panel.querySelector('[aria-label*="Close" i]') ||
-      panel.querySelector('[data-icon="x"]')?.closest('button')
+    return (
+      header?.querySelector(
+        'button,[role="button"],[tabindex]',
+      ) ||
+      null
+    )
+  }
 
-    if (closeButton) {
-      clickElement(closeButton)
-      return
+  function activateContactInfoCloseControl(
+    element,
+  ) {
+    if (!element) {
+      return false
     }
+
+    if (
+      typeof element.click ===
+      'function'
+    ) {
+      try {
+        element.click()
+        return true
+      } catch {
+        // Usa o fallback visual abaixo.
+      }
+    }
+
+    return clickElement(element)
+  }
+
+  function dispatchContactInfoEscape() {
+    const buildEscapeEvent = () =>
+      new KeyboardEvent(
+        'keydown',
+        {
+          key: 'Escape',
+          code: 'Escape',
+          keyCode: 27,
+          which: 27,
+          bubbles: true,
+        },
+      )
+
+    window.dispatchEvent(
+      buildEscapeEvent(),
+    )
 
     document.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 'Escape',
-        code: 'Escape',
-        keyCode: 27,
-        which: 27,
-        bubbles: true,
-      }),
+      buildEscapeEvent(),
+    )
+  }
+
+  function closeContactInfoPanel() {
+    const header =
+      findContactInfoHeader()
+
+    const panel =
+      findContactInfoPanel()
+
+    if (!header && !panel) {
+      return true
+    }
+
+    const closeControl =
+      getContactInfoCloseControl()
+
+    if (closeControl) {
+      return (
+        activateContactInfoCloseControl(
+          closeControl,
+        )
+      )
+    }
+
+    dispatchContactInfoEscape()
+    return true
+  }
+
+  async function waitForContactInfoPanelClosed(
+    attempts,
+  ) {
+    for (
+      let attempt = 0;
+      attempt < attempts;
+      attempt += 1
+    ) {
+      await sleep(100)
+
+      if (
+        !findContactInfoHeader() &&
+        !findContactInfoPanel()
+      ) {
+        await sleep(100)
+        return true
+      }
+    }
+
+    return false
+  }
+
+  async function closeContactInfoPanelAndWait() {
+    const closeTriggered =
+      closeContactInfoPanel()
+
+    if (!closeTriggered) {
+      return false
+    }
+
+    const closedAfterControl =
+      await waitForContactInfoPanelClosed(
+        10,
+      )
+
+    if (closedAfterControl) {
+      return true
+    }
+
+    dispatchContactInfoEscape()
+
+    return waitForContactInfoPanelClosed(
+      12,
     )
   }
 
@@ -3485,19 +3989,37 @@
       return
     }
 
-    if (!state.connected || state.isSelfConversation || state.conversationPhone) {
+    if (
+      !state.connected ||
+      state.isSelfConversation ||
+      state.isGroupConversation ||
+      state.conversationPhone
+    ) {
       return
     }
 
-    if (!conversationKey || autoLookupAttemptedKeys.has(conversationKey)) {
+    const lookupTitle =
+      state.conversationTitle
+
+    const lookupIdentity =
+      getAutomaticContactLookupIdentity(
+        lookupTitle,
+      )
+
+    if (
+      !conversationKey ||
+      !lookupIdentity ||
+      autoLookupAttemptedKeys.has(
+        lookupIdentity,
+      )
+    ) {
       return
     }
 
-    autoLookupAttemptedKeys.add(conversationKey)
     autoContactLookupInFlight = true
 
-    const lookupTitle = state.conversationTitle
-    const hadContactPanelOpen = Boolean(findContactInfoPanel())
+    const hadContactPanelOpen =
+      Boolean(findContactInfoPanel())
 
     state = {
       ...state,
@@ -3511,21 +4033,103 @@
         const clicked = clickElement(getClickableHeaderTarget())
 
         if (!clicked) {
+          const retryCount =
+            autoLookupPrepareRetryCounts.get(
+              lookupIdentity,
+            ) || 0
+
+          if (
+            retryCount <
+            AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES
+          ) {
+            autoLookupPrepareRetryCounts.set(
+              lookupIdentity,
+              retryCount + 1,
+            )
+
+            state = {
+              ...state,
+              autoLookupStatus:
+                'Preparando os dados do contato...',
+            }
+
+            renderPanel()
+
+            window.setTimeout(() => {
+              if (
+                state.connected &&
+                !state.conversationPhone &&
+                state.contactLookupIdentity ===
+                  lookupIdentity &&
+                !autoLookupAttemptedKeys.has(
+                  lookupIdentity,
+                )
+              ) {
+                runAutomaticContactLookup(
+                  conversationKey,
+                )
+              }
+            }, AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS)
+
+            return
+          }
+
+          autoLookupAttemptedKeys.add(
+            lookupIdentity,
+          )
+
           state = {
             ...state,
-            autoLookupStatus: 'Não consegui abrir os dados do contato automaticamente.',
+            autoLookupStatus:
+              'Não consegui abrir os dados do contato nesta tentativa. Troque de conversa e volte para tentar novamente.',
           }
 
           renderPanel()
           return
         }
 
+        autoLookupPrepareRetryCounts.delete(
+          lookupIdentity,
+        )
+
         await sleep(AUTO_CONTACT_LOOKUP_DELAY_MS)
       }
 
-      const phone = await waitForContactPanelPhone(AUTO_CONTACT_LOOKUP_TIMEOUT_MS)
+      autoLookupAttemptedKeys.add(
+        lookupIdentity,
+      )
 
-      if (state.conversationKey !== conversationKey || state.conversationTitle !== lookupTitle) {
+      const phone =
+        await waitForContactPanelPhone(
+          AUTO_CONTACT_LOOKUP_TIMEOUT_MS,
+        )
+
+      if (!hadContactPanelOpen) {
+        const panelClosed =
+          await closeContactInfoPanelAndWait()
+
+        if (!panelClosed) {
+          state = {
+            ...state,
+            autoLookupStatus:
+              'Não consegui fechar os dados do contato automaticamente.',
+          }
+
+          renderPanel()
+          return
+        }
+      }
+
+      const currentLookupIdentity =
+        getAutomaticContactLookupIdentity(
+          getMainHeaderPrimaryTitle() ||
+          state.conversationTitle,
+        )
+
+      if (
+        currentLookupIdentity !==
+        lookupIdentity
+      ) {
         return
       }
 
@@ -3540,7 +4144,15 @@
         return
       }
 
-      cachedPhonesByConversationKey.set(conversationKey, phone)
+      cachedPhonesByConversationKey.set(
+        conversationKey,
+        phone,
+      )
+
+      cachedPhonesByLookupIdentity.set(
+        lookupIdentity,
+        phone,
+      )
 
       state = {
         ...state,
@@ -3551,12 +4163,12 @@
 
       renderPanel()
 
-      if (!hadContactPanelOpen) {
-        await sleep(250)
-        closeContactInfoPanel()
-      }
-
       if (state.connected) {
+        lastResolvedConversationKey =
+          conversationKey
+        lastResolvedContactLookupIdentity =
+          lookupIdentity
+
         resolveCurrentLead()
       }
     } finally {
@@ -3612,11 +4224,31 @@
         conversationTitle,
       )
 
-    const phoneResult =
-      getConversationPhone(
+    const isGroupConversation =
+      isGroupConversationHeader()
+
+    const contactLookupIdentity =
+      getAutomaticContactLookupIdentity(
         conversationTitle,
-        conversationKey,
       )
+
+    const phoneResult =
+      isGroupConversation
+        ? {
+            phone: null,
+            source: null,
+          }
+        : getConversationPhone(
+            conversationTitle,
+            conversationKey,
+          )
+
+    const previousContactLookupIdentity =
+      state.contactLookupIdentity
+
+    const contactLookupChanged =
+      previousContactLookupIdentity !==
+      contactLookupIdentity
 
     const previousConversationKey =
       state.conversationKey
@@ -3624,6 +4256,21 @@
     const conversationChanged =
       previousConversationKey !==
       conversationKey
+
+      if (contactLookupChanged) {
+        lastResolvedContactLookupIdentity =
+          null
+
+        if (contactLookupIdentity) {
+          autoLookupAttemptedKeys.delete(
+            contactLookupIdentity,
+          )
+
+          autoLookupPrepareRetryCounts.delete(
+            contactLookupIdentity,
+          )
+        }
+      }
 
       if (conversationChanged) {
         rememberCurrentPreResolutionCapture()
@@ -3645,7 +4292,9 @@
         phoneResult.phone,
       phoneSource:
         phoneResult.source,
+      contactLookupIdentity,
       isSelfConversation,
+      isGroupConversation,
     }
 
     const messageMutationDetected =
@@ -3663,6 +4312,17 @@
 
     if (isSelfConversation) {
       lastResolvedConversationKey = null
+      lastResolvedContactLookupIdentity =
+        null
+      clearLeadStateForNewConversation()
+      renderPanel()
+      return messageMutationDetected
+    }
+
+    if (isGroupConversation) {
+      lastResolvedConversationKey = null
+      lastResolvedContactLookupIdentity =
+        null
       clearLeadStateForNewConversation()
       renderPanel()
       return messageMutationDetected
@@ -3673,11 +4333,14 @@
     if (
       state.connected &&
       phoneResult.phone &&
-      lastResolvedConversationKey !==
-        conversationKey
+      contactLookupIdentity &&
+      lastResolvedContactLookupIdentity !==
+        contactLookupIdentity
     ) {
       lastResolvedConversationKey =
         conversationKey
+      lastResolvedContactLookupIdentity =
+        contactLookupIdentity
 
       resolveCurrentLead()
       return messageMutationDetected
@@ -3686,7 +4349,11 @@
     if (
       state.connected &&
       !phoneResult.phone &&
-      conversationKey
+      conversationKey &&
+      contactLookupIdentity &&
+      !autoLookupAttemptedKeys.has(
+        contactLookupIdentity,
+      )
     ) {
       window.setTimeout(() => {
         runAutomaticContactLookup(
@@ -3757,6 +4424,10 @@
       return 'Conversa do próprio usuário'
     }
 
+    if (state.isGroupConversation) {
+      return 'Conversa em grupo'
+    }
+
     if (state.leadResolutionLoading) {
       return 'Localizando lead...'
     }
@@ -3779,6 +4450,10 @@
   function getLeadStatusDescription() {
     if (state.isSelfConversation) {
       return 'O Companion não vincula conversa com você mesmo a um lead comercial.'
+    }
+
+    if (state.isGroupConversation) {
+      return 'Grupos não são vinculados a leads. O Companion não abrirá os participantes nem procurará telefone.'
     }
 
     if (state.leadResolutionLoading) {
@@ -5661,10 +6336,12 @@
       renderPanel()
 
       if (options.resolveLeadAfterLoad === true && !state.isSelfConversation) {
-        resolveCurrentLead()
-
-        if (!state.conversationPhone && state.conversationKey) {
-          runAutomaticContactLookup(state.conversationKey)
+        if (state.conversationPhone) {
+          resolveCurrentLead()
+        } else if (state.conversationKey) {
+          runAutomaticContactLookup(
+            state.conversationKey,
+          )
         }
       }
     } catch (error) {
@@ -6112,6 +6789,8 @@
         await window.YolenCompanionApi
           .analyzeConversation({
             cycle_id: cycleId,
+            conversation_key:
+              getCaptureConversationKey(),
             conversation_text:
               conversationText,
             messages:
@@ -6778,6 +7457,35 @@
     }, SESSION_REFRESH_INTERVAL_MS)
   }
 
+  function observeConversationScrollActivity() {
+    document.addEventListener(
+      'scroll',
+      (event) => {
+        const main =
+          getMainConversationRoot()
+
+        const target =
+          event.target
+
+        if (
+          !main ||
+          !(target instanceof Element)
+        ) {
+          return
+        }
+
+        if (
+          target === main ||
+          main.contains(target)
+        ) {
+          lastConversationScrollAt =
+            Date.now()
+        }
+      },
+      true,
+    )
+  }
+
   function observeWhatsAppChanges() {
     const observedRoot =
       document.querySelector(WHATSAPP_APP_SELECTOR) ||
@@ -6809,6 +7517,10 @@
 
       observeWhatsAppChanges.timeoutId =
       window.setTimeout(() => {
+        if (autoContactLookupInFlight) {
+          return
+        }
+
         const messageMutationDetected =
           refreshConversationSnapshot()
 
@@ -6823,7 +7535,9 @@
         } else {
           scheduleCaptureIngestion()
 
-          handleConversationActivityForAutomaticAnalysis()
+          scheduleAutomaticAnalysis(
+            'Nova mensagem detectada. A Yolen aguardará 8 segundos antes de atualizar a análise.',
+          )
         }
       }, 600)
     })
@@ -6846,6 +7560,7 @@
     renderPanel()
     await captureSessionFromHash()
     refreshConversationSnapshot()
+    observeConversationScrollActivity()
     observeWhatsAppChanges()
     observeManualWhatsAppSend()
     startSessionAutoRefresh()

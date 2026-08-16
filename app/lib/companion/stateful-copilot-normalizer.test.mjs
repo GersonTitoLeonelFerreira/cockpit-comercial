@@ -24,6 +24,9 @@ const normalizationContext = {
     'commitment-demo-1',
   ],
 
+  negotiation_evidence_detected:
+    true,
+
   expected_previous_state_version:
     3,
 
@@ -449,7 +452,7 @@ test(
 )
 
 test(
-  'fornecedor não pode receber avanço operacional comercial',
+  'fornecedor não recebe avanço operacional comercial: normalizador neutraliza em vez de rejeitar',
   () => {
     const candidate =
       buildValidOutput()
@@ -473,19 +476,40 @@ test(
           true,
       }
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          normalizationContext,
-        ),
-      'NON_BUYER_OPERATIONAL_CHANGE',
+    const result =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.equal(
+      result
+        .operational_suggestions
+        .crm
+        .should_change_crm_stage,
+      false,
+    )
+
+    assert.equal(
+      result
+        .operational_suggestions
+        .crm
+        .recommended_status,
+      null,
+    )
+
+    assert.equal(
+      result
+        .operational_suggestions
+        .crm
+        .rationale,
+      null,
     )
   },
 )
 
 test(
-  'fornecedor não pode receber pergunta ou mensagem persuasiva de venda',
+  'fornecedor não recebe pergunta ou mensagem persuasiva de venda: normalizador neutraliza em vez de rejeitar',
   () => {
     const candidate =
       buildValidOutput()
@@ -493,13 +517,139 @@ test(
     candidate.commercial_role =
       'provider'
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          normalizationContext,
-        ),
-      'NON_BUYER_SALES_GUIDANCE',
+    const result =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.equal(
+      result
+        .strategy
+        .recommended_question,
+      null,
+    )
+
+    assert.equal(
+      result
+        .strategy
+        .suggested_message,
+      null,
+    )
+  },
+)
+
+test(
+  'rebaixa negociacao sem sinal comercial concreto na sessao atual',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .operational_suggestions
+      .crm = {
+        should_change_crm_stage:
+          true,
+
+        recommended_status:
+          'negociacao',
+
+        rationale:
+          'O cliente demonstrou interesse na solução.',
+
+        requires_human_confirmation:
+          true,
+      }
+
+    const context = {
+      ...normalizationContext,
+
+      current_crm_status:
+        'respondeu',
+
+      negotiation_evidence_detected:
+        false,
+    }
+
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        context,
+      )
+
+    assert.deepEqual(
+      normalized
+        .operational_suggestions
+        .crm,
+      {
+        should_change_crm_stage:
+          false,
+
+        recommended_status:
+          null,
+
+        rationale:
+          null,
+
+        requires_human_confirmation:
+          true,
+      },
+    )
+  },
+)
+
+test(
+  'preserva negociacao quando existe sinal comercial concreto',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .operational_suggestions
+      .crm = {
+        should_change_crm_stage:
+          true,
+
+        recommended_status:
+          'negociacao',
+
+        rationale:
+          'O cliente pediu proposta para fechar.',
+
+        requires_human_confirmation:
+          true,
+      }
+
+    const context = {
+      ...normalizationContext,
+
+      current_crm_status:
+        'respondeu',
+
+      negotiation_evidence_detected:
+        true,
+    }
+
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        context,
+      )
+
+    assert.equal(
+      normalized
+        .operational_suggestions
+        .crm
+        .should_change_crm_stage,
+      true,
+    )
+
+    assert.equal(
+      normalized
+        .operational_suggestions
+        .crm
+        .recommended_status,
+      'negociacao',
     )
   },
 )
@@ -683,20 +833,24 @@ test(
 )
 
 test(
-  'toda memória utilizada precisa aparecer no conjunto global',
+  'completa conjunto global com memória válida utilizada no diagnóstico',
   () => {
     const candidate =
       buildValidOutput()
 
     candidate.memory_ids = []
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          normalizationContext,
-        ),
-      'MISSING_GLOBAL_MEMORY_REFERENCE',
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.deepEqual(
+      normalized.memory_ids,
+      [
+        'commitment-demo-1',
+      ],
     )
   },
 )
@@ -724,7 +878,7 @@ test(
 
 
 test(
-  'patch de estado exige memória ativa e declarada globalmente',
+  'patch de estado agrega memória ativa utilizada ao conjunto global',
   () => {
     const candidate =
       buildValidOutput()
@@ -753,19 +907,6 @@ test(
       ],
     }
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          context,
-        ),
-      'MISSING_GLOBAL_MEMORY_REFERENCE',
-    )
-
-    candidate.memory_ids.push(
-      'need-active-1',
-    )
-
     const normalized =
       normalizeStatefulCopilotOutput(
         candidate,
@@ -777,6 +918,14 @@ test(
         .state_patch
         .need_ids_to_resolve,
       [
+        'need-active-1',
+      ],
+    )
+
+    assert.deepEqual(
+      normalized.memory_ids,
+      [
+        'commitment-demo-1',
         'need-active-1',
       ],
     )
@@ -886,6 +1035,50 @@ test(
         .commitments_to_upsert[0]
         .commitment_id,
       'commitment-demo-1',
+    )
+  },
+)
+
+
+test(
+  'rejeita current_moment sustentado somente por memoria historica',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .interpretation
+      .current_moment
+      .evidence_message_ids = []
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+    )
+  },
+)
+
+test(
+  'rejeita estrategia sustentada somente por memoria historica',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .strategy
+      .evidence_message_ids = []
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          normalizationContext,
+        ),
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
     )
   },
 )

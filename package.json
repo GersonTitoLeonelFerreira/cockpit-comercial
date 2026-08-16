@@ -17,7 +17,12 @@
     "test:schema-baseline": "node --test supabase/schema-baseline/schema-baseline.test.mjs",
     "test:companion-stateful-persistence": "node --test supabase/phase-tests/phase-5-stateful-persistence.test.mjs",
     "test:companion-stateful-context": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/stateful-copilot-real-context-loader.test.mjs",
-    "test:companion-stateful-runtime": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/server/stateful-copilot-runtime-orchestrator.test.mjs"
+    "test:companion-stateful-runtime": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/server/stateful-copilot-runtime-orchestrator.test.mjs",
+    "report:companion-shadow": "node --env-file=.env.local scripts/companion-shadow-report.mjs",
+    "report:companion-corpus-regression": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-corpus-regression-runner.mjs",
+    "report:companion-corpus-regression-markdown": "node scripts/companion-corpus-regression-to-markdown.mjs",
+    "report:companion-real-cycle-replay": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-real-cycle-replay-runner.mjs",
+    "report:companion-dynamic-dialogues": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-dynamic-dialogue-validation-runner.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

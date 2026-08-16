@@ -1,12 +1,4 @@
 import {
-  STATEFUL_COPILOT_CONTRACT_VERSION,
-} from './stateful-copilot-contract'
-
-import {
-  STATEFUL_COPILOT_PROMPT_VERSION,
-} from './stateful-copilot-execution-plan'
-
-import {
   StatefulCopilotExecutionError,
   type StatefulCopilotProvider,
   type StatefulCopilotProviderRequest,
@@ -15,8 +7,8 @@ import {
 } from './stateful-copilot-executor'
 
 import {
-  STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
-} from './stateful-copilot-json-schema'
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from './stateful-communication-contract'
 
 export const DEFAULT_STATEFUL_COPILOT_OPENAI_MODEL =
   'gpt-4.1-mini-2025-04-14' as const
@@ -42,6 +34,7 @@ type OpenAIFetch =
 export type StatefulCopilotOpenAIProviderOptions = {
   api_key?: string | null
   model?: string | null
+  communication_model?: string | null
   timeout_ms?: number
   max_output_tokens?: number
   fetch_impl?: OpenAIFetch
@@ -213,7 +206,27 @@ function resolveApiKey(
 function resolveModel(
   options:
     StatefulCopilotOpenAIProviderOptions,
+  request:
+    StatefulCopilotProviderRequest,
 ): string {
+  if (
+    request.output_contract_version ===
+    STATEFUL_COMMUNICATION_CONTRACT_VERSION
+  ) {
+    const communicationModel =
+      normalizeOptionalString(
+        options.communication_model ===
+          undefined
+          ? process.env
+              .OPENAI_STATEFUL_COMMUNICATION_MODEL
+          : options.communication_model,
+      )
+
+    if (communicationModel) {
+      return communicationModel
+    }
+  }
+
   const rawValue =
     options.model === undefined
       ? process.env
@@ -233,15 +246,16 @@ function validateProviderRequest(
     StatefulCopilotProviderRequest,
 ) {
   if (
-    request.prompt_version !==
-    STATEFUL_COPILOT_PROMPT_VERSION
+    typeof request.prompt_version !==
+      'string' ||
+    request.prompt_version.trim() === ''
   ) {
     fail({
       code:
         'INVALID_OPENAI_PROVIDER_REQUEST',
 
       message:
-        'A versão do prompt recebida pelo provedor é incompatível.',
+        'A versão do prompt recebida pelo provedor é inválida.',
 
       status_code:
         500,
@@ -252,15 +266,16 @@ function validateProviderRequest(
   }
 
   if (
-    request.output_contract_version !==
-    STATEFUL_COPILOT_CONTRACT_VERSION
+    typeof request.output_contract_version !==
+      'string' ||
+    request.output_contract_version.trim() === ''
   ) {
     fail({
       code:
         'INVALID_OPENAI_PROVIDER_REQUEST',
 
       message:
-        'A versão do contrato recebida pelo provedor é incompatível.',
+        'A versão do contrato recebida pelo provedor é inválida.',
 
       status_code:
         500,
@@ -280,6 +295,27 @@ function validateProviderRequest(
 
       message:
         'O provedor recebeu prompts vazios.',
+
+      status_code:
+        500,
+
+      retryable:
+        false,
+    })
+  }
+
+  if (
+    isRecord(
+      request
+        .structured_output_format,
+    ) === false
+  ) {
+    fail({
+      code:
+        'INVALID_OPENAI_PROVIDER_REQUEST',
+
+      message:
+        'O provedor recebeu um formato de saída estruturada inválido.',
 
       status_code:
         500,
@@ -331,7 +367,8 @@ function buildOpenAIRequestBody({
 
     text: {
       format:
-        STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+        request
+          .structured_output_format,
     },
   }
 }
@@ -685,6 +722,7 @@ export function createStatefulCopilotOpenAIProvider(
     const model =
       resolveModel(
         options,
+        request,
       )
 
     const timeout =

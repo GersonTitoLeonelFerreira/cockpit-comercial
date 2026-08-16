@@ -42,6 +42,9 @@ export type StatefulCopilotNormalizationContext = {
 
   active_memory_ids: string[]
 
+  negotiation_evidence_detected:
+    boolean
+
   expected_previous_state_version:
     number | null
 
@@ -1046,6 +1049,29 @@ function normalizeInterpretation(
       path,
     )
 
+  const currentMoment =
+    normalizeContextualEvidence(
+      record.current_moment,
+      `${path}.current_moment`,
+      analyzedMessageIds,
+      collectedEvidenceIds,
+      availableMemoryIds,
+      activeMemoryIds,
+      collectedMemoryIds,
+    )
+
+  if (
+    currentMoment
+      .evidence_message_ids
+      .length === 0
+  ) {
+    fail(
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+      `${path}.current_moment.evidence_message_ids`,
+      'O momento atual precisa possuir evidência da sessão temporal atual.',
+    )
+  }
+
   return {
     what_changed:
       normalizeNullableEvidence(
@@ -1072,15 +1098,7 @@ function normalizeInterpretation(
       ),
 
     current_moment:
-      normalizeContextualEvidence(
-        record.current_moment,
-        `${path}.current_moment`,
-        analyzedMessageIds,
-        collectedEvidenceIds,
-        availableMemoryIds,
-        activeMemoryIds,
-        collectedMemoryIds,
-      ),
+      currentMoment,
 
     customer_need:
       normalizeNullableContextualEvidence(
@@ -1149,6 +1167,16 @@ function normalizeStrategy(
     memoryIds,
     path,
   )
+
+  if (
+    evidenceMessageIds.length === 0
+  ) {
+    fail(
+      'CURRENT_MESSAGE_EVIDENCE_REQUIRED',
+      `${path}.evidence_message_ids`,
+      'A estratégia precisa possuir evidência da sessão temporal atual.',
+    )
+  }
 
   return {
     method_application:
@@ -1238,6 +1266,34 @@ function normalizeCrmSuggestion(
       `${path}.recommended_status`,
       'CRM sem mudança não pode recomendar uma etapa.',
     )
+  }
+
+  if (
+    shouldChange &&
+    recommendedStatus ===
+      'negociacao' &&
+    context
+      .current_crm_status !==
+      'negociacao' &&
+    !context
+      .negotiation_evidence_detected
+  ) {
+    return {
+      should_change_crm_stage:
+        false,
+
+      recommended_status:
+        null,
+
+      rationale:
+        null,
+
+      requires_human_confirmation:
+        requireLiteralTrue(
+          record.requires_human_confirmation,
+          `${path}.requires_human_confirmation`,
+        ),
+    }
   }
 
   if (
@@ -1587,6 +1643,12 @@ export function normalizeStatefulCopilotOutput(
       context,
     )
 
+  // O contrato já proíbe avanço operacional e orientação de venda quando o
+  // papel comercial não é "buyer". Em vez de rejeitar a análise inteira
+  // quando o modelo viola essa regra que ele mesmo deveria seguir, o
+  // normalizador corrige a saída para o estado neutro que o contrato exige
+  // — a mesma regra, aplicada de forma determinística em vez de confiada
+  // apenas ao modelo.
   if (
     commercialRole !== 'buyer' &&
     (
@@ -1594,11 +1656,13 @@ export function normalizeStatefulCopilotOutput(
       agenda.should_change_agenda
     )
   ) {
-    fail(
-      'NON_BUYER_OPERATIONAL_CHANGE',
-      'output.operational_suggestions',
-      'Fornecedor ou papel desconhecido não pode receber avanço operacional comercial.',
-    )
+    crm.should_change_crm_stage = false
+    crm.recommended_status = null
+    crm.rationale = null
+
+    agenda.should_change_agenda = false
+    agenda.expected_next_action_at = null
+    agenda.rationale = null
   }
 
   if (
@@ -1608,11 +1672,8 @@ export function normalizeStatefulCopilotOutput(
       strategy.suggested_message !== null
     )
   ) {
-    fail(
-      'NON_BUYER_SALES_GUIDANCE',
-      'output.strategy',
-      'Fornecedor ou papel desconhecido não pode receber pergunta ou mensagem de venda.',
-    )
+    strategy.recommended_question = null
+    strategy.suggested_message = null
   }
 
   const globalEvidenceIds =
@@ -1659,7 +1720,7 @@ export function normalizeStatefulCopilotOutput(
     }
   }
 
-  const globalMemoryIds =
+  const declaredGlobalMemoryIds =
     requireUniqueStringArray(
       root.memory_ids,
       'output.memory_ids',
@@ -1667,7 +1728,7 @@ export function normalizeStatefulCopilotOutput(
 
   for (
     const memoryId of
-    globalMemoryIds
+    declaredGlobalMemoryIds
   ) {
     if (
       !availableMemoryIds.has(
@@ -1694,25 +1755,24 @@ export function normalizeStatefulCopilotOutput(
     }
   }
 
-  const globalMemoryIdSet =
-    new Set(globalMemoryIds)
+  const normalizedGlobalMemoryIdSet =
+    new Set(
+      declaredGlobalMemoryIds,
+    )
 
   for (
     const memoryId of
     collectedMemoryIds
   ) {
-    if (
-      !globalMemoryIdSet.has(
-        memoryId,
-      )
-    ) {
-      fail(
-        'MISSING_GLOBAL_MEMORY_REFERENCE',
-        'output.memory_ids',
-        `A memória ${memoryId} foi utilizada, mas não está declarada no conjunto global.`,
-      )
-    }
+    normalizedGlobalMemoryIdSet.add(
+      memoryId,
+    )
   }
+
+  const globalMemoryIds =
+    Array.from(
+      normalizedGlobalMemoryIdSet,
+    )
 
   return {
     contract_version:

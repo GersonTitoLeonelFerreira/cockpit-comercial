@@ -14,6 +14,10 @@ import {
 } from './stateful-copilot-execution-plan.ts'
 
 import {
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from './stateful-communication-contract.ts'
+
+import {
   STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION,
 } from './stateful-commercial-state.ts'
 
@@ -328,6 +332,57 @@ function buildModelResult() {
 
     output,
 
+    communication_output: {
+      contract_version:
+        STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+
+      intervention_needed:
+        true,
+
+      method_application:
+        'Aplicar o método de forma consultiva.',
+
+      guidance:
+        'Entender a necessidade principal.',
+
+      recommended_question:
+        'Qual é sua principal necessidade?',
+
+      suggested_message:
+        'Qual é sua principal necessidade neste momento?',
+    },
+
+    communication_execution: {
+      mode:
+        'model',
+
+      provider:
+        'openai',
+
+      model:
+        'test-model',
+
+      request_id:
+        'request-2',
+
+      usage: {
+        input_tokens:
+          40,
+
+        output_tokens:
+          50,
+
+        total_tokens:
+          90,
+      },
+
+      attempts:
+        1,
+
+      recovered_after_retry:
+        false,
+    },
+
     candidate_state:
       buildState(),
 
@@ -410,6 +465,12 @@ function buildBlockedResult() {
     },
 
     output:
+      null,
+
+    communication_output:
+      null,
+
+    communication_execution:
       null,
 
     candidate_state:
@@ -542,6 +603,33 @@ test(
         .audit_event
         .automatic_crm_write,
       false,
+    )
+
+    assert.equal(
+      result
+        .audit_event
+        .normalized_output
+        .communication
+        .contract_version,
+      STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+    )
+
+    assert.equal(
+      result
+        .audit_event
+        .execution
+        .diagnostic
+        .request_id,
+      'request-1',
+    )
+
+    assert.equal(
+      result
+        .audit_event
+        .execution
+        .communication
+        .request_id,
+      'request-2',
     )
 
     assert.equal(

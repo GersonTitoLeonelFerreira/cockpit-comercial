@@ -10,6 +10,10 @@ import {
 } from './stateful-copilot-execution-plan.ts'
 
 import {
+  STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+} from './stateful-copilot-json-schema.ts'
+
+import {
   StatefulCopilotExecutionError,
   executeStatefulCopilotModelAttempt,
 } from './stateful-copilot-executor.ts'
@@ -316,7 +320,7 @@ test(
 )
 
 test(
-  'encaminha somente os prompts e versões ao provedor',
+  'encaminha prompts versões e formato estruturado ao provedor',
   async () => {
     let receivedRequest =
       null
@@ -341,9 +345,16 @@ test(
       [
         'output_contract_version',
         'prompt_version',
+        'structured_output_format',
         'system_prompt',
         'user_prompt',
       ],
+    )
+
+    assert.deepEqual(
+      receivedRequest
+        .structured_output_format,
+      STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
     )
 
     assert.equal(

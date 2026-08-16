@@ -471,6 +471,9 @@ test(
         openai_model:
           'stateful-model-test',
 
+        openai_communication_model:
+          'communication-model-test',
+
         openai_timeout_ms:
           45_000,
 
@@ -560,6 +563,9 @@ test(
 
         model:
           'stateful-model-test',
+
+        communication_model:
+          'communication-model-test',
 
         timeout_ms:
           45_000,

@@ -1,10 +1,16 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
 import { resolveCompanionEngineVersion } from '@/app/lib/companion/engine-version'
+import {
+  resolveStatefulCopilotActivationGate,
+} from '@/app/lib/companion/stateful-copilot-activation-gate'
+import {
+  createStatefulCopilotServerRuntimeOrchestrator,
+} from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
 import {
   selectStructuredMessageBatch,
   shouldForceReanalysis,
@@ -31,6 +37,8 @@ type CompanionTokenPayload = {
 
 type AnalyzeCompanionBody = {
   cycle_id?: unknown
+  conversation_key?: unknown
+  device_key?: unknown
   conversation_text?: unknown
   messages?: unknown
   source?: unknown
@@ -38,6 +46,9 @@ type AnalyzeCompanionBody = {
   force_reanalysis?: unknown
   message_snapshot_hash?: unknown
 }
+
+const runStatefulCopilotRuntime =
+  createStatefulCopilotServerRuntimeOrchestrator()
 
 type CompanionMessageDirection =
   | 'incoming'
@@ -303,6 +314,50 @@ function getAudioCount(value: unknown) {
   }
 
   return 0
+}
+
+function getStatefulActivationAudit(
+  companyId: string,
+) {
+  try {
+    const activation =
+      resolveStatefulCopilotActivationGate({
+        company_id:
+          companyId,
+      })
+
+    return {
+      mode:
+        activation.mode,
+      reason:
+        activation.reason,
+      engine_version:
+        activation.engine_version,
+      enabled:
+        activation.enabled,
+      should_execute_stateful:
+        activation
+          .should_execute_stateful,
+      should_persist_stateful_state:
+        activation
+          .should_persist_stateful_state,
+    }
+  } catch {
+    return {
+      mode:
+        'invalid',
+      reason:
+        'activation_gate_error',
+      engine_version:
+        null,
+      enabled:
+        false,
+      should_execute_stateful:
+        false,
+      should_persist_stateful_state:
+        false,
+    }
+  }
 }
 
 function getCompanionRecordFromDecision(value: unknown) {
@@ -939,6 +994,7 @@ function buildYolenDecision({
   latestDecision,
   messageSnapshotHash,
   forceReanalysis,
+  companyId,
 }: {
   suggestion: JsonRecord
   diagnostics: unknown
@@ -953,6 +1009,7 @@ function buildYolenDecision({
   latestDecision: JsonRecord | null
   messageSnapshotHash: string | null
   forceReanalysis: boolean
+  companyId: string
 }) {
   const messageCursor =
     buildNextMessageCursor({
@@ -1019,6 +1076,10 @@ function buildYolenDecision({
         messageSnapshotHash,
       force_reanalysis:
         forceReanalysis,
+      stateful_activation:
+        getStatefulActivationAudit(
+          companyId,
+        ),
       saved_without_applying: true,
     },
   }
@@ -1240,6 +1301,16 @@ export async function POST(request: Request) {
 
     const cycleId =
       getString(body.cycle_id)
+
+    const conversationKey =
+      getString(
+        body.conversation_key,
+      )?.trim() || null
+
+    const deviceKey =
+      getString(
+        body.device_key,
+      )?.trim() || null
 
     const legacyConversationText =
       cleanConversationText(
@@ -1783,6 +1854,8 @@ export async function POST(request: Request) {
             ?.yolenDecision ?? null,
         messageSnapshotHash,
         forceReanalysis,
+        companyId:
+          tokenPayload.company_id,
       })
 
     const savedCoaching = await saveCompanionCoachingNote({
@@ -1793,16 +1866,143 @@ export async function POST(request: Request) {
       yolenDecision,
     })
 
+    const v1ResponseData = {
+      context,
+      suggestion:
+        result.suggestion,
+      diagnostics:
+        result.diagnostics,
+      saved_coaching:
+        savedCoaching,
+      coaching:
+        buildResponseCoaching(
+          coaching,
+        ),
+    }
+
+    /*
+     * Fase 5.2:
+     *
+     * O V1 continua sendo a resposta operacional.
+     * O stateful roda após a resposta, em shadow,
+     * sem acrescentar sua latência ao vendedor.
+     */
+    after(async () => {
+      const startedAt =
+        Date.now()
+
+      try {
+        const statefulResult =
+          await runStatefulCopilotRuntime({
+            company_id:
+              tokenPayload.company_id,
+
+            cycle_id:
+              cycleId,
+
+            conversation_key:
+              conversationKey,
+
+            device_key:
+              deviceKey,
+
+            reference_time:
+              new Date().toISOString(),
+
+            v1_response:
+              v1ResponseData,
+          })
+
+        if (
+          statefulResult
+            .activation
+            .mode ===
+          'disabled'
+        ) {
+          return
+        }
+
+        console.info(
+          'YOLEN_COMPANION_STATEFUL_SHADOW',
+          JSON.stringify({
+            event:
+              'stateful_shadow_completed',
+
+            company_id:
+              tokenPayload.company_id,
+
+            cycle_id:
+              cycleId,
+
+            activation_mode:
+              statefulResult
+                .activation
+                .mode,
+
+            runtime_mode:
+              statefulResult.mode,
+
+            response_source:
+              statefulResult
+                .response_source,
+
+            stateful_executed:
+              statefulResult
+                .stateful_executed,
+
+            duration_ms:
+              Math.max(
+                0,
+                Date.now() -
+                  startedAt,
+              ),
+
+            execution:
+              statefulResult
+                .stateful_execution,
+
+            failure:
+              statefulResult
+                .stateful_failure,
+
+            automatic_crm_write:
+              statefulResult
+                .automatic_crm_write,
+
+            automatic_agenda_write:
+              statefulResult
+                .automatic_agenda_write,
+          }),
+        )
+      } catch {
+        console.warn(
+          'YOLEN_COMPANION_STATEFUL_SHADOW',
+          JSON.stringify({
+            event:
+              'stateful_shadow_unhandled_failure',
+
+            company_id:
+              tokenPayload.company_id,
+
+            cycle_id:
+              cycleId,
+
+            duration_ms:
+              Math.max(
+                0,
+                Date.now() -
+                  startedAt,
+              ),
+          }),
+        )
+      }
+    })
+
     return NextResponse.json<AnalyzeConversationResponse>(
       {
         ok: true,
-        data: {
-          context,
-          suggestion: result.suggestion,
-          diagnostics: result.diagnostics,
-          saved_coaching: savedCoaching,
-          coaching: buildResponseCoaching(coaching),
-        },
+        data:
+          v1ResponseData,
       },
       {
         headers: corsHeaders,

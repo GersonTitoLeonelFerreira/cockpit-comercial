@@ -1111,3 +1111,458 @@ test(
     )
   },
 )
+
+
+test(
+  'detecta sinal concreto antes de autorizar negociacao',
+  () => {
+    const discoveryPlan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          incomingText:
+            'Os parados',
+        }),
+      )
+
+    assert.equal(
+      discoveryPlan.mode,
+      'model',
+    )
+
+    assert.equal(
+      discoveryPlan
+        .request
+        .normalization_context
+        .negotiation_evidence_detected,
+      false,
+    )
+
+    const pricePlan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          incomingText:
+            'Quanto custa?',
+        }),
+      )
+
+    assert.equal(
+      pricePlan
+        .request
+        .normalization_context
+        .negotiation_evidence_detected,
+      false,
+    )
+
+    const negotiationPlan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          incomingText:
+            'Pode me enviar a proposta comercial para fecharmos?',
+        }),
+      )
+
+    assert.equal(
+      negotiationPlan
+        .request
+        .normalization_context
+        .negotiation_evidence_detected,
+      true,
+    )
+  },
+)
+
+test(
+  'modelo recebe memoria anterior sem ids historicos de mensagens',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    const originalInput =
+      clone(input)
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    const previousState =
+      payload
+        .input
+        .state_context
+        .previous_state
+
+    assert.ok(previousState)
+
+    assert.deepEqual(
+      previousState.objections,
+      [],
+    )
+
+    assert.equal(
+      previousState
+        .commitments[0]
+        .id,
+      'commitment-demo-1',
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState
+          .commitments[0],
+        'evidence_message_ids',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState
+          .current_moment,
+        'evidence_message_ids',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState,
+        'last_analyzed_message_ids',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState,
+        'last_evidence_message_ids',
+      ),
+      false,
+    )
+
+    assert.deepEqual(
+      input,
+      originalInput,
+    )
+  },
+)
+
+test(
+  'prompt 5.2 v12 preserva papeis, continuidade, descoberta e contexto incremental',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          continuation:
+            true,
+        }),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.equal(
+      STATEFUL_COPILOT_PROMPT_VERSION,
+      'phase-5.2-stateful-prompt-v12',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /direction="outgoing" significa mensagem enviada pelo usuário\/vendedor da empresa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /direction="incoming" significa mensagem enviada pelo contato externo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /commercial_role descreve sempre o papel do contato externo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /proposta de compromisso, data ou horário feita por qualquer uma das partes permanece com status proposed/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /aceite bilateral inequívoco do compromisso/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Se qualquer lado ainda precisar verificar, confirmar ou aceitar, mantenha should_change_agenda=false/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /context_bridge_messages pode conter uma ponte curta com até seis mensagens/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não ressuscite compromisso comercial antigo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /current_moment e strategy precisam usar pelo menos uma evidence_message_ids/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Use need_ids_to_resolve com o ID ativo anterior/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não resolva uma incerteza ampla apenas porque um dos componentes foi esclarecido/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Evite interrogatório/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /conecte a solução ao problema antes de continuar quantificando detalhes opcionais/,
+    )
+  },
+)
+
+test(
+  'ponte anterior fica visivel ao modelo mas nao pode virar evidencia do momento atual',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[0]
+      .occurred_at =
+        '2026-08-05T10:00:00-03:00'
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[0]
+      .observed_at =
+        '2026-08-05T10:00:01-03:00'
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[1]
+      .occurred_at =
+        '2026-08-05T22:15:00-03:00'
+
+    input
+      .diagnostic_input
+      .conversation
+      .messages[1]
+      .observed_at =
+        '2026-08-05T22:15:01-03:00'
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    assert.deepEqual(
+      payload
+        .required_analyzed_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    assert.deepEqual(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .active_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    assert.deepEqual(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .messages
+        .map(
+          message =>
+            message.id,
+        ),
+      [
+        'm3',
+      ],
+    )
+
+    assert.equal(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .context_bridge_messages
+        .length,
+      1,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        payload
+          .input
+          .diagnostic_input
+          .conversation
+          .context_bridge_messages[0],
+        'id',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        payload
+          .input
+          .diagnostic_input
+          .conversation
+          .context_bridge_messages[0],
+        'message_key',
+      ),
+      false,
+    )
+  },
+)
+
+
+test(
+  'continuação envia somente mensagens posteriores ao watermark do estado',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .state_context
+      .previous_state
+      .updated_at =
+        '2026-08-05T22:12:00-03:00'
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    assert.deepEqual(
+      payload
+        .required_analyzed_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    assert.deepEqual(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .messages
+        .map(
+          message =>
+            message.id,
+        ),
+      [
+        'm3',
+      ],
+    )
+
+    assert.equal(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .context_bridge_messages
+        .length,
+      1,
+    )
+
+    assert.equal(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .context_bridge_messages[0]
+        .text_content,
+      'A demonstração continua confirmada para amanhã às 15h.',
+    )
+  },
+)

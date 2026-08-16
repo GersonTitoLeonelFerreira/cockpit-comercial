@@ -14,6 +14,10 @@ import {
 } from './stateful-copilot-contract.ts'
 
 import {
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from './stateful-communication-contract.ts'
+
+import {
   StatefulCommercialStateReductionError,
 } from './stateful-commercial-state-reducer.ts'
 
@@ -321,6 +325,28 @@ function createMemoryId({
   ].join('-')
 }
 
+function buildCommunicationOutput() {
+  return {
+    contract_version:
+      STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+
+    intervention_needed:
+      true,
+
+    method_application:
+      'Usar o contexto para responder ao ponto atual antes de avançar.',
+
+    guidance:
+      'Responder diretamente e confirmar o próximo passo de forma natural.',
+
+    recommended_question:
+      'Você prefere que eu retome o contato amanhã?',
+
+    suggested_message:
+      'Claro. Você prefere que eu retome o contato amanhã?',
+  }
+}
+
 function createProvider(
   outputs,
   calls,
@@ -418,6 +444,7 @@ test(
                 addFact:
                   true,
               }),
+              buildCommunicationOutput(),
             ],
             calls,
           ),
@@ -462,8 +489,33 @@ test(
     )
 
     assert.equal(
-      calls.length,
+      result
+        .communication_execution
+        .attempts,
       1,
+    )
+
+    assert.equal(
+      result
+        .output
+        .strategy
+        .suggested_message,
+      'Claro. Você prefere que eu retome o contato amanhã?',
+    )
+
+    assert.deepEqual(
+      result
+        .output
+        .strategy
+        .evidence_message_ids,
+      [
+        'm1',
+      ],
+    )
+
+    assert.equal(
+      calls.length,
+      2,
     )
 
     assert.deepEqual(
@@ -497,6 +549,7 @@ test(
                 addFact:
                   true,
               }),
+              buildCommunicationOutput(),
             ],
             firstCalls,
           ),
@@ -547,6 +600,7 @@ test(
                 messageId:
                   'm2',
               }),
+              buildCommunicationOutput(),
             ],
             secondCalls,
           ),
@@ -756,6 +810,7 @@ test(
                   addFact:
                     true,
                 }),
+                buildCommunicationOutput(),
               ],
               calls,
             ),
@@ -780,7 +835,7 @@ test(
 
     assert.equal(
       calls.length,
-      1,
+      2,
     )
 
     assert.deepEqual(

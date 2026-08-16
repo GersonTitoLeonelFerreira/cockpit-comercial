@@ -1,7 +1,37 @@
 /* global browser, chrome */
 
 ;(function initYolenCompanionApi() {
-  const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
+  const DEFAULT_BASE_URL =
+    'https://cockpit-comercial-vocn.vercel.app'
+
+  const PHASE_5_2_PREVIEW_BASE_URL =
+    'https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app'
+
+  const LOCAL_BASE_URL =
+    'http://localhost:3000'
+
+  let sessionBaseUrl = null
+
+  function getAllowedSessionBaseUrl(value) {
+    if (
+      value === DEFAULT_BASE_URL ||
+      value === PHASE_5_2_PREVIEW_BASE_URL ||
+      value === LOCAL_BASE_URL
+    ) {
+      return value
+    }
+
+    return null
+  }
+
+  function rememberSessionBaseUrl(value) {
+    const allowedBaseUrl =
+      getAllowedSessionBaseUrl(value)
+
+    if (allowedBaseUrl) {
+      sessionBaseUrl = allowedBaseUrl
+    }
+  }
 
   function getRuntime() {
     if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
@@ -16,12 +46,10 @@
   }
 
   function getBaseUrl() {
-    try {
-      const savedUrl = window.localStorage.getItem('yolen_companion_base_url')
-      return savedUrl || DEFAULT_BASE_URL
-    } catch {
-      return DEFAULT_BASE_URL
-    }
+    return (
+      sessionBaseUrl ||
+      DEFAULT_BASE_URL
+    )
   }
 
   async function sendToBackground(action, payload) {
@@ -61,17 +89,49 @@
   }
 
   async function getMe() {
-    return sendToBackground('GET_ME')
+    const result =
+      await sendToBackground(
+        'GET_ME',
+      )
+
+    if (result?.ok) {
+      rememberSessionBaseUrl(
+        result.origin,
+      )
+    }
+
+    return result
   }
 
   async function setSession(session) {
-    return sendToBackground('SET_SESSION', {
-      session,
-    })
+    const result =
+      await sendToBackground(
+        'SET_SESSION',
+        {
+          session,
+        },
+      )
+
+    if (result?.ok) {
+      rememberSessionBaseUrl(
+        session?.origin,
+      )
+    }
+
+    return result
   }
 
   async function clearSession() {
-    return sendToBackground('CLEAR_SESSION')
+    const result =
+      await sendToBackground(
+        'CLEAR_SESSION',
+      )
+
+    if (result?.ok) {
+      sessionBaseUrl = null
+    }
+
+    return result
   }
 
   async function resolveLead(payload) {

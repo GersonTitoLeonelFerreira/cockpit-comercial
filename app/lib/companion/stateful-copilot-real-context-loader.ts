@@ -29,6 +29,15 @@ const MAX_LEDGER_ROWS =
 const MAX_CANONICAL_MESSAGES =
   1000
 
+const STATEFUL_DIAGNOSTIC_SESSION_GAP_MS =
+  4 * 60 * 60 * 1000
+
+const STATEFUL_DIAGNOSTIC_MAX_MESSAGES =
+  80
+
+const STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES =
+  6
+
 const COMPANY_FIELDS = `
   id,
   name,
@@ -1382,6 +1391,145 @@ function buildCanonicalLedger({
   }
 }
 
+export function selectStatefulDiagnosticMessages(
+  canonicalMessages:
+    NormalizedLedgerMessage[],
+): NormalizedLedgerMessage[] {
+  if (
+    canonicalMessages.length === 0
+  ) {
+    return []
+  }
+
+  const orderedByActivity =
+    canonicalMessages
+      .map((message) => ({
+        message,
+        activity_timestamp:
+          Math.max(
+            Date.parse(
+              message.occurred_at,
+            ),
+            Date.parse(
+              message.observed_at,
+            ),
+          ),
+      }))
+      .sort((left, right) => {
+        if (
+          left.activity_timestamp !==
+          right.activity_timestamp
+        ) {
+          return (
+            left.activity_timestamp -
+            right.activity_timestamp
+          )
+        }
+
+        return left.message.id.localeCompare(
+          right.message.id,
+          'en',
+          {
+            numeric: true,
+          },
+        )
+      })
+
+  const currentSession:
+    NormalizedLedgerMessage[] = []
+
+  let newerActivityTimestamp:
+    number | null = null
+
+  let bridgeEndIndex =
+    -1
+
+  for (
+    let index =
+      orderedByActivity.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
+    const current =
+      orderedByActivity[index]
+
+    if (
+      newerActivityTimestamp !== null &&
+      newerActivityTimestamp -
+        current.activity_timestamp >
+        STATEFUL_DIAGNOSTIC_SESSION_GAP_MS
+    ) {
+      bridgeEndIndex =
+        index
+      break
+    }
+
+    currentSession.push(
+      current.message,
+    )
+
+    newerActivityTimestamp =
+      current.activity_timestamp
+
+    if (
+      currentSession.length >=
+      STATEFUL_DIAGNOSTIC_MAX_MESSAGES
+    ) {
+      break
+    }
+  }
+
+  const remainingCapacity =
+    Math.max(
+      0,
+      STATEFUL_DIAGNOSTIC_MAX_MESSAGES -
+        currentSession.length,
+    )
+
+  const bridgeCount =
+    Math.min(
+      STATEFUL_DIAGNOSTIC_CONTEXT_BRIDGE_MESSAGES,
+      remainingCapacity,
+    )
+
+  const bridgeMessages =
+    bridgeEndIndex >= 0 &&
+    bridgeCount > 0
+      ? orderedByActivity
+          .slice(
+            Math.max(
+              0,
+              bridgeEndIndex -
+                bridgeCount +
+                1,
+            ),
+            bridgeEndIndex + 1,
+          )
+          .map(
+            item =>
+              item.message,
+          )
+      : []
+
+  const selectedIds =
+    new Set(
+      [
+        ...bridgeMessages,
+        ...currentSession,
+      ].map(
+        message =>
+          message.id,
+      ),
+    )
+
+  return canonicalMessages.filter(
+    message =>
+      selectedIds.has(
+        message.id,
+      ),
+  )
+}
+
 function normalizeCursor({
   value,
   companyId,
@@ -2284,6 +2432,11 @@ export function createStatefulCopilotRealContextLoader(
         conversationKey,
       })
 
+    const diagnosticMessages =
+      selectStatefulDiagnosticMessages(
+        canonicalMessages,
+      )
+
     const diagnosticInput =
       buildCompanionDiagnosticInput({
         company_id:
@@ -2302,7 +2455,7 @@ export function createStatefulCopilotRealContextLoader(
           referenceTime,
 
         messages:
-          canonicalMessages,
+          diagnosticMessages,
 
         commercial_config:
           commercialConfig,

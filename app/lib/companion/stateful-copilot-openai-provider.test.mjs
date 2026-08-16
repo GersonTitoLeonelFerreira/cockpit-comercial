@@ -14,6 +14,10 @@ import {
 } from './stateful-copilot-json-schema.ts'
 
 import {
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from './stateful-communication-contract.ts'
+
+import {
   executeStatefulCopilotModelAttempt,
 } from './stateful-copilot-executor.ts'
 
@@ -37,6 +41,18 @@ function buildRequest() {
 
     user_prompt:
       'USER PROMPT STATEFUL',
+
+    structured_output_format:
+      STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+  }
+}
+
+function buildCommunicationRequest() {
+  return {
+    ...buildRequest(),
+
+    output_contract_version:
+      STATEFUL_COMMUNICATION_CONTRACT_VERSION,
   }
 }
 
@@ -340,6 +356,99 @@ test(
     assert.deepEqual(
       request,
       originalRequest,
+    )
+  },
+)
+
+
+test(
+  'usa modelo dedicado somente para comunicação',
+  async () => {
+    const requestedModels = []
+
+    const provider =
+      createStatefulCopilotOpenAIProvider({
+        api_key:
+          'test-api-key',
+
+        model:
+          'diagnostic-model-test',
+
+        communication_model:
+          'communication-model-test',
+
+        fetch_impl:
+          async (_url, init) => {
+            const body =
+              JSON.parse(
+                init.body,
+              )
+
+            requestedModels.push(
+              body.model,
+            )
+
+            return buildResponse(
+              buildCompletedPayload(),
+            )
+          },
+      })
+
+    await provider(
+      buildRequest(),
+    )
+
+    await provider(
+      buildCommunicationRequest(),
+    )
+
+    assert.deepEqual(
+      requestedModels,
+      [
+        'diagnostic-model-test',
+        'communication-model-test',
+      ],
+    )
+  },
+)
+
+test(
+  'comunicação reutiliza modelo diagnóstico quando não há modelo dedicado',
+  async () => {
+    let requestedModel =
+      null
+
+    const provider =
+      createStatefulCopilotOpenAIProvider({
+        api_key:
+          'test-api-key',
+
+        model:
+          'diagnostic-model-test',
+
+        communication_model:
+          null,
+
+        fetch_impl:
+          async (_url, init) => {
+            requestedModel =
+              JSON.parse(
+                init.body,
+              ).model
+
+            return buildResponse(
+              buildCompletedPayload(),
+            )
+          },
+      })
+
+    await provider(
+      buildCommunicationRequest(),
+    )
+
+    assert.equal(
+      requestedModel,
+      'diagnostic-model-test',
     )
   },
 )
