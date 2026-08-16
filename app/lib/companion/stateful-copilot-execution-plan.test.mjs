@@ -1255,7 +1255,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v7 separa sessao atual da ponte contextual sem IDs canonicos',
+  'prompt 5.2 v10 separa sessao, papeis e compromisso bilateral',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1272,7 +1272,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v9',
+      'phase-5.2-stateful-prompt-v10',
     )
 
     assert.match(
@@ -1288,6 +1288,21 @@ test(
     assert.match(
       plan.request.system_prompt,
       /commercial_role descreve sempre o papel do contato externo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /proposta de compromisso, data ou horário feita por qualquer uma das partes permanece com status proposed/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /aceite bilateral inequívoco do compromisso/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Se qualquer lado ainda precisar verificar, confirmar ou aceitar, mantenha should_change_agenda=false/,
     )
 
     assert.match(
