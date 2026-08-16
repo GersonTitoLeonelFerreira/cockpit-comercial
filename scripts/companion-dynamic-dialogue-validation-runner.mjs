@@ -1,7 +1,7 @@
 // Validação comportamental controlada da Fase 5.2.
 //
 // Executa diálogos multi-turno em memória contra o motor real do Companion:
-//   cliente simulado -> GPT-5.6 diagnóstico -> GPT-5.6 comunicação -> cliente simulado
+//   cliente simulado -> diagnóstico configurável -> comunicação configurável -> cliente simulado
 //
 // O perfil oculto do cliente nunca é enviado ao Companion. Ele é usado apenas
 // pelo simulador e pelo juiz final. Nenhuma escrita é feita em Supabase, CRM,
@@ -34,8 +34,13 @@ const markdownOutputPath = path.join(
 )
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
-const COMPANION_MODEL = 'gpt-5.6'
-const COMPANION_COMMUNICATION_MODEL = 'gpt-5.6'
+const COMPANION_MODEL =
+  process.env.OPENAI_DYNAMIC_COMPANION_MODEL?.trim() ||
+  'gpt-5.6'
+
+const COMPANION_COMMUNICATION_MODEL =
+  process.env.OPENAI_DYNAMIC_COMMUNICATION_MODEL?.trim() ||
+  'gpt-5.6'
 const CUSTOMER_SIMULATOR_MODEL =
   process.env.OPENAI_DYNAMIC_SIMULATOR_MODEL?.trim() ||
   'gpt-4.1-mini-2025-04-14'
@@ -1301,6 +1306,10 @@ function buildMarkdown(report) {
         `- ID: \`${result.id}\``,
         '- Resultado final: **red — erro de execução**',
         `- Erro: \`${result.error.name ?? 'Error'}\``,
+        `- Código: \`${result.error.code ?? 'não informado'}\``,
+        `- Status: \`${result.error.status_code ?? 'não informado'}\``,
+        `- Retryable: \`${result.error.retryable ?? 'não informado'}\``,
+        `- Detalhes: \`${JSON.stringify(result.error.details ?? null)}\``,
         '',
         result.error.message,
         '',
@@ -1434,8 +1443,33 @@ async function main() {
         `  ${verdictIcon(result.final_verdict)} ${result.final_verdict} | score ${result.judge.score}/7 | hard gates ${result.hard_gates.pass ? 'ok' : 'FALHOU'} | ${result.rounds.length} rodada(s)`,
       )
     } catch (error) {
+      const errorDetails = {
+        name:
+          error?.name ?? null,
+
+        message:
+          error?.message ??
+          String(error),
+
+        code:
+          error?.code ?? null,
+
+        status_code:
+          error?.status_code ?? null,
+
+        retryable:
+          error?.retryable ?? null,
+
+        details:
+          error?.details ?? null,
+      }
+
       console.error(
-        `  ERRO: ${error?.message ?? String(error)}`,
+        `  ERRO: ${errorDetails.message}`,
+      )
+
+      console.error(
+        `  DETALHES: ${JSON.stringify(errorDetails)}`,
       )
 
       results.push({
@@ -1443,10 +1477,7 @@ async function main() {
         title: scenario.title,
         coverage: scenario.coverage,
         final_verdict: 'red',
-        error: {
-          name: error?.name ?? null,
-          message: error?.message ?? String(error),
-        },
+        error: errorDetails,
       })
     }
   }
