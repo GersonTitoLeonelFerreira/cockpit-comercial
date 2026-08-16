@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url'
 
 import { buildCompanionDiagnosticInput } from '../app/lib/companion/diagnostic-input.ts'
 import { createStatefulCopilotComposition } from '../app/lib/companion/stateful-copilot-composition.ts'
+import { createStatefulCopilotOpenAIProvider } from '../app/lib/companion/stateful-copilot-openai-provider.ts'
+import { STATEFUL_COMMUNICATION_CONTRACT_VERSION } from '../app/lib/companion/stateful-communication-contract.ts'
 
 const here =
   path.dirname(fileURLToPath(import.meta.url))
@@ -270,7 +272,45 @@ function buildDiagnosticInputForCase(corpusCase) {
   return { diagnosticInput, knownMessageIds }
 }
 
-function createInMemoryComposition() {
+// Envolve o provedor real da OpenAI apenas para registrar a troca bruta
+// (prompt de sistema, texto devolvido, uso de tokens) em providerLog. Não
+// muda nenhum comportamento: a chamada e a resposta são exatamente as
+// mesmas que a composição real faria. Isso permite inspecionar o que a IA
+// respondeu mesmo quando a validação do contrato rejeita a saída.
+function createLoggingProvider(options, providerLog) {
+  const realProvider =
+    createStatefulCopilotOpenAIProvider(options)
+
+  return async (request) => {
+    const layer =
+      request.output_contract_version ===
+      STATEFUL_COMMUNICATION_CONTRACT_VERSION
+        ? 'communication'
+        : 'diagnostic'
+
+    try {
+      const response = await realProvider(request)
+
+      providerLog.push({
+        layer,
+        model: response.model,
+        usage: response.usage,
+        raw_content: response.content,
+      })
+
+      return response
+    } catch (error) {
+      providerLog.push({
+        layer,
+        error: error?.message ?? String(error),
+      })
+
+      throw error
+    }
+  }
+}
+
+function createInMemoryComposition(providerLog) {
   return createStatefulCopilotComposition({
     // O client nunca é usado de verdade: create_reader e create_writer
     // abaixo o ignoram e nunca chamam Supabase.
@@ -282,6 +322,10 @@ function createInMemoryComposition() {
     openai_options: {},
 
     dependencies: {
+      create_provider:
+        (options) =>
+          createLoggingProvider(options, providerLog),
+
       create_reader:
         () => async (args) => ({
           mode: 'missing',
@@ -296,6 +340,7 @@ function createInMemoryComposition() {
 
       create_writer:
         () => async (args) => ({
+          status: 'persisted',
           persisted_state_version:
             args.plan.write_guard.candidate_state_version,
           persisted_at: new Date().toISOString(),
@@ -306,9 +351,11 @@ function createInMemoryComposition() {
   })
 }
 
-async function runCase(composition, corpusCase) {
+async function runCase(composition, corpusCase, providerLog) {
   const { diagnosticInput, knownMessageIds } =
     buildDiagnosticInputForCase(corpusCase)
+
+  providerLog.length = 0
 
   const startedAt = Date.now()
 
@@ -332,6 +379,7 @@ async function runCase(composition, corpusCase) {
       diagnostic_output: engine.output,
       communication_output: engine.communication_output,
       phase1_oracle_reference: corpusCase.oracle,
+      provider_exchanges: providerLog.slice(),
     }
   } catch (error) {
     return {
@@ -344,6 +392,7 @@ async function runCase(composition, corpusCase) {
         code: error?.code ?? null,
         message: error?.message ?? String(error),
       },
+      provider_exchanges: providerLog.slice(),
     }
   }
 }
@@ -427,7 +476,8 @@ async function main() {
     'ocorre nesta execução.\n',
   )
 
-  const composition = createInMemoryComposition()
+  const providerLog = []
+  const composition = createInMemoryComposition(providerLog)
   const results = []
 
   for (const [index, corpusCase] of cases.entries()) {
@@ -435,7 +485,7 @@ async function main() {
       `[${index + 1}/${cases.length}] ${corpusCase.id} ... `,
     )
 
-    const result = await runCase(composition, corpusCase)
+    const result = await runCase(composition, corpusCase, providerLog)
     results.push(result)
 
     console.log(summarizeForConsole(result))
