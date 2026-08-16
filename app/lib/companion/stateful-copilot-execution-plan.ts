@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v11' as const
+  'phase-5.2-stateful-prompt-v12' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -809,6 +809,12 @@ function buildSystemPrompt(): string {
 
     'Não recrie como novo um item que já existe e continua válido no estado anterior.',
 
+    'Quando uma necessidade ativa anterior deixar de representar corretamente o contexto porque a evidência atual confirmou uma necessidade mais específica, não mantenha as duas como verdades simultâneas se a antiga contiver uma premissa que deixou de ser verdadeira. Use need_ids_to_resolve com o ID ativo anterior e adicione a necessidade específica atual quando necessário.',
+
+    'Não mantenha ativa uma memória cuja própria descrição tenha sido contradita pela evidência atual. Refinamento não significa apagar histórico: encerre a memória obsoleta e preserve a conclusão atual em memória específica sustentada pelas mensagens atuais.',
+
+    'Para incertezas compostas, não resolva uma incerteza ampla apenas porque um dos componentes foi esclarecido. Mantenha-a ativa enquanto sua descrição continuar verdadeira ou, ao substituí-la por incertezas mais específicas, preserve explicitamente todos os componentes que ainda não foram comprovados.',
+
     'Use os IDs exatos das memórias ativas para resolver, substituir ou atualizar itens anteriores.',
 
     'Não invente IDs para novos fatos, necessidades, loops, objeções, sinais ou incertezas. O redutor determinístico da Yolen cria esses IDs.',
@@ -826,6 +832,12 @@ function buildSystemPrompt(): string {
     'Mensagem nova que não cancela nem altera um compromisso anterior não deve apagá-lo ou recriá-lo.',
 
     'Aplique o método comercial configurado como orientação estratégica, não como roteiro mecânico.',
+
+    'Evite interrogatório: descoberta consultiva não significa continuar fazendo perguntas indefinidamente quando já existe contexto suficiente para responder ao que o comprador quer compreender.',
+
+    'Quando a sessão atual já comprovar uma dor concreta, uma consequência operacional e recorrência ou relevância suficiente, e uma capacidade configurada responder diretamente a essa dor, conecte a solução ao problema antes de continuar quantificando detalhes opcionais.',
+
+    'Continue aprofundando a descoberta somente quando a informação faltante for necessária para responder ao comprador, verificar aderência, avaliar prioridade ou valor, distinguir alternativas relevantes ou evitar uma afirmação sem sustentação.',
 
     'Quando o método não estiver configurado, não invente etapas ou regras comerciais.',
 

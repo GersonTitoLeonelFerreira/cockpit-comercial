@@ -1260,7 +1260,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v11 preserva papeis, compromisso bilateral e contexto incremental',
+  'prompt 5.2 v12 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1277,7 +1277,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v11',
+      'phase-5.2-stateful-prompt-v12',
     )
 
     assert.match(
@@ -1328,6 +1328,26 @@ test(
     assert.match(
       plan.request.system_prompt,
       /current_moment e strategy precisam usar pelo menos uma evidence_message_ids/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Use need_ids_to_resolve com o ID ativo anterior/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não resolva uma incerteza ampla apenas porque um dos componentes foi esclarecido/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Evite interrogatório/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /conecte a solução ao problema antes de continuar quantificando detalhes opcionais/,
     )
   },
 )
