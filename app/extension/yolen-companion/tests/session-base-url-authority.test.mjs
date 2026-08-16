@@ -12,7 +12,7 @@ const yolenApi =
   )
 
 test(
-  'origem assinada da sessão prevalece e localhost antigo não controla a navegação',
+  'origem assinada da sessão prevalece e fallback sem sessão permanece em produção',
   () => {
     assert.match(
       yolenApi,
@@ -47,6 +47,11 @@ test(
     )
 
     assert.match(
+      getBaseUrlBlock,
+      /DEFAULT_BASE_URL/,
+    )
+
+    assert.doesNotMatch(
       getBaseUrlBlock,
       /PHASE_5_2_PREVIEW_BASE_URL/,
     )

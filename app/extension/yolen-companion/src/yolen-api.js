@@ -48,7 +48,7 @@
   function getBaseUrl() {
     return (
       sessionBaseUrl ||
-      PHASE_5_2_PREVIEW_BASE_URL
+      DEFAULT_BASE_URL
     )
   }
 
