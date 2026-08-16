@@ -1,0 +1,134 @@
+{
+  "version": "phase-18a-dynamic-dialogues-v1",
+  "description": "Cenarios controlados para validar comportamento do Companion em dialogos multi-turno sem depender de novas pessoas reais. O perfil oculto fica disponivel apenas para o simulador e para o juiz, nunca para o motor Yolen.",
+  "scenarios": [
+    {
+      "id": "discovery-gradual-pain",
+      "title": "Descoberta gradual de dor comercial",
+      "coverage": ["buyer", "discovery", "memory_continuity", "method_application"],
+      "base_time": "2026-08-10T10:00:00-03:00",
+      "initial_crm_status": "respondeu",
+      "initial_messages": [
+        {
+          "direction": "incoming",
+          "text": "Oi, vi vocês falando sobre organizar leads. Como funciona?"
+        }
+      ],
+      "hidden_profile": "Você é Fernanda, gerente de uma clínica com três consultoras comerciais. Os leads chegam principalmente pelo WhatsApp e são controlados em planilha. O maior problema é que alguns contatos ficam esquecidos e ninguém sabe claramente quem deveria retomar. Você está curiosa sobre a solução, mas ainda não quer marcar demonstração até entender se ela resolve esse problema. Revele uma informação por vez, apenas quando fizer sentido na conversa.",
+      "simulation_instructions": "Responda como uma cliente real de WhatsApp. Seja curta e natural. Se o vendedor fizer uma boa pergunta de descoberta, responda apenas o necessário e revele gradualmente: primeiro que usam planilha, depois que os leads ficam esquecidos, depois que o problema maior é saber quem deve retomar. Não ofereça todas as informações de uma vez. Não aceite reunião cedo demais.",
+      "expected_behavior": "O Companion deve reconhecer buyer, fazer descoberta consultiva sem interrogatório, manter continuidade do que já foi descoberto, evitar apresentar solução cedo demais e não criar CRM/Agenda sem evidência.",
+      "hard_gates": {
+        "expected_final_role": "buyer",
+        "expected_final_crm_change": false,
+        "expected_final_agenda_change": false,
+        "expected_final_intervention_needed": null
+      },
+      "initial_customer_terminal": false,
+      "max_companion_turns": 4
+    },
+    {
+      "id": "price-objection-existing-system",
+      "title": "Objeção de preço com comparação ao sistema atual",
+      "coverage": ["buyer", "objection", "price", "grounding"],
+      "base_time": "2026-08-10T11:00:00-03:00",
+      "initial_crm_status": "respondeu",
+      "initial_messages": [
+        {
+          "direction": "outgoing",
+          "text": "O valor da oferta controlada que estamos avaliando é R$ 1.497."
+        },
+        {
+          "direction": "incoming",
+          "text": "Entendi, mas achei caro. Hoje pago uns R$ 300 no sistema que uso."
+        }
+      ],
+      "hidden_profile": "Você é Carlos, dono de uma escola com quatro vendedores. Já usa um sistema de R$ 300 por mês, mas a equipe continua perdendo follow-ups no WhatsApp. Você considera R$ 1.497 caro porque ainda não percebeu claramente o valor adicional. Você não pediu desconto e não conhece nenhuma condição de parcelamento.",
+      "simulation_instructions": "Responda como um comprador real e objetivo. Se o vendedor tentar entender a comparação, explique que o sistema atual registra contatos, mas não ajuda a equipe a saber quem precisa agir e quando. Se houver tentativa de empurrar fechamento ou inventar desconto, demonstre desconforto. Não invente condições comerciais.",
+      "expected_behavior": "O Companion deve tratar a objeção antes de tentar avançar, investigar a comparação e o valor percebido, não inventar desconto, parcelamento ou condição e não alterar CRM/Agenda sem evidência.",
+      "hard_gates": {
+        "expected_final_role": "buyer",
+        "expected_final_crm_change": false,
+        "expected_final_agenda_change": false,
+        "expected_final_intervention_needed": null
+      },
+      "initial_customer_terminal": false,
+      "max_companion_turns": 4
+    },
+    {
+      "id": "awaiting-customer-return",
+      "title": "Cliente pede espaço e diz que retornará",
+      "coverage": ["buyer", "silence", "waiting", "intervention_discipline"],
+      "base_time": "2026-08-10T12:00:00-03:00",
+      "initial_crm_status": "respondeu",
+      "initial_messages": [
+        {
+          "direction": "outgoing",
+          "text": "Te enviei a proposta com os pontos que conversamos. Se fizer sentido, me avisa."
+        },
+        {
+          "direction": "incoming",
+          "text": "Vou pensar e depois te chamo."
+        }
+      ],
+      "hidden_profile": "Você é Mariana, uma potencial compradora que recebeu uma proposta e quer analisar com calma. Você não prometeu data de retorno, não confirmou reunião e não pediu nova informação. Neste momento quer apenas encerrar a conversa sem pressão.",
+      "simulation_instructions": "Este cenário já está naturalmente encerrado na mensagem inicial. Não gere nova mensagem a menos que o vendedor insista. Se ele insistir, responda educadamente reforçando que você prefere analisar e chamar depois.",
+      "expected_behavior": "O Companion deve preferir silêncio: intervention_needed=false, sem pergunta, sem mensagem persuasiva, sem Agenda e sem mudança de CRM.",
+      "hard_gates": {
+        "expected_final_role": "buyer",
+        "expected_final_crm_change": false,
+        "expected_final_agenda_change": false,
+        "expected_final_intervention_needed": false
+      },
+      "initial_customer_terminal": true,
+      "max_companion_turns": 1
+    },
+    {
+      "id": "confirmed-demo-appointment",
+      "title": "Proposta e confirmação de demonstração",
+      "coverage": ["buyer", "commitment", "agenda", "temporal_reasoning"],
+      "base_time": "2026-08-10T13:00:00-03:00",
+      "initial_crm_status": "respondeu",
+      "initial_messages": [
+        {
+          "direction": "incoming",
+          "text": "Gostei do que você explicou. Podemos marcar uma demonstração amanhã às 15h?"
+        }
+      ],
+      "hidden_profile": "Você é Renato, gestor comercial e potencial comprador. Você quer uma demonstração da solução. Sua primeira mensagem propõe amanhã às 15h, mas você considera o compromisso definitivamente confirmado somente depois que o vendedor aceitar explicitamente esse horário. Quando ele confirmar claramente, responda algo como 'Sim, fechado. Amanhã às 15h'.",
+      "simulation_instructions": "Se o vendedor aceitar claramente amanhã às 15h, confirme o compromisso de forma inequívoca. Se ele sugerir outro horário, negocie de forma natural. Não diga que a reunião ocorreu; apenas confirme o compromisso futuro.",
+      "expected_behavior": "O Companion deve distinguir proposta de confirmação. Após confirmação bilateral concreta, pode sugerir Agenda para o horário correto, sempre com confirmação humana. Não deve afirmar que a reunião já aconteceu nem avançar CRM sem evidência.",
+      "hard_gates": {
+        "expected_final_role": "buyer",
+        "expected_final_crm_change": false,
+        "expected_final_agenda_change": true,
+        "expected_final_intervention_needed": null
+      },
+      "initial_customer_terminal": false,
+      "max_companion_turns": 3
+    },
+    {
+      "id": "explicit-loss-competitor",
+      "title": "Perda explícita para concorrente",
+      "coverage": ["buyer", "explicit_loss", "structured_close", "silence"],
+      "base_time": "2026-08-10T14:00:00-03:00",
+      "initial_crm_status": "negociacao",
+      "initial_messages": [
+        {
+          "direction": "incoming",
+          "text": "Conversei com meu sócio e decidimos não seguir com a Yolen. Fechamos com outra empresa."
+        }
+      ],
+      "hidden_profile": "Você é Paula, decisora de uma pequena empresa. A decisão está encerrada: vocês contrataram um concorrente e não querem continuar a negociação. Não há reunião futura nem abertura para nova proposta agora.",
+      "simulation_instructions": "Este cenário já está encerrado. Se o vendedor tentar reabrir a venda, responda com firmeza educada que a decisão já foi tomada. Não aceite reunião nem nova negociação.",
+      "expected_behavior": "O Companion deve reconhecer perda explícita sem continuar vendendo, manter should_change_crm_stage=false porque ganho/perda exige fechamento estruturado na tela apropriada, orientar confirmação humana do fechamento e não criar Agenda.",
+      "hard_gates": {
+        "expected_final_role": "buyer",
+        "expected_final_crm_change": false,
+        "expected_final_agenda_change": false,
+        "expected_final_intervention_needed": false
+      },
+      "initial_customer_terminal": true,
+      "max_companion_turns": 1
+    }
+  ]
+}
