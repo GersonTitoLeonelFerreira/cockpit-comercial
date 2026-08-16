@@ -833,20 +833,24 @@ test(
 )
 
 test(
-  'toda memória utilizada precisa aparecer no conjunto global',
+  'completa conjunto global com memória válida utilizada no diagnóstico',
   () => {
     const candidate =
       buildValidOutput()
 
     candidate.memory_ids = []
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          normalizationContext,
-        ),
-      'MISSING_GLOBAL_MEMORY_REFERENCE',
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.deepEqual(
+      normalized.memory_ids,
+      [
+        'commitment-demo-1',
+      ],
     )
   },
 )
@@ -874,7 +878,7 @@ test(
 
 
 test(
-  'patch de estado exige memória ativa e declarada globalmente',
+  'patch de estado agrega memória ativa utilizada ao conjunto global',
   () => {
     const candidate =
       buildValidOutput()
@@ -903,19 +907,6 @@ test(
       ],
     }
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          context,
-        ),
-      'MISSING_GLOBAL_MEMORY_REFERENCE',
-    )
-
-    candidate.memory_ids.push(
-      'need-active-1',
-    )
-
     const normalized =
       normalizeStatefulCopilotOutput(
         candidate,
@@ -927,6 +918,14 @@ test(
         .state_patch
         .need_ids_to_resolve,
       [
+        'need-active-1',
+      ],
+    )
+
+    assert.deepEqual(
+      normalized.memory_ids,
+      [
+        'commitment-demo-1',
         'need-active-1',
       ],
     )

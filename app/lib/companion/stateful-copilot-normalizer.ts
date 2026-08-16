@@ -1720,7 +1720,7 @@ export function normalizeStatefulCopilotOutput(
     }
   }
 
-  const globalMemoryIds =
+  const declaredGlobalMemoryIds =
     requireUniqueStringArray(
       root.memory_ids,
       'output.memory_ids',
@@ -1728,7 +1728,7 @@ export function normalizeStatefulCopilotOutput(
 
   for (
     const memoryId of
-    globalMemoryIds
+    declaredGlobalMemoryIds
   ) {
     if (
       !availableMemoryIds.has(
@@ -1755,25 +1755,24 @@ export function normalizeStatefulCopilotOutput(
     }
   }
 
-  const globalMemoryIdSet =
-    new Set(globalMemoryIds)
+  const normalizedGlobalMemoryIdSet =
+    new Set(
+      declaredGlobalMemoryIds,
+    )
 
   for (
     const memoryId of
     collectedMemoryIds
   ) {
-    if (
-      !globalMemoryIdSet.has(
-        memoryId,
-      )
-    ) {
-      fail(
-        'MISSING_GLOBAL_MEMORY_REFERENCE',
-        'output.memory_ids',
-        `A memória ${memoryId} foi utilizada, mas não está declarada no conjunto global.`,
-      )
-    }
+    normalizedGlobalMemoryIdSet.add(
+      memoryId,
+    )
   }
+
+  const globalMemoryIds =
+    Array.from(
+      normalizedGlobalMemoryIdSet,
+    )
 
   return {
     contract_version:
