@@ -452,7 +452,7 @@ test(
 )
 
 test(
-  'fornecedor não pode receber avanço operacional comercial',
+  'fornecedor não recebe avanço operacional comercial: normalizador neutraliza em vez de rejeitar',
   () => {
     const candidate =
       buildValidOutput()
@@ -476,19 +476,40 @@ test(
           true,
       }
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          normalizationContext,
-        ),
-      'NON_BUYER_OPERATIONAL_CHANGE',
+    const result =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.equal(
+      result
+        .operational_suggestions
+        .crm
+        .should_change_crm_stage,
+      false,
+    )
+
+    assert.equal(
+      result
+        .operational_suggestions
+        .crm
+        .recommended_status,
+      null,
+    )
+
+    assert.equal(
+      result
+        .operational_suggestions
+        .crm
+        .rationale,
+      null,
     )
   },
 )
 
 test(
-  'fornecedor não pode receber pergunta ou mensagem persuasiva de venda',
+  'fornecedor não recebe pergunta ou mensagem persuasiva de venda: normalizador neutraliza em vez de rejeitar',
   () => {
     const candidate =
       buildValidOutput()
@@ -496,13 +517,24 @@ test(
     candidate.commercial_role =
       'provider'
 
-    expectContractError(
-      () =>
-        normalizeStatefulCopilotOutput(
-          candidate,
-          normalizationContext,
-        ),
-      'NON_BUYER_SALES_GUIDANCE',
+    const result =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        normalizationContext,
+      )
+
+    assert.equal(
+      result
+        .strategy
+        .recommended_question,
+      null,
+    )
+
+    assert.equal(
+      result
+        .strategy
+        .suggested_message,
+      null,
     )
   },
 )

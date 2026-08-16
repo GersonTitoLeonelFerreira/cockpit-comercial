@@ -1643,6 +1643,12 @@ export function normalizeStatefulCopilotOutput(
       context,
     )
 
+  // O contrato já proíbe avanço operacional e orientação de venda quando o
+  // papel comercial não é "buyer". Em vez de rejeitar a análise inteira
+  // quando o modelo viola essa regra que ele mesmo deveria seguir, o
+  // normalizador corrige a saída para o estado neutro que o contrato exige
+  // — a mesma regra, aplicada de forma determinística em vez de confiada
+  // apenas ao modelo.
   if (
     commercialRole !== 'buyer' &&
     (
@@ -1650,11 +1656,13 @@ export function normalizeStatefulCopilotOutput(
       agenda.should_change_agenda
     )
   ) {
-    fail(
-      'NON_BUYER_OPERATIONAL_CHANGE',
-      'output.operational_suggestions',
-      'Fornecedor ou papel desconhecido não pode receber avanço operacional comercial.',
-    )
+    crm.should_change_crm_stage = false
+    crm.recommended_status = null
+    crm.rationale = null
+
+    agenda.should_change_agenda = false
+    agenda.expected_next_action_at = null
+    agenda.rationale = null
   }
 
   if (
@@ -1664,11 +1672,8 @@ export function normalizeStatefulCopilotOutput(
       strategy.suggested_message !== null
     )
   ) {
-    fail(
-      'NON_BUYER_SALES_GUIDANCE',
-      'output.strategy',
-      'Fornecedor ou papel desconhecido não pode receber pergunta ou mensagem de venda.',
-    )
+    strategy.recommended_question = null
+    strategy.suggested_message = null
   }
 
   const globalEvidenceIds =

@@ -516,6 +516,11 @@ function normalizeCommunicationOutput({
     })
   }
 
+  // O prompt já instrui a não intervir comercialmente quando o papel não é
+  // "buyer". Em vez de rejeitar a saída inteira quando o modelo viola essa
+  // instrução, o executor neutraliza o resultado para o estado silencioso
+  // que o contrato exige — a mesma regra, aplicada de forma determinística
+  // em vez de confiada apenas ao modelo.
   if (
     context.commercial_role !==
       'buyer' &&
@@ -527,19 +532,14 @@ function normalizeCommunicationOutput({
         null
     )
   ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
+    output.intervention_needed =
+      false
 
-      message:
-        'Fornecedor ou papel desconhecido não pode receber intervenção comercial de venda.',
+    output.recommended_question =
+      null
 
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
+    output.suggested_message =
+      null
   }
 
   return output

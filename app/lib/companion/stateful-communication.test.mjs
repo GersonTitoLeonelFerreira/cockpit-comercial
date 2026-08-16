@@ -15,7 +15,6 @@ import {
 } from './stateful-communication-execution-plan.ts'
 
 import {
-  StatefulCommunicationExecutionError,
   executeStatefulCommunicationPlan,
 } from './stateful-communication-executor.ts'
 
@@ -456,44 +455,49 @@ test(
 )
 
 test(
-  'executor bloqueia intervenção de venda para papel não comprador',
+  'executor neutraliza intervenção de venda para papel não comprador em vez de rejeitar',
   async () => {
     const provider =
       createProvider([
         buildCommunicationOutput(),
-        buildCommunicationOutput(),
       ])
 
-    await assert.rejects(
-      () =>
-        executeStatefulCommunicationPlan({
-          plan:
-            buildPlan({
-              commercialRole:
-                'supplier',
-            }),
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan:
+          buildPlan({
+            commercialRole:
+              'supplier',
+          }),
 
-          provider:
-            provider.provider,
-        }),
-      error => {
-        assert.ok(
-          error instanceof
-            StatefulCommunicationExecutionError,
-        )
+        provider:
+          provider.provider,
+      })
 
-        assert.equal(
-          error.code,
-          'INVALID_COMMUNICATION_OUTPUT',
-        )
+    assert.equal(
+      result
+        .output
+        .intervention_needed,
+      false,
+    )
 
-        return true
-      },
+    assert.equal(
+      result
+        .output
+        .recommended_question,
+      null,
+    )
+
+    assert.equal(
+      result
+        .output
+        .suggested_message,
+      null,
     )
 
     assert.equal(
       provider.calls.length,
-      2,
+      1,
     )
   },
 )
