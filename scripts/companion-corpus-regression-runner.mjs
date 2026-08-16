@@ -295,7 +295,13 @@ function createInMemoryComposition() {
         }),
 
       create_writer:
-        () => async () => ({ status: 'persisted' }),
+        () => async (args) => ({
+          persisted_state_version:
+            args.plan.write_guard.candidate_state_version,
+          persisted_at: new Date().toISOString(),
+          state_record_id: `corpus-synthetic-record-${args.operation_key}`,
+          audit_event_id: `corpus-synthetic-audit-${args.operation_key}`,
+        }),
     },
   })
 }
