@@ -24,6 +24,9 @@ const normalizationContext = {
     'commitment-demo-1',
   ],
 
+  negotiation_evidence_detected:
+    true,
+
   expected_previous_state_version:
     3,
 
@@ -500,6 +503,121 @@ test(
           normalizationContext,
         ),
       'NON_BUYER_SALES_GUIDANCE',
+    )
+  },
+)
+
+test(
+  'rebaixa negociacao sem sinal comercial concreto na sessao atual',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .operational_suggestions
+      .crm = {
+        should_change_crm_stage:
+          true,
+
+        recommended_status:
+          'negociacao',
+
+        rationale:
+          'O cliente demonstrou interesse na solução.',
+
+        requires_human_confirmation:
+          true,
+      }
+
+    const context = {
+      ...normalizationContext,
+
+      current_crm_status:
+        'respondeu',
+
+      negotiation_evidence_detected:
+        false,
+    }
+
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        context,
+      )
+
+    assert.deepEqual(
+      normalized
+        .operational_suggestions
+        .crm,
+      {
+        should_change_crm_stage:
+          false,
+
+        recommended_status:
+          null,
+
+        rationale:
+          null,
+
+        requires_human_confirmation:
+          true,
+      },
+    )
+  },
+)
+
+test(
+  'preserva negociacao quando existe sinal comercial concreto',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    candidate
+      .operational_suggestions
+      .crm = {
+        should_change_crm_stage:
+          true,
+
+        recommended_status:
+          'negociacao',
+
+        rationale:
+          'O cliente pediu proposta para fechar.',
+
+        requires_human_confirmation:
+          true,
+      }
+
+    const context = {
+      ...normalizationContext,
+
+      current_crm_status:
+        'respondeu',
+
+      negotiation_evidence_detected:
+        true,
+    }
+
+    const normalized =
+      normalizeStatefulCopilotOutput(
+        candidate,
+        context,
+      )
+
+    assert.equal(
+      normalized
+        .operational_suggestions
+        .crm
+        .should_change_crm_stage,
+      true,
+    )
+
+    assert.equal(
+      normalized
+        .operational_suggestions
+        .crm
+        .recommended_status,
+      'negociacao',
     )
   },
 )

@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v5' as const
+  'phase-5.2-stateful-prompt-v7' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -510,6 +510,86 @@ function selectCurrentSessionMessageIds(
     )
 }
 
+const NEGOTIATION_SIGNAL_PATTERNS = [
+  /\b(?:quero|vamos|podemos|vou)\s+(?:contratar|fechar|comprar|assinar)\b/,
+  /\bfechamos\b/,
+  /\b(?:mandar|enviar)\s+(?:a\s+)?proposta\b/,
+  /\bproposta comercial\b/,
+  /\bcontrato\b/,
+  /\bformas? de pagamento\b/,
+  /\bcondic(?:ao|oes) comercia(?:l|is)\b/,
+  /\bdesconto\b/,
+  /\bparcel(?:ar|amento|ado|ada)\b/,
+] as const
+
+function normalizeCommercialSearchText(
+  value: string | null,
+): string {
+  return (
+    value ?? ''
+  )
+    .normalize('NFD')
+    .replace(
+      /[\u0300-\u036f]/g,
+      '',
+    )
+    .toLowerCase()
+}
+
+function hasCurrentNegotiationEvidence(
+  input: StatefulCopilotInput,
+): boolean {
+  const currentMessageIds =
+    new Set(
+      selectCurrentSessionMessageIds(
+        input,
+      ),
+    )
+
+  return input
+    .diagnostic_input
+    .conversation
+    .messages
+    .some((message) => {
+      if (
+        !currentMessageIds.has(
+          message.id,
+        ) ||
+        message.direction !==
+          'incoming'
+      ) {
+        return false
+      }
+
+      const searchableText =
+        normalizeCommercialSearchText(
+          [
+            message.text_content,
+            message.audio_transcription,
+          ]
+            .filter(
+              (
+                value,
+              ): value is string =>
+                typeof value ===
+                  'string' &&
+                Boolean(
+                  value.trim(),
+                ),
+            )
+            .join('\n'),
+        )
+
+      return NEGOTIATION_SIGNAL_PATTERNS
+        .some(
+          pattern =>
+            pattern.test(
+              searchableText,
+            ),
+        )
+    })
+}
+
 function buildNormalizationContext(
   input: StatefulCopilotInput,
   memoryContext: MemoryContext,
@@ -517,6 +597,11 @@ function buildNormalizationContext(
   return {
     available_message_ids:
       selectCurrentSessionMessageIds(
+        input,
+      ),
+
+    negotiation_evidence_detected:
+      hasCurrentNegotiationEvidence(
         input,
       ),
 
@@ -588,11 +673,11 @@ function buildSystemPrompt(): string {
 
     'Princípio central: uma mensagem nova não substitui automaticamente o contexto anterior, e o contexto anterior não pode apagar o que mudou agora.',
 
-    'As mensagens em diagnostic_input.conversation representam a sessão temporal atual e podem incluir uma ponte curta com até seis mensagens imediatamente anteriores ao último intervalo superior a quatro horas.',
+    'diagnostic_input.conversation.messages contém somente as mensagens da sessão temporal atual e preserva seus IDs canônicos.',
 
-    'Mensagens dessa ponte anterior existem apenas para resolver referência e continuidade. Use occurred_at e observed_at para distingui-las e nunca trate conteúdo anterior ao intervalo como mudança ocorrida agora.',
+    'diagnostic_input.conversation.context_bridge_messages pode conter uma ponte curta com até seis mensagens imediatamente anteriores ao último intervalo superior a quatro horas. Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos.',
 
-    'required_analyzed_message_ids contém somente as mensagens da sessão temporal atual. Mensagens da ponte podem ser lidas como contexto, mas nunca podem aparecer em analyzed_message_ids ou evidence_message_ids.',
+    'required_analyzed_message_ids contém exatamente as mensagens da sessão temporal atual. O conteúdo de context_bridge_messages pode ser usado para compreender referências, mas nunca pode ser tratado como evidência ocorrida agora nem aparecer em analyzed_message_ids ou evidence_message_ids.',
 
     'Trate previous_state como memória histórica. Nunca use memória anterior para substituir, reescrever ou dominar o que a sessão temporal atual demonstra.',
 
@@ -705,6 +790,148 @@ function buildSystemPrompt(): string {
 
     'Retorne somente o objeto JSON final.',
   ].join('\n')
+}
+
+function removeHistoricalEvidenceIds(
+  value: unknown,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map(
+      item =>
+        removeHistoricalEvidenceIds(
+          item,
+        ),
+    )
+  }
+
+  if (
+    value === null ||
+    typeof value !== 'object'
+  ) {
+    return value
+  }
+
+  const result:
+    Record<string, unknown> = {}
+
+  for (
+    const [key, child] of
+    Object.entries(value)
+  ) {
+    if (
+      key === 'evidence_message_ids' ||
+      key === 'last_analyzed_message_ids' ||
+      key === 'last_evidence_message_ids'
+    ) {
+      continue
+    }
+
+    result[key] =
+      removeHistoricalEvidenceIds(
+        child,
+      )
+  }
+
+  return result
+}
+
+function buildModelInput(
+  input: StatefulCopilotInput,
+) {
+  const currentMessageIds =
+    new Set(
+      selectCurrentSessionMessageIds(
+        input,
+      ),
+    )
+
+  const currentMessages =
+    input
+      .diagnostic_input
+      .conversation
+      .messages
+      .filter(
+        message =>
+          currentMessageIds.has(
+            message.id,
+          ),
+      )
+
+  const contextBridgeMessages =
+    input
+      .diagnostic_input
+      .conversation
+      .messages
+      .filter(
+        message =>
+          !currentMessageIds.has(
+            message.id,
+          ),
+      )
+      .map(
+        message => ({
+          direction:
+            message.direction,
+
+          occurred_at:
+            message.occurred_at,
+
+          observed_at:
+            message.observed_at,
+
+          content_type:
+            message.content_type,
+
+          text_content:
+            message.text_content,
+
+          audio_transcription:
+            message.audio_transcription,
+        }),
+      )
+
+  return {
+    ...input,
+
+    diagnostic_input: {
+      ...input.diagnostic_input,
+
+      conversation: {
+        ...input
+          .diagnostic_input
+          .conversation,
+
+        active_message_ids:
+          input
+            .diagnostic_input
+            .conversation
+            .active_message_ids
+            .filter(
+              messageId =>
+                currentMessageIds.has(
+                  messageId,
+                ),
+            ),
+
+        messages:
+          currentMessages,
+
+        context_bridge_messages:
+          contextBridgeMessages,
+      },
+    },
+
+    state_context: {
+      ...input.state_context,
+
+      previous_state:
+        removeHistoricalEvidenceIds(
+          input
+            .state_context
+            .previous_state,
+        ),
+    },
+  }
 }
 
 function buildUserPrompt(
@@ -851,7 +1078,10 @@ function buildUserPrompt(
         ],
       },
 
-      input,
+      input:
+        buildModelInput(
+          input,
+        ),
     },
     null,
     2,

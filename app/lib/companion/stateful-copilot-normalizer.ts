@@ -42,6 +42,9 @@ export type StatefulCopilotNormalizationContext = {
 
   active_memory_ids: string[]
 
+  negotiation_evidence_detected:
+    boolean
+
   expected_previous_state_version:
     number | null
 
@@ -1263,6 +1266,34 @@ function normalizeCrmSuggestion(
       `${path}.recommended_status`,
       'CRM sem mudança não pode recomendar uma etapa.',
     )
+  }
+
+  if (
+    shouldChange &&
+    recommendedStatus ===
+      'negociacao' &&
+    context
+      .current_crm_status !==
+      'negociacao' &&
+    !context
+      .negotiation_evidence_detected
+  ) {
+    return {
+      should_change_crm_stage:
+        false,
+
+      recommended_status:
+        null,
+
+      rationale:
+        null,
+
+      requires_human_confirmation:
+        requireLiteralTrue(
+          record.requires_human_confirmation,
+          `${path}.requires_human_confirmation`,
+        ),
+    }
   }
 
   if (

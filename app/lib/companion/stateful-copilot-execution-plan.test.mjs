@@ -1114,7 +1114,148 @@ test(
 
 
 test(
-  'prompt 5.2 v3 prioriza sessao atual e usa ponte anterior sem ressuscitar memoria',
+  'detecta sinal concreto antes de autorizar negociacao',
+  () => {
+    const discoveryPlan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          incomingText:
+            'Os parados',
+        }),
+      )
+
+    assert.equal(
+      discoveryPlan.mode,
+      'model',
+    )
+
+    assert.equal(
+      discoveryPlan
+        .request
+        .normalization_context
+        .negotiation_evidence_detected,
+      false,
+    )
+
+    const pricePlan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          incomingText:
+            'Quanto custa?',
+        }),
+      )
+
+    assert.equal(
+      pricePlan
+        .request
+        .normalization_context
+        .negotiation_evidence_detected,
+      false,
+    )
+
+    const negotiationPlan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          incomingText:
+            'Pode me enviar a proposta comercial para fecharmos?',
+        }),
+      )
+
+    assert.equal(
+      negotiationPlan
+        .request
+        .normalization_context
+        .negotiation_evidence_detected,
+      true,
+    )
+  },
+)
+
+test(
+  'modelo recebe memoria anterior sem ids historicos de mensagens',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    const originalInput =
+      clone(input)
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    const previousState =
+      payload
+        .input
+        .state_context
+        .previous_state
+
+    assert.ok(previousState)
+
+    assert.equal(
+      previousState
+        .commitments[0]
+        .id,
+      'commitment-demo-1',
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState
+          .commitments[0],
+        'evidence_message_ids',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState
+          .current_moment,
+        'evidence_message_ids',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState,
+        'last_analyzed_message_ids',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        previousState,
+        'last_evidence_message_ids',
+      ),
+      false,
+    )
+
+    assert.deepEqual(
+      input,
+      originalInput,
+    )
+  },
+)
+
+test(
+  'prompt 5.2 v7 separa sessao atual da ponte contextual sem IDs canonicos',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1131,17 +1272,17 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v5',
+      'phase-5.2-stateful-prompt-v7',
     )
 
     assert.match(
       plan.request.system_prompt,
-      /podem incluir uma ponte curta com até seis mensagens/,
+      /context_bridge_messages pode conter uma ponte curta com até seis mensagens/,
     )
 
     assert.match(
       plan.request.system_prompt,
-      /Mensagens dessa ponte anterior existem apenas para resolver referência e continuidade/,
+      /Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos/,
     )
 
     assert.match(
@@ -1230,9 +1371,57 @@ test(
         .conversation
         .active_message_ids,
       [
-        'm2',
         'm3',
       ],
+    )
+
+    assert.deepEqual(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .messages
+        .map(
+          message =>
+            message.id,
+        ),
+      [
+        'm3',
+      ],
+    )
+
+    assert.equal(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .context_bridge_messages
+        .length,
+      1,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        payload
+          .input
+          .diagnostic_input
+          .conversation
+          .context_bridge_messages[0],
+        'id',
+      ),
+      false,
+    )
+
+    assert.equal(
+      Object.hasOwn(
+        payload
+          .input
+          .diagnostic_input
+          .conversation
+          .context_bridge_messages[0],
+        'message_key',
+      ),
+      false,
     )
   },
 )
