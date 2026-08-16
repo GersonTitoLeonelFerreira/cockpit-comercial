@@ -7,6 +7,7 @@ const {
   buildMessageSnapshotFingerprint,
   buildStableCaptureConversationKey,
   cleanCapturedMessageText,
+  findSafeDisappearedMessageIds,
   getLatestDateMessageBlock,
   inferCapturedMessageDirection,
   isDeletedMessageText,
@@ -357,5 +358,108 @@ test('altera a chave somente quando o conteúdo efetivamente muda', () => {
       ['message-deleted'],
     ),
     currentHash,
+  )
+})
+
+test('detecta mensagens que desapareceram do meio ou final sem rolagem', () => {
+  const previous = [
+    message({
+      id: 'm1',
+      timestampMs: 100,
+    }),
+    message({
+      id: 'm2',
+      timestampMs: 200,
+    }),
+    message({
+      id: 'm3',
+      timestampMs: 300,
+    }),
+    message({
+      id: 'm4',
+      timestampMs: 400,
+    }),
+  ]
+
+  const current = [
+    previous[0],
+    previous[1],
+  ]
+
+  assert.deepEqual(
+    findSafeDisappearedMessageIds({
+      previousVisibleMessages:
+        previous,
+      currentVisibleMessages:
+        current,
+      recentScroll:
+        false,
+    }),
+    [
+      'm3',
+      'm4',
+    ],
+  )
+})
+
+test('não interpreta virtualização no topo como exclusão', () => {
+  const previous = [
+    message({
+      id: 'm1',
+      timestampMs: 100,
+    }),
+    message({
+      id: 'm2',
+      timestampMs: 200,
+    }),
+    message({
+      id: 'm3',
+      timestampMs: 300,
+    }),
+  ]
+
+  assert.deepEqual(
+    findSafeDisappearedMessageIds({
+      previousVisibleMessages:
+        previous,
+      currentVisibleMessages: [
+        previous[1],
+        previous[2],
+      ],
+      recentScroll:
+        false,
+    }),
+    [],
+  )
+})
+
+test('não interpreta desaparecimento durante rolagem como exclusão', () => {
+  const previous = [
+    message({
+      id: 'm1',
+      timestampMs: 100,
+    }),
+    message({
+      id: 'm2',
+      timestampMs: 200,
+    }),
+    message({
+      id: 'm3',
+      timestampMs: 300,
+    }),
+  ]
+
+  assert.deepEqual(
+    findSafeDisappearedMessageIds({
+      previousVisibleMessages:
+        previous,
+      currentVisibleMessages: [
+        previous[0],
+        previous[1],
+      ],
+      recentScroll:
+        true,
+    }),
+    [],
   )
 })

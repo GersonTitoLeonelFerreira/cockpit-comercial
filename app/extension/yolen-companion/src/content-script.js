@@ -11,6 +11,7 @@
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   const CAPTURE_INGESTION_DELAY_MS = 1200
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
+  const DISAPPEARED_MESSAGE_SCROLL_GUARD_MS = 2000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
   const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
@@ -53,6 +54,9 @@
   let deletedMessageSnapshots = new Map()
   let pendingCaptureMutationIds =
     new Set()
+  let lastVisibleMessageSnapshots =
+    new Map()
+  let lastConversationScrollAt = 0
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
   let captureIngestionTimerId = 0
@@ -1343,6 +1347,9 @@
       new Map()
     pendingCaptureMutationIds =
       new Set()
+    lastVisibleMessageSnapshots =
+      new Map()
+    lastConversationScrollAt = 0
     messageLedgerRequiresRebase =
       false
     messageLedgerMutationRevision =
@@ -1414,6 +1421,22 @@
 
       let detectedMessageMutation =
         false
+
+      const previousVisibleMessages =
+        Array.from(
+          lastVisibleMessageSnapshots
+            .values(),
+        )
+
+      const currentVisibleMessageSnapshots =
+        new Map()
+
+      const recentConversationScroll =
+        (
+          Date.now() -
+          lastConversationScrollAt
+        ) <
+        DISAPPEARED_MESSAGE_SCROLL_GUARD_MS
 
     main
       .querySelectorAll(
@@ -1541,7 +1564,74 @@
           message.id,
           messageToStore,
         )
+
+        currentVisibleMessageSnapshots.set(
+          message.id,
+          messageToStore,
+        )
       })
+
+    const safelyDisappearedMessageIds =
+      messageMutationTools
+        .findSafeDisappearedMessageIds({
+          previousVisibleMessages,
+          currentVisibleMessages:
+            Array.from(
+              currentVisibleMessageSnapshots
+                .values(),
+            ),
+          recentScroll:
+            recentConversationScroll,
+        })
+
+    safelyDisappearedMessageIds
+      .forEach((messageId) => {
+        if (
+          deletedMessageIds.has(
+            messageId,
+          )
+        ) {
+          return
+        }
+
+        const previousMessage =
+          conversationMessageLedger.get(
+            messageId,
+          ) ||
+          lastVisibleMessageSnapshots.get(
+            messageId,
+          )
+
+        if (!previousMessage) {
+          return
+        }
+
+        conversationMessageLedger.delete(
+          messageId,
+        )
+
+        deletedMessageIds.add(
+          messageId,
+        )
+
+        deletedMessageSnapshots.set(
+          messageId,
+          {
+            ...previousMessage,
+            observedAt,
+          },
+        )
+
+        rememberPendingCaptureMutation(
+          messageId,
+        )
+
+        detectedMessageMutation =
+          true
+      })
+
+    lastVisibleMessageSnapshots =
+      currentVisibleMessageSnapshots
 
     const sortedMessages =
       Array.from(
@@ -7367,6 +7457,35 @@
     }, SESSION_REFRESH_INTERVAL_MS)
   }
 
+  function observeConversationScrollActivity() {
+    document.addEventListener(
+      'scroll',
+      (event) => {
+        const main =
+          getMainConversationRoot()
+
+        const target =
+          event.target
+
+        if (
+          !main ||
+          !(target instanceof Element)
+        ) {
+          return
+        }
+
+        if (
+          target === main ||
+          main.contains(target)
+        ) {
+          lastConversationScrollAt =
+            Date.now()
+        }
+      },
+      true,
+    )
+  }
+
   function observeWhatsAppChanges() {
     const observedRoot =
       document.querySelector(WHATSAPP_APP_SELECTOR) ||
@@ -7441,6 +7560,7 @@
     renderPanel()
     await captureSessionFromHash()
     refreshConversationSnapshot()
+    observeConversationScrollActivity()
     observeWhatsAppChanges()
     observeManualWhatsAppSend()
     startSessionAutoRefresh()

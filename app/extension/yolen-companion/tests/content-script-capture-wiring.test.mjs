@@ -1004,3 +1004,67 @@ test('captura usa corpo selecionável e chave estável', () => {
       /element\.textContent/,
     )
   })
+
+test('detecta desaparecimento do DOM com proteção contra rolagem', () => {
+  const synchronizeStart =
+    contentScript.indexOf(
+      '  function synchronizeConversationMessageLedger()',
+    )
+
+  const synchronizeEnd =
+    contentScript.indexOf(
+      '\n  function getSortedLedgerMessages()',
+      synchronizeStart,
+    )
+
+  assert.notEqual(
+    synchronizeStart,
+    -1,
+  )
+
+  assert.notEqual(
+    synchronizeEnd,
+    -1,
+  )
+
+  const synchronizeBlock =
+    contentScript.slice(
+      synchronizeStart,
+      synchronizeEnd,
+    )
+
+  assert.match(
+    synchronizeBlock,
+    /findSafeDisappearedMessageIds/,
+  )
+
+  assert.match(
+    synchronizeBlock,
+    /lastVisibleMessageSnapshots/,
+  )
+
+  assert.match(
+    synchronizeBlock,
+    /recentConversationScroll/,
+  )
+
+  assert.match(
+    synchronizeBlock,
+    /deletedMessageSnapshots\.set/,
+  )
+
+  assert.match(
+    synchronizeBlock,
+    /rememberPendingCaptureMutation/,
+  )
+
+  assert.match(
+    contentScript,
+    /function observeConversationScrollActivity\(\)/,
+  )
+
+  assert.match(
+    contentScript,
+    /DISAPPEARED_MESSAGE_SCROLL_GUARD_MS/,
+  )
+})

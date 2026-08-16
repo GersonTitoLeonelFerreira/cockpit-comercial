@@ -405,11 +405,112 @@
     return buildFingerprint(source)
   }
 
+  function findSafeDisappearedMessageIds({
+    previousVisibleMessages = [],
+    currentVisibleMessages = [],
+    recentScroll = false,
+    minimumRetainedMessages = 2,
+  } = {}) {
+    if (recentScroll) {
+      return []
+    }
+
+    const previousMessages =
+      Array.isArray(previousVisibleMessages)
+        ? previousVisibleMessages
+        : []
+
+    const currentMessages =
+      Array.isArray(currentVisibleMessages)
+        ? currentVisibleMessages
+        : []
+
+    const minimumRetained =
+      Number.isSafeInteger(
+        minimumRetainedMessages,
+      ) &&
+      minimumRetainedMessages > 0
+        ? minimumRetainedMessages
+        : 2
+
+    if (
+      previousMessages.length === 0 ||
+      currentMessages.length <
+        minimumRetained
+    ) {
+      return []
+    }
+
+    const currentIds =
+      new Set(
+        currentMessages
+          .map((message) =>
+            String(
+              message?.id || '',
+            ).trim(),
+          )
+          .filter(Boolean),
+      )
+
+    const currentTimestamps =
+      currentMessages
+        .map((message) =>
+          Number(
+            message?.timestampMs ??
+            message?.timestamp_ms,
+          ),
+        )
+        .filter(
+          (timestamp) =>
+            Number.isFinite(timestamp) &&
+            timestamp > 0,
+        )
+
+    if (
+      currentIds.size <
+        minimumRetained ||
+      currentTimestamps.length === 0
+    ) {
+      return []
+    }
+
+    const earliestCurrentTimestamp =
+      Math.min(
+        ...currentTimestamps,
+      )
+
+    return previousMessages
+      .filter((message) => {
+        const id =
+          String(
+            message?.id || '',
+          ).trim()
+
+        const timestamp =
+          Number(
+            message?.timestampMs ??
+            message?.timestamp_ms,
+          )
+
+        return (
+          Boolean(id) &&
+          !currentIds.has(id) &&
+          Number.isFinite(timestamp) &&
+          timestamp >=
+            earliestCurrentTimestamp
+        )
+      })
+      .map((message) =>
+        String(message.id).trim(),
+      )
+  }
+
   const api = Object.freeze({
     areCapturedMessagesEqual,
     buildMessageSnapshotFingerprint,
     buildStableCaptureConversationKey,
     cleanCapturedMessageText,
+    findSafeDisappearedMessageIds,
     getLatestDateMessageBlock,
     inferCapturedMessageDirection,
     isDeletedMessageText,
