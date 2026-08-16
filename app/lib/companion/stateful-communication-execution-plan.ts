@@ -14,6 +14,9 @@ import {
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
   'phase-5.2-communication-prompt-v3' as const
 
+const COMMUNICATION_CONTEXT_BRIDGE_MAX_MESSAGES =
+  6
+
 export type StatefulCommunicationExecutionPlan = {
   prompt_version:
     typeof STATEFUL_COMMUNICATION_PROMPT_VERSION
@@ -140,6 +143,9 @@ function buildConversationContext({
             message.id,
           ),
       )
+      .slice(
+        -COMMUNICATION_CONTEXT_BRIDGE_MAX_MESSAGES,
+      )
       .map(
         message => ({
           direction:
@@ -227,8 +233,6 @@ function buildUserPrompt({
           .diagnostic_input
           .commercial_context,
     },
-    null,
-    2,
   )
 }
 

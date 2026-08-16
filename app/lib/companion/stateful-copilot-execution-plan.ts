@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v10' as const
+  'phase-5.2-stateful-prompt-v11' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -40,6 +40,9 @@ type AnalysisPreconditionStatus =
 
 const CURRENT_SESSION_GAP_MS =
   4 * 60 * 60 * 1000
+
+const CONTEXT_BRIDGE_MAX_MESSAGES =
+  6
 
 export type StatefulCopilotModelRequest = {
   prompt_version:
@@ -510,6 +513,86 @@ function selectCurrentSessionMessageIds(
     )
 }
 
+function getMessageActivityTimestamp(
+  message:
+    StatefulCopilotInput[
+      'diagnostic_input'
+    ]['conversation']['messages'][number],
+): number {
+  return Math.max(
+    Date.parse(
+      message.occurred_at,
+    ),
+    Date.parse(
+      message.observed_at,
+    ),
+  )
+}
+
+function selectAnalysisMessageIds(
+  input: StatefulCopilotInput,
+): string[] {
+  const currentSessionIds =
+    selectCurrentSessionMessageIds(
+      input,
+    )
+
+  const previousState =
+    input.state_context.previous_state
+
+  if (!previousState) {
+    return currentSessionIds
+  }
+
+  const previousStateUpdatedAt =
+    Date.parse(
+      previousState.updated_at,
+    )
+
+  const messagesById =
+    new Map(
+      input
+        .diagnostic_input
+        .conversation
+        .messages
+        .map(
+          message => [
+            message.id,
+            message,
+          ] as const,
+        ),
+    )
+
+  const incrementalIds =
+    currentSessionIds.filter(
+      messageId => {
+        const message =
+          messagesById.get(
+            messageId,
+          )
+
+        if (!message) {
+          return false
+        }
+
+        return (
+          getMessageActivityTimestamp(
+            message,
+          ) >
+          previousStateUpdatedAt
+        )
+      },
+    )
+
+  if (incrementalIds.length > 0) {
+    return incrementalIds
+  }
+
+  // Mantém reprocessamentos idempotentes executáveis sem
+  // voltar a enviar a sessão inteira ao modelo.
+  return currentSessionIds.slice(-1)
+}
+
 const NEGOTIATION_SIGNAL_PATTERNS = [
   /\b(?:quero|vamos|podemos|vou)\s+(?:contratar|fechar|comprar|assinar)\b/,
   /\bfechamos\b/,
@@ -541,7 +624,7 @@ function hasCurrentNegotiationEvidence(
 ): boolean {
   const currentMessageIds =
     new Set(
-      selectCurrentSessionMessageIds(
+      selectAnalysisMessageIds(
         input,
       ),
     )
@@ -596,7 +679,7 @@ function buildNormalizationContext(
 ): StatefulCopilotNormalizationContext {
   return {
     available_message_ids:
-      selectCurrentSessionMessageIds(
+      selectAnalysisMessageIds(
         input,
       ),
 
@@ -673,7 +756,7 @@ function buildSystemPrompt(): string {
 
     'Princípio central: uma mensagem nova não substitui automaticamente o contexto anterior, e o contexto anterior não pode apagar o que mudou agora.',
 
-    'diagnostic_input.conversation.messages contém somente as mensagens da sessão temporal atual e preserva seus IDs canônicos.',
+    'diagnostic_input.conversation.messages contém somente as mensagens novas ou alteradas selecionadas para esta atualização incremental e preserva seus IDs canônicos.',
 
     'Nas mensagens, direction="outgoing" significa mensagem enviada pelo usuário/vendedor da empresa para o contato externo; direction="incoming" significa mensagem enviada pelo contato externo para o usuário/vendedor da empresa.',
 
@@ -681,13 +764,13 @@ function buildSystemPrompt(): string {
 
     'Se a empresa usuária estiver solicitando, comprando, contratando ou agendando um produto ou serviço oferecido pelo contato externo, o contato externo é provider. Se o contato externo estiver avaliando ou comprando uma oferta da empresa usuária, ele é buyer.',
 
-    'diagnostic_input.conversation.context_bridge_messages pode conter uma ponte curta com até seis mensagens imediatamente anteriores ao último intervalo superior a quatro horas. Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos.',
+    'diagnostic_input.conversation.context_bridge_messages pode conter uma ponte curta com até seis mensagens imediatamente anteriores às mensagens analisadas. Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos.',
 
-    'required_analyzed_message_ids contém exatamente as mensagens da sessão temporal atual. O conteúdo de context_bridge_messages pode ser usado para compreender referências, mas nunca pode ser tratado como evidência ocorrida agora nem aparecer em analyzed_message_ids ou evidence_message_ids.',
+    'required_analyzed_message_ids contém exatamente as mensagens novas ou alteradas desta atualização incremental. O conteúdo de context_bridge_messages pode ser usado para compreender referências, mas nunca pode ser tratado como evidência ocorrida agora nem aparecer em analyzed_message_ids ou evidence_message_ids.',
 
     'Trate previous_state como memória histórica. Nunca use memória anterior para substituir, reescrever ou dominar o que a sessão temporal atual demonstra.',
 
-    'current_moment e strategy precisam usar pelo menos uma evidence_message_ids da sessão temporal atual. memory_ids podem complementar, mas nunca substituir essa evidência atual.',
+    'current_moment e strategy precisam usar pelo menos uma evidence_message_ids desta atualização incremental. memory_ids podem complementar, mas nunca substituir essa evidência atual.',
 
     'Se a sessão temporal atual for pessoal, não comercial ou não sustentar avanço, não ressuscite compromisso comercial antigo como momento atual nem como motivo isolado para CRM ou Agenda; preserve-o apenas como memória quando ainda estiver válido.',
 
@@ -845,12 +928,73 @@ function removeHistoricalEvidenceIds(
   return result
 }
 
+function compactPreviousStateForModel(
+  value:
+    StatefulCommercialState | null,
+): unknown {
+  const sanitized =
+    removeHistoricalEvidenceIds(
+      value,
+    )
+
+  if (
+    sanitized === null ||
+    typeof sanitized !== 'object' ||
+    Array.isArray(sanitized)
+  ) {
+    return sanitized
+  }
+
+  const result = {
+    ...sanitized,
+  } as Record<string, unknown>
+
+  const memoryCollections = [
+    'facts',
+    'needs',
+    'open_loops',
+    'objections',
+    'commitments',
+    'signals',
+    'uncertainties',
+  ] as const
+
+  for (
+    const collectionName of
+    memoryCollections
+  ) {
+    const collection =
+      result[collectionName]
+
+    if (!Array.isArray(collection)) {
+      continue
+    }
+
+    result[collectionName] =
+      collection.filter(
+        item =>
+          Boolean(item) &&
+          typeof item === 'object' &&
+          !Array.isArray(item) &&
+          (
+            item as Record<
+              string,
+              unknown
+            >
+          ).memory_status ===
+            'active',
+      )
+  }
+
+  return result
+}
+
 function buildModelInput(
   input: StatefulCopilotInput,
 ) {
   const currentMessageIds =
     new Set(
-      selectCurrentSessionMessageIds(
+      selectAnalysisMessageIds(
         input,
       ),
     )
@@ -877,6 +1021,9 @@ function buildModelInput(
           !currentMessageIds.has(
             message.id,
           ),
+      )
+      .slice(
+        -CONTEXT_BRIDGE_MAX_MESSAGES,
       )
       .map(
         message => ({
@@ -935,7 +1082,7 @@ function buildModelInput(
       ...input.state_context,
 
       previous_state:
-        removeHistoricalEvidenceIds(
+        compactPreviousStateForModel(
           input
             .state_context
             .previous_state,
@@ -1093,8 +1240,6 @@ function buildUserPrompt(
           input,
         ),
     },
-    null,
-    2,
   )
 }
 

@@ -1206,6 +1206,11 @@ test(
 
     assert.ok(previousState)
 
+    assert.deepEqual(
+      previousState.objections,
+      [],
+    )
+
     assert.equal(
       previousState
         .commitments[0]
@@ -1255,7 +1260,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v10 separa sessao, papeis e compromisso bilateral',
+  'prompt 5.2 v11 preserva papeis, compromisso bilateral e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1272,7 +1277,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v10',
+      'phase-5.2-stateful-prompt-v11',
     )
 
     assert.match(
@@ -1452,6 +1457,92 @@ test(
         'message_key',
       ),
       false,
+    )
+  },
+)
+
+
+test(
+  'continuação envia somente mensagens posteriores ao watermark do estado',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .state_context
+      .previous_state
+      .updated_at =
+        '2026-08-05T22:12:00-03:00'
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      plan
+        .request
+        .normalization_context
+        .available_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    assert.deepEqual(
+      payload
+        .required_analyzed_message_ids,
+      [
+        'm3',
+      ],
+    )
+
+    assert.deepEqual(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .messages
+        .map(
+          message =>
+            message.id,
+        ),
+      [
+        'm3',
+      ],
+    )
+
+    assert.equal(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .context_bridge_messages
+        .length,
+      1,
+    )
+
+    assert.equal(
+      payload
+        .input
+        .diagnostic_input
+        .conversation
+        .context_bridge_messages[0]
+        .text_content,
+      'A demonstração continua confirmada para amanhã às 15h.',
     )
   },
 )

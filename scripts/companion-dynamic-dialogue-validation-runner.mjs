@@ -1,4 +1,4 @@
-// Validação comportamental controlada da Fase 18A.
+// Validação comportamental controlada da Fase 5.2.
 //
 // Executa diálogos multi-turno em memória contra o motor real do Companion:
 //   cliente simulado -> GPT-5.6 diagnóstico -> GPT-5.6 comunicação -> cliente simulado
@@ -1264,7 +1264,7 @@ function verdictIcon(verdict) {
 
 function buildMarkdown(report) {
   const lines = [
-    '# Companion — validação dinâmica Fase 18A',
+    '# Companion — validação dinâmica Fase 5.2',
     '',
     `Gerado em: ${report.generated_at}`,
     '',
@@ -1407,7 +1407,7 @@ async function main() {
   }
 
   console.log(
-    `Validação dinâmica Fase 18A — ${scenarios.length} cenário(s).`,
+    `Validação dinâmica Fase 5.2 — ${scenarios.length} cenário(s).`,
   )
   console.log(
     `Companion: ${COMPANION_MODEL} diagnóstico + ${COMPANION_COMMUNICATION_MODEL} comunicação.`,
