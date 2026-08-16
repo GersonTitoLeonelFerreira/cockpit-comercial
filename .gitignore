@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# relatórios locais de execução de scripts (podem conter saída real da IA)
+/scripts/output/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
