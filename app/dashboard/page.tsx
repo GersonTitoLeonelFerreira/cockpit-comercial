@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabaseBrowser } from '@/app/lib/supabaseBrowser'
 import {
-  getActiveCompetency,
   getGroupConversion,
   getRevenueSummary,
   getSalesCycleMetrics,
@@ -164,6 +163,65 @@ const numberFormatter = new Intl.NumberFormat('pt-BR')
 
 function toYMD(value?: string | null) {
   return String(value || '').split('T')[0].split(' ')[0]
+}
+
+function toLocalDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function currentMonthKey() {
+  const today = new Date()
+
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+}
+
+const MONTH_OPTIONS = [
+  { value: '01', label: 'Janeiro' },
+  { value: '02', label: 'Fevereiro' },
+  { value: '03', label: 'Março' },
+  { value: '04', label: 'Abril' },
+  { value: '05', label: 'Maio' },
+  { value: '06', label: 'Junho' },
+  { value: '07', label: 'Julho' },
+  { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Setembro' },
+  { value: '10', label: 'Outubro' },
+  { value: '11', label: 'Novembro' },
+  { value: '12', label: 'Dezembro' },
+] as const
+
+function getMonthNumberFromMonthKey(monthKey: string) {
+  const [, monthText] = monthKey.split('-')
+
+  return monthText || '01'
+}
+
+function getYearFromMonthKey(monthKey: string) {
+  const year = Number(monthKey.split('-')[0])
+
+  return Number.isFinite(year) ? year : new Date().getFullYear()
+}
+
+function buildMonthKey(year: number, month: string) {
+  const safeYear = Number.isFinite(year) ? year : new Date().getFullYear()
+  const safeMonth = MONTH_OPTIONS.some((option) => option.value === month) ? month : '01'
+
+  return `${safeYear}-${safeMonth}`
+}
+
+function getCompetencyFromMonthKey(monthKey: string): ActiveCompetency {
+  const year = getYearFromMonthKey(monthKey)
+  const monthIndex = Number(getMonthNumberFromMonthKey(monthKey)) - 1
+
+  const start = new Date(year, monthIndex, 1)
+  const end = new Date(year, monthIndex + 1, 0)
+  const startKey = toLocalDateKey(start)
+
+  return { month: startKey, month_start: startKey, month_end: toLocalDateKey(end) }
 }
 
 function normalizeStatus(status?: LeadStatus | null) {
@@ -503,8 +561,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string>(() => currentMonthKey())
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (monthKey: string) => {
     const supabase = supabaseBrowser()
 
     setLoading(true)
@@ -547,7 +606,7 @@ export default function DashboardPage() {
       const isAdmin = activeRole === 'admin' || activeRole === 'manager'
       const ownerScope = isAdmin ? null : userId
 
-      const competency = await getActiveCompetency()
+      const competency = getCompetencyFromMonthKey(monthKey)
       const startDate = toYMD(competency.month_start)
       const endDate = toYMD(competency.month_end)
 
@@ -812,8 +871,8 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    void loadDashboard()
-  }, [loadDashboard])
+    void loadDashboard(selectedMonthKey)
+  }, [loadDashboard, selectedMonthKey])
 
   const periodCycles = useMemo(() => {
     return state.cycles.filter((cycle) =>
@@ -1119,19 +1178,105 @@ export default function DashboardPage() {
                   border: '1px solid #1a1d2e',
                   background: '#0d0f14',
                   borderRadius: 14,
-                  padding: '10px 12px',
-                  color: '#94a3b8',
-                  fontSize: 12,
+                  padding: '8px 10px',
+                  display: 'grid',
+                  gap: 6,
                 }}
               >
-                Competência:{' '}
-                <strong style={{ color: '#e2e8f0' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                <span
+                  style={{
+                    color: '#64748b',
+                    fontSize: 11,
+                    fontWeight: 850,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                  }}
+                >
+                  Competência
+                </span>
+
+                <select
+                  value={getMonthNumberFromMonthKey(selectedMonthKey)}
+                  onChange={(event) => {
+                    setSelectedMonthKey(
+                      buildMonthKey(getYearFromMonthKey(selectedMonthKey), event.target.value)
+                    )
+                  }}
+                  style={{
+                    border: '1px solid #1a1d2e',
+                    background: '#090b0f',
+                    color: '#e2e8f0',
+                    borderRadius: 10,
+                    padding: '6px 8px',
+                    fontSize: 12,
+                    fontWeight: 750,
+                  }}
+                >
+                  {MONTH_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  type="number"
+                  value={getYearFromMonthKey(selectedMonthKey)}
+                  onChange={(event) => {
+                    setSelectedMonthKey(
+                      buildMonthKey(
+                        Number(event.target.value),
+                        getMonthNumberFromMonthKey(selectedMonthKey)
+                      )
+                    )
+                  }}
+                  min={2000}
+                  max={2100}
+                  style={{
+                    border: '1px solid #1a1d2e',
+                    background: '#090b0f',
+                    color: '#e2e8f0',
+                    borderRadius: 10,
+                    padding: '6px 8px',
+                    fontSize: 12,
+                    fontWeight: 750,
+                    width: 76,
+                  }}
+                />
+
+                {selectedMonthKey !== currentMonthKey() ? (
+                  <button
+                    onClick={() => setSelectedMonthKey(currentMonthKey())}
+                    style={{
+                      border: '1px solid #1a1d2e',
+                      background: 'transparent',
+                      color: '#93c5fd',
+                      borderRadius: 10,
+                      padding: '6px 8px',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Mês atual
+                  </button>
+                ) : null}
+                </div>
+
+                <div style={{ color: '#64748b', fontSize: 11 }}>
                   {formatCompetency(state.competency)}
-                </strong>
+                </div>
               </div>
 
               <button
-                onClick={() => void loadDashboard()}
+                onClick={() => void loadDashboard(selectedMonthKey)}
                 disabled={loading}
                 style={{
                   border: '1px solid rgba(59,130,246,0.35)',
