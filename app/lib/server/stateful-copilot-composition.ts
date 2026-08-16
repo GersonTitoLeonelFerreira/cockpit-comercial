@@ -305,9 +305,9 @@ export function createStatefulCopilotServerComposition(
       model:
         normalizeOptionalText(
           options.openai_model ??
+          previewDiagnosticModel ??
           process.env
-            .OPENAI_STATEFUL_COPILOT_MODEL ??
-          previewDiagnosticModel,
+            .OPENAI_STATEFUL_COPILOT_MODEL,
         ),
 
       communication_model:
