@@ -12,7 +12,7 @@ import {
 } from './stateful-communication-contract'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v1' as const
+  'phase-5.2-communication-prompt-v2' as const
 
 export type StatefulCommunicationExecutionPlan = {
   prompt_version:
@@ -54,6 +54,8 @@ function buildSystemPrompt(): string {
     'Não invente produto, preço, desconto, prazo, promessa, condição, funcionalidade ou fato.',
 
     'A mensagem sugerida deve soar natural dentro da conversa existente, não como relatório, formulário ou texto de consultoria.',
+
+    'Antes de finalizar recommended_question ou suggested_message, revise silenciosamente o texto em português do Brasil para garantir gramática, concordância, clareza, naturalidade e fluidez. Entregue somente uma formulação pronta para uso pelo vendedor, sem explicar a revisão.',
 
     'method_application deve explicar de forma breve como o método comercial foi usado na decisão, ou informar naturalmente que não havia método configurado.',
 

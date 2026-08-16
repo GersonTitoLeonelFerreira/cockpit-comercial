@@ -44,6 +44,9 @@ export type StatefulCopilotServerCompositionOptions = {
   openai_model?:
     string | null
 
+  openai_communication_model?:
+    string | null
+
   openai_timeout_ms?:
     number
 
@@ -289,6 +292,13 @@ export function createStatefulCopilotServerComposition(
           options.openai_model ??
           process.env
             .OPENAI_STATEFUL_COPILOT_MODEL,
+        ),
+
+      communication_model:
+        normalizeOptionalText(
+          options.openai_communication_model ??
+          process.env
+            .OPENAI_STATEFUL_COMMUNICATION_MODEL,
         ),
 
       timeout_ms:

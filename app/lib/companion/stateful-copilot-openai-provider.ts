@@ -6,6 +6,10 @@ import {
   type StatefulCopilotUsage,
 } from './stateful-copilot-executor'
 
+import {
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from './stateful-communication-contract'
+
 export const DEFAULT_STATEFUL_COPILOT_OPENAI_MODEL =
   'gpt-4.1-mini-2025-04-14' as const
 
@@ -30,6 +34,7 @@ type OpenAIFetch =
 export type StatefulCopilotOpenAIProviderOptions = {
   api_key?: string | null
   model?: string | null
+  communication_model?: string | null
   timeout_ms?: number
   max_output_tokens?: number
   fetch_impl?: OpenAIFetch
@@ -201,7 +206,27 @@ function resolveApiKey(
 function resolveModel(
   options:
     StatefulCopilotOpenAIProviderOptions,
+  request:
+    StatefulCopilotProviderRequest,
 ): string {
+  if (
+    request.output_contract_version ===
+    STATEFUL_COMMUNICATION_CONTRACT_VERSION
+  ) {
+    const communicationModel =
+      normalizeOptionalString(
+        options.communication_model ===
+          undefined
+          ? process.env
+              .OPENAI_STATEFUL_COMMUNICATION_MODEL
+          : options.communication_model,
+      )
+
+    if (communicationModel) {
+      return communicationModel
+    }
+  }
+
   const rawValue =
     options.model === undefined
       ? process.env
@@ -697,6 +722,7 @@ export function createStatefulCopilotOpenAIProvider(
     const model =
       resolveModel(
         options,
+        request,
       )
 
     const timeout =

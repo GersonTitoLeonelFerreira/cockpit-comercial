@@ -290,6 +290,16 @@ test(
     )
 
     assert.equal(
+      STATEFUL_COMMUNICATION_PROMPT_VERSION,
+      'phase-5.2-communication-prompt-v2',
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /revise silenciosamente o texto em português do Brasil/,
+    )
+
+    assert.equal(
       payload
         .diagnostic_context
         .commercial_role,
