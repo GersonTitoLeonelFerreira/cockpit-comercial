@@ -291,7 +291,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v2',
+      'phase-5.2-communication-prompt-v3',
     )
 
     assert.match(

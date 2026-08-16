@@ -12,7 +12,7 @@ import {
 } from './stateful-communication-contract'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v2' as const
+  'phase-5.2-communication-prompt-v3' as const
 
 export type StatefulCommunicationExecutionPlan = {
   prompt_version:
@@ -51,6 +51,10 @@ function buildSystemPrompt(): string {
 
     'Evite movimentos redundantes ou desconectados do que já está claro na conversa.',
 
+    'Antes de sugerir uma pergunta ou mensagem, verifique se o vendedor já fez essa mesma pergunta, já deu essa mesma resposta ou já prometeu exatamente essa ação na conversa atual. Se já fez, não repita nem parafraseie o que ele disse — só intervenha se houver algo novo e útil a acrescentar.',
+
+    'Nunca escreva uma orientação, pergunta ou mensagem sugerida como se uma ação ainda não confirmada (matrícula, agendamento, pagamento, cadastro, envio) já tivesse sido concluída. Distinga claramente entre o que o cliente relatou, o que ainda depende de confirmação humana e o que já está confirmado na conversa.',
+
     'Não invente produto, preço, desconto, prazo, promessa, condição, funcionalidade ou fato.',
 
     'A mensagem sugerida deve soar natural dentro da conversa existente, não como relatório, formulário ou texto de consultoria.',
@@ -63,7 +67,7 @@ function buildSystemPrompt(): string {
 
     'Quando somente orientação interna for útil, intervention_needed pode ser true com suggested_message=null.',
 
-    'Quando nenhuma ajuda for útil agora, use intervention_needed=false, recommended_question=null e suggested_message=null.',
+    'Silêncio (intervention_needed=false, recommended_question=null, suggested_message=null) é o resultado padrão e esperado sempre que a intervenção não acrescentaria informação nova ao que já está claro na conversa — não é uma exceção rara, é o comportamento correto na maior parte dos momentos de espera de uma venda.',
 
     'Quando commercial_role não for buyer, não produza pergunta persuasiva nem mensagem de venda.',
 
