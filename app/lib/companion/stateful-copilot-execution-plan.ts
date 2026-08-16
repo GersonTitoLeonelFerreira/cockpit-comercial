@@ -21,7 +21,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v9' as const
+  'phase-5.2-stateful-prompt-v10' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -734,7 +734,9 @@ function buildSystemPrompt(): string {
 
     'Para atualizar compromisso existente, use o ID exato da memória ativa correspondente.',
 
-    'Compromisso proposto pelo vendedor não equivale a compromisso confirmado pelo cliente.',
+    'Uma proposta de compromisso, data ou horário feita por qualquer uma das partes permanece com status proposed até que a outra parte aceite explicitamente o mesmo compromisso.',
+
+    'Use status confirmed somente quando a conversa comprovar aceite bilateral inequívoco do compromisso. Dizer que vai verificar disponibilidade, que confirmará depois ou que está aguardando confirmação comprova que o compromisso ainda não está confirmado.',
 
     'Compromisso sem data concreta não cria Agenda.',
 
@@ -780,7 +782,7 @@ function buildSystemPrompt(): string {
 
     'Quando should_change_agenda=false, expected_next_action_at e rationale precisam ser null.',
 
-    'Agenda exige compromisso futuro concreto confirmado pelo contato externo.',
+    'Agenda exige compromisso futuro concreto com data e horário e aceite bilateral inequívoco. Se qualquer lado ainda precisar verificar, confirmar ou aceitar, mantenha should_change_agenda=false.',
 
     'Interprete datas comerciais no fuso America/Sao_Paulo.',
 
