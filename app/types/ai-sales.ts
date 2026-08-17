@@ -171,11 +171,20 @@ export interface AISalesSuggestion {
   source: 'ai' | 'fallback' | 'yolen'
 }
 
+export type CompanionAnalyzeSuggestion =
+  Omit<
+    AISalesSuggestion,
+    'confidence'
+  > & {
+    confidence: number | null
+  }
+
 export interface AnalyzeConversationResponse {
   ok: boolean
   data?: {
+    engine_source?: 'v1' | 'stateful'
     context: AISalesContext
-    suggestion: AISalesSuggestion
+    suggestion: CompanionAnalyzeSuggestion
     diagnostics?: AIAuditDiagnostics
     saved_coaching?: {
       id: string

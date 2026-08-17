@@ -83,41 +83,46 @@ test(
 )
 
 test(
-  'rota operacional executa stateful como sidecar e preserva V1',
+  'rota operacional possui roteamento explícito v1 shadow active',
   () => {
     assert.match(
       analyzeRoute,
-      /createStatefulCopilotServerRuntimeOrchestrator/,
+      /resolveStatefulCopilotRouteMode/,
     )
 
     assert.match(
       analyzeRoute,
-      /conversation_key\?: unknown/,
+      /getStatefulRouteMode/,
     )
 
     assert.match(
       analyzeRoute,
-      /device_key\?: unknown/,
+      /statefulRouteMode ===\s*'shadow'/,
     )
 
     assert.match(
       analyzeRoute,
-      /import \{ after, NextResponse \} from 'next\/server'/,
+      /statefulRouteMode ===\s*'active'/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       analyzeRoute,
-      /after\(async \(\) => \{/,
+      /O motor Companion V2 ainda não está disponível/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       analyzeRoute,
-      /await runStatefulCopilotRuntime\(\{/,
+      /resolveCompanionEngineVersion/,
     )
+  },
+)
 
+test(
+  'shadow continua executando stateful depois da resposta operacional',
+  () => {
     assert.match(
       analyzeRoute,
-      /v1_response:\s*v1ResponseData/,
+      /statefulRouteMode ===\s*'shadow'[\s\S]*after\(async \(\) => \{/,
     )
 
     assert.match(
@@ -127,17 +132,162 @@ test(
 
     assert.match(
       analyzeRoute,
-      /duration_ms:/,
+      /YOLEN_COMPANION_STATEFUL_SHADOW/,
+    )
+  },
+)
+
+test(
+  'active executa stateful sincronamente e adapta saída para a extensão',
+  () => {
+    assert.match(
+      analyzeRoute,
+      /statefulRouteMode ===\s*'active'[\s\S]*await runStatefulCopilotRuntime\(\{/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /statefulResult\.mode ===\s*'active'/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /buildStatefulActiveResponseData/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /data:\s*activeResponseData/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /stateful_active_completed/,
+    )
+  },
+)
+
+test(
+  'active preserva fallback V1 quando V2 não pode ser exposto',
+  () => {
+    assert.match(
+      analyzeRoute,
+      /stateful_active_fallback_v1/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /stateful_active_unhandled_fallback_v1/,
     )
 
     assert.match(
       analyzeRoute,
       /data:\s*v1ResponseData/,
     )
+  },
+)
 
-    assert.doesNotMatch(
-      analyzeRoute,
-      /data:\s*statefulRuntime/,
+test(
+  'active executa V2 antes de qualquer análise V1',
+  () => {
+    const activeStart =
+      analyzeRoute.indexOf(
+        'Fase 5.3 — active:',
+      )
+
+    const activeRuntimeCall =
+      analyzeRoute.indexOf(
+        'await runStatefulCopilotRuntime({',
+        activeStart,
+      )
+
+    const v1AnalysisCall =
+      analyzeRoute.indexOf(
+        'const result = await analyzeConversationWithCopilotDetailed({',
+      )
+
+    assert.notEqual(
+      activeStart,
+      -1,
+    )
+
+    assert.notEqual(
+      activeRuntimeCall,
+      -1,
+    )
+
+    assert.notEqual(
+      v1AnalysisCall,
+      -1,
+    )
+
+    assert.ok(
+      activeRuntimeCall <
+        v1AnalysisCall,
+      'V2 active precisa executar antes da análise V1.',
+    )
+
+    const activeSection =
+      analyzeRoute.slice(
+        activeStart,
+        v1AnalysisCall,
+      )
+
+    assert.match(
+      activeSection,
+      /v1_response:\s*undefined/,
+    )
+
+    assert.match(
+      activeSection,
+      /v1_executed:\s*false/,
+    )
+  },
+)
+
+test(
+  'shadow permanece depois do V1 e recebe v1ResponseData',
+  () => {
+    const v1AnalysisCall =
+      analyzeRoute.indexOf(
+        'const result = await analyzeConversationWithCopilotDetailed({',
+      )
+
+    const shadowStart =
+      analyzeRoute.indexOf(
+        'Fase 5.3 — shadow:',
+        v1AnalysisCall,
+      )
+
+    assert.notEqual(
+      v1AnalysisCall,
+      -1,
+    )
+
+    assert.notEqual(
+      shadowStart,
+      -1,
+    )
+
+    assert.ok(
+      shadowStart >
+        v1AnalysisCall,
+      'Shadow deve permanecer posterior à análise V1.',
+    )
+
+    const shadowSection =
+      analyzeRoute.slice(
+        shadowStart,
+      )
+
+    assert.match(
+      shadowSection,
+      /v1_response:\s*v1ResponseData/,
+    )
+
+    assert.match(
+      shadowSection,
+      /after\(async \(\) => \{/,
     )
   },
 )
