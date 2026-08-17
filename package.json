@@ -23,7 +23,8 @@
     "report:companion-corpus-regression-markdown": "node scripts/companion-corpus-regression-to-markdown.mjs",
     "report:companion-real-cycle-replay": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-real-cycle-replay-runner.mjs",
     "report:companion-dynamic-dialogues": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-dynamic-dialogue-validation-runner.mjs",
-    "check:companion-active-readiness": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-readiness-check.mjs"
+    "check:companion-active-readiness": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-readiness-check.mjs",
+    "report:companion-active-pilot": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-pilot-report.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
