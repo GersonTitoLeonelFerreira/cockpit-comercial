@@ -104,7 +104,7 @@ function captureProviderOptions() {
 }
 
 test(
-  'preview da branch Companion usa gpt-5.6 no diagnóstico e na comunicação',
+  'preview da branch Companion usa Terra no diagnóstico e gpt-5.6 na comunicação',
   () =>
     withEnvironment(
       {
@@ -126,7 +126,7 @@ test(
 
         assert.equal(
           options.model,
-          'gpt-5.6',
+          'gpt-5.6-terra',
         )
 
         assert.equal(
@@ -172,7 +172,7 @@ test(
 )
 
 test(
-  'preview da branch Companion força gpt-5.6 no diagnóstico mesmo com modelo global configurado',
+  'preview da branch Companion respeita modelo global configurado antes do fallback',
   () =>
     withEnvironment(
       {
@@ -194,7 +194,7 @@ test(
 
         assert.equal(
           options.model,
-          'gpt-5.6',
+          'diagnostic-model-global',
         )
 
         assert.equal(
