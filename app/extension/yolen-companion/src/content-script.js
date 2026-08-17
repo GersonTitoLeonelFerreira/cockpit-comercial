@@ -4,6 +4,8 @@
   const WHATSAPP_APP_SELECTOR = '#app'
   const SESSION_REFRESH_INTERVAL_MS = 60000
   const HASH_SESSION_KEY = 'yolen_companion_session'
+  const PANEL_COLLAPSED_STORAGE_KEY =
+    'yolen_companion_panel_collapsed'
   const AUTO_CONTACT_LOOKUP_DELAY_MS = 900
   const AUTO_CONTACT_LOOKUP_TIMEOUT_MS = 6000
   const AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS = 500
@@ -5868,9 +5870,79 @@
     )
   }
 
+  function getExtensionStorageLocal() {
+    return (
+      globalThis
+        .browser
+        ?.storage
+        ?.local ||
+      globalThis
+        .chrome
+        ?.storage
+        ?.local ||
+      null
+    )
+  }
+
+  async function loadPanelCollapsedPreference() {
+    const storage =
+      getExtensionStorageLocal()
+
+    if (!storage?.get) {
+      return
+    }
+
+    try {
+      const stored =
+        await storage.get(
+          PANEL_COLLAPSED_STORAGE_KEY,
+        )
+
+      panelCollapsed =
+        stored?.[
+          PANEL_COLLAPSED_STORAGE_KEY
+        ] === true
+    } catch {
+      panelCollapsed = false
+    }
+  }
+
+  function persistPanelCollapsedPreference(
+    collapsed,
+  ) {
+    const storage =
+      getExtensionStorageLocal()
+
+    if (!storage?.set) {
+      return
+    }
+
+    try {
+      const result =
+        storage.set({
+          [PANEL_COLLAPSED_STORAGE_KEY]:
+            Boolean(collapsed),
+        })
+
+      if (
+        result &&
+        typeof result.catch ===
+          'function'
+      ) {
+        result.catch(() => {})
+      }
+    } catch {
+      // Preferência visual nunca pode quebrar o Companion.
+    }
+  }
+
   function setPanelCollapsed(collapsed) {
     panelCollapsed =
       Boolean(collapsed)
+
+    persistPanelCollapsedPreference(
+      panelCollapsed,
+    )
 
     document
       .documentElement
@@ -7390,6 +7462,7 @@
 
   async function start() {
     await waitForWhatsAppApp()
+    await loadPanelCollapsedPreference()
 
     listenToWhatsAppAudioBridge()
     injectWhatsAppAudioBridge()
