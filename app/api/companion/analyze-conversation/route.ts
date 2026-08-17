@@ -11,6 +11,9 @@ import {
   buildStatefulActiveResponseData,
 } from '@/app/lib/companion/stateful-copilot-active-response'
 import {
+  buildStatefulCopilotActivePilotTelemetry,
+} from '@/app/lib/companion/stateful-copilot-active-pilot-telemetry'
+import {
   resolveStatefulCopilotRouteMode,
   type StatefulCopilotRouteMode,
 } from '@/app/lib/companion/stateful-copilot-route-mode'
@@ -1882,11 +1885,10 @@ export async function POST(request: Request) {
                 statefulResult.response,
             })
 
-          console.info(
-            'YOLEN_COMPANION_STATEFUL_ACTIVE',
-            JSON.stringify({
+          const activeTelemetry =
+            buildStatefulCopilotActivePilotTelemetry({
               event:
-                'stateful_active_completed',
+                'active_success',
 
               company_id:
                 tokenPayload.company_id,
@@ -1901,15 +1903,16 @@ export async function POST(request: Request) {
                 statefulResult
                   .response_source,
 
+              stateful_executed:
+                statefulResult
+                  .stateful_executed,
+
               v1_executed:
                 false,
 
               duration_ms:
-                Math.max(
-                  0,
-                  Date.now() -
-                    startedAt,
-                ),
+                Date.now() -
+                startedAt,
 
               execution:
                 statefulResult
@@ -1922,7 +1925,13 @@ export async function POST(request: Request) {
               automatic_agenda_write:
                 statefulResult
                   .automatic_agenda_write,
-            }),
+            })
+
+          console.info(
+            'YOLEN_COMPANION_STATEFUL_ACTIVE',
+            JSON.stringify(
+              activeTelemetry,
+            ),
           )
 
           return NextResponse.json<AnalyzeConversationResponse>(
@@ -1939,11 +1948,10 @@ export async function POST(request: Request) {
           )
         }
 
-        console.warn(
-          'YOLEN_COMPANION_STATEFUL_ACTIVE',
-          JSON.stringify({
+        const fallbackTelemetry =
+          buildStatefulCopilotActivePilotTelemetry({
             event:
-              'stateful_active_fallback_v1',
+              'active_fallback_v1',
 
             company_id:
               tokenPayload.company_id,
@@ -1958,6 +1966,17 @@ export async function POST(request: Request) {
               statefulResult
                 .response_source,
 
+            stateful_executed:
+              statefulResult
+                .stateful_executed,
+
+            v1_executed:
+              true,
+
+            duration_ms:
+              Date.now() -
+              startedAt,
+
             fallback_reason:
               statefulResult.mode ===
               'active_fallback_v1'
@@ -1969,15 +1988,9 @@ export async function POST(request: Request) {
               statefulResult
                 .stateful_failure,
 
-            v1_executed:
-              true,
-
-            duration_ms:
-              Math.max(
-                0,
-                Date.now() -
-                  startedAt,
-              ),
+            execution:
+              statefulResult
+                .stateful_execution,
 
             automatic_crm_write:
               statefulResult
@@ -1986,14 +1999,19 @@ export async function POST(request: Request) {
             automatic_agenda_write:
               statefulResult
                 .automatic_agenda_write,
-          }),
-        )
-      } catch {
+          })
+
         console.warn(
           'YOLEN_COMPANION_STATEFUL_ACTIVE',
-          JSON.stringify({
+          JSON.stringify(
+            fallbackTelemetry,
+          ),
+        )
+      } catch {
+        const unhandledTelemetry =
+          buildStatefulCopilotActivePilotTelemetry({
             event:
-              'stateful_active_unhandled_fallback_v1',
+              'active_unhandled_fallback_v1',
 
             company_id:
               tokenPayload.company_id,
@@ -2005,12 +2023,21 @@ export async function POST(request: Request) {
               true,
 
             duration_ms:
-              Math.max(
-                0,
-                Date.now() -
-                  startedAt,
-              ),
-          }),
+              Date.now() -
+              startedAt,
+
+            automatic_crm_write:
+              false,
+
+            automatic_agenda_write:
+              false,
+          })
+
+        console.warn(
+          'YOLEN_COMPANION_STATEFUL_ACTIVE',
+          JSON.stringify(
+            unhandledTelemetry,
+          ),
         )
       }
     }
