@@ -4579,14 +4579,150 @@
     return Boolean(state.conversationAnalysis) && Number(state.lastAnalysisAudioCount || 0) > 0
   }
 
+  function isStatefulConversationAnalysis() {
+    return (
+      state
+        .conversationAnalysis
+        ?.engine_source ===
+      'stateful'
+    )
+  }
+
+  function normalizeOperationalText(value) {
+    if (
+      typeof value !==
+      'string'
+    ) {
+      return null
+    }
+
+    const clean =
+      value.trim()
+
+    return clean || null
+  }
+
+  function getOperationalDateKey(value) {
+    const clean =
+      normalizeOperationalText(
+        value,
+      )
+
+    if (!clean) {
+      return null
+    }
+
+    if (
+      /^\d{4}-\d{2}-\d{2}$/
+        .test(clean)
+    ) {
+      return clean
+    }
+
+    const timestamp =
+      Date.parse(clean)
+
+    if (
+      !Number.isFinite(
+        timestamp,
+      )
+    ) {
+      return clean
+    }
+
+    return new Date(
+      timestamp,
+    )
+      .toISOString()
+      .slice(0, 10)
+  }
+
+  function hasOperationalSuggestionChange() {
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    if (
+      !suggestion ||
+      !cycle
+    ) {
+      return false
+    }
+
+    const statusChanged =
+      Boolean(
+        suggestion
+          .recommended_status,
+      ) &&
+      suggestion
+        .recommended_status !==
+        cycle.status
+
+    const currentNextAction =
+      normalizeOperationalText(
+        cycle.next_action,
+      )
+
+    const suggestedNextAction =
+      normalizeOperationalText(
+        suggestion.next_action,
+      )
+
+    const nextActionChanged =
+      currentNextAction !==
+      suggestedNextAction
+
+    const nextActionDateChanged =
+      getOperationalDateKey(
+        cycle.next_action_date,
+      ) !==
+      getOperationalDateKey(
+        suggestion
+          .next_action_date,
+      )
+
+    return (
+      statusChanged ||
+      nextActionChanged ||
+      nextActionDateChanged
+    )
+  }
+
   function canApplyCurrentSuggestion() {
-    const suggestion = state.conversationAnalysis?.suggestion
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const hasTrustedAnalysis =
+      Boolean(
+        state
+          .conversationAnalysis
+          ?.saved_coaching
+          ?.id,
+      ) ||
+      isStatefulConversationAnalysis()
 
     return (
       canAnalyzeCurrentConversation() &&
-      Boolean(state.conversationAnalysis?.saved_coaching?.id) &&
+      state
+        .leadResolution
+        ?.actions
+        ?.can_apply_suggestion ===
+        true &&
+      hasTrustedAnalysis &&
       Boolean(suggestion) &&
-      isOpenSuggestionStatus(suggestion.recommended_status) &&
+      isOpenSuggestionStatus(
+        suggestion
+          .recommended_status,
+      ) &&
+      hasOperationalSuggestionChange() &&
       !hasAudioWithoutTranscriptionForAnalysis() &&
       !isCurrentAnalysisOutdated() &&
       !state.conversationAnalysisLoading &&
@@ -4842,7 +4978,8 @@
 
 
   function getSuggestedMessageHtml() {
-    const message = getSuggestedMessage()
+    const message =
+      getSuggestedMessage()
 
     if (
       !message ||
@@ -4852,9 +4989,14 @@
     }
 
     return `
-      <div class="yolen-card-description">
-        <strong>Mensagem sugerida</strong><br>
-        ${escapeHtml(message)}
+      <div class="yolen-decision-block yolen-message-suggestion">
+        <div class="yolen-decision-kicker">
+          Mensagem sugerida
+        </div>
+
+        <div class="yolen-suggested-message">
+          ${escapeHtml(message)}
+        </div>
       </div>
     `
   }
@@ -5050,44 +5192,36 @@
 
 
   function getAnalysisActionButton() {
-    if (!canAnalyzeCurrentConversation() || state.conversationAnalysisLoading) {
+    if (
+      !canAnalyzeCurrentConversation() ||
+      state.conversationAnalysisLoading
+    ) {
       return ''
     }
 
-    const analyzeButton = `
-      <button class="yolen-secondary-button" type="button" data-yolen-action="analyze-conversation">
-        Analisar conversa com IA
-      </button>
-    `
-
-    const copyMessageButton = getSuggestedMessage()
-      ? `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="copy-suggested-message">
-          Copiar mensagem
-        </button>
-      `
-      : ''
-
-      const insertMessageButton = getSuggestedMessage()
-      ? `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="insert-suggested-message">
-          Inserir no WhatsApp
-        </button>
-      `
-      : ''
-
-      const totalAudioCount = Number(state.audioCount || 0)
-      const pendingAudioCount = getPendingAudioCountForCurrentConversation()
-      const transcribedAudioCount = Math.max(
-        0,
-        totalAudioCount - pendingAudioCount,
+    const totalAudioCount =
+      Number(
+        state.audioCount || 0,
       )
-      const nextAudioNumber = Math.min(
+
+    const pendingAudioCount =
+      getPendingAudioCountForCurrentConversation()
+
+    const transcribedAudioCount =
+      Math.max(
+        0,
+        totalAudioCount -
+          pendingAudioCount,
+      )
+
+    const nextAudioNumber =
+      Math.min(
         totalAudioCount,
         transcribedAudioCount + 1,
       )
 
-      const transcribeAudioButton = pendingAudioCount > 0
+    const transcribeAudioButton =
+      pendingAudioCount > 0
         ? `
           <button
             class="yolen-secondary-button"
@@ -5104,59 +5238,405 @@
         `
         : ''
 
-        if (isCurrentAnalysisOutdated()) {
-          return `
-            ${transcribeAudioButton}
+    if (
+      isCurrentAnalysisOutdated()
+    ) {
+      return `
+        ${transcribeAudioButton}
 
-            <button
-              class="yolen-primary-button"
-              type="button"
-              data-yolen-action="analyze-conversation"
-            >
-              Analisar conversa novamente
-            </button>
-          `
-        }
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Atualizar análise
+        </button>
+      `
+    }
 
-      if (!state.conversationAnalysis?.suggestion) {
-        return `
-          ${transcribeAudioButton}
-          <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
-            Analisar conversa com IA
+    if (
+      !state
+        .conversationAnalysis
+        ?.suggestion
+    ) {
+      return `
+        ${transcribeAudioButton}
+
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Analisar agora
+        </button>
+      `
+    }
+
+    const messageAvailable =
+      Boolean(
+        getSuggestedMessage(),
+      )
+
+    const applyButton =
+      canApplyCurrentSuggestion()
+        ? `
+          <button
+            class="yolen-primary-button"
+            type="button"
+            data-yolen-action="apply-suggestion"
+          >
+            Confirmar atualização na Yolen
           </button>
         `
-      }
+        : ''
 
-      if (!canApplyCurrentSuggestion()) {
-        return `
-          ${transcribeAudioButton}
-          ${insertMessageButton}
-          ${copyMessageButton}
-          ${analyzeButton}
+    const insertMessageButton =
+      messageAvailable
+        ? `
+          <button
+            class="${applyButton ? 'yolen-secondary-button' : 'yolen-primary-button'}"
+            type="button"
+            data-yolen-action="insert-suggested-message"
+          >
+            Inserir no WhatsApp
+          </button>
         `
-      }
+        : ''
+
+    const copyMessageButton =
+      messageAvailable
+        ? `
+          <button
+            class="yolen-secondary-button"
+            type="button"
+            data-yolen-action="copy-suggested-message"
+          >
+            Copiar mensagem
+          </button>
+        `
+        : ''
 
     return `
-      <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
-        Aplicar sugestão na Yolen
-      </button>
-
+      ${applyButton}
       ${transcribeAudioButton}
       ${insertMessageButton}
       ${copyMessageButton}
-      ${analyzeButton}
+
+      <button
+        class="yolen-tertiary-button"
+        type="button"
+        data-yolen-action="analyze-conversation"
+      >
+        Atualizar análise
+      </button>
+    `
+  }
+
+  function getCompanionDecisionBadge() {
+    if (
+      state
+        .conversationAnalysisLoading
+    ) {
+      return 'Analisando'
+    }
+
+    if (
+      state
+        .conversationAnalysisError ||
+      state
+        .suggestionApplyError ||
+      isCurrentAnalysisOutdated()
+    ) {
+      return 'Atenção'
+    }
+
+    if (
+      state
+        .suggestionApplyResult
+    ) {
+      return 'Atualizado'
+    }
+
+    if (
+      !state
+        .conversationAnalysis
+    ) {
+      return 'Aguardando conversa'
+    }
+
+    if (
+      hasOperationalSuggestionChange()
+    ) {
+      return 'Ação recomendada'
+    }
+
+    if (
+      getSuggestedMessage() ||
+      getCompanionNextMoveText()
+    ) {
+      return 'Orientação disponível'
+    }
+
+    return 'Sem intervenção necessária'
+  }
+
+  function getCompanionMomentText() {
+    if (
+      state
+        .suggestionApplyLoading
+    ) {
+      return 'Atualizando a Yolen após sua confirmação...'
+    }
+
+    if (
+      state
+        .suggestionApplyError
+    ) {
+      return (
+        state
+          .suggestionApplyError
+      )
+    }
+
+    if (
+      state
+        .suggestionApplyResult
+    ) {
+      return state
+        .suggestionApplyResult
+        .already_applied
+        ? 'A situação já estava atualizada na Yolen.'
+        : 'A atualização foi registrada na Yolen.'
+    }
+
+    if (
+      state
+        .conversationAnalysisLoading
+    ) {
+      return 'A Yolen está entendendo o momento atual da conversa.'
+    }
+
+    if (
+      state
+        .conversationAnalysisError
+    ) {
+      return (
+        state
+          .conversationAnalysisError
+      )
+    }
+
+    if (
+      isCurrentAnalysisOutdated()
+    ) {
+      return 'A conversa mudou desde a última leitura. Atualize a análise antes de usar a orientação anterior.'
+    }
+
+    const summary =
+      state
+        .conversationAnalysis
+        ?.suggestion
+        ?.summary
+
+    if (
+      typeof summary ===
+        'string' &&
+      summary.trim()
+    ) {
+      return summary.trim()
+    }
+
+    if (
+      !canAnalyzeCurrentConversation()
+    ) {
+      return 'A Yolen ainda não pode analisar esta conversa.'
+    }
+
+    if (
+      state
+        .automaticAnalysisStatus
+    ) {
+      return state
+        .automaticAnalysisStatus
+    }
+
+    return 'Continue a conversa normalmente. A Yolen acompanha e aparece quando houver algo útil para orientar.'
+  }
+
+  function getCompanionNextMoveText() {
+    const nextMove =
+      state
+        .conversationAnalysis
+        ?.coaching
+        ?.recommended_next_approach
+
+    if (
+      typeof nextMove !==
+        'string'
+    ) {
+      return null
+    }
+
+    const clean =
+      nextMove.trim()
+
+    return clean || null
+  }
+
+  function getOperationalSuggestionHtml() {
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    if (
+      !suggestion ||
+      !cycle ||
+      isCurrentAnalysisOutdated() ||
+      !hasOperationalSuggestionChange()
+    ) {
+      return ''
+    }
+
+    const items = []
+
+    if (
+      suggestion
+        .recommended_status &&
+      suggestion
+        .recommended_status !==
+        cycle.status
+    ) {
+      items.push(
+        `Etapa: ${getStageLabel(cycle.status)} → ${getStageLabel(suggestion.recommended_status)}`,
+      )
+    }
+
+    const currentNextAction =
+      normalizeOperationalText(
+        cycle.next_action,
+      )
+
+    const suggestedNextAction =
+      normalizeOperationalText(
+        suggestion.next_action,
+      )
+
+    const actionChanged =
+      currentNextAction !==
+        suggestedNextAction ||
+      getOperationalDateKey(
+        cycle.next_action_date,
+      ) !==
+        getOperationalDateKey(
+          suggestion
+            .next_action_date,
+        )
+
+    if (
+      actionChanged &&
+      suggestedNextAction
+    ) {
+      const formattedDate =
+        formatSuggestionDate(
+          suggestion
+            .next_action_date,
+        )
+
+      items.push(
+        formattedDate
+          ? `Próxima ação: ${suggestedNextAction} · ${formattedDate}`
+          : `Próxima ação: ${suggestedNextAction}`,
+      )
+    }
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-decision-block yolen-operational-suggestion">
+        <div class="yolen-decision-kicker">
+          Atualização na Yolen
+        </div>
+
+        <div class="yolen-decision-list">
+          ${items
+            .map(
+              item =>
+                `<div class="yolen-decision-list-item">${escapeHtml(item)}</div>`,
+            )
+            .join('')}
+        </div>
+
+        <div class="yolen-operational-note">
+          Nada será alterado sem sua confirmação.
+        </div>
+      </div>
     `
   }
 
   function getAnalysisCardHtml() {
+    const nextMove =
+      getCompanionNextMoveText()
+
     return `
-      <div class="yolen-card ${getAnalysisStatusClass()}">
-        <div class="yolen-section-label">Yolen Companion</div>
-        <div class="yolen-card-title">${escapeHtml(getAnalysisTitle())}</div>
-        <div class="yolen-card-description">${getAnalysisDescription()}</div>
+      <div class="yolen-card yolen-decision-card ${getAnalysisStatusClass()}">
+        <div class="yolen-decision-header">
+          <div class="yolen-section-label">
+            Yolen Companion
+          </div>
+
+          <div class="yolen-decision-badge">
+            ${escapeHtml(
+              getCompanionDecisionBadge(),
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-decision-block">
+          <div class="yolen-decision-kicker">
+            Momento atual
+          </div>
+
+          <div class="yolen-card-title yolen-decision-title">
+            ${escapeHtml(
+              getCompanionMomentText(),
+            )}
+          </div>
+        </div>
+
+        ${
+          nextMove &&
+          !isCurrentAnalysisOutdated()
+            ? `
+              <div class="yolen-decision-block">
+                <div class="yolen-decision-kicker">
+                  Próximo passo
+                </div>
+
+                <div class="yolen-decision-copy">
+                  ${escapeHtml(nextMove)}
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        ${getOperationalSuggestionHtml()}
+
         ${getAudioTranscriptionHtml()}
+
         ${getSuggestedMessageHtml()}
-        <div class="yolen-inline-actions">
+
+        <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
         </div>
       </div>

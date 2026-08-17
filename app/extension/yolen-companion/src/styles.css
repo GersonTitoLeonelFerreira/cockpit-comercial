@@ -255,3 +255,118 @@
     width: 350px;
   }
 }
+
+/* YOLEN FINAL RELEASE — DECISION EXPERIENCE */
+
+.yolen-decision-card {
+  padding: 18px;
+}
+
+.yolen-decision-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.yolen-decision-header .yolen-section-label {
+  margin-bottom: 0;
+}
+
+.yolen-decision-badge {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 153, 194, 0.18);
+  background: rgba(2, 6, 23, 0.48);
+  color: #c9d8ec;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.yolen-decision-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(126, 153, 194, 0.12);
+}
+
+.yolen-decision-kicker {
+  margin-bottom: 6px;
+  color: #8ea0b8;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yolen-decision-title {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.yolen-decision-copy {
+  color: #d7e2f0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.yolen-message-suggestion {
+  padding: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.48);
+}
+
+.yolen-suggested-message {
+  color: #f2f7ff;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.yolen-operational-suggestion {
+  padding: 14px;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 14px;
+  background: rgba(20, 83, 45, 0.12);
+}
+
+.yolen-decision-list {
+  display: grid;
+  gap: 7px;
+}
+
+.yolen-decision-list-item {
+  color: #e1ecf8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.yolen-operational-note {
+  margin-top: 9px;
+  color: #91a3bb;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.yolen-decision-actions {
+  margin-top: 16px;
+}
+
+.yolen-tertiary-button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: #8ea0b8;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.yolen-tertiary-button:hover {
+  color: #dce8fb;
+}

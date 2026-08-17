@@ -96,7 +96,7 @@ test(
 
     assert.match(
       contentScript,
-      /<div class="yolen-section-label">Yolen Companion<\/div>/,
+      /<div class="yolen-section-label">\s*Yolen Companion\s*<\/div>/,
     )
 
     assert.doesNotMatch(
