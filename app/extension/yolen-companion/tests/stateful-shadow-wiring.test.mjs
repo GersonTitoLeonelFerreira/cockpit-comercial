@@ -162,7 +162,7 @@ test(
 
     assert.match(
       analyzeRoute,
-      /stateful_active_completed/,
+      /active_success/,
     )
   },
 )
@@ -172,12 +172,12 @@ test(
   () => {
     assert.match(
       analyzeRoute,
-      /stateful_active_fallback_v1/,
+      /active_fallback_v1/,
     )
 
     assert.match(
       analyzeRoute,
-      /stateful_active_unhandled_fallback_v1/,
+      /active_unhandled_fallback_v1/,
     )
 
     assert.match(
