@@ -373,7 +373,7 @@ test(
 
     assert.equal(
       result.project_subphase,
-      'phase-5.3',
+      'phase-5.4',
     )
 
     assert.equal(
