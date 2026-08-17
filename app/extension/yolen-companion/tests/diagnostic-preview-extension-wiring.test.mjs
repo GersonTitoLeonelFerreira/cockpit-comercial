@@ -91,7 +91,7 @@ test(
   () => {
     assert.match(
       contentScript,
-      /\$\{getAnalysisCardHtml\(\)\}/,
+      /getAnalysisCardHtml\(\)/,
     )
 
     assert.match(

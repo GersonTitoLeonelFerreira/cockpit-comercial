@@ -5643,86 +5643,285 @@
     `
   }
 
+  function getCompactConnectionLabel() {
+    if (state.loading) {
+      return 'Conectando'
+    }
+
+    if (state.connected) {
+      return 'Conectada'
+    }
+
+    return 'Desconectada'
+  }
+
+  function getCompactConnectionClass() {
+    if (state.loading) {
+      return 'yolen-connection-pending'
+    }
+
+    if (state.connected) {
+      return 'yolen-connection-online'
+    }
+
+    return 'yolen-connection-offline'
+  }
+
+  function getCompactConversationName() {
+    return (
+      state
+        .leadResolution
+        ?.lead
+        ?.name ||
+      state.conversationTitle ||
+      'Nenhuma conversa detectada'
+    )
+  }
+
+  function getCompactLeadDescription() {
+    if (state.isSelfConversation) {
+      return 'Esta conversa não é vinculada a um lead comercial.'
+    }
+
+    if (state.isGroupConversation) {
+      return 'Conversas em grupo não são vinculadas a leads.'
+    }
+
+    if (state.leadResolutionLoading) {
+      return 'Localizando este contato na Yolen...'
+    }
+
+    if (state.leadResolutionError) {
+      return state.leadResolutionError
+    }
+
+    if (!state.connected) {
+      return 'Conecte a Yolen para ativar o Companion nesta conversa.'
+    }
+
+    if (!state.conversationPhone) {
+      return (
+        state.autoLookupStatus ||
+        'Identificando o contato automaticamente...'
+      )
+    }
+
+    const resolution =
+      state.leadResolution
+
+    if (!resolution) {
+      return 'Localizando vínculo comercial...'
+    }
+
+    if (
+      resolution.status ===
+      'OWNED_BY_ME'
+    ) {
+      return 'Lead vinculado à sua carteira.'
+    }
+
+    if (
+      resolution.status ===
+      'OWNED_BY_OTHER'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este lead pertence a outra carteira.'
+      )
+    }
+
+    if (
+      resolution.status ===
+      'IN_POOL'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este lead está no Pool.'
+      )
+    }
+
+    if (
+      resolution.status ===
+      'NOT_FOUND'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este contato ainda não existe na Yolen.'
+      )
+    }
+
+    if (
+      resolution.status ===
+      'CLOSED_CYCLE'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este ciclo comercial já está encerrado.'
+      )
+    }
+
+    return (
+      resolution.user_message ||
+      'Contato localizado na Yolen.'
+    )
+  }
+
+  function getCompactContextChipsHtml() {
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    const chips = []
+
+    if (cycle?.status) {
+      chips.push(
+        '<span class="yolen-context-chip">' +
+          escapeHtml(
+            getStageLabel(
+              cycle.status,
+            ),
+          ) +
+        '</span>',
+      )
+    }
+
+    if (cycle?.owner_name) {
+      chips.push(
+        '<span class="yolen-context-chip yolen-context-chip-muted">' +
+          escapeHtml(
+            cycle.owner_name,
+          ) +
+        '</span>',
+      )
+    }
+
+    if (chips.length === 0) {
+      return ''
+    }
+
+    return (
+      '<div class="yolen-context-chips">' +
+        chips.join('') +
+      '</div>'
+    )
+  }
+
+  function getCompactFooterHtml() {
+    if (!state.connected) {
+      return [
+        '<div class="yolen-compact-footer">',
+          '<button',
+            ' class="yolen-primary-button"',
+            ' type="button"',
+            ' data-yolen-action="connect-yolen"',
+          '>',
+            'Conectar Yolen',
+          '</button>',
+        '</div>',
+      ].join('')
+    }
+
+    return [
+      '<div class="yolen-compact-footer">',
+        '<button',
+          ' class="yolen-tertiary-button"',
+          ' type="button"',
+          ' data-yolen-action="open-yolen"',
+        '>',
+          'Abrir Yolen',
+        '</button>',
+      '</div>',
+    ].join('')
+  }
+
   function renderPanel() {
     const panel = createPanel()
 
-    panel.innerHTML = `
-      <div class="yolen-panel-header">
-        <div class="yolen-brand">
-          <div class="yolen-logo">Y</div>
-          <div>
-            <div class="yolen-title">Yolen Companion</div>
-            <div class="yolen-subtitle">${
-              state.companyName
-                ? `Empresa ativa: ${escapeHtml(state.companyName)}`
-                : 'Empresa ativa não carregada'
-            }</div>
-          </div>
-        </div>
+    panel.innerHTML = [
+      '<div class="yolen-panel-header yolen-panel-header-final">',
 
-        <button class="yolen-icon-button" type="button" data-yolen-action="refresh" title="Atualizar leitura">
-          ↻
-        </button>
-      </div>
+        '<div class="yolen-brand">',
 
-      <div class="yolen-card ${getConnectionClass()}">
-        <div class="yolen-card-title">${getConnectionLabel()}</div>
-        <div class="yolen-card-description">
-          ${getConnectionDescription()}
-        </div>
-      </div>
+          '<div class="yolen-logo">',
+            'Y',
+          '</div>',
 
-      <div class="yolen-card">
-        <div class="yolen-section-label">Conversa aberta</div>
-        <div class="yolen-lead-name">
-          ${escapeHtml(state.conversationTitle || 'Nenhuma conversa detectada')}
-        </div>
+          '<div class="yolen-brand-copy">',
 
-        <div class="yolen-card-description">
-          Telefone detectado: ${escapeHtml(state.conversationPhone || 'não detectado')}
-          ${
-            state.phoneSource
-              ? ` · Fonte: ${escapeHtml(state.phoneSource)}`
-              : ''
-          }
-        </div>
+            '<div class="yolen-title">',
+              'Yolen Companion',
+            '</div>',
 
-        <div class="yolen-metrics">
-          <div class="yolen-metric">
-            <span class="yolen-metric-number">${state.messageCount}</span>
-            <span class="yolen-metric-label">mensagens da conversa atual</span>
-          </div>
+            '<div class="yolen-subtitle">',
+              escapeHtml(
+                state.companyName ||
+                'Empresa não carregada',
+              ),
+            '</div>',
 
-          <div class="yolen-metric">
-            <span class="yolen-metric-number">${state.audioCount}</span>
-            <span class="yolen-metric-label">áudios da conversa atual</span>
-          </div>
-        </div>
-      </div>
+          '</div>',
 
-      <div class="yolen-card ${getLeadStatusClass()}">
-        <div class="yolen-section-label">Vínculo na Yolen</div>
-        <div class="yolen-card-title">${getLeadStatusTitle()}</div>
-        <div class="yolen-card-description">${getLeadStatusDescription()}</div>
-        <div class="yolen-inline-actions">
-          ${getLeadActionButton()}
-        </div>
-      </div>
+        '</div>',
 
-      ${getAnalysisCardHtml()}
+        '<div class="yolen-header-actions">',
 
+          '<span class="yolen-connection-pill ' +
+            getCompactConnectionClass() +
+          '">',
 
+            escapeHtml(
+              getCompactConnectionLabel(),
+            ),
 
-      <div class="yolen-actions">
-        <button class="yolen-primary-button" type="button" data-yolen-action="${getPrimaryButtonAction()}">
-          ${getPrimaryButtonLabel()}
-        </button>
+          '</span>',
 
-        <button class="yolen-secondary-button" type="button" data-yolen-action="refresh">
-          Atualizar leitura
-        </button>
-      </div>
-    `
+          '<button',
+            ' class="yolen-icon-button"',
+            ' type="button"',
+            ' data-yolen-action="refresh"',
+            ' title="Atualizar"',
+          '>',
+            '↻',
+          '</button>',
+
+        '</div>',
+
+      '</div>',
+
+      '<div class="yolen-card yolen-contact-card ' +
+        getLeadStatusClass() +
+      '">',
+
+        '<div class="yolen-section-label">',
+          'Conversa',
+        '</div>',
+
+        '<div class="yolen-lead-name">',
+          escapeHtml(
+            getCompactConversationName(),
+          ),
+        '</div>',
+
+        getCompactContextChipsHtml(),
+
+        '<div class="yolen-card-description yolen-contact-description">',
+          escapeHtml(
+            getCompactLeadDescription(),
+          ),
+        '</div>',
+
+        '<div class="yolen-inline-actions yolen-contact-actions">',
+          getLeadActionButton(),
+        '</div>',
+
+      '</div>',
+
+      getAnalysisCardHtml(),
+
+      getCompactFooterHtml(),
+
+    ].join('')
 
     panel.querySelectorAll('[data-yolen-action="refresh"]').forEach((button) => {
       button.addEventListener('click', () => {

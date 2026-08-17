@@ -370,3 +370,110 @@
 .yolen-tertiary-button:hover {
   color: #dce8fb;
 }
+
+
+/* YOLEN FINAL RELEASE — COMPACT DAILY PANEL */
+
+.yolen-panel-header-final {
+  position: sticky;
+  top: -16px;
+  z-index: 10;
+  margin: -16px -16px 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(126, 153, 194, 0.12);
+  background: rgba(7, 11, 18, 0.94);
+  backdrop-filter: blur(18px);
+}
+
+.yolen-brand-copy {
+  min-width: 0;
+}
+
+.yolen-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.yolen-connection-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 153, 194, 0.16);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.yolen-connection-online {
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.24);
+  background: rgba(22, 101, 52, 0.18);
+}
+
+.yolen-connection-pending {
+  color: #bfdbfe;
+  border-color: rgba(59, 130, 246, 0.24);
+  background: rgba(30, 64, 175, 0.18);
+}
+
+.yolen-connection-offline {
+  color: #fcd34d;
+  border-color: rgba(245, 158, 11, 0.24);
+  background: rgba(146, 64, 14, 0.18);
+}
+
+.yolen-contact-card {
+  padding: 16px;
+}
+
+.yolen-contact-card .yolen-lead-name {
+  margin-bottom: 0;
+  font-size: 17px;
+}
+
+.yolen-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.yolen-context-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(30, 64, 175, 0.12);
+  color: #dbeafe;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.yolen-context-chip-muted {
+  border-color: rgba(126, 153, 194, 0.14);
+  background: rgba(2, 6, 23, 0.4);
+  color: #9fb0c6;
+}
+
+.yolen-contact-description {
+  margin-top: 10px;
+}
+
+.yolen-contact-actions:empty {
+  display: none;
+}
+
+.yolen-compact-footer {
+  padding: 2px 0 18px;
+}
+
+.yolen-compact-footer .yolen-tertiary-button {
+  opacity: 0.86;
+}
