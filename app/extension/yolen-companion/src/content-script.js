@@ -36,6 +36,7 @@
     )
   }
 
+  let panelCollapsed = false
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
   let lastResolvedContactLookupIdentity = null
@@ -104,11 +105,6 @@
     conversationAnalysis: null,
     conversationAnalysisError: null,
     analyzedConversationFingerprint: null,
-    diagnosticPreviewLoadingKey: null,
-    diagnosticPreview: null,
-    diagnosticPreviewKey: null,
-    diagnosticPreviewError: null,
-    diagnosticPreviewErrorKey: null,
     automaticAnalysisStatus: null,
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
@@ -4584,14 +4580,150 @@
     return Boolean(state.conversationAnalysis) && Number(state.lastAnalysisAudioCount || 0) > 0
   }
 
+  function isStatefulConversationAnalysis() {
+    return (
+      state
+        .conversationAnalysis
+        ?.engine_source ===
+      'stateful'
+    )
+  }
+
+  function normalizeOperationalText(value) {
+    if (
+      typeof value !==
+      'string'
+    ) {
+      return null
+    }
+
+    const clean =
+      value.trim()
+
+    return clean || null
+  }
+
+  function getOperationalDateKey(value) {
+    const clean =
+      normalizeOperationalText(
+        value,
+      )
+
+    if (!clean) {
+      return null
+    }
+
+    if (
+      /^\d{4}-\d{2}-\d{2}$/
+        .test(clean)
+    ) {
+      return clean
+    }
+
+    const timestamp =
+      Date.parse(clean)
+
+    if (
+      !Number.isFinite(
+        timestamp,
+      )
+    ) {
+      return clean
+    }
+
+    return new Date(
+      timestamp,
+    )
+      .toISOString()
+      .slice(0, 10)
+  }
+
+  function hasOperationalSuggestionChange() {
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    if (
+      !suggestion ||
+      !cycle
+    ) {
+      return false
+    }
+
+    const statusChanged =
+      Boolean(
+        suggestion
+          .recommended_status,
+      ) &&
+      suggestion
+        .recommended_status !==
+        cycle.status
+
+    const currentNextAction =
+      normalizeOperationalText(
+        cycle.next_action,
+      )
+
+    const suggestedNextAction =
+      normalizeOperationalText(
+        suggestion.next_action,
+      )
+
+    const nextActionChanged =
+      currentNextAction !==
+      suggestedNextAction
+
+    const nextActionDateChanged =
+      getOperationalDateKey(
+        cycle.next_action_date,
+      ) !==
+      getOperationalDateKey(
+        suggestion
+          .next_action_date,
+      )
+
+    return (
+      statusChanged ||
+      nextActionChanged ||
+      nextActionDateChanged
+    )
+  }
+
   function canApplyCurrentSuggestion() {
-    const suggestion = state.conversationAnalysis?.suggestion
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const hasTrustedAnalysis =
+      Boolean(
+        state
+          .conversationAnalysis
+          ?.saved_coaching
+          ?.id,
+      ) ||
+      isStatefulConversationAnalysis()
 
     return (
       canAnalyzeCurrentConversation() &&
-      Boolean(state.conversationAnalysis?.saved_coaching?.id) &&
+      state
+        .leadResolution
+        ?.actions
+        ?.can_apply_suggestion ===
+        true &&
+      hasTrustedAnalysis &&
       Boolean(suggestion) &&
-      isOpenSuggestionStatus(suggestion.recommended_status) &&
+      isOpenSuggestionStatus(
+        suggestion
+          .recommended_status,
+      ) &&
+      hasOperationalSuggestionChange() &&
       !hasAudioWithoutTranscriptionForAnalysis() &&
       !isCurrentAnalysisOutdated() &&
       !state.conversationAnalysisLoading &&
@@ -4847,7 +4979,8 @@
 
 
   function getSuggestedMessageHtml() {
-    const message = getSuggestedMessage()
+    const message =
+      getSuggestedMessage()
 
     if (
       !message ||
@@ -4857,9 +4990,14 @@
     }
 
     return `
-      <div class="yolen-card-description">
-        <strong>Mensagem sugerida</strong><br>
-        ${escapeHtml(message)}
+      <div class="yolen-decision-block yolen-message-suggestion">
+        <div class="yolen-decision-kicker">
+          Mensagem sugerida
+        </div>
+
+        <div class="yolen-suggested-message">
+          ${escapeHtml(message)}
+        </div>
       </div>
     `
   }
@@ -5055,44 +5193,36 @@
 
 
   function getAnalysisActionButton() {
-    if (!canAnalyzeCurrentConversation() || state.conversationAnalysisLoading) {
+    if (
+      !canAnalyzeCurrentConversation() ||
+      state.conversationAnalysisLoading
+    ) {
       return ''
     }
 
-    const analyzeButton = `
-      <button class="yolen-secondary-button" type="button" data-yolen-action="analyze-conversation">
-        Analisar conversa com IA
-      </button>
-    `
-
-    const copyMessageButton = getSuggestedMessage()
-      ? `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="copy-suggested-message">
-          Copiar mensagem
-        </button>
-      `
-      : ''
-
-      const insertMessageButton = getSuggestedMessage()
-      ? `
-        <button class="yolen-secondary-button" type="button" data-yolen-action="insert-suggested-message">
-          Inserir no WhatsApp
-        </button>
-      `
-      : ''
-
-      const totalAudioCount = Number(state.audioCount || 0)
-      const pendingAudioCount = getPendingAudioCountForCurrentConversation()
-      const transcribedAudioCount = Math.max(
-        0,
-        totalAudioCount - pendingAudioCount,
+    const totalAudioCount =
+      Number(
+        state.audioCount || 0,
       )
-      const nextAudioNumber = Math.min(
+
+    const pendingAudioCount =
+      getPendingAudioCountForCurrentConversation()
+
+    const transcribedAudioCount =
+      Math.max(
+        0,
+        totalAudioCount -
+          pendingAudioCount,
+      )
+
+    const nextAudioNumber =
+      Math.min(
         totalAudioCount,
         transcribedAudioCount + 1,
       )
 
-      const transcribeAudioButton = pendingAudioCount > 0
+    const transcribeAudioButton =
+      pendingAudioCount > 0
         ? `
           <button
             class="yolen-secondary-button"
@@ -5109,1099 +5239,804 @@
         `
         : ''
 
-        if (isCurrentAnalysisOutdated()) {
-          return `
-            ${transcribeAudioButton}
+    if (
+      isCurrentAnalysisOutdated()
+    ) {
+      return `
+        ${transcribeAudioButton}
 
-            <button
-              class="yolen-primary-button"
-              type="button"
-              data-yolen-action="analyze-conversation"
-            >
-              Analisar conversa novamente
-            </button>
-          `
-        }
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Atualizar análise
+        </button>
+      `
+    }
 
-      if (!state.conversationAnalysis?.suggestion) {
-        return `
-          ${transcribeAudioButton}
-          <button class="yolen-primary-button" type="button" data-yolen-action="analyze-conversation">
-            Analisar conversa com IA
+    if (
+      !state
+        .conversationAnalysis
+        ?.suggestion
+    ) {
+      return `
+        ${transcribeAudioButton}
+
+        <button
+          class="yolen-primary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Analisar agora
+        </button>
+      `
+    }
+
+    const messageAvailable =
+      Boolean(
+        getSuggestedMessage(),
+      )
+
+    const applyButton =
+      canApplyCurrentSuggestion()
+        ? `
+          <button
+            class="yolen-primary-button"
+            type="button"
+            data-yolen-action="apply-suggestion"
+          >
+            Confirmar atualização na Yolen
           </button>
         `
-      }
+        : ''
 
-      if (!canApplyCurrentSuggestion()) {
-        return `
-          ${transcribeAudioButton}
-          ${insertMessageButton}
-          ${copyMessageButton}
-          ${analyzeButton}
+    const insertMessageButton =
+      messageAvailable
+        ? `
+          <button
+            class="${applyButton ? 'yolen-secondary-button' : 'yolen-primary-button'}"
+            type="button"
+            data-yolen-action="insert-suggested-message"
+          >
+            Inserir no WhatsApp
+          </button>
         `
-      }
-
-    return `
-      <button class="yolen-primary-button" type="button" data-yolen-action="apply-suggestion">
-        Aplicar sugestão na Yolen
-      </button>
-
-      ${transcribeAudioButton}
-      ${insertMessageButton}
-      ${copyMessageButton}
-      ${analyzeButton}
-    `
-  }
-
-  function getDiagnosticPreviewRequestKey() {
-    const cycleId =
-      state.leadResolution
-        ?.cycle
-        ?.id
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    if (
-      !cycleId ||
-      !conversationKey
-    ) {
-      return null
-    }
-
-    return [
-      cycleId,
-      conversationKey,
-    ].join('::')
-  }
-
-  function getCurrentDiagnosticPreview() {
-    const requestKey =
-      getDiagnosticPreviewRequestKey()
-
-    if (
-      !requestKey ||
-      state.diagnosticPreviewKey !==
-        requestKey
-    ) {
-      return null
-    }
-
-    return state.diagnosticPreview
-  }
-
-  function getCurrentDiagnosticPreviewError() {
-    const requestKey =
-      getDiagnosticPreviewRequestKey()
-
-    if (
-      !requestKey ||
-      state.diagnosticPreviewErrorKey !==
-        requestKey
-    ) {
-      return null
-    }
-
-    return state.diagnosticPreviewError
-  }
-
-  function isDiagnosticPreviewLoading() {
-    const requestKey =
-      getDiagnosticPreviewRequestKey()
-
-    return Boolean(
-      requestKey &&
-      state.diagnosticPreviewLoadingKey ===
-        requestKey,
-    )
-  }
-
-  async function runDiagnosticPreview() {
-    const cycleId =
-      state.leadResolution
-        ?.cycle
-        ?.id
-
-    const conversationKey =
-      getCaptureConversationKey()
-
-    const requestKey =
-      getDiagnosticPreviewRequestKey()
-
-    if (
-      !cycleId ||
-      !conversationKey ||
-      !requestKey
-    ) {
-      return
-    }
-
-    state = {
-      ...state,
-      diagnosticPreviewLoadingKey:
-        requestKey,
-      diagnosticPreviewError:
-        null,
-      diagnosticPreviewErrorKey:
-        null,
-    }
-
-    renderPanel()
-
-    try {
-      if (
-        !window
-          .YolenCompanionApi
-          ?.diagnosticPreview
-      ) {
-        throw new Error(
-          'A extensão carregada ainda não possui o diagnóstico V2. Recarregue a extensão no Firefox.',
-        )
-      }
-
-      const result =
-        await window
-          .YolenCompanionApi
-          .diagnosticPreview({
-            cycle_id:
-              cycleId,
-
-            conversation_key:
-              conversationKey,
-          })
-
-      if (
-        getDiagnosticPreviewRequestKey() !==
-        requestKey
-      ) {
-        if (
-          state
-            .diagnosticPreviewLoadingKey ===
-          requestKey
-        ) {
-          state = {
-            ...state,
-            diagnosticPreviewLoadingKey:
-              null,
-          }
-        }
-
-        return
-      }
-
-      if (
-        !result?.ok ||
-        !result.payload?.ok
-      ) {
-        throw new Error(
-          result
-            ?.payload
-            ?.error ||
-          'Não foi possível gerar o diagnóstico V2.',
-        )
-      }
-
-      const payload =
-        result.payload
-
-      const previewControls =
-        payload.preview
-
-      const diagnostic =
-        payload
-          .engine
-          ?.diagnostic
-
-      if (!diagnostic) {
-        throw new Error(
-          'A rota V2 não retornou um diagnóstico válido.',
-        )
-      }
-
-      if (
-        previewControls?.read_only !==
-          true ||
-        previewControls?.persisted !==
-          false ||
-        previewControls?.crm_changed !==
-          false ||
-        previewControls?.cursor_advanced !==
-          false
-      ) {
-        throw new Error(
-          'A resposta V2 não confirmou todas as proteções de somente leitura.',
-        )
-      }
-
-      state = {
-        ...state,
-        diagnosticPreviewLoadingKey:
-          null,
-        diagnosticPreview:
-          payload,
-        diagnosticPreviewKey:
-          requestKey,
-        diagnosticPreviewError:
-          null,
-        diagnosticPreviewErrorKey:
-          null,
-      }
-
-      renderPanel()
-    } catch (error) {
-      if (
-        getDiagnosticPreviewRequestKey() !==
-        requestKey
-      ) {
-        if (
-          state
-            .diagnosticPreviewLoadingKey ===
-          requestKey
-        ) {
-          state = {
-            ...state,
-            diagnosticPreviewLoadingKey:
-              null,
-          }
-        }
-
-        return
-      }
-
-      state = {
-        ...state,
-        diagnosticPreviewLoadingKey:
-          null,
-        diagnosticPreview:
-          null,
-        diagnosticPreviewKey:
-          null,
-        diagnosticPreviewError:
-          error instanceof Error &&
-          error.message
-            ? error.message
-            : 'Erro ao gerar o diagnóstico V2.',
-        diagnosticPreviewErrorKey:
-          requestKey,
-      }
-
-      renderPanel()
-    }
-  }
-
-  function formatDiagnosticPreviewValue(
-    value,
-  ) {
-    const labels = {
-      complete:
-        'completa',
-      limited:
-        'limitada',
-      blocked:
-        'bloqueada',
-      commercial:
-        'comercial',
-      non_commercial:
-        'não comercial',
-      uncertain:
-        'incerta',
-      high:
-        'alta',
-      medium:
-        'média',
-      low:
-        'baixa',
-      fit:
-        'adequada',
-      partial_fit:
-        'parcialmente adequada',
-      misfit:
-        'inadequada',
-      unknown:
-        'não determinada',
-      novo:
-        'Novo',
-      contato:
-        'Contato',
-      respondeu:
-        'Respondeu',
-      negociacao:
-        'Negociação',
-      pausado:
-        'Pausado',
-      cancelado:
-        'Cancelado',
-      ganho:
-        'Ganho',
-      perdido:
-        'Perdido',
-      ignored_question:
-        'Pergunta ignorada',
-      partial_answer:
-        'Resposta incompleta',
-      repeated_answered_question:
-        'Pergunta já respondida repetida',
-      contradiction:
-        'Contradição',
-      excessive_pressure:
-        'Pressão excessiva',
-      premature_presentation:
-        'Apresentação prematura',
-    }
-
-    if (
-      typeof value ===
-        'string' &&
-      labels[value]
-    ) {
-      return labels[value]
-    }
-
-    return String(
-      value ||
-      'não informado',
-    )
-      .replaceAll(
-        '_',
-        ' ',
-      )
-  }
-
-  function formatDiagnosticPreviewDate(
-    value,
-  ) {
-    if (!value) {
-      return null
-    }
-
-    const timestamp =
-      Date.parse(value)
-
-    if (
-      !Number.isFinite(
-        timestamp,
-      )
-    ) {
-      return null
-    }
-
-    return new Intl
-      .DateTimeFormat(
-        'pt-BR',
-        {
-          dateStyle:
-            'short',
-
-          timeStyle:
-            'short',
-        },
-      )
-      .format(
-        new Date(
-          timestamp,
-        ),
-      )
-  }
-
-  function getDiagnosticPreviewSummaries(
-    items,
-  ) {
-    if (!Array.isArray(items)) {
-      return []
-    }
-
-    return items
-      .map(
-        (item) =>
-          typeof item ===
-            'string'
-            ? item
-            : item?.summary,
-      )
-      .filter(Boolean)
-  }
-
-  function getDiagnosticPreviewTextListHtml(
-    label,
-    values,
-  ) {
-    const availableValues =
-      Array.isArray(values)
-        ? values.filter(Boolean)
-        : []
-
-    if (
-      availableValues.length ===
-      0
-    ) {
-      return ''
-    }
-
-    return `
-      <div class="yolen-card-description">
-        <strong>${escapeHtml(label)}</strong><br>
-        ${availableValues
-          .map(
-            (value) =>
-              `• ${escapeHtml(value)}`,
-          )
-          .join('<br>')}
-      </div>
-    `
-  }
-
-  function getDiagnosticPreviewStatusClass() {
-    if (
-      getCurrentDiagnosticPreviewError()
-    ) {
-      return 'yolen-status-error'
-    }
-
-    if (
-      isDiagnosticPreviewLoading()
-    ) {
-      return 'yolen-status-neutral'
-    }
-
-    const preview =
-      getCurrentDiagnosticPreview()
-
-    const diagnostic =
-      preview
-        ?.engine
-        ?.diagnostic
-
-    if (!diagnostic) {
-      return 'yolen-status-neutral'
-    }
-
-    if (
-      diagnostic
-        .commercial_relevance ===
-      'non_commercial'
-    ) {
-      return 'yolen-status-good'
-    }
-
-    if (
-      diagnostic
-        .analysis_status ===
-        'blocked' ||
-      diagnostic
-        .guidance
-        ?.intervention_required ===
-        true
-    ) {
-      return 'yolen-status-warning'
-    }
-
-    return 'yolen-status-good'
-  }
-
-  function getDiagnosticPreviewTitle() {
-    if (
-      isDiagnosticPreviewLoading()
-    ) {
-      return 'Gerando diagnóstico V2...'
-    }
-
-    if (
-      getCurrentDiagnosticPreviewError()
-    ) {
-      return 'Falha no diagnóstico V2'
-    }
-
-    const preview =
-      getCurrentDiagnosticPreview()
-
-    const diagnostic =
-      preview
-        ?.engine
-        ?.diagnostic
-
-    if (!diagnostic) {
-      return 'Diagnóstico V2 ainda não executado'
-    }
-
-    if (
-      diagnostic
-        .commercial_relevance ===
-      'non_commercial'
-    ) {
-      return 'Conversa classificada como não comercial'
-    }
-
-    if (
-      diagnostic
-        .analysis_status ===
-      'blocked'
-    ) {
-      return 'Diagnóstico V2 bloqueado'
-    }
-
-    if (
-      diagnostic
-        .commercial_relevance ===
-      'uncertain'
-    ) {
-      return 'Relevância comercial ainda incerta'
-    }
-
-    if (
-      diagnostic
-        .guidance
-        ?.intervention_required ===
-      true
-    ) {
-      return 'Intervenção comercial recomendada pelo V2'
-    }
-
-    return 'Conversa comercial sem intervenção necessária'
-  }
-
-  function getDiagnosticPreviewCardHtml() {
-    const requestKey =
-      getDiagnosticPreviewRequestKey()
-
-    if (!requestKey) {
-      return ''
-    }
-
-    const loading =
-      isDiagnosticPreviewLoading()
-
-    const error =
-      getCurrentDiagnosticPreviewError()
-
-    const preview =
-      getCurrentDiagnosticPreview()
-
-    const diagnostic =
-      preview
-        ?.engine
-        ?.diagnostic
-
-    const execution =
-      preview
-        ?.engine
-        ?.execution
-
-    const intent =
-      diagnostic
-        ?.customer_intent
-        ?.summary
-        ? [
-            diagnostic
-              .customer_intent
-              .summary,
-          ]
-        : []
-
-    const needs =
-      getDiagnosticPreviewSummaries(
-        diagnostic?.needs,
-      )
-
-    const missingInformation =
-      Array.isArray(
-        diagnostic
-          ?.missing_information,
-      )
-        ? diagnostic
-            .missing_information
-            .map(
-              (item) => {
-                if (
-                  !item?.summary
-                ) {
-                  return null
-                }
-
-                return item.reason
-                  ? `${item.summary} — ${item.reason}`
-                  : item.summary
-              },
-            )
-            .filter(Boolean)
-        : []
-
-    const unansweredQuestions =
-      getDiagnosticPreviewSummaries(
-        diagnostic
-          ?.unanswered_questions,
-      )
-
-    const activeObjections =
-      getDiagnosticPreviewSummaries(
-        diagnostic
-          ?.active_objections,
-      )
-
-    const strengths =
-      getDiagnosticPreviewSummaries(
-        diagnostic
-          ?.seller_assessment
-          ?.strengths,
-      )
-
-    const risks =
-      Array.isArray(
-        diagnostic
-          ?.seller_assessment
-          ?.risks,
-      )
-        ? diagnostic
-            .seller_assessment
-            .risks
-            .map(
-              (risk) => {
-                if (
-                  !risk?.summary
-                ) {
-                  return null
-                }
-
-                return risk.type
-                  ? `${formatDiagnosticPreviewValue(
-                      risk.type,
-                    )}: ${risk.summary}`
-                  : risk.summary
-              },
-            )
-            .filter(Boolean)
-        : []
-
-    const limitations =
-      Array.isArray(
-        diagnostic
-          ?.analysis_limitations,
-      )
-        ? diagnostic
-            .analysis_limitations
-            .map(
-              formatDiagnosticPreviewValue,
-            )
-        : []
-
-    const methodDetails = []
-
-    if (
-      diagnostic
-        ?.sales_method
-        ?.configured ===
-      true
-    ) {
-      if (
-        diagnostic
-          .sales_method
-          .current_step
-      ) {
-        methodDetails.push(
-          `Etapa atual: ${diagnostic.sales_method.current_step}`,
-        )
-      }
-
-      if (
-        diagnostic
-          .sales_method
-          .completed_steps
-          ?.length
-      ) {
-        methodDetails.push(
-          `Etapas concluídas: ${diagnostic.sales_method.completed_steps.join(
-            ', ',
-          )}`,
-        )
-      }
-
-      if (
-        diagnostic
-          .sales_method
-          .skipped_steps
-          ?.length
-      ) {
-        methodDetails.push(
-          `Etapas puladas: ${diagnostic.sales_method.skipped_steps.join(
-            ', ',
-          )}`,
-        )
-      }
-    } else if (diagnostic) {
-      methodDetails.push(
-        'Método comercial não configurado.',
-      )
-    }
-
-    const solutionDetails = []
-
-    if (
-      diagnostic
-        ?.solution_fit
-    ) {
-      solutionDetails.push(
-        `Adequação: ${formatDiagnosticPreviewValue(
-          diagnostic
-            .solution_fit
-            .status,
-        )}`,
-      )
-
-      if (
-        diagnostic
-          .solution_fit
-          .rationale
-      ) {
-        solutionDetails.push(
-          diagnostic
-            .solution_fit
-            .rationale,
-        )
-      }
-    }
-
-    const guidanceDetails = []
-
-    if (
-      diagnostic
-        ?.guidance
-        ?.next_move
-    ) {
-      guidanceDetails.push(
-        `Próximo movimento: ${diagnostic.guidance.next_move}`,
-      )
-    }
-
-    if (
-      diagnostic
-        ?.guidance
-        ?.recommended_question
-    ) {
-      guidanceDetails.push(
-        `Pergunta recomendada: ${diagnostic.guidance.recommended_question}`,
-      )
-    }
-
-    if (
-      diagnostic
-        ?.guidance
-        ?.suggested_message
-    ) {
-      guidanceDetails.push(
-        `Mensagem sugerida: ${diagnostic.guidance.suggested_message}`,
-      )
-    }
-
-    if (
-      diagnostic &&
-      guidanceDetails.length ===
-        0
-    ) {
-      guidanceDetails.push(
-        diagnostic
-          .guidance
-          .intervention_required
-          ? 'Intervenção necessária, mas sem orientação textual disponível.'
-          : 'Nenhuma intervenção comercial recomendada.',
-      )
-    }
-
-    const crmDetails = []
-
-    if (
-      diagnostic
-        ?.crm_suggestion
-    ) {
-      const crmSuggestion =
-        diagnostic
-          .crm_suggestion
-
-      crmDetails.push(
-        crmSuggestion
-          .should_change_crm_stage
-          ? `Etapa recomendada, mas não aplicada: ${formatDiagnosticPreviewValue(
-              crmSuggestion
-                .recommended_status,
-            )}`
-          : 'Etapa atual deve ser mantida.',
-      )
-
-      if (
-        crmSuggestion
-          .next_action_required
-      ) {
-        const expectedDate =
-          formatDiagnosticPreviewDate(
-            crmSuggestion
-              .expected_next_action_at,
-          )
-
-        crmDetails.push(
-          expectedDate
-            ? `Próxima ação necessária até ${expectedDate}.`
-            : 'Próxima ação necessária, sem data definida.',
-        )
-      }
-
-      crmDetails.push(
-        'Confirmação humana obrigatória.',
-      )
-    }
-
-    const summary =
-      diagnostic
-        ? [
-            `Análise: ${formatDiagnosticPreviewValue(
-              diagnostic
-                .analysis_status,
-            )}`,
-            `Relevância: ${formatDiagnosticPreviewValue(
-              diagnostic
-                .commercial_relevance,
-            )}`,
-            `Confiança: ${formatDiagnosticPreviewValue(
-              diagnostic
-                .confidence,
-            )}`,
-            execution?.model
-              ? `Modelo: ${execution.model}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : 'O diagnóstico V2 consulta o ledger canônico e não altera a Yolen.'
-
-    return `
-      <div class="yolen-card ${getDiagnosticPreviewStatusClass()}">
-        <div class="yolen-section-label">
-          Diagnóstico V2 · somente leitura
-        </div>
-
-        <div class="yolen-card-title">
-          ${escapeHtml(
-            getDiagnosticPreviewTitle(),
-          )}
-        </div>
-
-        <div class="yolen-card-description">
-          ${
-            error
-              ? escapeHtml(error)
-              : escapeHtml(summary)
-          }
-        </div>
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Limitações',
-          limitations,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Intenção do cliente',
-          intent,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Necessidades identificadas',
-          needs,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Informações ainda necessárias',
-          missingInformation,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Perguntas sem resposta',
-          unansweredQuestions,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Objeções ativas',
-          activeObjections,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Acertos do vendedor',
-          strengths,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Riscos no atendimento',
-          risks,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Método comercial',
-          methodDetails,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Adequação da solução',
-          solutionDetails,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Orientação do V2',
-          guidanceDetails,
-        )}
-
-        ${getDiagnosticPreviewTextListHtml(
-          'Recomendação de CRM',
-          crmDetails,
-        )}
-
-        ${
-          diagnostic
-            ? `
-              <div class="yolen-rule-list">
-                <div class="yolen-rule">
-                  Somente leitura confirmado
-                </div>
-
-                <div class="yolen-rule">
-                  Diagnóstico não persistido
-                </div>
-
-                <div class="yolen-rule">
-                  CRM não alterado
-                </div>
-
-                <div class="yolen-rule">
-                  Cursor processado não avançado
-                </div>
-              </div>
-            `
-            : ''
-        }
-
-        <div class="yolen-inline-actions">
+        : ''
+
+    const copyMessageButton =
+      messageAvailable
+        ? `
           <button
             class="yolen-secondary-button"
             type="button"
-            data-yolen-action="diagnostic-preview-v2"
-            ${loading ? 'disabled' : ''}
+            data-yolen-action="copy-suggested-message"
           >
-            ${
-              loading
-                ? 'Gerando diagnóstico V2...'
-                : diagnostic
-                  ? 'Atualizar diagnóstico V2'
-                  : 'Executar diagnóstico V2'
-            }
+            Copiar mensagem
           </button>
+        `
+        : ''
+
+    return `
+      ${applyButton}
+      ${transcribeAudioButton}
+      ${insertMessageButton}
+      ${copyMessageButton}
+
+      <button
+        class="yolen-tertiary-button"
+        type="button"
+        data-yolen-action="analyze-conversation"
+      >
+        Atualizar análise
+      </button>
+    `
+  }
+
+  function getCompanionDecisionBadge() {
+    if (
+      state
+        .conversationAnalysisLoading
+    ) {
+      return 'Analisando'
+    }
+
+    if (
+      state
+        .conversationAnalysisError ||
+      state
+        .suggestionApplyError ||
+      isCurrentAnalysisOutdated()
+    ) {
+      return 'Atenção'
+    }
+
+    if (
+      state
+        .suggestionApplyResult
+    ) {
+      return 'Atualizado'
+    }
+
+    if (
+      !state
+        .conversationAnalysis
+    ) {
+      return 'Aguardando conversa'
+    }
+
+    if (
+      hasOperationalSuggestionChange()
+    ) {
+      return 'Ação recomendada'
+    }
+
+    if (
+      getSuggestedMessage() ||
+      getCompanionNextMoveText()
+    ) {
+      return 'Orientação disponível'
+    }
+
+    return 'Sem intervenção necessária'
+  }
+
+  function getCompanionMomentText() {
+    if (
+      state
+        .suggestionApplyLoading
+    ) {
+      return 'Atualizando a Yolen após sua confirmação...'
+    }
+
+    if (
+      state
+        .suggestionApplyError
+    ) {
+      return (
+        state
+          .suggestionApplyError
+      )
+    }
+
+    if (
+      state
+        .suggestionApplyResult
+    ) {
+      return state
+        .suggestionApplyResult
+        .already_applied
+        ? 'A situação já estava atualizada na Yolen.'
+        : 'A atualização foi registrada na Yolen.'
+    }
+
+    if (
+      state
+        .conversationAnalysisLoading
+    ) {
+      return 'A Yolen está entendendo o momento atual da conversa.'
+    }
+
+    if (
+      state
+        .conversationAnalysisError
+    ) {
+      return (
+        state
+          .conversationAnalysisError
+      )
+    }
+
+    if (
+      isCurrentAnalysisOutdated()
+    ) {
+      return 'A conversa mudou desde a última leitura. Atualize a análise antes de usar a orientação anterior.'
+    }
+
+    const summary =
+      state
+        .conversationAnalysis
+        ?.suggestion
+        ?.summary
+
+    if (
+      typeof summary ===
+        'string' &&
+      summary.trim()
+    ) {
+      return summary.trim()
+    }
+
+    if (
+      !canAnalyzeCurrentConversation()
+    ) {
+      return 'A Yolen ainda não pode analisar esta conversa.'
+    }
+
+    if (
+      state
+        .automaticAnalysisStatus
+    ) {
+      return state
+        .automaticAnalysisStatus
+    }
+
+    return 'Continue a conversa normalmente. A Yolen acompanha e aparece quando houver algo útil para orientar.'
+  }
+
+  function getCompanionNextMoveText() {
+    const nextMove =
+      state
+        .conversationAnalysis
+        ?.coaching
+        ?.recommended_next_approach
+
+    if (
+      typeof nextMove !==
+        'string'
+    ) {
+      return null
+    }
+
+    const clean =
+      nextMove.trim()
+
+    return clean || null
+  }
+
+  function getOperationalSuggestionHtml() {
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    if (
+      !suggestion ||
+      !cycle ||
+      isCurrentAnalysisOutdated() ||
+      !hasOperationalSuggestionChange()
+    ) {
+      return ''
+    }
+
+    const items = []
+
+    if (
+      suggestion
+        .recommended_status &&
+      suggestion
+        .recommended_status !==
+        cycle.status
+    ) {
+      items.push(
+        `Etapa: ${getStageLabel(cycle.status)} → ${getStageLabel(suggestion.recommended_status)}`,
+      )
+    }
+
+    const currentNextAction =
+      normalizeOperationalText(
+        cycle.next_action,
+      )
+
+    const suggestedNextAction =
+      normalizeOperationalText(
+        suggestion.next_action,
+      )
+
+    const actionChanged =
+      currentNextAction !==
+        suggestedNextAction ||
+      getOperationalDateKey(
+        cycle.next_action_date,
+      ) !==
+        getOperationalDateKey(
+          suggestion
+            .next_action_date,
+        )
+
+    if (
+      actionChanged &&
+      suggestedNextAction
+    ) {
+      const formattedDate =
+        formatSuggestionDate(
+          suggestion
+            .next_action_date,
+        )
+
+      items.push(
+        formattedDate
+          ? `Próxima ação: ${suggestedNextAction} · ${formattedDate}`
+          : `Próxima ação: ${suggestedNextAction}`,
+      )
+    }
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-decision-block yolen-operational-suggestion">
+        <div class="yolen-decision-kicker">
+          Atualização na Yolen
+        </div>
+
+        <div class="yolen-decision-list">
+          ${items
+            .map(
+              item =>
+                `<div class="yolen-decision-list-item">${escapeHtml(item)}</div>`,
+            )
+            .join('')}
+        </div>
+
+        <div class="yolen-operational-note">
+          Nada será alterado sem sua confirmação.
         </div>
       </div>
     `
   }
 
   function getAnalysisCardHtml() {
+    const nextMove =
+      getCompanionNextMoveText()
+
     return `
-      <div class="yolen-card ${getAnalysisStatusClass()}">
-        <div class="yolen-section-label">Análise da conversa</div>
-        <div class="yolen-card-title">${escapeHtml(getAnalysisTitle())}</div>
-        <div class="yolen-card-description">${getAnalysisDescription()}</div>
+      <div class="yolen-card yolen-decision-card ${getAnalysisStatusClass()}">
+        <div class="yolen-decision-header">
+          <div class="yolen-section-label">
+            Yolen Companion
+          </div>
+
+          <div class="yolen-decision-badge">
+            ${escapeHtml(
+              getCompanionDecisionBadge(),
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-decision-block">
+          <div class="yolen-decision-kicker">
+            Momento atual
+          </div>
+
+          <div class="yolen-card-title yolen-decision-title">
+            ${escapeHtml(
+              getCompanionMomentText(),
+            )}
+          </div>
+        </div>
+
+        ${
+          nextMove &&
+          !isCurrentAnalysisOutdated()
+            ? `
+              <div class="yolen-decision-block">
+                <div class="yolen-decision-kicker">
+                  Próximo passo
+                </div>
+
+                <div class="yolen-decision-copy">
+                  ${escapeHtml(nextMove)}
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        ${getOperationalSuggestionHtml()}
+
         ${getAudioTranscriptionHtml()}
+
         ${getSuggestedMessageHtml()}
-        <div class="yolen-inline-actions">
+
+        <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
         </div>
       </div>
     `
   }
 
+  function getCompactConnectionLabel() {
+    if (state.loading) {
+      return 'Conectando'
+    }
+
+    if (state.connected) {
+      return 'Conectada'
+    }
+
+    return 'Desconectada'
+  }
+
+  function getCompactConnectionClass() {
+    if (state.loading) {
+      return 'yolen-connection-pending'
+    }
+
+    if (state.connected) {
+      return 'yolen-connection-online'
+    }
+
+    return 'yolen-connection-offline'
+  }
+
+  function getCompactConversationName() {
+    return (
+      state
+        .leadResolution
+        ?.lead
+        ?.name ||
+      state.conversationTitle ||
+      'Nenhuma conversa detectada'
+    )
+  }
+
+  function getCompactLeadDescription() {
+    if (state.isSelfConversation) {
+      return 'Esta conversa não é vinculada a um lead comercial.'
+    }
+
+    if (state.isGroupConversation) {
+      return 'Conversas em grupo não são vinculadas a leads.'
+    }
+
+    if (state.leadResolutionLoading) {
+      return 'Localizando este contato na Yolen...'
+    }
+
+    if (state.leadResolutionError) {
+      return state.leadResolutionError
+    }
+
+    if (!state.connected) {
+      return 'Conecte a Yolen para ativar o Companion nesta conversa.'
+    }
+
+    if (!state.conversationPhone) {
+      return (
+        state.autoLookupStatus ||
+        'Identificando o contato automaticamente...'
+      )
+    }
+
+    const resolution =
+      state.leadResolution
+
+    if (!resolution) {
+      return 'Localizando vínculo comercial...'
+    }
+
+    if (
+      resolution.status ===
+      'OWNED_BY_ME'
+    ) {
+      return 'Lead vinculado à sua carteira.'
+    }
+
+    if (
+      resolution.status ===
+      'OWNED_BY_OTHER'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este lead pertence a outra carteira.'
+      )
+    }
+
+    if (
+      resolution.status ===
+      'IN_POOL'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este lead está no Pool.'
+      )
+    }
+
+    if (
+      resolution.status ===
+      'NOT_FOUND'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este contato ainda não existe na Yolen.'
+      )
+    }
+
+    if (
+      resolution.status ===
+      'CLOSED_CYCLE'
+    ) {
+      return (
+        resolution.user_message ||
+        'Este ciclo comercial já está encerrado.'
+      )
+    }
+
+    return (
+      resolution.user_message ||
+      'Contato localizado na Yolen.'
+    )
+  }
+
+  function getCompactContextChipsHtml() {
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    const chips = []
+
+    if (cycle?.status) {
+      chips.push(
+        '<span class="yolen-context-chip">' +
+          escapeHtml(
+            getStageLabel(
+              cycle.status,
+            ),
+          ) +
+        '</span>',
+      )
+    }
+
+    if (cycle?.owner_name) {
+      chips.push(
+        '<span class="yolen-context-chip yolen-context-chip-muted">' +
+          escapeHtml(
+            cycle.owner_name,
+          ) +
+        '</span>',
+      )
+    }
+
+    if (chips.length === 0) {
+      return ''
+    }
+
+    return (
+      '<div class="yolen-context-chips">' +
+        chips.join('') +
+      '</div>'
+    )
+  }
+
+  function getCompactFooterHtml() {
+    if (!state.connected) {
+      return [
+        '<div class="yolen-compact-footer">',
+          '<button',
+            ' class="yolen-primary-button"',
+            ' type="button"',
+            ' data-yolen-action="connect-yolen"',
+          '>',
+            'Conectar Yolen',
+          '</button>',
+        '</div>',
+      ].join('')
+    }
+
+    return [
+      '<div class="yolen-compact-footer">',
+        '<button',
+          ' class="yolen-tertiary-button"',
+          ' type="button"',
+          ' data-yolen-action="open-yolen"',
+        '>',
+          'Abrir Yolen',
+        '</button>',
+      '</div>',
+    ].join('')
+  }
+
+  function getYolenMarkUrl() {
+    const runtime =
+      getExtensionRuntime()
+
+    if (!runtime?.getURL) {
+      return null
+    }
+
+    return runtime.getURL(
+      'assets/yolen-mark.png',
+    )
+  }
+
+  function getYolenMarkHtml() {
+    const markUrl =
+      getYolenMarkUrl()
+
+    if (!markUrl) {
+      return '<span class="yolen-logo-fallback">Y</span>'
+    }
+
+    return (
+      '<img' +
+        ' class="yolen-brand-mark"' +
+        ' src="' +
+          escapeHtml(markUrl) +
+        '"' +
+        ' alt="Yolen"' +
+      '>'
+    )
+  }
+
+  function setPanelCollapsed(collapsed) {
+    panelCollapsed =
+      Boolean(collapsed)
+
+    document
+      .documentElement
+      .classList
+      .toggle(
+        'yolen-companion-collapsed',
+        panelCollapsed,
+      )
+
+    renderPanel()
+  }
+
   function renderPanel() {
     const panel = createPanel()
 
-    panel.innerHTML = `
-      <div class="yolen-panel-header">
-        <div class="yolen-brand">
-          <div class="yolen-logo">Y</div>
-          <div>
-            <div class="yolen-title">Yolen Companion</div>
-            <div class="yolen-subtitle">${
-              state.companyName
-                ? `Empresa ativa: ${escapeHtml(state.companyName)}`
-                : 'Empresa ativa não carregada'
-            }</div>
-          </div>
-        </div>
+    const collapsed =
+      panelCollapsed === true
 
-        <button class="yolen-icon-button" type="button" data-yolen-action="refresh" title="Atualizar leitura">
-          ↻
-        </button>
-      </div>
+    document
+      .documentElement
+      .classList
+      .toggle(
+        'yolen-companion-collapsed',
+        collapsed,
+      )
 
-      <div class="yolen-card ${getConnectionClass()}">
-        <div class="yolen-card-title">${getConnectionLabel()}</div>
-        <div class="yolen-card-description">
-          ${getConnectionDescription()}
-        </div>
-      </div>
+    panel.classList.toggle(
+      'yolen-panel-collapsed',
+      collapsed,
+    )
 
-      <div class="yolen-card">
-        <div class="yolen-section-label">Conversa aberta</div>
-        <div class="yolen-lead-name">
-          ${escapeHtml(state.conversationTitle || 'Nenhuma conversa detectada')}
-        </div>
+    if (collapsed) {
+      panel.innerHTML = [
+        '<div class="yolen-collapsed-shell">',
 
-        <div class="yolen-card-description">
-          Telefone detectado: ${escapeHtml(state.conversationPhone || 'não detectado')}
-          ${
-            state.phoneSource
-              ? ` · Fonte: ${escapeHtml(state.phoneSource)}`
-              : ''
-          }
-        </div>
+          '<button',
+            ' class="yolen-collapsed-logo-button"',
+            ' type="button"',
+            ' data-yolen-action="expand-companion"',
+            ' title="Abrir Yolen Companion"',
+            ' aria-label="Abrir Yolen Companion"',
+          '>',
 
-        <div class="yolen-metrics">
-          <div class="yolen-metric">
-            <span class="yolen-metric-number">${state.messageCount}</span>
-            <span class="yolen-metric-label">mensagens da conversa atual</span>
-          </div>
+            getYolenMarkHtml(),
 
-          <div class="yolen-metric">
-            <span class="yolen-metric-number">${state.audioCount}</span>
-            <span class="yolen-metric-label">áudios da conversa atual</span>
-          </div>
-        </div>
-      </div>
+          '</button>',
 
-      <div class="yolen-card ${getLeadStatusClass()}">
-        <div class="yolen-section-label">Vínculo na Yolen</div>
-        <div class="yolen-card-title">${getLeadStatusTitle()}</div>
-        <div class="yolen-card-description">${getLeadStatusDescription()}</div>
-        <div class="yolen-inline-actions">
-          ${getLeadActionButton()}
-        </div>
-      </div>
+        '</div>',
+      ].join('')
 
-      ${getAnalysisCardHtml()}
+      panel
+        .querySelector(
+          '[data-yolen-action="expand-companion"]',
+        )
+        ?.addEventListener(
+          'click',
+          () => {
+            setPanelCollapsed(false)
+          },
+        )
 
-      ${getDiagnosticPreviewCardHtml()}
+      return
+    }
 
-      <div class="yolen-card">
-        <div class="yolen-section-label">Regras preservadas</div>
+    panel.innerHTML = [
+      '<div class="yolen-panel-header yolen-panel-header-final">',
 
-        <div class="yolen-rule-list">
-          <div class="yolen-rule">Não cria lead dentro da extensão</div>
-          <div class="yolen-rule">Não puxa lead do Pool</div>
-          <div class="yolen-rule">Não transfere carteira</div>
+        '<div class="yolen-brand">',
 
-        </div>          <div class="yolen-rule">Não aplica ação sem aprovação</div>
-        <div class="yolen-rule">Não aplica sugestão com áudio sem transcrição</div>
-        <div class="yolen-rule">Não envia mensagem automaticamente</div>
-      </div>
+          '<button',
+            ' class="yolen-logo yolen-logo-button"',
+            ' type="button"',
+            ' data-yolen-action="collapse-companion"',
+            ' title="Minimizar Yolen Companion"',
+            ' aria-label="Minimizar Yolen Companion"',
+          '>',
 
-      <div class="yolen-actions">
-        <button class="yolen-primary-button" type="button" data-yolen-action="${getPrimaryButtonAction()}">
-          ${getPrimaryButtonLabel()}
-        </button>
+            getYolenMarkHtml(),
 
-        <button class="yolen-secondary-button" type="button" data-yolen-action="refresh">
-          Atualizar leitura
-        </button>
-      </div>
-    `
+          '</button>',
+
+          '<div class="yolen-brand-copy">',
+
+            '<div class="yolen-title">',
+              'Yolen Companion',
+            '</div>',
+
+            '<div class="yolen-subtitle">',
+              escapeHtml(
+                state.companyName ||
+                'Empresa não carregada',
+              ),
+            '</div>',
+
+          '</div>',
+
+        '</div>',
+
+        '<div class="yolen-header-actions">',
+
+          '<span class="yolen-connection-pill ' +
+            getCompactConnectionClass() +
+          '">',
+
+            escapeHtml(
+              getCompactConnectionLabel(),
+            ),
+
+          '</span>',
+
+          '<button',
+            ' class="yolen-icon-button"',
+            ' type="button"',
+            ' data-yolen-action="refresh"',
+            ' title="Atualizar"',
+          '>',
+            '↻',
+          '</button>',
+
+          '<button',
+            ' class="yolen-icon-button yolen-collapse-button"',
+            ' type="button"',
+            ' data-yolen-action="collapse-companion"',
+            ' title="Minimizar Companion"',
+            ' aria-label="Minimizar Yolen Companion"',
+          '>',
+            '›',
+          '</button>',
+
+        '</div>',
+
+      '</div>',
+
+      '<div class="yolen-card yolen-contact-card ' +
+        getLeadStatusClass() +
+      '">',
+
+        '<div class="yolen-section-label">',
+          'Conversa',
+        '</div>',
+
+        '<div class="yolen-lead-name">',
+          escapeHtml(
+            getCompactConversationName(),
+          ),
+        '</div>',
+
+        getCompactContextChipsHtml(),
+
+        '<div class="yolen-card-description yolen-contact-description">',
+          escapeHtml(
+            getCompactLeadDescription(),
+          ),
+        '</div>',
+
+        '<div class="yolen-inline-actions yolen-contact-actions">',
+          getLeadActionButton(),
+        '</div>',
+
+      '</div>',
+
+      getAnalysisCardHtml(),
+
+      getCompactFooterHtml(),
+
+    ].join('')
 
     panel.querySelectorAll('[data-yolen-action="refresh"]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -6219,6 +6054,12 @@
         if (!state.isSelfConversation) {
           resolveCurrentLead()
         }
+      })
+    })
+
+    panel.querySelectorAll('[data-yolen-action="collapse-companion"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        setPanelCollapsed(true)
       })
     })
 
@@ -6249,10 +6090,6 @@
       analyzeCurrentConversation({
         automatic: false,
       })
-    })
-
-    panel.querySelector('[data-yolen-action="diagnostic-preview-v2"]')?.addEventListener('click', () => {
-      runDiagnosticPreview()
     })
 
     panel.querySelector('[data-yolen-action="apply-suggestion"]')?.addEventListener('click', () => {

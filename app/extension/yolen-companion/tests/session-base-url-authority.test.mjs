@@ -12,16 +12,68 @@ const yolenApi =
   )
 
 test(
-  'origem assinada da sessão prevalece e fallback sem sessão permanece em produção',
+  'origem assinada da sessão prevalece entre origens finais autorizadas',
   () => {
+    assert.doesNotMatch(
+      yolenApi,
+      /PHASE_5_2_PREVIEW_BASE_URL/,
+    )
+
     assert.match(
       yolenApi,
-      /const PHASE_5_2_PREVIEW_BASE_URL/,
+      /const DEFAULT_BASE_URL/,
+    )
+
+    assert.match(
+      yolenApi,
+      /const LOCAL_BASE_URL/,
     )
 
     assert.match(
       yolenApi,
       /let sessionBaseUrl = null/,
+    )
+
+    const allowlistStart =
+      yolenApi.indexOf(
+        'function getAllowedSessionBaseUrl',
+      )
+
+    const allowlistEnd =
+      yolenApi.indexOf(
+        'function rememberSessionBaseUrl',
+        allowlistStart,
+      )
+
+    assert.notEqual(
+      allowlistStart,
+      -1,
+    )
+
+    assert.notEqual(
+      allowlistEnd,
+      -1,
+    )
+
+    const allowlistBlock =
+      yolenApi.slice(
+        allowlistStart,
+        allowlistEnd,
+      )
+
+    assert.match(
+      allowlistBlock,
+      /DEFAULT_BASE_URL/,
+    )
+
+    assert.match(
+      allowlistBlock,
+      /LOCAL_BASE_URL/,
+    )
+
+    assert.doesNotMatch(
+      allowlistBlock,
+      /PHASE_5_2/,
     )
 
     const start =
@@ -39,7 +91,10 @@ test(
     assert.notEqual(end, -1)
 
     const getBaseUrlBlock =
-      yolenApi.slice(start, end)
+      yolenApi.slice(
+        start,
+        end,
+      )
 
     assert.match(
       getBaseUrlBlock,
@@ -49,11 +104,6 @@ test(
     assert.match(
       getBaseUrlBlock,
       /DEFAULT_BASE_URL/,
-    )
-
-    assert.doesNotMatch(
-      getBaseUrlBlock,
-      /PHASE_5_2_PREVIEW_BASE_URL/,
     )
 
     assert.doesNotMatch(

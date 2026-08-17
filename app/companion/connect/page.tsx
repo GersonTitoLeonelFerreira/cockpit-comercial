@@ -43,9 +43,6 @@ type ConnectResult =
 const PRODUCTION_COMPANION_BASE_URL =
   'https://cockpit-comercial-vocn.vercel.app'
 
-const PHASE_5_2_PREVIEW_COMPANION_BASE_URL =
-  'https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app'
-
 const LOCAL_COMPANION_BASE_URL =
   'http://localhost:3000'
 
@@ -91,9 +88,7 @@ async function getCompanionBaseUrl() {
     candidate ===
       LOCAL_COMPANION_BASE_URL ||
     candidate ===
-      PRODUCTION_COMPANION_BASE_URL ||
-    candidate ===
-      PHASE_5_2_PREVIEW_COMPANION_BASE_URL
+      PRODUCTION_COMPANION_BASE_URL
   ) {
     return candidate
   }

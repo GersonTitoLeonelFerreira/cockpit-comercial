@@ -1,22 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Yolen Companion",
-  "version": "0.1.7",
-  "description": "Camada de leitura assistida da Yolen para WhatsApp Web.",
+  "version": "0.9.0",
+  "description": "Assistente comercial da Yolen para WhatsApp Web.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
-    "http://localhost:3000/*",
-    "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
+    "http://localhost:3000/*"
   ],
   "background": {
     "scripts": [
       "src/capture-transport.js",
       "src/background.js"
-    ]
+    ],
+    "service_worker": "src/background-service-worker.js"
   },
   "content_scripts": [
     {
@@ -39,8 +39,7 @@
     {
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*",
-        "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
+        "http://localhost:3000/*"
       ],
       "js": [
         "src/yolen-bridge.js"
@@ -55,13 +54,13 @@
       ],
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*",
-        "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
+        "http://localhost:3000/*"
       ]
     },
     {
       "resources": [
-        "src/whatsapp-audio-bridge.js"
+        "src/whatsapp-audio-bridge.js",
+        "assets/yolen-mark.png"
       ],
       "matches": [
         "https://web.whatsapp.com/*"
