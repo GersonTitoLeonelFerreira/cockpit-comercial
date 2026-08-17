@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Yolen Companion",
-  "version": "0.1.7",
-  "description": "Camada de leitura assistida da Yolen para WhatsApp Web.",
+  "version": "0.9.0",
+  "description": "Assistente comercial da Yolen para WhatsApp Web.",
   "permissions": [
     "storage"
   ],
@@ -15,7 +15,8 @@
     "scripts": [
       "src/capture-transport.js",
       "src/background.js"
-    ]
+    ],
+    "service_worker": "src/background-service-worker.js"
   },
   "content_scripts": [
     {
