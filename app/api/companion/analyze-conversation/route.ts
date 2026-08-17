@@ -14,6 +14,10 @@ import {
   buildStatefulCopilotActivePilotTelemetry,
 } from '@/app/lib/companion/stateful-copilot-active-pilot-telemetry'
 import {
+  persistStatefulCopilotActivePilotTelemetry,
+  type StatefulCopilotActivePilotTelemetryRpcClient,
+} from '@/app/lib/server/stateful-copilot-active-pilot-telemetry-persistence'
+import {
   resolveStatefulCopilotRouteMode,
   type StatefulCopilotRouteMode,
 } from '@/app/lib/companion/stateful-copilot-route-mode'
@@ -1410,6 +1414,9 @@ export async function POST(request: Request) {
       },
     })
 
+    const activePilotTelemetryAdmin =
+      admin as unknown as StatefulCopilotActivePilotTelemetryRpcClient
+
     const { data: membership, error: membershipError } = await admin
       .from('company_memberships')
       .select('company_id, user_id, role, is_active')
@@ -1927,6 +1934,14 @@ export async function POST(request: Request) {
                   .automatic_agenda_write,
             })
 
+          await persistStatefulCopilotActivePilotTelemetry({
+            admin:
+              activePilotTelemetryAdmin,
+
+            telemetry:
+              activeTelemetry,
+          })
+
           console.info(
             'YOLEN_COMPANION_STATEFUL_ACTIVE',
             JSON.stringify(
@@ -2001,6 +2016,14 @@ export async function POST(request: Request) {
                 .automatic_agenda_write,
           })
 
+        await persistStatefulCopilotActivePilotTelemetry({
+          admin:
+            activePilotTelemetryAdmin,
+
+          telemetry:
+            fallbackTelemetry,
+        })
+
         console.warn(
           'YOLEN_COMPANION_STATEFUL_ACTIVE',
           JSON.stringify(
@@ -2032,6 +2055,17 @@ export async function POST(request: Request) {
             automatic_agenda_write:
               false,
           })
+
+        await persistStatefulCopilotActivePilotTelemetry({
+          admin:
+            activePilotTelemetryAdmin,
+
+          telemetry:
+            unhandledTelemetry,
+        }).catch(
+          () =>
+            null,
+        )
 
         console.warn(
           'YOLEN_COMPANION_STATEFUL_ACTIVE',
