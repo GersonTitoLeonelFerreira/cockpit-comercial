@@ -43,7 +43,7 @@ export const STATEFUL_COPILOT_PROJECT_PHASE =
   'phase-5' as const
 
 export const STATEFUL_COPILOT_PROJECT_SUBPHASE =
-  'phase-5.2' as const
+  'phase-5.3' as const
 
 export const STATEFUL_COPILOT_RUNTIME_STAGE =
   'server-only-orchestrator' as const

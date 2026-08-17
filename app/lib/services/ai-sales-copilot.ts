@@ -39,7 +39,35 @@ export async function analyzeConversation(
     throw new Error(json.error || 'Falha ao analisar conversa com IA.')
   }
 
-  return json.data
+  if (
+    typeof json.data
+      .suggestion
+      .confidence !== 'number'
+  ) {
+    throw new Error(
+      'A rota /api/ai/analyze-conversation retornou confiança inválida.',
+    )
+  }
+
+  const suggestion:
+    AISalesSuggestion = {
+      ...json.data.suggestion,
+
+      confidence:
+        json.data
+          .suggestion
+          .confidence,
+    }
+
+  return {
+    context:
+      json.data.context,
+
+    suggestion,
+
+    diagnostics:
+      json.data.diagnostics,
+  }
 }
 
 export async function applyAISuggestion(
