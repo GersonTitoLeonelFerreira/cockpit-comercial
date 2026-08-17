@@ -9,8 +9,7 @@
   "host_permissions": [
     "https://web.whatsapp.com/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
-    "http://localhost:3000/*",
-    "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
+    "http://localhost:3000/*"
   ],
   "background": {
     "scripts": [
@@ -39,8 +38,7 @@
     {
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*",
-        "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
+        "http://localhost:3000/*"
       ],
       "js": [
         "src/yolen-bridge.js"
@@ -55,8 +53,7 @@
       ],
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*",
-        "https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app/*"
+        "http://localhost:3000/*"
       ]
     },
     {

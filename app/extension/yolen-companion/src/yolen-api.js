@@ -4,9 +4,6 @@
   const DEFAULT_BASE_URL =
     'https://cockpit-comercial-vocn.vercel.app'
 
-  const PHASE_5_2_PREVIEW_BASE_URL =
-    'https://cockpit-comercial-vocn-git-feature-companion-v2-ph-b75689-yolen.vercel.app'
-
   const LOCAL_BASE_URL =
     'http://localhost:3000'
 
@@ -15,7 +12,6 @@
   function getAllowedSessionBaseUrl(value) {
     if (
       value === DEFAULT_BASE_URL ||
-      value === PHASE_5_2_PREVIEW_BASE_URL ||
       value === LOCAL_BASE_URL
     ) {
       return value
@@ -142,13 +138,6 @@
     return sendToBackground('ANALYZE_CONVERSATION', payload)
   }
 
-  async function diagnosticPreview(payload) {
-    return sendToBackground(
-      'DIAGNOSTIC_PREVIEW_V2',
-      payload,
-    )
-  }
-
   async function applySuggestion(payload) {
     return sendToBackground('APPLY_SUGGESTION', payload)
   }
@@ -182,7 +171,6 @@
     clearSession,
     resolveLead,
     analyzeConversation,
-    diagnosticPreview,
     applySuggestion,
     registerMessageAction,
     transcribeAudio,

@@ -32,123 +32,91 @@ const contentScript =
   )
 
 test(
-  'API da extensão expõe a prévia V2',
+  'Final Release remove a API paralela de Preview V2',
   () => {
-    assert.match(
+    assert.doesNotMatch(
       yolenApi,
       /async function diagnosticPreview\(payload\)/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       yolenApi,
       /DIAGNOSTIC_PREVIEW_V2/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       yolenApi,
       /diagnosticPreview,/,
     )
-  },
-)
 
-test(
-  'background encaminha a prévia para a rota V2',
-  () => {
     assert.match(
-      background,
-      /message\.action ===\s*'DIAGNOSTIC_PREVIEW_V2'/,
+      yolenApi,
+      /async function analyzeConversation\(payload\)/,
     )
 
     assert.match(
-      background,
-      /\/api\/companion\/v2\/diagnostic-preview/,
+      yolenApi,
+      /ANALYZE_CONVERSATION/,
     )
   },
 )
 
 test(
-  'cartão V2 permanece paralelo e somente leitura',
+  'Final Release remove o roteamento paralelo de Preview V2 do background',
   () => {
-    const previewStart =
-      contentScript.indexOf(
-        '  async function runDiagnosticPreview()',
-      )
-
-    const previewEnd =
-      contentScript.indexOf(
-        '\n  function formatDiagnosticPreviewValue(',
-        previewStart,
-      )
-
-    assert.notEqual(
-      previewStart,
-      -1,
-    )
-
-    assert.notEqual(
-      previewEnd,
-      -1,
-    )
-
-    const previewBlock =
-      contentScript.slice(
-        previewStart,
-        previewEnd,
-      )
-
-    assert.match(
-      previewBlock,
-      /\.diagnosticPreview\(\{/,
-    )
-
-    assert.match(
-      previewBlock,
-      /cycle_id:/,
-    )
-
-    assert.match(
-      previewBlock,
-      /conversation_key:/,
-    )
-
-    assert.match(
-      previewBlock,
-      /previewControls\?\.read_only !==\s*true/,
-    )
-
-    assert.match(
-      previewBlock,
-      /previewControls\?\.persisted !==\s*false/,
-    )
-
-    assert.match(
-      previewBlock,
-      /previewControls\?\.crm_changed !==\s*false/,
-    )
-
-    assert.match(
-      previewBlock,
-      /previewControls\?\.cursor_advanced !==\s*false/,
+    assert.doesNotMatch(
+      background,
+      /DIAGNOSTIC_PREVIEW_V2/,
     )
 
     assert.doesNotMatch(
-      previewBlock,
-      /applySuggestion/,
+      background,
+      /\/api\/companion\/v2\/diagnostic-preview/,
+    )
+
+    assert.match(
+      background,
+      /ANALYZE_CONVERSATION/,
+    )
+
+    assert.match(
+      background,
+      /\/api\/companion\/analyze-conversation/,
+    )
+  },
+)
+
+test(
+  'Final Release exibe somente a experiência principal do Yolen Companion',
+  () => {
+    assert.match(
+      contentScript,
+      /\$\{getAnalysisCardHtml\(\)\}/,
     )
 
     assert.match(
       contentScript,
-      /\$\{getAnalysisCardHtml\(\)\}[\s\S]*\$\{getDiagnosticPreviewCardHtml\(\)\}/,
+      /<div class="yolen-section-label">Yolen Companion<\/div>/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
+      contentScript,
+      /\$\{getDiagnosticPreviewCardHtml\(\)\}/,
+    )
+
+    assert.doesNotMatch(
       contentScript,
       /data-yolen-action="diagnostic-preview-v2"/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       contentScript,
       /Diagnóstico V2 · somente leitura/,
+    )
+
+    assert.doesNotMatch(
+      contentScript,
+      /<div class="yolen-section-label">Regras preservadas<\/div>/,
     )
   },
 )
