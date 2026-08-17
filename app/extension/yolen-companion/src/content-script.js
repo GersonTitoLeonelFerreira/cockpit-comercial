@@ -36,6 +36,7 @@
     )
   }
 
+  let panelCollapsed = false
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
   let lastResolvedContactLookupIdentity = null
@@ -5835,17 +5836,121 @@
     ].join('')
   }
 
+  function getYolenMarkUrl() {
+    const runtime =
+      getExtensionRuntime()
+
+    if (!runtime?.getURL) {
+      return null
+    }
+
+    return runtime.getURL(
+      'assets/yolen-mark.png',
+    )
+  }
+
+  function getYolenMarkHtml() {
+    const markUrl =
+      getYolenMarkUrl()
+
+    if (!markUrl) {
+      return '<span class="yolen-logo-fallback">Y</span>'
+    }
+
+    return (
+      '<img' +
+        ' class="yolen-brand-mark"' +
+        ' src="' +
+          escapeHtml(markUrl) +
+        '"' +
+        ' alt="Yolen"' +
+      '>'
+    )
+  }
+
+  function setPanelCollapsed(collapsed) {
+    panelCollapsed =
+      Boolean(collapsed)
+
+    document
+      .documentElement
+      .classList
+      .toggle(
+        'yolen-companion-collapsed',
+        panelCollapsed,
+      )
+
+    renderPanel()
+  }
+
   function renderPanel() {
     const panel = createPanel()
+
+    const collapsed =
+      panelCollapsed === true
+
+    document
+      .documentElement
+      .classList
+      .toggle(
+        'yolen-companion-collapsed',
+        collapsed,
+      )
+
+    panel.classList.toggle(
+      'yolen-panel-collapsed',
+      collapsed,
+    )
+
+    if (collapsed) {
+      panel.innerHTML = [
+        '<div class="yolen-collapsed-shell">',
+
+          '<button',
+            ' class="yolen-collapsed-logo-button"',
+            ' type="button"',
+            ' data-yolen-action="expand-companion"',
+            ' title="Abrir Yolen Companion"',
+            ' aria-label="Abrir Yolen Companion"',
+          '>',
+
+            getYolenMarkHtml(),
+
+          '</button>',
+
+        '</div>',
+      ].join('')
+
+      panel
+        .querySelector(
+          '[data-yolen-action="expand-companion"]',
+        )
+        ?.addEventListener(
+          'click',
+          () => {
+            setPanelCollapsed(false)
+          },
+        )
+
+      return
+    }
 
     panel.innerHTML = [
       '<div class="yolen-panel-header yolen-panel-header-final">',
 
         '<div class="yolen-brand">',
 
-          '<div class="yolen-logo">',
-            'Y',
-          '</div>',
+          '<button',
+            ' class="yolen-logo yolen-logo-button"',
+            ' type="button"',
+            ' data-yolen-action="collapse-companion"',
+            ' title="Minimizar Yolen Companion"',
+            ' aria-label="Minimizar Yolen Companion"',
+          '>',
+
+            getYolenMarkHtml(),
+
+          '</button>',
 
           '<div class="yolen-brand-copy">',
 
@@ -5883,6 +5988,16 @@
             ' title="Atualizar"',
           '>',
             '↻',
+          '</button>',
+
+          '<button',
+            ' class="yolen-icon-button yolen-collapse-button"',
+            ' type="button"',
+            ' data-yolen-action="collapse-companion"',
+            ' title="Minimizar Companion"',
+            ' aria-label="Minimizar Yolen Companion"',
+          '>',
+            '›',
           '</button>',
 
         '</div>',
@@ -5939,6 +6054,12 @@
         if (!state.isSelfConversation) {
           resolveCurrentLead()
         }
+      })
+    })
+
+    panel.querySelectorAll('[data-yolen-action="collapse-companion"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        setPanelCollapsed(true)
       })
     })
 

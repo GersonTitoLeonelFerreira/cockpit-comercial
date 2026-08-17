@@ -59,7 +59,8 @@
     },
     {
       "resources": [
-        "src/whatsapp-audio-bridge.js"
+        "src/whatsapp-audio-bridge.js",
+        "assets/yolen-mark.png"
       ],
       "matches": [
         "https://web.whatsapp.com/*"
