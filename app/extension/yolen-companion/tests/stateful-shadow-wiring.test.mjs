@@ -83,41 +83,46 @@ test(
 )
 
 test(
-  'rota operacional executa stateful como sidecar e preserva V1',
+  'rota operacional possui roteamento explícito v1 shadow active',
   () => {
     assert.match(
       analyzeRoute,
-      /createStatefulCopilotServerRuntimeOrchestrator/,
+      /resolveStatefulCopilotRouteMode/,
     )
 
     assert.match(
       analyzeRoute,
-      /conversation_key\?: unknown/,
+      /getStatefulRouteMode/,
     )
 
     assert.match(
       analyzeRoute,
-      /device_key\?: unknown/,
+      /statefulRouteMode ===\s*'shadow'/,
     )
 
     assert.match(
       analyzeRoute,
-      /import \{ after, NextResponse \} from 'next\/server'/,
+      /statefulRouteMode ===\s*'active'/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       analyzeRoute,
-      /after\(async \(\) => \{/,
+      /O motor Companion V2 ainda não está disponível/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       analyzeRoute,
-      /await runStatefulCopilotRuntime\(\{/,
+      /resolveCompanionEngineVersion/,
     )
+  },
+)
 
+test(
+  'shadow continua executando stateful depois da resposta operacional',
+  () => {
     assert.match(
       analyzeRoute,
-      /v1_response:\s*v1ResponseData/,
+      /statefulRouteMode ===\s*'shadow'[\s\S]*after\(async \(\) => \{/,
     )
 
     assert.match(
@@ -127,17 +132,57 @@ test(
 
     assert.match(
       analyzeRoute,
-      /duration_ms:/,
+      /YOLEN_COMPANION_STATEFUL_SHADOW/,
+    )
+  },
+)
+
+test(
+  'active executa stateful sincronamente e adapta saída para a extensão',
+  () => {
+    assert.match(
+      analyzeRoute,
+      /statefulRouteMode ===\s*'active'[\s\S]*await runStateful\(\)/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /statefulResult\.mode ===\s*'active'/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /buildStatefulActiveResponseData/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /data:\s*activeResponseData/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /stateful_active_completed/,
+    )
+  },
+)
+
+test(
+  'active preserva fallback V1 quando V2 não pode ser exposto',
+  () => {
+    assert.match(
+      analyzeRoute,
+      /stateful_active_fallback_v1/,
+    )
+
+    assert.match(
+      analyzeRoute,
+      /stateful_active_unhandled_fallback_v1/,
     )
 
     assert.match(
       analyzeRoute,
       /data:\s*v1ResponseData/,
-    )
-
-    assert.doesNotMatch(
-      analyzeRoute,
-      /data:\s*statefulRuntime/,
     )
   },
 )

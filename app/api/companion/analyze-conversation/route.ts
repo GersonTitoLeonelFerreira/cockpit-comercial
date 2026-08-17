@@ -4,10 +4,16 @@ import { createClient } from '@supabase/supabase-js'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
-import { resolveCompanionEngineVersion } from '@/app/lib/companion/engine-version'
 import {
   resolveStatefulCopilotActivationGate,
 } from '@/app/lib/companion/stateful-copilot-activation-gate'
+import {
+  buildStatefulActiveResponseData,
+} from '@/app/lib/companion/stateful-copilot-active-response'
+import {
+  resolveStatefulCopilotRouteMode,
+  type StatefulCopilotRouteMode,
+} from '@/app/lib/companion/stateful-copilot-route-mode'
 import {
   createStatefulCopilotServerRuntimeOrchestrator,
 } from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
@@ -357,6 +363,24 @@ function getStatefulActivationAudit(
       should_persist_stateful_state:
         false,
     }
+  }
+}
+
+function getStatefulRouteMode(
+  companyId: string,
+): StatefulCopilotRouteMode {
+  try {
+    const activation =
+      resolveStatefulCopilotActivationGate({
+        company_id:
+          companyId,
+      })
+
+    return resolveStatefulCopilotRouteMode(
+      activation,
+    )
+  } catch {
+    return 'v1'
   }
 }
 
@@ -1276,22 +1300,10 @@ export async function POST(request: Request) {
       )
     }
 
-    const engineVersion =
-      resolveCompanionEngineVersion()
-
-    if (engineVersion === 'v2') {
-      return NextResponse.json<AnalyzeConversationResponse>(
-        {
-          ok: false,
-          error:
-            'O motor Companion V2 ainda não está disponível. Configure COMPANION_ENGINE_VERSION=v1 para manter o fluxo operacional.',
-        },
-        {
-          status: 503,
-          headers: corsHeaders,
-        },
+    const statefulRouteMode =
+      getStatefulRouteMode(
+        tokenPayload.company_id,
       )
-    }
 
     const body = (
       await request
@@ -1867,6 +1879,9 @@ export async function POST(request: Request) {
     })
 
     const v1ResponseData = {
+      engine_source:
+        'v1' as const,
+
       context,
       suggestion:
         result.suggestion,
@@ -1881,63 +1896,219 @@ export async function POST(request: Request) {
     }
 
     /*
-     * Fase 5.2:
+     * Fase 5.3:
      *
-     * O V1 continua sendo a resposta operacional.
-     * O stateful roda após a resposta, em shadow,
-     * sem acrescentar sua latência ao vendedor.
+     * disabled:
+     *   mantém somente V1.
+     *
+     * shadow:
+     *   responde V1 imediatamente e executa V2 em after().
+     *
+     * active:
+     *   executa V2 antes da resposta.
+     *   O resultado stateful só é exposto quando o runtime
+     *   confirma modelo + persistência. Qualquer falha
+     *   preserva a resposta V1.
      */
-    after(async () => {
+
+    const runStateful = () =>
+      runStatefulCopilotRuntime({
+        company_id:
+          tokenPayload.company_id,
+
+        cycle_id:
+          cycleId,
+
+        conversation_key:
+          conversationKey,
+
+        device_key:
+          deviceKey,
+
+        reference_time:
+          new Date().toISOString(),
+
+        v1_response:
+          v1ResponseData,
+      })
+
+    if (
+      statefulRouteMode ===
+      'shadow'
+    ) {
+      after(async () => {
+        const startedAt =
+          Date.now()
+
+        try {
+          const statefulResult =
+            await runStateful()
+
+          console.info(
+            'YOLEN_COMPANION_STATEFUL_SHADOW',
+            JSON.stringify({
+              event:
+                'stateful_shadow_completed',
+
+              company_id:
+                tokenPayload.company_id,
+
+              cycle_id:
+                cycleId,
+
+              activation_mode:
+                statefulResult
+                  .activation
+                  .mode,
+
+              runtime_mode:
+                statefulResult.mode,
+
+              response_source:
+                statefulResult
+                  .response_source,
+
+              stateful_executed:
+                statefulResult
+                  .stateful_executed,
+
+              duration_ms:
+                Math.max(
+                  0,
+                  Date.now() -
+                    startedAt,
+                ),
+
+              execution:
+                statefulResult
+                  .stateful_execution,
+
+              failure:
+                statefulResult
+                  .stateful_failure,
+
+              automatic_crm_write:
+                statefulResult
+                  .automatic_crm_write,
+
+              automatic_agenda_write:
+                statefulResult
+                  .automatic_agenda_write,
+            }),
+          )
+        } catch {
+          console.warn(
+            'YOLEN_COMPANION_STATEFUL_SHADOW',
+            JSON.stringify({
+              event:
+                'stateful_shadow_unhandled_failure',
+
+              company_id:
+                tokenPayload.company_id,
+
+              cycle_id:
+                cycleId,
+
+              duration_ms:
+                Math.max(
+                  0,
+                  Date.now() -
+                    startedAt,
+                ),
+            }),
+          )
+        }
+      })
+    }
+
+    if (
+      statefulRouteMode ===
+      'active'
+    ) {
       const startedAt =
         Date.now()
 
       try {
         const statefulResult =
-          await runStatefulCopilotRuntime({
-            company_id:
-              tokenPayload.company_id,
-
-            cycle_id:
-              cycleId,
-
-            conversation_key:
-              conversationKey,
-
-            device_key:
-              deviceKey,
-
-            reference_time:
-              new Date().toISOString(),
-
-            v1_response:
-              v1ResponseData,
-          })
+          await runStateful()
 
         if (
-          statefulResult
-            .activation
-            .mode ===
-          'disabled'
+          statefulResult.mode ===
+          'active'
         ) {
-          return
+          const activeResponseData =
+            buildStatefulActiveResponseData({
+              context,
+
+              output:
+                statefulResult.response,
+            })
+
+          console.info(
+            'YOLEN_COMPANION_STATEFUL_ACTIVE',
+            JSON.stringify({
+              event:
+                'stateful_active_completed',
+
+              company_id:
+                tokenPayload.company_id,
+
+              cycle_id:
+                cycleId,
+
+              runtime_mode:
+                statefulResult.mode,
+
+              response_source:
+                statefulResult
+                  .response_source,
+
+              duration_ms:
+                Math.max(
+                  0,
+                  Date.now() -
+                    startedAt,
+                ),
+
+              execution:
+                statefulResult
+                  .stateful_execution,
+
+              automatic_crm_write:
+                statefulResult
+                  .automatic_crm_write,
+
+              automatic_agenda_write:
+                statefulResult
+                  .automatic_agenda_write,
+            }),
+          )
+
+          return NextResponse.json<AnalyzeConversationResponse>(
+            {
+              ok: true,
+
+              data:
+                activeResponseData,
+            },
+            {
+              headers:
+                corsHeaders,
+            },
+          )
         }
 
-        console.info(
-          'YOLEN_COMPANION_STATEFUL_SHADOW',
+        console.warn(
+          'YOLEN_COMPANION_STATEFUL_ACTIVE',
           JSON.stringify({
             event:
-              'stateful_shadow_completed',
+              'stateful_active_fallback_v1',
 
             company_id:
               tokenPayload.company_id,
 
             cycle_id:
               cycleId,
-
-            activation_mode:
-              statefulResult
-                .activation
-                .mode,
 
             runtime_mode:
               statefulResult.mode,
@@ -1946,9 +2117,16 @@ export async function POST(request: Request) {
               statefulResult
                 .response_source,
 
-            stateful_executed:
+            fallback_reason:
+              statefulResult.mode ===
+              'active_fallback_v1'
+                ? statefulResult
+                    .fallback_reason
+                : 'activation_changed',
+
+            failure:
               statefulResult
-                .stateful_executed,
+                .stateful_failure,
 
             duration_ms:
               Math.max(
@@ -1956,14 +2134,6 @@ export async function POST(request: Request) {
                 Date.now() -
                   startedAt,
               ),
-
-            execution:
-              statefulResult
-                .stateful_execution,
-
-            failure:
-              statefulResult
-                .stateful_failure,
 
             automatic_crm_write:
               statefulResult
@@ -1976,10 +2146,10 @@ export async function POST(request: Request) {
         )
       } catch {
         console.warn(
-          'YOLEN_COMPANION_STATEFUL_SHADOW',
+          'YOLEN_COMPANION_STATEFUL_ACTIVE',
           JSON.stringify({
             event:
-              'stateful_shadow_unhandled_failure',
+              'stateful_active_unhandled_fallback_v1',
 
             company_id:
               tokenPayload.company_id,
@@ -1996,16 +2166,18 @@ export async function POST(request: Request) {
           }),
         )
       }
-    })
+    }
 
     return NextResponse.json<AnalyzeConversationResponse>(
       {
         ok: true,
+
         data:
           v1ResponseData,
       },
       {
-        headers: corsHeaders,
+        headers:
+          corsHeaders,
       },
     )
   } catch (error: unknown) {
