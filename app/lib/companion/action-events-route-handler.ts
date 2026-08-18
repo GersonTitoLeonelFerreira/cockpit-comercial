@@ -4,7 +4,7 @@ import {
   getActionEventRpcErrorHttpStatus,
   normalizeOptionalActionEventUuidParam,
   normalizeRegisterActionEventBody,
-} from './action-events-contract.ts'
+} from './action-events-contract'
 
 type ActionEventsTokenPayload = {
   sub: string
