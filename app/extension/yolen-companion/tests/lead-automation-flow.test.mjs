@@ -91,10 +91,10 @@ test('B1 mantém proteção multiempresa e duplicidade por variantes de telefone
   assert.match(createLeadRoute, /concurrent_create_conflict/)
 })
 
-test('B1 preserva a regra vigente de carteira e cria ciclo novo', () => {
+test('B1 atribui o lead criado ao usuario logado e cria ciclo novo', () => {
   assert.match(
     createLeadRoute,
-    /membership\.role === 'admin'[\s\S]*?\? null[\s\S]*?: tokenPayload\.sub/,
+    /const ownerUserId = tokenPayload\.sub/,
   )
   assert.match(createLeadRoute, /owner_user_id: ownerUserId/)
   assert.match(createLeadRoute, /status: 'novo'/)
