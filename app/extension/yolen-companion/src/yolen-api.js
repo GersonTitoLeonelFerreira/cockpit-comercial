@@ -8,6 +8,7 @@
     'http://localhost:3000'
 
   let sessionBaseUrl = null
+  let lastLeadLookupContext = null
 
   function getAllowedSessionBaseUrl(value) {
     if (
@@ -125,13 +126,33 @@
 
     if (result?.ok) {
       sessionBaseUrl = null
+      lastLeadLookupContext = null
     }
 
     return result
   }
 
   async function resolveLead(payload) {
+    lastLeadLookupContext = {
+      phone: payload?.phone
+        ? String(payload.phone)
+        : null,
+      display_name: payload?.display_name
+        ? String(payload.display_name)
+        : null,
+    }
+
     return sendToBackground('RESOLVE_LEAD', payload)
+  }
+
+  function getLastLeadLookupContext() {
+    return lastLeadLookupContext
+      ? { ...lastLeadLookupContext }
+      : null
+  }
+
+  async function createLead(payload) {
+    return sendToBackground('CREATE_LEAD', payload)
   }
 
   async function analyzeConversation(payload) {
@@ -170,6 +191,8 @@
     setSession,
     clearSession,
     resolveLead,
+    getLastLeadLookupContext,
+    createLead,
     analyzeConversation,
     applySuggestion,
     registerMessageAction,

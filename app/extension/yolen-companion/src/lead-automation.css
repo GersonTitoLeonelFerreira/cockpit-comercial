@@ -1,0 +1,86 @@
+.yolen-lead-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.yolen-lead-create-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.yolen-lead-create-title {
+  color: #edf2f7;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.yolen-lead-create-subtitle {
+  color: #8fa3bc;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.yolen-lead-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  color: #8fa3bc;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.yolen-lead-create-field input {
+  width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+  border: 1px solid #1a1d2e;
+  border-radius: 7px;
+  outline: none;
+  background: #111318;
+  color: #edf2f7;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.yolen-lead-create-field input:focus {
+  border-color: rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+
+.yolen-lead-create-field input[readonly] {
+  color: #93c5fd;
+  cursor: default;
+}
+
+.yolen-lead-create-status {
+  min-height: 15px;
+  color: #8fa3bc;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.yolen-lead-create-status[data-tone='error'] {
+  color: #fca5a5;
+}
+
+.yolen-lead-create-status[data-tone='success'] {
+  color: #86efac;
+}
+
+.yolen-lead-create-status[data-tone='loading'] {
+  color: #93c5fd;
+}
+
+.yolen-lead-create-submit {
+  width: 100%;
+}

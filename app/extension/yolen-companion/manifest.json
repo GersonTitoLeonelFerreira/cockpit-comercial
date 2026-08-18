@@ -29,10 +29,12 @@
         "src/capture-batch.js",
         "src/capture-resilience.js",
         "src/capture-resilience-null-base.js",
-        "src/content-script.js"
+        "src/content-script.js",
+        "src/lead-automation.js"
       ],
       "css": [
-        "src/styles.css"
+        "src/styles.css",
+        "src/lead-automation.css"
       ],
       "run_at": "document_idle"
     },

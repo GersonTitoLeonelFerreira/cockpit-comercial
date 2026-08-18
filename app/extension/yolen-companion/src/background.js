@@ -378,6 +378,14 @@ async function handleCompanionMessage(message) {
     return requestYolenWithToken(message, '/api/companion/resolve-lead', message.payload)
   }
 
+  if (message.action === 'CREATE_LEAD') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/create-lead',
+      message.payload,
+    )
+  }
+
   if (message.action === 'ANALYZE_CONVERSATION') {
     return handleConversationAnalysis(
       message,
