@@ -101,9 +101,70 @@ test('instrumenta os seis fatos de interação com sugestão', () => {
     /navigator\.clipboard\.writeText\(message\)[\s\S]*suggestion_copied/,
   )
 
+  const insertStart =
+    contentScript.indexOf(
+      'async function insertSuggestedMessageInWhatsApp()',
+    )
+
+  const insertEnd =
+    contentScript.indexOf(
+      'function getAnalysisActionButton()',
+      insertStart,
+    )
+
+  assert.notEqual(insertStart, -1)
+  assert.notEqual(insertEnd, -1)
+
+  const insertBlock =
+    contentScript.slice(
+      insertStart,
+      insertEnd,
+    )
+
+  const contextPosition =
+    insertBlock.indexOf(
+      'const pendingSend =',
+    )
+
+  const writePosition =
+    insertBlock.indexOf(
+      'writeTextInComposer(',
+    )
+
+  const confirmationPosition =
+    insertBlock.indexOf(
+      'isProbablySameMessage(',
+    )
+
+  const telemetryPosition =
+    insertBlock.indexOf(
+      "'suggestion_inserted'",
+    )
+
+  assert.ok(contextPosition >= 0)
+  assert.ok(writePosition > contextPosition)
+  assert.ok(
+    confirmationPosition >
+      writePosition,
+  )
+  assert.ok(
+    telemetryPosition >
+      confirmationPosition,
+  )
+
   assert.match(
-    contentScript,
-    /writeTextInComposer\(composer, message\)[\s\S]*suggestion_inserted/,
+    insertBlock,
+    /try \{[\s\S]*writeTextInComposer\([\s\S]*\} catch \{/,
+  )
+
+  assert.match(
+    insertBlock,
+    /for \([\s\S]*attempt < 8[\s\S]*await sleep\(50\)/,
+  )
+
+  assert.match(
+    insertBlock,
+    /await sleep\(50\)[\s\S]*suggestion_inserted/,
   )
 
   assert.match(

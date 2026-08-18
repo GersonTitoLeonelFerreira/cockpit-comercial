@@ -5172,8 +5172,6 @@
       }
     }
 
-    writeTextInComposer(composer, message)
-
     const telemetryInteractionId =
       createActionTelemetryInteractionId()
 
@@ -5191,6 +5189,61 @@
         getCaptureConversationKey(),
       telemetryInteractionId,
       message,
+    }
+
+    try {
+      writeTextInComposer(
+        composer,
+        message,
+      )
+    } catch {
+      // O WhatsApp pode substituir o composer durante os eventos de input.
+      // A confirmação real da inserção é feita abaixo pelo conteúdo atual.
+    }
+
+    let insertedComposerText = ''
+
+    for (
+      let attempt = 0;
+      attempt < 8;
+      attempt += 1
+    ) {
+      const composerAfterWrite =
+        getWhatsAppComposer() ||
+        composer
+
+      insertedComposerText =
+        normalizeMessageText(
+          composerAfterWrite
+            ?.textContent,
+        )
+
+      if (
+        isProbablySameMessage(
+          insertedComposerText,
+          message,
+        )
+      ) {
+        break
+      }
+
+      await sleep(50)
+    }
+
+    if (
+      !isProbablySameMessage(
+        insertedComposerText,
+        message,
+      )
+    ) {
+      state = {
+        ...state,
+        suggestedMessageCopyStatus:
+          'Não foi possível confirmar a inserção da mensagem no WhatsApp.',
+      }
+
+      renderPanel()
+      return
     }
 
     fireCompanionActionTelemetry(
