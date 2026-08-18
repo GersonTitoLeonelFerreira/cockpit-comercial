@@ -86,10 +86,12 @@
 
     const nameInput = form.querySelector('[name="yolen-lead-name"]')
     const phoneInput = form.querySelector('[name="yolen-lead-phone"]')
+    const documentInput = form.querySelector('[name="yolen-lead-document"]')
     const submitButton = form.querySelector('button[type="submit"]')
 
     const name = cleanText(nameInput?.value)
     const phone = onlyDigits(phoneInput?.value)
+    const document = onlyDigits(documentInput?.value)
     const currentContext = getLookupContext()
 
     if (!name || looksLikePhone(name)) {
@@ -133,6 +135,7 @@
         await window.YolenCompanionApi.createLead({
           name,
           phone,
+          cpf_cnpj: document || null,
         })
 
       if (!result?.ok || !result.payload?.ok) {
@@ -205,6 +208,18 @@
             ' name="yolen-lead-phone"',
             ' value="' + escapeHtml(context.phone) + '"',
             ' readonly',
+          '>',
+        '</label>',
+
+        '<label class="yolen-lead-create-field">',
+          '<span>CPF/CNPJ (opcional)</span>',
+          '<input',
+            ' type="text"',
+            ' inputmode="numeric"',
+            ' name="yolen-lead-document"',
+            ' autocomplete="off"',
+            ' maxlength="18"',
+            ' placeholder="CPF ou CNPJ"',
           '>',
         '</label>',
 
