@@ -11,6 +11,10 @@ import type {
   CommercialSimpleProductDefinition,
 } from '@/app/lib/companion/commercial-product-contract'
 
+import type {
+  CommercialComplexProductDefinition,
+} from '@/app/lib/companion/commercial-product-complex-contract'
+
 export const COMMERCIAL_CONFIG_CONTRACT_VERSION =
   'phase-2-v1' as const
 
@@ -24,6 +28,11 @@ export type CommercialMethodPersistenceContractVersion =
 export type CommercialProductPersistenceContractVersion =
   | 'commercial-product-v1'
   | 'commercial-product-v2'
+  | 'commercial-product-v3'
+
+export type CommercialProductDefinition =
+  | CommercialSimpleProductDefinition
+  | CommercialComplexProductDefinition
 
 export type CommercialConfigStatus =
   | 'draft'
@@ -95,7 +104,7 @@ export interface CommercialProductProfile {
     CommercialProductPersistenceContractVersion
 
   commercial_product_definition:
-    CommercialSimpleProductDefinition | null
+    CommercialProductDefinition | null
 
   indicated_audiences: string[]
   needs_addressed: string[]
@@ -177,7 +186,7 @@ export interface CommercialProductProfileDraft {
     CommercialProductPersistenceContractVersion
 
   commercial_product_definition:
-    CommercialSimpleProductDefinition | null
+    CommercialProductDefinition | null
 
   indicated_audiences: string[]
   needs_addressed: string[]

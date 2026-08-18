@@ -171,6 +171,240 @@ function buildProductDefinition() {
   }
 }
 
+function buildComplexProductDefinition() {
+  return {
+    contract_version:
+      'commercial-product-v3',
+
+    product_kind:
+      'complex',
+
+    name:
+      'Esteira Profissional',
+
+    category:
+      'Equipamento fitness',
+
+    commercial_description:
+      'Linha profissional com variantes técnicas.',
+
+    indicated_audiences: [
+      'Academias e centros de treinamento.',
+    ],
+
+    needs_addressed: [
+      'Equipar operação cardiovascular.',
+    ],
+
+    benefits: [
+      'Permite selecionar a variante conforme a operação.',
+    ],
+
+    verified_differentiators: [
+      'Variantes com especificações verificadas.',
+    ],
+
+    limitations: [
+      'A escolha depende da infraestrutura.',
+    ],
+
+    recommend_when: [
+      'A empresa precisa de equipamento profissional.',
+    ],
+
+    avoid_when: [
+      'A aplicação não corresponde ao produto.',
+    ],
+
+    contract_conditions: [
+      'Instalação conforme escopo contratado.',
+    ],
+
+    payment_conditions: [
+      'Conforme condição comercial da variante.',
+    ],
+
+    allowed_claims: [
+      'Existem variantes tecnicamente distintas.',
+    ],
+
+    forbidden_claims: [
+      'Qualquer variante atende qualquer infraestrutura.',
+    ],
+
+    variants: [
+      {
+        key:
+          'pro',
+
+        name:
+          'Modelo Pro',
+
+        sku:
+          'EQ-PRO-001',
+
+        model:
+          'XP-900',
+
+        version:
+          '2026',
+
+        commercial_description:
+          'Versão profissional do equipamento.',
+
+        compatibility: {
+          compatible_with: [
+            'Rede elétrica 220V',
+          ],
+
+          incompatible_with: [
+            'Rede elétrica 110V',
+          ],
+
+          notes: [
+            'Verificar infraestrutura.',
+          ],
+        },
+
+        applications: [
+          'Academias de médio e grande porte.',
+        ],
+
+        specifications: [
+          {
+            key:
+              'motor',
+
+            label:
+              'Motor',
+
+            value:
+              '5',
+
+            unit:
+              'HP',
+          },
+        ],
+
+        limitations: [
+          'Exige instalação em 220V.',
+        ],
+
+        recommend_when: [
+          'A operação exige equipamento profissional.',
+        ],
+
+        avoid_when: [
+          'O local possui somente rede 110V.',
+        ],
+
+        pricing: {
+          model:
+            'one_time',
+
+          amount:
+            18990,
+
+          currency:
+            'BRL',
+
+          amount_qualifier:
+            'exact',
+
+          recurrence:
+            null,
+
+          installment_count:
+            null,
+
+          installment_amount_basis:
+            null,
+
+          note:
+            'Preço da variante.',
+        },
+
+        stock: {
+          status:
+            'available',
+
+          quantity:
+            4,
+
+          checked_at:
+            '2026-08-18T12:00:00.000Z',
+
+          valid_until:
+            '2026-08-19T12:00:00.000Z',
+
+          note:
+            'Estoque confirmado.',
+        },
+
+        allowed_claims: [
+          'Possui motor de 5 HP.',
+        ],
+
+        forbidden_claims: [
+          'Nunca necessita manutenção.',
+        ],
+      },
+    ],
+  }
+}
+
+function buildComplexDraft() {
+  const draft =
+    buildDraft()
+
+  const productDefinition =
+    buildComplexProductDefinition()
+
+  return {
+    ...draft,
+
+    product_profiles: [
+      {
+        product_id:
+          PRODUCT_ID,
+
+        commercial_product_contract_version:
+          'commercial-product-v3',
+
+        commercial_product_definition:
+          productDefinition,
+
+        indicated_audiences:
+          productDefinition.indicated_audiences,
+
+        needs_addressed:
+          productDefinition.needs_addressed,
+
+        benefits:
+          productDefinition.benefits,
+
+        verified_differentiators:
+          productDefinition.verified_differentiators,
+
+        limitations:
+          productDefinition.limitations,
+
+        contract_conditions:
+          productDefinition.contract_conditions,
+
+        payment_conditions:
+          productDefinition.payment_conditions,
+
+        allowed_claims:
+          productDefinition.allowed_claims,
+
+        forbidden_claims:
+          productDefinition.forbidden_claims,
+      },
+    ],
+  }
+}
+
 function buildDraft() {
   const productDefinition =
     buildProductDefinition()
@@ -295,7 +529,7 @@ function createRpcClient() {
 }
 
 test(
-  'salvamento administrativo usa RPC V3 e preserva método e produto V2',
+  'salvamento administrativo usa RPC V4 e preserva método e produto V2',
   async () => {
     const {
       client,
@@ -315,7 +549,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_save_company_commercial_config_draft_v3',
+      'rpc_save_company_commercial_config_draft_v4',
     )
 
     assert.equal(
@@ -367,7 +601,68 @@ test(
 )
 
 test(
-  'clonagem administrativa usa RPC V3 para preservar método e produto V2',
+  'salvamento administrativo usa RPC V4 e preserva produto complexo V3',
+  async () => {
+    const {
+      client,
+      calls,
+    } = createRpcClient()
+
+    await saveCommercialConfigDraft(
+      client,
+      COMPANY_ID,
+      buildComplexDraft(),
+    )
+
+    assert.equal(
+      calls.length,
+      1,
+    )
+
+    assert.equal(
+      calls[0].name,
+      'rpc_save_company_commercial_config_draft_v4',
+    )
+
+    const definition =
+      calls[0].args
+        .p_payload
+        .product_profiles[0]
+        .commercial_product_definition
+
+    assert.equal(
+      definition.contract_version,
+      'commercial-product-v3',
+    )
+
+    assert.equal(
+      definition.product_kind,
+      'complex',
+    )
+
+    assert.equal(
+      definition.variants[0].sku,
+      'EQ-PRO-001',
+    )
+
+    assert.equal(
+      definition.variants[0]
+        .pricing
+        .model,
+      'one_time',
+    )
+
+    assert.equal(
+      definition.variants[0]
+        .stock
+        .status,
+      'available',
+    )
+  },
+)
+
+test(
+  'clonagem administrativa usa RPC V4 para preservar método e produto V2',
   async () => {
     const {
       client,
@@ -387,7 +682,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_clone_company_commercial_config_v3',
+      'rpc_clone_company_commercial_config_v4',
     )
 
     assert.deepEqual(

@@ -407,7 +407,7 @@ export async function saveCommercialConfigDraft(
   input: CommercialConfigDraftInput,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_save_company_commercial_config_draft_v3',
+    'rpc_save_company_commercial_config_draft_v4',
     {
       p_company_id: companyId,
       p_config_version_id:
@@ -434,7 +434,7 @@ export async function cloneCommercialConfigVersion(
   sourceConfigVersionId: string,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_clone_company_commercial_config_v3',
+    'rpc_clone_company_commercial_config_v4',
     {
       p_company_id: companyId,
       p_source_config_version_id:
