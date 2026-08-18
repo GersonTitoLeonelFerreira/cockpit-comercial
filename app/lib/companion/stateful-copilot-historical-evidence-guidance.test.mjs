@@ -15,7 +15,7 @@ test(
   () => {
     assert.match(
       source,
-      /phase-5\.2-stateful-prompt-v13/,
+      /phase-5\.2-stateful-prompt-v14/,
     )
 
     assert.match(

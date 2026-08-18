@@ -12,8 +12,12 @@ import {
   buildCommercialMethodPromptRules,
 } from './commercial-method-prompt-rules'
 
+import {
+  buildCommercialProductPromptRules,
+} from './commercial-product-prompt-rules'
+
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v10' as const
+  'phase-5-prompt-v11' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -521,6 +525,11 @@ function buildSystemPrompt(
     buildCommercialMethodPromptRules(
       input.commercial_context
         .sales_method,
+    ),
+
+    buildCommercialProductPromptRules(
+      input.commercial_context
+        .products,
     ),
 
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',

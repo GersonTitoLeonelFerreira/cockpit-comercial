@@ -1260,7 +1260,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v13 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v14 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1277,7 +1277,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v13',
+      'phase-5.2-stateful-prompt-v14',
     )
 
     assert.match(
@@ -1352,8 +1352,47 @@ test(
   },
 )
 
+
 test(
-  'prompt stateful v13 interpreta suficiência e espera do método V2',
+  'prompt stateful v14 aplica os mesmos guardrails de produto',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput({
+          continuation:
+            true,
+        }),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /base_price é um valor legado sem semântica comercial suficiente/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /limitations são restrições vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /forbidden_claims é uma proibição rígida/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não force uma recomendação/,
+    )
+  },
+)
+
+test(
+  'prompt stateful v14 interpreta suficiência e espera do método V2',
   () => {
     const input =
       buildInput({

@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v10',
+      'phase-5-prompt-v11',
     )
 
     assert.equal(
@@ -406,7 +406,7 @@ test(
 )
 
 test(
-  'prompt v10 interpreta método V2 sem checklist e aceita espera',
+  'prompt v11 interpreta método V2 sem checklist e aceita espera',
   () => {
     const input =
       buildInput()
@@ -529,6 +529,42 @@ test(
     assert.match(
       plan.request.system_prompt,
       /nunca como roteiro mecânico/,
+    )
+  },
+)
+
+
+test(
+  'prompt v11 aplica guardrails compartilhados de produto',
+  () => {
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /base_price é um valor legado sem semântica comercial suficiente/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /limitations são restrições vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /forbidden_claims é uma proibição rígida/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não force uma recomendação/,
     )
   },
 )
