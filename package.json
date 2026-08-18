@@ -26,7 +26,8 @@
     "check:companion-active-readiness": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-readiness-check.mjs",
     "report:companion-active-pilot": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-pilot-report.mjs",
     "test:companion-active-pilot-storage": "node --test supabase/phase-tests/phase-5-4-active-pilot-telemetry.test.mjs",
-    "report:companion-active-pilot-live": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-pilot-live-report.mjs"
+    "report:companion-active-pilot-live": "node --env-file=.env.local --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs scripts/companion-active-pilot-live-report.mjs",
+    "test:companion-action-telemetry": "node --test supabase/phase-tests/phase-c1-action-telemetry.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
