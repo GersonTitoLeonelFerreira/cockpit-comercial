@@ -445,10 +445,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const ownerUserId =
-      membership.role === 'admin'
-        ? null
-        : tokenPayload.sub
+    const ownerUserId = tokenPayload.sub
 
     const externalKey =
       `companion_phone:${canonicalPhone}`
