@@ -21,6 +21,7 @@ const FORBIDDEN_METADATA_KEYS = [
   'audio_transcription',
 ] as const
 
+const FORBIDDEN_METADATA_KEY_SET = new Set<string>(FORBIDDEN_METADATA_KEYS)
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200
 const MAX_CONVERSATION_KEY_LENGTH = 500
 
@@ -107,6 +108,17 @@ function normalizeNullableUuid(value: unknown, path: string) {
   return normalizeUuid(value, path)
 }
 
+export function normalizeOptionalActionEventUuidParam(
+  value: string | null,
+  path: string,
+) {
+  if (value === null) {
+    return null
+  }
+
+  return normalizeUuid(value, path)
+}
+
 function normalizeIdempotencyKey(value: unknown) {
   if (typeof value !== 'string') {
     fail({
@@ -167,6 +179,43 @@ function normalizeNullableConversationKey(value: unknown) {
   return normalized
 }
 
+function findForbiddenMetadataPath(value: unknown) {
+  const stack: Array<{ value: unknown; path: string }> = [
+    { value, path: 'metadata' },
+  ]
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+
+    if (!current) {
+      continue
+    }
+
+    if (Array.isArray(current.value)) {
+      current.value.forEach((item, index) => {
+        stack.push({ value: item, path: `${current.path}[${index}]` })
+      })
+      continue
+    }
+
+    if (!isRecord(current.value)) {
+      continue
+    }
+
+    for (const [key, nestedValue] of Object.entries(current.value)) {
+      const nestedPath = `${current.path}.${key}`
+
+      if (FORBIDDEN_METADATA_KEY_SET.has(key)) {
+        return nestedPath
+      }
+
+      stack.push({ value: nestedValue, path: nestedPath })
+    }
+  }
+
+  return null
+}
+
 function normalizeMetadata(value: unknown) {
   if (value === null || value === undefined) {
     return {}
@@ -180,12 +229,12 @@ function normalizeMetadata(value: unknown) {
     })
   }
 
-  const forbiddenKey = FORBIDDEN_METADATA_KEYS.find((key) => key in value)
+  const forbiddenPath = findForbiddenMetadataPath(value)
 
-  if (forbiddenKey) {
+  if (forbiddenPath) {
     fail({
       code: 'METADATA_CONTAINS_CONVERSATION_CONTENT',
-      path: `metadata.${forbiddenKey}`,
+      path: forbiddenPath,
       message: 'metadata não pode armazenar conteúdo da conversa.',
     })
   }

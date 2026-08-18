@@ -5,6 +5,7 @@ import {
   ActionEventContractError,
   COMPANION_ACTION_TYPES,
   getActionEventRpcErrorHttpStatus,
+  normalizeOptionalActionEventUuidParam,
   normalizeRegisterActionEventBody,
 } from './action-events-contract.ts'
 
@@ -167,6 +168,61 @@ test('rejeita metadata com conteúdo de conversa', () => {
       },
     )
   }
+})
+
+test('rejeita conteúdo de conversa aninhado em metadata', () => {
+  assert.throws(
+    () =>
+      normalizeRegisterActionEventBody(
+        validBody({
+          metadata: {
+            channel: 'whatsapp',
+            debug: {
+              nested: [{ messages: ['conteúdo sensível'] }],
+            },
+          },
+        }),
+      ),
+    (error) => {
+      assert.ok(error instanceof ActionEventContractError)
+      assert.equal(error.code, 'METADATA_CONTAINS_CONVERSATION_CONTENT')
+      assert.equal(error.path, 'metadata.debug.nested[0].messages')
+      return true
+    },
+  )
+})
+
+test('aceita metadata aninhada sem conteúdo de conversa', () => {
+  const normalized = normalizeRegisterActionEventBody(
+    validBody({
+      metadata: {
+        channel: 'whatsapp',
+        ui: { source: 'suggestion-card', flags: ['copied'] },
+      },
+    }),
+  )
+
+  assert.deepEqual(normalized.metadata, {
+    channel: 'whatsapp',
+    ui: { source: 'suggestion-card', flags: ['copied'] },
+  })
+})
+
+test('normaliza UUID opcional dos filtros de consulta', () => {
+  assert.equal(normalizeOptionalActionEventUuidParam(null, 'lead_id'), null)
+  assert.equal(
+    normalizeOptionalActionEventUuidParam(CYCLE_ID.toUpperCase(), 'lead_id'),
+    CYCLE_ID,
+  )
+
+  assert.throws(
+    () => normalizeOptionalActionEventUuidParam('not-a-uuid', 'lead_id'),
+    (error) => {
+      assert.ok(error instanceof ActionEventContractError)
+      assert.equal(error.path, 'lead_id')
+      return true
+    },
+  )
 })
 
 test('mapeia mensagens de erro da RPC para status HTTP', () => {
