@@ -140,6 +140,13 @@ function bundleToDraftInput(
       (profile) => ({
         id: profile.id,
         product_id: profile.product_id,
+
+        commercial_product_contract_version:
+          profile.commercial_product_contract_version,
+
+        commercial_product_definition:
+          profile.commercial_product_definition,
+
         indicated_audiences: [
           ...profile.indicated_audiences,
         ],

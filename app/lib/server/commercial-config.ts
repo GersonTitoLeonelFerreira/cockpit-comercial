@@ -62,6 +62,8 @@ const PRODUCT_PROFILE_FIELDS = `
   company_id,
   config_version_id,
   product_id,
+  commercial_product_contract_version,
+  commercial_product_definition,
   indicated_audiences,
   needs_addressed,
   benefits,
@@ -203,6 +205,10 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
     product_profiles: input.product_profiles.map(
       (profile) => ({
         product_id: profile.product_id,
+
+        commercial_product_definition:
+          profile.commercial_product_definition,
+
         indicated_audiences: profile.indicated_audiences,
         needs_addressed: profile.needs_addressed,
         benefits: profile.benefits,
@@ -401,7 +407,7 @@ export async function saveCommercialConfigDraft(
   input: CommercialConfigDraftInput,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_save_company_commercial_config_draft_v2',
+    'rpc_save_company_commercial_config_draft_v3',
     {
       p_company_id: companyId,
       p_config_version_id:
@@ -428,7 +434,7 @@ export async function cloneCommercialConfigVersion(
   sourceConfigVersionId: string,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_clone_company_commercial_config_v2',
+    'rpc_clone_company_commercial_config_v3',
     {
       p_company_id: companyId,
       p_source_config_version_id:

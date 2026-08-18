@@ -12,6 +12,9 @@ const COMPANY_ID =
 const CONFIG_ID =
   '20000000-0000-4000-8000-000000000001'
 
+const PRODUCT_ID =
+  '30000000-0000-4000-8000-000000000001'
+
 function buildMethodDefinition() {
   return {
     contract_version:
@@ -79,7 +82,99 @@ function buildMethodDefinition() {
   }
 }
 
+function buildProductDefinition() {
+  return {
+    contract_version:
+      'commercial-product-v2',
+
+    product_kind:
+      'simple',
+
+    name:
+      'Plano Open',
+
+    category:
+      'Plano',
+
+    commercial_description:
+      'Plano recorrente com condições comerciais oficialmente configuradas.',
+
+    indicated_audiences: [
+      'Clientes para os quais os benefícios do plano são adequados.',
+    ],
+
+    needs_addressed: [
+      'Acesso recorrente aos serviços incluídos.',
+    ],
+
+    benefits: [
+      'Acesso aos benefícios oficialmente configurados.',
+    ],
+
+    verified_differentiators: [
+      'Condições oficialmente confirmadas.',
+    ],
+
+    limitations: [
+      'Não inclui serviços fora da configuração oficial.',
+    ],
+
+    recommend_when: [
+      'A necessidade do cliente corresponde ao que o plano entrega.',
+    ],
+
+    avoid_when: [
+      'O cliente depende de serviço que o plano não cobre.',
+    ],
+
+    pricing: {
+      model:
+        'recurring',
+
+      amount:
+        199.9,
+
+      currency:
+        'BRL',
+
+      amount_qualifier:
+        'exact',
+
+      recurrence:
+        'monthly',
+
+      installment_count:
+        null,
+
+      installment_amount_basis:
+        null,
+
+      note:
+        null,
+    },
+
+    contract_conditions: [
+      'Condições contratuais oficialmente configuradas.',
+    ],
+
+    payment_conditions: [
+      'Pagamento conforme configuração oficial.',
+    ],
+
+    allowed_claims: [
+      'O plano inclui os benefícios oficialmente configurados.',
+    ],
+
+    forbidden_claims: [
+      'O plano garante resultado físico.',
+    ],
+  }
+}
+
 function buildDraft() {
+  const productDefinition =
+    buildProductDefinition()
+
   return {
     config_version_id:
       CONFIG_ID,
@@ -115,7 +210,45 @@ function buildDraft() {
 
     method_steps: [],
 
-    product_profiles: [],
+    product_profiles: [
+      {
+        product_id:
+          PRODUCT_ID,
+
+        commercial_product_contract_version:
+          'commercial-product-v2',
+
+        commercial_product_definition:
+          productDefinition,
+
+        indicated_audiences:
+          productDefinition.indicated_audiences,
+
+        needs_addressed:
+          productDefinition.needs_addressed,
+
+        benefits:
+          productDefinition.benefits,
+
+        verified_differentiators:
+          productDefinition.verified_differentiators,
+
+        limitations:
+          productDefinition.limitations,
+
+        contract_conditions:
+          productDefinition.contract_conditions,
+
+        payment_conditions:
+          productDefinition.payment_conditions,
+
+        allowed_claims:
+          productDefinition.allowed_claims,
+
+        forbidden_claims:
+          productDefinition.forbidden_claims,
+      },
+    ],
 
     facts: [],
 
@@ -162,7 +295,7 @@ function createRpcClient() {
 }
 
 test(
-  'salvamento administrativo usa RPC V2 e envia a definição rica do método',
+  'salvamento administrativo usa RPC V3 e preserva método e produto V2',
   async () => {
     const {
       client,
@@ -182,7 +315,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_save_company_commercial_config_draft_v2',
+      'rpc_save_company_commercial_config_draft_v3',
     )
 
     assert.equal(
@@ -201,11 +334,40 @@ test(
         .wait_when[0],
       'O cliente assumiu compromisso de retorno.',
     )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .product_profiles[0]
+        .commercial_product_definition
+        .contract_version,
+      'commercial-product-v2',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .product_profiles[0]
+        .commercial_product_definition
+        .pricing
+        .model,
+      'recurring',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .product_profiles[0]
+        .commercial_product_definition
+        .pricing
+        .recurrence,
+      'monthly',
+    )
   },
 )
 
 test(
-  'clonagem administrativa usa RPC V2 para preservar o subcontrato do método',
+  'clonagem administrativa usa RPC V3 para preservar método e produto V2',
   async () => {
     const {
       client,
@@ -225,7 +387,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_clone_company_commercial_config_v2',
+      'rpc_clone_company_commercial_config_v3',
     )
 
     assert.deepEqual(
