@@ -6,6 +6,7 @@ import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 type CreateLeadBody = {
   name?: unknown
   phone?: unknown
+  cpf_cnpj?: unknown
 }
 
 type LeadRow = {
@@ -13,7 +14,14 @@ type LeadRow = {
   company_id: string
   name: string | null
   phone: string | null
+  cpf_cnpj: string | null
   deleted_at: string | null
+}
+
+type LeadProfileRow = {
+  lead_id: string
+  cpf: string | null
+  cnpj: string | null
 }
 
 type MembershipRow = {
@@ -70,6 +78,149 @@ function cleanText(value: unknown) {
     .trim()
 
   return text || null
+}
+
+function hasRepeatedDigits(value: string) {
+  return /^(\d)\1+$/.test(value)
+}
+
+function isValidCPF(value: string) {
+  const cpf = onlyDigits(value)
+
+  if (cpf.length !== 11 || hasRepeatedDigits(cpf)) {
+    return false
+  }
+
+  let sum = 0
+
+  for (let index = 0; index < 9; index += 1) {
+    sum += Number(cpf[index]) * (10 - index)
+  }
+
+  let firstCheck = (sum * 10) % 11
+
+  if (firstCheck === 10) {
+    firstCheck = 0
+  }
+
+  if (firstCheck !== Number(cpf[9])) {
+    return false
+  }
+
+  sum = 0
+
+  for (let index = 0; index < 10; index += 1) {
+    sum += Number(cpf[index]) * (11 - index)
+  }
+
+  let secondCheck = (sum * 10) % 11
+
+  if (secondCheck === 10) {
+    secondCheck = 0
+  }
+
+  return secondCheck === Number(cpf[10])
+}
+
+function isValidCNPJ(value: string) {
+  const cnpj = onlyDigits(value)
+
+  if (cnpj.length !== 14 || hasRepeatedDigits(cnpj)) {
+    return false
+  }
+
+  const calculateDigit = (
+    base: string,
+    weights: number[],
+  ) => {
+    const sum = base
+      .split('')
+      .reduce(
+        (total, digit, index) =>
+          total + Number(digit) * weights[index],
+        0,
+      )
+
+    const remainder = sum % 11
+
+    return remainder < 2 ? 0 : 11 - remainder
+  }
+
+  const base12 = cnpj.slice(0, 12)
+
+  const firstDigit = calculateDigit(
+    base12,
+    [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+  )
+
+  const base13 = base12 + firstDigit
+
+  const secondDigit = calculateDigit(
+    base13,
+    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+  )
+
+  return cnpj === base12 + firstDigit + secondDigit
+}
+
+function normalizeDocumentInput(value: unknown) {
+  const digits = onlyDigits(value)
+
+  if (!digits) {
+    return null
+  }
+
+  if (digits.length === 11 && isValidCPF(digits)) {
+    return digits
+  }
+
+  if (digits.length === 14 && isValidCNPJ(digits)) {
+    return digits
+  }
+
+  if (digits.length < 11) {
+    const cpfCandidate = digits.padStart(11, '0')
+
+    if (isValidCPF(cpfCandidate)) {
+      return cpfCandidate
+    }
+  }
+
+  if (digits.length > 11 && digits.length < 14) {
+    const cnpjCandidate = digits.padStart(14, '0')
+
+    if (isValidCNPJ(cnpjCandidate)) {
+      return cnpjCandidate
+    }
+  }
+
+  return digits
+}
+
+function isValidDocument(value: string) {
+  if (value.length === 11) {
+    return isValidCPF(value)
+  }
+
+  if (value.length === 14) {
+    return isValidCNPJ(value)
+  }
+
+  return false
+}
+
+function buildLeadType(
+  document: string | null,
+): 'PF' | 'PJ' | null {
+  if (document?.length === 11) {
+    return 'PF'
+  }
+
+  if (document?.length === 14) {
+    return 'PJ'
+  }
+
+  return null
 }
 
 function looksLikePhone(value: string) {
@@ -259,6 +410,7 @@ export async function POST(request: Request) {
 
     const name = cleanText(body.name)
     const phone = onlyDigits(body.phone)
+    const document = normalizeDocumentInput(body.cpf_cnpj)
     const phoneVariants = buildPhoneVariants(phone)
     const canonicalPhone =
       getCanonicalPhone(phoneVariants)
@@ -286,6 +438,18 @@ export async function POST(request: Request) {
           ok: false,
           code: 'phone_required',
           error: 'Telefone confiável não localizado para criação do lead.',
+        },
+        400,
+      )
+    }
+
+    if (document && !isValidDocument(document)) {
+      return jsonResponse(
+        request,
+        {
+          ok: false,
+          code: 'invalid_document',
+          error: 'Informe um CPF ou CNPJ válido.',
         },
         400,
       )
@@ -365,10 +529,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: possibleLeads, error: leadSearchError } =
+    const { data: possiblePhoneLeads, error: leadSearchError } =
       await admin
         .from('leads')
-        .select('id, company_id, name, phone, deleted_at')
+        .select(
+          'id, company_id, name, phone, cpf_cnpj, deleted_at',
+        )
         .eq('company_id', tokenPayload.company_id)
         .in('phone_digits', phoneVariants)
 
@@ -384,8 +550,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const matchedLeads = dedupeLeads(
-      ((possibleLeads ?? []) as LeadRow[])
+    const phoneMatchedLeads = dedupeLeads(
+      ((possiblePhoneLeads ?? []) as LeadRow[])
         .filter((lead) =>
           leadMatchesPhoneVariants(
             lead,
@@ -394,13 +560,109 @@ export async function POST(request: Request) {
         ),
     )
 
+    let documentMatchedLeads: LeadRow[] = []
+
+    if (document) {
+      const { data: directDocumentLeads, error: directDocumentError } =
+        await admin
+          .from('leads')
+          .select(
+            'id, company_id, name, phone, cpf_cnpj, deleted_at',
+          )
+          .eq('company_id', tokenPayload.company_id)
+          .eq('cpf_cnpj', document)
+
+      if (directDocumentError) {
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: 'DOCUMENT_SEARCH_ERROR',
+            error: directDocumentError.message,
+          },
+          400,
+        )
+      }
+
+      const documentColumn =
+        document.length === 11
+          ? 'cpf'
+          : 'cnpj'
+
+      const { data: profileMatches, error: profileSearchError } =
+        await admin
+          .from('lead_profiles')
+          .select('lead_id, cpf, cnpj')
+          .eq('company_id', tokenPayload.company_id)
+          .eq(documentColumn, document)
+
+      if (profileSearchError) {
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: 'DOCUMENT_SEARCH_ERROR',
+            error: profileSearchError.message,
+          },
+          400,
+        )
+      }
+
+      const profileLeadIds = Array.from(
+        new Set(
+          ((profileMatches ?? []) as LeadProfileRow[])
+            .map((row) => row.lead_id)
+            .filter(Boolean),
+        ),
+      )
+
+      let profileDocumentLeads: LeadRow[] = []
+
+      if (profileLeadIds.length > 0) {
+        const { data: profileLeads, error: profileLeadsError } =
+          await admin
+            .from('leads')
+            .select(
+              'id, company_id, name, phone, cpf_cnpj, deleted_at',
+            )
+            .eq('company_id', tokenPayload.company_id)
+            .in('id', profileLeadIds)
+
+        if (profileLeadsError) {
+          return jsonResponse(
+            request,
+            {
+              ok: false,
+              status: 'DOCUMENT_SEARCH_ERROR',
+              error: profileLeadsError.message,
+            },
+            400,
+          )
+        }
+
+        profileDocumentLeads =
+          (profileLeads ?? []) as LeadRow[]
+      }
+
+      documentMatchedLeads = dedupeLeads([
+        ...((directDocumentLeads ?? []) as LeadRow[]),
+        ...profileDocumentLeads,
+      ])
+    }
+
+    const matchedLeads = dedupeLeads([
+      ...phoneMatchedLeads,
+      ...documentMatchedLeads,
+    ])
+
     if (matchedLeads.length > 1) {
       return jsonResponse(
         request,
         {
           ok: false,
           code: 'multiple_lead_matches',
-          error: 'Mais de um lead foi encontrado com este telefone. Resolva o vínculo dentro da Yolen antes de criar.',
+          error:
+            'Telefone e CPF/CNPJ apontam para cadastros diferentes. Resolva o vínculo dentro da Yolen antes de criar.',
         },
         409,
       )
@@ -408,17 +670,46 @@ export async function POST(request: Request) {
 
     const existingLead = matchedLeads[0] ?? null
 
+    const matchedByPhone =
+      existingLead
+        ? phoneMatchedLeads.some(
+            (lead) => lead.id === existingLead.id,
+          )
+        : false
+
+    const matchedByDocument =
+      existingLead
+        ? documentMatchedLeads.some(
+            (lead) => lead.id === existingLead.id,
+          )
+        : false
+
     if (existingLead && !existingLead.deleted_at) {
+      const conflictCode =
+        matchedByPhone
+          ? 'active_lead_conflict'
+          : 'document_lead_conflict'
+
       return jsonResponse(
         request,
         {
           ok: false,
-          code: 'active_lead_conflict',
-          error: 'Este contato já existe na Yolen. A criação foi bloqueada para evitar duplicidade.',
+          code: conflictCode,
+          error:
+            matchedByPhone
+              ? 'Este contato já existe na Yolen. A criação foi bloqueada para evitar duplicidade.'
+              : 'Já existe um lead ativo com este CPF/CNPJ na empresa. A criação foi bloqueada para evitar duplicidade.',
           conflict: {
             lead_id: existingLead.id,
             name: existingLead.name,
             phone: existingLead.phone,
+            cpf_cnpj: existingLead.cpf_cnpj,
+            matched_by:
+              matchedByPhone && matchedByDocument
+                ? 'phone_and_document'
+                : matchedByPhone
+                  ? 'phone'
+                  : 'document',
           },
         },
         409,
@@ -433,12 +724,13 @@ export async function POST(request: Request) {
           code: 'deleted_lead_conflict',
           error:
             membership.role === 'admin'
-              ? 'Existe um lead excluído com este telefone. Use o fluxo administrativo de reativação.'
-              : 'Existe um lead excluído com este telefone. Solicite a reativação ao administrador.',
+              ? 'Existe um lead excluído com este telefone ou CPF/CNPJ. Use o fluxo administrativo de reativação.'
+              : 'Existe um lead excluído com este telefone ou CPF/CNPJ. Solicite a reativação ao administrador.',
           conflict: {
             lead_id: existingLead.id,
             name: existingLead.name,
             phone: existingLead.phone,
+            cpf_cnpj: existingLead.cpf_cnpj,
           },
         },
         409,
@@ -457,13 +749,16 @@ export async function POST(request: Request) {
           company_id: tokenPayload.company_id,
           name,
           phone,
+          cpf_cnpj: document,
           status: 'novo',
           created_by: tokenPayload.sub,
           entry_mode: 'manual',
           source: 'whatsapp_companion',
           external_key: externalKey,
         })
-        .select('id, company_id, name, phone, deleted_at')
+        .select(
+          'id, company_id, name, phone, cpf_cnpj, deleted_at',
+        )
 
     if (createLeadError) {
       if (isUniqueViolation(createLeadError)) {
@@ -506,13 +801,29 @@ export async function POST(request: Request) {
 
     const leadId = createdLead.id
 
+    const leadProfilePayload: Record<string, unknown> = {
+      lead_id: leadId,
+      company_id: tokenPayload.company_id,
+    }
+
+    const leadType = buildLeadType(document)
+
+    if (leadType) {
+      leadProfilePayload.lead_type = leadType
+    }
+
+    if (document?.length === 11) {
+      leadProfilePayload.cpf = document
+    }
+
+    if (document?.length === 14) {
+      leadProfilePayload.cnpj = document
+    }
+
     const { error: profileInsertError } =
       await admin
         .from('lead_profiles')
-        .insert({
-          lead_id: leadId,
-          company_id: tokenPayload.company_id,
-        })
+        .insert(leadProfilePayload)
 
     if (profileInsertError) {
       await admin

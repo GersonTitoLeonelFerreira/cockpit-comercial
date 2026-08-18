@@ -100,3 +100,36 @@ test('B1 atribui o lead criado ao usuario logado e cria ciclo novo', () => {
   assert.match(createLeadRoute, /status: 'novo'/)
   assert.match(createLeadRoute, /event_type: 'cycle_created'/)
 })
+
+test('B2 envia CPF ou CNPJ opcional na criação pelo Companion', () => {
+  assert.match(
+    leadAutomation,
+    /name="yolen-lead-document"/,
+  )
+  assert.match(
+    leadAutomation,
+    /CPF\/CNPJ \(opcional\)/,
+  )
+  assert.match(
+    leadAutomation,
+    /cpf_cnpj:\s*document \|\| null/,
+  )
+})
+
+test('B2 valida, protege duplicidade e persiste documento por empresa', () => {
+  assert.match(createLeadRoute, /cpf_cnpj\?: unknown/)
+  assert.match(createLeadRoute, /isValidCPF/)
+  assert.match(createLeadRoute, /isValidCNPJ/)
+  assert.match(createLeadRoute, /isValidDocument/)
+  assert.match(createLeadRoute, /invalid_document/)
+  assert.match(createLeadRoute, /document_lead_conflict/)
+  assert.match(createLeadRoute, /DOCUMENT_SEARCH_ERROR/)
+  assert.match(createLeadRoute, /lead_profiles/)
+  assert.match(createLeadRoute, /leadProfilePayload\.cpf = document/)
+  assert.match(createLeadRoute, /leadProfilePayload\.cnpj = document/)
+  assert.match(createLeadRoute, /cpf_cnpj: document/)
+  assert.match(
+    createLeadRoute,
+    /\.eq\('company_id', tokenPayload\.company_id\)/,
+  )
+})
