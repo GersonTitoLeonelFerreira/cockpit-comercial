@@ -38,6 +38,98 @@ function buildMessage(overrides = {}) {
   }
 }
 
+function buildCommercialMethodV2() {
+  return {
+    contract_version:
+      'commercial-method-v2',
+
+    name:
+      'Método ATO',
+
+    description:
+      'Acolher, compreender no Tour e Obter o desfecho adequado.',
+
+    principles: [
+      'Perguntar somente quando a resposta puder alterar a decisão comercial.',
+      'Esperar é uma decisão comercial válida.',
+    ],
+
+    stages: [
+      {
+        key:
+          'tour',
+
+        display_order:
+          1,
+
+        name:
+          'Tour',
+
+        objective:
+          'Compreender somente as informações relevantes para a decisão atual.',
+
+        requirement:
+          'required',
+
+        completion_criteria: [
+          'A necessidade relevante está compreendida.',
+        ],
+
+        partial_completion_criteria: [
+          'A necessidade apareceu, mas ainda existe incerteza material.',
+        ],
+
+        skip_conditions: [],
+
+        recommended_questions: [
+          'O que é mais importante para você nessa escolha?',
+        ],
+
+        common_mistakes: [
+          'Transformar descoberta em interrogatório.',
+        ],
+
+        deepen_when: [
+          'Falta informação que pode alterar a recomendação.',
+        ],
+
+        sufficient_when: [
+          'As informações disponíveis já permitem orientar com segurança.',
+        ],
+
+        advance_when: [
+          'Existe correspondência comprovada entre necessidade e solução.',
+        ],
+
+        wait_when: [
+          'O cliente assumiu compromisso explícito de retorno.',
+        ],
+
+        stop_asking_when: [
+          'Novas perguntas não alterariam a decisão comercial.',
+        ],
+
+        dimensions: [
+          {
+            key:
+              'necessidade',
+
+            name:
+              'Necessidade',
+
+            objective:
+              'Compreender o resultado buscado.',
+
+            evidence_criteria: [
+              'A necessidade relevante foi identificada.',
+            ],
+          },
+        ],
+      },
+    ],
+  }
+}
+
 function buildCommercialConfig(
   overrides = {},
 ) {
@@ -64,6 +156,12 @@ function buildCommercialConfig(
 
       commercial_method_description:
         'Entender antes de apresentar.',
+
+      commercial_method_contract_version:
+        'commercial-method-v1',
+
+      commercial_method_definition:
+        null,
 
       communication_tone:
         'Direto, acolhedor e claro.',
@@ -369,6 +467,103 @@ test(
       result.commercial_context
         .products[0].name,
       'Plano Open',
+    )
+  },
+)
+
+test(
+  'propaga o método V2 completo e substitui as etapas legadas na entrada do cérebro',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const definition =
+      buildCommercialMethodV2()
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              version: {
+                ...legacyConfig.version,
+
+                commercial_method_name:
+                  definition.name,
+
+                commercial_method_description:
+                  definition.description,
+
+                commercial_method_contract_version:
+                  'commercial-method-v2',
+
+                commercial_method_definition:
+                  definition,
+              },
+            }),
+        }),
+      )
+
+    const method =
+      result.commercial_context
+        .sales_method
+
+    assert.equal(
+      method.configured,
+      true,
+    )
+
+    assert.equal(
+      method.contract_version,
+      'commercial-method-v2',
+    )
+
+    assert.equal(
+      method.name,
+      'Método ATO',
+    )
+
+    assert.deepEqual(
+      method.principles,
+      definition.principles,
+    )
+
+    assert.deepEqual(
+      method.steps.map(
+        step => step.name,
+      ),
+      [
+        'Tour',
+      ],
+    )
+
+    assert.equal(
+      method.definition
+        .stages[0]
+        .sufficient_when[0],
+      'As informações disponíveis já permitem orientar com segurança.',
+    )
+
+    assert.equal(
+      method.definition
+        .stages[0]
+        .wait_when[0],
+      'O cliente assumiu compromisso explícito de retorno.',
+    )
+
+    assert.equal(
+      method.definition
+        .stages[0]
+        .stop_asking_when[0],
+      'Novas perguntas não alterariam a decisão comercial.',
+    )
+
+    assert.equal(
+      method.definition
+        .stages[0]
+        .dimensions[0]
+        .key,
+      'necessidade',
     )
   },
 )

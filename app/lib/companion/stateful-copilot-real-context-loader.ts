@@ -106,6 +106,8 @@ const VERSION_FIELDS = `
   value_proposition,
   commercial_method_name,
   commercial_method_description,
+  commercial_method_contract_version,
+  commercial_method_definition,
   communication_tone,
   required_behaviors,
   prohibited_behaviors,

@@ -582,10 +582,92 @@ function buildFixtures({
                 'Atendimento consultivo e estruturado.',
 
               commercial_method_name:
-                'Método consultivo',
+                'Método ATO',
 
               commercial_method_description:
-                'Diagnóstico antes da proposta.',
+                'Acolher, compreender no Tour e Obter o desfecho adequado.',
+
+              commercial_method_contract_version:
+                'commercial-method-v2',
+
+              commercial_method_definition: {
+                contract_version:
+                  'commercial-method-v2',
+
+                name:
+                  'Método ATO',
+
+                description:
+                  'Acolher, compreender no Tour e Obter o desfecho adequado.',
+
+                principles: [
+                  'Esperar é uma decisão comercial válida.',
+                ],
+
+                stages: [
+                  {
+                    key:
+                      'tour',
+
+                    display_order:
+                      1,
+
+                    name:
+                      'Tour',
+
+                    objective:
+                      'Compreender a necessidade relevante.',
+
+                    requirement:
+                      'required',
+
+                    completion_criteria: [
+                      'Necessidade compreendida.',
+                    ],
+
+                    partial_completion_criteria: [],
+
+                    skip_conditions: [],
+
+                    recommended_questions: [],
+
+                    common_mistakes: [],
+
+                    deepen_when: [],
+
+                    sufficient_when: [
+                      'Existe informação suficiente para orientar.',
+                    ],
+
+                    advance_when: [],
+
+                    wait_when: [
+                      'O cliente informou que retornará.',
+                    ],
+
+                    stop_asking_when: [
+                      'Novas perguntas não alterariam a decisão.',
+                    ],
+
+                    dimensions: [
+                      {
+                        key:
+                          'necessidade',
+
+                        name:
+                          'Necessidade',
+
+                        objective:
+                          'Compreender o resultado buscado.',
+
+                        evidence_criteria: [
+                          'Necessidade relevante identificada.',
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
 
               communication_tone:
                 'Direto e respeitoso.',
@@ -1030,6 +1112,36 @@ test(
         .commercial_context
         .configured,
       true,
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .contract_version,
+      'commercial-method-v2',
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Tour',
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .definition
+        .stages[0]
+        .wait_when[0],
+      'O cliente informou que retornará.',
     )
 
     assert.equal(

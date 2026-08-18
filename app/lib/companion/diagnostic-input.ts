@@ -8,6 +8,11 @@ import {
   type DiagnosticLeadStatus,
 } from './diagnostic-contract'
 
+import {
+  validateCommercialMethodDefinition,
+  type CommercialMethodDefinition,
+} from './commercial-method-contract'
+
 export const COMPANION_DIAGNOSTIC_INPUT_VERSION =
   'phase-5-input-v1' as const
 
@@ -127,8 +132,20 @@ export type CompanionDiagnosticInput = {
 
     sales_method: {
       configured: boolean
+
+      contract_version:
+        | 'commercial-method-v1'
+        | 'commercial-method-v2'
+        | null
+
       name: string | null
       description: string | null
+
+      principles: string[]
+
+      definition:
+        CommercialMethodDefinition | null
+
       steps:
         DiagnosticCommercialMethodStep[]
     }
@@ -840,6 +857,128 @@ function addLimitation(
   }
 }
 
+type ResolvedCommercialMethod = {
+  contract_version:
+    | 'commercial-method-v1'
+    | 'commercial-method-v2'
+
+  definition:
+    CommercialMethodDefinition | null
+}
+
+function resolveCommercialMethod(
+  bundle: CommercialConfigBundle,
+): ResolvedCommercialMethod {
+  const contractValue: unknown =
+    bundle.version
+      .commercial_method_contract_version
+
+  const definitionValue: unknown =
+    bundle.version
+      .commercial_method_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_METHOD_DEFINITION',
+        'commercial_config.version.commercial_method_definition',
+        'Uma definição semântica não pode existir sem versão do contrato do método.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-method-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-method-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_METHOD_DEFINITION',
+        'commercial_config.version.commercial_method_definition',
+        'O método legado não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-method-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-method-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_CONTRACT',
+      'commercial_config.version.commercial_method_contract_version',
+      'A versão persistida do contrato do método comercial é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_DEFINITION',
+      'commercial_config.version.commercial_method_definition',
+      'O método V2 publicado precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialMethodDefinition
+
+  let validation
+
+  try {
+    validation =
+      validateCommercialMethodDefinition(
+        definition,
+      )
+  } catch {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_DEFINITION',
+      'commercial_config.version.commercial_method_definition',
+      'A definição semântica publicada do método comercial é inválida.',
+    )
+  }
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_DEFINITION',
+      'commercial_config.version.commercial_method_definition',
+      'A definição semântica publicada do método comercial não respeita o contrato V2.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-method-v2',
+
+    definition,
+  }
+}
+
 function buildCommercialContext(
   bundle:
     | CommercialConfigBundle
@@ -883,8 +1022,16 @@ function buildCommercialContext(
 
       sales_method: {
         configured: false,
+
+        contract_version: null,
+
         name: null,
         description: null,
+
+        principles: [],
+
+        definition: null,
+
         steps: [],
       },
 
@@ -909,7 +1056,12 @@ function buildCommercialContext(
       ),
     )
 
-  const methodSteps =
+  const resolvedMethod =
+    resolveCommercialMethod(
+      bundle,
+    )
+
+  const legacyMethodSteps =
     [...bundle.method_steps]
       .sort(
         (a, b) =>
@@ -948,6 +1100,53 @@ function buildCommercialContext(
         is_required:
           step.is_required === true,
       }))
+
+  const methodSteps =
+    resolvedMethod.definition
+      ? [
+          ...resolvedMethod
+            .definition
+            .stages,
+        ]
+          .sort(
+            (a, b) =>
+              a.display_order -
+              b.display_order,
+          )
+          .map((stage) => ({
+            step_order:
+              stage.display_order,
+
+            name:
+              normalizeRequiredString(
+                stage.name,
+                'commercial_config.version.commercial_method_definition.stages.name',
+              ),
+
+            objective:
+              normalizeRequiredString(
+                stage.objective,
+                'commercial_config.version.commercial_method_definition.stages.objective',
+                5000,
+              ),
+
+            completion_criteria:
+              normalizeStringArray(
+                stage.completion_criteria,
+                'commercial_config.version.commercial_method_definition.stages.completion_criteria',
+              ),
+
+            recommended_questions:
+              normalizeStringArray(
+                stage.recommended_questions,
+                'commercial_config.version.commercial_method_definition.stages.recommended_questions',
+              ),
+
+            is_required:
+              stage.requirement ===
+              'required',
+          }))
+      : legacyMethodSteps
 
   const methodConfigured =
     methodSteps.length > 0
@@ -1122,12 +1321,21 @@ function buildCommercialContext(
       configured:
         methodConfigured,
 
+      contract_version:
+        methodConfigured
+          ? resolvedMethod
+              .contract_version
+          : null,
+
       name:
         methodConfigured
           ? normalizeRequiredString(
-              bundle.version
-                .commercial_method_name,
-              'commercial_config.version.commercial_method_name',
+              resolvedMethod
+                .definition
+                ?.name ??
+                bundle.version
+                  .commercial_method_name,
+              'commercial_context.sales_method.name',
               5000,
             )
           : null,
@@ -1135,12 +1343,28 @@ function buildCommercialContext(
       description:
         methodConfigured
           ? normalizeRequiredString(
-              bundle.version
-                .commercial_method_description,
-              'commercial_config.version.commercial_method_description',
+              resolvedMethod
+                .definition
+                ?.description ??
+                bundle.version
+                  .commercial_method_description,
+              'commercial_context.sales_method.description',
               10000,
             )
           : null,
+
+      principles:
+        resolvedMethod.definition
+          ? normalizeStringArray(
+              resolvedMethod
+                .definition
+                .principles,
+              'commercial_context.sales_method.principles',
+            )
+          : [],
+
+      definition:
+        resolvedMethod.definition,
 
       steps:
         methodSteps,
