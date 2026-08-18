@@ -342,7 +342,7 @@ function validateNoOverlap({
   })
 }
 
-function validatePricing(
+export function validateCommercialProductPricing(
   value: unknown,
   issues: CommercialProductValidationIssue[],
 ) {
@@ -679,7 +679,7 @@ export function validateCommercialProductDefinition(
       issues,
     })
 
-  validatePricing(
+  validateCommercialProductPricing(
     value.pricing,
     issues,
   )
