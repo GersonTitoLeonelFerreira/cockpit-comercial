@@ -29,6 +29,8 @@ const VERSION_FIELDS = `
   value_proposition,
   commercial_method_name,
   commercial_method_description,
+  commercial_method_contract_version,
+  commercial_method_definition,
   communication_tone,
   required_behaviors,
   prohibited_behaviors,
@@ -180,6 +182,10 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
     commercial_method_name: input.commercial_method_name,
     commercial_method_description:
       input.commercial_method_description,
+
+    commercial_method_definition:
+      input.commercial_method_definition,
+
     communication_tone: input.communication_tone,
 
     required_behaviors: input.required_behaviors,
@@ -395,7 +401,7 @@ export async function saveCommercialConfigDraft(
   input: CommercialConfigDraftInput,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_save_company_commercial_config_draft',
+    'rpc_save_company_commercial_config_draft_v2',
     {
       p_company_id: companyId,
       p_config_version_id:
@@ -422,7 +428,7 @@ export async function cloneCommercialConfigVersion(
   sourceConfigVersionId: string,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_clone_company_commercial_config',
+    'rpc_clone_company_commercial_config_v2',
     {
       p_company_id: companyId,
       p_source_config_version_id:

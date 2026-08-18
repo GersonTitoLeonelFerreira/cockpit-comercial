@@ -3,11 +3,19 @@
 // Tipos da configuração comercial versionada
 // ============================================================================
 
+import type {
+  CommercialMethodDefinition,
+} from '@/app/lib/companion/commercial-method-contract'
+
 export const COMMERCIAL_CONFIG_CONTRACT_VERSION =
   'phase-2-v1' as const
 
 export type CommercialConfigContractVersion =
   typeof COMMERCIAL_CONFIG_CONTRACT_VERSION
+
+export type CommercialMethodPersistenceContractVersion =
+  | 'commercial-method-v1'
+  | 'commercial-method-v2'
 
 export type CommercialConfigStatus =
   | 'draft'
@@ -31,6 +39,13 @@ export interface CommercialConfigVersion {
 
   commercial_method_name: string
   commercial_method_description: string
+
+  commercial_method_contract_version:
+    CommercialMethodPersistenceContractVersion
+
+  commercial_method_definition:
+    CommercialMethodDefinition | null
+
   communication_tone: string
 
   required_behaviors: string[]
@@ -186,6 +201,10 @@ export interface CommercialConfigDraftInput {
 
   commercial_method_name: string
   commercial_method_description: string
+
+  commercial_method_definition:
+    CommercialMethodDefinition | null
+
   communication_tone: string
 
   required_behaviors: string[]
@@ -277,6 +296,9 @@ export function createEmptyCommercialConfigDraft(): CommercialConfigDraftInput {
 
     commercial_method_name: '',
     commercial_method_description: '',
+
+    commercial_method_definition: null,
+
     communication_tone: '',
 
     required_behaviors: [],

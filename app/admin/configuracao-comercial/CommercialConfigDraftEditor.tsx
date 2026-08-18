@@ -116,6 +116,9 @@ function bundleToDraftInput(
     commercial_method_description:
       version.commercial_method_description,
 
+    commercial_method_definition:
+      version.commercial_method_definition,
+
     communication_tone: version.communication_tone,
 
     required_behaviors: [...version.required_behaviors],
