@@ -491,6 +491,39 @@ test(
         values: ['11'],
       },
     )
+
+    const productProfileCall =
+      calls.find(
+        (call) =>
+          call.table ===
+          'company_commercial_product_profiles',
+      )
+
+    assert.ok(
+      productProfileCall,
+    )
+
+    const productProfileSelect =
+      productProfileCall.operations.find(
+        (operation) =>
+          operation.type === 'select',
+      )
+
+    assert.ok(
+      productProfileSelect,
+    )
+
+    assert.ok(
+      productProfileSelect.columns.includes(
+        'commercial_product_contract_version',
+      ),
+    )
+
+    assert.ok(
+      productProfileSelect.columns.includes(
+        'commercial_product_definition',
+      ),
+    )
   },
 )
 

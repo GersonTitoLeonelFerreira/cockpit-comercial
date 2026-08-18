@@ -1,6 +1,7 @@
 import type {
   CommercialConfigBundle,
   CommercialConfigProductOption,
+  CommercialProductProfile,
 } from '@/app/types/commercial-config'
 
 import {
@@ -12,6 +13,11 @@ import {
   validateCommercialMethodDefinition,
   type CommercialMethodDefinition,
 } from './commercial-method-contract'
+
+import {
+  validateCommercialProductDefinition,
+  type CommercialSimpleProductDefinition,
+} from './commercial-product-contract'
 
 export const COMPANION_DIAGNOSTIC_INPUT_VERSION =
   'phase-5-input-v1' as const
@@ -73,6 +79,14 @@ export type DiagnosticCommercialMethodStep = {
 
 export type DiagnosticCommercialProduct = {
   product_id: string
+
+  contract_version:
+    | 'commercial-product-v1'
+    | 'commercial-product-v2'
+
+  definition:
+    CommercialSimpleProductDefinition | null
+
   name: string | null
   category: string | null
   base_price: number | null
@@ -979,6 +993,125 @@ function resolveCommercialMethod(
   }
 }
 
+
+type ResolvedCommercialProduct = {
+  contract_version:
+    | 'commercial-product-v1'
+    | 'commercial-product-v2'
+
+  definition:
+    CommercialSimpleProductDefinition | null
+}
+
+function resolveCommercialProduct(
+  profile: CommercialProductProfile,
+  index: number,
+): ResolvedCommercialProduct {
+  const path =
+    'commercial_config.product_profiles[' +
+    index +
+    ']'
+
+  const contractValue: unknown =
+    profile
+      .commercial_product_contract_version
+
+  const definitionValue: unknown =
+    profile
+      .commercial_product_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+        path + '.commercial_product_definition',
+        'Uma definição semântica de produto não pode existir sem versão do contrato.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-product-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-product-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+        path + '.commercial_product_definition',
+        'O produto legado não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-product-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-product-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_PRODUCT_CONTRACT',
+      path + '.commercial_product_contract_version',
+      'A versão persistida do contrato comercial do produto é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+      path + '.commercial_product_definition',
+      'O produto V2 publicado precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialSimpleProductDefinition
+
+  const validation =
+    validateCommercialProductDefinition(
+      definition,
+    )
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+      path + '.commercial_product_definition',
+      'A definição semântica publicada do produto não respeita o contrato V2.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-product-v2',
+
+    definition,
+  }
+}
+
 function buildCommercialContext(
   bundle:
     | CommercialConfigBundle
@@ -1160,32 +1293,58 @@ function buildCommercialContext(
 
   const commercialProducts =
     bundle.product_profiles.map(
-      (profile) => {
+      (profile, profileIndex) => {
         const catalogProduct =
           catalogById.get(
             profile.product_id,
           )
 
+        const resolvedProduct =
+          resolveCommercialProduct(
+            profile,
+            profileIndex,
+          )
+
+        const semanticDefinition =
+          resolvedProduct.definition
+
+        const semanticSource =
+          semanticDefinition ??
+          profile
+
         return {
           product_id:
             profile.product_id,
 
+          contract_version:
+            resolvedProduct
+              .contract_version,
+
+          definition:
+            semanticDefinition,
+
           name:
+            semanticDefinition
+              ?.name ??
             catalogProduct?.name ??
             null,
 
           category:
+            semanticDefinition
+              ?.category ??
             catalogProduct?.category ??
             null,
 
           base_price:
-            typeof catalogProduct
-              ?.base_price === 'number' &&
-            Number.isFinite(
-              catalogProduct.base_price,
-            )
-              ? catalogProduct.base_price
-              : null,
+            semanticDefinition
+              ? null
+              : typeof catalogProduct
+                  ?.base_price === 'number' &&
+                Number.isFinite(
+                  catalogProduct.base_price,
+                )
+                ? catalogProduct.base_price
+                : null,
 
           active:
             typeof catalogProduct
@@ -1195,55 +1354,55 @@ function buildCommercialContext(
 
           indicated_audiences:
             normalizeStringArray(
-              profile.indicated_audiences,
+              semanticSource.indicated_audiences,
               'commercial_config.product_profiles.indicated_audiences',
             ),
 
           needs_addressed:
             normalizeStringArray(
-              profile.needs_addressed,
+              semanticSource.needs_addressed,
               'commercial_config.product_profiles.needs_addressed',
             ),
 
           benefits:
             normalizeStringArray(
-              profile.benefits,
+              semanticSource.benefits,
               'commercial_config.product_profiles.benefits',
             ),
 
           verified_differentiators:
             normalizeStringArray(
-              profile.verified_differentiators,
+              semanticSource.verified_differentiators,
               'commercial_config.product_profiles.verified_differentiators',
             ),
 
           limitations:
             normalizeStringArray(
-              profile.limitations,
+              semanticSource.limitations,
               'commercial_config.product_profiles.limitations',
             ),
 
           contract_conditions:
             normalizeStringArray(
-              profile.contract_conditions,
+              semanticSource.contract_conditions,
               'commercial_config.product_profiles.contract_conditions',
             ),
 
           payment_conditions:
             normalizeStringArray(
-              profile.payment_conditions,
+              semanticSource.payment_conditions,
               'commercial_config.product_profiles.payment_conditions',
             ),
 
           allowed_claims:
             normalizeStringArray(
-              profile.allowed_claims,
+              semanticSource.allowed_claims,
               'commercial_config.product_profiles.allowed_claims',
             ),
 
           forbidden_claims:
             normalizeStringArray(
-              profile.forbidden_claims,
+              semanticSource.forbidden_claims,
               'commercial_config.product_profiles.forbidden_claims',
             ),
         }

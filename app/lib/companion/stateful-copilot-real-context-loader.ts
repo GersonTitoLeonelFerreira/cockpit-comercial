@@ -139,6 +139,8 @@ const PRODUCT_PROFILE_FIELDS = `
   company_id,
   config_version_id,
   product_id,
+  commercial_product_contract_version,
+  commercial_product_definition,
   indicated_audiences,
   needs_addressed,
   benefits,

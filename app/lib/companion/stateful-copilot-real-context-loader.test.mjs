@@ -38,6 +38,96 @@ const conversationKey =
 const referenceTime =
   '2026-08-07T01:00:00.000Z'
 
+
+function buildCommercialProductV2() {
+  return {
+    contract_version:
+      'commercial-product-v2',
+
+    product_kind:
+      'simple',
+
+    name:
+      'Plano Exemplo',
+
+    category:
+      'Serviço',
+
+    commercial_description:
+      'Serviço recorrente com acompanhamento comercial estruturado.',
+
+    indicated_audiences: [
+      'Cliente exemplo',
+    ],
+
+    needs_addressed: [
+      'Acompanhamento',
+    ],
+
+    benefits: [
+      'Processo estruturado',
+    ],
+
+    verified_differentiators: [
+      'Atendimento consultivo',
+    ],
+
+    limitations: [
+      'Depende de disponibilidade',
+    ],
+
+    recommend_when: [
+      'O cliente precisa do acompanhamento oferecido.',
+    ],
+
+    avoid_when: [
+      'A necessidade depende de algo que o serviço não cobre.',
+    ],
+
+    pricing: {
+      model:
+        'recurring',
+
+      amount:
+        199.9,
+
+      currency:
+        'BRL',
+
+      amount_qualifier:
+        'exact',
+
+      recurrence:
+        'monthly',
+
+      installment_count:
+        null,
+
+      installment_amount_basis:
+        null,
+
+      note:
+        null,
+    },
+
+    contract_conditions: [
+      'Contrato mensal',
+    ],
+
+    payment_conditions: [
+      'Pagamento recorrente',
+    ],
+
+    allowed_claims: [
+      'Suporte incluído',
+    ],
+
+    forbidden_claims: [
+      'Resultado garantido',
+    ],
+  }
+}
+
 function createMockClient(
   fixtures,
 ) {
@@ -49,6 +139,9 @@ function createMockClient(
     ) {
       this.table =
         table
+
+      this.selectedColumns =
+        null
 
       this.filters =
         []
@@ -66,7 +159,12 @@ function createMockClient(
         null
     }
 
-    select() {
+    select(
+      columns,
+    ) {
+      this.selectedColumns =
+        columns
+
       return this
     }
 
@@ -126,6 +224,9 @@ function createMockClient(
       calls.push({
         table:
           this.table,
+
+        selected_columns:
+          this.selectedColumns,
 
         filters:
           this.filters.map(
@@ -762,6 +863,12 @@ function buildFixtures({
               product_id:
                 productId,
 
+              commercial_product_contract_version:
+                'commercial-product-v2',
+
+              commercial_product_definition:
+                buildCommercialProductV2(),
+
               indicated_audiences: [
                 'Cliente exemplo',
               ],
@@ -1142,6 +1249,67 @@ test(
         .stages[0]
         .wait_when[0],
       'O cliente informou que retornará.',
+    )
+
+    const loadedProduct =
+      result
+        .diagnostic_input
+        .commercial_context
+        .products[0]
+
+    assert.equal(
+      loadedProduct
+        .contract_version,
+      'commercial-product-v2',
+    )
+
+    assert.equal(
+      loadedProduct
+        .definition
+        .pricing
+        .model,
+      'recurring',
+    )
+
+    assert.equal(
+      loadedProduct
+        .definition
+        .pricing
+        .recurrence,
+      'monthly',
+    )
+
+    assert.equal(
+      loadedProduct
+        .base_price,
+      null,
+    )
+
+    const productProfileCall =
+      calls.find(
+        call =>
+          call.table ===
+          'company_commercial_product_profiles',
+      )
+
+    assert.ok(
+      productProfileCall,
+    )
+
+    assert.ok(
+      productProfileCall
+        .selected_columns
+        .includes(
+          'commercial_product_contract_version',
+        ),
+    )
+
+    assert.ok(
+      productProfileCall
+        .selected_columns
+        .includes(
+          'commercial_product_definition',
+        ),
     )
 
     assert.equal(

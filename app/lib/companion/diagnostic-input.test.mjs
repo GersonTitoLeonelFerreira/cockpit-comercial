@@ -130,6 +130,96 @@ function buildCommercialMethodV2() {
   }
 }
 
+
+function buildCommercialProductV2() {
+  return {
+    contract_version:
+      'commercial-product-v2',
+
+    product_kind:
+      'simple',
+
+    name:
+      'Plano Open',
+
+    category:
+      'plano',
+
+    commercial_description:
+      'Plano recorrente com condições comerciais oficialmente configuradas.',
+
+    indicated_audiences: [
+      'Adultos',
+    ],
+
+    needs_addressed: [
+      'Condicionamento físico',
+    ],
+
+    benefits: [
+      'Estrutura completa',
+    ],
+
+    verified_differentiators: [
+      'Acompanhamento',
+    ],
+
+    limitations: [
+      'Disponibilidade depende da unidade',
+    ],
+
+    recommend_when: [
+      'A necessidade do cliente corresponde ao que o plano realmente oferece.',
+    ],
+
+    avoid_when: [
+      'O cliente precisa de algo que o plano não oferece.',
+    ],
+
+    pricing: {
+      model:
+        'recurring',
+
+      amount:
+        199.9,
+
+      currency:
+        'BRL',
+
+      amount_qualifier:
+        'exact',
+
+      recurrence:
+        'monthly',
+
+      installment_count:
+        null,
+
+      installment_amount_basis:
+        null,
+
+      note:
+        'Valor mensal confirmado.',
+    },
+
+    contract_conditions: [
+      'Conforme contrato',
+    ],
+
+    payment_conditions: [
+      'Conforme plano escolhido',
+    ],
+
+    allowed_claims: [
+      'Estrutura disponível',
+    ],
+
+    forbidden_claims: [
+      'Resultado garantido',
+    ],
+  }
+}
+
 function buildCommercialConfig(
   overrides = {},
 ) {
@@ -241,6 +331,12 @@ function buildCommercialConfig(
 
         product_id:
           PRODUCT_ID,
+
+        commercial_product_contract_version:
+          'commercial-product-v1',
+
+        commercial_product_definition:
+          null,
 
         indicated_audiences: [
           'Adultos',
@@ -564,6 +660,177 @@ test(
         .dimensions[0]
         .key,
       'necessidade',
+    )
+  },
+)
+
+
+test(
+  'propaga o produto V2 completo sem reinterpretar o base_price mutável do catálogo',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const definition =
+      buildCommercialProductV2()
+
+    const legacyProfile =
+      legacyConfig
+        .product_profiles[0]
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              product_profiles: [
+                {
+                  ...legacyProfile,
+
+                  commercial_product_contract_version:
+                    'commercial-product-v2',
+
+                  commercial_product_definition:
+                    definition,
+
+                  indicated_audiences:
+                    definition.indicated_audiences,
+
+                  needs_addressed:
+                    definition.needs_addressed,
+
+                  benefits:
+                    definition.benefits,
+
+                  verified_differentiators:
+                    definition.verified_differentiators,
+
+                  limitations:
+                    definition.limitations,
+
+                  contract_conditions:
+                    definition.contract_conditions,
+
+                  payment_conditions:
+                    definition.payment_conditions,
+
+                  allowed_claims:
+                    definition.allowed_claims,
+
+                  forbidden_claims:
+                    definition.forbidden_claims,
+                },
+              ],
+            }),
+
+          products:
+            buildProducts({
+              name:
+                'Nome alterado no catálogo',
+
+              category:
+                'categoria alterada',
+
+              base_price:
+                1723.85,
+            }),
+        }),
+      )
+
+    const product =
+      result
+        .commercial_context
+        .products[0]
+
+    assert.equal(
+      product.contract_version,
+      'commercial-product-v2',
+    )
+
+    assert.equal(
+      product.definition
+        .contract_version,
+      'commercial-product-v2',
+    )
+
+    assert.equal(
+      product.name,
+      'Plano Open',
+    )
+
+    assert.equal(
+      product.category,
+      'plano',
+    )
+
+    assert.equal(
+      product.base_price,
+      null,
+    )
+
+    assert.equal(
+      product.definition
+        .pricing
+        .model,
+      'recurring',
+    )
+
+    assert.equal(
+      product.definition
+        .pricing
+        .recurrence,
+      'monthly',
+    )
+
+    assert.equal(
+      product.definition
+        .recommend_when[0],
+      'A necessidade do cliente corresponde ao que o plano realmente oferece.',
+    )
+
+    assert.equal(
+      product.definition
+        .avoid_when[0],
+      'O cliente precisa de algo que o plano não oferece.',
+    )
+  },
+)
+
+test(
+  'rejeita produto V2 publicado com definição semântica inválida',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const invalidDefinition =
+      buildCommercialProductV2()
+
+    invalidDefinition
+      .pricing
+      .recurrence = null
+
+    assertInputError(
+      () =>
+        buildCompanionDiagnosticInput(
+          buildInput({
+            commercial_config:
+              buildCommercialConfig({
+                product_profiles: [
+                  {
+                    ...legacyConfig
+                      .product_profiles[0],
+
+                    commercial_product_contract_version:
+                      'commercial-product-v2',
+
+                    commercial_product_definition:
+                      invalidDefinition,
+                  },
+                ],
+              }),
+          }),
+        ),
+      'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
     )
   },
 )
