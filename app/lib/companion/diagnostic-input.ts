@@ -19,6 +19,11 @@ import {
   type CommercialSimpleProductDefinition,
 } from './commercial-product-contract'
 
+import {
+  validateCommercialComplexProductDefinition,
+  type CommercialComplexProductDefinition,
+} from './commercial-product-complex-contract'
+
 export const COMPANION_DIAGNOSTIC_INPUT_VERSION =
   'phase-5-input-v1' as const
 
@@ -83,9 +88,12 @@ export type DiagnosticCommercialProduct = {
   contract_version:
     | 'commercial-product-v1'
     | 'commercial-product-v2'
+    | 'commercial-product-v3'
 
   definition:
-    CommercialSimpleProductDefinition | null
+    | CommercialSimpleProductDefinition
+    | CommercialComplexProductDefinition
+    | null
 
   name: string | null
   category: string | null
@@ -998,9 +1006,12 @@ type ResolvedCommercialProduct = {
   contract_version:
     | 'commercial-product-v1'
     | 'commercial-product-v2'
+    | 'commercial-product-v3'
 
   definition:
-    CommercialSimpleProductDefinition | null
+    | CommercialSimpleProductDefinition
+    | CommercialComplexProductDefinition
+    | null
 }
 
 function resolveCommercialProduct(
@@ -1055,7 +1066,7 @@ function resolveCommercialProduct(
       fail(
         'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
         path + '.commercial_product_definition',
-        'O produto legado não pode possuir definição semântica V2.',
+        'O produto legado não pode possuir definição semântica.',
       )
     }
 
@@ -1070,7 +1081,9 @@ function resolveCommercialProduct(
 
   if (
     contractValue !==
-    'commercial-product-v2'
+      'commercial-product-v2' &&
+    contractValue !==
+      'commercial-product-v3'
   ) {
     fail(
       'INVALID_COMMERCIAL_PRODUCT_CONTRACT',
@@ -1083,16 +1096,45 @@ function resolveCommercialProduct(
     fail(
       'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
       path + '.commercial_product_definition',
-      'O produto V2 publicado precisa possuir uma definição semântica.',
+      'O produto semântico publicado precisa possuir uma definição.',
     )
+  }
+
+  if (
+    contractValue ===
+    'commercial-product-v2'
+  ) {
+    const definition =
+      definitionValue as unknown as
+        CommercialSimpleProductDefinition
+
+    const validation =
+      validateCommercialProductDefinition(
+        definition,
+      )
+
+    if (!validation.valid) {
+      fail(
+        'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+        path + '.commercial_product_definition',
+        'A definição semântica publicada do produto não respeita o contrato V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-product-v2',
+
+      definition,
+    }
   }
 
   const definition =
     definitionValue as unknown as
-      CommercialSimpleProductDefinition
+      CommercialComplexProductDefinition
 
   const validation =
-    validateCommercialProductDefinition(
+    validateCommercialComplexProductDefinition(
       definition,
     )
 
@@ -1100,13 +1142,13 @@ function resolveCommercialProduct(
     fail(
       'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
       path + '.commercial_product_definition',
-      'A definição semântica publicada do produto não respeita o contrato V2.',
+      'A definição semântica publicada do produto não respeita o contrato V3.',
     )
   }
 
   return {
     contract_version:
-      'commercial-product-v2',
+      'commercial-product-v3',
 
     definition,
   }
@@ -1119,6 +1161,7 @@ function buildCommercialContext(
   products:
     CommercialConfigProductOption[],
   companyId: string,
+  referenceTimestamp: number,
   limitations: string[],
 ): CompanionDiagnosticInput[
   'commercial_context'
@@ -1307,6 +1350,45 @@ function buildCommercialContext(
 
         const semanticDefinition =
           resolvedProduct.definition
+
+        if (
+          semanticDefinition
+            ?.contract_version ===
+          'commercial-product-v3'
+        ) {
+          const hasStaleStock =
+            semanticDefinition
+              .variants
+              .some((variant) => {
+                const validUntil =
+                  variant.stock
+                    .valid_until
+
+                if (!validUntil) {
+                  return false
+                }
+
+                const validUntilTimestamp =
+                  Date.parse(
+                    validUntil,
+                  )
+
+                return (
+                  Number.isFinite(
+                    validUntilTimestamp,
+                  ) &&
+                  validUntilTimestamp <=
+                    referenceTimestamp
+                )
+              })
+
+          if (hasStaleStock) {
+            addLimitation(
+              limitations,
+              'product_stock_information_stale',
+            )
+          }
+        }
 
         const semanticSource =
           semanticDefinition ??
@@ -1722,6 +1804,7 @@ export function buildCompanionDiagnosticInput({
       commercial_config,
       products,
       companyId,
+      referenceTime.timestamp,
       limitations,
     )
 

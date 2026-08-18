@@ -220,6 +220,188 @@ function buildCommercialProductV2() {
   }
 }
 
+function buildCommercialProductV3() {
+  return {
+    contract_version:
+      'commercial-product-v3',
+
+    product_kind:
+      'complex',
+
+    name:
+      'Esteira Profissional',
+
+    category:
+      'equipamento',
+
+    commercial_description:
+      'Equipamento profissional com seleção por variante.',
+
+    indicated_audiences: [
+      'Operações comerciais que precisam do equipamento.',
+    ],
+
+    needs_addressed: [
+      'Equipar operação cardiovascular.',
+    ],
+
+    benefits: [
+      'Seleção técnica conforme a aplicação.',
+    ],
+
+    verified_differentiators: [
+      'Variantes com especificações verificadas.',
+    ],
+
+    limitations: [
+      'A escolha depende da infraestrutura disponível.',
+    ],
+
+    recommend_when: [
+      'A necessidade corresponde à aplicação da variante.',
+    ],
+
+    avoid_when: [
+      'A infraestrutura é incompatível com a variante.',
+    ],
+
+    contract_conditions: [
+      'Instalação conforme escopo contratado.',
+    ],
+
+    payment_conditions: [
+      'Conforme condição comercial da variante.',
+    ],
+
+    allowed_claims: [
+      'Existem variantes tecnicamente distintas.',
+    ],
+
+    forbidden_claims: [
+      'Qualquer variante atende qualquer infraestrutura.',
+    ],
+
+    variants: [
+      {
+        key:
+          'pro',
+
+        name:
+          'Modelo Pro',
+
+        sku:
+          'EQ-PRO-001',
+
+        model:
+          'XP-900',
+
+        version:
+          '2026',
+
+        commercial_description:
+          'Versão profissional do equipamento.',
+
+        compatibility: {
+          compatible_with: [
+            'Rede elétrica 220V',
+          ],
+
+          incompatible_with: [
+            'Rede elétrica 110V',
+          ],
+
+          notes: [
+            'Verificar infraestrutura.',
+          ],
+        },
+
+        applications: [
+          'Operações profissionais.',
+        ],
+
+        specifications: [
+          {
+            key:
+              'motor',
+
+            label:
+              'Motor',
+
+            value:
+              '5',
+
+            unit:
+              'HP',
+          },
+        ],
+
+        limitations: [
+          'Exige instalação em 220V.',
+        ],
+
+        recommend_when: [
+          'A operação exige equipamento profissional.',
+        ],
+
+        avoid_when: [
+          'O local possui somente rede 110V.',
+        ],
+
+        pricing: {
+          model:
+            'one_time',
+
+          amount:
+            18990,
+
+          currency:
+            'BRL',
+
+          amount_qualifier:
+            'exact',
+
+          recurrence:
+            null,
+
+          installment_count:
+            null,
+
+          installment_amount_basis:
+            null,
+
+          note:
+            'Preço confirmado da variante.',
+        },
+
+        stock: {
+          status:
+            'available',
+
+          quantity:
+            4,
+
+          checked_at:
+            '2026-08-04T19:00:00.000Z',
+
+          valid_until:
+            '2026-08-04T21:00:00.000Z',
+
+          note:
+            'Estoque confirmado.',
+        },
+
+        allowed_claims: [
+          'Possui motor de 5 HP.',
+        ],
+
+        forbidden_claims: [
+          'Nunca necessita manutenção.',
+        ],
+      },
+    ],
+  }
+}
+
 function buildCommercialConfig(
   overrides = {},
 ) {
@@ -792,6 +974,286 @@ test(
       product.definition
         .avoid_when[0],
       'O cliente precisa de algo que o plano não oferece.',
+    )
+  },
+)
+
+test(
+  'propaga produto complexo V3 integralmente até a entrada do cérebro',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const definition =
+      buildCommercialProductV3()
+
+    const legacyProfile =
+      legacyConfig
+        .product_profiles[0]
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              product_profiles: [
+                {
+                  ...legacyProfile,
+
+                  commercial_product_contract_version:
+                    'commercial-product-v3',
+
+                  commercial_product_definition:
+                    definition,
+
+                  indicated_audiences:
+                    definition.indicated_audiences,
+
+                  needs_addressed:
+                    definition.needs_addressed,
+
+                  benefits:
+                    definition.benefits,
+
+                  verified_differentiators:
+                    definition.verified_differentiators,
+
+                  limitations:
+                    definition.limitations,
+
+                  contract_conditions:
+                    definition.contract_conditions,
+
+                  payment_conditions:
+                    definition.payment_conditions,
+
+                  allowed_claims:
+                    definition.allowed_claims,
+
+                  forbidden_claims:
+                    definition.forbidden_claims,
+                },
+              ],
+            }),
+
+          products:
+            buildProducts({
+              name:
+                'Nome mutável do catálogo',
+
+              category:
+                'categoria mutável',
+
+              base_price:
+                99999.99,
+            }),
+        }),
+      )
+
+    const product =
+      result
+        .commercial_context
+        .products[0]
+
+    assert.equal(
+      result.analysis_precondition.status,
+      'ready',
+    )
+
+    assert.equal(
+      product.contract_version,
+      'commercial-product-v3',
+    )
+
+    assert.equal(
+      product.definition
+        .contract_version,
+      'commercial-product-v3',
+    )
+
+    assert.equal(
+      product.name,
+      'Esteira Profissional',
+    )
+
+    assert.equal(
+      product.category,
+      'equipamento',
+    )
+
+    assert.equal(
+      product.base_price,
+      null,
+    )
+
+    assert.equal(
+      product.definition
+        .variants[0]
+        .sku,
+      'EQ-PRO-001',
+    )
+
+    assert.equal(
+      product.definition
+        .variants[0]
+        .pricing
+        .amount,
+      18990,
+    )
+
+    assert.equal(
+      product.definition
+        .variants[0]
+        .compatibility
+        .compatible_with[0],
+      'Rede elétrica 220V',
+    )
+
+    assert.equal(
+      product.definition
+        .variants[0]
+        .specifications[0]
+        .value,
+      '5',
+    )
+
+    assert.equal(
+      product.definition
+        .variants[0]
+        .stock
+        .status,
+      'available',
+    )
+  },
+)
+
+test(
+  'estoque temporário V3 vencido limita a análise sem apagar o snapshot',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const definition =
+      buildCommercialProductV3()
+
+    definition
+      .variants[0]
+      .stock
+      .valid_until =
+        '2026-08-04T19:30:00.000Z'
+
+    const legacyProfile =
+      legacyConfig
+        .product_profiles[0]
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              product_profiles: [
+                {
+                  ...legacyProfile,
+
+                  commercial_product_contract_version:
+                    'commercial-product-v3',
+
+                  commercial_product_definition:
+                    definition,
+
+                  indicated_audiences:
+                    definition.indicated_audiences,
+
+                  needs_addressed:
+                    definition.needs_addressed,
+
+                  benefits:
+                    definition.benefits,
+
+                  verified_differentiators:
+                    definition.verified_differentiators,
+
+                  limitations:
+                    definition.limitations,
+
+                  contract_conditions:
+                    definition.contract_conditions,
+
+                  payment_conditions:
+                    definition.payment_conditions,
+
+                  allowed_claims:
+                    definition.allowed_claims,
+
+                  forbidden_claims:
+                    definition.forbidden_claims,
+                },
+              ],
+            }),
+        }),
+      )
+
+    assert.equal(
+      result.analysis_precondition.status,
+      'limited',
+    )
+
+    assert.deepEqual(
+      result.analysis_precondition.limitations,
+      [
+        'product_stock_information_stale',
+      ],
+    )
+
+    assert.equal(
+      result
+        .commercial_context
+        .products[0]
+        .definition
+        .variants[0]
+        .stock
+        .valid_until,
+      '2026-08-04T19:30:00.000Z',
+    )
+  },
+)
+
+test(
+  'rejeita produto V3 publicado com definição semântica inválida',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const invalidDefinition =
+      buildCommercialProductV3()
+
+    invalidDefinition
+      .variants[0]
+      .stock
+      .quantity = 0
+
+    assertInputError(
+      () =>
+        buildCompanionDiagnosticInput(
+          buildInput({
+            commercial_config:
+              buildCommercialConfig({
+                product_profiles: [
+                  {
+                    ...legacyConfig
+                      .product_profiles[0],
+
+                    commercial_product_contract_version:
+                      'commercial-product-v3',
+
+                    commercial_product_definition:
+                      invalidDefinition,
+                  },
+                ],
+              }),
+          }),
+        ),
+      'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
     )
   },
 )
