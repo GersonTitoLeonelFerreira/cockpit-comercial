@@ -233,23 +233,16 @@ to service_role;
 -- ---------------------------------------------------------------------------
 -- rpc_list_companion_action_events
 -- A assinatura muda para incluir p_lead_id. A função anterior é removida
--- explicitamente para não deixar um overload legado executável.
+-- quando ainda existir; a nova assinatura usa CREATE OR REPLACE para permitir
+-- reaplicação segura em ambientes onde o refinamento já tenha sido executado.
 -- ---------------------------------------------------------------------------
-revoke all
-on function
-  public.rpc_list_companion_action_events(
-    uuid, uuid, boolean, uuid, text,
-    timestamp with time zone, timestamp with time zone, integer
-  )
-from public, anon, authenticated, service_role;
-
-drop function
+drop function if exists
   public.rpc_list_companion_action_events(
     uuid, uuid, boolean, uuid, text,
     timestamp with time zone, timestamp with time zone, integer
   );
 
-create function
+create or replace function
   public.rpc_list_companion_action_events(
     p_company_id uuid,
     p_requesting_user_id uuid,
