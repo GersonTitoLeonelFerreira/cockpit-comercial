@@ -1260,7 +1260,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v12 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v13 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1277,7 +1277,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v12',
+      'phase-5.2-stateful-prompt-v13',
     )
 
     assert.match(
@@ -1347,7 +1347,139 @@ test(
 
     assert.match(
       plan.request.system_prompt,
-      /conecte a solução ao problema antes de continuar quantificando detalhes opcionais/,
+      /conecte a solução ao problema antes de continuar coletando detalhes opcionais/,
+    )
+  },
+)
+
+test(
+  'prompt stateful v13 interpreta suficiência e espera do método V2',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .sales_method = {
+        configured: true,
+
+        contract_version:
+          'commercial-method-v2',
+
+        name:
+          'Método ATO',
+
+        description:
+          'Acolher, Tour e Obter.',
+
+        principles: [
+          'Esperar é uma decisão comercial válida.',
+        ],
+
+        definition: {
+          contract_version:
+            'commercial-method-v2',
+
+          name:
+            'Método ATO',
+
+          description:
+            'Acolher, Tour e Obter.',
+
+          principles: [
+            'Esperar é uma decisão comercial válida.',
+          ],
+
+          stages: [
+            {
+              key:
+                'tour',
+
+              display_order:
+                1,
+
+              name:
+                'Tour',
+
+              objective:
+                'Compreender o necessário.',
+
+              requirement:
+                'required',
+
+              completion_criteria: [
+                'Necessidade compreendida.',
+              ],
+
+              partial_completion_criteria: [],
+
+              skip_conditions: [],
+
+              recommended_questions: [],
+
+              common_mistakes: [],
+
+              deepen_when: [],
+
+              sufficient_when: [
+                'Informação suficiente.',
+              ],
+
+              advance_when: [],
+
+              wait_when: [
+                'Cliente informou que retornará.',
+              ],
+
+              stop_asking_when: [
+                'Perguntar mais não acrescenta valor.',
+              ],
+
+              dimensions: [],
+            },
+          ],
+        },
+
+        steps: [],
+      }
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /sufficient_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /stop_asking_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /wait_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /esperar ou dar espaço é uma decisão comercial válida/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não invente pergunta, mensagem, compromisso, Agenda ou mudança de CRM/,
     )
   },
 )

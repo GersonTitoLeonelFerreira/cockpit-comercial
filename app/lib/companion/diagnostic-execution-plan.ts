@@ -8,8 +8,12 @@ import type {
   CompanionDiagnosticInput,
 } from './diagnostic-input'
 
+import {
+  buildCommercialMethodPromptRules,
+} from './commercial-method-prompt-rules'
+
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v9' as const
+  'phase-5-prompt-v10' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -514,7 +518,10 @@ function buildSystemPrompt(
 
     'Não invente crítica quando o vendedor realizou um bom atendimento.',
 
-    'Não invente etapa do método quando sales_method.configured=false.',
+    buildCommercialMethodPromptRules(
+      input.commercial_context
+        .sales_method,
+    ),
 
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',
 

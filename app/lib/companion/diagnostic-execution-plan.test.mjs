@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v9',
+      'phase-5-prompt-v10',
     )
 
     assert.equal(
@@ -401,6 +401,134 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Quando analysis_status=limited, confidence precisa ser medium ou low/,
+    )
+  },
+)
+
+test(
+  'prompt v10 interpreta método V2 sem checklist e aceita espera',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .commercial_context
+      .sales_method = {
+        configured: true,
+
+        contract_version:
+          'commercial-method-v2',
+
+        name:
+          'Método ATO',
+
+        description:
+          'Acolher, Tour e Obter.',
+
+        principles: [
+          'Esperar é uma decisão comercial válida.',
+        ],
+
+        definition: {
+          contract_version:
+            'commercial-method-v2',
+
+          name:
+            'Método ATO',
+
+          description:
+            'Acolher, Tour e Obter.',
+
+          principles: [
+            'Esperar é uma decisão comercial válida.',
+          ],
+
+          stages: [
+            {
+              key:
+                'tour',
+
+              display_order:
+                1,
+
+              name:
+                'Tour',
+
+              objective:
+                'Compreender o necessário.',
+
+              requirement:
+                'required',
+
+              completion_criteria: [
+                'Necessidade compreendida.',
+              ],
+
+              partial_completion_criteria: [],
+
+              skip_conditions: [],
+
+              recommended_questions: [],
+
+              common_mistakes: [],
+
+              deepen_when: [],
+
+              sufficient_when: [
+                'Informação suficiente.',
+              ],
+
+              advance_when: [],
+
+              wait_when: [
+                'Cliente informou que retornará.',
+              ],
+
+              stop_asking_when: [
+                'Novas perguntas não alteram a decisão.',
+              ],
+
+              dimensions: [],
+            },
+          ],
+        },
+
+        steps: [],
+      }
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /sufficient_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /stop_asking_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /wait_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /esperar ou dar espaço é uma decisão comercial válida/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /nunca como roteiro mecânico/,
     )
   },
 )
