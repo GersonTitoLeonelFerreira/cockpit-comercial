@@ -167,6 +167,10 @@
     return sendToBackground('REGISTER_MESSAGE_ACTION', payload)
   }
 
+  async function registerActionEvent(payload) {
+    return sendToBackground('REGISTER_ACTION_EVENT', payload)
+  }
+
   async function transcribeAudio(payload) {
     return sendToBackground('TRANSCRIBE_AUDIO', payload)
   }
@@ -196,6 +200,7 @@
     analyzeConversation,
     applySuggestion,
     registerMessageAction,
+    registerActionEvent,
     transcribeAudio,
     loadAudioTranscriptions,
     ingestCapturedMessages,

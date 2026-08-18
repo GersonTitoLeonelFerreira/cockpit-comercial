@@ -408,6 +408,14 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (message.action === 'REGISTER_ACTION_EVENT') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/actions/events',
+      message.payload,
+    )
+  }
+
   if (message.action === 'TRANSCRIBE_AUDIO') {
     return requestYolenWithToken(
       message,

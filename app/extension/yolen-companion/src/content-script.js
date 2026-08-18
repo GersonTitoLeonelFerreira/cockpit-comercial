@@ -82,6 +82,9 @@
   const retainedPreResolutionCaptures =
     new Map()
 
+  const registeredSuggestionShownTelemetryKeys =
+    new Set()
+
   let state = {
     connected: false,
     loading: true,
@@ -5147,6 +5150,18 @@
       )
 
       if (!confirmed) {
+        fireCompanionActionTelemetry(
+          'suggestion_ignored',
+          {
+            seed:
+              createActionTelemetryInteractionId(),
+            metadata: {
+              source:
+                'insert_confirmation',
+            },
+          },
+        )
+
         state = {
           ...state,
           suggestedMessageCopyStatus: 'Inserção cancelada',
@@ -5158,6 +5173,41 @@
     }
 
     writeTextInComposer(composer, message)
+
+    const telemetryInteractionId =
+      createActionTelemetryInteractionId()
+
+    const pendingSend = {
+      cycleId:
+        state.leadResolution?.cycle?.id ||
+        null,
+      coachingNoteId:
+        state.conversationAnalysis
+          ?.saved_coaching?.id ||
+        null,
+      conversationKey:
+        state.conversationKey,
+      telemetryConversationKey:
+        getCaptureConversationKey(),
+      telemetryInteractionId,
+      message,
+    }
+
+    fireCompanionActionTelemetry(
+      'suggestion_inserted',
+      {
+        cycleId: pendingSend.cycleId,
+        coachingNoteId:
+          pendingSend.coachingNoteId,
+        conversationKey:
+          pendingSend
+            .telemetryConversationKey,
+        seed: telemetryInteractionId,
+        metadata: {
+          source: 'insert_button',
+        },
+      },
+    )
 
     try {
       const registration = await registerSuggestedMessageAction('inserted')
@@ -5171,12 +5221,8 @@
             : 'Mensagem inserida no campo do WhatsApp. Revise antes de enviar.',
         suggestedMessageLastRegisteredKey:
           registration.registrationKey || state.suggestedMessageLastRegisteredKey,
-        pendingSuggestedMessageSend: {
-          cycleId: state.leadResolution?.cycle?.id || null,
-          coachingNoteId: state.conversationAnalysis?.saved_coaching?.id || null,
-          conversationKey: state.conversationKey,
-          message,
-        },
+        pendingSuggestedMessageSend:
+          pendingSend,
       }
 
       renderPanel()
@@ -5187,6 +5233,8 @@
           error instanceof Error && error.message
             ? `Mensagem inserida, mas não registrada: ${error.message}`
             : 'Mensagem inserida, mas não registrada na Yolen. Revise antes de enviar.',
+        pendingSuggestedMessageSend:
+          pendingSend,
       }
 
       renderPanel()
@@ -6601,6 +6649,282 @@
     }
   }
 
+  function createActionTelemetryInteractionId() {
+    const randomUuid =
+      globalThis.crypto?.randomUUID?.()
+
+    if (randomUuid) {
+      return randomUuid
+    }
+
+    return [
+      Date.now().toString(36),
+      Math.random()
+        .toString(36)
+        .slice(2),
+    ].join('-')
+  }
+
+  function buildActionTelemetryIdempotencyKey(
+    actionType,
+    seed,
+    cycleId =
+      state.leadResolution?.cycle?.id,
+  ) {
+    return [
+      'companion-ui',
+      actionType,
+      cycleId || 'no-cycle',
+      seed ||
+        createActionTelemetryInteractionId(),
+    ]
+      .join(':')
+      .slice(0, 200)
+  }
+
+  async function registerCompanionActionTelemetry(
+    actionType,
+    options = {},
+  ) {
+    const cycleId =
+      options.cycleId ||
+      state.leadResolution?.cycle?.id
+
+    if (
+      !cycleId ||
+      !window.YolenCompanionApi
+        ?.registerActionEvent
+    ) {
+      return {
+        registered: false,
+        alreadyRegistered: false,
+      }
+    }
+
+    const coachingNoteId =
+      options.coachingNoteId ??
+      state.conversationAnalysis
+        ?.saved_coaching?.id ??
+      null
+
+    const conversationKey =
+      options.conversationKey ??
+      getCaptureConversationKey() ??
+      null
+
+    const idempotencyKey =
+      options.idempotencyKey ||
+      buildActionTelemetryIdempotencyKey(
+        actionType,
+        options.seed,
+        cycleId,
+      )
+
+    const metadata =
+      options.metadata &&
+      typeof options.metadata === 'object' &&
+      !Array.isArray(options.metadata)
+        ? options.metadata
+        : {}
+
+    const result =
+      await window.YolenCompanionApi
+        .registerActionEvent({
+          cycle_id: cycleId,
+          action_type: actionType,
+          idempotency_key:
+            idempotencyKey,
+          coaching_note_id:
+            coachingNoteId,
+          conversation_key:
+            conversationKey,
+          metadata,
+        })
+
+    if (!result?.ok || !result.payload?.ok) {
+      throw new Error(
+        result?.payload?.error ||
+          'Não foi possível registrar a telemetria da ação do Companion.',
+      )
+    }
+
+    return {
+      registered:
+        result.payload?.data
+          ?.already_registered !== true,
+      alreadyRegistered:
+        result.payload?.data
+          ?.already_registered === true,
+      eventId:
+        result.payload?.data
+          ?.event_id || null,
+    }
+  }
+
+  function fireCompanionActionTelemetry(
+    actionType,
+    options = {},
+  ) {
+    void registerCompanionActionTelemetry(
+      actionType,
+      options,
+    ).catch(() => {})
+  }
+
+  function getOperationalTelemetryTargets(
+    suggestion,
+  ) {
+    const cycle =
+      state.leadResolution?.cycle
+
+    if (!suggestion || !cycle) {
+      return {
+        crmChanged: false,
+        agendaChanged: false,
+      }
+    }
+
+    const crmChanged =
+      Boolean(
+        suggestion.recommended_status &&
+        suggestion.recommended_status !==
+          cycle.status,
+      )
+
+    const agendaChanged =
+      normalizeOperationalText(
+        cycle.next_action,
+      ) !==
+        normalizeOperationalText(
+          suggestion.next_action,
+        ) ||
+      getOperationalDateKey(
+        cycle.next_action_date,
+      ) !==
+        getOperationalDateKey(
+          suggestion.next_action_date,
+        )
+
+    return {
+      crmChanged,
+      agendaChanged,
+    }
+  }
+
+  function registerSuggestionDecisionTelemetry({
+    accepted,
+    suggestion,
+    cycleId,
+  }) {
+    const {
+      crmChanged,
+      agendaChanged,
+    } =
+      getOperationalTelemetryTargets(
+        suggestion,
+      )
+
+    const interactionId =
+      createActionTelemetryInteractionId()
+
+    const commonOptions = {
+      cycleId,
+      seed: interactionId,
+      metadata: {
+        source: 'apply_confirmation',
+      },
+    }
+
+    if (!accepted) {
+      fireCompanionActionTelemetry(
+        'suggestion_ignored',
+        commonOptions,
+      )
+    }
+
+    if (crmChanged) {
+      fireCompanionActionTelemetry(
+        accepted
+          ? 'crm_accepted'
+          : 'crm_rejected',
+        commonOptions,
+      )
+    }
+
+    if (agendaChanged) {
+      fireCompanionActionTelemetry(
+        accepted
+          ? 'agenda_accepted'
+          : 'agenda_rejected',
+        commonOptions,
+      )
+    }
+  }
+
+  function registerSuggestionShownTelemetry({
+    cycleId,
+    analysis,
+    conversationFingerprint,
+    isAutomatic,
+  }) {
+    if (!analysis?.suggestion) {
+      return
+    }
+
+    const coachingNoteId =
+      analysis.saved_coaching?.id ||
+      null
+
+    const suggestionFingerprint =
+      buildConversationFingerprint(
+        JSON.stringify(
+          analysis.suggestion,
+        ),
+      )
+
+    const seed = [
+      coachingNoteId || 'no-note',
+      conversationFingerprint ||
+        'no-conversation-fingerprint',
+      suggestionFingerprint ||
+        'no-suggestion-fingerprint',
+    ].join(':')
+
+    const idempotencyKey =
+      buildActionTelemetryIdempotencyKey(
+        'suggestion_shown',
+        seed,
+        cycleId,
+      )
+
+    if (
+      registeredSuggestionShownTelemetryKeys
+        .has(idempotencyKey)
+    ) {
+      return
+    }
+
+    registeredSuggestionShownTelemetryKeys
+      .add(idempotencyKey)
+
+    void registerCompanionActionTelemetry(
+      'suggestion_shown',
+      {
+        cycleId,
+        coachingNoteId,
+        idempotencyKey,
+        metadata: {
+          source: 'analysis_completed',
+          automatic:
+            isAutomatic === true,
+        },
+      },
+    ).catch(() => {
+      registeredSuggestionShownTelemetryKeys
+        .delete(idempotencyKey)
+    })
+  }
+
   async function analyzeCurrentConversation(
     options = {},
   ) {
@@ -6752,6 +7076,14 @@
       }
 
       renderPanel()
+
+      registerSuggestionShownTelemetry({
+        cycleId,
+        analysis:
+          result.payload.data,
+        conversationFingerprint,
+        isAutomatic,
+      })
 
       if (
         messageLedgerMutationRevision !==
@@ -7062,6 +7394,67 @@
       return
     }
 
+    const telemetryInteractionId =
+      pending.telemetryInteractionId ||
+      createActionTelemetryInteractionId()
+
+    const normalizedFinalMessage =
+      normalizeMessageText(
+        finalMessage,
+      )
+
+    const normalizedSuggestedMessage =
+      normalizeMessageText(
+        pending.message,
+      )
+
+    const duplicatedSuggestedMessage =
+      [
+        normalizedSuggestedMessage,
+        normalizedSuggestedMessage,
+      ].join(' ')
+
+    const wasEdited =
+      Boolean(
+        normalizedFinalMessage &&
+        normalizedSuggestedMessage,
+      ) &&
+      normalizedFinalMessage !==
+        normalizedSuggestedMessage &&
+      normalizedFinalMessage !==
+        duplicatedSuggestedMessage
+
+    const telemetryOptions = {
+      cycleId: pending.cycleId,
+      coachingNoteId:
+        pending.coachingNoteId,
+      conversationKey:
+        pending.telemetryConversationKey ||
+        getCaptureConversationKey(),
+      seed: telemetryInteractionId,
+      metadata: {
+        source: 'manual_send',
+      },
+    }
+
+    if (wasEdited) {
+      fireCompanionActionTelemetry(
+        'suggestion_edited',
+        telemetryOptions,
+      )
+    }
+
+    fireCompanionActionTelemetry(
+      'suggestion_sent',
+      {
+        ...telemetryOptions,
+        metadata: {
+          ...telemetryOptions.metadata,
+          edited: wasEdited,
+        },
+      },
+    )
+
     state = {
       ...state,
       pendingSuggestedMessageSendRegistering: true,
@@ -7201,6 +7594,17 @@
       return
     }
 
+    fireCompanionActionTelemetry(
+      'suggestion_copied',
+      {
+        seed:
+          createActionTelemetryInteractionId(),
+        metadata: {
+          source: 'copy_button',
+        },
+      },
+    )
+
     try {
       const registration = await registerSuggestedMessageAction('copied')
 
@@ -7279,6 +7683,12 @@
     }
 
     const confirmed = window.confirm(buildApplyConfirmationText())
+
+    registerSuggestionDecisionTelemetry({
+      accepted: confirmed,
+      suggestion,
+      cycleId,
+    })
 
     if (!confirmed) {
       return
