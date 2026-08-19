@@ -795,7 +795,7 @@
   ) {
     const candidates = []
     const pattern =
-      /\b(?:meu\s+(?:outro\s+)?(?:telefone|celular|n[uú]mero)|(?:telefone|celular)\s*:|pode\s+me\s+chamar\s+no)\s*(?:é|e|:|-)?\s*(\+?\d[\d\s().-]{8,}\d)/gi
+      /\b(?:meu\s+(?:outro\s+)?(?:telefone|celular|n[uú]mero)|(?:telefone|celular)\s*:|pode\s+me\s+chamar\s+no)\s*(?:é|e|:|-)?\s*([+()\d][\d\s().-]{8,}\d)/gi
 
     collectMatches(
       text,
