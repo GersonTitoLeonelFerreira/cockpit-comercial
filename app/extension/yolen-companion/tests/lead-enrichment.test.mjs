@@ -393,7 +393,7 @@ test('B2 não inventa profissão por linguagem ambígua', () => {
   assert.deepEqual(candidates, [])
 })
 
-test('B2 integra candidatos reais no painel sem escrita cadastral', () => {
+test('B2 integra candidatos reais no painel com confirmação humana explícita', () => {
   const integrationStart =
     contentScript.indexOf(
       'function getLeadEnrichmentCandidates()',
@@ -448,17 +448,27 @@ test('B2 integra candidatos reais no painel sem escrita cadastral', () => {
 
   assert.match(
     integrationBlock,
-    /Nada será salvo no cadastro nesta etapa\./,
+    /O cadastro só muda depois que você confirmar\./,
   )
 
-  assert.doesNotMatch(
+  assert.match(
     integrationBlock,
-    /data-yolen-action/,
+    /data-yolen-action="confirm-lead-enrichment"/,
   )
 
-  assert.doesNotMatch(
+  assert.match(
     integrationBlock,
-    /YolenCompanionApi/,
+    /data-yolen-action="ignore-lead-enrichment"/,
+  )
+
+  assert.match(
+    integrationBlock,
+    /applyLeadEnrichment/,
+  )
+
+  assert.match(
+    integrationBlock,
+    /confirmed_by_human:\s*true/,
   )
 
   assert.match(

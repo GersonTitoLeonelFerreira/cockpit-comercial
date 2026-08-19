@@ -155,6 +155,13 @@
     return sendToBackground('CREATE_LEAD', payload)
   }
 
+  async function applyLeadEnrichment(payload) {
+    return sendToBackground(
+      'APPLY_LEAD_ENRICHMENT',
+      payload,
+    )
+  }
+
   async function analyzeConversation(payload) {
     return sendToBackground('ANALYZE_CONVERSATION', payload)
   }
@@ -197,6 +204,7 @@
     resolveLead,
     getLastLeadLookupContext,
     createLead,
+    applyLeadEnrichment,
     analyzeConversation,
     applySuggestion,
     registerMessageAction,

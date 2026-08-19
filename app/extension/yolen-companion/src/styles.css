@@ -371,6 +371,29 @@
   color: #dce8fb;
 }
 
+.yolen-enrichment-actions {
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.yolen-enrichment-actions
+.yolen-primary-button,
+.yolen-enrichment-actions
+.yolen-secondary-button {
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.yolen-enrichment-actions
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+
 
 /* YOLEN FINAL RELEASE — COMPACT DAILY PANEL */
 
