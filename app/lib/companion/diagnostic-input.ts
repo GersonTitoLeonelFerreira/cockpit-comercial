@@ -1,6 +1,7 @@
 import type {
   CommercialConfigBundle,
   CommercialConfigProductOption,
+  CommercialFact,
   CommercialProductProfile,
 } from '@/app/types/commercial-config'
 
@@ -23,6 +24,11 @@ import {
   validateCommercialComplexProductDefinition,
   type CommercialComplexProductDefinition,
 } from './commercial-product-complex-contract'
+
+import {
+  validateCommercialFactDefinition,
+  type CommercialFactDefinition,
+} from './commercial-fact-contract'
 
 export const COMPANION_DIAGNOSTIC_INPUT_VERSION =
   'phase-5-input-v1' as const
@@ -110,6 +116,26 @@ export type DiagnosticCommercialProduct = {
   forbidden_claims: string[]
 }
 
+export type DiagnosticCommercialFact = {
+  contract_version:
+    | 'commercial-fact-v1'
+    | 'commercial-fact-v2'
+
+  definition:
+    CommercialFactDefinition | null
+
+  validity_status:
+    | 'legacy'
+    | 'current'
+    | 'not_yet_valid'
+    | 'expired'
+
+  category: string
+  fact_key: string
+  fact_value: string
+  source_note: string | null
+}
+
 export type CompanionDiagnosticInput = {
   input_version:
     typeof COMPANION_DIAGNOSTIC_INPUT_VERSION
@@ -175,12 +201,8 @@ export type CompanionDiagnosticInput = {
     products:
       DiagnosticCommercialProduct[]
 
-    facts: Array<{
-      category: string
-      fact_key: string
-      fact_value: string
-      source_note: string | null
-    }>
+    facts:
+      DiagnosticCommercialFact[]
 
     objection_guides: Array<{
       sort_order: number
@@ -1154,6 +1176,189 @@ function resolveCommercialProduct(
   }
 }
 
+type ResolvedCommercialFact = {
+  contract_version:
+    | 'commercial-fact-v1'
+    | 'commercial-fact-v2'
+
+  definition:
+    CommercialFactDefinition | null
+}
+
+function resolveCommercialFact(
+  fact: CommercialFact,
+  index: number,
+): ResolvedCommercialFact {
+  const path =
+    'commercial_config.facts[' +
+    index +
+    ']'
+
+  const contractValue: unknown =
+    fact
+      .commercial_fact_contract_version
+
+  const definitionValue: unknown =
+    fact
+      .commercial_fact_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_FACT_DEFINITION',
+        path + '.commercial_fact_definition',
+        'Uma definição semântica de fato não pode existir sem versão do contrato.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-fact-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-fact-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_FACT_DEFINITION',
+        path + '.commercial_fact_definition',
+        'O fato legado não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-fact-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-fact-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_CONTRACT',
+      path + '.commercial_fact_contract_version',
+      'A versão persistida do contrato do fato comercial é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+      path + '.commercial_fact_definition',
+      'O fato V2 publicado precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialFactDefinition
+
+  const validation =
+    validateCommercialFactDefinition(
+      definition,
+    )
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+      path + '.commercial_fact_definition',
+      'A definição semântica publicada do fato não respeita o contrato V2.',
+    )
+  }
+
+  if (
+    definition.category.trim() !==
+      fact.category.trim() ||
+    definition.fact_key.trim() !==
+      fact.fact_key.trim() ||
+    definition.fact_value.trim() !==
+      fact.fact_value.trim()
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+      path + '.commercial_fact_definition',
+      'A definição semântica do fato diverge da projeção oficial persistida.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-fact-v2',
+
+    definition,
+  }
+}
+
+function resolveCommercialFactValidityStatus(
+  definition:
+    CommercialFactDefinition | null,
+  referenceTimestamp: number,
+): DiagnosticCommercialFact[
+  'validity_status'
+] {
+  if (!definition) {
+    return 'legacy'
+  }
+
+  const validFrom =
+    definition.validity.valid_from
+
+  if (validFrom) {
+    const validFromTimestamp =
+      Date.parse(validFrom)
+
+    if (
+      Number.isFinite(
+        validFromTimestamp,
+      ) &&
+      validFromTimestamp >
+        referenceTimestamp
+    ) {
+      return 'not_yet_valid'
+    }
+  }
+
+  const validUntil =
+    definition.validity.valid_until
+
+  if (validUntil) {
+    const validUntilTimestamp =
+      Date.parse(validUntil)
+
+    if (
+      Number.isFinite(
+        validUntilTimestamp,
+      ) &&
+      validUntilTimestamp <=
+        referenceTimestamp
+    ) {
+      return 'expired'
+    }
+  }
+
+  return 'current'
+}
+
 function buildCommercialContext(
   bundle:
     | CommercialConfigBundle
@@ -1620,33 +1825,68 @@ function buildCommercialContext(
           (fact) =>
             fact.is_active,
         )
-        .map((fact) => ({
-          category:
-            normalizeRequiredString(
-              fact.category,
-              'commercial_config.facts.category',
-            ),
+        .map(
+          (
+            fact,
+            factIndex,
+          ) => {
+            const resolvedFact =
+              resolveCommercialFact(
+                fact,
+                factIndex,
+              )
 
-          fact_key:
-            normalizeRequiredString(
-              fact.fact_key,
-              'commercial_config.facts.fact_key',
-            ),
+            const semanticDefinition =
+              resolvedFact.definition
 
-          fact_value:
-            normalizeRequiredString(
-              fact.fact_value,
-              'commercial_config.facts.fact_value',
-              10000,
-            ),
+            return {
+              contract_version:
+                resolvedFact
+                  .contract_version,
 
-          source_note:
-            normalizeNullableString(
-              fact.source_note,
-              'commercial_config.facts.source_note',
-              5000,
-            ),
-        })),
+              definition:
+                semanticDefinition,
+
+              validity_status:
+                resolveCommercialFactValidityStatus(
+                  semanticDefinition,
+                  referenceTimestamp,
+                ),
+
+              category:
+                normalizeRequiredString(
+                  semanticDefinition
+                    ?.category ??
+                    fact.category,
+                  'commercial_config.facts.category',
+                ),
+
+              fact_key:
+                normalizeRequiredString(
+                  semanticDefinition
+                    ?.fact_key ??
+                    fact.fact_key,
+                  'commercial_config.facts.fact_key',
+                ),
+
+              fact_value:
+                normalizeRequiredString(
+                  semanticDefinition
+                    ?.fact_value ??
+                    fact.fact_value,
+                  'commercial_config.facts.fact_value',
+                  10000,
+                ),
+
+              source_note:
+                normalizeNullableString(
+                  fact.source_note,
+                  'commercial_config.facts.source_note',
+                  5000,
+                ),
+            }
+          },
+        ),
 
     objection_guides:
       bundle.objection_guides

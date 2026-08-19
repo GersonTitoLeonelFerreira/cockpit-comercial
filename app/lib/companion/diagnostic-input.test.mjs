@@ -402,6 +402,121 @@ function buildCommercialProductV3() {
   }
 }
 
+function buildCommercialFactV2(
+  overrides = {},
+) {
+  return {
+    contract_version:
+      'commercial-fact-v2',
+
+    fact_kind:
+      'official',
+
+    category:
+      'operação',
+
+    fact_key:
+      'horario_atendimento',
+
+    fact_value:
+      'Atendimento comercial de segunda a sexta-feira.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+
+      reference_key:
+        null,
+    },
+
+    conditions: [],
+
+    limitations: [
+      'Não inclui feriados.',
+    ],
+
+    validity: {
+      mode:
+        'ongoing',
+
+      valid_from:
+        '2026-08-01T00:00:00.000Z',
+
+      valid_until:
+        null,
+    },
+
+    source: {
+      type:
+        'internal_policy',
+
+      reference:
+        'Política oficial de atendimento.',
+
+      verified_at:
+        '2026-08-04T12:00:00.000Z',
+    },
+
+    ...overrides,
+  }
+}
+
+function buildCommercialFactRecord(
+  definition,
+  overrides = {},
+) {
+  return {
+    id:
+      '723e4567-e89b-42d3-a456-426614174000',
+
+    company_id:
+      COMPANY_ID,
+
+    config_version_id:
+      CONFIG_VERSION_ID,
+
+    commercial_fact_contract_version:
+      definition
+        ? 'commercial-fact-v2'
+        : 'commercial-fact-v1',
+
+    commercial_fact_definition:
+      definition,
+
+    category:
+      definition?.category ??
+      'estrutura',
+
+    fact_key:
+      definition?.fact_key ??
+      'horario',
+
+    fact_value:
+      definition?.fact_value ??
+      'Horário conforme unidade.',
+
+    source_note:
+      'Configuração oficial',
+
+    is_active:
+      true,
+
+    created_at:
+      '2026-08-01T10:00:00.000Z',
+
+    updated_at:
+      '2026-08-01T10:00:00.000Z',
+
+    ...overrides,
+  }
+}
+
 function buildCommercialConfig(
   overrides = {},
 ) {
@@ -745,6 +860,234 @@ test(
       result.commercial_context
         .products[0].name,
       'Plano Open',
+    )
+
+    assert.equal(
+      result.commercial_context
+        .facts[0]
+        .contract_version,
+      'commercial-fact-v1',
+    )
+
+    assert.equal(
+      result.commercial_context
+        .facts[0]
+        .definition,
+      null,
+    )
+
+    assert.equal(
+      result.commercial_context
+        .facts[0]
+        .validity_status,
+      'legacy',
+    )
+  },
+)
+
+test(
+  'propaga fato oficial V2 completo e vigente até a entrada do cérebro',
+  () => {
+    const definition =
+      buildCommercialFactV2()
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              facts: [
+                buildCommercialFactRecord(
+                  definition,
+                ),
+              ],
+            }),
+        }),
+      )
+
+    const fact =
+      result.commercial_context
+        .facts[0]
+
+    assert.equal(
+      fact.contract_version,
+      'commercial-fact-v2',
+    )
+
+    assert.deepEqual(
+      fact.definition,
+      definition,
+    )
+
+    assert.equal(
+      fact.validity_status,
+      'current',
+    )
+
+    assert.equal(
+      fact.definition
+        .source
+        .type,
+      'internal_policy',
+    )
+  },
+)
+
+test(
+  'fato V2 futuro permanece no snapshot mas não é considerado vigente',
+  () => {
+    const definition =
+      buildCommercialFactV2({
+        validity: {
+          mode:
+            'ongoing',
+
+          valid_from:
+            '2026-08-05T00:00:00.000Z',
+
+          valid_until:
+            null,
+        },
+      })
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              facts: [
+                buildCommercialFactRecord(
+                  definition,
+                ),
+              ],
+            }),
+        }),
+      )
+
+    const fact =
+      result.commercial_context
+        .facts[0]
+
+    assert.equal(
+      fact.validity_status,
+      'not_yet_valid',
+    )
+
+    assert.deepEqual(
+      fact.definition,
+      definition,
+    )
+  },
+)
+
+test(
+  'fato V2 vencido permanece no snapshot mas recebe validade expirada',
+  () => {
+    const definition =
+      buildCommercialFactV2({
+        validity: {
+          mode:
+            'bounded',
+
+          valid_from:
+            '2026-08-01T00:00:00.000Z',
+
+          valid_until:
+            '2026-08-04T19:00:00.000Z',
+        },
+      })
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              facts: [
+                buildCommercialFactRecord(
+                  definition,
+                ),
+              ],
+            }),
+        }),
+      )
+
+    const fact =
+      result.commercial_context
+        .facts[0]
+
+    assert.equal(
+      fact.validity_status,
+      'expired',
+    )
+
+    assert.deepEqual(
+      fact.definition,
+      definition,
+    )
+  },
+)
+
+test(
+  'rejeita fato V2 publicado com definição semântica inválida',
+  () => {
+    const definition =
+      buildCommercialFactV2({
+        source: {
+          type:
+            'system_record',
+
+          reference:
+            'Registro oficial.',
+
+          verified_at:
+            'data-invalida',
+        },
+      })
+
+    assertInputError(
+      () =>
+        buildCompanionDiagnosticInput(
+          buildInput({
+            commercial_config:
+              buildCommercialConfig({
+                facts: [
+                  buildCommercialFactRecord(
+                    definition,
+                  ),
+                ],
+              }),
+          }),
+        ),
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+    )
+  },
+)
+
+test(
+  'rejeita fato V2 cuja projeção persistida diverge da definição oficial',
+  () => {
+    const definition =
+      buildCommercialFactV2()
+
+    assertInputError(
+      () =>
+        buildCompanionDiagnosticInput(
+          buildInput({
+            commercial_config:
+              buildCommercialConfig({
+                facts: [
+                  buildCommercialFactRecord(
+                    definition,
+                    {
+                      fact_value:
+                        'Valor divergente.',
+                    },
+                  ),
+                ],
+              }),
+          }),
+        ),
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
     )
   },
 )

@@ -348,7 +348,99 @@ function buildFullTables(
       ]),
 
     company_commercial_facts:
-      ok([]),
+      ok([
+        {
+          id:
+            '723e4567-e89b-42d3-a456-426614174000',
+
+          company_id:
+            COMPANY_ID,
+
+          config_version_id:
+            CONFIG_VERSION_ID,
+
+          commercial_fact_contract_version:
+            'commercial-fact-v2',
+
+          commercial_fact_definition: {
+            contract_version:
+              'commercial-fact-v2',
+
+            fact_kind:
+              'official',
+
+            category:
+              'operação',
+
+            fact_key:
+              'horario_atendimento',
+
+            fact_value:
+              'Atendimento comercial de segunda a sexta-feira.',
+
+            scope: {
+              type:
+                'company',
+
+              product_id:
+                null,
+
+              variant_key:
+                null,
+
+              reference_key:
+                null,
+            },
+
+            conditions: [],
+
+            limitations: [],
+
+            validity: {
+              mode:
+                'ongoing',
+
+              valid_from:
+                '2026-08-01T00:00:00.000Z',
+
+              valid_until:
+                null,
+            },
+
+            source: {
+              type:
+                'internal_policy',
+
+              reference:
+                'Política oficial de atendimento.',
+
+              verified_at:
+                '2026-08-04T12:00:00.000Z',
+            },
+          },
+
+          category:
+            'operação',
+
+          fact_key:
+            'horario_atendimento',
+
+          fact_value:
+            'Atendimento comercial de segunda a sexta-feira.',
+
+          source_note:
+            'Configuração oficial',
+
+          is_active:
+            true,
+
+          created_at:
+            '2026-08-01T10:00:00.000Z',
+
+          updated_at:
+            '2026-08-01T10:00:00.000Z',
+        },
+      ]),
 
     company_commercial_objection_guides:
       ok([]),
@@ -523,6 +615,58 @@ test(
       productProfileSelect.columns.includes(
         'commercial_product_definition',
       ),
+    )
+
+    const factCall =
+      calls.find(
+        (call) =>
+          call.table ===
+          'company_commercial_facts',
+      )
+
+    assert.ok(
+      factCall,
+    )
+
+    const factSelect =
+      factCall.operations.find(
+        (operation) =>
+          operation.type ===
+          'select',
+      )
+
+    assert.ok(
+      factSelect.columns.includes(
+        'commercial_fact_contract_version',
+      ),
+    )
+
+    assert.ok(
+      factSelect.columns.includes(
+        'commercial_fact_definition',
+      ),
+    )
+
+    const loadedFact =
+      snapshot.input
+        .commercial_context
+        .facts[0]
+
+    assert.equal(
+      loadedFact.contract_version,
+      'commercial-fact-v2',
+    )
+
+    assert.equal(
+      loadedFact.validity_status,
+      'current',
+    )
+
+    assert.equal(
+      loadedFact.definition
+        .source
+        .type,
+      'internal_policy',
     )
   },
 )

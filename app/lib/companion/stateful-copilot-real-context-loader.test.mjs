@@ -128,6 +128,65 @@ function buildCommercialProductV2() {
   }
 }
 
+function buildCommercialFactV2() {
+  return {
+    contract_version:
+      'commercial-fact-v2',
+
+    fact_kind:
+      'official',
+
+    category:
+      'operação',
+
+    fact_key:
+      'horario',
+
+    fact_value:
+      'Atendimento em horário comercial.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+
+      reference_key:
+        null,
+    },
+
+    conditions: [],
+
+    limitations: [],
+
+    validity: {
+      mode:
+        'ongoing',
+
+      valid_from:
+        '2026-08-01T00:00:00.000Z',
+
+      valid_until:
+        null,
+    },
+
+    source: {
+      type:
+        'internal_policy',
+
+      reference:
+        'Configuração oficial.',
+
+      verified_at:
+        '2026-08-06T20:00:00.000Z',
+    },
+  }
+}
+
 function createMockClient(
   fixtures,
 ) {
@@ -927,6 +986,12 @@ function buildFixtures({
               config_version_id:
                 configVersionId,
 
+              commercial_fact_contract_version:
+                'commercial-fact-v2',
+
+              commercial_fact_definition:
+                buildCommercialFactV2(),
+
               category:
                 'operação',
 
@@ -1312,13 +1377,59 @@ test(
         ),
     )
 
-    assert.equal(
+    const factCall =
+      calls.find(
+        call =>
+          call.table ===
+          'company_commercial_facts',
+      )
+
+    assert.ok(
+      factCall,
+    )
+
+    assert.ok(
+      factCall
+        .selected_columns
+        .includes(
+          'commercial_fact_contract_version',
+        ),
+    )
+
+    assert.ok(
+      factCall
+        .selected_columns
+        .includes(
+          'commercial_fact_definition',
+        ),
+    )
+
+    const loadedFact =
       result
         .diagnostic_input
         .commercial_context
         .facts[0]
-        .fact_key,
+
+    assert.equal(
+      loadedFact.fact_key,
       'horario',
+    )
+
+    assert.equal(
+      loadedFact.contract_version,
+      'commercial-fact-v2',
+    )
+
+    assert.equal(
+      loadedFact.validity_status,
+      'current',
+    )
+
+    assert.equal(
+      loadedFact.definition
+        .source
+        .type,
+      'internal_policy',
     )
 
     assert.equal(

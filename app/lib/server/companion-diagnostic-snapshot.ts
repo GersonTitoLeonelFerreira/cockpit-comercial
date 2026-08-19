@@ -124,6 +124,8 @@ const FACT_FIELDS = `
   id,
   company_id,
   config_version_id,
+  commercial_fact_contract_version,
+  commercial_fact_definition,
   category,
   fact_key,
   fact_value,
