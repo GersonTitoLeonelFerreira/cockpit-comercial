@@ -6,6 +6,7 @@ import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 type CreateLeadBody = {
   name?: unknown
   phone?: unknown
+  email?: unknown
   cpf_cnpj?: unknown
 }
 
@@ -14,6 +15,7 @@ type LeadRow = {
   company_id: string
   name: string | null
   phone: string | null
+  email: string | null
   cpf_cnpj: string | null
   deleted_at: string | null
 }
@@ -78,6 +80,22 @@ function cleanText(value: unknown) {
     .trim()
 
   return text || null
+}
+
+function normalizeEmail(value: unknown) {
+  const email = cleanText(value)
+    ?.toLowerCase() ?? null
+
+  return email
+}
+
+function isValidEmail(value: string) {
+  return (
+    value.length <= 254 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      value,
+    )
+  )
 }
 
 function hasRepeatedDigits(value: string) {
@@ -410,6 +428,7 @@ export async function POST(request: Request) {
 
     const name = cleanText(body.name)
     const phone = onlyDigits(body.phone)
+    const email = normalizeEmail(body.email)
     const document = normalizeDocumentInput(body.cpf_cnpj)
     const phoneVariants = buildPhoneVariants(phone)
     const canonicalPhone =
@@ -450,6 +469,18 @@ export async function POST(request: Request) {
           ok: false,
           code: 'invalid_document',
           error: 'Informe um CPF ou CNPJ válido.',
+        },
+        400,
+      )
+    }
+
+    if (email && !isValidEmail(email)) {
+      return jsonResponse(
+        request,
+        {
+          ok: false,
+          code: 'invalid_email',
+          error: 'Informe um e-mail válido.',
         },
         400,
       )
@@ -533,7 +564,7 @@ export async function POST(request: Request) {
       await admin
         .from('leads')
         .select(
-          'id, company_id, name, phone, cpf_cnpj, deleted_at',
+          'id, company_id, name, phone, email, cpf_cnpj, deleted_at',
         )
         .eq('company_id', tokenPayload.company_id)
         .in('phone_digits', phoneVariants)
@@ -560,6 +591,43 @@ export async function POST(request: Request) {
         ),
     )
 
+    let emailMatchedLeads: LeadRow[] = []
+
+    if (email) {
+      const {
+        data: directEmailLeads,
+        error: directEmailError,
+      } = await admin
+        .from('leads')
+        .select(
+          'id, company_id, name, phone, email, cpf_cnpj, deleted_at',
+        )
+        .eq(
+          'company_id',
+          tokenPayload.company_id,
+        )
+        .eq('email_norm', email)
+
+      if (directEmailError) {
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: 'EMAIL_SEARCH_ERROR',
+            error: directEmailError.message,
+          },
+          400,
+        )
+      }
+
+      emailMatchedLeads =
+        dedupeLeads(
+          (
+            directEmailLeads ?? []
+          ) as LeadRow[],
+        )
+    }
+
     let documentMatchedLeads: LeadRow[] = []
 
     if (document) {
@@ -567,7 +635,7 @@ export async function POST(request: Request) {
         await admin
           .from('leads')
           .select(
-            'id, company_id, name, phone, cpf_cnpj, deleted_at',
+            'id, company_id, name, phone, email, cpf_cnpj, deleted_at',
           )
           .eq('company_id', tokenPayload.company_id)
           .eq('cpf_cnpj', document)
@@ -623,7 +691,7 @@ export async function POST(request: Request) {
           await admin
             .from('leads')
             .select(
-              'id, company_id, name, phone, cpf_cnpj, deleted_at',
+              'id, company_id, name, phone, email, cpf_cnpj, deleted_at',
             )
             .eq('company_id', tokenPayload.company_id)
             .in('id', profileLeadIds)
@@ -652,6 +720,7 @@ export async function POST(request: Request) {
 
     const matchedLeads = dedupeLeads([
       ...phoneMatchedLeads,
+      ...emailMatchedLeads,
       ...documentMatchedLeads,
     ])
 
@@ -662,7 +731,7 @@ export async function POST(request: Request) {
           ok: false,
           code: 'multiple_lead_matches',
           error:
-            'Telefone e CPF/CNPJ apontam para cadastros diferentes. Resolva o vínculo dentro da Yolen antes de criar.',
+            'Telefone, e-mail ou CPF/CNPJ apontam para cadastros diferentes. Resolva o vínculo dentro da Yolen antes de criar.',
         },
         409,
       )
@@ -677,6 +746,13 @@ export async function POST(request: Request) {
           )
         : false
 
+    const matchedByEmail =
+      existingLead
+        ? emailMatchedLeads.some(
+            (lead) => lead.id === existingLead.id,
+          )
+        : false
+
     const matchedByDocument =
       existingLead
         ? documentMatchedLeads.some(
@@ -686,7 +762,8 @@ export async function POST(request: Request) {
 
     if (existingLead && !existingLead.deleted_at) {
       const conflictCode =
-        matchedByPhone
+        matchedByPhone ||
+        matchedByEmail
           ? 'active_lead_conflict'
           : 'document_lead_conflict'
 
@@ -698,18 +775,34 @@ export async function POST(request: Request) {
           error:
             matchedByPhone
               ? 'Este contato já existe na Yolen. A criação foi bloqueada para evitar duplicidade.'
-              : 'Já existe um lead ativo com este CPF/CNPJ na empresa. A criação foi bloqueada para evitar duplicidade.',
+              : matchedByEmail
+                ? 'Já existe um lead ativo com este e-mail na empresa. A criação foi bloqueada para evitar duplicidade.'
+                : 'Já existe um lead ativo com este CPF/CNPJ na empresa. A criação foi bloqueada para evitar duplicidade.',
           conflict: {
             lead_id: existingLead.id,
             name: existingLead.name,
             phone: existingLead.phone,
+            email: existingLead.email,
             cpf_cnpj: existingLead.cpf_cnpj,
             matched_by:
-              matchedByPhone && matchedByDocument
-                ? 'phone_and_document'
-                : matchedByPhone
-                  ? 'phone'
-                  : 'document',
+              matchedByPhone &&
+              matchedByEmail &&
+              matchedByDocument
+                ? 'phone_email_and_document'
+                : matchedByPhone &&
+                    matchedByEmail
+                  ? 'phone_and_email'
+                  : matchedByPhone &&
+                      matchedByDocument
+                    ? 'phone_and_document'
+                    : matchedByEmail &&
+                        matchedByDocument
+                      ? 'email_and_document'
+                      : matchedByPhone
+                        ? 'phone'
+                        : matchedByEmail
+                          ? 'email'
+                          : 'document',
           },
         },
         409,
@@ -724,8 +817,8 @@ export async function POST(request: Request) {
           code: 'deleted_lead_conflict',
           error:
             membership.role === 'admin'
-              ? 'Existe um lead excluído com este telefone ou CPF/CNPJ. Use o fluxo administrativo de reativação.'
-              : 'Existe um lead excluído com este telefone ou CPF/CNPJ. Solicite a reativação ao administrador.',
+              ? 'Existe um lead excluído com este telefone, e-mail ou CPF/CNPJ. Use o fluxo administrativo de reativação.'
+              : 'Existe um lead excluído com este telefone, e-mail ou CPF/CNPJ. Solicite a reativação ao administrador.',
           conflict: {
             lead_id: existingLead.id,
             name: existingLead.name,
@@ -749,6 +842,7 @@ export async function POST(request: Request) {
           company_id: tokenPayload.company_id,
           name,
           phone,
+          email,
           cpf_cnpj: document,
           status: 'novo',
           created_by: tokenPayload.sub,
@@ -757,7 +851,7 @@ export async function POST(request: Request) {
           external_key: externalKey,
         })
         .select(
-          'id, company_id, name, phone, cpf_cnpj, deleted_at',
+          'id, company_id, name, phone, email, cpf_cnpj, deleted_at',
         )
 
     if (createLeadError) {
@@ -818,6 +912,10 @@ export async function POST(request: Request) {
 
     if (document?.length === 14) {
       leadProfilePayload.cnpj = document
+    }
+
+    if (email) {
+      leadProfilePayload.email = email
     }
 
     const { error: profileInsertError } =

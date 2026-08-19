@@ -4,6 +4,15 @@ import test from 'node:test'
 
 import leadEnrichment from '../src/lead-enrichment.js'
 
+const contentScript =
+  readFileSync(
+    new URL(
+      '../src/content-script.js',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 const {
   CONTRACT_VERSION,
   extractLeadEnrichmentCandidates,
@@ -382,4 +391,172 @@ test('B2 não inventa profissão por linguagem ambígua', () => {
     ])
 
   assert.deepEqual(candidates, [])
+})
+
+test('B2 integra candidatos reais no painel sem escrita cadastral', () => {
+  const integrationStart =
+    contentScript.indexOf(
+      'function getLeadEnrichmentCandidates()',
+    )
+
+  const integrationEnd =
+    contentScript.indexOf(
+      'function getCompactConnectionLabel()',
+      integrationStart,
+    )
+
+  assert.notEqual(
+    integrationStart,
+    -1,
+  )
+
+  assert.notEqual(
+    integrationEnd,
+    -1,
+  )
+
+  const integrationBlock =
+    contentScript.slice(
+      integrationStart,
+      integrationEnd,
+    )
+
+  assert.match(
+    contentScript,
+    /YolenCompanionLeadEnrichment/,
+  )
+
+  assert.match(
+    integrationBlock,
+    /getStructuredMessagesForEnrichment\(\)/,
+  )
+
+  assert.doesNotMatch(
+    integrationBlock,
+    /getStructuredMessagesForAnalysis\(\)/,
+  )
+
+  assert.match(
+    integrationBlock,
+    /extractLeadEnrichmentCandidates/,
+  )
+
+  assert.match(
+    integrationBlock,
+    /OWNED_BY_ME/,
+  )
+
+  assert.match(
+    integrationBlock,
+    /Nada será salvo no cadastro nesta etapa\./,
+  )
+
+  assert.doesNotMatch(
+    integrationBlock,
+    /data-yolen-action/,
+  )
+
+  assert.doesNotMatch(
+    integrationBlock,
+    /YolenCompanionApi/,
+  )
+
+  assert.match(
+    contentScript,
+    /getLeadEnrichmentCandidatesHtml\(\),[\s\S]*getAnalysisCardHtml\(\)/,
+  )
+})
+
+
+test('B2 usa candidatos no novo cadastro e remove dados já iguais no lead existente', () => {
+  assert.match(
+    contentScript,
+    /resolution\?\.status ===\s*'NOT_FOUND'/,
+  )
+
+  assert.match(
+    contentScript,
+    /comparison:\s*'new_lead'/,
+  )
+
+  assert.match(
+    contentScript,
+    /getCurrentLeadEnrichmentValue/,
+  )
+
+  assert.match(
+    contentScript,
+    /areSameLeadEnrichmentValue/,
+  )
+
+  assert.match(
+    contentScript,
+    /current_value/,
+  )
+
+  assert.match(
+    contentScript,
+    /YolenCompanionLeadEnrichmentContext/,
+  )
+
+  assert.match(
+    contentScript,
+    /state\.leadResolution\?\.status ===[\s\S]*'NOT_FOUND'[\s\S]*return ''/,
+  )
+})
+
+
+test('B2 enriquecimento usa ledger completo e não a janela comercial', () => {
+  assert.match(
+    contentScript,
+    /function getStructuredMessagesForEnrichment/,
+  )
+
+  assert.match(
+    contentScript,
+    /getSortedLedgerMessages\(\)[\s\S]*MAX_MESSAGE_LEDGER_SIZE/,
+  )
+
+  const start =
+    contentScript.indexOf(
+      'function getLeadEnrichmentCandidates()',
+    )
+
+  const end =
+    contentScript.indexOf(
+      'function getLeadEnrichmentFieldLabel',
+      start,
+    )
+
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+
+  const block =
+    contentScript.slice(
+      start,
+      end,
+    )
+
+  assert.match(
+    block,
+    /getStructuredMessagesForEnrichment\(\)/,
+  )
+
+  assert.doesNotMatch(
+    block,
+    /getStructuredMessagesForAnalysis\(\)/,
+  )
+})
+
+
+test('B2 não mantém diagnóstico temporário no painel', () => {
+  assert.doesNotMatch(
+    contentScript,
+    /DIAGNÓSTICO B2 TEMPORÁRIO/,
+  )
+
+  assert.doesNotMatch(
+    contentScript,
+    /getLeadEnrichmentDebugHtml/,
+  )
 })

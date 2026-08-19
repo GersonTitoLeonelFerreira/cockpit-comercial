@@ -32,6 +32,14 @@ const createLeadRoute = readFileSync(
   'utf8',
 )
 
+const resolveLeadRoute = readFileSync(
+  new URL(
+    '../../../api/companion/resolve-lead/route.ts',
+    import.meta.url,
+  ),
+  'utf8',
+)
+
 test('B1 carrega automação de lead sem substituir o content-script principal', () => {
   const whatsappContentScript = manifest.content_scripts.find((entry) =>
     entry.matches?.includes('https://web.whatsapp.com/*'),
@@ -131,5 +139,113 @@ test('B2 valida, protege duplicidade e persiste documento por empresa', () => {
   assert.match(
     createLeadRoute,
     /\.eq\('company_id', tokenPayload\.company_id\)/,
+  )
+})
+
+
+test('B2 preenche cadastro inicial com dados da conversa e protege duplicidade', () => {
+  assert.match(
+    leadAutomation,
+    /YolenCompanionLeadEnrichmentContext/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /name="yolen-lead-email"/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /suggestedEmail/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /suggestedDocument/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /email:\s*email \|\| null/,
+  )
+
+  assert.match(
+    createLeadRoute,
+    /email\?: unknown/,
+  )
+
+  assert.match(
+    createLeadRoute,
+    /isValidEmail/,
+  )
+
+  assert.match(
+    createLeadRoute,
+    /email_norm/,
+  )
+
+  assert.match(
+    createLeadRoute,
+    /leadProfilePayload\.email = email/,
+  )
+})
+
+test('B2 resolve cadastro atual para comparação sem expor perfil de outra carteira', () => {
+  assert.match(
+    resolveLeadRoute,
+    /type LeadProfileRow/,
+  )
+
+  assert.match(
+    resolveLeadRoute,
+    /lead_profile:/,
+  )
+
+  assert.match(
+    resolveLeadRoute,
+    /status === 'OWNED_BY_ME'/,
+  )
+
+  assert.match(
+    resolveLeadRoute,
+    /canReadLeadProfile/,
+  )
+
+  assert.match(
+    resolveLeadRoute,
+    /LEAD_PROFILE_SEARCH_ERROR/,
+  )
+})
+
+
+test('B2 atualiza formulário já montado quando enriquecimento termina depois', () => {
+  assert.match(
+    leadAutomation,
+    /function syncLeadCreationFormSuggestions/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /context\.suggestedEmail/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /context\.suggestedDocument/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /!cleanText\(emailInput\.value\)/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /syncLeadCreationFormSuggestions\([\s\S]*existingForm[\s\S]*context/,
+  )
+
+  assert.match(
+    leadAutomation,
+    /Dados encontrados na conversa já preenchidos/,
   )
 })

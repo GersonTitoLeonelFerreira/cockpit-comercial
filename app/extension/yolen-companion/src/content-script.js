@@ -26,6 +26,10 @@
     globalThis
       .YolenCompanionCaptureBatch
 
+  const leadEnrichmentTools =
+    globalThis
+      .YolenCompanionLeadEnrichment
+
   if (!messageMutationTools) {
     throw new Error(
       'Módulo de integridade das mensagens do Companion não carregado.',
@@ -1867,6 +1871,40 @@
       },
     )
 
+  }
+
+  function getStructuredMessagesForEnrichment(
+    transcriptionMap = null,
+  ) {
+    return getSortedLedgerMessages()
+      .slice(
+        -MAX_MESSAGE_LEDGER_SIZE,
+      )
+      .map((message) => {
+        return {
+          id: message.id,
+          timestamp_ms:
+            message.timestampMs,
+          timestamp_label:
+            message.timestampLabel,
+          date_key: message.dateKey,
+          direction:
+            message.direction,
+          sender: message.sender,
+          text:
+            messageMutationTools
+              .prepareCapturedMessageTextForAnalysis(
+                message.text,
+              ),
+          has_audio:
+            message.hasAudio,
+          audio_transcription:
+            getMessageTranscription(
+              message.id,
+              transcriptionMap,
+            ),
+        }
+      })
   }
 
   function clearCaptureIngestionTimer() {
@@ -5747,6 +5785,401 @@
     `
   }
 
+  function getLeadEnrichmentAddressValue(
+    profile,
+  ) {
+    const parts = [
+      profile?.address_street,
+      profile?.address_number,
+      profile?.address_complement,
+      profile?.address_neighborhood,
+      profile?.address_city,
+      profile?.address_state,
+    ]
+      .map((value) =>
+        String(value || '').trim(),
+      )
+      .filter(Boolean)
+
+    return parts.length > 0
+      ? parts.join(', ')
+      : null
+  }
+
+  function getCurrentLeadEnrichmentValue(
+    field,
+    resolution,
+  ) {
+    const lead =
+      resolution?.lead || {}
+
+    const profile =
+      resolution?.lead_profile || {}
+
+    if (field === 'email') {
+      return (
+        lead.email ||
+        profile.email ||
+        null
+      )
+    }
+
+    if (field === 'cpf') {
+      return (
+        profile.cpf ||
+        (
+          onlyDigits(
+            lead.cpf_cnpj,
+          ).length === 11
+            ? onlyDigits(
+                lead.cpf_cnpj,
+              )
+            : null
+        )
+      )
+    }
+
+    if (field === 'cnpj') {
+      return (
+        profile.cnpj ||
+        (
+          onlyDigits(
+            lead.cpf_cnpj,
+          ).length === 14
+            ? onlyDigits(
+                lead.cpf_cnpj,
+              )
+            : null
+        )
+      )
+    }
+
+    if (field === 'birth_date') {
+      return profile.birth_date || null
+    }
+
+    if (field === 'profession') {
+      return profile.profession || null
+    }
+
+    if (field === 'cep') {
+      return profile.cep || null
+    }
+
+    if (field === 'address_raw') {
+      return getLeadEnrichmentAddressValue(
+        profile,
+      )
+    }
+
+    if (field === 'phone_mobile') {
+      return profile.phone_mobile || null
+    }
+
+    return null
+  }
+
+  function normalizeLeadEnrichmentComparisonValue(
+    value,
+  ) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('pt-BR')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  function areSameLeadEnrichmentValue(
+    field,
+    currentValue,
+    candidateValue,
+  ) {
+    if (
+      !currentValue ||
+      !candidateValue
+    ) {
+      return false
+    }
+
+    if (
+      field === 'cpf' ||
+      field === 'cnpj' ||
+      field === 'cep'
+    ) {
+      return (
+        onlyDigits(currentValue) ===
+        onlyDigits(candidateValue)
+      )
+    }
+
+    if (
+      field === 'phone_mobile' &&
+      typeof leadEnrichmentTools
+        ?.areEquivalentPhones ===
+        'function'
+    ) {
+      return leadEnrichmentTools
+        .areEquivalentPhones(
+          currentValue,
+          candidateValue,
+        )
+    }
+
+    const currentNormalized =
+      normalizeLeadEnrichmentComparisonValue(
+        currentValue,
+      )
+
+    const candidateNormalized =
+      normalizeLeadEnrichmentComparisonValue(
+        candidateValue,
+      )
+
+    if (
+      !currentNormalized ||
+      !candidateNormalized
+    ) {
+      return false
+    }
+
+    if (field === 'address_raw') {
+      return (
+        currentNormalized ===
+          candidateNormalized ||
+        currentNormalized.includes(
+          candidateNormalized,
+        ) ||
+        candidateNormalized.includes(
+          currentNormalized,
+        )
+      )
+    }
+
+    return (
+      currentNormalized ===
+      candidateNormalized
+    )
+  }
+
+  function getLeadEnrichmentCandidates() {
+    const resolution =
+      state.leadResolution
+
+    const isNewLead =
+      resolution?.status ===
+      'NOT_FOUND'
+
+    const isOwnedLead =
+      resolution?.status ===
+        'OWNED_BY_ME' &&
+      resolution?.lead?.id &&
+      resolution?.cycle?.id
+
+    if (
+      !leadEnrichmentTools ||
+      typeof leadEnrichmentTools
+        .extractLeadEnrichmentCandidates !==
+        'function' ||
+      typeof leadEnrichmentTools
+        .isLeadEnrichmentCandidate !==
+        'function' ||
+      (
+        !isNewLead &&
+        !isOwnedLead
+      )
+    ) {
+      return []
+    }
+
+    const messages =
+      getStructuredMessagesForEnrichment()
+
+    const candidates =
+      leadEnrichmentTools
+        .extractLeadEnrichmentCandidates(
+          messages,
+          {
+            currentPhone:
+              resolution?.lead?.phone ||
+              state.conversationPhone ||
+              null,
+          },
+        )
+        .filter(
+          (candidate) =>
+            leadEnrichmentTools
+              .isLeadEnrichmentCandidate(
+                candidate,
+              ),
+        )
+
+    if (isNewLead) {
+      return candidates.map(
+        (candidate) => ({
+          ...candidate,
+          current_value: null,
+          comparison: 'new_lead',
+        }),
+      )
+    }
+
+    return candidates.flatMap(
+      (candidate) => {
+        const currentValue =
+          getCurrentLeadEnrichmentValue(
+            candidate.field,
+            resolution,
+          )
+
+        if (
+          currentValue &&
+          areSameLeadEnrichmentValue(
+            candidate.field,
+            currentValue,
+            candidate.normalized_value,
+          )
+        ) {
+          return []
+        }
+
+        return [{
+          ...candidate,
+          current_value:
+            currentValue || null,
+          comparison:
+            currentValue
+              ? 'different'
+              : 'missing',
+        }]
+      },
+    )
+  }
+
+  function getLeadEnrichmentFieldLabel(
+    field,
+  ) {
+    const labels = {
+      email: 'E-mail',
+      cpf: 'CPF',
+      cnpj: 'CNPJ',
+      birth_date: 'Data de nascimento',
+      profession: 'Profissão',
+      cep: 'CEP',
+      address_raw: 'Endereço',
+      phone_mobile:
+        'Telefone adicional',
+    }
+
+    return (
+      labels[field] ||
+      'Dado cadastral'
+    )
+  }
+
+  function getLeadEnrichmentCandidatesHtml() {
+    if (
+      state.leadResolution?.status ===
+      'NOT_FOUND'
+    ) {
+      return ''
+    }
+
+    const candidates =
+      getLeadEnrichmentCandidates()
+
+    if (candidates.length === 0) {
+      return ''
+    }
+
+    const items =
+      candidates
+        .map((candidate) => {
+          const evidenceCount =
+            candidate
+              .evidence_message_ids
+              .length
+
+          const evidenceLabel =
+            evidenceCount === 1
+              ? '1 mensagem de evidência'
+              : `${evidenceCount} mensagens de evidência`
+
+          const confidenceLabel =
+            candidate.confidence ===
+            'high'
+              ? 'Alta confiança'
+              : 'Média confiança'
+
+          const comparisonLabel =
+            candidate.current_value
+              ? (
+                  'Atual: ' +
+                  candidate.current_value
+                )
+              : 'Ainda não consta no cadastro'
+
+          return [
+            '<div class="yolen-decision-list-item">',
+              '<div class="yolen-decision-kicker">',
+                escapeHtml(
+                  getLeadEnrichmentFieldLabel(
+                    candidate.field,
+                  ),
+                ),
+              '</div>',
+              '<div class="yolen-decision-copy">',
+                escapeHtml(
+                  candidate.value,
+                ),
+              '</div>',
+              '<div class="yolen-card-description">',
+                escapeHtml(
+                  confidenceLabel +
+                  ' · ' +
+                  evidenceLabel +
+                  ' · ' +
+                  comparisonLabel,
+                ),
+              '</div>',
+            '</div>',
+          ].join('')
+        })
+        .join('')
+
+    return [
+      '<div class="yolen-card yolen-lead-enrichment-card">',
+        '<div class="yolen-section-label">',
+          'Cadastro',
+        '</div>',
+
+        '<div class="yolen-card-title">',
+          'Dados encontrados na conversa',
+        '</div>',
+
+        '<div class="yolen-card-description">',
+          'A Yolen identificou informações que podem complementar o cadastro deste lead.',
+        '</div>',
+
+        '<div class="yolen-decision-list">',
+          items,
+        '</div>',
+
+        '<div class="yolen-operational-note">',
+          'Nada será salvo no cadastro nesta etapa.',
+        '</div>',
+      '</div>',
+    ].join('')
+  }
+
+  globalThis
+    .YolenCompanionLeadEnrichmentContext =
+      Object.freeze({
+        getCandidates: () =>
+          getLeadEnrichmentCandidates(),
+      })
+
   function getCompactConnectionLabel() {
     if (state.loading) {
       return 'Conectando'
@@ -6204,6 +6637,8 @@
         '</div>',
 
       '</div>',
+
+      getLeadEnrichmentCandidatesHtml(),
 
       getAnalysisCardHtml(),
 
