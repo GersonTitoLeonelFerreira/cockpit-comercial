@@ -16,7 +16,7 @@ test(
 
     assert.equal(
       COMMERCIAL_PRODUCT_PROMPT_RULES_VERSION,
-      'commercial-product-prompt-rules-v1',
+      'commercial-product-prompt-rules-v2',
     )
 
     assert.match(
@@ -280,6 +280,99 @@ test(
     assert.match(
       rules,
       /Não force avanço, pergunta, mensagem, CRM ou Agenda/,
+    )
+  },
+)
+
+test(
+  'produto V3 seleciona variante somente por evidência compatibilidade preço e estoque válidos',
+  () => {
+    const rules =
+      buildCommercialProductPromptRules([
+        {
+          product_id:
+            'product-v3',
+
+          contract_version:
+            'commercial-product-v3',
+
+          definition: {
+            contract_version:
+              'commercial-product-v3',
+
+            product_kind:
+              'complex',
+
+            variants: [],
+          },
+
+          name:
+            'Equipamento Profissional',
+
+          category:
+            'Equipamento',
+
+          base_price:
+            null,
+
+          active:
+            true,
+
+          indicated_audiences: [],
+          needs_addressed: [],
+          benefits: [],
+          verified_differentiators: [],
+          limitations: [],
+          contract_conditions: [],
+          payment_conditions: [],
+          allowed_claims: [],
+          forbidden_claims: [],
+        },
+      ])
+
+    assert.match(
+      rules,
+      /definition\.variants representa as variantes oficiais selecionáveis/,
+    )
+
+    assert.match(
+      rules,
+      /Nunca selecione uma variante apenas porque ela aparece primeiro/,
+    )
+
+    assert.match(
+      rules,
+      /variant\.compatibility\.incompatible_with é conflito real/,
+    )
+
+    assert.match(
+      rules,
+      /variant\.specifications contém fatos técnicos configurados/,
+    )
+
+    assert.match(
+      rules,
+      /variant\.pricing é a fonte semântica de preço daquela variante/,
+    )
+
+    assert.match(
+      rules,
+      /Uma variante disponível não se torna adequada apenas por estar em estoque/,
+    )
+
+    assert.match(
+      rules,
+      /product_stock_information_stale/,
+    )
+
+    assert.match(
+      rules,
+      /não escolha arbitrariamente/,
+    )
+
+    assert.match(
+      rules,
+      /nenhuma variante configurada atende/,
     )
   },
 )

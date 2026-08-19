@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v11',
+      'phase-5-prompt-v12',
     )
 
     assert.equal(
@@ -406,7 +406,7 @@ test(
 )
 
 test(
-  'prompt v11 interpreta método V2 sem checklist e aceita espera',
+  'prompt v12 interpreta método V2 sem checklist e aceita espera',
   () => {
     const input =
       buildInput()
@@ -535,11 +535,33 @@ test(
 
 
 test(
-  'prompt v11 aplica guardrails compartilhados de produto',
+  'prompt v12 aplica guardrails compartilhados de produto e variante V3',
   () => {
+    const input =
+      buildInput()
+
+    input
+      .commercial_context
+      .products[0]
+      .contract_version =
+        'commercial-product-v3'
+
+    input
+      .commercial_context
+      .products[0]
+      .definition = {
+        contract_version:
+          'commercial-product-v3',
+
+        product_kind:
+          'complex',
+
+        variants: [],
+      }
+
     const plan =
       buildCompanionDiagnosticExecutionPlan(
-        buildInput(),
+        input,
       )
 
     assert.equal(
@@ -564,7 +586,22 @@ test(
 
     assert.match(
       plan.request.system_prompt,
-      /Não force uma recomendação/,
+      /Nunca selecione uma variante apenas porque ela aparece primeiro/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /variant\.pricing é a fonte semântica de preço daquela variante/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /product_stock_information_stale/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não escolha arbitrariamente/,
     )
   },
 )

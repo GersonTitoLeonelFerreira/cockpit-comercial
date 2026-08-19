@@ -17,7 +17,7 @@ import {
 } from './commercial-product-prompt-rules'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v11' as const
+  'phase-5-prompt-v12' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:

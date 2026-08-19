@@ -1260,7 +1260,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v14 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v15 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1277,7 +1277,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v14',
+      'phase-5.2-stateful-prompt-v15',
     )
 
     assert.match(
@@ -1354,14 +1354,38 @@ test(
 
 
 test(
-  'prompt stateful v14 aplica os mesmos guardrails de produto',
+  'prompt stateful v15 aplica os mesmos guardrails de produto e variante V3',
   () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .products[0]
+      .contract_version =
+        'commercial-product-v3'
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .products[0]
+      .definition = {
+        contract_version:
+          'commercial-product-v3',
+
+        product_kind:
+          'complex',
+
+        variants: [],
+      }
+
     const plan =
       buildStatefulCopilotExecutionPlan(
-        buildInput({
-          continuation:
-            true,
-        }),
+        input,
       )
 
     assert.equal(
@@ -1386,13 +1410,33 @@ test(
 
     assert.match(
       plan.request.system_prompt,
-      /Não force uma recomendação/,
+      /Nunca selecione uma variante apenas porque ela aparece primeiro/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /variant\.compatibility\.incompatible_with é conflito real/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /variant\.pricing é a fonte semântica de preço daquela variante/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /product_stock_information_stale/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não escolha arbitrariamente/,
     )
   },
 )
 
 test(
-  'prompt stateful v14 interpreta suficiência e espera do método V2',
+  'prompt stateful v15 interpreta suficiência e espera do método V2',
   () => {
     const input =
       buildInput({
