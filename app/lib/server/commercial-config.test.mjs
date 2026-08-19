@@ -171,6 +171,68 @@ function buildProductDefinition() {
   }
 }
 
+
+function buildFactDefinition() {
+  return {
+    contract_version:
+      'commercial-fact-v2',
+
+    fact_kind:
+      'official',
+
+    category:
+      'empresa',
+
+    fact_key:
+      'horario_atendimento',
+
+    fact_value:
+      'Atendimento comercial de segunda a sexta-feira, das 8h às 18h.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+
+      reference_key:
+        null,
+    },
+
+    conditions: [],
+
+    limitations: [
+      'Não inclui feriados.',
+    ],
+
+    validity: {
+      mode:
+        'ongoing',
+
+      valid_from:
+        '2026-08-01T00:00:00.000Z',
+
+      valid_until:
+        null,
+    },
+
+    source: {
+      type:
+        'internal_policy',
+
+      reference:
+        'Política oficial de atendimento comercial.',
+
+      verified_at:
+        '2026-08-18T12:00:00.000Z',
+    },
+  }
+}
+
 function buildComplexProductDefinition() {
   return {
     contract_version:
@@ -484,7 +546,30 @@ function buildDraft() {
       },
     ],
 
-    facts: [],
+    facts: [
+      {
+        commercial_fact_contract_version:
+          'commercial-fact-v2',
+
+        commercial_fact_definition:
+          buildFactDefinition(),
+
+        category:
+          'empresa',
+
+        fact_key:
+          'horario_atendimento',
+
+        fact_value:
+          'Atendimento comercial de segunda a sexta-feira, das 8h às 18h.',
+
+        source_note:
+          'Política oficial de atendimento comercial.',
+
+        is_active:
+          true,
+      },
+    ],
 
     objection_guides: [],
   }
@@ -529,7 +614,7 @@ function createRpcClient() {
 }
 
 test(
-  'salvamento administrativo usa RPC V4 e preserva método e produto V2',
+  'salvamento administrativo usa RPC V5 e preserva método produto e fato V2',
   async () => {
     const {
       client,
@@ -549,7 +634,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_save_company_commercial_config_draft_v4',
+      'rpc_save_company_commercial_config_draft_v5',
     )
 
     assert.equal(
@@ -597,11 +682,41 @@ test(
         .recurrence,
       'monthly',
     )
+
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .facts[0]
+        .commercial_fact_definition
+        .contract_version,
+      'commercial-fact-v2',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .facts[0]
+        .commercial_fact_definition
+        .scope
+        .type,
+      'company',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .facts[0]
+        .commercial_fact_definition
+        .source
+        .type,
+      'internal_policy',
+    )
   },
 )
 
 test(
-  'salvamento administrativo usa RPC V4 e preserva produto complexo V3',
+  'salvamento administrativo usa RPC V5 e preserva produto complexo V3',
   async () => {
     const {
       client,
@@ -621,7 +736,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_save_company_commercial_config_draft_v4',
+      'rpc_save_company_commercial_config_draft_v5',
     )
 
     const definition =
@@ -662,7 +777,7 @@ test(
 )
 
 test(
-  'clonagem administrativa usa RPC V4 para preservar método e produto V2',
+  'clonagem administrativa usa RPC V5 para preservar método produto e fatos',
   async () => {
     const {
       client,
@@ -682,7 +797,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_clone_company_commercial_config_v4',
+      'rpc_clone_company_commercial_config_v5',
     )
 
     assert.deepEqual(

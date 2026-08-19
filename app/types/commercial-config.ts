@@ -15,6 +15,10 @@ import type {
   CommercialComplexProductDefinition,
 } from '@/app/lib/companion/commercial-product-complex-contract'
 
+import type {
+  CommercialFactDefinition,
+} from '@/app/lib/companion/commercial-fact-contract'
+
 export const COMMERCIAL_CONFIG_CONTRACT_VERSION =
   'phase-2-v1' as const
 
@@ -33,6 +37,10 @@ export type CommercialProductPersistenceContractVersion =
 export type CommercialProductDefinition =
   | CommercialSimpleProductDefinition
   | CommercialComplexProductDefinition
+
+export type CommercialFactPersistenceContractVersion =
+  | 'commercial-fact-v1'
+  | 'commercial-fact-v2'
 
 export type CommercialConfigStatus =
   | 'draft'
@@ -125,6 +133,12 @@ export interface CommercialFact {
   company_id: string
   config_version_id: string
 
+  commercial_fact_contract_version:
+    CommercialFactPersistenceContractVersion
+
+  commercial_fact_definition:
+    CommercialFactDefinition | null
+
   category: string
   fact_key: string
   fact_value: string
@@ -201,6 +215,12 @@ export interface CommercialProductProfileDraft {
 
 export interface CommercialFactDraft {
   id?: string
+
+  commercial_fact_contract_version?:
+    CommercialFactPersistenceContractVersion
+
+  commercial_fact_definition?:
+    CommercialFactDefinition | null
 
   category: string
   fact_key: string

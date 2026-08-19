@@ -81,6 +81,8 @@ const FACT_FIELDS = `
   id,
   company_id,
   config_version_id,
+  commercial_fact_contract_version,
+  commercial_fact_definition,
   category,
   fact_key,
   fact_value,
@@ -223,6 +225,9 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
     ),
 
     facts: input.facts.map((fact) => ({
+      commercial_fact_definition:
+        fact.commercial_fact_definition ?? null,
+
       category: fact.category,
       fact_key: fact.fact_key,
       fact_value: fact.fact_value,
@@ -407,7 +412,7 @@ export async function saveCommercialConfigDraft(
   input: CommercialConfigDraftInput,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_save_company_commercial_config_draft_v4',
+    'rpc_save_company_commercial_config_draft_v5',
     {
       p_company_id: companyId,
       p_config_version_id:
@@ -434,7 +439,7 @@ export async function cloneCommercialConfigVersion(
   sourceConfigVersionId: string,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_clone_company_commercial_config_v4',
+    'rpc_clone_company_commercial_config_v5',
     {
       p_company_id: companyId,
       p_source_config_version_id:
