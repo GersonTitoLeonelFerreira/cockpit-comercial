@@ -286,6 +286,15 @@ function buildDiagnosticInput({
 
       facts: [
         {
+          contract_version:
+            'commercial-fact-v1',
+
+          definition:
+            null,
+
+          validity_status:
+            'legacy',
+
           category:
             'commercial_policy',
 
@@ -1260,7 +1269,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v15 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v16 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1277,7 +1286,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v15',
+      'phase-5.2-stateful-prompt-v16',
     )
 
     assert.match(
@@ -1354,7 +1363,147 @@ test(
 
 
 test(
-  'prompt stateful v15 aplica os mesmos guardrails de produto e variante V3',
+  'prompt stateful v16 aplica os mesmos guardrails de fatos oficiais V2',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .facts = [
+        {
+          contract_version:
+            'commercial-fact-v2',
+
+          definition: {
+            contract_version:
+              'commercial-fact-v2',
+
+            fact_kind:
+              'official',
+
+            category:
+              'operation',
+
+            fact_key:
+              'service_window',
+
+            fact_value:
+              'Atendimento disponível até 18h.',
+
+            scope: {
+              type:
+                'operation',
+
+              product_id:
+                null,
+
+              variant_key:
+                null,
+
+              reference_key:
+                'commercial_service',
+            },
+
+            conditions: [],
+
+            limitations: [
+              'Não inclui feriados.',
+            ],
+
+            validity: {
+              mode:
+                'bounded',
+
+              valid_from:
+                '2026-08-01T00:00:00.000Z',
+
+              valid_until:
+                '2026-08-05T20:00:00.000Z',
+            },
+
+            source: {
+              type:
+                'system_record',
+
+              reference:
+                'Registro operacional publicado.',
+
+              verified_at:
+                '2026-08-05T19:00:00.000Z',
+            },
+          },
+
+          validity_status:
+            'expired',
+
+          category:
+            'operation',
+
+          fact_key:
+            'service_window',
+
+          fact_value:
+            'Atendimento disponível até 18h.',
+
+          source_note:
+            'Registro operacional.',
+        },
+      ]
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=current significa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=not_yet_valid não pode sustentar uma afirmação sobre o estado atual/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=expired não pode sustentar uma afirmação sobre o estado atual/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.scope\.type=product_variant aplica o fato somente à combinação exata/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.conditions limita quando o fato pode ser aplicado/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.source\.verified_at informa quando a fonte foi verificada/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não é evidência de mensagem/,
+    )
+  },
+)
+
+test(
+  'prompt stateful v16 aplica os mesmos guardrails de produto e variante V3',
   () => {
     const input =
       buildInput({
@@ -1436,7 +1585,7 @@ test(
 )
 
 test(
-  'prompt stateful v15 interpreta suficiência e espera do método V2',
+  'prompt stateful v16 interpreta suficiência e espera do método V2',
   () => {
     const input =
       buildInput({

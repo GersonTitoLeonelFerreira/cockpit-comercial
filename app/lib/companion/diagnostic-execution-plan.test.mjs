@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v12',
+      'phase-5-prompt-v13',
     )
 
     assert.equal(
@@ -406,7 +406,7 @@ test(
 )
 
 test(
-  'prompt v12 interpreta método V2 sem checklist e aceita espera',
+  'prompt v13 interpreta método V2 sem checklist e aceita espera',
   () => {
     const input =
       buildInput()
@@ -535,7 +535,7 @@ test(
 
 
 test(
-  'prompt v12 aplica guardrails compartilhados de produto e variante V3',
+  'prompt v13 aplica guardrails compartilhados de produto e variante V3',
   () => {
     const input =
       buildInput()
@@ -602,6 +602,144 @@ test(
     assert.match(
       plan.request.system_prompt,
       /não escolha arbitrariamente/,
+    )
+  },
+)
+
+test(
+  'prompt v13 aplica guardrails compartilhados de fatos oficiais V2',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .commercial_context
+      .facts = [
+        {
+          contract_version:
+            'commercial-fact-v2',
+
+          definition: {
+            contract_version:
+              'commercial-fact-v2',
+
+            fact_kind:
+              'official',
+
+            category:
+              'commercial_policy',
+
+            fact_key:
+              'discount_policy',
+
+            fact_value:
+              'Descontos exigem aprovação comercial.',
+
+            scope: {
+              type:
+                'commercial_policy',
+
+              product_id:
+                null,
+
+              variant_key:
+                null,
+
+              reference_key:
+                'discount_policy',
+            },
+
+            conditions: [
+              'Existe negociação comercial ativa.',
+            ],
+
+            limitations: [
+              'Não autoriza desconto automático.',
+            ],
+
+            validity: {
+              mode:
+                'bounded',
+
+              valid_from:
+                '2026-08-01T00:00:00.000Z',
+
+              valid_until:
+                '2026-08-31T23:59:59.000Z',
+            },
+
+            source: {
+              type:
+                'internal_policy',
+
+              reference:
+                'Política comercial de agosto de 2026.',
+
+              verified_at:
+                '2026-08-04T12:00:00.000Z',
+            },
+          },
+
+          validity_status:
+            'current',
+
+          category:
+            'commercial_policy',
+
+          fact_key:
+            'discount_policy',
+
+          fact_value:
+            'Descontos exigem aprovação comercial.',
+
+          source_note:
+            'Política comercial publicada.',
+        },
+      ]
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=current significa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=not_yet_valid não pode sustentar uma afirmação sobre o estado atual/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=expired não pode sustentar uma afirmação sobre o estado atual/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.conditions limita quando o fato pode ser aplicado/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.limitations contém qualificadores e restrições vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.source\.verified_at informa quando a fonte foi verificada/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não é evidência de mensagem/,
     )
   },
 )
