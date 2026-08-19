@@ -27,6 +27,23 @@ type LeadRow = {
   deleted_at: string | null
 }
 
+type LeadProfileRow = {
+  lead_id: string
+  email: string | null
+  cpf: string | null
+  cnpj: string | null
+  birth_date: string | null
+  profession: string | null
+  cep: string | null
+  address_street: string | null
+  address_number: string | null
+  address_complement: string | null
+  address_neighborhood: string | null
+  address_city: string | null
+  address_state: string | null
+  phone_mobile: string | null
+}
+
 type SalesCycleRow = {
   id: string
   lead_id: string
@@ -335,6 +352,7 @@ function buildResolutionPayload({
   status,
   userMessage,
   lead,
+  leadProfile,
   cycle,
   owner,
   phone,
@@ -354,6 +372,7 @@ function buildResolutionPayload({
     | 'LEAD_WITHOUT_CYCLE'
   userMessage: string
   lead?: LeadRow | null
+  leadProfile?: LeadProfileRow | null
   cycle?: SalesCycleRow | null
   owner?: ProfileRow | null
   phone: string | null
@@ -363,6 +382,10 @@ function buildResolutionPayload({
 }) {
   const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
   const isOwnedByMe = cycle?.owner_user_id === tokenPayload.sub
+
+  const canReadLeadProfile =
+    status === 'OWNED_BY_ME' ||
+    isAdminOrManager
 
   return {
     ok: true,
@@ -377,9 +400,41 @@ function buildResolutionPayload({
           name: lead.name,
           phone: lead.phone,
           email: lead.email,
+          cpf_cnpj:
+            canReadLeadProfile
+              ? lead.cpf_cnpj
+              : null,
           deleted_at: lead.deleted_at,
         }
       : null,
+    lead_profile:
+      canReadLeadProfile &&
+      leadProfile
+        ? {
+            email: leadProfile.email,
+            cpf: leadProfile.cpf,
+            cnpj: leadProfile.cnpj,
+            birth_date:
+              leadProfile.birth_date,
+            profession:
+              leadProfile.profession,
+            cep: leadProfile.cep,
+            address_street:
+              leadProfile.address_street,
+            address_number:
+              leadProfile.address_number,
+            address_complement:
+              leadProfile.address_complement,
+            address_neighborhood:
+              leadProfile.address_neighborhood,
+            address_city:
+              leadProfile.address_city,
+            address_state:
+              leadProfile.address_state,
+            phone_mobile:
+              leadProfile.phone_mobile,
+          }
+        : null,
     cycle: cycle
       ? {
           id: cycle.id,
@@ -601,6 +656,43 @@ export async function POST(request: Request) {
 
     const lead = activeLeads[0]
 
+    const {
+      data: leadProfileData,
+      error: leadProfileError,
+    } = await admin
+      .from('lead_profiles')
+      .select(
+        'lead_id, email, cpf, cnpj, birth_date, profession, cep, address_street, address_number, address_complement, address_neighborhood, address_city, address_state, phone_mobile',
+      )
+      .eq(
+        'company_id',
+        tokenPayload.company_id,
+      )
+      .eq('lead_id', lead.id)
+      .maybeSingle()
+
+    if (leadProfileError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          status:
+            'LEAD_PROFILE_SEARCH_ERROR',
+          error:
+            leadProfileError.message,
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const leadProfile =
+      (
+        leadProfileData as
+          LeadProfileRow | null
+      ) ?? null
+
     const { data: cycles, error: cyclesError } = await admin
       .from('sales_cycles')
       .select(
@@ -636,6 +728,7 @@ export async function POST(request: Request) {
           userMessage:
             'Lead encontrado, mas sem ciclo comercial ativo. Abra a Yolen para corrigir o vínculo.',
           lead,
+          leadProfile,
           phone: rawPhone,
           phoneVariants,
           displayName,
@@ -670,6 +763,7 @@ export async function POST(request: Request) {
           userMessage:
             'Este lead possui apenas ciclo fechado. Nova oportunidade deve ser criada dentro da Yolen.',
           lead,
+          leadProfile,
           cycle: latestCycle,
           owner,
           phone: rawPhone,
@@ -691,6 +785,7 @@ export async function POST(request: Request) {
           userMessage:
             'Este lead está no Pool. Solicite ao gestor a distribuição para sua carteira.',
           lead,
+          leadProfile,
           cycle: openCycle,
           owner,
           phone: rawPhone,
@@ -711,6 +806,7 @@ export async function POST(request: Request) {
           status: 'OWNED_BY_OTHER',
           userMessage: `Este lead está vinculado à carteira de ${getOwnerName(owner)}.`,
           lead,
+          leadProfile,
           cycle: openCycle,
           owner,
           phone: rawPhone,
@@ -730,6 +826,7 @@ export async function POST(request: Request) {
         status: 'OWNED_BY_ME',
         userMessage: 'Lead encontrado na sua carteira.',
         lead,
+        leadProfile,
         cycle: openCycle,
         owner,
         phone: rawPhone,

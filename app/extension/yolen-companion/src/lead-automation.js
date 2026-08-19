@@ -44,6 +44,41 @@
     const phone = onlyDigits(context?.phone)
     const displayName = cleanText(context?.display_name)
 
+    const candidates =
+      globalThis
+        .YolenCompanionLeadEnrichmentContext
+        ?.getCandidates
+        ?.() || []
+
+    const emailCandidates =
+      candidates.filter(
+        (candidate) =>
+          candidate?.field === 'email',
+      )
+
+    const documentCandidates =
+      candidates.filter(
+        (candidate) =>
+          candidate?.field === 'cpf' ||
+          candidate?.field === 'cnpj',
+      )
+
+    const suggestedEmail =
+      emailCandidates.length === 1
+        ? cleanText(
+            emailCandidates[0]
+              .normalized_value,
+          )
+        : ''
+
+    const suggestedDocument =
+      documentCandidates.length === 1
+        ? onlyDigits(
+            documentCandidates[0]
+              .normalized_value,
+          )
+        : ''
+
     return {
       phone,
       displayName,
@@ -51,6 +86,8 @@
         displayName && !looksLikePhone(displayName)
           ? displayName
           : '',
+      suggestedEmail,
+      suggestedDocument,
     }
   }
 
@@ -86,11 +123,14 @@
 
     const nameInput = form.querySelector('[name="yolen-lead-name"]')
     const phoneInput = form.querySelector('[name="yolen-lead-phone"]')
+    const emailInput = form.querySelector('[name="yolen-lead-email"]')
     const documentInput = form.querySelector('[name="yolen-lead-document"]')
     const submitButton = form.querySelector('button[type="submit"]')
 
     const name = cleanText(nameInput?.value)
     const phone = onlyDigits(phoneInput?.value)
+    const email = cleanText(emailInput?.value)
+      .toLowerCase()
     const document = onlyDigits(documentInput?.value)
     const currentContext = getLookupContext()
 
@@ -135,6 +175,7 @@
         await window.YolenCompanionApi.createLead({
           name,
           phone,
+          email: email || null,
           cpf_cnpj: document || null,
         })
 
@@ -182,11 +223,23 @@
   }
 
   function buildFormHtml(context) {
+    const hasConversationData =
+      Boolean(
+        context.suggestedEmail ||
+        context.suggestedDocument,
+      )
+
     return [
       '<form class="yolen-lead-create-form" data-yolen-lead-create-form>',
         '<div class="yolen-lead-create-heading">',
           '<div class="yolen-lead-create-title">Novo contato</div>',
-          '<div class="yolen-lead-create-subtitle">Nenhum lead encontrado</div>',
+          '<div class="yolen-lead-create-subtitle">' +
+            escapeHtml(
+              hasConversationData
+                ? 'Dados encontrados na conversa já preenchidos'
+                : 'Nenhum lead encontrado',
+            ) +
+          '</div>',
         '</div>',
 
         '<label class="yolen-lead-create-field">',
@@ -212,6 +265,18 @@
         '</label>',
 
         '<label class="yolen-lead-create-field">',
+          '<span>E-mail (opcional)</span>',
+          '<input',
+            ' type="email"',
+            ' name="yolen-lead-email"',
+            ' autocomplete="email"',
+            ' maxlength="254"',
+            ' value="' + escapeHtml(context.suggestedEmail) + '"',
+            ' placeholder="email@exemplo.com"',
+          '>',
+        '</label>',
+
+        '<label class="yolen-lead-create-field">',
           '<span>CPF/CNPJ (opcional)</span>',
           '<input',
             ' type="text"',
@@ -219,6 +284,7 @@
             ' name="yolen-lead-document"',
             ' autocomplete="off"',
             ' maxlength="18"',
+            ' value="' + escapeHtml(context.suggestedDocument) + '"',
             ' placeholder="CPF ou CNPJ"',
           '>',
         '</label>',
@@ -230,6 +296,68 @@
         '</button>',
       '</form>',
     ].join('')
+  }
+
+  function syncLeadCreationFormSuggestions(
+    form,
+    context,
+  ) {
+    if (!form || !context) {
+      return
+    }
+
+    const emailInput =
+      form.querySelector(
+        '[name="yolen-lead-email"]',
+      )
+
+    const documentInput =
+      form.querySelector(
+        '[name="yolen-lead-document"]',
+      )
+
+    const subtitle =
+      form.querySelector(
+        '.yolen-lead-create-subtitle',
+      )
+
+    let suggestionApplied = false
+
+    if (
+      emailInput &&
+      !cleanText(emailInput.value) &&
+      context.suggestedEmail
+    ) {
+      emailInput.value =
+        context.suggestedEmail
+
+      suggestionApplied = true
+    }
+
+    if (
+      documentInput &&
+      !onlyDigits(
+        documentInput.value,
+      ) &&
+      context.suggestedDocument
+    ) {
+      documentInput.value =
+        context.suggestedDocument
+
+      suggestionApplied = true
+    }
+
+    if (
+      subtitle &&
+      (
+        suggestionApplied ||
+        context.suggestedEmail ||
+        context.suggestedDocument
+      )
+    ) {
+      subtitle.textContent =
+        'Dados encontrados na conversa já preenchidos'
+    }
   }
 
   function mountLeadCreationForm() {
@@ -256,13 +384,24 @@
       return
     }
 
-    if (actionsContainer.querySelector('[data-yolen-lead-create-form]')) {
+    const context =
+      getLookupContext()
+
+    if (!context.phone) {
       return
     }
 
-    const context = getLookupContext()
+    const existingForm =
+      actionsContainer.querySelector(
+        '[data-yolen-lead-create-form]',
+      )
 
-    if (!context.phone) {
+    if (existingForm) {
+      syncLeadCreationFormSuggestions(
+        existingForm,
+        context,
+      )
+
       return
     }
 

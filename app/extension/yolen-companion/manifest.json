@@ -29,6 +29,7 @@
         "src/capture-batch.js",
         "src/capture-resilience.js",
         "src/capture-resilience-null-base.js",
+        "src/lead-enrichment.js",
         "src/content-script.js",
         "src/lead-automation.js"
       ],
