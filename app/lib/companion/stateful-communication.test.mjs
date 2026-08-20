@@ -6,6 +6,10 @@ import {
 } from './stateful-copilot-contract.ts'
 
 import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+} from './commercial-reading-contract.ts'
+
+import {
   STATEFUL_COMMUNICATION_CONTRACT_VERSION,
 } from './stateful-communication-contract.ts'
 
@@ -97,11 +101,29 @@ function buildDiagnosticOutput({
       crm: {
         should_change_crm_stage:
           false,
+
+        recommended_status:
+          null,
+
+        rationale:
+          null,
+
+        requires_human_confirmation:
+          true,
       },
 
       agenda: {
         should_change_agenda:
           false,
+
+        expected_next_action_at:
+          null,
+
+        rationale:
+          null,
+
+        requires_human_confirmation:
+          true,
       },
     },
 
@@ -116,7 +138,25 @@ function buildDiagnosticOutput({
 function buildInput() {
   return {
     diagnostic_input: {
+      reference_time:
+        '2026-08-06T15:30:00-03:00',
+
+      current_crm_status:
+        'respondeu',
+
+      analysis_precondition: {
+        status:
+          'ready',
+
+        limitations: [],
+      },
+
       conversation: {
+        active_message_ids: [
+          'm1',
+          'm2',
+        ],
+
         messages: [
           {
             id:
@@ -169,6 +209,14 @@ function buildInput() {
         communication_tone:
           'natural e objetivo',
 
+        required_behaviors: [
+          'Responder perguntas pendentes antes de avançar.',
+        ],
+
+        prohibited_behaviors: [
+          'Não inventar condição comercial.',
+        ],
+
         sales_method: {
           configured:
             true,
@@ -179,6 +227,11 @@ function buildInput() {
 
         products: [],
       },
+    },
+
+    state_context: {
+      previous_state:
+        null,
     },
   }
 }
@@ -197,7 +250,244 @@ function buildPlan({
   })
 }
 
+function buildCommercialReadingOutput({
+  commercialRole = 'buyer',
+  interventionNeeded = true,
+  recommendedQuestion =
+    'Você prefere que eu retome o contato ou que outra pessoa fale com você?',
+  suggestedMessage =
+    'Claro. Você prefere que eu retome o contato ou que outra pessoa fale com você?',
+} = {}) {
+  const canIntervene =
+    commercialRole ===
+      'buyer' &&
+    interventionNeeded
+
+  return {
+    contract_version:
+      COMMERCIAL_READING_CONTRACT_VERSION,
+
+    analysis_status:
+      'complete',
+
+    analysis_limitations: [],
+
+    commercial_role:
+      commercialRole,
+
+    conversation_summary: {
+      initial_context: {
+        summary:
+          'O vendedor havia informado que poderia retomar o contato.',
+
+        evidence_message_ids: [
+          'm1',
+        ],
+
+        memory_ids: [],
+      },
+
+      evolution: {
+        summary:
+          'O cliente respondeu pedindo clareza sobre quem fará a retomada.',
+
+        evidence_message_ids: [
+          'm2',
+        ],
+
+        memory_ids: [],
+      },
+
+      important_events: [],
+
+      current_state: {
+        summary:
+          'Existe uma dúvida objetiva sobre a responsabilidade pela retomada.',
+
+        evidence_message_ids: [
+          'm2',
+        ],
+
+        memory_ids: [],
+      },
+
+      last_customer_request_or_decision: {
+        summary:
+          'O cliente quer saber quem deverá retomar o contato.',
+
+        evidence_message_ids: [
+          'm2',
+        ],
+
+        memory_ids: [],
+      },
+    },
+
+    customer: {
+      needs: [],
+      interests: [],
+      decision_criteria: [],
+      preferences: [],
+
+      open_questions: [
+        {
+          summary:
+            'Quem será responsável pela retomada do contato?',
+
+          evidence_message_ids: [
+            'm2',
+          ],
+
+          memory_ids: [],
+        },
+      ],
+
+      objections: [],
+      uncertainties: [],
+    },
+
+    commercial_evolution: [
+      {
+        key:
+          'customer_replied',
+
+        label:
+          'Cliente respondeu',
+
+        status:
+          'completed',
+
+        explanation:
+          'Há resposta explícita do cliente.',
+
+        evidence_message_ids: [
+          'm2',
+        ],
+
+        memory_ids: [],
+      },
+    ],
+
+    method: {
+      configured:
+        true,
+
+      name:
+        'SPIN',
+
+      stages: [
+        {
+          step_order:
+            1,
+
+          stage_key:
+            'context',
+
+          name:
+            'Contexto',
+
+          status:
+            'completed',
+
+          explanation:
+            'A necessidade imediata de esclarecer a retomada está compreendida.',
+
+          evidence_message_ids: [
+            'm2',
+          ],
+
+          memory_ids: [],
+        },
+      ],
+    },
+
+    seller_strengths: [],
+    improvement_points: [],
+
+    risks: {
+      customer_objections: [],
+      service_risks: [],
+    },
+
+    best_approach: {
+      decision:
+        canIntervene
+          ? 'respond'
+          : 'no_intervention',
+
+      reason:
+        canIntervene
+          ? 'A pergunta objetiva do cliente precisa ser respondida antes de qualquer avanço.'
+          : 'Nenhuma intervenção comercial deve ser realizada para este papel.',
+
+      channel:
+        canIntervene
+          ? 'text'
+          : 'none',
+
+      evidence_message_ids: [
+        'm2',
+      ],
+
+      memory_ids: [],
+    },
+
+    communication: {
+      intervention_needed:
+        canIntervene,
+
+      recommended_question:
+        canIntervene
+          ? recommendedQuestion
+          : null,
+
+      recommended_message:
+        canIntervene
+          ? suggestedMessage
+          : null,
+    },
+
+    operations: {
+      crm: {
+        should_change_crm_stage:
+          false,
+
+        recommended_status:
+          null,
+
+        rationale:
+          null,
+
+        requires_human_confirmation:
+          true,
+      },
+
+      agenda: {
+        should_change_agenda:
+          false,
+
+        expected_next_action_at:
+          null,
+
+        rationale:
+          null,
+
+        requires_human_confirmation:
+          true,
+      },
+    },
+
+    evidence_message_ids: [
+      'm1',
+      'm2',
+    ],
+
+    memory_ids: [],
+  }
+}
+
 function buildCommunicationOutput({
+  commercialRole = 'buyer',
   interventionNeeded = true,
   recommendedQuestion =
     'Você prefere que eu retome o contato ou que outra pessoa fale com você?',
@@ -222,6 +512,14 @@ function buildCommunicationOutput({
 
     suggested_message:
       suggestedMessage,
+
+    commercial_reading:
+      buildCommercialReadingOutput({
+        commercialRole,
+        interventionNeeded,
+        recommendedQuestion,
+        suggestedMessage,
+      }),
   }
 }
 
@@ -290,7 +588,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v3',
+      'phase-5.2-communication-prompt-v5',
     )
 
     assert.match(
@@ -360,6 +658,23 @@ test(
         .output
         .suggested_message,
       'Claro. Você prefere que eu retome o contato ou que outra pessoa fale com você?',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .contract_version,
+      COMMERCIAL_READING_CONTRACT_VERSION,
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .best_approach
+        .decision,
+      'respond',
     )
 
     assert.equal(
@@ -459,7 +774,10 @@ test(
   async () => {
     const provider =
       createProvider([
-        buildCommunicationOutput(),
+        buildCommunicationOutput({
+          commercialRole:
+            'provider',
+        }),
       ])
 
     const result =
@@ -467,7 +785,7 @@ test(
         plan:
           buildPlan({
             commercialRole:
-              'supplier',
+              'provider',
           }),
 
         provider:
@@ -498,6 +816,67 @@ test(
     assert.equal(
       provider.calls.length,
       1,
+    )
+  },
+)
+
+
+test(
+  'comunicação v5 integra leitura completa tom comportamentos limites de pressão e escalonamento',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .required_behaviors = [
+        'Responder perguntas pendentes antes de avançar.',
+      ]
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .prohibited_behaviors = [
+        'Criar urgência artificial.',
+      ]
+
+    const plan =
+      buildStatefulCommunicationExecutionPlan({
+        input,
+
+        diagnostic_output:
+          buildDiagnosticOutput(),
+      })
+
+    assert.equal(
+      plan.prompt_version,
+      'phase-5.2-communication-prompt-v5',
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /communication_tone controla somente forma/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Comportamento correto não exige mensagem/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /orientar confirmação ou escalonamento humano/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Não crie urgência artificial/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Nenhuma regra comportamental, isoladamente, autoriza alteração automática de CRM, Agenda/,
     )
   },
 )

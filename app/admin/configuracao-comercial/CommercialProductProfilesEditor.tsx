@@ -280,6 +280,12 @@ function createEmptyProductProfile(
   return {
     product_id: productId,
 
+    commercial_product_contract_version:
+      'commercial-product-v1',
+
+    commercial_product_definition:
+      null,
+
     indicated_audiences: [],
     needs_addressed: [],
     benefits: [],

@@ -41,6 +41,16 @@ const statefulOutput = {
   },
 }
 
+const commercialReading = {
+  contract_version:
+    'commercial-reading-v1',
+
+  best_approach: {
+    decision:
+      'respond',
+  },
+}
+
 function buildContext() {
   return {
     loaded_at:
@@ -139,13 +149,16 @@ function buildIntegratedResult({
 
           communication_output: {
             contract_version:
-              'phase-5.2-communication-v1',
+              'phase-5.2-communication-v2',
 
             intervention_needed:
               true,
 
             suggested_message:
               'Resposta stateful.',
+
+            commercial_reading:
+              commercialReading,
           },
 
           communication_execution: {
@@ -617,7 +630,7 @@ test(
       result
         .stateful_execution
         .communication_contract_version,
-      'phase-5.2-communication-v1',
+      'phase-5.2-communication-v2',
     )
 
     assert.equal(
@@ -675,6 +688,18 @@ test(
     assert.equal(
       result.response,
       statefulOutput,
+    )
+
+    assert.equal(
+      result.commercial_reading,
+      commercialReading,
+    )
+
+    assert.equal(
+      result
+        .commercial_reading
+        .contract_version,
+      'commercial-reading-v1',
     )
 
     assert.equal(

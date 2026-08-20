@@ -18,6 +18,10 @@ import {
 } from './stateful-communication-contract.ts'
 
 import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+} from './commercial-reading-contract.ts'
+
+import {
   StatefulCommercialStateReductionError,
 } from './stateful-commercial-state-reducer.ts'
 
@@ -325,7 +329,15 @@ function createMemoryId({
   ].join('-')
 }
 
-function buildCommunicationOutput() {
+function buildCommunicationOutput(
+  messageId = 'm1',
+) {
+  const recommendedQuestion =
+    'Você prefere que eu retome o contato amanhã?'
+
+  const suggestedMessage =
+    'Claro. Você prefere que eu retome o contato amanhã?'
+
   return {
     contract_version:
       STATEFUL_COMMUNICATION_CONTRACT_VERSION,
@@ -340,10 +352,143 @@ function buildCommunicationOutput() {
       'Responder diretamente e confirmar o próximo passo de forma natural.',
 
     recommended_question:
-      'Você prefere que eu retome o contato amanhã?',
+      recommendedQuestion,
 
     suggested_message:
-      'Claro. Você prefere que eu retome o contato amanhã?',
+      suggestedMessage,
+
+    commercial_reading: {
+      contract_version:
+        COMMERCIAL_READING_CONTRACT_VERSION,
+
+      analysis_status:
+        'complete',
+
+      analysis_limitations: [],
+
+      commercial_role:
+        'buyer',
+
+      conversation_summary: {
+        initial_context:
+          null,
+
+        evolution:
+          null,
+
+        important_events: [],
+
+        current_state: {
+          summary:
+            'O cliente está avaliando a solução e a conversa permanece aberta.',
+
+          evidence_message_ids: [
+            messageId,
+          ],
+
+          memory_ids: [],
+        },
+
+        last_customer_request_or_decision:
+          null,
+      },
+
+      customer: {
+        needs: [],
+        interests: [],
+        decision_criteria: [],
+        preferences: [],
+        open_questions: [],
+        objections: [],
+        uncertainties: [],
+      },
+
+      commercial_evolution: [],
+
+      method: {
+        configured:
+          false,
+
+        name:
+          null,
+
+        stages: [],
+      },
+
+      seller_strengths: [],
+
+      improvement_points: [],
+
+      risks: {
+        customer_objections: [],
+
+        service_risks: [],
+      },
+
+      best_approach: {
+        decision:
+          'respond',
+
+        reason:
+          'A conversa permanece aberta e uma resposta contextual é apropriada.',
+
+        channel:
+          'text',
+
+        evidence_message_ids: [
+          messageId,
+        ],
+
+        memory_ids: [],
+      },
+
+      communication: {
+        intervention_needed:
+          true,
+
+        recommended_question:
+          recommendedQuestion,
+
+        recommended_message:
+          suggestedMessage,
+      },
+
+      operations: {
+        crm: {
+          should_change_crm_stage:
+            false,
+
+          recommended_status:
+            null,
+
+          rationale:
+            null,
+
+          requires_human_confirmation:
+            true,
+        },
+
+        agenda: {
+          should_change_agenda:
+            false,
+
+          expected_next_action_at:
+            null,
+
+          rationale:
+            null,
+
+          requires_human_confirmation:
+            true,
+        },
+      },
+
+      evidence_message_ids: [
+        messageId,
+      ],
+
+      memory_ids: [],
+    },
   }
 }
 
@@ -600,7 +745,9 @@ test(
                 messageId:
                   'm2',
               }),
-              buildCommunicationOutput(),
+              buildCommunicationOutput(
+                'm2',
+              ),
             ],
             secondCalls,
           ),
