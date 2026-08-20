@@ -1,0 +1,59 @@
+name: Companion Extension Release Engineering
+
+# Escopo: D2 — validação automatizada de Release Candidate da extensão
+# Yolen Companion. Este workflow apenas BUILDA e VALIDA os pacotes
+# Chrome/Firefox; não publica nada em loja e não faz deploy.
+#
+# Gatilhos restritos a Pull Request e execução manual, com filtro de
+# caminho, para não rodar CI desnecessário em mudanças que não tocam a
+# extensão nem este próprio workflow.
+on:
+  pull_request:
+    paths:
+      - 'app/extension/yolen-companion/**'
+      - '.github/workflows/companion-extension-release.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-validate:
+    name: Build + validar Release Candidate (Chrome/Firefox)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependências (determinístico via package-lock.json)
+        run: npm ci
+
+      - name: Rodar suíte de testes do Companion
+        run: npm run test:companion
+
+      - name: Gerar pacotes Chrome e Firefox (D1)
+        run: node app/extension/yolen-companion/scripts/build-package.mjs
+
+      - name: Validar Release Candidate (D2)
+        run: node app/extension/yolen-companion/scripts/validate-release-candidate.mjs
+
+      - name: git diff --check (espaços em branco / marcadores de conflito)
+        run: git diff --check
+
+      - name: Publicar artefatos de build para inspeção (CI apenas — não é publicação em loja)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolen-companion-release-candidate-${{ github.run_number }}
+          path: |
+            dist/yolen-companion/*.zip
+            dist/yolen-companion/build-summary.json
+            dist/yolen-companion/release-candidate-report.json
+          retention-days: 14
+          if-no-files-found: warn

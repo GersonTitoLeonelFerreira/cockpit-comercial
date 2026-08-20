@@ -97,9 +97,19 @@ distribuição oficial (D3) decidir wire isso.
 Todo arquivo copiado para o pacote recebe um timestamp fixo
 (`2020-01-01T00:00:00Z`) antes de ser zipado, e a lista de arquivos passada
 ao `zip` é sempre ordenada explicitamente. Isso garante que, para o mesmo
-conteúdo de origem, o `.zip` gerado é **byte-idêntico** entre execuções,
-máquinas e datas — verificável comparando o SHA-256 do pacote (escrito em
-`build-summary.json` a cada build).
+conteúdo de origem, o `.zip` gerado é **byte-idêntico entre execuções no
+mesmo ambiente** (mesma máquina, mesma versão/implementação do binário
+`zip`) — verificado automaticamente pelo validador de Release Candidate
+(D2), que builda duas vezes e compara os SHA-256.
+
+**O que ainda não está provado:** reprodutibilidade *entre máquinas ou
+implementações diferentes* de `zip` (por exemplo, `zip` do Info-ZIP em uma
+distro Linux vs. outra versão em macOS/Windows/CI) depende de detalhes de
+formato (metadados de compressão, versão do "created by", etc.) que este
+projeto ainda não testou nem comparou. Até que essa validação cross-machine
+seja feita explicitamente, trate a reprodutibilidade como garantida
+**dentro de um mesmo ambiente/pipeline** (ex.: sempre gerado pelo mesmo
+runner de CI), não como uma garantia universal entre ambientes diferentes.
 
 ## Como gerar os pacotes
 
@@ -124,6 +134,52 @@ dist/yolen-companion/
 
 Este script não é registrado em `package.json` nesta fase (fora do escopo
 autorizado) — rode-o diretamente com `node` como acima.
+
+## Validação automatizada de Release Candidate (D2)
+
+`scripts/validate-release-candidate.mjs` builda os dois pacotes do zero e
+inspeciona byte a byte o resultado, aplicando verificações determinísticas:
+pacote gerado, `manifest.json` válido, todos os arquivos obrigatórios
+presentes e nenhum arquivo fora da allowlist, ausência de `tests/`, `.env`,
+source maps ou outros artefatos indevidos, allowlist coerente com o
+manifest de origem, `background` adaptado corretamente por navegador,
+versão do pacote consistente, ícones válidos nos tamanhos esperados,
+hashes de todo o conteúdo registrados, e limites de tamanho.
+
+```bash
+node app/extension/yolen-companion/scripts/validate-release-candidate.mjs
+```
+
+Saída: `dist/yolen-companion/release-candidate-report.json` (relatório
+completo, com o resultado de cada verificação e o SHA-256 de cada arquivo
+do pacote) e um resumo no terminal. O processo sai com código `1` se
+qualquer verificação **técnica** falhar.
+
+### Classificação do pacote
+
+A presença de `http://localhost:3000/*` no pacote **nunca** é tratada como
+falha técnica (é esperada nesta fase — ver "Status do pacote" acima), mas
+também nunca autoriza publicação em loja. O validador sempre produz uma
+das três classificações a seguir, nunca uma aprovação implícita:
+
+| Classificação | Significa |
+|---|---|
+| `BUILD_INVALID` | Uma ou mais verificações técnicas falharam. Não é nem build interno válido. |
+| `INTERNAL_DEV_ONLY` | Todas as verificações técnicas passaram, mas o pacote ainda contém `localhost`. É um **Release Candidate técnico**, válido para uso/teste interno, mas **não elegível para submissão à loja**. É o resultado esperado enquanto o D3 não for executado. |
+| `STORE_ELIGIBLE_CANDIDATE` | Todas as verificações técnicas passaram e nenhum host de desenvolvimento foi detectado. Só deve ocorrer depois do D3. |
+
+Hoje (D1/D2, antes do D3), o resultado esperado e correto é sempre
+`INTERNAL_DEV_ONLY`.
+
+### CI
+
+`.github/workflows/companion-extension-release.yml` roda em Pull Request
+(com filtro de caminho para `app/extension/yolen-companion/**` e o próprio
+workflow) e via `workflow_dispatch`. Ele instala dependências de forma
+determinística (`npm ci`), roda `npm run test:companion`, gera os pacotes,
+roda o validador acima, roda `git diff --check`, e publica os `.zip` e os
+relatórios como artefato do próprio workflow (não é publicação em loja nem
+deploy — é só para inspeção/auditoria do run).
 
 ## Instalação manual para teste (não é distribuição oficial)
 

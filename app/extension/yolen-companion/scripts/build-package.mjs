@@ -40,22 +40,24 @@ import { fileURLToPath } from 'node:url'
 
 import { resizePngSquare } from './lib/png-resize.mjs'
 
-const EXTENSION_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const REPO_ROOT = join(EXTENSION_ROOT, '..', '..', '..')
-const OUTPUT_ROOT = join(REPO_ROOT, 'dist', 'yolen-companion')
+export const EXTENSION_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+export const REPO_ROOT = join(EXTENSION_ROOT, '..', '..', '..')
+export const OUTPUT_ROOT = join(REPO_ROOT, 'dist', 'yolen-companion')
 
 // Timestamp fixo aplicado a todos os arquivos do pacote antes de zipar, para
-// que o mesmo conteúdo sempre produza os mesmos bytes de saída,
-// independentemente de quando o build rodou.
+// que o mesmo conteúdo sempre produza os mesmos bytes de saída dentro do
+// MESMO ambiente/execução do `zip`. Reprodutibilidade byte-a-byte entre
+// máquinas/implementações diferentes de `zip` ainda não foi validada — ver
+// README.md, seção "Reprodutibilidade".
 const REPRODUCIBLE_MTIME = new Date('2020-01-01T00:00:00Z')
 
-const ICON_SIZES = [16, 32, 48, 128]
+export const ICON_SIZES = [16, 32, 48, 128]
 
 // Allowlist explícita: todo arquivo compartilhado pelos dois pacotes.
 // Cada entrada aqui corresponde a um arquivo que o manifest.json de
 // desenvolvimento já declara em content_scripts, web_accessible_resources
 // ou background. Nada é incluído "por estar na pasta".
-const SHARED_RUNTIME_FILES = [
+export const SHARED_RUNTIME_FILES = [
   'assets/yolen-mark.png',
   'src/background.js',
   'src/capture-batch.js',
@@ -77,9 +79,9 @@ const SHARED_RUNTIME_FILES = [
 // Só é necessário no pacote Chrome: é o arquivo referenciado por
 // background.service_worker (que por sua vez faz importScripts dos dois
 // arquivos de background já listados acima).
-const CHROME_ONLY_FILES = ['src/background-service-worker.js']
+export const CHROME_ONLY_FILES = ['src/background-service-worker.js']
 
-const TARGETS = {
+export const TARGETS = {
   chrome: {
     files: [...SHARED_RUNTIME_FILES, ...CHROME_ONLY_FILES],
     adaptManifest(manifest) {
@@ -98,7 +100,7 @@ const TARGETS = {
   },
 }
 
-function readSourceManifest() {
+export function readSourceManifest() {
   const raw = readFileSync(join(EXTENSION_ROOT, 'manifest.json'), 'utf8')
   return JSON.parse(raw)
 }
@@ -108,7 +110,7 @@ function readSourceManifest() {
 // alguém adicionar um novo arquivo ao manifest sem atualizar este script
 // (ou vice-versa), o build falha alto em vez de gerar um pacote incompleto
 // silenciosamente.
-function assertAllowlistMatchesManifest(manifest) {
+export function assertAllowlistMatchesManifest(manifest) {
   const referenced = new Set()
 
   for (const script of manifest.background?.scripts ?? []) referenced.add(script)
@@ -171,8 +173,24 @@ function stageManifest(manifest, stagingDir) {
   utimesSync(destination, REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME)
 }
 
-function sha256(filePath) {
+export function sha256(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex')
+}
+
+// Lista (ordenada, determinística) de entradas que um pacote de `targetName`
+// deve conter. Única fonte de verdade para "o que entra no zip" — usada
+// tanto pelo build quanto pelo validador de Release Candidate (D2), para
+// que os dois nunca divirjam sobre o conjunto esperado de arquivos.
+export function getTargetZipEntries(targetName) {
+  const target = TARGETS[targetName]
+  if (!target) {
+    throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
+  }
+  return [
+    'manifest.json',
+    ...target.files,
+    ...ICON_SIZES.map((size) => `assets/icons/icon-${size}.png`),
+  ].sort()
 }
 
 function createZip(stagingDir, zipPath, entries) {
@@ -202,11 +220,7 @@ function buildTarget(targetName, sourceManifest) {
   const adaptedManifest = target.adaptManifest(sourceManifest)
   stageManifest(adaptedManifest, stagingDir)
 
-  const zipEntries = [
-    'manifest.json',
-    ...sortedFiles,
-    ...ICON_SIZES.map((size) => `assets/icons/icon-${size}.png`),
-  ].sort()
+  const zipEntries = getTargetZipEntries(targetName)
 
   const zipPath = join(
     OUTPUT_ROOT,
@@ -257,4 +271,10 @@ function main() {
   console.log(`\nResumo escrito em: ${join(OUTPUT_ROOT, 'build-summary.json').replace(`${REPO_ROOT}/`, '')}`)
 }
 
-main()
+// Só executa o build quando o arquivo é rodado diretamente (`node
+// build-package.mjs`). Isso permite que outros scripts (como o validador de
+// Release Candidate do D2) importem os helpers acima sem disparar um build
+// como efeito colateral do import.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main()
+}
