@@ -233,6 +233,90 @@ function buildFactDefinition() {
   }
 }
 
+function buildObjectionDefinition() {
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    objection_kind:
+      'commercial_objection',
+
+    objection_key:
+      'price_value',
+
+    objection:
+      'Preço percebido como alto',
+
+    category:
+      'price',
+
+    description:
+      'Resistência em que preço ou relação entre preço e valor percebido dificulta materialmente a decisão.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+    },
+
+    signals: [
+      'Está caro.',
+      'Ficou acima do orçamento previsto.',
+    ],
+
+    objection_when: [
+      'O cliente apresenta o preço como bloqueio real para avançar.',
+    ],
+
+    not_objection_when: [
+      'O cliente apenas pergunta qual é o preço.',
+      'O cliente apenas solicita informações sobre pagamento.',
+    ],
+
+    distinguish_from: [
+      'question',
+      'information_request',
+      'condition',
+      'postponement',
+      'rejection',
+      'uncertainty',
+    ],
+
+    discovery_questions: [
+      'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
+    ],
+
+    recommended_approach:
+      'Compreender a natureza da resistência antes de responder, sem presumir falta de orçamento ou forçar contraposição.',
+
+    response_limits: [
+      'Não presumir falta de dinheiro.',
+      'Não oferecer desconto sem política comercial aplicável.',
+    ],
+
+    resolution_criteria: [
+      'Está claro se o preço continua sendo um bloqueio real para a decisão.',
+    ],
+
+    wait_when: [
+      'O cliente pediu tempo e assumiu compromisso explícito de retorno.',
+    ],
+
+    give_space_when: [
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    ],
+
+    stop_when: [
+      'O cliente fez uma recusa explícita e não solicitou continuidade.',
+    ],
+  }
+}
+
 function buildComplexProductDefinition() {
   return {
     contract_version:
@@ -471,6 +555,9 @@ function buildDraft() {
   const productDefinition =
     buildProductDefinition()
 
+  const objectionDefinition =
+    buildObjectionDefinition()
+
   return {
     config_version_id:
       CONFIG_ID,
@@ -571,7 +658,36 @@ function buildDraft() {
       },
     ],
 
-    objection_guides: [],
+    objection_guides: [
+      {
+        commercial_objection_contract_version:
+          'commercial-objection-v2',
+
+        commercial_objection_definition:
+          objectionDefinition,
+
+        sort_order:
+          1,
+
+        objection:
+          objectionDefinition.objection,
+
+        signals:
+          objectionDefinition.signals,
+
+        discovery_questions:
+          objectionDefinition.discovery_questions,
+
+        recommended_approach:
+          objectionDefinition.recommended_approach,
+
+        response_limits:
+          objectionDefinition.response_limits,
+
+        is_active:
+          true,
+      },
+    ],
   }
 }
 
@@ -614,7 +730,7 @@ function createRpcClient() {
 }
 
 test(
-  'salvamento administrativo usa RPC V5 e preserva método produto e fato V2',
+  'salvamento administrativo usa RPC V6 e preserva método produto fato e objeção V2',
   async () => {
     const {
       client,
@@ -634,7 +750,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_save_company_commercial_config_draft_v5',
+      'rpc_save_company_commercial_config_draft_v6',
     )
 
     assert.equal(
@@ -712,11 +828,57 @@ test(
         .type,
       'internal_policy',
     )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .objection_guides[0]
+        .commercial_objection_definition
+        .contract_version,
+      'commercial-objection-v2',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .objection_guides[0]
+        .commercial_objection_definition
+        .category,
+      'price',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .objection_guides[0]
+        .commercial_objection_definition
+        .scope
+        .type,
+      'company',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .objection_guides[0]
+        .commercial_objection_definition
+        .not_objection_when[0],
+      'O cliente apenas pergunta qual é o preço.',
+    )
+
+    assert.equal(
+      calls[0].args
+        .p_payload
+        .objection_guides[0]
+        .commercial_objection_definition
+        .give_space_when[0],
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    )
   },
 )
 
 test(
-  'salvamento administrativo usa RPC V5 e preserva produto complexo V3',
+  'salvamento administrativo usa RPC V6 e preserva produto complexo V3',
   async () => {
     const {
       client,
@@ -736,7 +898,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_save_company_commercial_config_draft_v5',
+      'rpc_save_company_commercial_config_draft_v6',
     )
 
     const definition =
@@ -777,7 +939,7 @@ test(
 )
 
 test(
-  'clonagem administrativa usa RPC V5 para preservar método produto e fatos',
+  'clonagem administrativa usa RPC V6 para preservar método produto fatos e objeções',
   async () => {
     const {
       client,
@@ -797,7 +959,7 @@ test(
 
     assert.equal(
       calls[0].name,
-      'rpc_clone_company_commercial_config_v5',
+      'rpc_clone_company_commercial_config_v6',
     )
 
     assert.deepEqual(

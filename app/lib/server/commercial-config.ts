@@ -96,6 +96,8 @@ const OBJECTION_GUIDE_FIELDS = `
   id,
   company_id,
   config_version_id,
+  commercial_objection_contract_version,
+  commercial_objection_definition,
   sort_order,
   objection,
   signals,
@@ -237,6 +239,9 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
 
     objection_guides: input.objection_guides.map(
       (guide) => ({
+        commercial_objection_definition:
+          guide.commercial_objection_definition ?? null,
+
         sort_order: guide.sort_order,
         objection: guide.objection,
         signals: guide.signals,
@@ -412,7 +417,7 @@ export async function saveCommercialConfigDraft(
   input: CommercialConfigDraftInput,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_save_company_commercial_config_draft_v5',
+    'rpc_save_company_commercial_config_draft_v6',
     {
       p_company_id: companyId,
       p_config_version_id:
@@ -439,7 +444,7 @@ export async function cloneCommercialConfigVersion(
   sourceConfigVersionId: string,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_clone_company_commercial_config_v5',
+    'rpc_clone_company_commercial_config_v6',
     {
       p_company_id: companyId,
       p_source_config_version_id:

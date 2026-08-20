@@ -19,6 +19,10 @@ import type {
   CommercialFactDefinition,
 } from '@/app/lib/companion/commercial-fact-contract'
 
+import type {
+  CommercialObjectionDefinition,
+} from '@/app/lib/companion/commercial-objection-contract'
+
 export const COMMERCIAL_CONFIG_CONTRACT_VERSION =
   'phase-2-v1' as const
 
@@ -41,6 +45,10 @@ export type CommercialProductDefinition =
 export type CommercialFactPersistenceContractVersion =
   | 'commercial-fact-v1'
   | 'commercial-fact-v2'
+
+export type CommercialObjectionPersistenceContractVersion =
+  | 'commercial-objection-v1'
+  | 'commercial-objection-v2'
 
 export type CommercialConfigStatus =
   | 'draft'
@@ -154,6 +162,12 @@ export interface CommercialObjectionGuide {
   company_id: string
   config_version_id: string
 
+  commercial_objection_contract_version:
+    CommercialObjectionPersistenceContractVersion
+
+  commercial_objection_definition:
+    CommercialObjectionDefinition | null
+
   sort_order: number
   objection: string
   signals: string[]
@@ -231,6 +245,12 @@ export interface CommercialFactDraft {
 
 export interface CommercialObjectionGuideDraft {
   id?: string
+
+  commercial_objection_contract_version?:
+    CommercialObjectionPersistenceContractVersion
+
+  commercial_objection_definition?:
+    CommercialObjectionDefinition | null
 
   sort_order: number
   objection: string
