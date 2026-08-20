@@ -27,6 +27,10 @@ import {
   buildCommercialObjectionPromptRules,
 } from './commercial-objection-prompt-rules'
 
+import {
+  buildCommercialBehaviorPromptRules,
+} from './commercial-behavior-prompt-rules'
+
 import type {
   StatefulCopilotNormalizationContext,
 } from './stateful-copilot-normalizer'
@@ -37,7 +41,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v17' as const
+  'phase-5.2-stateful-prompt-v18' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -876,6 +880,26 @@ function buildSystemPrompt(
         .commercial_context
         .objection_guides,
     ),
+
+    buildCommercialBehaviorPromptRules({
+      communication_tone:
+        input
+          .diagnostic_input
+          .commercial_context
+          .communication_tone,
+
+      required_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .required_behaviors,
+
+      prohibited_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .prohibited_behaviors,
+    }),
 
     'A estratégia precisa explicar como o método, o contexto, as mensagens atuais e as memórias ativas foram integrados.',
 

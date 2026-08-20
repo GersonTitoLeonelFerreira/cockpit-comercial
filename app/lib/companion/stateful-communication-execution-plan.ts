@@ -11,8 +11,12 @@ import {
   type StatefulCommunicationNormalizationContext,
 } from './stateful-communication-contract'
 
+import {
+  buildCommercialBehaviorPromptRules,
+} from './commercial-behavior-prompt-rules'
+
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v3' as const
+  'phase-5.2-communication-prompt-v4' as const
 
 const COMMUNICATION_CONTEXT_BRIDGE_MAX_MESSAGES =
   6
@@ -34,7 +38,9 @@ export type StatefulCommunicationExecutionPlan = {
     StatefulCommunicationNormalizationContext
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(
+  input: StatefulCopilotInput,
+): string {
   return [
     'Você é a camada de comunicação contextual do Yolen Companion.',
 
@@ -59,6 +65,26 @@ function buildSystemPrompt(): string {
     'Nunca escreva uma orientação, pergunta ou mensagem sugerida como se uma ação ainda não confirmada (matrícula, agendamento, pagamento, cadastro, envio) já tivesse sido concluída. Distinga claramente entre o que o cliente relatou, o que ainda depende de confirmação humana e o que já está confirmado na conversa.',
 
     'Não invente produto, preço, desconto, prazo, promessa, condição, funcionalidade ou fato.',
+
+    buildCommercialBehaviorPromptRules({
+      communication_tone:
+        input
+          .diagnostic_input
+          .commercial_context
+          .communication_tone,
+
+      required_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .required_behaviors,
+
+      prohibited_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .prohibited_behaviors,
+    }),
 
     'A mensagem sugerida deve soar natural dentro da conversa existente, não como relatório, formulário ou texto de consultoria.',
 
@@ -254,7 +280,9 @@ export function buildStatefulCommunicationExecutionPlan({
       STATEFUL_COMMUNICATION_CONTRACT_VERSION,
 
     system_prompt:
-      buildSystemPrompt(),
+      buildSystemPrompt(
+        input,
+      ),
 
     user_prompt:
       buildUserPrompt({

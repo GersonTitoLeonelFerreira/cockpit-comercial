@@ -169,6 +169,14 @@ function buildInput() {
         communication_tone:
           'natural e objetivo',
 
+        required_behaviors: [
+          'Responder perguntas pendentes antes de avançar.',
+        ],
+
+        prohibited_behaviors: [
+          'Não inventar condição comercial.',
+        ],
+
         sales_method: {
           configured:
             true,
@@ -290,7 +298,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v3',
+      'phase-5.2-communication-prompt-v4',
     )
 
     assert.match(
@@ -498,6 +506,67 @@ test(
     assert.equal(
       provider.calls.length,
       1,
+    )
+  },
+)
+
+
+test(
+  'comunicação v4 aplica tom comportamentos limites de pressão e escalonamento',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .required_behaviors = [
+        'Responder perguntas pendentes antes de avançar.',
+      ]
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .prohibited_behaviors = [
+        'Criar urgência artificial.',
+      ]
+
+    const plan =
+      buildStatefulCommunicationExecutionPlan({
+        input,
+
+        diagnostic_output:
+          buildDiagnosticOutput(),
+      })
+
+    assert.equal(
+      plan.prompt_version,
+      'phase-5.2-communication-prompt-v4',
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /communication_tone controla somente forma/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Comportamento correto não exige mensagem/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /orientar confirmação ou escalonamento humano/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Não crie urgência artificial/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Nenhuma regra comportamental, isoladamente, autoriza alteração automática de CRM, Agenda/,
     )
   },
 )

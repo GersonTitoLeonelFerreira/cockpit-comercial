@@ -1269,7 +1269,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v17 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v18 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1286,7 +1286,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v17',
+      'phase-5.2-stateful-prompt-v18',
     )
 
     assert.match(
@@ -1363,7 +1363,7 @@ test(
 
 
 test(
-  'prompt stateful v17 aplica os mesmos guardrails de fatos oficiais V2',
+  'prompt stateful v18 aplica os mesmos guardrails de fatos oficiais V2',
   () => {
     const input =
       buildInput({
@@ -1503,7 +1503,7 @@ test(
 )
 
 test(
-  'prompt stateful v17 aplica os mesmos guardrails de produto e variante V3',
+  'prompt stateful v18 aplica os mesmos guardrails de produto e variante V3',
   () => {
     const input =
       buildInput({
@@ -1585,7 +1585,7 @@ test(
 )
 
 test(
-  'prompt stateful v17 interpreta suficiência e espera do método V2',
+  'prompt stateful v18 interpreta suficiência e espera do método V2',
   () => {
     const input =
       buildInput({
@@ -1933,7 +1933,7 @@ test(
 
 
 test(
-  'prompt stateful v17 aplica os mesmos guardrails de objeções comerciais V2',
+  'prompt stateful v18 aplica os mesmos guardrails de objeções comerciais V2',
   () => {
     const input =
       buildInput({
@@ -2084,6 +2084,65 @@ test(
     assert.match(
       plan.request.system_prompt,
       /WAIT, GIVE_SPACE, STOP e ausência de intervenção são consequências válidas/,
+    )
+  },
+)
+
+
+test(
+  'prompt stateful v18 aplica os mesmos guardrails de comportamento e comunicação',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .communication_tone =
+        'Natural e consultivo.'
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .required_behaviors = [
+        'Responder antes de pressionar.',
+      ]
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .prohibited_behaviors = [
+        'Inventar condição especial.',
+      ]
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /ordem de precedência é obrigatória/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /prohibited_behaviors são limites vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não invente desconto, flexibilização, condição excepcional/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Pedido explícito de espaço deve ser respeitado/,
     )
   },
 )

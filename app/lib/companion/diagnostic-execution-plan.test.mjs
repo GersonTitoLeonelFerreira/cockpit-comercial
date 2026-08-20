@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v14',
+      'phase-5-prompt-v15',
     )
 
     assert.equal(
@@ -406,7 +406,7 @@ test(
 )
 
 test(
-  'prompt v14 interpreta método V2 sem checklist e aceita espera',
+  'prompt v15 interpreta método V2 sem checklist e aceita espera',
   () => {
     const input =
       buildInput()
@@ -535,7 +535,7 @@ test(
 
 
 test(
-  'prompt v14 aplica guardrails compartilhados de produto e variante V3',
+  'prompt v15 aplica guardrails compartilhados de produto e variante V3',
   () => {
     const input =
       buildInput()
@@ -607,7 +607,7 @@ test(
 )
 
 test(
-  'prompt v14 aplica guardrails compartilhados de fatos oficiais V2',
+  'prompt v15 aplica guardrails compartilhados de fatos oficiais V2',
   () => {
     const input =
       buildInput()
@@ -1199,7 +1199,7 @@ test(
 
 
 test(
-  'prompt v14 aplica guardrails compartilhados de objeções comerciais V2',
+  'prompt v15 aplica guardrails compartilhados de objeções comerciais V2',
   () => {
     const input =
       buildInput()
@@ -1346,6 +1346,64 @@ test(
     assert.match(
       plan.request.system_prompt,
       /WAIT, GIVE_SPACE, STOP e ausência de intervenção são consequências válidas/,
+    )
+  },
+)
+
+
+test(
+  'prompt v15 aplica guardrails compartilhados de comportamento e comunicação',
+  () => {
+    const input =
+      buildInput()
+
+    input.commercial_context
+      .communication_tone =
+        'Consultivo e direto.'
+
+    input.commercial_context
+      .required_behaviors = [
+        'Responder perguntas pendentes.',
+      ]
+
+    input.commercial_context
+      .prohibited_behaviors = [
+        'Criar urgência artificial.',
+      ]
+
+    const plan =
+      buildCompanionDiagnosticExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /ordem de precedência é obrigatória/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /communication_tone controla somente forma/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não crie urgência artificial/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /orientar confirmação ou escalonamento humano/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /WAIT, GIVE_SPACE, STOP e ausência de intervenção/,
     )
   },
 )
