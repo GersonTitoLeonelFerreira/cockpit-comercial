@@ -5,6 +5,12 @@ import {
 } from './stateful-communication-contract'
 
 import {
+  CommercialReadingContractError,
+  normalizeCommercialReading,
+  type CommercialReading,
+} from './commercial-reading-contract'
+
+import {
   STATEFUL_COMMUNICATION_PROMPT_VERSION,
   type StatefulCommunicationExecutionPlan,
 } from './stateful-communication-execution-plan'
@@ -38,6 +44,7 @@ const COMMUNICATION_OUTPUT_FIELDS =
     'guidance',
     'recommended_question',
     'suggested_message',
+    'commercial_reading',
   ])
 
 type JsonRecord =
@@ -278,6 +285,179 @@ function requireProviderName(
   return provider
 }
 
+function equalStringArrays(
+  left: string[],
+  right: string[],
+): boolean {
+  if (
+    left.length !==
+    right.length
+  ) {
+    return false
+  }
+
+  return left.every(
+    (value, index) =>
+      value === right[index],
+  )
+}
+
+function normalizeCommercialReadingOutput({
+  value,
+  context,
+}: {
+  value: unknown
+
+  context:
+    StatefulCommunicationNormalizationContext
+}): CommercialReading {
+  let reading:
+    CommercialReading
+
+  try {
+    reading =
+      normalizeCommercialReading(
+        value,
+        context.commercial_reading,
+      )
+  } catch (error) {
+    if (
+      error instanceof
+        CommercialReadingContractError
+    ) {
+      fail({
+        code:
+          'INVALID_COMMUNICATION_OUTPUT',
+
+        message:
+          'A Leitura Comercial Completa retornada é incompatível com o contrato.',
+
+        status_code:
+          502,
+
+        retryable:
+          true,
+
+        details: {
+          reading_code:
+            error.code,
+
+          reading_path:
+            error.path,
+        },
+      })
+    }
+
+    throw error
+  }
+
+  if (
+    reading.commercial_role !==
+    context.commercial_role
+  ) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_OUTPUT',
+
+      message:
+        'A leitura comercial divergiu do papel comercial validado.',
+
+      status_code:
+        502,
+
+      retryable:
+        true,
+    })
+  }
+
+  if (
+    reading.analysis_status !==
+      context.expected_analysis_status ||
+    !equalStringArrays(
+      reading.analysis_limitations,
+      context.expected_analysis_limitations,
+    )
+  ) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_OUTPUT',
+
+      message:
+        'A leitura comercial divergiu do estado de completude validado.',
+
+      status_code:
+        502,
+
+      retryable:
+        true,
+    })
+  }
+
+  const crm =
+    reading.operations.crm
+
+  const expectedCrm =
+    context.expected_crm
+
+  if (
+    crm.should_change_crm_stage !==
+      expectedCrm.should_change_crm_stage ||
+    crm.recommended_status !==
+      expectedCrm.recommended_status ||
+    crm.rationale !==
+      expectedCrm.rationale ||
+    crm.requires_human_confirmation !==
+      expectedCrm.requires_human_confirmation
+  ) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_OUTPUT',
+
+      message:
+        'A leitura comercial tentou alterar a consequência validada de CRM.',
+
+      status_code:
+        502,
+
+      retryable:
+        true,
+    })
+  }
+
+  const agenda =
+    reading.operations.agenda
+
+  const expectedAgenda =
+    context.expected_agenda
+
+  if (
+    agenda.should_change_agenda !==
+      expectedAgenda.should_change_agenda ||
+    agenda.expected_next_action_at !==
+      expectedAgenda.expected_next_action_at ||
+    agenda.rationale !==
+      expectedAgenda.rationale ||
+    agenda.requires_human_confirmation !==
+      expectedAgenda.requires_human_confirmation
+  ) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_OUTPUT',
+
+      message:
+        'A leitura comercial tentou alterar a consequência validada de Agenda.',
+
+      status_code:
+        502,
+
+      retryable:
+        true,
+    })
+  }
+
+  return reading
+}
+
 function parseModelOutput(
   content: unknown,
 ): JsonRecord {
@@ -454,6 +634,14 @@ function normalizeCommunicationOutput({
     })
   }
 
+  const commercialReading =
+    normalizeCommercialReadingOutput({
+      value:
+        value.commercial_reading,
+
+      context,
+    })
+
   const output:
     StatefulCommunicationOutput = {
     contract_version:
@@ -489,6 +677,9 @@ function normalizeCommunicationOutput({
         'communication.suggested_message',
         900,
       ),
+
+    commercial_reading:
+      commercialReading,
   }
 
   if (
@@ -529,6 +720,20 @@ function normalizeCommunicationOutput({
       output.recommended_question !==
         null ||
       output.suggested_message !==
+        null ||
+      output
+        .commercial_reading
+        .communication
+        .intervention_needed ||
+      output
+        .commercial_reading
+        .communication
+        .recommended_question !==
+        null ||
+      output
+        .commercial_reading
+        .communication
+        .recommended_message !==
         null
     )
   ) {
@@ -540,6 +745,67 @@ function normalizeCommunicationOutput({
 
     output.suggested_message =
       null
+
+    output
+      .commercial_reading
+      .communication = {
+        intervention_needed:
+          false,
+
+        recommended_question:
+          null,
+
+        recommended_message:
+          null,
+      }
+
+    output
+      .commercial_reading
+      .best_approach = {
+        ...output
+          .commercial_reading
+          .best_approach,
+
+        decision:
+          'no_intervention',
+
+        reason:
+          'O contato não está comprovado como comprador; nenhuma intervenção comercial é recomendada.',
+
+        channel:
+          'none',
+      }
+  }
+
+  const readingCommunication =
+    output
+      .commercial_reading
+      .communication
+
+  if (
+    readingCommunication
+      .intervention_needed !==
+      output.intervention_needed ||
+    readingCommunication
+      .recommended_question !==
+      output.recommended_question ||
+    readingCommunication
+      .recommended_message !==
+      output.suggested_message
+  ) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_OUTPUT',
+
+      message:
+        'A comunicação da leitura comercial divergiu da intervenção final.',
+
+      status_code:
+        502,
+
+      retryable:
+        true,
+    })
   }
 
   return output

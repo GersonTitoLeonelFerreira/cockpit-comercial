@@ -11,6 +11,10 @@ import type {
 } from '../companion/stateful-copilot-contract'
 
 import type {
+  CommercialReading,
+} from '../companion/commercial-reading-contract'
+
+import type {
   StatefulCopilotComposition,
 } from '../companion/stateful-copilot-composition'
 
@@ -195,6 +199,9 @@ export type StatefulCopilotRuntimeActiveResult =
 
     response:
       StatefulCopilotOutput
+
+    commercial_reading:
+      CommercialReading
 
     stateful_execution:
       StatefulCopilotRuntimeExecutionSummary
@@ -801,6 +808,12 @@ function buildActiveResult({
       result
         .engine_result
         .output,
+
+    commercial_reading:
+      result
+        .engine_result
+        .communication_output
+        .commercial_reading,
 
     stateful_execution:
       buildExecutionSummary({

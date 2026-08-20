@@ -19,6 +19,19 @@ const context = {
     '2026-08-18T15:00:00.000Z',
 }
 
+const commercialReading = {
+  contract_version:
+    'commercial-reading-v1',
+
+  analysis_status:
+    'complete',
+
+  best_approach: {
+    decision:
+      'respond',
+  },
+}
+
 function buildOutput({
   crmShouldChange = false,
   crmStatus = null,
@@ -85,6 +98,10 @@ test(
     const result =
       buildStatefulActiveResponseData({
         context,
+
+        commercial_reading:
+          commercialReading,
+
         output:
           buildOutput(),
       })
@@ -92,6 +109,18 @@ test(
     assert.equal(
       result.engine_source,
       'stateful',
+    )
+
+    assert.equal(
+      result.commercial_reading,
+      commercialReading,
+    )
+
+    assert.equal(
+      result
+        .commercial_reading
+        .contract_version,
+      'commercial-reading-v1',
     )
 
     assert.equal(
@@ -140,6 +169,10 @@ test(
     const result =
       buildStatefulActiveResponseData({
         context,
+
+        commercial_reading:
+          commercialReading,
+
         output:
           buildOutput({
             crmShouldChange:
@@ -211,6 +244,10 @@ test(
     const result =
       buildStatefulActiveResponseData({
         context,
+
+        commercial_reading:
+          commercialReading,
+
         output:
           buildOutput({
             crmShouldChange:

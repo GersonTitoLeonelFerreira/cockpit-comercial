@@ -2,8 +2,12 @@ import {
   STATEFUL_COMMUNICATION_CONTRACT_VERSION,
 } from './stateful-communication-contract'
 
+import {
+  COMMERCIAL_READING_JSON_SCHEMA,
+} from './commercial-reading-json-schema'
+
 export const STATEFUL_COMMUNICATION_RESPONSE_FORMAT_NAME =
-  'yolen_stateful_communication_v1' as const
+  'yolen_stateful_communication_v2' as const
 
 type JsonSchema =
   Record<string, unknown>
@@ -92,6 +96,9 @@ export const STATEFUL_COMMUNICATION_JSON_SCHEMA =
 
       suggested_message:
         nullableStringSchema(),
+
+      commercial_reading:
+        COMMERCIAL_READING_JSON_SCHEMA,
     },
 
     required: [
@@ -101,6 +108,7 @@ export const STATEFUL_COMMUNICATION_JSON_SCHEMA =
       'guidance',
       'recommended_question',
       'suggested_message',
+      'commercial_reading',
     ],
   })
 

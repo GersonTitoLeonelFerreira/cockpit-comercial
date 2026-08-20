@@ -1,3 +1,7 @@
+import type {
+  CommercialReading,
+} from '@/app/lib/companion/commercial-reading-contract'
+
 import type { LeadStatus } from '@/app/types/sales_cycles'
 
 export type ConversationSource = 'whatsapp' | 'phone_summary' | 'notes'
@@ -183,6 +187,10 @@ export interface AnalyzeConversationResponse {
   ok: boolean
   data?: {
     engine_source?: 'v1' | 'stateful'
+
+    commercial_reading?:
+      CommercialReading
+
     context: AISalesContext
     suggestion: CompanionAnalyzeSuggestion
     diagnostics?: AIAuditDiagnostics
