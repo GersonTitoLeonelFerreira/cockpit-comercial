@@ -386,6 +386,17 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (
+    message.action ===
+    'APPLY_LEAD_ENRICHMENT'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/enrich-lead',
+      message.payload,
+    )
+  }
+
   if (message.action === 'ANALYZE_CONVERSATION') {
     return handleConversationAnalysis(
       message,

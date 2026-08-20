@@ -89,6 +89,9 @@
   const registeredSuggestionShownTelemetryKeys =
     new Set()
 
+  const ignoredLeadEnrichmentCandidateKeys =
+    new Set()
+
   let state = {
     connected: false,
     loading: true,
@@ -130,6 +133,9 @@
     capturedAudioBlobCount: 0,
     audioTranscriptionHistoryLoading: false,
     audioTranscriptionHistoryCycleId: null,
+    leadEnrichmentApplyLoadingKey: null,
+    leadEnrichmentApplySuccessKey: null,
+    leadEnrichmentApplyError: null,
   }
 
   function waitForWhatsAppApp() {
@@ -6078,6 +6084,318 @@
     )
   }
 
+  function getLeadEnrichmentCandidateKey(
+    candidate,
+  ) {
+    const evidenceIds =
+      Array.isArray(
+        candidate?.evidence_message_ids,
+      )
+        ? candidate.evidence_message_ids
+        : []
+
+    return [
+      state.leadResolution?.lead?.id || '',
+      candidate?.field || '',
+      candidate?.normalized_value || '',
+      candidate?.current_value || '',
+      ...evidenceIds,
+    ].join('::')
+  }
+
+  function isConfirmableLeadEnrichmentCandidate(
+    candidate,
+  ) {
+    return [
+      'email',
+      'cpf',
+      'cnpj',
+      'birth_date',
+      'profession',
+      'cep',
+      'phone_mobile',
+    ].includes(
+      candidate?.field,
+    )
+  }
+
+  function getVisibleLeadEnrichmentCandidates() {
+    return getLeadEnrichmentCandidates()
+      .filter((candidate) => {
+        const candidateKey =
+          getLeadEnrichmentCandidateKey(
+            candidate,
+          )
+
+        return !ignoredLeadEnrichmentCandidateKeys
+          .has(candidateKey)
+      })
+  }
+
+  function ignoreLeadEnrichmentCandidate(
+    candidateKey,
+  ) {
+    if (!candidateKey) {
+      return
+    }
+
+    ignoredLeadEnrichmentCandidateKeys
+      .add(candidateKey)
+
+    state = {
+      ...state,
+      leadEnrichmentApplySuccessKey:
+        null,
+      leadEnrichmentApplyError:
+        null,
+    }
+
+    renderPanel()
+  }
+
+  async function applyLeadEnrichmentCandidate(
+    candidateKey,
+  ) {
+    if (
+      !candidateKey ||
+      state.leadEnrichmentApplyLoadingKey
+    ) {
+      return
+    }
+
+    const resolution =
+      state.leadResolution
+
+    if (
+      resolution?.status !==
+        'OWNED_BY_ME' ||
+      !resolution?.lead?.id ||
+      !resolution?.cycle?.id
+    ) {
+      return
+    }
+
+    const candidate =
+      getVisibleLeadEnrichmentCandidates()
+        .find((item) => {
+          return (
+            getLeadEnrichmentCandidateKey(
+              item,
+            ) === candidateKey
+          )
+        })
+
+    if (!candidate) {
+      return
+    }
+
+    if (
+      candidate
+        .requires_human_confirmation !==
+        true ||
+      !isConfirmableLeadEnrichmentCandidate(
+        candidate,
+      )
+    ) {
+      state = {
+        ...state,
+        leadEnrichmentApplyError:
+          'Este dado exige revisão manual antes de alterar o cadastro.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    if (
+      !window
+        .YolenCompanionApi
+        ?.applyLeadEnrichment
+    ) {
+      state = {
+        ...state,
+        leadEnrichmentApplyError:
+          'Atualização cadastral indisponível nesta versão do Companion.',
+      }
+
+      renderPanel()
+      return
+    }
+
+    state = {
+      ...state,
+      leadEnrichmentApplyLoadingKey:
+        candidateKey,
+      leadEnrichmentApplySuccessKey:
+        null,
+      leadEnrichmentApplyError:
+        null,
+    }
+
+    renderPanel()
+
+    try {
+      const result =
+        await window
+          .YolenCompanionApi
+          .applyLeadEnrichment({
+            lead_id:
+              resolution.lead.id,
+            cycle_id:
+              resolution.cycle.id,
+            field:
+              candidate.field,
+            value:
+              candidate.normalized_value,
+            expected_current_value:
+              candidate.current_value ||
+              null,
+            evidence_message_ids:
+              candidate
+                .evidence_message_ids,
+            confirmed_by_human:
+              true,
+          })
+
+      if (
+        !result?.ok ||
+        !result?.payload?.ok
+      ) {
+        throw new Error(
+          result?.payload?.error ||
+            'Não foi possível atualizar o cadastro.',
+        )
+      }
+
+      state = {
+        ...state,
+        leadEnrichmentApplyLoadingKey:
+          null,
+        leadEnrichmentApplySuccessKey:
+          candidateKey,
+        leadEnrichmentApplyError:
+          null,
+      }
+
+      renderPanel()
+
+      window.setTimeout(() => {
+        const panel =
+          document.getElementById(
+            PANEL_ID,
+          )
+
+        panel
+          ?.querySelector(
+            '[data-yolen-action="refresh"]',
+          )
+          ?.click()
+      }, 350)
+    } catch (error) {
+      state = {
+        ...state,
+        leadEnrichmentApplyLoadingKey:
+          null,
+        leadEnrichmentApplySuccessKey:
+          null,
+        leadEnrichmentApplyError:
+          error instanceof Error &&
+          error.message
+            ? error.message
+            : 'Erro ao atualizar o cadastro.',
+      }
+
+      renderPanel()
+    }
+  }
+
+  function getLeadEnrichmentCandidateActionsHtml(
+    candidate,
+  ) {
+    const candidateKey =
+      getLeadEnrichmentCandidateKey(
+        candidate,
+      )
+
+    const isApplying =
+      state
+        .leadEnrichmentApplyLoadingKey ===
+      candidateKey
+
+    const isApplied =
+      state
+        .leadEnrichmentApplySuccessKey ===
+      candidateKey
+
+    const actionsLocked =
+      Boolean(
+        state
+          .leadEnrichmentApplyLoadingKey,
+      ) ||
+      isApplied
+
+    const ignoreButton = [
+      '<button',
+        ' class="yolen-secondary-button"',
+        ' type="button"',
+        ' data-yolen-action="ignore-lead-enrichment"',
+        ' data-yolen-enrichment-key="' +
+          escapeHtml(candidateKey) +
+          '"',
+        actionsLocked
+          ? ' disabled'
+          : '',
+      '>',
+        'Ignorar',
+      '</button>',
+    ].join('')
+
+    if (
+      !isConfirmableLeadEnrichmentCandidate(
+        candidate,
+      ) ||
+      candidate
+        .requires_human_confirmation !==
+        true
+    ) {
+      return [
+        '<div class="yolen-inline-actions">',
+          ignoreButton,
+        '</div>',
+        '<div class="yolen-operational-note">',
+          'Este campo exige revisão manual.',
+        '</div>',
+      ].join('')
+    }
+
+    const confirmButton = [
+      '<button',
+        ' class="yolen-primary-button"',
+        ' type="button"',
+        ' data-yolen-action="confirm-lead-enrichment"',
+        ' data-yolen-enrichment-key="' +
+          escapeHtml(candidateKey) +
+          '"',
+        actionsLocked
+          ? ' disabled'
+          : '',
+      '>',
+        isApplied
+          ? 'Atualizado'
+          : isApplying
+            ? 'Salvando...'
+            : 'Confirmar',
+      '</button>',
+    ].join('')
+
+    return [
+      '<div class="yolen-inline-actions yolen-enrichment-actions">',
+        confirmButton,
+        ignoreButton,
+      '</div>',
+    ].join('')
+  }
+
   function getLeadEnrichmentCandidatesHtml() {
     if (
       state.leadResolution?.status ===
@@ -6087,7 +6405,7 @@
     }
 
     const candidates =
-      getLeadEnrichmentCandidates()
+      getVisibleLeadEnrichmentCandidates()
 
     if (candidates.length === 0) {
       return ''
@@ -6143,6 +6461,9 @@
                   comparisonLabel,
                 ),
               '</div>',
+              getLeadEnrichmentCandidateActionsHtml(
+                candidate,
+              ),
             '</div>',
           ].join('')
         })
@@ -6166,8 +6487,19 @@
           items,
         '</div>',
 
+        state.leadEnrichmentApplyError
+          ? [
+              '<div class="yolen-operational-note">',
+                escapeHtml(
+                  state
+                    .leadEnrichmentApplyError,
+                ),
+              '</div>',
+            ].join('')
+          : '',
+
         '<div class="yolen-operational-note">',
-          'Nada será salvo no cadastro nesta etapa.',
+          'O cadastro só muda depois que você confirmar.',
         '</div>',
       '</div>',
     ].join('')
@@ -6664,6 +6996,50 @@
         }
       })
     })
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="confirm-lead-enrichment"]',
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          'click',
+          () => {
+            const candidateKey =
+              button.getAttribute(
+                'data-yolen-enrichment-key',
+              )
+
+            if (candidateKey) {
+              void applyLeadEnrichmentCandidate(
+                candidateKey,
+              )
+            }
+          },
+        )
+      })
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="ignore-lead-enrichment"]',
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          'click',
+          () => {
+            const candidateKey =
+              button.getAttribute(
+                'data-yolen-enrichment-key',
+              )
+
+            if (candidateKey) {
+              ignoreLeadEnrichmentCandidate(
+                candidateKey,
+              )
+            }
+          },
+        )
+      })
 
     panel.querySelectorAll('[data-yolen-action="collapse-companion"]').forEach((button) => {
       button.addEventListener('click', () => {
