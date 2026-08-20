@@ -20,8 +20,12 @@ import {
   buildCommercialFactPromptRules,
 } from './commercial-fact-prompt-rules'
 
+import {
+  buildCommercialObjectionPromptRules,
+} from './commercial-objection-prompt-rules'
+
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v13' as const
+  'phase-5-prompt-v14' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -539,6 +543,11 @@ function buildSystemPrompt(
     buildCommercialFactPromptRules(
       input.commercial_context
         .facts,
+    ),
+
+    buildCommercialObjectionPromptRules(
+      input.commercial_context
+        .objection_guides,
     ),
 
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',

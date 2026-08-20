@@ -23,6 +23,10 @@ import {
   buildCommercialFactPromptRules,
 } from './commercial-fact-prompt-rules'
 
+import {
+  buildCommercialObjectionPromptRules,
+} from './commercial-objection-prompt-rules'
+
 import type {
   StatefulCopilotNormalizationContext,
 } from './stateful-copilot-normalizer'
@@ -33,7 +37,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v16' as const
+  'phase-5.2-stateful-prompt-v17' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -864,6 +868,13 @@ function buildSystemPrompt(
         .diagnostic_input
         .commercial_context
         .facts,
+    ),
+
+    buildCommercialObjectionPromptRules(
+      input
+        .diagnostic_input
+        .commercial_context
+        .objection_guides,
     ),
 
     'A estratégia precisa explicar como o método, o contexto, as mensagens atuais e as memórias ativas foram integrados.',

@@ -1269,7 +1269,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v16 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v17 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1286,7 +1286,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v16',
+      'phase-5.2-stateful-prompt-v17',
     )
 
     assert.match(
@@ -1363,7 +1363,7 @@ test(
 
 
 test(
-  'prompt stateful v16 aplica os mesmos guardrails de fatos oficiais V2',
+  'prompt stateful v17 aplica os mesmos guardrails de fatos oficiais V2',
   () => {
     const input =
       buildInput({
@@ -1503,7 +1503,7 @@ test(
 )
 
 test(
-  'prompt stateful v16 aplica os mesmos guardrails de produto e variante V3',
+  'prompt stateful v17 aplica os mesmos guardrails de produto e variante V3',
   () => {
     const input =
       buildInput({
@@ -1585,7 +1585,7 @@ test(
 )
 
 test(
-  'prompt stateful v16 interpreta suficiência e espera do método V2',
+  'prompt stateful v17 interpreta suficiência e espera do método V2',
   () => {
     const input =
       buildInput({
@@ -1927,6 +1927,163 @@ test(
         .context_bridge_messages[0]
         .text_content,
       'A demonstração continua confirmada para amanhã às 15h.',
+    )
+  },
+)
+
+
+test(
+  'prompt stateful v17 aplica os mesmos guardrails de objeções comerciais V2',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .objection_guides = [
+        {
+          contract_version:
+            'commercial-objection-v2',
+
+          definition: {
+            contract_version:
+              'commercial-objection-v2',
+
+            objection_kind:
+              'commercial_objection',
+
+            objection_key:
+              'price_value',
+
+            objection:
+              'Preço percebido como alto',
+
+            category:
+              'price',
+
+            description:
+              'Preço ou valor percebido está bloqueando materialmente a progressão.',
+
+            scope: {
+              type:
+                'company',
+
+              product_id:
+                null,
+
+              variant_key:
+                null,
+            },
+
+            signals: [
+              'Está caro.',
+            ],
+
+            objection_when: [
+              'O cliente apresenta preço como bloqueio real.',
+            ],
+
+            not_objection_when: [
+              'O cliente apenas pergunta qual é o preço.',
+            ],
+
+            distinguish_from: [
+              'question',
+              'information_request',
+              'condition',
+              'postponement',
+              'rejection',
+              'uncertainty',
+            ],
+
+            discovery_questions: [
+              'O que está pesando nessa condição?',
+            ],
+
+            recommended_approach:
+              'Compreender antes de responder.',
+
+            response_limits: [
+              'Não inventar desconto.',
+            ],
+
+            resolution_criteria: [
+              'Está claro se preço continua sendo bloqueio.',
+            ],
+
+            wait_when: [
+              'O cliente pediu tempo com retorno explícito.',
+            ],
+
+            give_space_when: [
+              'Insistir agora aumentaria a resistência.',
+            ],
+
+            stop_when: [
+              'O cliente recusou explicitamente continuar.',
+            ],
+          },
+
+          sort_order:
+            1,
+
+          objection:
+            'Preço percebido como alto',
+
+          signals: [
+            'Está caro.',
+          ],
+
+          discovery_questions: [
+            'O que está pesando nessa condição?',
+          ],
+
+          recommended_approach:
+            'Compreender antes de responder.',
+
+          response_limits: [
+            'Não inventar desconto.',
+          ],
+        },
+      ]
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /A existência de um guia configurado não prova que aquela objeção esteja ativa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Perguntar preço, investimento, forma de pagamento ou condição comercial não é automaticamente objeção/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.not_objection_when contém exclusões vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.give_space_when pode indicar que insistir pioraria a interação/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /WAIT, GIVE_SPACE, STOP e ausência de intervenção são consequências válidas/,
     )
   },
 )
