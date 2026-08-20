@@ -162,7 +162,7 @@ test('B2 ignora mensagens enviadas pelo vendedor', () => {
   assert.deepEqual(candidates, [])
 })
 
-test('B2 extrai CPF e CNPJ somente quando válidos e explicitamente identificados', () => {
+test('B2 extrai CPF e CNPJ válidos quando identificados na própria mensagem', () => {
   const candidates =
     extractLeadEnrichmentCandidates([
       incoming(
@@ -199,6 +199,204 @@ test('B2 extrai CPF e CNPJ somente quando válidos e explicitamente identificado
   assert.equal(
     candidates[1].sensitivity,
     'sensitive_document',
+  )
+})
+
+test('B2.1 associa CPF e CNPJ isolados à solicitação explícita imediatamente anterior', () => {
+  const candidates =
+    extractLeadEnrichmentCandidates([
+      incoming(
+        'Me passa seu cpf por gentileza',
+        {
+          id: 'ask-cpf',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '08561312963',
+        {
+          id: 'reply-cpf',
+        },
+      ),
+      incoming(
+        'Pode me enviar seu CNPJ?',
+        {
+          id: 'ask-cnpj',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '11.222.333/0001-81',
+        {
+          id: 'reply-cnpj',
+        },
+      ),
+    ])
+
+  assert.deepEqual(
+    fields(candidates),
+    ['cpf', 'cnpj'],
+  )
+
+  assert.equal(
+    candidates[0].normalized_value,
+    '08561312963',
+  )
+
+  assert.equal(
+    candidates[0].detection,
+    'contextual_reply',
+  )
+
+  assert.deepEqual(
+    candidates[0]
+      .evidence_message_ids,
+    [
+      'ask-cpf',
+      'reply-cpf',
+    ],
+  )
+
+  assert.equal(
+    candidates[0]
+      .requires_human_confirmation,
+    true,
+  )
+
+  assert.equal(
+    candidates[1].normalized_value,
+    '11222333000181',
+  )
+
+  assert.deepEqual(
+    candidates[1]
+      .evidence_message_ids,
+    [
+      'ask-cnpj',
+      'reply-cnpj',
+    ],
+  )
+})
+
+test('B2.1 não interpreta documento isolado sem solicitação explícita imediatamente anterior', () => {
+  const candidates =
+    extractLeadEnrichmentCandidates([
+      incoming(
+        '08561312963',
+        {
+          id: 'bare-document',
+        },
+      ),
+      incoming(
+        'Me passa seu telefone',
+        {
+          id: 'ask-phone',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '08561312963',
+        {
+          id: 'phone-reply',
+        },
+      ),
+      incoming(
+        'Me passa seu cpf',
+        {
+          id: 'ask-cpf',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        'Só os números',
+        {
+          id: 'follow-up',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '08561312963',
+        {
+          id: 'late-reply',
+        },
+      ),
+    ])
+
+  assert.deepEqual(
+    candidates,
+    [],
+  )
+})
+
+test('B2.1 não atribui documento contextual solicitado para terceiro', () => {
+  const candidates =
+    extractLeadEnrichmentCandidates([
+      incoming(
+        'Me passa o CPF da sua mãe',
+        {
+          id: 'ask-third-party',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '52998224725',
+        {
+          id: 'third-party-reply',
+        },
+      ),
+    ])
+
+  assert.deepEqual(
+    candidates,
+    [],
+  )
+})
+
+test('B2.1 rejeita documento contextual com dígitos inválidos', () => {
+  const candidates =
+    extractLeadEnrichmentCandidates([
+      incoming(
+        'Me passa seu CPF',
+        {
+          id: 'ask-invalid-cpf',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '11111111111',
+        {
+          id: 'invalid-cpf',
+        },
+      ),
+    ])
+
+  assert.deepEqual(
+    candidates,
+    [],
+  )
+})
+
+test('B2.1 não infere documento quando a solicitação é ambígua', () => {
+  const candidates =
+    extractLeadEnrichmentCandidates([
+      incoming(
+        'Me passa seu CPF ou CNPJ',
+        {
+          id: 'ambiguous-request',
+          direction: 'outgoing',
+        },
+      ),
+      incoming(
+        '08561312963',
+        {
+          id: 'ambiguous-reply',
+        },
+      ),
+    ])
+
+  assert.deepEqual(
+    candidates,
+    [],
   )
 })
 

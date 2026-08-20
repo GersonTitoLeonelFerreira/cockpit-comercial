@@ -27,7 +27,7 @@
   ])
 
   const THIRD_PARTY_PATTERN =
-    /\b(?:minha|meu|da|do|de)\s+(?:esposa|marido|m[aã]e|pai|filh[oa]|irm[aã]o|namorad[oa]|s[oó]ci[oa]|amig[oa]|cliente|funcion[aá]ri[oa])\b/i
+    /\b(?:minha|meu|sua|seu|da|do|de)\s+(?:esposa|marido|m[aã]e|pai|filh[oa]|irm[aã]o|namorad[oa]|s[oó]ci[oa]|amig[oa]|cliente|funcion[aá]ri[oa])\b/i
 
   function cleanText(value) {
     return String(value || '')
@@ -366,6 +366,68 @@
       ).toLowerCase() ===
       'incoming'
     )
+  }
+
+  function isOutgoingMessage(message) {
+    return (
+      String(
+        message?.direction || '',
+      ).toLowerCase() ===
+      'outgoing'
+    )
+  }
+
+  function getRequestedDocumentField(
+    text,
+  ) {
+    const normalized =
+      cleanText(text)
+
+    if (
+      !normalized ||
+      THIRD_PARTY_PATTERN.test(
+        normalized,
+      )
+    ) {
+      return null
+    }
+
+    const hasCpf =
+      /\bcpf\b/i.test(
+        normalized,
+      )
+
+    const hasCnpj =
+      /\bcnpj\b/i.test(
+        normalized,
+      )
+
+    if (
+      hasCpf === hasCnpj
+    ) {
+      return null
+    }
+
+    const directShortRequest =
+      /^(?:cpf|cnpj)\s*[?:.!]*$/i.test(
+        normalized,
+      )
+
+    const hasRequestCue =
+      /\b(?:me\s+(?:passa|passe|manda|mande|envia|envie|informa|informe)|pode\s+(?:me\s+)?(?:passar|mandar|enviar|informar)|qual\s+(?:(?:é|e)\s+)?(?:o\s+)?(?:seu|sua)|preciso\s+(?:do|da)\s+(?:seu|sua)|(?:passa|passe|manda|mande|envia|envie|informa|informe)\s+(?:o\s+|a\s+)?(?:seu|sua))\b/i.test(
+        normalized,
+      )
+
+    if (
+      !directShortRequest &&
+      !hasRequestCue
+    ) {
+      return null
+    }
+
+    return hasCpf
+      ? 'cpf'
+      : 'cnpj'
   }
 
   function hasThirdPartyContextNear(
@@ -841,6 +903,107 @@
     return candidates
   }
 
+  function extractContextualDocumentCandidates(
+    previousMessage,
+    message,
+  ) {
+    if (
+      !isOutgoingMessage(
+        previousMessage,
+      ) ||
+      !isIncomingMessage(message)
+    ) {
+      return []
+    }
+
+    const promptMessageId =
+      getMessageId(
+        previousMessage,
+      )
+
+    const replyMessageId =
+      getMessageId(message)
+
+    const promptText =
+      getEvidenceText(
+        previousMessage,
+      )
+
+    const replyText =
+      getEvidenceText(message)
+
+    if (
+      !promptMessageId ||
+      !replyMessageId ||
+      !promptText ||
+      !replyText
+    ) {
+      return []
+    }
+
+    const requestedField =
+      getRequestedDocumentField(
+        promptText,
+      )
+
+    if (!requestedField) {
+      return []
+    }
+
+    const replyPattern =
+      requestedField === 'cpf'
+        ? /^(\d{3}\.?\d{3}\.?\d{3}-?\d{2})$/
+        : /^(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})$/
+
+    const match =
+      replyText.match(
+        replyPattern,
+      )
+
+    if (!match) {
+      return []
+    }
+
+    const digits =
+      onlyDigits(match[1])
+
+    const isValid =
+      requestedField === 'cpf'
+        ? isValidCPF(digits)
+        : isValidCNPJ(digits)
+
+    if (!isValid) {
+      return []
+    }
+
+    const candidate =
+      createCandidate({
+        field:
+          requestedField,
+        value:
+          match[1],
+        normalizedValue:
+          digits,
+        messageId:
+          replyMessageId,
+        confidence: 'high',
+        sensitivity:
+          'sensitive_document',
+        detection:
+          'contextual_reply',
+      })
+
+    return [
+      {
+        ...candidate,
+        evidence_message_ids: [
+          promptMessageId,
+          replyMessageId,
+        ],
+      },
+    ]
+  }
+
   function extractCandidatesFromMessage(
     message,
     options = {},
@@ -942,28 +1105,44 @@
     const byKey =
       new Map()
 
-    messages.forEach((message) => {
-      extractCandidatesFromMessage(
-        message,
-        options,
-      ).forEach((candidate) => {
-        const key =
-          getCandidateKey(candidate)
+    messages.forEach(
+      (message, index) => {
+        const candidates = [
+          ...extractCandidatesFromMessage(
+            message,
+            options,
+          ),
+          ...extractContextualDocumentCandidates(
+            index > 0
+              ? messages[index - 1]
+              : null,
+            message,
+          ),
+        ]
 
-        const existing =
-          byKey.get(key)
-
-        byKey.set(
-          key,
-          existing
-            ? mergeCandidateEvidence(
-                existing,
+        candidates.forEach(
+          (candidate) => {
+            const key =
+              getCandidateKey(
                 candidate,
               )
-            : candidate,
+
+            const existing =
+              byKey.get(key)
+
+            byKey.set(
+              key,
+              existing
+                ? mergeCandidateEvidence(
+                    existing,
+                    candidate,
+                  )
+                : candidate,
+            )
+          },
         )
-      })
-    })
+      },
+    )
 
     return Array.from(
       byKey.values(),
