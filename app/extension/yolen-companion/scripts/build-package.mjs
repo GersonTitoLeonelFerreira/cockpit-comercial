@@ -7,18 +7,24 @@
 //   - Nunca faz `cp -r`/glob da pasta da extensão: `tests/`, arquivos locais,
 //     `.env` e qualquer artefato temporário são estruturalmente impossíveis
 //     de entrar no pacote, porque nunca são lidos por este script.
-//   - Gera duas saídas (Chrome e Firefox), cada uma com o `background`
-//     adaptado para o motor de extensão correspondente. Nenhum outro campo
-//     do manifest é alterado nesta fase.
 //   - Gera os tamanhos de ícone (16/32/48/128) a partir do
 //     assets/yolen-mark.png existente, sem redesenhar a identidade visual.
-//     Os ícones ficam disponíveis em `assets/icons/` dentro do pacote, mas
-//     NÃO são referenciados no manifest.json ainda — ligar `icons` ao
-//     manifest é trabalho do D3 (junto da separação definitiva de host de
-//     desenvolvimento).
-//   - O pacote gerado aqui ainda inclui `http://localhost:3000/*` (herdado
-//     do manifest.json de desenvolvimento) — ver README.md, seção
-//     "Status do pacote (D1 = interno/dev)".
+//
+// Escopo (D3 — Separação DEV/PROD e Release Candidate de loja):
+//   - `manifest.json` continua sendo a ÚNICA fonte de verdade de
+//     desenvolvimento — nunca é editado por este script. Toda a diferença
+//     entre DEV e PROD acontece em memória, em `toProductionManifest()`,
+//     durante o build.
+//   - Cada navegador agora gera DOIS pacotes: `dev` (comportamento do D1,
+//     inalterado — ainda inclui `localhost:3000`, sem `icons` vinculados)
+//     e `prod` (sem nenhum host de desenvolvimento, com `icons` vinculados
+//     aos PNGs gerados, e com os ajustes específicos de loja por
+//     navegador — ver `toProductionManifest`). Os nomes de arquivo e a
+//     estrutura de diretórios dos pacotes `dev` não mudam em relação ao
+//     D1/D2, para não quebrar nada que já dependa deles; os pacotes `prod`
+//     usam um sufixo `-prod-` próprio, para que um nunca seja confundido
+//     com o outro (ver também `build-summary.json`, que grava o campo
+//     `environment` de cada pacote).
 //
 // Este script não depende de nenhum pacote npm novo: usa apenas módulos
 // nativos do Node (fs, path, zlib, crypto) e o binário `zip` do sistema
@@ -98,6 +104,122 @@ export const TARGETS = {
       return clone
     },
   },
+}
+
+// Hosts que a extensão de fato precisa em produção. Qualquer host que não
+// esteja nesta lista é, por definição, algo que não deveria sobreviver à
+// transformação DEV → PROD (hoje, isso é só o host de desenvolvimento
+// local, mas a lista existe para que a checagem seja "allowlist de hosts
+// de produção", não apenas "blocklist de localhost").
+export const PRODUCTION_HOSTS = [
+  'https://web.whatsapp.com/*',
+  'https://cockpit-comercial-vocn.vercel.app/*',
+]
+
+const DEV_HOST_PATTERN = /localhost/i
+
+function isDevHost(entry) {
+  return typeof entry === 'string' && DEV_HOST_PATTERN.test(entry)
+}
+
+// Remove o host de desenvolvimento de TODOS os campos do manifest onde ele
+// aparece — não só de `host_permissions`. Isso é verificado de novo, de
+// forma independente, em `assertNoDevHostsRemain` logo abaixo, e outra vez
+// pelo validador de Release Candidate (D2/D3), varrendo o texto inteiro do
+// manifest gerado.
+function stripDevHosts(manifest) {
+  const clone = structuredClone(manifest)
+
+  if (Array.isArray(clone.host_permissions)) {
+    clone.host_permissions = clone.host_permissions.filter((host) => !isDevHost(host))
+  }
+
+  for (const block of clone.content_scripts ?? []) {
+    if (Array.isArray(block.matches)) {
+      block.matches = block.matches.filter((host) => !isDevHost(host))
+    }
+  }
+
+  for (const block of clone.web_accessible_resources ?? []) {
+    if (Array.isArray(block.matches)) {
+      block.matches = block.matches.filter((host) => !isDevHost(host))
+    }
+  }
+
+  return clone
+}
+
+// Rede de segurança: depois de tirar os hosts de dev, (1) nenhum campo de
+// match pode ter ficado vazio (um bloco de content_script/recurso sem
+// nenhum host vira código morto, silenciosamente quebrado) e (2) a string
+// "localhost" não pode sobrar em NENHUM lugar do manifest — nem em campos
+// que hoje não existem mas alguém possa adicionar no futuro sem atualizar
+// este transformador.
+function assertNoDevHostsRemain(manifest) {
+  for (const block of manifest.content_scripts ?? []) {
+    if (Array.isArray(block.matches) && block.matches.length === 0) {
+      throw new Error('Transformação PROD deixou um bloco de content_scripts sem nenhum host — matches vazio.')
+    }
+  }
+  for (const block of manifest.web_accessible_resources ?? []) {
+    if (Array.isArray(block.matches) && block.matches.length === 0) {
+      throw new Error('Transformação PROD deixou um bloco de web_accessible_resources sem nenhum host — matches vazio.')
+    }
+  }
+  if (DEV_HOST_PATTERN.test(JSON.stringify(manifest))) {
+    throw new Error('Transformação PROD falhou: "localhost" ainda aparece em algum lugar do manifest gerado.')
+  }
+}
+
+// `icons` do manifest final aponta para os PNGs que `stageIcons` já
+// escreve em `assets/icons/` — mesmos arquivos usados pelo pacote DEV,
+// só que agora referenciados de fato pelo manifest.
+function withProductionIcons(manifest) {
+  const clone = structuredClone(manifest)
+  clone.icons = Object.fromEntries(ICON_SIZES.map((size) => [String(size), `assets/icons/icon-${size}.png`]))
+  return clone
+}
+
+// Primeira versão do Firefox com suporte estável (fora de flag) a
+// Manifest V3 — `content_scripts`, `host_permissions`,
+// `web_accessible_resources` no formato de objeto (resources + matches) e
+// `background.scripts` como event page não persistente. Nenhuma API usada
+// por este manifest (permissions: ["storage"], os campos acima) exige uma
+// versão mais nova do que essa. https://www.mozilla.org/en-US/firefox/109.0/releasenotes/
+export const FIREFOX_STRICT_MIN_VERSION = '109.0'
+
+// Transformação determinística DEV → PROD. `manifest.json` (a fonte de
+// desenvolvimento) nunca é editado — esta função sempre recebe o manifest
+// de origem e devolve um manifest NOVO, específico do navegador e pronto
+// para distribuição oficial. É a única fonte de verdade sobre "o que muda
+// entre DEV e PROD"; o validador de Release Candidate importa esta mesma
+// função em vez de reimplementar a transformação.
+export function toProductionManifest(sourceManifest, targetName) {
+  const target = TARGETS[targetName]
+  if (!target) {
+    throw new Error(`Alvo de empacotamento desconhecido: ${targetName}`)
+  }
+
+  let manifest = stripDevHosts(sourceManifest)
+  manifest = withProductionIcons(manifest)
+  manifest = target.adaptManifest(manifest)
+
+  if (targetName === 'chrome') {
+    // browser_specific_settings é específico de Gecko/Safari — não faz
+    // sentido carregar isso num pacote Chrome de produção.
+    delete manifest.browser_specific_settings
+  } else if (targetName === 'firefox') {
+    manifest.browser_specific_settings = {
+      ...manifest.browser_specific_settings,
+      gecko: {
+        ...manifest.browser_specific_settings?.gecko,
+        strict_min_version: FIREFOX_STRICT_MIN_VERSION,
+      },
+    }
+  }
+
+  assertNoDevHostsRemain(manifest)
+  return manifest
 }
 
 export function readSourceManifest() {
@@ -204,9 +326,20 @@ function createZip(stagingDir, zipPath, entries) {
   execFileSync('zip', ['-X', '-D', '-q', zipPath, ...entries], { cwd: stagingDir })
 }
 
-function buildTarget(targetName, sourceManifest) {
+export const ENVIRONMENTS = ['dev', 'prod']
+
+export function zipFileName(targetName, environment, version) {
+  return environment === 'prod'
+    ? `yolen-companion-${targetName}-prod-v${version}.zip`
+    : `yolen-companion-${targetName}-v${version}.zip`
+}
+
+function buildTarget(targetName, environment, sourceManifest) {
   const target = TARGETS[targetName]
-  const stagingDir = join(OUTPUT_ROOT, targetName, 'staging')
+  const stagingDir =
+    environment === 'prod'
+      ? join(OUTPUT_ROOT, targetName, 'prod', 'staging')
+      : join(OUTPUT_ROOT, targetName, 'staging')
   rmSync(stagingDir, { recursive: true, force: true })
   mkdirSync(stagingDir, { recursive: true })
 
@@ -217,19 +350,18 @@ function buildTarget(targetName, sourceManifest) {
 
   stageIcons(stagingDir)
 
-  const adaptedManifest = target.adaptManifest(sourceManifest)
-  stageManifest(adaptedManifest, stagingDir)
+  const manifest =
+    environment === 'prod' ? toProductionManifest(sourceManifest, targetName) : target.adaptManifest(sourceManifest)
+  stageManifest(manifest, stagingDir)
 
   const zipEntries = getTargetZipEntries(targetName)
 
-  const zipPath = join(
-    OUTPUT_ROOT,
-    `yolen-companion-${targetName}-v${sourceManifest.version}.zip`,
-  )
+  const zipPath = join(OUTPUT_ROOT, zipFileName(targetName, environment, sourceManifest.version))
   createZip(stagingDir, zipPath, zipEntries)
 
   return {
     target: targetName,
+    environment,
     zipPath,
     sha256: sha256(zipPath),
     entries: zipEntries,
@@ -242,14 +374,20 @@ function main() {
 
   mkdirSync(OUTPUT_ROOT, { recursive: true })
 
-  const results = Object.keys(TARGETS).map((targetName) => buildTarget(targetName, sourceManifest))
+  const results = Object.keys(TARGETS).flatMap((targetName) =>
+    ENVIRONMENTS.map((environment) => buildTarget(targetName, environment, sourceManifest)),
+  )
 
   const summary = {
     version: sourceManifest.version,
     generatedAt: new Date().toISOString(),
-    note: 'Pacote D1 — ainda interno/dev (inclui host de desenvolvimento localhost:3000; separação definitiva é escopo do D3).',
-    packages: results.map(({ target, zipPath, sha256: hash, entries }) => ({
+    note:
+      'Pacotes "dev" ainda são internos/dev (incluem localhost:3000, sem icons vinculados no manifest). ' +
+      'Pacotes "prod" (D3) removem todo host de desenvolvimento e vinculam os ícones gerados, mas isso NÃO ' +
+      'significa aprovação de loja — ver dist/yolen-companion/release-candidate-report.json.',
+    packages: results.map(({ target, environment, zipPath, sha256: hash, entries }) => ({
       target,
+      environment,
       zipPath: zipPath.replace(`${REPO_ROOT}/`, ''),
       sha256: hash,
       fileCount: entries.length,
@@ -260,7 +398,7 @@ function main() {
   writeFileSync(join(OUTPUT_ROOT, 'build-summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
 
   for (const pkg of summary.packages) {
-    console.log(`\n[${pkg.target}] ${pkg.zipPath}`)
+    console.log(`\n[${pkg.target}/${pkg.environment}] ${pkg.zipPath}`)
     console.log(`  sha256: ${pkg.sha256}`)
     console.log(`  arquivos (${pkg.fileCount}):`)
     for (const entry of pkg.entries) {

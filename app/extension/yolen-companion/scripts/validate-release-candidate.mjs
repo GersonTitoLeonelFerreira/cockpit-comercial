@@ -1,17 +1,19 @@
 #!/usr/bin/env node
-// Validador de Release Candidate do Yolen Companion (D2).
+// Validador de Release Candidate do Yolen Companion (D2, estendido no D3).
 //
-// Roda o build reproduzível (D1) do zero e inspeciona byte a byte os
-// pacotes Chrome/Firefox gerados, aplicando um conjunto determinístico de
-// verificações técnicas. Não decide sozinho se o pacote pode ir para loja:
-// enquanto o manifest.json de origem incluir `http://localhost:3000/*`
-// (host de desenvolvimento), a classificação final é sempre
-// INTERNAL_DEV_ONLY, mesmo que todas as verificações técnicas passem — essa
-// separação definitiva é escopo do D3, ainda não autorizado.
+// Roda o build reproduzível (D1/D3) do zero e inspeciona byte a byte os
+// QUATRO pacotes gerados (Chrome/Firefox × dev/prod), aplicando um conjunto
+// determinístico de verificações técnicas por combinação. Não decide
+// sozinho se um pacote pode ir para loja: a classificação
+// `STORE_ELIGIBLE_CANDIDATE` só é atingida quando TODAS as verificações
+// técnicas passam E nenhum host de desenvolvimento sobrevive em nenhum
+// campo do manifest E os ícones estão declarados/válidos E o background e
+// as configurações específicas do navegador estão corretos — nunca só pela
+// ausência de `localhost`. Ver `classifyReleaseCandidate`.
 //
 // Não depende de nenhum pacote npm novo: usa apenas módulos nativos do Node
-// e os binários `zip`/`unzip` do sistema operacional (o mesmo binário
-// `zip` já usado pelo build em D1).
+// e os binários `zip`/`unzip` do sistema operacional (os mesmos já usados
+// pelo build).
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -20,19 +22,24 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  ENVIRONMENTS,
   EXTENSION_ROOT,
+  FIREFOX_STRICT_MIN_VERSION,
+  ICON_SIZES,
   OUTPUT_ROOT,
+  PRODUCTION_HOSTS,
   REPO_ROOT,
   TARGETS,
   assertAllowlistMatchesManifest,
   getTargetZipEntries,
   readSourceManifest,
   sha256,
+  toProductionManifest,
+  zipFileName,
 } from './build-package.mjs'
 import { decodePng } from './lib/png-resize.mjs'
 
 const BUILD_SCRIPT = join(EXTENSION_ROOT, 'scripts', 'build-package.mjs')
-const ICON_SIZES = [16, 32, 48, 128]
 
 // Limites de tamanho: generosos o bastante para não travar um build
 // legítimo, mas suficientes para pegar algo inflado por engano (ex.: um
@@ -42,8 +49,8 @@ export const MAX_ENTRY_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 // 4 MiB por arquivo
 
 // Qualquer entrada do zip que bata em um destes padrões é, por definição,
 // algo que não deveria estar num pacote de distribuição — mesmo que a
-// allowlist do build (D1) já torne isso estruturalmente improvável, esta é
-// uma segunda linha de defesa que inspeciona o artefato final de verdade.
+// allowlist do build já torne isso estruturalmente improvável, esta é uma
+// segunda linha de defesa que inspeciona o artefato final de verdade.
 export const FORBIDDEN_ENTRY_PATTERNS = [
   { pattern: /(^|\/)tests?\//i, reason: 'diretório de testes' },
   { pattern: /\.test\.[cm]?[jt]sx?$/i, reason: 'arquivo de teste' },
@@ -88,11 +95,55 @@ export function checkSizeLimits({ zipBytes, entrySizes }) {
   return { pass: violations.length === 0, violations }
 }
 
-// Classificação exigida pelo Controle Mestre: a presença de localhost no
-// pacote NUNCA vira "falha técnica" (é esperada até o D3), mas também
-// nunca autoriza publicação em loja. As três classificações são
-// mutuamente exclusivas e cobrem exatamente os três estados citados na
-// autorização do D2.
+// Predicados puros usados pelas verificações por pacote (`runChecksForTarget`)
+// e reutilizados diretamente nos testes determinísticos do D3 — permitem
+// provar, sem rodar o build/zip completo, que manifests adulterados (host
+// de dev reintroduzido, ícone removido, background trocado) fazem essas
+// verificações falharem, o que por sua vez derruba `STORE_ELIGIBLE_CANDIDATE`.
+export function manifestHasDevHosts(manifest) {
+  return /localhost/i.test(JSON.stringify(manifest ?? {}))
+}
+
+export function manifestBackgroundMatches(actualManifest, expectedManifest) {
+  return (
+    actualManifest?.background != null &&
+    JSON.stringify(actualManifest.background) === JSON.stringify(expectedManifest.background)
+  )
+}
+
+export function manifestIconsMatch(actualManifest, expectedManifest) {
+  return JSON.stringify(actualManifest?.icons ?? null) === JSON.stringify(expectedManifest.icons ?? null)
+}
+
+export function manifestHostsAndPermissionsMatch(actualManifest, expectedManifest) {
+  const expectedHosts = [...(expectedManifest.host_permissions ?? [])].sort()
+  const actualHosts = [...(actualManifest?.host_permissions ?? [])].sort()
+  const expectedPermissions = [...(expectedManifest.permissions ?? [])].sort()
+  const actualPermissions = [...(actualManifest?.permissions ?? [])].sort()
+  return (
+    JSON.stringify(actualHosts) === JSON.stringify(expectedHosts) &&
+    JSON.stringify(actualPermissions) === JSON.stringify(expectedPermissions)
+  )
+}
+
+export function firefoxGeckoSettingsValid(actualManifest, expectedStrictMinVersion) {
+  const gecko = actualManifest?.browser_specific_settings?.gecko
+  return typeof gecko?.id === 'string' && gecko.id.length > 0 && gecko?.strict_min_version === expectedStrictMinVersion
+}
+
+export function manifestMatchesExpectedTransform(actualManifest, expectedManifest) {
+  return actualManifest != null && JSON.stringify(actualManifest) === JSON.stringify(expectedManifest)
+}
+
+// Classificação por combinação (navegador × ambiente). `STORE_ELIGIBLE_CANDIDATE`
+// NUNCA depende só da ausência de `localhost`: `technicalPass` já é o "E"
+// lógico de TODAS as verificações da combinação (arquivos obrigatórios,
+// manifest válido, background correto, ícones declarados e válidos,
+// configuração do Firefox quando aplicável, hosts/permissões sem nada
+// inesperado, versão consistente, sem artefato indevido, dentro dos
+// limites de tamanho — ver `runChecksForTarget`). `localhostDetected` é só
+// mais um fator que essa mesma combinação de checks já cobre para pacotes
+// prod; para pacotes dev ele é esperado e não entra em `checks`.
 export function classifyReleaseCandidate({ technicalPass, localhostDetected }) {
   if (!technicalPass) {
     return {
@@ -109,14 +160,18 @@ export function classifyReleaseCandidate({ technicalPass, localhostDetected }) {
       label:
         'Release Candidate técnico (uso interno) — todas as verificações técnicas passaram, mas o pacote ainda contém ' +
         'http://localhost:3000/* herdado do manifest de desenvolvimento. NÃO elegível para submissão à Chrome Web Store ' +
-        'ou à AMO enquanto o D3 (separação definitiva dev/prod) não for executado e autorizado.',
+        'ou à AMO.',
     }
   }
 
   return {
     classification: 'STORE_ELIGIBLE_CANDIDATE',
     storeEligible: true,
-    label: 'Release Candidate tecnicamente elegível para submissão à loja (nenhum host de desenvolvimento detectado).',
+    label:
+      'Release Candidate tecnicamente pronto para submissão à loja: todas as verificações técnicas passaram (arquivos, ' +
+      'manifest, background, ícones, hosts/permissões, configuração específica do navegador) e nenhum host de ' +
+      'desenvolvimento foi detectado. Isso significa tecnicamente preparado para submissão — não que a extensão já foi ' +
+      'publicada ou aprovada pela loja.',
   }
 }
 
@@ -156,14 +211,15 @@ function validateManifestShape(manifest) {
   return problems
 }
 
-function runChecksForTarget(targetName, sourceManifest, globalAllowlistCoherent) {
-  const zipPath = join(OUTPUT_ROOT, `yolen-companion-${targetName}-v${sourceManifest.version}.zip`)
+function runChecksForTarget(targetName, environment, sourceManifest, globalAllowlistCoherent) {
+  const isProd = environment === 'prod'
+  const zipPath = join(OUTPUT_ROOT, zipFileName(targetName, environment, sourceManifest.version))
   const checks = []
 
   const zipExists = existsSync(zipPath)
-  checks.push(check('package_generated', `Pacote ${targetName} foi gerado`, zipExists, zipPath))
+  checks.push(check('package_generated', `Pacote ${targetName}/${environment} foi gerado`, zipExists, zipPath))
   if (!zipExists) {
-    return { target: targetName, zipPath, checks, pass: false }
+    return { target: targetName, environment, zipPath, checks, localhostDetected: null, pass: false }
   }
 
   const zipBytes = statSync(zipPath).size
@@ -207,16 +263,22 @@ function runChecksForTarget(targetName, sourceManifest, globalAllowlistCoherent)
   }
   checks.push(check('manifest_valid', 'manifest.json do pacote é válido', manifestProblems.length === 0, manifestProblems))
 
-  const expectedBackground = manifest ? TARGETS[targetName].adaptManifest(sourceManifest).background : null
-  const backgroundMatches =
-    manifest?.background != null && JSON.stringify(manifest.background) === JSON.stringify(expectedBackground)
+  // Fonte única de verdade sobre "o que deveria estar neste manifest":
+  // a mesma transformação que o build usou para gerá-lo (dev = adaptManifest
+  // do alvo; prod = toProductionManifest). Comparar contra ela evita que o
+  // validador duplique regras de transformação que possam divergir do build.
+  const expectedManifest = isProd
+    ? toProductionManifest(sourceManifest, targetName)
+    : TARGETS[targetName].adaptManifest(sourceManifest)
+
+  const backgroundMatches = manifestBackgroundMatches(manifest, expectedManifest)
   const backgroundLabel =
     targetName === 'chrome'
       ? 'Pacote Chrome contém somente background.service_worker'
       : 'Pacote Firefox contém somente background.scripts'
   checks.push(
     check('background_adapted_for_target', backgroundLabel, backgroundMatches, {
-      expected: expectedBackground,
+      expected: expectedManifest.background,
       actual: manifest?.background ?? null,
     }),
   )
@@ -232,23 +294,100 @@ function runChecksForTarget(targetName, sourceManifest, globalAllowlistCoherent)
     ),
   )
 
-  const iconProblems = []
+  const iconFileProblems = []
   for (const size of ICON_SIZES) {
     const entryName = `assets/icons/icon-${size}.png`
     if (!actualEntries.includes(entryName)) {
-      iconProblems.push(`${entryName} ausente`)
+      iconFileProblems.push(`${entryName} ausente`)
       continue
     }
     try {
       const decoded = decodePng(extractEntry(zipPath, entryName))
       if (decoded.width !== size || decoded.height !== size) {
-        iconProblems.push(`${entryName} com dimensões ${decoded.width}x${decoded.height}, esperado ${size}x${size}`)
+        iconFileProblems.push(`${entryName} com dimensões ${decoded.width}x${decoded.height}, esperado ${size}x${size}`)
       }
     } catch (error) {
-      iconProblems.push(`${entryName} não é um PNG válido: ${error.message}`)
+      iconFileProblems.push(`${entryName} não é um PNG válido: ${error.message}`)
     }
   }
-  checks.push(check('icons_valid', 'Ícones gerados são PNGs válidos nos tamanhos esperados (16/32/48/128)', iconProblems.length === 0, iconProblems))
+  checks.push(
+    check(
+      'icon_files_valid',
+      'Arquivos de ícone gerados são PNGs válidos nos tamanhos esperados (16/32/48/128)',
+      iconFileProblems.length === 0,
+      iconFileProblems,
+    ),
+  )
+
+  // Vínculo do `icons` no manifest é dependente do ambiente: pacotes prod
+  // DEVEM declarar `icons` apontando para os PNGs acima; pacotes dev
+  // continuam sem declarar (comportamento inalterado desde o D1/D2).
+  const iconsMatch = manifestIconsMatch(manifest, expectedManifest)
+  checks.push(
+    check(
+      'icons_declared_correctly',
+      isProd
+        ? 'manifest de produção declara `icons` apontando para os PNGs gerados'
+        : 'manifest de desenvolvimento não declara `icons` (vínculo é exclusivo dos pacotes prod)',
+      iconsMatch,
+      { expected: expectedManifest.icons ?? null, actual: manifest?.icons ?? null },
+    ),
+  )
+
+  const localhostDetected = manifestHasDevHosts(manifest)
+
+  if (isProd) {
+    checks.push(
+      check(
+        'no_dev_hosts_anywhere',
+        'Nenhum host de desenvolvimento (localhost) em host_permissions, content_scripts.matches ou web_accessible_resources.matches',
+        !localhostDetected,
+      ),
+    )
+
+    checks.push(
+      check(
+        'no_unexpected_hosts_or_permissions',
+        'host_permissions contém apenas hosts de produção esperados e nenhuma permissão inesperada',
+        manifestHostsAndPermissionsMatch(manifest, expectedManifest),
+        {
+          expectedHosts: [...PRODUCTION_HOSTS].sort(),
+          actualHosts: [...(manifest?.host_permissions ?? [])].sort(),
+          expectedPermissions: [...(expectedManifest.permissions ?? [])].sort(),
+          actualPermissions: [...(manifest?.permissions ?? [])].sort(),
+        },
+      ),
+    )
+
+    if (targetName === 'firefox') {
+      checks.push(
+        check(
+          'firefox_gecko_settings_valid',
+          `browser_specific_settings.gecko válido, com strict_min_version definido (esperado ${FIREFOX_STRICT_MIN_VERSION})`,
+          firefoxGeckoSettingsValid(manifest, FIREFOX_STRICT_MIN_VERSION),
+          { actual: manifest?.browser_specific_settings?.gecko ?? null, expectedStrictMinVersion: FIREFOX_STRICT_MIN_VERSION },
+        ),
+      )
+    } else if (targetName === 'chrome') {
+      checks.push(
+        check(
+          'chrome_no_gecko_settings',
+          'Pacote Chrome não carrega configuração exclusiva do Firefox (browser_specific_settings)',
+          manifest?.browser_specific_settings === undefined,
+          { actual: manifest?.browser_specific_settings ?? null },
+        ),
+      )
+    }
+
+    checks.push(
+      check(
+        'production_manifest_matches_expected_transform',
+        'Manifest de produção é exatamente igual à transformação DEV → PROD esperada (nenhuma diferença não prevista)',
+        manifestMatchesExpectedTransform(manifest, expectedManifest),
+        { expected: expectedManifest, actual: manifest },
+      ),
+    )
+  }
 
   const entryBuffers = actualEntries.map((name) => ({ name, buffer: extractEntry(zipPath, name) }))
   const entryHashes = entryBuffers.map(({ name, buffer }) => ({
@@ -261,13 +400,11 @@ function runChecksForTarget(targetName, sourceManifest, globalAllowlistCoherent)
   const sizeCheck = checkSizeLimits({ zipBytes, entrySizes })
   checks.push(check('size_within_limits', 'Pacote e arquivos internos dentro dos limites de tamanho', sizeCheck.pass, sizeCheck.violations))
 
-  const manifestText = manifest ? JSON.stringify(manifest) : ''
-  const localhostDetected = /localhost/i.test(manifestText)
-
   const pass = checks.every((c) => c.pass)
 
   return {
     target: targetName,
+    environment,
     zipPath,
     zipBytes,
     zipSha256: sha256(zipPath),
@@ -280,9 +417,9 @@ function runChecksForTarget(targetName, sourceManifest, globalAllowlistCoherent)
 }
 
 function main() {
-  console.log('== Validador de Release Candidate — Yolen Companion (D2) ==\n')
+  console.log('== Validador de Release Candidate — Yolen Companion (D2/D3) ==\n')
 
-  console.log('[1/2] Rodando build reproduzível (D1)...')
+  console.log('[1/2] Rodando build reproduzível (D1/D3)...')
   const buildResult = runBuild()
   console.log(buildResult.pass ? '  build OK' : `  build FALHOU:\n${buildResult.details}`)
 
@@ -297,16 +434,24 @@ function main() {
     allowlistDetails = error.message
   }
 
-  console.log('\n[2/2] Inspecionando pacotes gerados...')
-  const targetResults = buildResult.pass
-    ? Object.keys(TARGETS).map((targetName) => runChecksForTarget(targetName, sourceManifest, allowlistCoherent))
+  console.log('\n[2/2] Inspecionando pacotes gerados (Chrome/Firefox × dev/prod)...')
+  const rawResults = buildResult.pass
+    ? Object.keys(TARGETS).flatMap((targetName) =>
+        ENVIRONMENTS.map((environment) => runChecksForTarget(targetName, environment, sourceManifest, allowlistCoherent)),
+      )
     : []
 
-  const technicalPass =
-    buildResult.pass && allowlistCoherent && targetResults.length > 0 && targetResults.every((t) => t.pass)
+  const results = rawResults.map((result) => {
+    const technicalPass = result.pass
+    const { classification, storeEligible, label } = classifyReleaseCandidate({
+      technicalPass,
+      localhostDetected: result.localhostDetected,
+    })
+    return { ...result, technicalPass, classification, storeEligible, label }
+  })
 
-  const localhostDetected = targetResults.some((t) => t.localhostDetected)
-  const { classification, storeEligible, label } = classifyReleaseCandidate({ technicalPass, localhostDetected })
+  const overallTechnicalPass =
+    buildResult.pass && allowlistCoherent && results.length > 0 && results.every((r) => r.technicalPass)
 
   const report = {
     version: sourceManifest.version,
@@ -314,20 +459,21 @@ function main() {
     buildSucceeded: buildResult.pass,
     buildDetails: buildResult.pass ? null : buildResult.details,
     globalChecks: [check('allowlist_coherent', 'Allowlist do build coerente com manifest.json de origem', allowlistCoherent, allowlistDetails)],
-    technicalPass,
-    localhostDetected,
-    classification,
-    storeEligible,
-    label,
-    targets: Object.fromEntries(
-      targetResults.map((result) => [
-        result.target,
+    overallTechnicalPass,
+    results: Object.fromEntries(
+      results.map((result) => [
+        `${result.target}-${result.environment}`,
         {
+          target: result.target,
+          environment: result.environment,
           zipPath: result.zipPath.replace(`${REPO_ROOT}/`, ''),
           zipBytes: result.zipBytes,
           zipSha256: result.zipSha256,
           localhostDetected: result.localhostDetected,
-          pass: result.pass,
+          technicalPass: result.technicalPass,
+          classification: result.classification,
+          storeEligible: result.storeEligible,
+          label: result.label,
           checks: result.checks,
           entryHashes: result.entryHashes,
         },
@@ -339,9 +485,9 @@ function main() {
   const reportPath = join(OUTPUT_ROOT, 'release-candidate-report.json')
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
 
-  console.log('\n== Resultado ==')
-  for (const result of targetResults) {
-    console.log(`\n[${result.target}] ${result.pass ? 'PASS' : 'FAIL'}`)
+  console.log('\n== Resultado por pacote ==')
+  for (const result of results) {
+    console.log(`\n[${result.target}/${result.environment}] ${result.pass ? 'PASS' : 'FAIL'}`)
     for (const c of result.checks) {
       console.log(`  ${c.pass ? '✓' : '✗'} ${c.id}: ${c.description}`)
       if (!c.pass) {
@@ -351,13 +497,17 @@ function main() {
   }
 
   console.log(`\nAllowlist coerente com manifest.json: ${allowlistCoherent ? 'sim' : `NÃO — ${allowlistDetails}`}`)
-  console.log(`\nValidação técnica geral: ${technicalPass ? 'PASS' : 'FAIL'}`)
-  console.log(`Classificação: ${classification}`)
-  console.log(`Elegível para loja: ${storeEligible ? 'sim' : 'não'}`)
-  console.log(`\n${label}`)
+
+  console.log('\n== Classificação ==')
+  for (const result of results) {
+    const label = `${result.target[0].toUpperCase()}${result.target.slice(1)} ${result.environment.toUpperCase()}`
+    console.log(`${label}: ${result.classification}`)
+  }
+
+  console.log(`\nValidação técnica geral: ${overallTechnicalPass ? 'PASS' : 'FAIL'}`)
   console.log(`\nRelatório completo: ${reportPath.replace(`${REPO_ROOT}/`, '')}`)
 
-  process.exit(technicalPass ? 0 : 1)
+  process.exit(overallTechnicalPass ? 0 : 1)
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
