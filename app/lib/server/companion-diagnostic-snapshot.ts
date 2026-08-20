@@ -139,6 +139,8 @@ const OBJECTION_GUIDE_FIELDS = `
   id,
   company_id,
   config_version_id,
+  commercial_objection_contract_version,
+  commercial_objection_definition,
   sort_order,
   objection,
   signals,

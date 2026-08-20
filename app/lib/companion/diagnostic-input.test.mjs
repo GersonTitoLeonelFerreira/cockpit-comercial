@@ -517,6 +517,157 @@ function buildCommercialFactRecord(
   }
 }
 
+function buildCommercialObjectionV2(
+  overrides = {},
+) {
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    objection_kind:
+      'commercial_objection',
+
+    objection_key:
+      'price_value',
+
+    objection:
+      'Preço percebido como alto',
+
+    category:
+      'price',
+
+    description:
+      'Resistência em que o preço ou a relação entre preço e valor percebido dificulta materialmente a decisão.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+    },
+
+    signals: [
+      'Está caro.',
+      'Ficou acima do orçamento previsto.',
+    ],
+
+    objection_when: [
+      'O cliente apresenta o preço como bloqueio real para avançar.',
+    ],
+
+    not_objection_when: [
+      'O cliente apenas pergunta qual é o preço.',
+      'O cliente apenas pede condições de pagamento.',
+    ],
+
+    distinguish_from: [
+      'question',
+      'information_request',
+      'condition',
+      'postponement',
+      'rejection',
+      'uncertainty',
+    ],
+
+    discovery_questions: [
+      'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
+    ],
+
+    recommended_approach:
+      'Compreender a natureza da resistência antes de responder.',
+
+    response_limits: [
+      'Não presumir falta de dinheiro.',
+      'Não oferecer desconto sem política comercial aplicável.',
+    ],
+
+    resolution_criteria: [
+      'Está claro se o preço continua sendo um bloqueio real para a decisão.',
+    ],
+
+    wait_when: [
+      'O cliente pediu tempo e assumiu compromisso explícito de retorno.',
+    ],
+
+    give_space_when: [
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    ],
+
+    stop_when: [
+      'O cliente fez uma recusa explícita e não solicitou continuidade.',
+    ],
+
+    ...overrides,
+  }
+}
+
+function buildCommercialObjectionRecord(
+  definition,
+  overrides = {},
+) {
+  return {
+    id:
+      '833e4567-e89b-42d3-a456-426614174000',
+
+    company_id:
+      COMPANY_ID,
+
+    config_version_id:
+      CONFIG_VERSION_ID,
+
+    commercial_objection_contract_version:
+      definition
+        ? 'commercial-objection-v2'
+        : 'commercial-objection-v1',
+
+    commercial_objection_definition:
+      definition,
+
+    sort_order:
+      1,
+
+    objection:
+      definition?.objection ??
+      'Preço',
+
+    signals:
+      definition?.signals ?? [
+        'Está caro',
+      ],
+
+    discovery_questions:
+      definition
+        ?.discovery_questions ?? [
+        'O que você está comparando?',
+      ],
+
+    recommended_approach:
+      definition
+        ?.recommended_approach ??
+      'Entender a comparação antes de responder.',
+
+    response_limits:
+      definition?.response_limits ?? [
+        'Não prometer desconto inexistente.',
+      ],
+
+    is_active:
+      true,
+
+    created_at:
+      '2026-08-01T10:00:00.000Z',
+
+    updated_at:
+      '2026-08-01T10:00:00.000Z',
+
+    ...overrides,
+  }
+}
+
 function buildCommercialConfig(
   overrides = {},
 ) {
@@ -881,6 +1032,129 @@ test(
         .facts[0]
         .validity_status,
       'legacy',
+    )
+
+    assert.equal(
+      result.commercial_context
+        .objection_guides[0]
+        .contract_version,
+      'commercial-objection-v1',
+    )
+
+    assert.equal(
+      result.commercial_context
+        .objection_guides[0]
+        .definition,
+      null,
+    )
+  },
+)
+
+test(
+  'propaga guia de objeção V2 completo até a entrada do cérebro',
+  () => {
+    const definition =
+      buildCommercialObjectionV2()
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              objection_guides: [
+                buildCommercialObjectionRecord(
+                  definition,
+                ),
+              ],
+            }),
+        }),
+      )
+
+    const guide =
+      result.commercial_context
+        .objection_guides[0]
+
+    assert.equal(
+      guide.contract_version,
+      'commercial-objection-v2',
+    )
+
+    assert.deepEqual(
+      guide.definition,
+      definition,
+    )
+
+    assert.equal(
+      guide.definition.category,
+      'price',
+    )
+
+    assert.equal(
+      guide.definition
+        .not_objection_when[0],
+      'O cliente apenas pergunta qual é o preço.',
+    )
+
+    assert.equal(
+      guide.definition
+        .give_space_when[0],
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    )
+  },
+)
+
+test(
+  'rejeita guia de objeção V2 publicado com definição semântica inválida',
+  () => {
+    const definition =
+      buildCommercialObjectionV2({
+        objection_when: [],
+      })
+
+    assertInputError(
+      () =>
+        buildCompanionDiagnosticInput(
+          buildInput({
+            commercial_config:
+              buildCommercialConfig({
+                objection_guides: [
+                  buildCommercialObjectionRecord(
+                    definition,
+                  ),
+                ],
+              }),
+          }),
+        ),
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+    )
+  },
+)
+
+test(
+  'rejeita guia de objeção V2 cuja projeção persistida diverge da definição',
+  () => {
+    const definition =
+      buildCommercialObjectionV2()
+
+    assertInputError(
+      () =>
+        buildCompanionDiagnosticInput(
+          buildInput({
+            commercial_config:
+              buildCommercialConfig({
+                objection_guides: [
+                  buildCommercialObjectionRecord(
+                    definition,
+                    {
+                      objection:
+                        'Objeção divergente',
+                    },
+                  ),
+                ],
+              }),
+          }),
+        ),
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
     )
   },
 )

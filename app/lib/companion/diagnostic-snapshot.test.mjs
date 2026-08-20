@@ -240,6 +240,89 @@ function buildVersion(
   }
 }
 
+function buildCommercialObjectionV2() {
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    objection_kind:
+      'commercial_objection',
+
+    objection_key:
+      'price_value',
+
+    objection:
+      'Preço percebido como alto',
+
+    category:
+      'price',
+
+    description:
+      'Resistência em que o preço dificulta materialmente a decisão comercial.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+    },
+
+    signals: [
+      'Está caro.',
+      'Ficou acima do orçamento previsto.',
+    ],
+
+    objection_when: [
+      'O cliente apresenta o preço como bloqueio real para avançar.',
+    ],
+
+    not_objection_when: [
+      'O cliente apenas pergunta qual é o preço.',
+    ],
+
+    distinguish_from: [
+      'question',
+      'information_request',
+      'condition',
+      'postponement',
+      'rejection',
+      'uncertainty',
+    ],
+
+    discovery_questions: [
+      'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
+    ],
+
+    recommended_approach:
+      'Compreender a natureza da resistência antes de responder.',
+
+    response_limits: [
+      'Não presumir falta de dinheiro.',
+      'Não oferecer desconto sem política comercial aplicável.',
+    ],
+
+    resolution_criteria: [
+      'Está claro se o preço continua sendo um bloqueio real.',
+    ],
+
+    wait_when: [
+      'O cliente pediu tempo e assumiu compromisso de retorno.',
+    ],
+
+    give_space_when: [
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    ],
+
+    stop_when: [
+      'O cliente fez uma recusa explícita e não solicitou continuidade.',
+    ],
+  }
+}
+
 function buildFullTables(
   overrides = {},
 ) {
@@ -443,7 +526,56 @@ function buildFullTables(
       ]),
 
     company_commercial_objection_guides:
-      ok([]),
+      ok([
+        {
+          id:
+            '823e4567-e89b-42d3-a456-426614174000',
+
+          company_id:
+            COMPANY_ID,
+
+          config_version_id:
+            CONFIG_VERSION_ID,
+
+          commercial_objection_contract_version:
+            'commercial-objection-v2',
+
+          commercial_objection_definition:
+            buildCommercialObjectionV2(),
+
+          sort_order:
+            1,
+
+          objection:
+            'Preço percebido como alto',
+
+          signals: [
+            'Está caro.',
+            'Ficou acima do orçamento previsto.',
+          ],
+
+          discovery_questions: [
+            'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
+          ],
+
+          recommended_approach:
+            'Compreender a natureza da resistência antes de responder.',
+
+          response_limits: [
+            'Não presumir falta de dinheiro.',
+            'Não oferecer desconto sem política comercial aplicável.',
+          ],
+
+          is_active:
+            true,
+
+          created_at:
+            '2026-08-01T10:00:00.000Z',
+
+          updated_at:
+            '2026-08-01T10:00:00.000Z',
+        },
+      ]),
 
     products:
       ok([
@@ -667,6 +799,56 @@ test(
         .source
         .type,
       'internal_policy',
+    )
+
+    const objectionCall =
+      calls.find(
+        (call) =>
+          call.table ===
+          'company_commercial_objection_guides',
+      )
+
+    assert.ok(
+      objectionCall,
+    )
+
+    const objectionSelect =
+      objectionCall.operations.find(
+        (operation) =>
+          operation.type === 'select',
+      )
+
+    assert.ok(
+      objectionSelect.columns.includes(
+        'commercial_objection_contract_version',
+      ),
+    )
+
+    assert.ok(
+      objectionSelect.columns.includes(
+        'commercial_objection_definition',
+      ),
+    )
+
+    const loadedObjection =
+      snapshot.input
+        .commercial_context
+        .objection_guides[0]
+
+    assert.equal(
+      loadedObjection.contract_version,
+      'commercial-objection-v2',
+    )
+
+    assert.equal(
+      loadedObjection.definition.category,
+      'price',
+    )
+
+    assert.equal(
+      loadedObjection.definition
+        .not_objection_when[0],
+      'O cliente apenas pergunta qual é o preço.',
     )
   },
 )

@@ -2,6 +2,7 @@ import type {
   CommercialConfigBundle,
   CommercialConfigProductOption,
   CommercialFact,
+  CommercialObjectionGuide,
   CommercialProductProfile,
 } from '@/app/types/commercial-config'
 
@@ -29,6 +30,11 @@ import {
   validateCommercialFactDefinition,
   type CommercialFactDefinition,
 } from './commercial-fact-contract'
+
+import {
+  validateCommercialObjectionDefinition,
+  type CommercialObjectionDefinition,
+} from './commercial-objection-contract'
 
 export const COMPANION_DIAGNOSTIC_INPUT_VERSION =
   'phase-5-input-v1' as const
@@ -136,6 +142,22 @@ export type DiagnosticCommercialFact = {
   source_note: string | null
 }
 
+export type DiagnosticCommercialObjectionGuide = {
+  contract_version:
+    | 'commercial-objection-v1'
+    | 'commercial-objection-v2'
+
+  definition:
+    CommercialObjectionDefinition | null
+
+  sort_order: number
+  objection: string
+  signals: string[]
+  discovery_questions: string[]
+  recommended_approach: string
+  response_limits: string[]
+}
+
 export type CompanionDiagnosticInput = {
   input_version:
     typeof COMPANION_DIAGNOSTIC_INPUT_VERSION
@@ -204,14 +226,8 @@ export type CompanionDiagnosticInput = {
     facts:
       DiagnosticCommercialFact[]
 
-    objection_guides: Array<{
-      sort_order: number
-      objection: string
-      signals: string[]
-      discovery_questions: string[]
-      recommended_approach: string
-      response_limits: string[]
-    }>
+    objection_guides:
+      DiagnosticCommercialObjectionGuide[]
   }
 }
 
@@ -1359,6 +1375,183 @@ function resolveCommercialFactValidityStatus(
   return 'current'
 }
 
+type ResolvedCommercialObjectionGuide = {
+  contract_version:
+    | 'commercial-objection-v1'
+    | 'commercial-objection-v2'
+
+  definition:
+    CommercialObjectionDefinition | null
+}
+
+function commercialObjectionProjectionArrayMatches(
+  definitionValues: string[],
+  persistedValues: unknown,
+): boolean {
+  if (
+    !Array.isArray(persistedValues) ||
+    definitionValues.length !==
+      persistedValues.length
+  ) {
+    return false
+  }
+
+  return definitionValues.every(
+    (
+      definitionValue,
+      index,
+    ) =>
+      typeof persistedValues[index] ===
+        'string' &&
+      definitionValue.trim() ===
+        persistedValues[index].trim(),
+  )
+}
+
+function resolveCommercialObjectionGuide(
+  guide: CommercialObjectionGuide,
+  index: number,
+): ResolvedCommercialObjectionGuide {
+  const path =
+    'commercial_config.objection_guides[' +
+    index +
+    ']'
+
+  const contractValue: unknown =
+    guide
+      .commercial_objection_contract_version
+
+  const definitionValue: unknown =
+    guide
+      .commercial_objection_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+        path +
+          '.commercial_objection_definition',
+        'Uma definição semântica de objeção não pode existir sem versão do contrato.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-objection-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-objection-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+        path +
+          '.commercial_objection_definition',
+        'A objeção legada não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-objection-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-objection-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_CONTRACT',
+      path +
+        '.commercial_objection_contract_version',
+      'A versão persistida do contrato da objeção comercial é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+      path +
+        '.commercial_objection_definition',
+      'A objeção V2 publicada precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialObjectionDefinition
+
+  const validation =
+    validateCommercialObjectionDefinition(
+      definition,
+    )
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+      path +
+        '.commercial_objection_definition',
+      'A definição semântica publicada da objeção não respeita o contrato V2.',
+    )
+  }
+
+  if (
+    typeof guide.objection !==
+      'string' ||
+    definition.objection.trim() !==
+      guide.objection.trim() ||
+    !commercialObjectionProjectionArrayMatches(
+      definition.signals,
+      guide.signals,
+    ) ||
+    !commercialObjectionProjectionArrayMatches(
+      definition.discovery_questions,
+      guide.discovery_questions,
+    ) ||
+    typeof guide.recommended_approach !==
+      'string' ||
+    definition.recommended_approach.trim() !==
+      guide.recommended_approach.trim() ||
+    !commercialObjectionProjectionArrayMatches(
+      definition.response_limits,
+      guide.response_limits,
+    )
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+      path +
+        '.commercial_objection_definition',
+      'A definição semântica da objeção diverge da projeção comercial persistida.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    definition,
+  }
+}
+
 function buildCommercialContext(
   bundle:
     | CommercialConfigBundle
@@ -1899,42 +2092,69 @@ function buildCommercialContext(
             a.sort_order -
             b.sort_order,
         )
-        .map((guide) => ({
-          sort_order:
-            guide.sort_order,
+        .map(
+          (
+            guide,
+            guideIndex,
+          ) => {
+            const resolvedGuide =
+              resolveCommercialObjectionGuide(
+                guide,
+                guideIndex,
+              )
 
-          objection:
-            normalizeRequiredString(
-              guide.objection,
-              'commercial_config.objection_guides.objection',
-              5000,
-            ),
+            const semanticDefinition =
+              resolvedGuide.definition
 
-          signals:
-            normalizeStringArray(
-              guide.signals,
-              'commercial_config.objection_guides.signals',
-            ),
+            const semanticSource =
+              semanticDefinition ??
+              guide
 
-          discovery_questions:
-            normalizeStringArray(
-              guide.discovery_questions,
-              'commercial_config.objection_guides.discovery_questions',
-            ),
+            return {
+              contract_version:
+                resolvedGuide
+                  .contract_version,
 
-          recommended_approach:
-            normalizeRequiredString(
-              guide.recommended_approach,
-              'commercial_config.objection_guides.recommended_approach',
-              10000,
-            ),
+              definition:
+                semanticDefinition,
 
-          response_limits:
-            normalizeStringArray(
-              guide.response_limits,
-              'commercial_config.objection_guides.response_limits',
-            ),
-        })),
+              sort_order:
+                guide.sort_order,
+
+              objection:
+                normalizeRequiredString(
+                  semanticSource.objection,
+                  'commercial_config.objection_guides.objection',
+                  5000,
+                ),
+
+              signals:
+                normalizeStringArray(
+                  semanticSource.signals,
+                  'commercial_config.objection_guides.signals',
+                ),
+
+              discovery_questions:
+                normalizeStringArray(
+                  semanticSource.discovery_questions,
+                  'commercial_config.objection_guides.discovery_questions',
+                ),
+
+              recommended_approach:
+                normalizeRequiredString(
+                  semanticSource.recommended_approach,
+                  'commercial_config.objection_guides.recommended_approach',
+                  10000,
+                ),
+
+              response_limits:
+                normalizeStringArray(
+                  semanticSource.response_limits,
+                  'commercial_config.objection_guides.response_limits',
+                ),
+            }
+          },
+        ),
   }
 }
 

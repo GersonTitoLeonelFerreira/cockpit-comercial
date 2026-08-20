@@ -187,6 +187,89 @@ function buildCommercialFactV2() {
   }
 }
 
+function buildCommercialObjectionV2() {
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    objection_kind:
+      'commercial_objection',
+
+    objection_key:
+      'price_value',
+
+    objection:
+      'Preço percebido como alto',
+
+    category:
+      'price',
+
+    description:
+      'Resistência em que o preço dificulta materialmente a decisão comercial.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+    },
+
+    signals: [
+      'Está caro.',
+      'Ficou acima do orçamento previsto.',
+    ],
+
+    objection_when: [
+      'O cliente apresenta o preço como bloqueio real para avançar.',
+    ],
+
+    not_objection_when: [
+      'O cliente apenas pergunta qual é o preço.',
+    ],
+
+    distinguish_from: [
+      'question',
+      'information_request',
+      'condition',
+      'postponement',
+      'rejection',
+      'uncertainty',
+    ],
+
+    discovery_questions: [
+      'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
+    ],
+
+    recommended_approach:
+      'Compreender a natureza da resistência antes de responder.',
+
+    response_limits: [
+      'Não presumir falta de dinheiro.',
+      'Não oferecer desconto sem política comercial aplicável.',
+    ],
+
+    resolution_criteria: [
+      'Está claro se o preço continua sendo um bloqueio real.',
+    ],
+
+    wait_when: [
+      'O cliente pediu tempo e assumiu compromisso de retorno.',
+    ],
+
+    give_space_when: [
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    ],
+
+    stop_when: [
+      'O cliente fez uma recusa explícita e não solicitou continuidade.',
+    ],
+  }
+}
+
 function createMockClient(
   fixtures,
 ) {
@@ -1029,25 +1112,33 @@ function buildFixtures({
               config_version_id:
                 configVersionId,
 
+              commercial_objection_contract_version:
+                'commercial-objection-v2',
+
+              commercial_objection_definition:
+                buildCommercialObjectionV2(),
+
               sort_order:
                 1,
 
               objection:
-                'Preciso pensar.',
+                'Preço percebido como alto',
 
               signals: [
-                'Pedido de prazo.',
+                'Está caro.',
+                'Ficou acima do orçamento previsto.',
               ],
 
               discovery_questions: [
-                'O que precisa avaliar?',
+                'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
               ],
 
               recommended_approach:
-                'Descobrir o ponto pendente.',
+                'Compreender a natureza da resistência antes de responder.',
 
               response_limits: [
-                'Não pressionar.',
+                'Não presumir falta de dinheiro.',
+                'Não oferecer desconto sem política comercial aplicável.',
               ],
 
               is_active:
@@ -1430,6 +1521,58 @@ test(
         .source
         .type,
       'internal_policy',
+    )
+
+    const objectionCall =
+      calls.find(
+        call =>
+          call.table ===
+          'company_commercial_objection_guides',
+      )
+
+    assert.ok(
+      objectionCall,
+    )
+
+    assert.ok(
+      objectionCall
+        .selected_columns
+        .includes(
+          'commercial_objection_contract_version',
+        ),
+    )
+
+    assert.ok(
+      objectionCall
+        .selected_columns
+        .includes(
+          'commercial_objection_definition',
+        ),
+    )
+
+    const loadedObjection =
+      result
+        .diagnostic_input
+        .commercial_context
+        .objection_guides[0]
+
+    assert.equal(
+      loadedObjection.contract_version,
+      'commercial-objection-v2',
+    )
+
+    assert.equal(
+      loadedObjection
+        .definition
+        .category,
+      'price',
+    )
+
+    assert.equal(
+      loadedObjection
+        .definition
+        .give_space_when[0],
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
     )
 
     assert.equal(
