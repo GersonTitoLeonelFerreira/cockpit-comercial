@@ -136,6 +136,10 @@
     leadEnrichmentApplyLoadingKey: null,
     leadEnrichmentApplySuccessKey: null,
     leadEnrichmentApplyError: null,
+    preSendAssessment: null,
+    preSendAssessmentConversationKey: null,
+    preSendAssessmentFingerprint: null,
+    preSendDraft: '',
   }
 
   function waitForWhatsAppApp() {
@@ -4661,6 +4665,817 @@
     return reading
   }
 
+  // B4_PRE_SEND_EVALUATOR_START
+  function evaluatePreSendAssessment(input) {
+    const reading =
+      input?.commercialReading
+
+    const draft =
+      String(
+        input?.draft || '',
+      )
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    if (
+      input?.engineSource !==
+        'stateful' ||
+      !reading ||
+      typeof reading !==
+        'object' ||
+      Array.isArray(reading) ||
+      input?.analysisLoading ===
+        true ||
+      input?.analysisOutdated ===
+        true ||
+      reading.analysis_status !==
+        'complete' ||
+      reading.commercial_role !==
+        'buyer' ||
+      !reading.best_approach ||
+      !reading.customer ||
+      !reading.method ||
+      !reading.communication ||
+      !reading.operations ||
+      !draft
+    ) {
+      return null
+    }
+
+    const normalizeText = (
+      value,
+    ) => {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(
+          /[\u0300-\u036f]/g,
+          '',
+        )
+        .toLocaleLowerCase(
+          'pt-BR',
+        )
+        .replace(
+          /[^a-z0-9%$]+/g,
+          ' ',
+        )
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    const normalizedDraft =
+      normalizeText(draft)
+
+    if (
+      !normalizedDraft ||
+      !/[a-z0-9]/.test(
+        normalizedDraft,
+      )
+    ) {
+      return null
+    }
+
+    const lowSignalPatterns = [
+      /^(oi|ola|opa|hello|hey)$/,
+      /^(bom dia|boa tarde|boa noite)$/,
+      /^(obrigado|obrigada|muito obrigado|muito obrigada|valeu|agradeco)$/,
+      /^(ok|okay|certo|perfeito|combinado|entendi|beleza|show|sim|nao|tudo bem)$/,
+    ]
+
+    if (
+      lowSignalPatterns.some(
+        (pattern) =>
+          pattern.test(
+            normalizedDraft,
+          ),
+      )
+    ) {
+      return null
+    }
+
+    const stopWords =
+      new Set([
+        'para',
+        'com',
+        'uma',
+        'que',
+        'isso',
+        'essa',
+        'esse',
+        'por',
+        'dos',
+        'das',
+        'seu',
+        'sua',
+        'vou',
+        'voce',
+      ])
+
+    const getMeaningfulTokens = (
+      value,
+    ) => {
+      return Array.from(
+        new Set(
+          normalizeText(value)
+            .split(' ')
+            .filter(
+              (token) =>
+                token.length >= 3 &&
+                !stopWords.has(
+                  token,
+                ),
+            ),
+        ),
+      )
+    }
+
+    const isEquivalentToSuggestion = (
+      draftValue,
+      suggestionValue,
+    ) => {
+      const normalizedSuggestion =
+        normalizeText(
+          suggestionValue,
+        )
+
+      if (
+        !normalizedSuggestion
+      ) {
+        return false
+      }
+
+      if (
+        normalizedDraft ===
+        normalizedSuggestion
+      ) {
+        return true
+      }
+
+      if (
+        normalizedDraft.length >=
+          24 &&
+        normalizedSuggestion
+          .includes(
+            normalizedDraft,
+          )
+      ) {
+        return true
+      }
+
+      if (
+        normalizedSuggestion
+          .length >= 24 &&
+        normalizedDraft.includes(
+          normalizedSuggestion,
+        )
+      ) {
+        return true
+      }
+
+      const draftTokens =
+        getMeaningfulTokens(
+          draftValue,
+        )
+
+      const suggestionTokens =
+        getMeaningfulTokens(
+          suggestionValue,
+        )
+
+      if (
+        draftTokens.length < 4 ||
+        suggestionTokens.length <
+          4
+      ) {
+        return false
+      }
+
+      const suggestionSet =
+        new Set(
+          suggestionTokens,
+        )
+
+      const intersection =
+        draftTokens.filter(
+          (token) =>
+            suggestionSet.has(
+              token,
+            ),
+        ).length
+
+      const coverage =
+        intersection /
+        Math.min(
+          draftTokens.length,
+          suggestionTokens.length,
+        )
+
+      const lengthRatio =
+        Math.max(
+          normalizedDraft.length,
+          normalizedSuggestion
+            .length,
+        ) /
+        Math.max(
+          1,
+          Math.min(
+            normalizedDraft.length,
+            normalizedSuggestion
+              .length,
+          ),
+        )
+
+      return (
+        coverage >= 0.9 &&
+        lengthRatio <= 1.35
+      )
+    }
+
+    if (
+      isEquivalentToSuggestion(
+        draft,
+        input
+          ?.suggestedMessage,
+      )
+    ) {
+      return null
+    }
+
+    const matchesAny = (
+      patterns,
+    ) => {
+      return patterns.some(
+        (pattern) =>
+          pattern.test(
+            normalizedDraft,
+          ),
+      )
+    }
+
+    const closePressurePatterns = [
+      /\b(vamos|podemos)\s+fechar\b/,
+      /\b(fecha|fechamos|fechar)\s+(agora|hoje)\b/,
+      /\bme\s+confirma\s+(agora|hoje)\b/,
+      /\bconfirma\s+(agora|hoje)\b/,
+      /\bfaz\s+o\s+pix\s+(agora|hoje)\b/,
+      /\bpode\s+pagar\s+(agora|hoje)\b/,
+      /\b(assina|assinar)\s+(agora|hoje)\b/,
+      /\bgarantir\s+(sua|a)\s+vaga\s+(agora|hoje)\b/,
+    ]
+
+    const collectionPressurePatterns = [
+      /\bpreciso\s+(da|de uma)\s+(sua\s+)?resposta\s+hoje\b/,
+      /\bme\s+responde\s+(agora|hoje)\b/,
+      /\bestou\s+aguardando\s+(sua\s+)?resposta\b/,
+      /\bvai\s+fechar\s+ou\s+nao\b/,
+    ]
+
+    const explicitClosePressure =
+      matchesAny(
+        closePressurePatterns,
+      )
+
+    const explicitPressure =
+      explicitClosePressure ||
+      matchesAny(
+        collectionPressurePatterns,
+      )
+
+    const shorten = (
+      value,
+      maximum = 180,
+    ) => {
+      const clean =
+        String(value || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+
+      if (
+        clean.length <= maximum
+      ) {
+        return clean
+      }
+
+      return (
+        clean.slice(
+          0,
+          maximum - 1,
+        ) + '…'
+      )
+    }
+
+    const decision =
+      reading
+        .best_approach
+        ?.decision
+
+    if (
+      [
+        'wait',
+        'give_space',
+        'no_intervention',
+      ].includes(decision) &&
+      explicitPressure
+    ) {
+      const labels = {
+        wait: 'aguardar',
+        give_space:
+          'dar espaço ao cliente',
+        no_intervention:
+          'não intervir agora',
+      }
+
+      const approachReason =
+        shorten(
+          reading
+            .best_approach
+            ?.reason,
+        )
+
+      return {
+        kind:
+          'wait_pressure',
+        reason:
+          approachReason
+            ? (
+                'A leitura atual recomenda ' +
+                labels[decision] +
+                ': ' +
+                approachReason +
+                ' Esta mensagem parece pressionar por avanço ou resposta.'
+              )
+            : (
+                'A leitura atual recomenda ' +
+                labels[decision] +
+                '. Esta mensagem parece pressionar por avanço ou resposta.'
+              ),
+      }
+    }
+
+    const sensitiveConditionPatterns = [
+      /\b[0-9]+\s*%\s*(de\s+)?desconto\b/,
+      /\b(te\s+dou|dou|consigo|libero|posso\s+fazer)\b.*\bdesconto\b/,
+      /\b(faco|fecho)\s+por\s+r?\$?\s*[0-9]/,
+      /\bresultado\s+garantido\b/,
+      /\bgaranto\s+(o|a|que\s+essa|que\s+esta)?\s*(resultado|aprovacao|condicao|desconto|preco|valor|prazo|beneficio)\b/,
+      /\bvai\s+ser\s+aprovad(a|o)\b/,
+      /\bsera\s+aprovad(a|o)\b/,
+      /\besta\s+aprovad(a|o)\b/,
+      /\bconsigo\s+liberar\s+(essa|esta|a)?\s*(condicao|excecao|desconto)\b/,
+      /\b(condicao|desconto|resultado)\s+garantid(a|o)\b/,
+    ]
+
+    if (
+      matchesAny(
+        sensitiveConditionPatterns,
+      )
+    ) {
+      return {
+        kind:
+          'sensitive_condition',
+        reason:
+          'A leitura atual não contém comprovação suficiente para validar essa condição. Confirme a informação antes de enviar.',
+      }
+    }
+
+    const firstSummary = (
+      values,
+    ) => {
+      if (
+        !Array.isArray(values)
+      ) {
+        return null
+      }
+
+      for (
+        const item of values
+      ) {
+        const summary =
+          typeof item?.summary ===
+            'string'
+            ? item.summary.trim()
+            : ''
+
+        if (summary) {
+          return shorten(
+            summary,
+            150,
+          )
+        }
+      }
+
+      return null
+    }
+
+    const pendingIssue =
+      firstSummary(
+        reading.customer
+          ?.open_questions,
+      ) ||
+      firstSummary(
+        reading.customer
+          ?.objections,
+      ) ||
+      firstSummary(
+        reading.risks
+          ?.customer_objections,
+      )
+
+    const pendingIssueDecision =
+      [
+        'respond',
+        'clarify',
+        'ask',
+        'deepen_discovery',
+        'handle_objection',
+        'confirm_information',
+      ].includes(decision)
+
+    if (
+      pendingIssue &&
+      pendingIssueDecision &&
+      explicitClosePressure
+    ) {
+      return {
+        kind:
+          'pending_issue',
+        reason:
+          'A leitura atual mantém uma questão ou objeção pendente: “' +
+          pendingIssue +
+          '”. Esta mensagem tenta avançar para fechamento antes de responder esse ponto.',
+      }
+    }
+
+    const method =
+      reading.method
+
+    const incompleteMethodStage =
+      method?.configured ===
+        true &&
+      Array.isArray(
+        method.stages,
+      )
+        ? method.stages.find(
+            (stage) =>
+              stage?.status ===
+                'partial' ||
+              stage?.status ===
+                'not_started',
+          )
+        : null
+
+    const methodDecisionSupported =
+      [
+        'ask',
+        'deepen_discovery',
+        'clarify',
+        'handle_objection',
+        'confirm_information',
+      ].includes(decision)
+
+    if (
+      incompleteMethodStage &&
+      methodDecisionSupported &&
+      explicitClosePressure
+    ) {
+      const stageName =
+        typeof incompleteMethodStage
+          .name === 'string'
+          ? shorten(
+              incompleteMethodStage
+                .name,
+              80,
+            )
+          : ''
+
+      return {
+        kind:
+          'method_premature_close',
+        reason:
+          stageName
+            ? (
+                'O método configurado ainda mantém a etapa “' +
+                stageName +
+                '” incompleta, e a leitura atual recomenda aprofundar antes de fechar.'
+              )
+            : (
+                'O método configurado ainda possui uma etapa incompleta, e a leitura atual recomenda aprofundar antes de fechar.'
+              ),
+      }
+    }
+
+    const agenda =
+      reading.operations?.agenda
+
+    const expectedDateMatch =
+      typeof agenda
+        ?.expected_next_action_at ===
+        'string'
+        ? agenda
+            .expected_next_action_at
+            .match(
+              /^\d{4}-\d{2}-\d{2}/,
+            )
+        : null
+
+    const todayDateKey =
+      typeof input
+        ?.todayDateKey ===
+        'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(
+        input.todayDateKey,
+      )
+        ? input.todayDateKey
+        : null
+
+    const addOneDay = (
+      dateKey,
+    ) => {
+      const date =
+        new Date(
+          dateKey +
+          'T12:00:00Z',
+        )
+
+      if (
+        !Number.isFinite(
+          date.getTime(),
+        )
+      ) {
+        return null
+      }
+
+      date.setUTCDate(
+        date.getUTCDate() + 1,
+      )
+
+      return date
+        .toISOString()
+        .slice(0, 10)
+    }
+
+    const relativeActionPatterns = [
+      /\b(?:te|lhe)?\s*(?:chamo|ligo|retorno|mando|envio|procuro|respondo)\s+(hoje|amanha)\b/,
+      /\b(?:falo|falamos|conversamos)\s+(hoje|amanha)\b/,
+    ]
+
+    let relativeActionDay =
+      null
+
+    for (
+      const pattern of
+        relativeActionPatterns
+    ) {
+      const match =
+        normalizedDraft.match(
+          pattern,
+        )
+
+      if (match?.[1]) {
+        relativeActionDay =
+          match[1]
+        break
+      }
+    }
+
+    if (
+      agenda
+        ?.should_change_agenda ===
+        true &&
+      expectedDateMatch?.[0] &&
+      todayDateKey &&
+      relativeActionDay
+    ) {
+      const intendedDateKey =
+        relativeActionDay ===
+        'hoje'
+          ? todayDateKey
+          : addOneDay(
+              todayDateKey,
+            )
+
+      if (
+        intendedDateKey &&
+        intendedDateKey !==
+          expectedDateMatch[0]
+      ) {
+        const [
+          year,
+          month,
+          day,
+        ] =
+          expectedDateMatch[0]
+            .split('-')
+
+        return {
+          kind:
+            'agenda_conflict',
+          reason:
+            'A leitura atual indica a próxima ação para ' +
+            day +
+            '/' +
+            month +
+            '/' +
+            year +
+            ', mas esta mensagem combina contato em outro dia.',
+        }
+      }
+    }
+
+    return null
+  }
+  // B4_PRE_SEND_EVALUATOR_END
+
+  function buildCurrentPreSendAssessment(
+    draft,
+  ) {
+    if (
+      !state.conversationKey
+    ) {
+      return null
+    }
+
+    const now =
+      new Date()
+
+    const todayDateKey = [
+      now.getFullYear(),
+      String(
+        now.getMonth() + 1,
+      ).padStart(2, '0'),
+      String(
+        now.getDate(),
+      ).padStart(2, '0'),
+    ].join('-')
+
+    return evaluatePreSendAssessment({
+      draft,
+      engineSource:
+        state
+          .conversationAnalysis
+          ?.engine_source,
+      commercialReading:
+        getActiveCommercialReading(),
+      analysisLoading:
+        state
+          .conversationAnalysisLoading,
+      analysisOutdated:
+        isCurrentAnalysisOutdated(),
+      suggestedMessage:
+        getSuggestedMessage(),
+      todayDateKey,
+    })
+  }
+
+  function updatePreSendAssessmentFromDraft(
+    draft,
+    options = {},
+  ) {
+    const normalizedDraft =
+      normalizeMessageText(
+        draft,
+      )
+
+    const assessment =
+      buildCurrentPreSendAssessment(
+        normalizedDraft,
+      )
+
+    const conversationKey =
+      state.conversationKey
+
+    const analysisFingerprint =
+      state
+        .analyzedConversationFingerprint ||
+      null
+
+    const unchanged =
+      state.preSendDraft ===
+        normalizedDraft &&
+      state
+        .preSendAssessmentConversationKey ===
+        conversationKey &&
+      state
+        .preSendAssessmentFingerprint ===
+        analysisFingerprint &&
+      state.preSendAssessment
+        ?.kind ===
+        assessment?.kind &&
+      state.preSendAssessment
+        ?.reason ===
+        assessment?.reason
+
+    if (unchanged) {
+      return
+    }
+
+    state = {
+      ...state,
+      preSendAssessment:
+        assessment,
+      preSendAssessmentConversationKey:
+        conversationKey,
+      preSendAssessmentFingerprint:
+        analysisFingerprint,
+      preSendDraft:
+        normalizedDraft,
+    }
+
+    if (
+      options.render !== false
+    ) {
+      renderPanel()
+    }
+  }
+
+  function getPreSendAssessmentCardHtml() {
+    const assessment =
+      state.preSendAssessment
+
+    if (
+      !assessment ||
+      !state.conversationKey ||
+      state
+        .preSendAssessmentConversationKey !==
+        state.conversationKey ||
+      state
+        .preSendAssessmentFingerprint !==
+        state
+          .analyzedConversationFingerprint ||
+      state
+        .conversationAnalysisLoading ||
+      isCurrentAnalysisOutdated() ||
+      getActiveCommercialReading()
+        ?.analysis_status !==
+        'complete'
+    ) {
+      return ''
+    }
+
+    const currentDraft =
+      getComposerText()
+
+    if (
+      !currentDraft ||
+      normalizeMessageText(
+        currentDraft,
+      ) !==
+        state.preSendDraft
+    ) {
+      return ''
+    }
+
+    return [
+      '<div',
+        ' class="yolen-card yolen-pre-send-card yolen-status-warning"',
+        ' data-yolen-pre-send-kind="' +
+          escapeHtml(
+            assessment.kind,
+          ) +
+        '"',
+      '>',
+        '<div class="yolen-section-label">',
+          'Antes de enviar',
+        '</div>',
+
+        '<div class="yolen-card-title">',
+          'Vale revisar esta mensagem',
+        '</div>',
+
+        '<div class="yolen-card-description yolen-pre-send-reason">',
+          escapeHtml(
+            assessment.reason,
+          ),
+        '</div>',
+
+        '<div class="yolen-operational-note">',
+          'A B4.2 apenas orienta. O envio do WhatsApp continua funcionando normalmente.',
+        '</div>',
+      '</div>',
+    ].join('')
+  }
+
+  function observeComposerDraftForPreSend() {
+    document.addEventListener(
+      'input',
+      (event) => {
+        if (
+          !isComposerEnterTarget(
+            event.target,
+          )
+        ) {
+          return
+        }
+
+        updatePreSendAssessmentFromDraft(
+          event.target
+            ?.textContent ||
+          '',
+        )
+      },
+      true,
+    )
+  }
+
   function normalizeOperationalText(value) {
     if (
       typeof value !==
@@ -8668,6 +9483,8 @@
 
       getLeadEnrichmentCandidatesHtml(),
 
+      getPreSendAssessmentCardHtml(),
+
       getAnalysisCardHtml(),
 
       getCompactFooterHtml(),
@@ -9635,6 +10452,11 @@
             : null,
       }
 
+      updatePreSendAssessmentFromDraft(
+        getComposerText(),
+        { render: false },
+      )
+
       renderPanel()
 
       registerSuggestionShownTelemetry({
@@ -10589,6 +11411,7 @@
     refreshConversationSnapshot()
     observeConversationScrollActivity()
     observeWhatsAppChanges()
+    observeComposerDraftForPreSend()
     observeManualWhatsAppSend()
     startSessionAutoRefresh()
     loadYolenSession({
