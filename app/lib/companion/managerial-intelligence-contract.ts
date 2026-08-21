@@ -884,19 +884,6 @@ function normalizeCoverage(
 
   if (
     coverage
-      .sellers_with_commercial_reading >
-    coverage
-      .cycles_with_commercial_reading
-  ) {
-    fail(
-      'INVALID_COVERAGE',
-      'intelligence.coverage.sellers_with_commercial_reading',
-      'Cada vendedor coberto precisa possuir ao menos um ciclo coberto.',
-    )
-  }
-
-  if (
-    coverage
       .cycles_with_commercial_reading >
       0 &&
     coverage

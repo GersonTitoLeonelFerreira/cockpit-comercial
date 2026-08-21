@@ -918,3 +918,88 @@ test(
     )
   },
 )
+
+
+test(
+  'um ciclo redistribuído pode possuir cobertura histórica de mais de um vendedor',
+  () => {
+    const intelligence =
+      buildValidIntelligence()
+
+    intelligence.coverage = {
+      eligible_cycles:
+        1,
+
+      cycles_with_commercial_reading:
+        1,
+
+      commercial_reading_events:
+        2,
+
+      companion_action_events:
+        0,
+
+      cycle_events:
+        0,
+
+      sellers_in_scope:
+        2,
+
+      sellers_with_commercial_reading:
+        2,
+    }
+
+    intelligence.signals[0] = {
+      ...intelligence.signals[0],
+
+      recurrence:
+        'isolated',
+
+      occurrences:
+        1,
+
+      sample_size:
+        1,
+
+      affected_cycle_ids: [
+        'cycle-1',
+      ],
+
+      analysis_event_ids: [
+        'analysis-1',
+      ],
+    }
+
+    intelligence.analysis_event_ids = [
+      'analysis-1',
+    ]
+
+    intelligence.action_event_ids =
+      []
+
+    intelligence.cycle_event_ids =
+      []
+
+    intelligence.cycle_ids = [
+      'cycle-1',
+    ]
+
+    const normalized =
+      normalizeManagerialIntelligence(
+        intelligence,
+        context,
+      )
+
+    assert.equal(
+      normalized.coverage
+        .cycles_with_commercial_reading,
+      1,
+    )
+
+    assert.equal(
+      normalized.coverage
+        .sellers_with_commercial_reading,
+      2,
+    )
+  },
+)
