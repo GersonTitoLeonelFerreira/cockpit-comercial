@@ -1,0 +1,77 @@
+name: Companion Extension Release Engineering
+
+# Escopo: D2 (validação automatizada) + D3 (separação DEV/PROD) da extensão
+# Yolen Companion. Este workflow BUILDA e VALIDA os quatro pacotes
+# (Chrome/Firefox × dev/prod); não publica nada em loja e não faz deploy.
+# "STORE_ELIGIBLE_CANDIDATE" nos pacotes prod significa tecnicamente
+# preparado para submissão — não que a extensão foi publicada ou aprovada.
+#
+# Gatilhos restritos a Pull Request e execução manual, com filtro de
+# caminho, para não rodar CI desnecessário em mudanças que não tocam a
+# extensão nem este próprio workflow.
+on:
+  pull_request:
+    paths:
+      - 'app/extension/yolen-companion/**'
+      - '.github/workflows/companion-extension-release.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-validate:
+    name: Build + validar Release Candidate (Chrome/Firefox × dev/prod)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependências (determinístico via package-lock.json)
+        run: npm ci
+
+      - name: Rodar suíte de testes do Companion
+        run: npm run test:companion
+
+      - name: Gerar pacotes Chrome e Firefox (dev + prod)
+        run: node app/extension/yolen-companion/scripts/build-package.mjs
+
+      - name: Validar Release Candidate (D2/D3)
+        run: node app/extension/yolen-companion/scripts/validate-release-candidate.mjs
+
+      - name: Checar elegibilidade de loja dos pacotes PROD
+        run: |
+          node -e "
+            const report = require('./dist/yolen-companion/release-candidate-report.json');
+            const chrome = report.results['chrome-prod'];
+            const firefox = report.results['firefox-prod'];
+            console.log('Chrome PROD: ' + chrome.classification);
+            console.log('Firefox PROD: ' + firefox.classification);
+            const ok = chrome.classification === 'STORE_ELIGIBLE_CANDIDATE' && firefox.classification === 'STORE_ELIGIBLE_CANDIDATE';
+            if (!ok) {
+              console.error('Um ou ambos os pacotes PROD não estão tecnicamente prontos para submissão.');
+              process.exit(1);
+            }
+            console.log('Tecnicamente preparados para submissão (não publicados, não aprovados pelas lojas).');
+          "
+
+      - name: git diff --check (espaços em branco / marcadores de conflito)
+        run: git diff --check
+
+      - name: Publicar artefatos de build para inspeção (CI apenas — não é publicação em loja)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolen-companion-release-candidate-${{ github.run_number }}
+          path: |
+            dist/yolen-companion/*.zip
+            dist/yolen-companion/build-summary.json
+            dist/yolen-companion/release-candidate-report.json
+          retention-days: 14
+          if-no-files-found: warn
