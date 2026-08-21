@@ -583,6 +583,7 @@ html.yolen-companion-collapsed {
 }
 
 .yolen-collapsed-logo-button {
+  position: relative;
   width: 40px;
   height: 40px;
   padding: 0;
@@ -606,6 +607,45 @@ html.yolen-companion-collapsed {
 
 .yolen-collapsed-logo-button:hover {
   filter: brightness(1.08);
+}
+
+.yolen-collapsed-attention-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #070b12;
+  border-radius: 999px;
+  background: #60a5fa;
+  box-shadow:
+    0 0 0 1px
+    rgba(96, 165, 250, 0.22);
+  pointer-events: none;
+}
+
+.yolen-collapsed-attention-recommendation
+.yolen-collapsed-attention-dot {
+  background: #34d399;
+  box-shadow:
+    0 0 0 1px
+    rgba(52, 211, 153, 0.24);
+}
+
+.yolen-collapsed-attention-attention
+.yolen-collapsed-attention-dot {
+  background: #fbbf24;
+  box-shadow:
+    0 0 0 1px
+    rgba(251, 191, 36, 0.26);
+}
+
+.yolen-collapsed-attention-risk
+.yolen-collapsed-attention-dot {
+  background: #f87171;
+  box-shadow:
+    0 0 0 1px
+    rgba(248, 113, 113, 0.28);
 }
 
 .yolen-logo-button {
