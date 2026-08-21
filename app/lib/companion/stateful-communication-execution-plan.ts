@@ -11,8 +11,20 @@ import {
   type StatefulCommunicationNormalizationContext,
 } from './stateful-communication-contract'
 
+import {
+  buildCommercialBehaviorPromptRules,
+} from './commercial-behavior-prompt-rules'
+
+import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+} from './commercial-reading-contract'
+
+import type {
+  StatefulCommercialMemoryBase,
+} from './stateful-commercial-state'
+
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v3' as const
+  'phase-5.2-communication-prompt-v5' as const
 
 const COMMUNICATION_CONTEXT_BRIDGE_MAX_MESSAGES =
   6
@@ -34,7 +46,9 @@ export type StatefulCommunicationExecutionPlan = {
     StatefulCommunicationNormalizationContext
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(
+  input: StatefulCopilotInput,
+): string {
   return [
     'Você é a camada de comunicação contextual do Yolen Companion.',
 
@@ -42,9 +56,29 @@ function buildSystemPrompt(): string {
 
     'Não escreva markdown, comentários ou texto fora do JSON.',
 
-    'O diagnóstico contextual recebido já foi produzido e validado por outra camada. Não refaça o diagnóstico, não reclassifique o momento comercial e não altere CRM ou Agenda.',
+    'O diagnóstico contextual recebido já foi produzido e validado por outra camada. Não contradiga o papel comercial, o momento atual, as evidências, CRM ou Agenda já validados.',
 
-    'Sua única responsabilidade é decidir qual ajuda seria realmente útil ao vendedor agora.',
+    'Sua responsabilidade é transformar esse diagnóstico, a fotografia disponível da conversa, as memórias comerciais ativas e a configuração comercial em uma Leitura Comercial Completa estruturada e, a partir dela, decidir qual ajuda seria realmente útil ao vendedor agora.',
+
+    'commercial_reading é o contrato central de leitura para as experiências da Yolen. Ele precisa representar resumo da conversa, cliente, evolução comercial, método, acertos do vendedor, melhorias, riscos, melhor abordagem, comunicação e consequências operacionais.',
+
+    'Não crie uma interpretação paralela. commercial_reading precisa permanecer coerente com diagnostic_context.',
+
+    'Use conversation.reading_messages para evidência histórica ainda disponível na fotografia canônica. Use os IDs dessas mensagens em evidence_message_ids somente quando elas realmente sustentarem a afirmação.',
+
+    'Use commercial_memory somente como memória histórica ativa. Referencie-a por memory_ids. Nunca transforme evidence_message_ids históricos removidos da memória em evidência atual.',
+
+    'Acertos do vendedor, pontos de melhoria e riscos do atendimento precisam apontar para mensagem concreta do vendedor. Não escreva elogios genéricos como bom atendimento, ótimo atendimento ou excelente atendimento.',
+
+    'Riscos do cliente e riscos do atendimento são categorias diferentes: objeção, dúvida ou resistência do cliente não deve ser apresentada como erro do vendedor; pressão, promessa indevida ou informação incorreta do vendedor não deve ser apresentada como objeção do cliente.',
+
+    'O método deve refletir exclusivamente commercial_context.sales_method. Se não houver método configurado, use configured=false, name=null e stages=[]. Não invente etapas.',
+
+    'commercial_reading.analysis_status e analysis_limitations precisam coincidir exatamente com commercial_reading_requirements.',
+
+    'commercial_reading.operations precisa reproduzir exatamente diagnostic_context.operational_suggestions. Esta camada não pode redecidir CRM ou Agenda.',
+
+    'commercial_reading.communication precisa coincidir exatamente com intervention_needed, recommended_question e suggested_message da resposta externa.',
 
     'Você pode orientar o vendedor, sugerir uma pergunta, sugerir uma mensagem, fazer uma transição comercial ou concluir que nenhuma intervenção é necessária.',
 
@@ -59,6 +93,26 @@ function buildSystemPrompt(): string {
     'Nunca escreva uma orientação, pergunta ou mensagem sugerida como se uma ação ainda não confirmada (matrícula, agendamento, pagamento, cadastro, envio) já tivesse sido concluída. Distinga claramente entre o que o cliente relatou, o que ainda depende de confirmação humana e o que já está confirmado na conversa.',
 
     'Não invente produto, preço, desconto, prazo, promessa, condição, funcionalidade ou fato.',
+
+    buildCommercialBehaviorPromptRules({
+      communication_tone:
+        input
+          .diagnostic_input
+          .commercial_context
+          .communication_tone,
+
+      required_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .required_behaviors,
+
+      prohibited_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .prohibited_behaviors,
+    }),
 
     'A mensagem sugerida deve soar natural dentro da conversa existente, não como relatório, formulário ou texto de consultoria.',
 
@@ -168,13 +222,161 @@ function buildConversationContext({
         }),
       )
 
+  const readingMessages =
+    input
+      .diagnostic_input
+      .conversation
+      .messages
+      .map(
+        message => ({
+          id:
+            message.id,
+
+          direction:
+            message.direction,
+
+          occurred_at:
+            message.occurred_at,
+
+          observed_at:
+            message.observed_at,
+
+          content_type:
+            message.content_type,
+
+          text_content:
+            message.text_content,
+
+          audio_transcription:
+            message.audio_transcription,
+        }),
+      )
+
   return {
     current_messages:
       currentMessages,
 
     context_bridge_messages:
       contextBridgeMessages,
+
+    reading_messages:
+      readingMessages,
   }
+}
+
+function sanitizeActiveMemoryItems<
+  T extends StatefulCommercialMemoryBase,
+>(
+  items: readonly T[],
+) {
+  return items
+    .filter(
+      item =>
+        item.memory_status ===
+        'active',
+    )
+    .map(
+      item => {
+        const {
+          evidence_message_ids,
+          ...memory
+        } = item
+
+        void evidence_message_ids
+
+        return memory
+      },
+    )
+}
+
+function buildActiveCommercialMemoryContext(
+  input: StatefulCopilotInput,
+) {
+  const state =
+    input
+      .state_context
+      .previous_state
+
+  if (state === null) {
+    return {
+      facts: [],
+      needs: [],
+      open_loops: [],
+      objections: [],
+      commitments: [],
+      signals: [],
+      uncertainties: [],
+    }
+  }
+
+  return {
+    facts:
+      sanitizeActiveMemoryItems(
+        state.facts,
+      ),
+
+    needs:
+      sanitizeActiveMemoryItems(
+        state.needs,
+      ),
+
+    open_loops:
+      sanitizeActiveMemoryItems(
+        state.open_loops,
+      ),
+
+    objections:
+      sanitizeActiveMemoryItems(
+        state.objections,
+      ),
+
+    commitments:
+      sanitizeActiveMemoryItems(
+        state.commitments,
+      ),
+
+    signals:
+      sanitizeActiveMemoryItems(
+        state.signals,
+      ),
+
+    uncertainties:
+      sanitizeActiveMemoryItems(
+        state.uncertainties,
+      ),
+  }
+}
+
+function collectActiveMemoryIds(
+  input: StatefulCopilotInput,
+): string[] {
+  const state =
+    input
+      .state_context
+      .previous_state
+
+  if (state === null) {
+    return []
+  }
+
+  return [
+    ...state.facts,
+    ...state.needs,
+    ...state.open_loops,
+    ...state.objections,
+    ...state.commitments,
+    ...state.signals,
+    ...state.uncertainties,
+  ]
+    .filter(
+      item =>
+        item.memory_status ===
+        'active',
+    )
+    .map(
+      item =>
+        item.id,
+    )
 }
 
 function buildDiagnosticContext(
@@ -190,9 +392,21 @@ function buildDiagnosticContext(
       diagnosticOutput
         .interpretation,
 
+    state_patch:
+      diagnosticOutput
+        .state_patch,
+
     operational_suggestions:
       diagnosticOutput
         .operational_suggestions,
+
+    evidence_message_ids:
+      diagnosticOutput
+        .evidence_message_ids,
+
+    memory_ids:
+      diagnosticOutput
+        .memory_ids,
   }
 }
 
@@ -206,16 +420,64 @@ function buildUserPrompt({
   diagnosticOutput:
     StatefulCopilotOutput
 }): string {
+  const analysisStatus =
+    input
+      .diagnostic_input
+      .analysis_precondition
+      .status === 'ready'
+      ? 'complete'
+      : 'limited'
+
+  const analysisLimitations =
+    analysisStatus === 'complete'
+      ? []
+      : [
+          ...input
+            .diagnostic_input
+            .analysis_precondition
+            .limitations,
+        ]
+
+  const activeMemoryIds =
+    collectActiveMemoryIds(
+      input,
+    )
+
+  const commercialMemory =
+    buildActiveCommercialMemoryContext(
+      input,
+    )
+
   return JSON.stringify(
     {
       prompt_version:
         STATEFUL_COMMUNICATION_PROMPT_VERSION,
 
       task:
-        'Decida a melhor intervenção de comunicação para o vendedor sem refazer o diagnóstico contextual.',
+        'Produza a Leitura Comercial Completa e decida a melhor intervenção de comunicação sem contradizer o diagnóstico contextual validado.',
 
       required_output_contract_version:
         STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+
+      required_commercial_reading_contract_version:
+        COMMERCIAL_READING_CONTRACT_VERSION,
+
+      commercial_reading_requirements: {
+        analysis_status:
+          analysisStatus,
+
+        analysis_limitations:
+          analysisLimitations,
+
+        available_message_ids:
+          input
+            .diagnostic_input
+            .conversation
+            .active_message_ids,
+
+        available_memory_ids:
+          activeMemoryIds,
+      },
 
       diagnostic_context:
         buildDiagnosticContext(
@@ -227,6 +489,9 @@ function buildUserPrompt({
           input,
           diagnosticOutput,
         }),
+
+      commercial_memory:
+        commercialMemory,
 
       commercial_context:
         input
@@ -246,6 +511,24 @@ export function buildStatefulCommunicationExecutionPlan({
   diagnostic_output:
     StatefulCopilotOutput
 }): StatefulCommunicationExecutionPlan {
+  const analysisStatus =
+    input
+      .diagnostic_input
+      .analysis_precondition
+      .status === 'ready'
+      ? 'complete'
+      : 'limited'
+
+  const analysisLimitations =
+    analysisStatus === 'complete'
+      ? []
+      : [
+          ...input
+            .diagnostic_input
+            .analysis_precondition
+            .limitations,
+        ]
+
   return {
     prompt_version:
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
@@ -254,7 +537,9 @@ export function buildStatefulCommunicationExecutionPlan({
       STATEFUL_COMMUNICATION_CONTRACT_VERSION,
 
     system_prompt:
-      buildSystemPrompt(),
+      buildSystemPrompt(
+        input,
+      ),
 
     user_prompt:
       buildUserPrompt({
@@ -268,6 +553,46 @@ export function buildStatefulCommunicationExecutionPlan({
       commercial_role:
         diagnostic_output
           .commercial_role,
+
+      commercial_reading: {
+        available_message_ids: [
+          ...input
+            .diagnostic_input
+            .conversation
+            .active_message_ids,
+        ],
+
+        available_memory_ids:
+          collectActiveMemoryIds(
+            input,
+          ),
+
+        current_crm_status:
+          input
+            .diagnostic_input
+            .current_crm_status,
+
+        reference_time:
+          input
+            .diagnostic_input
+            .reference_time,
+      },
+
+      expected_analysis_status:
+        analysisStatus,
+
+      expected_analysis_limitations:
+        analysisLimitations,
+
+      expected_crm:
+        diagnostic_output
+          .operational_suggestions
+          .crm,
+
+      expected_agenda:
+        diagnostic_output
+          .operational_suggestions
+          .agenda,
     },
   }
 }

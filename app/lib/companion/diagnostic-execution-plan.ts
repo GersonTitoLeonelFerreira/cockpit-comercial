@@ -8,8 +8,28 @@ import type {
   CompanionDiagnosticInput,
 } from './diagnostic-input'
 
+import {
+  buildCommercialMethodPromptRules,
+} from './commercial-method-prompt-rules'
+
+import {
+  buildCommercialProductPromptRules,
+} from './commercial-product-prompt-rules'
+
+import {
+  buildCommercialFactPromptRules,
+} from './commercial-fact-prompt-rules'
+
+import {
+  buildCommercialObjectionPromptRules,
+} from './commercial-objection-prompt-rules'
+
+import {
+  buildCommercialBehaviorPromptRules,
+} from './commercial-behavior-prompt-rules'
+
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v9' as const
+  'phase-5-prompt-v15' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -514,7 +534,39 @@ function buildSystemPrompt(
 
     'Não invente crítica quando o vendedor realizou um bom atendimento.',
 
-    'Não invente etapa do método quando sales_method.configured=false.',
+    buildCommercialMethodPromptRules(
+      input.commercial_context
+        .sales_method,
+    ),
+
+    buildCommercialProductPromptRules(
+      input.commercial_context
+        .products,
+    ),
+
+    buildCommercialFactPromptRules(
+      input.commercial_context
+        .facts,
+    ),
+
+    buildCommercialObjectionPromptRules(
+      input.commercial_context
+        .objection_guides,
+    ),
+
+    buildCommercialBehaviorPromptRules({
+      communication_tone:
+        input.commercial_context
+          .communication_tone,
+
+      required_behaviors:
+        input.commercial_context
+          .required_behaviors,
+
+      prohibited_behaviors:
+        input.commercial_context
+          .prohibited_behaviors,
+    }),
 
     'Quando não houver produto suficiente, solution_fit.status deve ser unknown.',
 

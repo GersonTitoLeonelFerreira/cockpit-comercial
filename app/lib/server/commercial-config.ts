@@ -29,6 +29,8 @@ const VERSION_FIELDS = `
   value_proposition,
   commercial_method_name,
   commercial_method_description,
+  commercial_method_contract_version,
+  commercial_method_definition,
   communication_tone,
   required_behaviors,
   prohibited_behaviors,
@@ -60,6 +62,8 @@ const PRODUCT_PROFILE_FIELDS = `
   company_id,
   config_version_id,
   product_id,
+  commercial_product_contract_version,
+  commercial_product_definition,
   indicated_audiences,
   needs_addressed,
   benefits,
@@ -77,6 +81,8 @@ const FACT_FIELDS = `
   id,
   company_id,
   config_version_id,
+  commercial_fact_contract_version,
+  commercial_fact_definition,
   category,
   fact_key,
   fact_value,
@@ -90,6 +96,8 @@ const OBJECTION_GUIDE_FIELDS = `
   id,
   company_id,
   config_version_id,
+  commercial_objection_contract_version,
+  commercial_objection_definition,
   sort_order,
   objection,
   signals,
@@ -180,6 +188,10 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
     commercial_method_name: input.commercial_method_name,
     commercial_method_description:
       input.commercial_method_description,
+
+    commercial_method_definition:
+      input.commercial_method_definition,
+
     communication_tone: input.communication_tone,
 
     required_behaviors: input.required_behaviors,
@@ -197,6 +209,10 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
     product_profiles: input.product_profiles.map(
       (profile) => ({
         product_id: profile.product_id,
+
+        commercial_product_definition:
+          profile.commercial_product_definition,
+
         indicated_audiences: profile.indicated_audiences,
         needs_addressed: profile.needs_addressed,
         benefits: profile.benefits,
@@ -211,6 +227,9 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
     ),
 
     facts: input.facts.map((fact) => ({
+      commercial_fact_definition:
+        fact.commercial_fact_definition ?? null,
+
       category: fact.category,
       fact_key: fact.fact_key,
       fact_value: fact.fact_value,
@@ -220,6 +239,9 @@ function buildDraftPayload(input: CommercialConfigDraftInput) {
 
     objection_guides: input.objection_guides.map(
       (guide) => ({
+        commercial_objection_definition:
+          guide.commercial_objection_definition ?? null,
+
         sort_order: guide.sort_order,
         objection: guide.objection,
         signals: guide.signals,
@@ -395,7 +417,7 @@ export async function saveCommercialConfigDraft(
   input: CommercialConfigDraftInput,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_save_company_commercial_config_draft',
+    'rpc_save_company_commercial_config_draft_v6',
     {
       p_company_id: companyId,
       p_config_version_id:
@@ -422,7 +444,7 @@ export async function cloneCommercialConfigVersion(
   sourceConfigVersionId: string,
 ): Promise<CommercialConfigMutationResult> {
   const { data, error } = await supabase.rpc(
-    'rpc_clone_company_commercial_config',
+    'rpc_clone_company_commercial_config_v6',
     {
       p_company_id: companyId,
       p_source_config_version_id:

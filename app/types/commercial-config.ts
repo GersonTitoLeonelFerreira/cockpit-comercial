@@ -3,11 +3,52 @@
 // Tipos da configuração comercial versionada
 // ============================================================================
 
+import type {
+  CommercialMethodDefinition,
+} from '@/app/lib/companion/commercial-method-contract'
+
+import type {
+  CommercialSimpleProductDefinition,
+} from '@/app/lib/companion/commercial-product-contract'
+
+import type {
+  CommercialComplexProductDefinition,
+} from '@/app/lib/companion/commercial-product-complex-contract'
+
+import type {
+  CommercialFactDefinition,
+} from '@/app/lib/companion/commercial-fact-contract'
+
+import type {
+  CommercialObjectionDefinition,
+} from '@/app/lib/companion/commercial-objection-contract'
+
 export const COMMERCIAL_CONFIG_CONTRACT_VERSION =
   'phase-2-v1' as const
 
 export type CommercialConfigContractVersion =
   typeof COMMERCIAL_CONFIG_CONTRACT_VERSION
+
+export type CommercialMethodPersistenceContractVersion =
+  | 'commercial-method-v1'
+  | 'commercial-method-v2'
+
+export type CommercialProductPersistenceContractVersion =
+  | 'commercial-product-v1'
+  | 'commercial-product-v2'
+  | 'commercial-product-v3'
+
+export type CommercialProductDefinition =
+  | CommercialSimpleProductDefinition
+  | CommercialComplexProductDefinition
+
+export type CommercialFactPersistenceContractVersion =
+  | 'commercial-fact-v1'
+  | 'commercial-fact-v2'
+
+export type CommercialObjectionPersistenceContractVersion =
+  | 'commercial-objection-v1'
+  | 'commercial-objection-v2'
 
 export type CommercialConfigStatus =
   | 'draft'
@@ -31,6 +72,13 @@ export interface CommercialConfigVersion {
 
   commercial_method_name: string
   commercial_method_description: string
+
+  commercial_method_contract_version:
+    CommercialMethodPersistenceContractVersion
+
+  commercial_method_definition:
+    CommercialMethodDefinition | null
+
   communication_tone: string
 
   required_behaviors: string[]
@@ -68,6 +116,12 @@ export interface CommercialProductProfile {
   config_version_id: string
   product_id: string
 
+  commercial_product_contract_version:
+    CommercialProductPersistenceContractVersion
+
+  commercial_product_definition:
+    CommercialProductDefinition | null
+
   indicated_audiences: string[]
   needs_addressed: string[]
   benefits: string[]
@@ -87,6 +141,12 @@ export interface CommercialFact {
   company_id: string
   config_version_id: string
 
+  commercial_fact_contract_version:
+    CommercialFactPersistenceContractVersion
+
+  commercial_fact_definition:
+    CommercialFactDefinition | null
+
   category: string
   fact_key: string
   fact_value: string
@@ -101,6 +161,12 @@ export interface CommercialObjectionGuide {
   id: string
   company_id: string
   config_version_id: string
+
+  commercial_objection_contract_version:
+    CommercialObjectionPersistenceContractVersion
+
+  commercial_objection_definition:
+    CommercialObjectionDefinition | null
 
   sort_order: number
   objection: string
@@ -144,6 +210,12 @@ export interface CommercialProductProfileDraft {
   id?: string
   product_id: string
 
+  commercial_product_contract_version:
+    CommercialProductPersistenceContractVersion
+
+  commercial_product_definition:
+    CommercialProductDefinition | null
+
   indicated_audiences: string[]
   needs_addressed: string[]
   benefits: string[]
@@ -158,6 +230,12 @@ export interface CommercialProductProfileDraft {
 export interface CommercialFactDraft {
   id?: string
 
+  commercial_fact_contract_version?:
+    CommercialFactPersistenceContractVersion
+
+  commercial_fact_definition?:
+    CommercialFactDefinition | null
+
   category: string
   fact_key: string
   fact_value: string
@@ -167,6 +245,12 @@ export interface CommercialFactDraft {
 
 export interface CommercialObjectionGuideDraft {
   id?: string
+
+  commercial_objection_contract_version?:
+    CommercialObjectionPersistenceContractVersion
+
+  commercial_objection_definition?:
+    CommercialObjectionDefinition | null
 
   sort_order: number
   objection: string
@@ -186,6 +270,10 @@ export interface CommercialConfigDraftInput {
 
   commercial_method_name: string
   commercial_method_description: string
+
+  commercial_method_definition:
+    CommercialMethodDefinition | null
+
   communication_tone: string
 
   required_behaviors: string[]
@@ -277,6 +365,9 @@ export function createEmptyCommercialConfigDraft(): CommercialConfigDraftInput {
 
     commercial_method_name: '',
     commercial_method_description: '',
+
+    commercial_method_definition: null,
+
     communication_tone: '',
 
     required_behaviors: [],

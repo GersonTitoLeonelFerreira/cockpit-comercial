@@ -4638,6 +4638,29 @@
     )
   }
 
+  function getActiveCommercialReading() {
+    const analysis =
+      state
+        .conversationAnalysis
+
+    const reading =
+      analysis
+        ?.commercial_reading
+
+    if (
+      analysis?.engine_source !==
+        'stateful' ||
+      !reading ||
+      typeof reading !==
+        'object' ||
+      Array.isArray(reading)
+    ) {
+      return null
+    }
+
+    return reading
+  }
+
   function normalizeOperationalText(value) {
     if (
       typeof value !==
@@ -4744,6 +4767,174 @@
     )
   }
 
+  function hasRichCommercialReadingOperationalChange(
+    commercialReading,
+  ) {
+    const crm =
+      commercialReading
+        ?.operations
+        ?.crm
+
+    const agenda =
+      commercialReading
+        ?.operations
+        ?.agenda
+
+    return (
+      crm?.should_change_crm_stage ===
+        true ||
+      agenda?.should_change_agenda ===
+        true
+    )
+  }
+
+  function isRichCommercialReadingApplyCompatible(
+    commercialReading,
+  ) {
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    const crm =
+      commercialReading
+        ?.operations
+        ?.crm
+
+    const agenda =
+      commercialReading
+        ?.operations
+        ?.agenda
+
+    if (
+      !suggestion ||
+      !cycle ||
+      !crm ||
+      !agenda ||
+      !hasRichCommercialReadingOperationalChange(
+        commercialReading,
+      )
+    ) {
+      return false
+    }
+
+    if (
+      crm
+        .requires_human_confirmation !==
+        true ||
+      agenda
+        .requires_human_confirmation !==
+        true
+    ) {
+      return false
+    }
+
+    const legacyStatusChanged =
+      Boolean(
+        suggestion
+          .recommended_status,
+      ) &&
+      suggestion
+        .recommended_status !==
+        cycle.status
+
+    if (
+      crm
+        .should_change_crm_stage ===
+        true
+    ) {
+      if (
+        !crm.recommended_status ||
+        crm.recommended_status !==
+          suggestion
+            .recommended_status ||
+        !legacyStatusChanged
+      ) {
+        return false
+      }
+    } else if (
+      legacyStatusChanged
+    ) {
+      return false
+    }
+
+    const currentNextAction =
+      normalizeOperationalText(
+        cycle.next_action,
+      )
+
+    const suggestedNextAction =
+      normalizeOperationalText(
+        suggestion.next_action,
+      )
+
+    const currentNextActionDate =
+      getOperationalDateKey(
+        cycle.next_action_date,
+      )
+
+    const suggestedNextActionDate =
+      getOperationalDateKey(
+        suggestion
+          .next_action_date,
+      )
+
+    const legacyAgendaChanged =
+      currentNextAction !==
+        suggestedNextAction ||
+      currentNextActionDate !==
+        suggestedNextActionDate
+
+    if (
+      agenda
+        .should_change_agenda ===
+        true
+    ) {
+      const expectedAgendaDate =
+        getOperationalDateKey(
+          agenda
+            .expected_next_action_at,
+        )
+
+      if (
+        !legacyAgendaChanged ||
+        !expectedAgendaDate ||
+        suggestedNextActionDate !==
+          expectedAgendaDate
+      ) {
+        return false
+      }
+    } else if (
+      legacyAgendaChanged
+    ) {
+      return false
+    }
+
+    return true
+  }
+
+  function hasCurrentOperationalSuggestionChange() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (commercialReading) {
+      return (
+        isRichCommercialReadingApplyCompatible(
+          commercialReading,
+        )
+      )
+    }
+
+    return (
+      hasOperationalSuggestionChange()
+    )
+  }
+
   function canApplyCurrentSuggestion() {
     const suggestion =
       state
@@ -4772,7 +4963,7 @@
         suggestion
           .recommended_status,
       ) &&
-      hasOperationalSuggestionChange() &&
+      hasCurrentOperationalSuggestionChange() &&
       !hasAudioWithoutTranscriptionForAnalysis() &&
       !isCurrentAnalysisOutdated() &&
       !state.conversationAnalysisLoading &&
@@ -4983,9 +5174,48 @@
   }
 
   function getSuggestedMessage() {
-    const message = state.conversationAnalysis?.coaching?.suggested_message
+    const commercialReading =
+      getActiveCommercialReading()
 
-    return typeof message === 'string' && message.trim() ? message.trim() : null
+    if (commercialReading) {
+      const communication =
+        commercialReading
+          .communication
+
+      if (
+        communication
+          ?.intervention_needed !==
+        true
+      ) {
+        return null
+      }
+
+      const message =
+        communication
+          ?.recommended_message
+
+      return (
+        typeof message ===
+          'string' &&
+        message.trim()
+          ? message.trim()
+          : null
+      )
+    }
+
+    const message =
+      state
+        .conversationAnalysis
+        ?.coaching
+        ?.suggested_message
+
+    return (
+      typeof message ===
+        'string' &&
+      message.trim()
+        ? message.trim()
+        : null
+    )
   }
 
   function getAudioTranscriptionHtml() {
@@ -5339,6 +5569,46 @@
   }
 
 
+  function getApplySuggestionButtonLabel() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (!commercialReading) {
+      return 'Confirmar atualização na Yolen'
+    }
+
+    const crmChange =
+      commercialReading
+        ?.operations
+        ?.crm
+        ?.should_change_crm_stage ===
+      true
+
+    const agendaChange =
+      commercialReading
+        ?.operations
+        ?.agenda
+        ?.should_change_agenda ===
+      true
+
+    if (
+      crmChange &&
+      agendaChange
+    ) {
+      return 'Confirmar CRM e Agenda'
+    }
+
+    if (crmChange) {
+      return 'Confirmar atualização do CRM'
+    }
+
+    if (agendaChange) {
+      return 'Confirmar atualização da Agenda'
+    }
+
+    return 'Confirmar atualização na Yolen'
+  }
+
   function getAnalysisActionButton() {
     if (
       !canAnalyzeCurrentConversation() ||
@@ -5433,7 +5703,9 @@
             type="button"
             data-yolen-action="apply-suggestion"
           >
-            Confirmar atualização na Yolen
+            ${escapeHtml(
+              getApplySuggestionButtonLabel(),
+            )}
           </button>
         `
         : ''
@@ -5731,7 +6003,7 @@
     `
   }
 
-  function getAnalysisCardHtml() {
+  function getLegacyAnalysisCardHtml() {
     const nextMove =
       getCompanionNextMoveText()
 
@@ -5789,6 +6061,1430 @@
         </div>
       </div>
     `
+  }
+
+  function getCommercialReadingDecisionLabel(
+    decision,
+  ) {
+    const labels = {
+      respond: 'Responder',
+      clarify: 'Esclarecer',
+      ask: 'Perguntar',
+      deepen_discovery:
+        'Aprofundar descoberta',
+      present_solution:
+        'Apresentar solução',
+      compare: 'Comparar opções',
+      demonstrate_value:
+        'Demonstrar valor',
+      handle_objection:
+        'Tratar objeção',
+      send_material:
+        'Enviar material',
+      confirm_information:
+        'Confirmar informação',
+      propose_call:
+        'Propor ligação',
+      propose_meeting:
+        'Propor reunião',
+      propose_visit:
+        'Propor visita',
+      negotiate: 'Negociar',
+      ask_for_decision:
+        'Pedir decisão',
+      set_commitment:
+        'Definir compromisso',
+      wait: 'Aguardar',
+      give_space: 'Dar espaço',
+      follow_up: 'Fazer follow-up',
+      escalate: 'Escalonar',
+      close: 'Encerrar',
+      no_intervention:
+        'Não intervir',
+      insufficient_information:
+        'Informação insuficiente',
+    }
+
+    return (
+      labels[decision] ||
+      String(decision || '')
+    )
+  }
+
+  function getCommercialReadingChannelLabel(
+    channel,
+  ) {
+    const labels = {
+      text: 'Texto',
+      audio: 'Áudio',
+      call: 'Ligação',
+      meeting: 'Reunião',
+      visit: 'Visita',
+      document: 'Documento',
+      wait: 'Aguardar',
+      none: 'Sem canal',
+    }
+
+    return (
+      labels[channel] ||
+      String(channel || '')
+    )
+  }
+
+  function getRichCommercialReadingBadge(
+    commercialReading,
+  ) {
+    if (
+      commercialReading
+        ?.analysis_status ===
+        'limited'
+    ) {
+      return 'Leitura limitada'
+    }
+
+    const decision =
+      commercialReading
+        ?.best_approach
+        ?.decision
+
+    if (decision === 'wait') {
+      return 'Aguardar'
+    }
+
+    if (
+      decision ===
+      'give_space'
+    ) {
+      return 'Dar espaço'
+    }
+
+    if (
+      decision ===
+      'no_intervention'
+    ) {
+      return 'Sem intervenção'
+    }
+
+    if (
+      hasRichCommercialReadingOperationalChange(
+        commercialReading,
+      )
+    ) {
+      return 'Ação recomendada'
+    }
+
+    if (
+      commercialReading
+        ?.communication
+        ?.intervention_needed ===
+        true
+    ) {
+      return 'Orientação disponível'
+    }
+
+    return 'Sem intervenção necessária'
+  }
+
+  function getRichCommercialReadingLimitationsHtml(
+    commercialReading,
+  ) {
+    if (
+      commercialReading
+        ?.analysis_status !==
+        'limited'
+    ) {
+      return ''
+    }
+
+    const limitations =
+      Array.isArray(
+        commercialReading
+          ?.analysis_limitations,
+      )
+        ? commercialReading
+            .analysis_limitations
+            .filter(
+              item =>
+                typeof item ===
+                  'string' &&
+                item.trim(),
+            )
+            .map(
+              item =>
+                item.trim(),
+            )
+        : []
+
+    return `
+      <div class="yolen-decision-block yolen-operational-suggestion">
+        <div class="yolen-decision-kicker">
+          Leitura limitada
+        </div>
+
+        ${
+          limitations.length > 0
+            ? `
+              <div class="yolen-decision-list">
+                ${limitations
+                  .map(
+                    item =>
+                      `<div class="yolen-decision-list-item">${escapeHtml(item)}</div>`,
+                  )
+                  .join('')}
+              </div>
+            `
+            : ''
+        }
+      </div>
+    `
+  }
+
+  function getRichCommercialReadingApproachHtml(
+    commercialReading,
+  ) {
+    const approach =
+      commercialReading
+        ?.best_approach
+
+    if (!approach) {
+      return ''
+    }
+
+    const decision =
+      typeof approach
+        .decision ===
+        'string'
+        ? approach
+            .decision
+            .trim()
+        : ''
+
+    const reason =
+      typeof approach
+        .reason ===
+        'string'
+        ? approach
+            .reason
+            .trim()
+        : ''
+
+    const channel =
+      typeof approach
+        .channel ===
+        'string'
+        ? approach
+            .channel
+            .trim()
+        : ''
+
+    if (
+      !decision &&
+      !reason
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-decision-block">
+        <div class="yolen-decision-kicker">
+          Melhor abordagem
+        </div>
+
+        ${
+          decision
+            ? `
+              <div class="yolen-card-title yolen-decision-title">
+                ${escapeHtml(
+                  getCommercialReadingDecisionLabel(
+                    decision,
+                  ),
+                )}
+              </div>
+            `
+            : ''
+        }
+
+        ${
+          reason
+            ? `
+              <div class="yolen-decision-copy">
+                ${escapeHtml(reason)}
+              </div>
+            `
+            : ''
+        }
+
+        ${
+          channel
+            ? `
+              <div class="yolen-operational-note">
+                Canal: ${escapeHtml(
+                  getCommercialReadingChannelLabel(
+                    channel,
+                  ),
+                )}
+              </div>
+            `
+            : ''
+        }
+      </div>
+    `
+  }
+
+  function getRichRecommendedQuestionHtml(
+    commercialReading,
+  ) {
+    const communication =
+      commercialReading
+        ?.communication
+
+    if (
+      communication
+        ?.intervention_needed !==
+        true
+    ) {
+      return ''
+    }
+
+    const question =
+      typeof communication
+        .recommended_question ===
+        'string'
+        ? communication
+            .recommended_question
+            .trim()
+        : ''
+
+    if (!question) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-decision-block">
+        <div class="yolen-decision-kicker">
+          Pergunta recomendada
+        </div>
+
+        <div class="yolen-decision-copy">
+          ${escapeHtml(question)}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichOperationalSuggestionHtml(
+    commercialReading,
+  ) {
+    const crm =
+      commercialReading
+        ?.operations
+        ?.crm
+
+    const agenda =
+      commercialReading
+        ?.operations
+        ?.agenda
+
+    const items = []
+
+    if (
+      crm
+        ?.should_change_crm_stage ===
+        true &&
+      crm
+        .requires_human_confirmation ===
+        true &&
+      crm
+        .recommended_status
+    ) {
+      const currentStatus =
+        state
+          .leadResolution
+          ?.cycle
+          ?.status
+
+      const currentLabel =
+        currentStatus
+          ? getStageLabel(
+              currentStatus,
+            )
+          : null
+
+      const targetLabel =
+        getStageLabel(
+          crm.recommended_status,
+        )
+
+      const rationale =
+        getCommercialReadingDisplayText(
+          crm.rationale,
+        )
+
+      if (
+        targetLabel &&
+        rationale
+      ) {
+        const stageText =
+          currentLabel
+            ? `${currentLabel} → ${targetLabel}`
+            : targetLabel
+
+        items.push(`
+          <div class="yolen-rich-evolution-item">
+            <div class="yolen-rich-evolution-header">
+              <div class="yolen-rich-evolution-label">
+                CRM
+              </div>
+
+              <div class="yolen-rich-status yolen-rich-status-active">
+                Confirmar
+              </div>
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Etapa: ${escapeHtml(
+                stageText,
+              )}
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Motivo: ${escapeHtml(
+                rationale,
+              )}
+            </div>
+          </div>
+        `)
+      }
+    }
+
+    if (
+      agenda
+        ?.should_change_agenda ===
+        true &&
+      agenda
+        .requires_human_confirmation ===
+        true
+    ) {
+      const agendaDate =
+        agenda
+          .expected_next_action_at
+          ? formatSuggestionDate(
+              agenda
+                .expected_next_action_at,
+            )
+          : null
+
+      const rationale =
+        getCommercialReadingDisplayText(
+          agenda.rationale,
+        )
+
+      if (
+        agendaDate &&
+        rationale
+      ) {
+        items.push(`
+          <div class="yolen-rich-evolution-item">
+            <div class="yolen-rich-evolution-header">
+              <div class="yolen-rich-evolution-label">
+                Agenda
+              </div>
+
+              <div class="yolen-rich-status yolen-rich-status-active">
+                Confirmar
+              </div>
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Quando: ${escapeHtml(
+                agendaDate,
+              )}
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Motivo: ${escapeHtml(
+                rationale,
+              )}
+            </div>
+          </div>
+        `)
+      }
+    }
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    const applyAvailable =
+      canApplyCurrentSuggestion()
+
+    return `
+      <div class="yolen-decision-block yolen-operational-suggestion">
+        <div class="yolen-decision-kicker">
+          Atualização na Yolen
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${items.join('')}
+        </div>
+
+        <div class="yolen-operational-note">
+          Nada será alterado sem sua confirmação.
+          ${
+            applyAvailable
+              ? ' Revise as mudanças acima antes de confirmar.'
+              : ' A aplicação desta recomendação não está disponível nesta leitura.'
+          }
+        </div>
+      </div>
+    `
+  }
+
+  function getCommercialReadingDisplayText(
+    value,
+  ) {
+    if (
+      typeof value !==
+      'string'
+    ) {
+      return null
+    }
+
+    const clean =
+      value.trim()
+
+    return clean || null
+  }
+
+  function getRichReadingFactHtml(
+    label,
+    item,
+  ) {
+    const summary =
+      getCommercialReadingDisplayText(
+        item?.summary,
+      )
+
+    if (!summary) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-rich-fact">
+        <div class="yolen-rich-fact-label">
+          ${escapeHtml(label)}
+        </div>
+
+        <div class="yolen-rich-fact-copy">
+          ${escapeHtml(summary)}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichReadingListHtml(
+    label,
+    items,
+  ) {
+    const summaries =
+      Array.isArray(items)
+        ? items
+            .map(
+              item =>
+                getCommercialReadingDisplayText(
+                  item?.summary,
+                ),
+            )
+            .filter(Boolean)
+        : []
+
+    if (
+      summaries.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-rich-group">
+        <div class="yolen-rich-group-label">
+          ${escapeHtml(label)}
+        </div>
+
+        <div class="yolen-rich-list">
+          ${summaries
+            .map(
+              summary => `
+                <div class="yolen-rich-list-item">
+                  ${escapeHtml(summary)}
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichConversationSummaryHtml(
+    commercialReading,
+  ) {
+    const summary =
+      commercialReading
+        ?.conversation_summary
+
+    if (!summary) {
+      return ''
+    }
+
+    const blocks = [
+      getRichReadingFactHtml(
+        'Contexto inicial',
+        summary.initial_context,
+      ),
+      getRichReadingFactHtml(
+        'Como a conversa evoluiu',
+        summary.evolution,
+      ),
+      getRichReadingListHtml(
+        'Eventos importantes',
+        summary.important_events,
+      ),
+      getRichReadingFactHtml(
+        'Última solicitação ou decisão',
+        summary
+          .last_customer_request_or_decision,
+      ),
+    ].filter(Boolean)
+
+    if (
+      blocks.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Resumo da conversa
+        </div>
+
+        ${blocks.join('')}
+      </section>
+    `
+  }
+
+  function getRichCustomerGroupHtml(
+    label,
+    items,
+  ) {
+    return getRichReadingListHtml(
+      label,
+      items,
+    )
+  }
+
+  function getRichCustomerHtml(
+    commercialReading,
+  ) {
+    const customer =
+      commercialReading
+        ?.customer
+
+    if (!customer) {
+      return ''
+    }
+
+    const groups = [
+      getRichCustomerGroupHtml(
+        'Necessidades',
+        customer.needs,
+      ),
+      getRichCustomerGroupHtml(
+        'Interesses',
+        customer.interests,
+      ),
+      getRichCustomerGroupHtml(
+        'Critérios de decisão',
+        customer
+          .decision_criteria,
+      ),
+      getRichCustomerGroupHtml(
+        'Preferências',
+        customer.preferences,
+      ),
+      getRichCustomerGroupHtml(
+        'Perguntas em aberto',
+        customer
+          .open_questions,
+      ),
+      getRichCustomerGroupHtml(
+        'Objeções identificadas',
+        customer.objections,
+      ),
+      getRichCustomerGroupHtml(
+        'Incertezas',
+        customer.uncertainties,
+      ),
+    ].filter(Boolean)
+
+    if (
+      groups.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Cliente
+        </div>
+
+        ${groups.join('')}
+      </section>
+    `
+  }
+
+  function getCommercialEvolutionStatusLabel(
+    status,
+  ) {
+    const labels = {
+      completed: 'Concluído',
+      active: 'Ativo',
+      partial: 'Parcial',
+      pending: 'Pendente',
+      not_started:
+        'Não iniciado',
+      skipped: 'Pulado',
+      not_applicable:
+        'Não se aplica',
+    }
+
+    return (
+      labels[status] ||
+      String(status || '')
+    )
+  }
+
+  function getCommercialEvolutionStatusClass(
+    status,
+  ) {
+    const classes = {
+      completed:
+        'yolen-rich-status-completed',
+      active:
+        'yolen-rich-status-active',
+      partial:
+        'yolen-rich-status-partial',
+      pending:
+        'yolen-rich-status-pending',
+      not_started:
+        'yolen-rich-status-not-started',
+      skipped:
+        'yolen-rich-status-skipped',
+      not_applicable:
+        'yolen-rich-status-not-applicable',
+    }
+
+    return (
+      classes[status] ||
+      'yolen-rich-status-neutral'
+    )
+  }
+
+  function getRichCommercialEvolutionHtml(
+    commercialReading,
+  ) {
+    const items =
+      Array.isArray(
+        commercialReading
+          ?.commercial_evolution,
+      )
+        ? commercialReading
+            .commercial_evolution
+            .map((item) => {
+              const label =
+                getCommercialReadingDisplayText(
+                  item?.label,
+                )
+
+              const explanation =
+                getCommercialReadingDisplayText(
+                  item?.explanation,
+                )
+
+              if (
+                !label ||
+                !explanation
+              ) {
+                return null
+              }
+
+              return {
+                label,
+                explanation,
+                status:
+                  item?.status || '',
+              }
+            })
+            .filter(Boolean)
+        : []
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Evolução comercial
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${items
+            .map(
+              item => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-header">
+                    <div class="yolen-rich-evolution-label">
+                      ${escapeHtml(
+                        item.label,
+                      )}
+                    </div>
+
+                    <div class="yolen-rich-status ${getCommercialEvolutionStatusClass(
+                      item.status,
+                    )}">
+                      ${escapeHtml(
+                        getCommercialEvolutionStatusLabel(
+                          item.status,
+                        ),
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.explanation,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function getCommercialMethodStatusLabel(
+    status,
+  ) {
+    const labels = {
+      completed: 'Concluído',
+      partial: 'Parcial',
+      not_started:
+        'Não iniciado',
+      skipped: 'Pulado',
+      not_applicable:
+        'Não se aplica',
+    }
+
+    return (
+      labels[status] ||
+      null
+    )
+  }
+
+  function getRichCommercialMethodHtml(
+    commercialReading,
+  ) {
+    const method =
+      commercialReading
+        ?.method
+
+    if (!method) {
+      return ''
+    }
+
+    if (
+      method.configured ===
+      false
+    ) {
+      return `
+        <section class="yolen-rich-section">
+          <div class="yolen-rich-section-title">
+            Método comercial
+          </div>
+
+          <div class="yolen-rich-fact-copy">
+            Nenhum método comercial está configurado para esta operação.
+          </div>
+        </section>
+      `
+    }
+
+    if (
+      method.configured !==
+      true
+    ) {
+      return ''
+    }
+
+    const methodName =
+      getCommercialReadingDisplayText(
+        method.name,
+      )
+
+    const stages =
+      Array.isArray(
+        method.stages,
+      )
+        ? method.stages
+            .map((stage) => {
+              const name =
+                getCommercialReadingDisplayText(
+                  stage?.name,
+                )
+
+              const explanation =
+                getCommercialReadingDisplayText(
+                  stage?.explanation,
+                )
+
+              const statusLabel =
+                getCommercialMethodStatusLabel(
+                  stage?.status,
+                )
+
+              const stepOrder =
+                Number.isSafeInteger(
+                  stage?.step_order,
+                ) &&
+                stage.step_order > 0
+                  ? stage.step_order
+                  : null
+
+              if (
+                !name ||
+                !explanation ||
+                !statusLabel ||
+                stepOrder === null
+              ) {
+                return null
+              }
+
+              return {
+                name,
+                explanation,
+                status:
+                  stage.status,
+                statusLabel,
+                stepOrder,
+              }
+            })
+            .filter(Boolean)
+            .sort(
+              (
+                left,
+                right,
+              ) =>
+                left.stepOrder -
+                right.stepOrder,
+            )
+        : []
+
+    if (
+      !methodName ||
+      stages.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Método comercial
+        </div>
+
+        <div class="yolen-rich-group">
+          <div class="yolen-rich-group-label">
+            Método configurado
+          </div>
+
+          <div class="yolen-rich-fact-copy">
+            ${escapeHtml(
+              methodName,
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${stages
+            .map(
+              stage => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-header">
+                    <div class="yolen-rich-evolution-label">
+                      ${escapeHtml(
+                        stage.name,
+                      )}
+                    </div>
+
+                    <div class="yolen-rich-status ${getCommercialEvolutionStatusClass(
+                      stage.status,
+                    )}">
+                      ${escapeHtml(
+                        stage.statusLabel,
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      stage.explanation,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+
+        <div class="yolen-operational-note">
+          Esta leitura mostra aderência ao método e não determina avanço automático.
+        </div>
+      </section>
+    `
+  }
+
+  function getRichSellerStrengthsHtml(
+    commercialReading,
+  ) {
+    const strengths =
+      Array.isArray(
+        commercialReading
+          ?.seller_strengths,
+      )
+        ? commercialReading
+            .seller_strengths
+            .map(item =>
+              getCommercialReadingDisplayText(
+                item?.summary,
+              ),
+            )
+            .filter(Boolean)
+        : []
+
+    if (
+      strengths.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Acertos do vendedor
+        </div>
+
+        <div class="yolen-rich-list">
+          ${strengths
+            .map(
+              summary => `
+                <div class="yolen-rich-list-item">
+                  ${escapeHtml(
+                    summary,
+                  )}
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function getRichImprovementPointsHtml(
+    commercialReading,
+  ) {
+    const improvements =
+      Array.isArray(
+        commercialReading
+          ?.improvement_points,
+      )
+        ? commercialReading
+            .improvement_points
+            .map((item) => {
+              const summary =
+                getCommercialReadingDisplayText(
+                  item?.summary,
+                )
+
+              const impact =
+                getCommercialReadingDisplayText(
+                  item?.impact,
+                )
+
+              if (
+                !summary ||
+                !impact
+              ) {
+                return null
+              }
+
+              return {
+                summary,
+                impact,
+              }
+            })
+            .filter(Boolean)
+        : []
+
+    if (
+      improvements.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Pontos de melhoria
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${improvements
+            .map(
+              item => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.summary,
+                    )}
+                  </div>
+
+                  <div class="yolen-rich-fact-label">
+                    Impacto
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.impact,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function getCommercialRiskSeverityLabel(
+    severity,
+  ) {
+    const labels = {
+      low: 'Baixo',
+      medium: 'Médio',
+      high: 'Alto',
+    }
+
+    return (
+      labels[severity] ||
+      null
+    )
+  }
+
+  function getRichRiskGroupHtml(
+    label,
+    risks,
+  ) {
+    const items =
+      Array.isArray(risks)
+        ? risks
+            .map((risk) => {
+              const summary =
+                getCommercialReadingDisplayText(
+                  risk?.summary,
+                )
+
+              const severity =
+                getCommercialRiskSeverityLabel(
+                  risk?.severity,
+                )
+
+              if (
+                !summary ||
+                !severity
+              ) {
+                return null
+              }
+
+              return {
+                summary,
+                severity,
+              }
+            })
+            .filter(Boolean)
+        : []
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-rich-group">
+        <div class="yolen-rich-group-label">
+          ${escapeHtml(label)}
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${items
+            .map(
+              item => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-header">
+                    <div class="yolen-rich-evolution-label">
+                      Risco identificado
+                    </div>
+
+                    <div class="yolen-rich-status yolen-rich-status-neutral">
+                      ${escapeHtml(
+                        item.severity,
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.summary,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichCommercialRisksHtml(
+    commercialReading,
+  ) {
+    const risks =
+      commercialReading
+        ?.risks
+
+    if (!risks) {
+      return ''
+    }
+
+    const groups = [
+      getRichRiskGroupHtml(
+        'Objeções do cliente',
+        risks.customer_objections,
+      ),
+      getRichRiskGroupHtml(
+        'Riscos no atendimento',
+        risks.service_risks,
+      ),
+    ].filter(Boolean)
+
+    if (
+      groups.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Riscos
+        </div>
+
+        ${groups.join('')}
+      </section>
+    `
+  }
+
+  function getRichCommercialReadingExpandedHtml(
+    commercialReading,
+  ) {
+    const sections = [
+      getRichConversationSummaryHtml(
+        commercialReading,
+      ),
+      getRichCustomerHtml(
+        commercialReading,
+      ),
+      getRichCommercialEvolutionHtml(
+        commercialReading,
+      ),
+      getRichCommercialMethodHtml(
+        commercialReading,
+      ),
+      getRichSellerStrengthsHtml(
+        commercialReading,
+      ),
+      getRichImprovementPointsHtml(
+        commercialReading,
+      ),
+      getRichCommercialRisksHtml(
+        commercialReading,
+      ),
+    ].filter(Boolean)
+
+    if (
+      sections.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <details class="yolen-rich-details">
+        <summary class="yolen-rich-details-summary">
+          <div>
+            <div class="yolen-rich-details-title">
+              Ver contexto comercial
+            </div>
+
+            <div class="yolen-rich-details-subtitle">
+              Resumo, cliente, evolução, método, atendimento e riscos
+            </div>
+          </div>
+
+          <span
+            class="yolen-rich-details-chevron"
+            aria-hidden="true"
+          >
+            ›
+          </span>
+        </summary>
+
+        <div class="yolen-rich-details-body">
+          ${sections.join('')}
+        </div>
+      </details>
+    `
+  }
+
+  function getRichCommercialReadingCardHtml(
+    commercialReading,
+  ) {
+    const currentState =
+      typeof commercialReading
+        ?.conversation_summary
+        ?.current_state
+        ?.summary ===
+        'string'
+        ? commercialReading
+            .conversation_summary
+            .current_state
+            .summary
+            .trim()
+        : ''
+
+    return `
+      <div class="yolen-card yolen-decision-card ${getAnalysisStatusClass()}">
+        <div class="yolen-decision-header">
+          <div class="yolen-section-label">
+            Yolen Companion
+          </div>
+
+          <div class="yolen-decision-badge">
+            ${escapeHtml(
+              getRichCommercialReadingBadge(
+                commercialReading,
+              ),
+            )}
+          </div>
+        </div>
+
+        ${
+          currentState
+            ? `
+              <div class="yolen-decision-block">
+                <div class="yolen-decision-kicker">
+                  Momento atual
+                </div>
+
+                <div class="yolen-card-title yolen-decision-title">
+                  ${escapeHtml(
+                    currentState,
+                  )}
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        ${getRichCommercialReadingLimitationsHtml(
+          commercialReading,
+        )}
+
+        ${getRichCommercialReadingApproachHtml(
+          commercialReading,
+        )}
+
+        ${getRichRecommendedQuestionHtml(
+          commercialReading,
+        )}
+
+        ${getRichOperationalSuggestionHtml(
+          commercialReading,
+        )}
+
+        ${getAudioTranscriptionHtml()}
+
+        ${getSuggestedMessageHtml()}
+
+        ${getRichCommercialReadingExpandedHtml(
+          commercialReading,
+        )}
+
+        <div class="yolen-inline-actions yolen-decision-actions">
+          ${getAnalysisActionButton()}
+        </div>
+      </div>
+    `
+  }
+
+  function getAnalysisCardHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (
+      commercialReading &&
+      !state
+        .conversationAnalysisLoading &&
+      !state
+        .conversationAnalysisError &&
+      !state
+        .suggestionApplyLoading &&
+      !state
+        .suggestionApplyError &&
+      !state
+        .suggestionApplyResult &&
+      !isCurrentAnalysisOutdated()
+    ) {
+      return (
+        getRichCommercialReadingCardHtml(
+          commercialReading,
+        )
+      )
+    }
+
+    return (
+      getLegacyAnalysisCardHtml()
+    )
   }
 
   function getLeadEnrichmentAddressValue(
@@ -8497,9 +10193,142 @@
     }
   }
 
+  function buildRichApplyConfirmationText(
+    commercialReading,
+  ) {
+    if (
+      !commercialReading ||
+      !isRichCommercialReadingApplyCompatible(
+        commercialReading,
+      )
+    ) {
+      return null
+    }
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    const crm =
+      commercialReading
+        ?.operations
+        ?.crm
+
+    const agenda =
+      commercialReading
+        ?.operations
+        ?.agenda
+
+    const lines = [
+      'Confirmar atualização na Yolen?',
+      '',
+    ]
+
+    if (
+      crm
+        ?.should_change_crm_stage ===
+        true &&
+      crm
+        .recommended_status
+    ) {
+      const currentLabel =
+        cycle?.status
+          ? getStageLabel(
+              cycle.status,
+            )
+          : null
+
+      const targetLabel =
+        getStageLabel(
+          crm.recommended_status,
+        )
+
+      lines.push(
+        currentLabel
+          ? `CRM: ${currentLabel} → ${targetLabel}`
+          : `CRM: ${targetLabel}`,
+      )
+
+      const rationale =
+        getCommercialReadingDisplayText(
+          crm.rationale,
+        )
+
+      if (rationale) {
+        lines.push(
+          `Motivo do CRM: ${rationale}`,
+        )
+      }
+    }
+
+    if (
+      agenda
+        ?.should_change_agenda ===
+        true
+    ) {
+      const agendaDate =
+        agenda
+          .expected_next_action_at
+          ? formatSuggestionDate(
+              agenda
+                .expected_next_action_at,
+            )
+          : null
+
+      if (agendaDate) {
+        lines.push(
+          `Agenda: ${agendaDate}`,
+        )
+      }
+
+      const rationale =
+        getCommercialReadingDisplayText(
+          agenda.rationale,
+        )
+
+      if (rationale) {
+        lines.push(
+          `Motivo da Agenda: ${rationale}`,
+        )
+      }
+    }
+
+    lines.push('')
+    lines.push(
+      'Nada será alterado sem sua confirmação.',
+    )
+    lines.push(
+      'A atualização será registrada no histórico.',
+    )
+
+    return lines.join('\n')
+  }
+
   function buildApplyConfirmationText() {
-    const suggestion = state.conversationAnalysis?.suggestion
-    const currentStatus = state.leadResolution?.cycle?.status || '-'
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (commercialReading) {
+      return (
+        buildRichApplyConfirmationText(
+          commercialReading,
+        ) ||
+        'Esta atualização não está disponível nesta leitura. Atualize a análise antes de tentar novamente.'
+      )
+    }
+
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const currentStatus =
+      state
+        .leadResolution
+        ?.cycle
+        ?.status ||
+      '-'
 
     if (!suggestion) {
       return 'Confirmar aplicação da sugestão na Yolen?'
@@ -8509,19 +10338,33 @@
       'Confirmar aplicação da sugestão na Yolen?',
       '',
       `De: ${getStageLabel(currentStatus)}`,
-      `Para: ${getStageLabel(suggestion.recommended_status)}`,
+      `Para: ${getStageLabel(
+        suggestion.recommended_status,
+      )}`,
     ]
 
-    if (suggestion.next_action) {
-      lines.push(`Próxima ação: ${suggestion.next_action}`)
+    if (
+      suggestion.next_action
+    ) {
+      lines.push(
+        `Próxima ação: ${suggestion.next_action}`,
+      )
     }
 
-    if (suggestion.next_action_date) {
-      lines.push(`Data: ${formatSuggestionDate(suggestion.next_action_date)}`)
+    if (
+      suggestion.next_action_date
+    ) {
+      lines.push(
+        `Data: ${formatSuggestionDate(
+          suggestion.next_action_date,
+        )}`,
+      )
     }
 
     lines.push('')
-    lines.push('Essa ação vai atualizar o ciclo e registrar evento no histórico.')
+    lines.push(
+      'Essa ação vai atualizar o ciclo e registrar evento no histórico.',
+    )
 
     return lines.join('\n')
   }

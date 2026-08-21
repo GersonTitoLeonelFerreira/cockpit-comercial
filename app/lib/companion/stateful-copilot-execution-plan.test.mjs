@@ -286,6 +286,15 @@ function buildDiagnosticInput({
 
       facts: [
         {
+          contract_version:
+            'commercial-fact-v1',
+
+          definition:
+            null,
+
+          validity_status:
+            'legacy',
+
           category:
             'commercial_policy',
 
@@ -1260,7 +1269,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v12 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v18 preserva papeis, continuidade, descoberta e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1277,7 +1286,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v12',
+      'phase-5.2-stateful-prompt-v18',
     )
 
     assert.match(
@@ -1347,7 +1356,362 @@ test(
 
     assert.match(
       plan.request.system_prompt,
-      /conecte a solução ao problema antes de continuar quantificando detalhes opcionais/,
+      /conecte a solução ao problema antes de continuar coletando detalhes opcionais/,
+    )
+  },
+)
+
+
+test(
+  'prompt stateful v18 aplica os mesmos guardrails de fatos oficiais V2',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .facts = [
+        {
+          contract_version:
+            'commercial-fact-v2',
+
+          definition: {
+            contract_version:
+              'commercial-fact-v2',
+
+            fact_kind:
+              'official',
+
+            category:
+              'operation',
+
+            fact_key:
+              'service_window',
+
+            fact_value:
+              'Atendimento disponível até 18h.',
+
+            scope: {
+              type:
+                'operation',
+
+              product_id:
+                null,
+
+              variant_key:
+                null,
+
+              reference_key:
+                'commercial_service',
+            },
+
+            conditions: [],
+
+            limitations: [
+              'Não inclui feriados.',
+            ],
+
+            validity: {
+              mode:
+                'bounded',
+
+              valid_from:
+                '2026-08-01T00:00:00.000Z',
+
+              valid_until:
+                '2026-08-05T20:00:00.000Z',
+            },
+
+            source: {
+              type:
+                'system_record',
+
+              reference:
+                'Registro operacional publicado.',
+
+              verified_at:
+                '2026-08-05T19:00:00.000Z',
+            },
+          },
+
+          validity_status:
+            'expired',
+
+          category:
+            'operation',
+
+          fact_key:
+            'service_window',
+
+          fact_value:
+            'Atendimento disponível até 18h.',
+
+          source_note:
+            'Registro operacional.',
+        },
+      ]
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=current significa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=not_yet_valid não pode sustentar uma afirmação sobre o estado atual/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /validity_status=expired não pode sustentar uma afirmação sobre o estado atual/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.scope\.type=product_variant aplica o fato somente à combinação exata/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.conditions limita quando o fato pode ser aplicado/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.source\.verified_at informa quando a fonte foi verificada/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não é evidência de mensagem/,
+    )
+  },
+)
+
+test(
+  'prompt stateful v18 aplica os mesmos guardrails de produto e variante V3',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .products[0]
+      .contract_version =
+        'commercial-product-v3'
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .products[0]
+      .definition = {
+        contract_version:
+          'commercial-product-v3',
+
+        product_kind:
+          'complex',
+
+        variants: [],
+      }
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /base_price é um valor legado sem semântica comercial suficiente/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /limitations são restrições vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /forbidden_claims é uma proibição rígida/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Nunca selecione uma variante apenas porque ela aparece primeiro/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /variant\.compatibility\.incompatible_with é conflito real/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /variant\.pricing é a fonte semântica de preço daquela variante/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /product_stock_information_stale/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /não escolha arbitrariamente/,
+    )
+  },
+)
+
+test(
+  'prompt stateful v18 interpreta suficiência e espera do método V2',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .sales_method = {
+        configured: true,
+
+        contract_version:
+          'commercial-method-v2',
+
+        name:
+          'Método ATO',
+
+        description:
+          'Acolher, Tour e Obter.',
+
+        principles: [
+          'Esperar é uma decisão comercial válida.',
+        ],
+
+        definition: {
+          contract_version:
+            'commercial-method-v2',
+
+          name:
+            'Método ATO',
+
+          description:
+            'Acolher, Tour e Obter.',
+
+          principles: [
+            'Esperar é uma decisão comercial válida.',
+          ],
+
+          stages: [
+            {
+              key:
+                'tour',
+
+              display_order:
+                1,
+
+              name:
+                'Tour',
+
+              objective:
+                'Compreender o necessário.',
+
+              requirement:
+                'required',
+
+              completion_criteria: [
+                'Necessidade compreendida.',
+              ],
+
+              partial_completion_criteria: [],
+
+              skip_conditions: [],
+
+              recommended_questions: [],
+
+              common_mistakes: [],
+
+              deepen_when: [],
+
+              sufficient_when: [
+                'Informação suficiente.',
+              ],
+
+              advance_when: [],
+
+              wait_when: [
+                'Cliente informou que retornará.',
+              ],
+
+              stop_asking_when: [
+                'Perguntar mais não acrescenta valor.',
+              ],
+
+              dimensions: [],
+            },
+          ],
+        },
+
+        steps: [],
+      }
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /sufficient_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /stop_asking_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /wait_when/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /esperar ou dar espaço é uma decisão comercial válida/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não invente pergunta, mensagem, compromisso, Agenda ou mudança de CRM/,
     )
   },
 )
@@ -1563,6 +1927,222 @@ test(
         .context_bridge_messages[0]
         .text_content,
       'A demonstração continua confirmada para amanhã às 15h.',
+    )
+  },
+)
+
+
+test(
+  'prompt stateful v18 aplica os mesmos guardrails de objeções comerciais V2',
+  () => {
+    const input =
+      buildInput({
+        continuation:
+          true,
+      })
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .objection_guides = [
+        {
+          contract_version:
+            'commercial-objection-v2',
+
+          definition: {
+            contract_version:
+              'commercial-objection-v2',
+
+            objection_kind:
+              'commercial_objection',
+
+            objection_key:
+              'price_value',
+
+            objection:
+              'Preço percebido como alto',
+
+            category:
+              'price',
+
+            description:
+              'Preço ou valor percebido está bloqueando materialmente a progressão.',
+
+            scope: {
+              type:
+                'company',
+
+              product_id:
+                null,
+
+              variant_key:
+                null,
+            },
+
+            signals: [
+              'Está caro.',
+            ],
+
+            objection_when: [
+              'O cliente apresenta preço como bloqueio real.',
+            ],
+
+            not_objection_when: [
+              'O cliente apenas pergunta qual é o preço.',
+            ],
+
+            distinguish_from: [
+              'question',
+              'information_request',
+              'condition',
+              'postponement',
+              'rejection',
+              'uncertainty',
+            ],
+
+            discovery_questions: [
+              'O que está pesando nessa condição?',
+            ],
+
+            recommended_approach:
+              'Compreender antes de responder.',
+
+            response_limits: [
+              'Não inventar desconto.',
+            ],
+
+            resolution_criteria: [
+              'Está claro se preço continua sendo bloqueio.',
+            ],
+
+            wait_when: [
+              'O cliente pediu tempo com retorno explícito.',
+            ],
+
+            give_space_when: [
+              'Insistir agora aumentaria a resistência.',
+            ],
+
+            stop_when: [
+              'O cliente recusou explicitamente continuar.',
+            ],
+          },
+
+          sort_order:
+            1,
+
+          objection:
+            'Preço percebido como alto',
+
+          signals: [
+            'Está caro.',
+          ],
+
+          discovery_questions: [
+            'O que está pesando nessa condição?',
+          ],
+
+          recommended_approach:
+            'Compreender antes de responder.',
+
+          response_limits: [
+            'Não inventar desconto.',
+          ],
+        },
+      ]
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /A existência de um guia configurado não prova que aquela objeção esteja ativa/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Perguntar preço, investimento, forma de pagamento ou condição comercial não é automaticamente objeção/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.not_objection_when contém exclusões vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /definition\.give_space_when pode indicar que insistir pioraria a interação/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /WAIT, GIVE_SPACE, STOP e ausência de intervenção são consequências válidas/,
+    )
+  },
+)
+
+
+test(
+  'prompt stateful v18 aplica os mesmos guardrails de comportamento e comunicação',
+  () => {
+    const input =
+      buildInput()
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .communication_tone =
+        'Natural e consultivo.'
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .required_behaviors = [
+        'Responder antes de pressionar.',
+      ]
+
+    input
+      .diagnostic_input
+      .commercial_context
+      .prohibited_behaviors = [
+        'Inventar condição especial.',
+      ]
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /ordem de precedência é obrigatória/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /prohibited_behaviors são limites vinculantes/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Não invente desconto, flexibilização, condição excepcional/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Pedido explícito de espaço deve ser respeitado/,
     )
   },
 )

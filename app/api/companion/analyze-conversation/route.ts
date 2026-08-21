@@ -1890,6 +1890,10 @@ export async function POST(request: Request) {
 
               output:
                 statefulResult.response,
+
+              commercial_reading:
+                statefulResult
+                  .commercial_reading,
             })
 
           const activeTelemetry =

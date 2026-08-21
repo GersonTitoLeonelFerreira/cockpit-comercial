@@ -8,6 +8,10 @@ import type {
   StatefulCopilotOutput,
 } from './stateful-copilot-contract'
 
+import type {
+  CommercialReading,
+} from './commercial-reading-contract'
+
 type AnalyzeConversationData =
   NonNullable<
     AnalyzeConversationResponse[
@@ -21,11 +25,15 @@ export type BuildStatefulActiveResponseDataArgs = {
 
   output:
     StatefulCopilotOutput
+
+  commercial_reading:
+    CommercialReading
 }
 
 export function buildStatefulActiveResponseData({
   context,
   output,
+  commercial_reading,
 }: BuildStatefulActiveResponseDataArgs): AnalyzeConversationData {
   const crm =
     output
@@ -129,6 +137,8 @@ export function buildStatefulActiveResponseData({
   return {
     engine_source:
       'stateful',
+
+    commercial_reading,
 
     context,
 
