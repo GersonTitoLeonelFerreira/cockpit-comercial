@@ -33,6 +33,14 @@ function fail(code: string, path: string, message: string): never {
 const RFC3339_INSTANT =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
 
+function validCalendarDate(dateKey: string) {
+  const parsed = new Date(`${dateKey}T00:00:00.000Z`)
+  return (
+    Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === dateKey
+  )
+}
+
 function canonicalInstant(value: unknown, path: string) {
   if (typeof value !== 'string' || !RFC3339_INSTANT.test(value.trim())) {
     fail(
@@ -43,6 +51,16 @@ function canonicalInstant(value: unknown, path: string) {
   }
 
   const normalized = value.trim()
+  const sourceDate = normalized.slice(0, 10)
+
+  if (!validCalendarDate(sourceDate)) {
+    fail(
+      'INVALID_TIME',
+      path,
+      `${path} possui data de calendário inválida.`,
+    )
+  }
+
   const epoch = Date.parse(normalized)
   if (!Number.isFinite(epoch)) {
     fail('INVALID_TIME', path, `${path} possui horário inválido.`)
@@ -51,7 +69,7 @@ function canonicalInstant(value: unknown, path: string) {
   return {
     canonical: new Date(epoch).toISOString(),
     epoch_ms: epoch,
-    source_date: normalized.slice(0, 10),
+    source_date: sourceDate,
   }
 }
 
