@@ -8,12 +8,14 @@ import {
   COMMERCIAL_READING_EVOLUTION_STATUSES,
   COMMERCIAL_READING_IMPROVEMENT_KINDS,
   COMMERCIAL_READING_METHOD_STATUSES,
+  COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
   COMMERCIAL_READING_RISK_SEVERITIES,
   COMMERCIAL_READING_SELLER_STRENGTH_KINDS,
 } from './commercial-reading-contract.ts'
 
 import {
   COMMERCIAL_READING_JSON_SCHEMA,
+  COMMERCIAL_READING_MODEL_JSON_SCHEMA,
   COMMERCIAL_READING_RESPONSE_FORMAT_NAME,
   COMMERCIAL_READING_STRUCTURED_OUTPUT_FORMAT,
 } from './commercial-reading-json-schema.ts'
@@ -115,6 +117,33 @@ test(
   () => {
     assertClosedObjects(
       COMMERCIAL_READING_JSON_SCHEMA,
+    )
+  },
+)
+
+test(
+  'schema do modelo contém somente os campos analíticos não deriváveis',
+  () => {
+    assert.deepEqual(
+      Object.keys(
+        COMMERCIAL_READING_MODEL_JSON_SCHEMA
+          .properties,
+      ),
+      [
+        ...COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
+      ],
+    )
+
+    assertClosedObjects(
+      COMMERCIAL_READING_MODEL_JSON_SCHEMA,
+      'model_schema',
+    )
+
+    assert.equal(
+      Object.isFrozen(
+        COMMERCIAL_READING_MODEL_JSON_SCHEMA,
+      ),
+      true,
     )
   },
 )

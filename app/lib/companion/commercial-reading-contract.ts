@@ -116,6 +116,17 @@ export const COMMERCIAL_READING_RISK_SEVERITIES = [
   'high',
 ] as const
 
+export const COMMERCIAL_READING_MODEL_OUTPUT_FIELDS = [
+  'conversation_summary',
+  'customer',
+  'commercial_evolution',
+  'method',
+  'seller_strengths',
+  'improvement_points',
+  'risks',
+  'best_approach',
+] as const
+
 export type CommercialReadingAnalysisStatus =
   (typeof COMMERCIAL_READING_ANALYSIS_STATUSES)[number]
 
@@ -392,6 +403,23 @@ export type CommercialReading = {
     string[]
 }
 
+export type CommercialReadingModelOutput =
+  Pick<
+    CommercialReading,
+    (typeof COMMERCIAL_READING_MODEL_OUTPUT_FIELDS)[number]
+  >
+
+export type CommercialReadingDerivedOutput =
+  Pick<
+    CommercialReading,
+    | 'analysis_status'
+    | 'analysis_limitations'
+    | 'commercial_role'
+    | 'commercial_relevance'
+    | 'communication'
+    | 'operations'
+  >
+
 export type CommercialReadingNormalizationContext = {
   available_message_ids:
     string[]
@@ -476,6 +504,50 @@ function requireRecord(
   }
 
   return value
+}
+
+function requireExactFields(
+  record: JsonRecord,
+  expectedFields:
+    readonly string[],
+  path: string,
+): void {
+  const actualFields =
+    Object.keys(record)
+
+  const missingField =
+    expectedFields.find(
+      field =>
+        !Object.prototype.hasOwnProperty.call(
+          record,
+          field,
+        ),
+    )
+
+  if (missingField) {
+    fail(
+      'MISSING_REQUIRED_FIELD',
+      `${path}.${missingField}`,
+      `${path} não contém todos os campos obrigatórios.`,
+    )
+  }
+
+  if (
+    actualFields.length !==
+      expectedFields.length ||
+    actualFields.some(
+      field =>
+        !expectedFields.includes(
+          field,
+        ),
+    )
+  ) {
+    fail(
+      'ADDITIONAL_FIELD_NOT_ALLOWED',
+      path,
+      `${path} contém campo não previsto pelo contrato.`,
+    )
+  }
 }
 
 function requireArray(
@@ -759,6 +831,16 @@ function normalizeEvidenceItem(
       path,
     )
 
+  requireExactFields(
+    record,
+    [
+      'summary',
+      'evidence_message_ids',
+      'memory_ids',
+    ],
+    path,
+  )
+
   return {
     summary:
       requireString(
@@ -839,6 +921,18 @@ function normalizeConversationSummary(
       'reading.conversation_summary',
     )
 
+  requireExactFields(
+    record,
+    [
+      'initial_context',
+      'evolution',
+      'important_events',
+      'current_state',
+      'last_customer_request_or_decision',
+    ],
+    'reading.conversation_summary',
+  )
+
   return {
     initial_context:
       normalizeNullableEvidenceItem(
@@ -912,6 +1006,12 @@ function normalizeCustomer(
     'uncertainties',
   ] as const
 
+  requireExactFields(
+    record,
+    fields,
+    'reading.customer',
+  )
+
   const normalized =
     {} as CommercialReadingCustomer
 
@@ -954,6 +1054,19 @@ function normalizeEvolution(
           item,
           path,
         )
+
+      requireExactFields(
+        record,
+        [
+          'key',
+          'label',
+          'status',
+          'explanation',
+          'evidence_message_ids',
+          'memory_ids',
+        ],
+        path,
+      )
 
       const key =
         requireString(
@@ -1029,6 +1142,16 @@ function normalizeMethod(
       'reading.method',
     )
 
+  requireExactFields(
+    record,
+    [
+      'configured',
+      'name',
+      'stages',
+    ],
+    'reading.method',
+  )
+
   const configured =
     requireBoolean(
       record.configured,
@@ -1061,6 +1184,20 @@ function normalizeMethod(
             item,
             path,
           )
+
+        requireExactFields(
+          stage,
+          [
+            'step_order',
+            'stage_key',
+            'name',
+            'status',
+            'explanation',
+            'evidence_message_ids',
+            'memory_ids',
+          ],
+          path,
+        )
 
         const stepOrder =
           requirePositiveInteger(
@@ -1232,6 +1369,17 @@ function normalizeSellerStrengths(
           path,
         )
 
+      requireExactFields(
+        record,
+        [
+          'kind',
+          'summary',
+          'evidence_message_ids',
+          'memory_ids',
+        ],
+        path,
+      )
+
       const summary =
         requireString(
           record.summary,
@@ -1305,6 +1453,18 @@ function normalizeImprovementPoints(
           path,
         )
 
+      requireExactFields(
+        record,
+        [
+          'kind',
+          'summary',
+          'impact',
+          'evidence_message_ids',
+          'memory_ids',
+        ],
+        path,
+      )
+
       return {
         kind:
           requireEnum(
@@ -1354,6 +1514,15 @@ function normalizeRisks(
       'reading.risks',
     )
 
+  requireExactFields(
+    record,
+    [
+      'customer_objections',
+      'service_risks',
+    ],
+    'reading.risks',
+  )
+
   const normalizeRiskList = (
     field:
       'customer_objections' |
@@ -1374,6 +1543,18 @@ function normalizeRisks(
             item,
             path,
           )
+
+        requireExactFields(
+          risk,
+          [
+            'kind',
+            'severity',
+            'summary',
+            'evidence_message_ids',
+            'memory_ids',
+          ],
+          path,
+        )
 
         return {
           kind:
@@ -1438,6 +1619,18 @@ function normalizeBestApproach(
       value,
       'reading.best_approach',
     )
+
+  requireExactFields(
+    record,
+    [
+      'decision',
+      'reason',
+      'channel',
+      'evidence_message_ids',
+      'memory_ids',
+    ],
+    'reading.best_approach',
+  )
 
   const decision =
     requireEnum(
@@ -1511,6 +1704,16 @@ function normalizeCommunication(
       'reading.communication',
     )
 
+  requireExactFields(
+    record,
+    [
+      'intervention_needed',
+      'recommended_question',
+      'recommended_message',
+    ],
+    'reading.communication',
+  )
+
   const interventionNeeded =
     requireBoolean(
       record.intervention_needed,
@@ -1577,6 +1780,17 @@ function normalizeCrm(
       value,
       'reading.operations.crm',
     )
+
+  requireExactFields(
+    record,
+    [
+      'should_change_crm_stage',
+      'recommended_status',
+      'rationale',
+      'requires_human_confirmation',
+    ],
+    'reading.operations.crm',
+  )
 
   const shouldChange =
     requireBoolean(
@@ -1674,6 +1888,17 @@ function normalizeAgenda(
       value,
       'reading.operations.agenda',
     )
+
+  requireExactFields(
+    record,
+    [
+      'should_change_agenda',
+      'expected_next_action_at',
+      'rationale',
+      'requires_human_confirmation',
+    ],
+    'reading.operations.agenda',
+  )
 
   const shouldChange =
     requireBoolean(
@@ -1925,6 +2150,150 @@ function neutralizeNonActionableReading(
   }
 }
 
+function collectModelReferenceIds(
+  value: unknown,
+  fieldName:
+    'evidence_message_ids' |
+    'memory_ids',
+  collected:
+    Set<string>,
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectModelReferenceIds(
+        item,
+        fieldName,
+        collected,
+      )
+    }
+
+    return
+  }
+
+  if (!isRecord(value)) {
+    return
+  }
+
+  const references =
+    value[fieldName]
+
+  if (Array.isArray(references)) {
+    for (const reference of references) {
+      if (
+        typeof reference ===
+        'string'
+      ) {
+        const normalized =
+          reference.trim()
+
+        if (normalized) {
+          collected.add(
+            normalized,
+          )
+        }
+      }
+    }
+  }
+
+  for (
+    const [
+      nestedField,
+      nestedValue,
+    ] of Object.entries(value)
+  ) {
+    if (
+      nestedField !==
+      fieldName
+    ) {
+      collectModelReferenceIds(
+        nestedValue,
+        fieldName,
+        collected,
+      )
+    }
+  }
+}
+
+export function normalizeCommercialReadingModelOutput({
+  value,
+  context,
+  derived,
+}: {
+  value: unknown
+
+  context:
+    CommercialReadingNormalizationContext
+
+  derived:
+    CommercialReadingDerivedOutput
+}): CommercialReading {
+  const modelOutput =
+    requireRecord(
+      value,
+      'reading',
+    )
+
+  requireExactFields(
+    modelOutput,
+    COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
+    'reading',
+  )
+
+  const evidenceMessageIds =
+    new Set<string>()
+
+  const memoryIds =
+    new Set<string>()
+
+  collectModelReferenceIds(
+    modelOutput,
+    'evidence_message_ids',
+    evidenceMessageIds,
+  )
+
+  collectModelReferenceIds(
+    modelOutput,
+    'memory_ids',
+    memoryIds,
+  )
+
+  return normalizeCommercialReading(
+    {
+      contract_version:
+        COMMERCIAL_READING_CONTRACT_VERSION,
+
+      analysis_status:
+        derived.analysis_status,
+
+      analysis_limitations:
+        derived.analysis_limitations,
+
+      commercial_role:
+        derived.commercial_role,
+
+      commercial_relevance:
+        derived.commercial_relevance,
+
+      ...modelOutput,
+
+      communication:
+        derived.communication,
+
+      operations:
+        derived.operations,
+
+      evidence_message_ids: [
+        ...evidenceMessageIds,
+      ],
+
+      memory_ids: [
+        ...memoryIds,
+      ],
+    },
+    context,
+  )
+}
+
 export function normalizeCommercialReading(
   value: unknown,
   context:
@@ -1949,6 +2318,23 @@ export function normalizeCommercialReading(
       value,
       'reading',
     )
+
+  requireExactFields(
+    root,
+    [
+      'contract_version',
+      'analysis_status',
+      'analysis_limitations',
+      'commercial_role',
+      'commercial_relevance',
+      ...COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
+      'communication',
+      'operations',
+      'evidence_message_ids',
+      'memory_ids',
+    ],
+    'reading',
+  )
 
   if (
     root.contract_version !==
@@ -2079,6 +2465,15 @@ export function normalizeCommercialReading(
       root.operations,
       'reading.operations',
     )
+
+  requireExactFields(
+    operationsRecord,
+    [
+      'crm',
+      'agenda',
+    ],
+    'reading.operations',
+  )
 
   const evidenceMessageIds =
     requireUniqueStringArray(

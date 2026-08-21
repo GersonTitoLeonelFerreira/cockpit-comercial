@@ -1,17 +1,19 @@
 import {
   STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+  STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
   type StatefulCommunicationNormalizationContext,
   type StatefulCommunicationOutput,
 } from './stateful-communication-contract'
 
 import {
   CommercialReadingContractError,
-  normalizeCommercialReading,
+  normalizeCommercialReadingModelOutput,
   type CommercialReading,
 } from './commercial-reading-contract'
 
 import {
   STATEFUL_COMMUNICATION_PROMPT_VERSION,
+  buildStatefulCommunicationRepairExecutionPlan,
   type StatefulCommunicationExecutionPlan,
 } from './stateful-communication-execution-plan'
 
@@ -37,15 +39,9 @@ const RETRYABLE_OUTPUT_CODES =
   ])
 
 const COMMUNICATION_OUTPUT_FIELDS =
-  new Set([
-    'contract_version',
-    'intervention_needed',
-    'method_application',
-    'guidance',
-    'recommended_question',
-    'suggested_message',
-    'commercial_reading',
-  ])
+  new Set<string>(
+    STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
+  )
 
 type JsonRecord =
   Record<string, unknown>
@@ -124,6 +120,59 @@ function fail({
   })
 }
 
+type CommunicationFailureMetadata = {
+  path: string
+  invariant: string
+}
+
+function buildCommunicationFailureDetails({
+  path,
+  invariant,
+  details = null,
+}: CommunicationFailureMetadata & {
+  details?: JsonRecord | null
+}): JsonRecord {
+  return {
+    ...details,
+
+    communication_failure_path:
+      path,
+
+    communication_failure_invariant:
+      invariant,
+  }
+}
+
+function failInvalidOutput({
+  message,
+  path,
+  invariant,
+  details,
+}: CommunicationFailureMetadata & {
+  message: string
+  details?: JsonRecord | null
+}): never {
+  fail({
+    code:
+      'INVALID_COMMUNICATION_OUTPUT',
+
+    message,
+
+    status_code:
+      502,
+
+    retryable:
+      true,
+
+    details:
+      buildCommunicationFailureDetails({
+        path,
+        invariant,
+        details,
+      }),
+  })
+}
+
 function isRecord(
   value: unknown,
 ): value is JsonRecord {
@@ -140,40 +189,44 @@ function requireString(
   maximumLength: number,
 ): string {
   if (typeof value !== 'string') {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
+    failInvalidOutput({
       message:
         `${path} precisa ser um texto.`,
 
-      status_code:
-        502,
+      path,
 
-      retryable:
-        true,
+      invariant:
+        'TEXT_REQUIRED',
     })
   }
 
   const normalized =
     value.trim()
 
-  if (
-    !normalized ||
-    normalized.length > maximumLength
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
+  if (!normalized) {
+    failInvalidOutput({
       message:
         `${path} possui um texto inválido.`,
 
-      status_code:
-        502,
+      path,
 
-      retryable:
-        true,
+      invariant:
+        'NON_EMPTY_TEXT',
+    })
+  }
+
+  if (
+    normalized.length >
+    maximumLength
+  ) {
+    failInvalidOutput({
+      message:
+        `${path} possui um texto inválido.`,
+
+      path,
+
+      invariant:
+        'TEXT_LENGTH_LIMIT',
     })
   }
 
@@ -285,58 +338,101 @@ function requireProviderName(
   return provider
 }
 
-function equalStringArrays(
-  left: string[],
-  right: string[],
-): boolean {
-  if (
-    left.length !==
-    right.length
-  ) {
-    return false
-  }
-
-  return left.every(
-    (value, index) =>
-      value === right[index],
-  )
-}
-
 function normalizeCommercialReadingOutput({
   value,
   context,
+  intervention_needed,
+  recommended_question,
+  suggested_message,
 }: {
   value: unknown
 
   context:
     StatefulCommunicationNormalizationContext
+
+  intervention_needed:
+    boolean
+
+  recommended_question:
+    string | null
+
+  suggested_message:
+    string | null
 }): CommercialReading {
-  let reading:
-    CommercialReading
+  const commerciallyActionable =
+    context.commercial_role ===
+      'buyer' &&
+    context.commercial_relevance ===
+      'commercial'
 
   try {
-    reading =
-      normalizeCommercialReading(
-        value,
+    return normalizeCommercialReadingModelOutput({
+      value,
+
+      context:
         context.commercial_reading,
-      )
+
+      derived: {
+        analysis_status:
+          context.expected_analysis_status,
+
+        analysis_limitations: [
+          ...context
+            .expected_analysis_limitations,
+        ],
+
+        commercial_role:
+          context.commercial_role,
+
+        commercial_relevance:
+          context.commercial_relevance,
+
+        communication:
+          commerciallyActionable
+            ? {
+                intervention_needed,
+
+                recommended_question,
+
+                recommended_message:
+                  suggested_message,
+              }
+            : {
+                intervention_needed:
+                  false,
+
+                recommended_question:
+                  null,
+
+                recommended_message:
+                  null,
+              },
+
+        operations: {
+          crm: {
+            ...context.expected_crm,
+          },
+
+          agenda: {
+            ...context.expected_agenda,
+          },
+        },
+      },
+    })
   } catch (error) {
     if (
       error instanceof
         CommercialReadingContractError
     ) {
-      fail({
-        code:
-          'INVALID_COMMUNICATION_OUTPUT',
-
+      failInvalidOutput({
         message:
           'A Leitura Comercial Completa retornada é incompatível com o contrato.',
 
-        status_code:
-          502,
+        path:
+          error.path,
 
-        retryable:
-          true,
+        invariant:
+          error.code,
 
         details: {
           reading_code:
@@ -350,131 +446,6 @@ function normalizeCommercialReadingOutput({
 
     throw error
   }
-
-  if (
-    reading.commercial_role !==
-    context.commercial_role
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A leitura comercial divergiu do papel comercial validado.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
-  }
-
-  if (
-    reading.commercial_relevance !==
-    context.commercial_relevance
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A leitura comercial divergiu da relevância comercial validada.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
-  }
-
-  if (
-    reading.analysis_status !==
-      context.expected_analysis_status ||
-    !equalStringArrays(
-      reading.analysis_limitations,
-      context.expected_analysis_limitations,
-    )
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A leitura comercial divergiu do estado de completude validado.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
-  }
-
-  const crm =
-    reading.operations.crm
-
-  const expectedCrm =
-    context.expected_crm
-
-  if (
-    crm.should_change_crm_stage !==
-      expectedCrm.should_change_crm_stage ||
-    crm.recommended_status !==
-      expectedCrm.recommended_status ||
-    crm.rationale !==
-      expectedCrm.rationale ||
-    crm.requires_human_confirmation !==
-      expectedCrm.requires_human_confirmation
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A leitura comercial tentou alterar a consequência validada de CRM.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
-  }
-
-  const agenda =
-    reading.operations.agenda
-
-  const expectedAgenda =
-    context.expected_agenda
-
-  if (
-    agenda.should_change_agenda !==
-      expectedAgenda.should_change_agenda ||
-    agenda.expected_next_action_at !==
-      expectedAgenda.expected_next_action_at ||
-    agenda.rationale !==
-      expectedAgenda.rationale ||
-    agenda.requires_human_confirmation !==
-      expectedAgenda.requires_human_confirmation
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A leitura comercial tentou alterar a consequência validada de Agenda.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
-  }
-
-  return reading
 }
 
 function parseModelOutput(
@@ -531,6 +502,15 @@ function parseModelOutput(
 
       retryable:
         true,
+
+      details:
+        buildCommunicationFailureDetails({
+          path:
+            'communication',
+
+          invariant:
+            'NON_EMPTY_JSON',
+        }),
     })
   }
 
@@ -555,6 +535,15 @@ function parseModelOutput(
 
       retryable:
         true,
+
+      details:
+        buildCommunicationFailureDetails({
+          path:
+            'communication',
+
+          invariant:
+            'VALID_JSON_OBJECT',
+        }),
     })
   }
 
@@ -571,6 +560,15 @@ function parseModelOutput(
 
       retryable:
         true,
+
+      details:
+        buildCommunicationFailureDetails({
+          path:
+            'communication',
+
+          invariant:
+            'VALID_JSON_OBJECT',
+        }),
     })
   }
 
@@ -590,6 +588,29 @@ function normalizeCommunicationOutput({
   const fieldNames =
     Object.keys(value)
 
+  const missingField = [
+    ...COMMUNICATION_OUTPUT_FIELDS,
+  ].find(
+    fieldName =>
+      !Object.prototype.hasOwnProperty.call(
+        value,
+        fieldName,
+      ),
+  )
+
+  if (missingField) {
+    failInvalidOutput({
+      message:
+        'A camada de comunicação não retornou todos os campos obrigatórios.',
+
+      path:
+        `communication.${missingField}`,
+
+      invariant:
+        'REQUIRED_FIELD_MISSING',
+    })
+  }
+
   if (
     fieldNames.length !==
       COMMUNICATION_OUTPUT_FIELDS.size ||
@@ -600,37 +621,15 @@ function normalizeCommunicationOutput({
         ),
     )
   ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
+    failInvalidOutput({
       message:
         'A camada de comunicação retornou campos incompatíveis com o contrato.',
 
-      status_code:
-        502,
+      path:
+        'communication',
 
-      retryable:
-        true,
-    })
-  }
-
-  if (
-    value.contract_version !==
-    STATEFUL_COMMUNICATION_CONTRACT_VERSION
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A camada de comunicação retornou uma versão de contrato incompatível.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
+      invariant:
+        'ADDITIONAL_FIELD_NOT_ALLOWED',
     })
   }
 
@@ -638,18 +637,68 @@ function normalizeCommunicationOutput({
     typeof value.intervention_needed !==
     'boolean'
   ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
+    failInvalidOutput({
       message:
         'intervention_needed precisa ser booleano.',
 
-      status_code:
-        502,
+      path:
+        'communication.intervention_needed',
 
-      retryable:
-        true,
+      invariant:
+        'BOOLEAN_REQUIRED',
+    })
+  }
+
+  const interventionNeeded =
+    value.intervention_needed
+
+  const methodApplication =
+    requireString(
+      value.method_application,
+      'communication.method_application',
+      900,
+    )
+
+  const guidance =
+    requireString(
+      value.guidance,
+      'communication.guidance',
+      1_400,
+    )
+
+  const recommendedQuestion =
+    requireNullableString(
+      value.recommended_question,
+      'communication.recommended_question',
+      900,
+    )
+
+  const suggestedMessage =
+    requireNullableString(
+      value.suggested_message,
+      'communication.suggested_message',
+      900,
+    )
+
+  if (
+    interventionNeeded ===
+      false &&
+    (
+      recommendedQuestion !==
+        null ||
+      suggestedMessage !==
+        null
+    )
+  ) {
+    failInvalidOutput({
+      message:
+        'Uma decisão sem intervenção não pode sugerir pergunta ou mensagem.',
+
+      path:
+        'communication',
+
+      invariant:
+        'NO_INTERVENTION_REQUIRES_SILENCE',
     })
   }
 
@@ -659,6 +708,15 @@ function normalizeCommunicationOutput({
         value.commercial_reading,
 
       context,
+
+      intervention_needed:
+        interventionNeeded,
+
+      recommended_question:
+        recommendedQuestion,
+
+      suggested_message:
+        suggestedMessage,
     })
 
   const output:
@@ -667,63 +725,21 @@ function normalizeCommunicationOutput({
       STATEFUL_COMMUNICATION_CONTRACT_VERSION,
 
     intervention_needed:
-      value.intervention_needed,
+      interventionNeeded,
 
     method_application:
-      requireString(
-        value.method_application,
-        'communication.method_application',
-        900,
-      ),
+      methodApplication,
 
-    guidance:
-      requireString(
-        value.guidance,
-        'communication.guidance',
-        1_400,
-      ),
+    guidance,
 
     recommended_question:
-      requireNullableString(
-        value.recommended_question,
-        'communication.recommended_question',
-        900,
-      ),
+      recommendedQuestion,
 
     suggested_message:
-      requireNullableString(
-        value.suggested_message,
-        'communication.suggested_message',
-        900,
-      ),
+      suggestedMessage,
 
     commercial_reading:
       commercialReading,
-  }
-
-  if (
-    output.intervention_needed ===
-      false &&
-    (
-      output.recommended_question !==
-        null ||
-      output.suggested_message !==
-        null
-    )
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'Uma decisão sem intervenção não pode sugerir pergunta ou mensagem.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
   }
 
   // Papel e relevância são gates independentes. O executor neutraliza toda
@@ -780,37 +796,6 @@ function normalizeCommunicationOutput({
         channel:
           'none',
       }
-  }
-
-  const readingCommunication =
-    output
-      .commercial_reading
-      .communication
-
-  if (
-    readingCommunication
-      .intervention_needed !==
-      output.intervention_needed ||
-    readingCommunication
-      .recommended_question !==
-      output.recommended_question ||
-    readingCommunication
-      .recommended_message !==
-      output.suggested_message
-  ) {
-    fail({
-      code:
-        'INVALID_COMMUNICATION_OUTPUT',
-
-      message:
-        'A comunicação da leitura comercial divergiu da intervenção final.',
-
-      status_code:
-        502,
-
-      retryable:
-        true,
-    })
   }
 
   return output
@@ -1008,6 +993,86 @@ function buildResult({
   }
 }
 
+function readFailureMetadata(
+  error:
+    StatefulCommunicationExecutionError,
+): CommunicationFailureMetadata {
+  const details =
+    error.details
+
+  return {
+    path:
+      typeof details
+        ?.communication_failure_path ===
+        'string'
+        ? details
+            .communication_failure_path
+        : 'communication',
+
+    invariant:
+      typeof details
+        ?.communication_failure_invariant ===
+        'string'
+        ? details
+            .communication_failure_invariant
+        : error.code,
+  }
+}
+
+function withAttemptMetadata({
+  error,
+  attempts,
+  firstError = null,
+}: {
+  error:
+    StatefulCommunicationExecutionError
+
+  attempts:
+    1 | 2
+
+  firstError?:
+    StatefulCommunicationExecutionError | null
+}): StatefulCommunicationExecutionError {
+  const details: JsonRecord = {
+    ...error.details,
+
+    communication_attempts:
+      attempts,
+  }
+
+  if (firstError) {
+    const firstFailure =
+      readFailureMetadata(
+        firstError,
+      )
+
+    details.first_failure_code =
+      firstError.code
+
+    details.first_failure_path =
+      firstFailure.path
+
+    details.first_failure_invariant =
+      firstFailure.invariant
+  }
+
+  return new StatefulCommunicationExecutionError({
+    code:
+      error.code,
+
+    message:
+      error.message,
+
+    status_code:
+      error.status_code,
+
+    retryable:
+      error.retryable,
+
+    details,
+  })
+}
+
 export async function executeStatefulCommunicationPlan({
   plan,
   provider,
@@ -1021,6 +1086,10 @@ export async function executeStatefulCommunicationPlan({
   validatePlan(
     plan,
   )
+
+  let firstError:
+    StatefulCommunicationExecutionError | null =
+      null
 
   try {
     const firstResult =
@@ -1037,16 +1106,94 @@ export async function executeStatefulCommunicationPlan({
         1,
     })
   } catch (error) {
-    if (!shouldRetry(error)) {
+    if (
+      !(error instanceof
+        StatefulCommunicationExecutionError) ||
+      !shouldRetry(error)
+    ) {
+      if (
+        error instanceof
+        StatefulCommunicationExecutionError
+      ) {
+        throw withAttemptMetadata({
+          error,
+          attempts:
+            1,
+        })
+      }
+
       throw error
     }
+
+    firstError =
+      error
   }
 
-  const secondResult =
-    await executeAttempt({
-      plan,
-      provider,
+  if (firstError === null) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_PLAN',
+
+      message:
+        'A segunda tentativa de comunicação não possui uma falha reparável.',
+
+      status_code:
+        500,
+
+      retryable:
+        false,
     })
+  }
+
+  const firstFailure =
+    readFailureMetadata(
+      firstError,
+    )
+
+  const repairPlan =
+    buildStatefulCommunicationRepairExecutionPlan({
+      plan,
+
+      previous_failure_code:
+        firstError.code,
+
+      previous_failure_path:
+        firstFailure.path,
+
+      previous_failure_invariant:
+        firstFailure.invariant,
+    })
+
+  let secondResult:
+    Awaited<
+      ReturnType<
+        typeof executeAttempt
+      >
+    >
+
+  try {
+    secondResult =
+      await executeAttempt({
+        plan:
+          repairPlan,
+
+        provider,
+      })
+  } catch (error) {
+    if (
+      error instanceof
+      StatefulCommunicationExecutionError
+    ) {
+      throw withAttemptMetadata({
+        error,
+        attempts:
+          2,
+        firstError,
+      })
+    }
+
+    throw error
+  }
 
   return buildResult({
     result:

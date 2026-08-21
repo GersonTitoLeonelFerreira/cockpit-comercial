@@ -11,6 +11,7 @@ import {
 
 import {
   STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+  STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
 } from './stateful-communication-contract.ts'
 
 import {
@@ -273,20 +274,6 @@ function buildCommercialReadingOutput({
     interventionNeeded
 
   return {
-    contract_version:
-      COMMERCIAL_READING_CONTRACT_VERSION,
-
-    analysis_status:
-      'complete',
-
-    analysis_limitations: [],
-
-    commercial_role:
-      commercialRole,
-
-    commercial_relevance:
-      commercialRelevance,
-
     conversation_summary: {
       initial_context: {
         summary:
@@ -444,57 +431,6 @@ function buildCommercialReadingOutput({
       memory_ids: [],
     },
 
-    communication: {
-      intervention_needed:
-        canIntervene,
-
-      recommended_question:
-        canIntervene
-          ? recommendedQuestion
-          : null,
-
-      recommended_message:
-        canIntervene
-          ? suggestedMessage
-          : null,
-    },
-
-    operations: {
-      crm: {
-        should_change_crm_stage:
-          false,
-
-        recommended_status:
-          null,
-
-        rationale:
-          null,
-
-        requires_human_confirmation:
-          true,
-      },
-
-      agenda: {
-        should_change_agenda:
-          false,
-
-        expected_next_action_at:
-          null,
-
-        rationale:
-          null,
-
-        requires_human_confirmation:
-          true,
-      },
-    },
-
-    evidence_message_ids: [
-      'm1',
-      'm2',
-    ],
-
-    memory_ids: [],
   }
 }
 
@@ -506,11 +442,8 @@ function buildCommunicationOutput({
     'Você prefere que eu retome o contato ou que outra pessoa fale com você?',
   suggestedMessage =
     'Claro. Você prefere que eu retome o contato ou que outra pessoa fale com você?',
-} = {}) {
+  } = {}) {
   return {
-    contract_version:
-      STATEFUL_COMMUNICATION_CONTRACT_VERSION,
-
     intervention_needed:
       interventionNeeded,
 
@@ -584,6 +517,70 @@ function createProvider(
   }
 }
 
+async function executeTwiceExpectingFailure({
+  output,
+  plan = buildPlan(),
+}) {
+  const provider =
+    createProvider([
+      structuredClone(output),
+      structuredClone(output),
+    ])
+
+  try {
+    await executeStatefulCommunicationPlan({
+      plan,
+      provider:
+        provider.provider,
+    })
+  } catch (error) {
+    return error
+  }
+
+  assert.fail(
+    'A execução deveria rejeitar as duas saídas inválidas.',
+  )
+}
+
+async function assertDerivedFieldCannotBeRedecided({
+  field,
+  value,
+}) {
+  const output =
+    buildCommunicationOutput()
+
+  output.commercial_reading[field] =
+    value
+
+  const error =
+    await executeTwiceExpectingFailure({
+      output,
+    })
+
+  assert.equal(
+    error.code,
+    'INVALID_COMMUNICATION_OUTPUT',
+  )
+
+  assert.equal(
+    error.details
+      .communication_failure_path,
+    'reading',
+  )
+
+  assert.equal(
+    error.details
+      .communication_failure_invariant,
+    'ADDITIONAL_FIELD_NOT_ALLOWED',
+  )
+
+  assert.equal(
+    error.details
+      .communication_attempts,
+    2,
+  )
+}
+
 test(
   'plano usa diagnóstico validado e não encaminha a estratégia antiga',
   () => {
@@ -602,7 +599,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v6',
+      'phase-5.2-communication-prompt-v7',
     )
 
     assert.match(
@@ -906,7 +903,7 @@ test(
 
 
 test(
-  'comunicação v6 integra leitura completa tom comportamentos limites de pressão e escalonamento',
+  'comunicação v7 integra leitura completa tom comportamentos limites de pressão e escalonamento',
   () => {
     const input =
       buildInput()
@@ -935,7 +932,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v6',
+      'phase-5.2-communication-prompt-v7',
     )
 
     assert.match(
@@ -961,6 +958,670 @@ test(
     assert.match(
       plan.system_prompt,
       /Nenhuma regra comportamental, isoladamente, autoriza alteração automática de CRM, Agenda/,
+    )
+  },
+)
+
+test(
+  'schema da comunicação pede ao modelo somente campos de leitura não deriváveis',
+  () => {
+    const schema =
+      STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT
+        .schema
+
+    assert.deepEqual(
+      Object.keys(
+        schema.properties,
+      ),
+      [
+        ...STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
+      ],
+    )
+
+    assert.deepEqual(
+      Object.keys(
+        schema
+          .properties
+          .commercial_reading
+          .properties,
+      ),
+      [
+        'conversation_summary',
+        'customer',
+        'commercial_evolution',
+        'method',
+        'seller_strengths',
+        'improvement_points',
+        'risks',
+        'best_approach',
+      ],
+    )
+
+    const promptPayload =
+      JSON.parse(
+        buildPlan().user_prompt,
+      )
+
+    assert.deepEqual(
+      promptPayload
+        .commercial_reading_model_fields,
+      Object.keys(
+        schema
+          .properties
+          .commercial_reading
+          .properties,
+      ),
+    )
+  },
+)
+
+test(
+  'A: commercial_reading incompatível informa path e invariante exatos',
+  async () => {
+    const output =
+      buildCommunicationOutput()
+
+    delete output
+      .commercial_reading
+      .customer
+
+    const error =
+      await executeTwiceExpectingFailure({
+        output,
+      })
+
+    assert.equal(
+      error.code,
+      'INVALID_COMMUNICATION_OUTPUT',
+    )
+
+    assert.equal(
+      error.details.reading_code,
+      'MISSING_REQUIRED_FIELD',
+    )
+
+    assert.equal(
+      error.details.reading_path,
+      'reading.customer',
+    )
+
+    assert.equal(
+      error.details
+        .communication_attempts,
+      2,
+    )
+  },
+)
+
+test(
+  'B: commercial_role não pode ser redecidido pela camada de comunicação',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'commercial_role',
+
+      value:
+        'provider',
+    })
+  },
+)
+
+test(
+  'C: analysis_status não pode divergir do precondicionado',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'analysis_status',
+
+      value:
+        'limited',
+    })
+  },
+)
+
+test(
+  'D: analysis_limitations não pode ser regenerado pela comunicação',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'analysis_limitations',
+
+      value: [
+        'limitação inventada',
+      ],
+    })
+  },
+)
+
+test(
+  'E: CRM não pode ser redecidido pela camada de comunicação',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'operations',
+
+      value: {
+        crm: {
+          should_change_crm_stage:
+            true,
+
+          recommended_status:
+            'ganho',
+
+          rationale:
+            'Decisão paralela.',
+
+          requires_human_confirmation:
+            true,
+        },
+      },
+    })
+  },
+)
+
+test(
+  'F: Agenda não pode ser redecidida pela camada de comunicação',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'operations',
+
+      value: {
+        agenda: {
+          should_change_agenda:
+            true,
+
+          expected_next_action_at:
+            '2026-08-07T10:00:00-03:00',
+
+          rationale:
+            'Decisão paralela.',
+
+          requires_human_confirmation:
+            true,
+        },
+      },
+    })
+  },
+)
+
+test(
+  'G: communication interna é derivada da resposta externa',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'communication',
+
+      value: {
+        intervention_needed:
+          false,
+
+        recommended_question:
+          null,
+
+        recommended_message:
+          null,
+      },
+    })
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan:
+          buildPlan(),
+
+        provider:
+          createProvider([
+            buildCommunicationOutput(),
+          ]).provider,
+      })
+
+    assert.deepEqual(
+      result
+        .output
+        .commercial_reading
+        .communication,
+      {
+        intervention_needed:
+          result.output
+            .intervention_needed,
+
+        recommended_question:
+          result.output
+            .recommended_question,
+
+        recommended_message:
+          result.output
+            .suggested_message,
+      },
+    )
+  },
+)
+
+test(
+  'H: campo externo ausente ou excedente é rejeitado com diagnóstico seguro',
+  async () => {
+    const missing =
+      buildCommunicationOutput()
+
+    delete missing.guidance
+
+    const missingError =
+      await executeTwiceExpectingFailure({
+        output:
+          missing,
+      })
+
+    assert.equal(
+      missingError.details
+        .communication_failure_path,
+      'communication.guidance',
+    )
+
+    assert.equal(
+      missingError.details
+        .communication_failure_invariant,
+      'REQUIRED_FIELD_MISSING',
+    )
+
+    const extra =
+      buildCommunicationOutput()
+
+    extra.campo_imprevisto =
+      'não registrar este conteúdo'
+
+    const extraError =
+      await executeTwiceExpectingFailure({
+        output:
+          extra,
+      })
+
+    assert.equal(
+      extraError.details
+        .communication_failure_path,
+      'communication',
+    )
+
+    assert.equal(
+      extraError.details
+        .communication_failure_invariant,
+      'ADDITIONAL_FIELD_NOT_ALLOWED',
+    )
+
+    assert.equal(
+      JSON.stringify(
+        extraError.details,
+      ).includes(
+        'campo_imprevisto',
+      ),
+      false,
+    )
+
+    const nestedExtra =
+      buildCommunicationOutput()
+
+    nestedExtra
+      .commercial_reading
+      .best_approach
+      .campo_imprevisto =
+      'também não registrar'
+
+    const nestedExtraError =
+      await executeTwiceExpectingFailure({
+        output:
+          nestedExtra,
+      })
+
+    assert.equal(
+      nestedExtraError.details
+        .communication_failure_path,
+      'reading.best_approach',
+    )
+
+    assert.equal(
+      nestedExtraError.details
+        .communication_failure_invariant,
+      'ADDITIONAL_FIELD_NOT_ALLOWED',
+    )
+  },
+)
+
+test(
+  'I: JSON válido com contrato semântico inválido informa a regra violada',
+  async () => {
+    const output =
+      buildCommunicationOutput({
+        interventionNeeded:
+          false,
+
+        recommendedQuestion:
+          null,
+
+        suggestedMessage:
+          null,
+      })
+
+    output
+      .commercial_reading
+      .best_approach = {
+      ...output
+        .commercial_reading
+        .best_approach,
+
+      decision:
+        'no_intervention',
+
+      channel:
+        'text',
+    }
+
+    const error =
+      await executeTwiceExpectingFailure({
+        output,
+      })
+
+    assert.equal(
+      error.details
+        .communication_failure_path,
+      'reading.best_approach.channel',
+    )
+
+    assert.equal(
+      error.details
+        .communication_failure_invariant,
+      'NO_INTERVENTION_CHANNEL',
+    )
+  },
+)
+
+test(
+  'campos derivados reproduzem papel relevância completude CRM Agenda e referências validados',
+  async () => {
+    const plan =
+      buildPlan()
+
+    plan
+      .normalization_context
+      .expected_analysis_status =
+      'limited'
+
+    plan
+      .normalization_context
+      .expected_analysis_limitations = [
+      'Janela histórica parcial.',
+    ]
+
+    plan
+      .normalization_context
+      .expected_crm = {
+      should_change_crm_stage:
+        true,
+
+      recommended_status:
+        'negociacao',
+
+      rationale:
+        'Diagnóstico confirmou negociação.',
+
+      requires_human_confirmation:
+        true,
+    }
+
+    plan
+      .normalization_context
+      .expected_agenda = {
+      should_change_agenda:
+        true,
+
+      expected_next_action_at:
+        '2026-08-07T10:00:00-03:00',
+
+      rationale:
+        'Diagnóstico confirmou retorno comercial.',
+
+      requires_human_confirmation:
+        true,
+    }
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan,
+
+        provider:
+          createProvider([
+            buildCommunicationOutput(),
+          ]).provider,
+      })
+
+    const reading =
+      result.output
+        .commercial_reading
+
+    assert.equal(
+      reading.commercial_role,
+      'buyer',
+    )
+
+    assert.equal(
+      reading.commercial_relevance,
+      'commercial',
+    )
+
+    assert.equal(
+      reading.analysis_status,
+      'limited',
+    )
+
+    assert.deepEqual(
+      reading.analysis_limitations,
+      [
+        'Janela histórica parcial.',
+      ],
+    )
+
+    assert.deepEqual(
+      reading.operations.crm,
+      plan
+        .normalization_context
+        .expected_crm,
+    )
+
+    assert.deepEqual(
+      reading.operations.agenda,
+      plan
+        .normalization_context
+        .expected_agenda,
+    )
+
+    assert.deepEqual(
+      reading.evidence_message_ids,
+      [
+        'm1',
+        'm2',
+      ],
+    )
+
+    assert.deepEqual(
+      reading.memory_ids,
+      [],
+    )
+  },
+)
+
+test(
+  'memory_ids globais são agregados deterministicamente sem permitir memória desconhecida',
+  async () => {
+    const plan =
+      buildPlan()
+
+    plan
+      .normalization_context
+      .commercial_reading
+      .available_memory_ids = [
+      'memory-1',
+    ]
+
+    const output =
+      buildCommunicationOutput()
+
+    output
+      .commercial_reading
+      .conversation_summary
+      .initial_context
+      .memory_ids = [
+      'memory-1',
+    ]
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan,
+
+        provider:
+          createProvider([
+            output,
+          ]).provider,
+      })
+
+    assert.deepEqual(
+      result
+        .output
+        .commercial_reading
+        .memory_ids,
+      [
+        'memory-1',
+      ],
+    )
+
+    const unknown =
+      buildCommunicationOutput()
+
+    unknown
+      .commercial_reading
+      .conversation_summary
+      .initial_context
+      .memory_ids = [
+      'memory-unknown',
+    ]
+
+    const error =
+      await executeTwiceExpectingFailure({
+        output:
+          unknown,
+
+        plan:
+          buildPlan(),
+      })
+
+    assert.equal(
+      error.details
+        .communication_failure_invariant,
+      'UNKNOWN_MEMORY',
+    )
+  },
+)
+
+test(
+  'retry recebe contexto estrutural seguro da primeira falha',
+  async () => {
+    const calls = []
+
+    const provider =
+      createProvider(
+        [
+          'não é json',
+          buildCommunicationOutput(),
+        ],
+        calls,
+      )
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan:
+          buildPlan(),
+
+        provider:
+          provider.provider,
+      })
+
+    const repairPayload =
+      JSON.parse(
+        calls[1].user_prompt,
+      )
+
+    assert.equal(
+      result
+        .execution
+        .recovered_after_retry,
+      true,
+    )
+
+    assert.deepEqual(
+      repairPayload.repair_context,
+      {
+        previous_failure_code:
+          'INVALID_COMMUNICATION_JSON',
+
+        previous_failure_path:
+          'communication',
+
+        previous_failure_invariant:
+          'VALID_JSON_OBJECT',
+
+        instruction:
+          'Repare somente a estrutura indicada e retorne novamente o objeto completo conforme o schema.',
+      },
+    )
+  },
+)
+
+test(
+  'duas saídas inválidas preservam path invariante e número de tentativas',
+  async () => {
+    const provider =
+      createProvider([
+        'não é json',
+        'continua inválido',
+      ])
+
+    await assert.rejects(
+      () =>
+        executeStatefulCommunicationPlan({
+          plan:
+            buildPlan(),
+
+          provider:
+            provider.provider,
+        }),
+      error => {
+        assert.equal(
+          error.code,
+          'INVALID_COMMUNICATION_JSON',
+        )
+
+        assert.deepEqual(
+          error.details,
+          {
+            communication_failure_path:
+              'communication',
+
+            communication_failure_invariant:
+              'VALID_JSON_OBJECT',
+
+            communication_attempts:
+              2,
+
+            first_failure_code:
+              'INVALID_COMMUNICATION_JSON',
+
+            first_failure_path:
+              'communication',
+
+            first_failure_invariant:
+              'VALID_JSON_OBJECT',
+          },
+        )
+
+        return true
+      },
     )
   },
 )
