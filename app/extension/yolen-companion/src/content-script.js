@@ -6447,6 +6447,393 @@
     `
   }
 
+  function getCommercialReadingDisplayText(
+    value,
+  ) {
+    if (
+      typeof value !==
+      'string'
+    ) {
+      return null
+    }
+
+    const clean =
+      value.trim()
+
+    return clean || null
+  }
+
+  function getRichReadingFactHtml(
+    label,
+    item,
+  ) {
+    const summary =
+      getCommercialReadingDisplayText(
+        item?.summary,
+      )
+
+    if (!summary) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-rich-fact">
+        <div class="yolen-rich-fact-label">
+          ${escapeHtml(label)}
+        </div>
+
+        <div class="yolen-rich-fact-copy">
+          ${escapeHtml(summary)}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichReadingListHtml(
+    label,
+    items,
+  ) {
+    const summaries =
+      Array.isArray(items)
+        ? items
+            .map(
+              item =>
+                getCommercialReadingDisplayText(
+                  item?.summary,
+                ),
+            )
+            .filter(Boolean)
+        : []
+
+    if (
+      summaries.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-rich-group">
+        <div class="yolen-rich-group-label">
+          ${escapeHtml(label)}
+        </div>
+
+        <div class="yolen-rich-list">
+          ${summaries
+            .map(
+              summary => `
+                <div class="yolen-rich-list-item">
+                  ${escapeHtml(summary)}
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichConversationSummaryHtml(
+    commercialReading,
+  ) {
+    const summary =
+      commercialReading
+        ?.conversation_summary
+
+    if (!summary) {
+      return ''
+    }
+
+    const blocks = [
+      getRichReadingFactHtml(
+        'Contexto inicial',
+        summary.initial_context,
+      ),
+      getRichReadingFactHtml(
+        'Como a conversa evoluiu',
+        summary.evolution,
+      ),
+      getRichReadingListHtml(
+        'Eventos importantes',
+        summary.important_events,
+      ),
+      getRichReadingFactHtml(
+        'Última solicitação ou decisão',
+        summary
+          .last_customer_request_or_decision,
+      ),
+    ].filter(Boolean)
+
+    if (
+      blocks.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Resumo da conversa
+        </div>
+
+        ${blocks.join('')}
+      </section>
+    `
+  }
+
+  function getRichCustomerGroupHtml(
+    label,
+    items,
+  ) {
+    return getRichReadingListHtml(
+      label,
+      items,
+    )
+  }
+
+  function getRichCustomerHtml(
+    commercialReading,
+  ) {
+    const customer =
+      commercialReading
+        ?.customer
+
+    if (!customer) {
+      return ''
+    }
+
+    const groups = [
+      getRichCustomerGroupHtml(
+        'Necessidades',
+        customer.needs,
+      ),
+      getRichCustomerGroupHtml(
+        'Interesses',
+        customer.interests,
+      ),
+      getRichCustomerGroupHtml(
+        'Critérios de decisão',
+        customer
+          .decision_criteria,
+      ),
+      getRichCustomerGroupHtml(
+        'Preferências',
+        customer.preferences,
+      ),
+      getRichCustomerGroupHtml(
+        'Perguntas em aberto',
+        customer
+          .open_questions,
+      ),
+      getRichCustomerGroupHtml(
+        'Objeções identificadas',
+        customer.objections,
+      ),
+      getRichCustomerGroupHtml(
+        'Incertezas',
+        customer.uncertainties,
+      ),
+    ].filter(Boolean)
+
+    if (
+      groups.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Cliente
+        </div>
+
+        ${groups.join('')}
+      </section>
+    `
+  }
+
+  function getCommercialEvolutionStatusLabel(
+    status,
+  ) {
+    const labels = {
+      completed: 'Concluído',
+      active: 'Ativo',
+      partial: 'Parcial',
+      pending: 'Pendente',
+      not_started:
+        'Não iniciado',
+      skipped: 'Pulado',
+      not_applicable:
+        'Não se aplica',
+    }
+
+    return (
+      labels[status] ||
+      String(status || '')
+    )
+  }
+
+  function getCommercialEvolutionStatusClass(
+    status,
+  ) {
+    const classes = {
+      completed:
+        'yolen-rich-status-completed',
+      active:
+        'yolen-rich-status-active',
+      partial:
+        'yolen-rich-status-partial',
+      pending:
+        'yolen-rich-status-pending',
+      not_started:
+        'yolen-rich-status-not-started',
+      skipped:
+        'yolen-rich-status-skipped',
+      not_applicable:
+        'yolen-rich-status-not-applicable',
+    }
+
+    return (
+      classes[status] ||
+      'yolen-rich-status-neutral'
+    )
+  }
+
+  function getRichCommercialEvolutionHtml(
+    commercialReading,
+  ) {
+    const items =
+      Array.isArray(
+        commercialReading
+          ?.commercial_evolution,
+      )
+        ? commercialReading
+            .commercial_evolution
+            .map((item) => {
+              const label =
+                getCommercialReadingDisplayText(
+                  item?.label,
+                )
+
+              const explanation =
+                getCommercialReadingDisplayText(
+                  item?.explanation,
+                )
+
+              if (
+                !label ||
+                !explanation
+              ) {
+                return null
+              }
+
+              return {
+                label,
+                explanation,
+                status:
+                  item?.status || '',
+              }
+            })
+            .filter(Boolean)
+        : []
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Evolução comercial
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${items
+            .map(
+              item => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-header">
+                    <div class="yolen-rich-evolution-label">
+                      ${escapeHtml(
+                        item.label,
+                      )}
+                    </div>
+
+                    <div class="yolen-rich-status ${getCommercialEvolutionStatusClass(
+                      item.status,
+                    )}">
+                      ${escapeHtml(
+                        getCommercialEvolutionStatusLabel(
+                          item.status,
+                        ),
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.explanation,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function getRichCommercialReadingExpandedHtml(
+    commercialReading,
+  ) {
+    const sections = [
+      getRichConversationSummaryHtml(
+        commercialReading,
+      ),
+      getRichCustomerHtml(
+        commercialReading,
+      ),
+      getRichCommercialEvolutionHtml(
+        commercialReading,
+      ),
+    ].filter(Boolean)
+
+    if (
+      sections.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <details class="yolen-rich-details">
+        <summary class="yolen-rich-details-summary">
+          <div>
+            <div class="yolen-rich-details-title">
+              Ver contexto comercial
+            </div>
+
+            <div class="yolen-rich-details-subtitle">
+              Resumo, cliente e evolução
+            </div>
+          </div>
+
+          <span
+            class="yolen-rich-details-chevron"
+            aria-hidden="true"
+          >
+            ›
+          </span>
+        </summary>
+
+        <div class="yolen-rich-details-body">
+          ${sections.join('')}
+        </div>
+      </details>
+    `
+  }
+
   function getRichCommercialReadingCardHtml(
     commercialReading,
   ) {
@@ -6516,6 +6903,10 @@
         ${getAudioTranscriptionHtml()}
 
         ${getSuggestedMessageHtml()}
+
+        ${getRichCommercialReadingExpandedHtml(
+          commercialReading,
+        )}
 
         <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
