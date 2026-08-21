@@ -43,6 +43,7 @@
   }
 
   let panelCollapsed = false
+  let lastAcknowledgedCollapsedAttentionKey = null
   let sessionRefreshTimerId = 0
   let lastResolvedConversationKey = null
   let lastResolvedContactLookupIdentity = null
@@ -9345,9 +9346,159 @@
     }
   }
 
+  // B5_MINIMIZED_INTELLIGENCE_START
+  function getCollapsedCompanionAttentionSnapshot() {
+    if (
+      !state.connected ||
+      state.loading ||
+      !state.conversationKey
+    ) {
+      return null
+    }
+
+    const preSendGateKey =
+      getCurrentPreSendGateKey()
+
+    if (preSendGateKey) {
+      return {
+        level: 'risk',
+        key:
+          `risk:${preSendGateKey}`,
+        label:
+          'Risco comercial antes do envio',
+      }
+    }
+
+    if (
+      state.leadResolution?.status ===
+        'NOT_FOUND' &&
+      !state.leadResolutionLoading
+    ) {
+      return {
+        level: 'attention',
+        key:
+          `attention:new-lead:${state.conversationKey}`,
+        label:
+          'Contato ainda não cadastrado na Yolen',
+      }
+    }
+
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const hasCurrentReading =
+      Boolean(
+        commercialReading &&
+        !state.conversationAnalysisLoading &&
+        !isCurrentAnalysisOutdated() &&
+        commercialReading.analysis_status ===
+          'complete',
+      )
+
+    if (
+      hasCurrentReading &&
+      hasCurrentOperationalSuggestionChange()
+    ) {
+      return {
+        level: 'attention',
+        key:
+          [
+            'attention:operation',
+            state.conversationKey,
+            state.analyzedConversationFingerprint,
+          ]
+            .filter(Boolean)
+            .join(':'),
+        label:
+          'Ação da Yolen aguardando revisão',
+      }
+    }
+
+    if (
+      hasCurrentReading &&
+      commercialReading
+        ?.communication
+        ?.intervention_needed === true
+    ) {
+      return {
+        level: 'recommendation',
+        key:
+          [
+            'recommendation',
+            state.conversationKey,
+            state.analyzedConversationFingerprint,
+          ]
+            .filter(Boolean)
+            .join(':'),
+        label:
+          'Recomendação disponível para esta conversa',
+      }
+    }
+
+    const enrichmentCandidates =
+      getVisibleLeadEnrichmentCandidates()
+
+    if (
+      enrichmentCandidates.length > 0
+    ) {
+      const candidateKeys =
+        enrichmentCandidates
+          .map((candidate) =>
+            getLeadEnrichmentCandidateKey(
+              candidate,
+            ),
+          )
+          .filter(Boolean)
+          .sort()
+
+      return {
+        level: 'information',
+        key:
+          [
+            'information:enrichment',
+            state.conversationKey,
+            ...candidateKeys,
+          ].join(':'),
+        label:
+          'Novos dados encontrados na conversa',
+      }
+    }
+
+    return null
+  }
+
+  function getUnacknowledgedCollapsedAttention() {
+    const attention =
+      getCollapsedCompanionAttentionSnapshot()
+
+    if (
+      !attention ||
+      attention.key ===
+        lastAcknowledgedCollapsedAttentionKey
+    ) {
+      return null
+    }
+
+    return attention
+  }
+
+  function acknowledgeCurrentCollapsedAttention() {
+    const attention =
+      getCollapsedCompanionAttentionSnapshot()
+
+    lastAcknowledgedCollapsedAttentionKey =
+      attention?.key || null
+  }
+  // B5_MINIMIZED_INTELLIGENCE_END
+
   function setPanelCollapsed(collapsed) {
-    panelCollapsed =
+    const nextCollapsed =
       Boolean(collapsed)
+
+    acknowledgeCurrentCollapsedAttention()
+
+    panelCollapsed =
+      nextCollapsed
 
     if (
       panelCollapsed &&
@@ -9398,18 +9549,46 @@
     )
 
     if (collapsed) {
+      const attention =
+        getUnacknowledgedCollapsedAttention()
+
+      const attentionLevel =
+        attention?.level || 'normal'
+
+      const collapsedLabel =
+        attention
+          ? `Abrir Yolen Companion — ${attention.label}`
+          : 'Abrir Yolen Companion'
+
       panel.innerHTML = [
         '<div class="yolen-collapsed-shell">',
 
           '<button',
-            ' class="yolen-collapsed-logo-button"',
+            ' class="yolen-collapsed-logo-button ' +
+              `yolen-collapsed-attention-${attentionLevel}"`,
             ' type="button"',
             ' data-yolen-action="expand-companion"',
-            ' title="Abrir Yolen Companion"',
-            ' aria-label="Abrir Yolen Companion"',
+            ' data-yolen-attention-level="' +
+              escapeHtml(attentionLevel) +
+            '"',
+            ' title="' +
+              escapeHtml(collapsedLabel) +
+            '"',
+            ' aria-label="' +
+              escapeHtml(collapsedLabel) +
+            '"',
           '>',
 
             getYolenMarkHtml(),
+
+            attention
+              ? [
+                  '<span',
+                    ' class="yolen-collapsed-attention-dot"',
+                    ' aria-hidden="true"',
+                  '></span>',
+                ].join('')
+              : '',
 
           '</button>',
 
