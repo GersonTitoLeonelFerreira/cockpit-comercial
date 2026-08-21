@@ -876,3 +876,37 @@ html.yolen-companion-collapsed #app {
   background:
     rgba(2, 6, 23, 0.38);
 }
+
+/* YOLEN B4.2 — PRE-SEND OBSERVATIONAL ASSISTANT */
+
+.yolen-pre-send-card {
+  border-color:
+    rgba(245, 158, 11, 0.38);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(180, 83, 9, 0.16),
+      rgba(15, 23, 42, 0.84)
+    );
+}
+
+.yolen-pre-send-card
+.yolen-section-label {
+  color: #fbbf24;
+}
+
+.yolen-pre-send-card
+.yolen-card-title {
+  color: #fff7ed;
+}
+
+.yolen-pre-send-reason {
+  color: #fde7c3;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.yolen-pre-send-card
+.yolen-operational-note {
+  margin-top: 10px;
+}
