@@ -236,6 +236,27 @@ export type ManagerialEvidenceAggregation = {
 
   source_limitations:
     ManagerialEvidenceSourceLimitation[]
+
+  analysis_event_ids:
+    string[]
+
+  action_event_ids:
+    string[]
+
+  cycle_event_ids:
+    string[]
+
+  commercial_reading_cycle_ids:
+    string[]
+
+  commercial_reading_seller_user_ids:
+    string[]
+
+  cycle_ids:
+    string[]
+
+  seller_user_ids:
+    string[]
 }
 
 export class ManagerialEvidenceAggregatorError
@@ -1642,5 +1663,47 @@ export function aggregateManagerialEvidence(
         .map(
           cloneLimitation,
         ),
+
+    analysis_event_ids:
+      uniqueSorted(
+        extraction
+          .analysis_event_ids,
+      ),
+
+    action_event_ids:
+      uniqueSorted(
+        extraction
+          .action_event_ids,
+      ),
+
+    cycle_event_ids:
+      uniqueSorted(
+        extraction
+          .cycle_event_ids,
+      ),
+
+    commercial_reading_cycle_ids:
+      uniqueSorted(
+        extraction
+          .commercial_reading_cycle_ids,
+      ),
+
+    commercial_reading_seller_user_ids:
+      uniqueSorted(
+        extraction
+          .commercial_reading_seller_user_ids,
+      ),
+
+    cycle_ids:
+      uniqueSorted(
+        extraction
+          .cycle_ids,
+      ),
+
+    seller_user_ids:
+      uniqueSorted(
+        extraction
+          .seller_user_ids,
+      ),
   }
 }

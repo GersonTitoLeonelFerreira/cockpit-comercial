@@ -1107,3 +1107,77 @@ test(
     )
   },
 )
+
+
+test(
+  'handoff preserva ciclos A4 compatíveis mesmo quando a leitura não produz padrão semântico',
+  () => {
+    const reading =
+      buildReading()
+
+    reading.seller_strengths =
+      []
+
+    reading.improvement_points =
+      []
+
+    reading.risks = {
+      customer_objections: [],
+      service_risks: [],
+    }
+
+    const result =
+      runHandoff({
+        ...emptyInput(),
+
+        commercial_reading_events: [
+          analysisEvent({
+            id:
+              'analysis-without-pattern',
+
+            cycleId:
+              'cycle-without-pattern',
+
+            sellerUserId:
+              'seller-coverage',
+
+            reading,
+          }),
+        ],
+      })
+
+    assert.equal(
+      result.semantic_patterns.length,
+      0,
+    )
+
+    assert.deepEqual(
+      result.analysis_event_ids,
+      [
+        'analysis-without-pattern',
+      ],
+    )
+
+    assert.deepEqual(
+      result.commercial_reading_cycle_ids,
+      [
+        'cycle-without-pattern',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .commercial_reading_seller_user_ids,
+      [
+        'seller-coverage',
+      ],
+    )
+
+    assert.deepEqual(
+      result.cycle_ids,
+      [
+        'cycle-without-pattern',
+      ],
+    )
+  },
+)
