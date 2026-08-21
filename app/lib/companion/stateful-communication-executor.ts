@@ -371,6 +371,25 @@ function normalizeCommercialReadingOutput({
   }
 
   if (
+    reading.commercial_relevance !==
+    context.commercial_relevance
+  ) {
+    fail({
+      code:
+        'INVALID_COMMUNICATION_OUTPUT',
+
+      message:
+        'A leitura comercial divergiu da relevância comercial validada.',
+
+      status_code:
+        502,
+
+      retryable:
+        true,
+    })
+  }
+
+  if (
     reading.analysis_status !==
       context.expected_analysis_status ||
     !equalStringArrays(
@@ -707,38 +726,24 @@ function normalizeCommunicationOutput({
     })
   }
 
-  // O prompt já instrui a não intervir comercialmente quando o papel não é
-  // "buyer". Em vez de rejeitar a saída inteira quando o modelo viola essa
-  // instrução, o executor neutraliza o resultado para o estado silencioso
-  // que o contrato exige — a mesma regra, aplicada de forma determinística
-  // em vez de confiada apenas ao modelo.
+  // Papel e relevância são gates independentes. O executor neutraliza toda
+  // orientação comercial quando qualquer um deles não autoriza intervenção,
+  // inclusive quando o modelo já marcou intervention_needed=false, mas ainda
+  // deixou coaching persuasivo nos campos textuais.
   if (
     context.commercial_role !==
-      'buyer' &&
-    (
-      output.intervention_needed ||
-      output.recommended_question !==
-        null ||
-      output.suggested_message !==
-        null ||
-      output
-        .commercial_reading
-        .communication
-        .intervention_needed ||
-      output
-        .commercial_reading
-        .communication
-        .recommended_question !==
-        null ||
-      output
-        .commercial_reading
-        .communication
-        .recommended_message !==
-        null
-    )
+      'buyer' ||
+    context.commercial_relevance !==
+      'commercial'
   ) {
     output.intervention_needed =
       false
+
+    output.method_application =
+      'Nenhuma aplicação comercial ao assunto atual.'
+
+    output.guidance =
+      'Nenhuma ação comercial necessária.'
 
     output.recommended_question =
       null
@@ -770,7 +775,7 @@ function normalizeCommunicationOutput({
           'no_intervention',
 
         reason:
-          'O contato não está comprovado como comprador; nenhuma intervenção comercial é recomendada.',
+          'Nenhuma intervenção comercial é recomendada para o contexto atual.',
 
         channel:
           'none',

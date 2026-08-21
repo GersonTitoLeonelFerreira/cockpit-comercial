@@ -1,3 +1,9 @@
+import {
+  COMMERCIAL_RELEVANCES,
+  isCommerciallyActionable,
+  type CommercialRelevance,
+} from './commercial-relevance'
+
 export const COMPANION_DIAGNOSTIC_CONTRACT_VERSION =
   'phase-1-v1' as const
 
@@ -5,12 +11,6 @@ const ANALYSIS_STATUSES = [
   'complete',
   'limited',
   'blocked',
-] as const
-
-const COMMERCIAL_RELEVANCES = [
-  'commercial',
-  'non_commercial',
-  'uncertain',
 ] as const
 
 const CONFIDENCE_LEVELS = [
@@ -49,8 +49,9 @@ const LEAD_STATUSES = [
 export type AnalysisStatus =
   (typeof ANALYSIS_STATUSES)[number]
 
-export type CommercialRelevance =
-  (typeof COMMERCIAL_RELEVANCES)[number]
+export type {
+  CommercialRelevance,
+} from './commercial-relevance'
 
 export type DiagnosticConfidence =
   (typeof CONFIDENCE_LEVELS)[number]
@@ -827,14 +828,50 @@ function validateGuidance(
   }
 
   if (
-    diagnostic.commercial_relevance ===
-      'non_commercial' &&
+    !isCommerciallyActionable(
+      diagnostic.commercial_relevance,
+    ) &&
     guidance.intervention_required
   ) {
     fail(
       'INVARIANT_VIOLATION',
       'guidance.intervention_required',
-      'Uma conversa não comercial não pode gerar intervenção.',
+      'Uma conversa não comercial ou incerta não pode gerar intervenção.',
+    )
+  }
+}
+
+function validateCommercialRelevance(
+  diagnostic: CompanionDiagnostic,
+) {
+  if (
+    isCommerciallyActionable(
+      diagnostic.commercial_relevance,
+    )
+  ) {
+    return
+  }
+
+  const hasCommercialInterpretation =
+    diagnostic.customer_intent !== null ||
+    diagnostic.needs.length > 0 ||
+    diagnostic.unanswered_questions.length > 0 ||
+    diagnostic.active_objections.length > 0 ||
+    diagnostic.seller_assessment.strengths.length > 0 ||
+    diagnostic.seller_assessment.risks.length > 0 ||
+    diagnostic.sales_method.current_step !== null ||
+    diagnostic.sales_method.completed_steps.length > 0 ||
+    diagnostic.sales_method.skipped_steps.length > 0 ||
+    diagnostic.sales_method.evidence_message_ids.length > 0 ||
+    diagnostic.solution_fit.status !== 'unknown' ||
+    diagnostic.solution_fit.rationale !== null ||
+    diagnostic.solution_fit.evidence_message_ids.length > 0
+
+  if (hasCommercialInterpretation) {
+    fail(
+      'INVARIANT_VIOLATION',
+      'commercial_relevance',
+      'Uma conversa não comercial ou incerta não pode gerar intenção, necessidade, objeção, avaliação, método ou adequação comercial.',
     )
   }
 }
@@ -905,8 +942,9 @@ function validateCrmSuggestion(
   const crmMustBeDisabled =
     diagnostic.analysis_status ===
       'blocked' ||
-    diagnostic.commercial_relevance ===
-      'non_commercial'
+    !isCommerciallyActionable(
+      diagnostic.commercial_relevance,
+    )
 
   if (crmMustBeDisabled) {
     if (
@@ -920,7 +958,7 @@ function validateCrmSuggestion(
       fail(
         'INVARIANT_VIOLATION',
         'crm_suggestion',
-        'Análise bloqueada ou não comercial não pode sugerir CRM ou Agenda.',
+        'Análise bloqueada, não comercial ou incerta não pode sugerir CRM ou Agenda.',
       )
     }
 
@@ -1301,6 +1339,7 @@ export function normalizeCompanionDiagnostic(
   }
 
   validateAnalysisState(diagnostic)
+  validateCommercialRelevance(diagnostic)
   validateMethod(diagnostic)
   validateSolutionFit(diagnostic)
   validateGuidance(diagnostic)

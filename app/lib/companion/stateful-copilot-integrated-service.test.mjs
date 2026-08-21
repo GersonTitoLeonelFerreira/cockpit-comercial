@@ -424,6 +424,9 @@ function buildModelEngineResult({
 
         commercial_role:
           'buyer',
+
+        commercial_relevance:
+          'commercial',
       },
 
       state_patch: {

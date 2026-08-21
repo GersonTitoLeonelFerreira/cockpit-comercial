@@ -1103,6 +1103,14 @@ test(
 
     assert.ok(
       payload
+        .required_root_fields
+        .includes(
+          'commercial_relevance',
+        ),
+    )
+
+    assert.ok(
+      payload
         .required_nested_fields
         .contextual_evidence
         .includes(
@@ -1269,7 +1277,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v18 preserva papeis, continuidade, descoberta e contexto incremental',
+  'prompt 5.2 v19 separa papel, relevância, continuidade e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1286,7 +1294,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v18',
+      'phase-5.2-stateful-prompt-v19',
     )
 
     assert.match(
@@ -1302,6 +1310,11 @@ test(
     assert.match(
       plan.request.system_prompt,
       /commercial_role descreve sempre o papel do contato externo/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /commercial_role e commercial_relevance são independentes/,
     )
 
     assert.match(
@@ -1363,7 +1376,7 @@ test(
 
 
 test(
-  'prompt stateful v18 aplica os mesmos guardrails de fatos oficiais V2',
+  'prompt stateful v19 aplica os mesmos guardrails de fatos oficiais V2',
   () => {
     const input =
       buildInput({
@@ -1503,7 +1516,7 @@ test(
 )
 
 test(
-  'prompt stateful v18 aplica os mesmos guardrails de produto e variante V3',
+  'prompt stateful v19 aplica os mesmos guardrails de produto e variante V3',
   () => {
     const input =
       buildInput({
@@ -1585,7 +1598,7 @@ test(
 )
 
 test(
-  'prompt stateful v18 interpreta suficiência e espera do método V2',
+  'prompt stateful v19 interpreta suficiência e espera do método V2',
   () => {
     const input =
       buildInput({
@@ -1933,7 +1946,7 @@ test(
 
 
 test(
-  'prompt stateful v18 aplica os mesmos guardrails de objeções comerciais V2',
+  'prompt stateful v19 aplica os mesmos guardrails de objeções comerciais V2',
   () => {
     const input =
       buildInput({
@@ -2090,7 +2103,7 @@ test(
 
 
 test(
-  'prompt stateful v18 aplica os mesmos guardrails de comportamento e comunicação',
+  'prompt stateful v19 aplica os mesmos guardrails de comportamento e comunicação',
   () => {
     const input =
       buildInput()

@@ -6,6 +6,7 @@ import {
   STATEFUL_COPILOT_COMMITMENT_STATUSES,
   STATEFUL_COPILOT_CONFIDENCE_LEVELS,
   STATEFUL_COPILOT_CONTRACT_VERSION,
+  STATEFUL_COPILOT_COMMERCIAL_RELEVANCES,
   STATEFUL_COPILOT_COMMERCIAL_ROLES,
 } from './stateful-copilot-contract'
 
@@ -414,6 +415,11 @@ export const STATEFUL_COPILOT_JSON_SCHEMA =
       commercial_role:
         enumSchema(
           STATEFUL_COPILOT_COMMERCIAL_ROLES,
+        ),
+
+      commercial_relevance:
+        enumSchema(
+          STATEFUL_COPILOT_COMMERCIAL_RELEVANCES,
         ),
 
       interpretation:

@@ -28,6 +28,7 @@ import {
 
 function buildDiagnosticOutput({
   commercialRole = 'buyer',
+  commercialRelevance = 'commercial',
 } = {}) {
   return {
     contract_version:
@@ -42,6 +43,9 @@ function buildDiagnosticOutput({
 
     commercial_role:
       commercialRole,
+
+    commercial_relevance:
+      commercialRelevance,
 
     interpretation: {
       what_changed: {
@@ -238,6 +242,7 @@ function buildInput() {
 
 function buildPlan({
   commercialRole = 'buyer',
+  commercialRelevance = 'commercial',
 } = {}) {
   return buildStatefulCommunicationExecutionPlan({
     input:
@@ -246,12 +251,14 @@ function buildPlan({
     diagnostic_output:
       buildDiagnosticOutput({
         commercialRole,
+        commercialRelevance,
       }),
   })
 }
 
 function buildCommercialReadingOutput({
   commercialRole = 'buyer',
+  commercialRelevance = 'commercial',
   interventionNeeded = true,
   recommendedQuestion =
     'Você prefere que eu retome o contato ou que outra pessoa fale com você?',
@@ -261,6 +268,8 @@ function buildCommercialReadingOutput({
   const canIntervene =
     commercialRole ===
       'buyer' &&
+    commercialRelevance ===
+      'commercial' &&
     interventionNeeded
 
   return {
@@ -274,6 +283,9 @@ function buildCommercialReadingOutput({
 
     commercial_role:
       commercialRole,
+
+    commercial_relevance:
+      commercialRelevance,
 
     conversation_summary: {
       initial_context: {
@@ -488,6 +500,7 @@ function buildCommercialReadingOutput({
 
 function buildCommunicationOutput({
   commercialRole = 'buyer',
+  commercialRelevance = 'commercial',
   interventionNeeded = true,
   recommendedQuestion =
     'Você prefere que eu retome o contato ou que outra pessoa fale com você?',
@@ -516,6 +529,7 @@ function buildCommunicationOutput({
     commercial_reading:
       buildCommercialReadingOutput({
         commercialRole,
+        commercialRelevance,
         interventionNeeded,
         recommendedQuestion,
         suggestedMessage,
@@ -588,7 +602,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v5',
+      'phase-5.2-communication-prompt-v6',
     )
 
     assert.match(
@@ -820,9 +834,79 @@ test(
   },
 )
 
+test(
+  'buyer non_commercial neutraliza orientação mesmo quando o modelo já declarou silêncio',
+  async () => {
+    const provider =
+      createProvider([
+        buildCommunicationOutput({
+          commercialRelevance:
+            'non_commercial',
+
+          interventionNeeded:
+            false,
+
+          recommendedQuestion:
+            null,
+
+          suggestedMessage:
+            null,
+        }),
+      ])
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan:
+          buildPlan({
+            commercialRelevance:
+              'non_commercial',
+          }),
+
+        provider:
+          provider.provider,
+      })
+
+    assert.equal(
+      result
+        .output
+        .method_application,
+      'Nenhuma aplicação comercial ao assunto atual.',
+    )
+
+    assert.equal(
+      result
+        .output
+        .guidance,
+      'Nenhuma ação comercial necessária.',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .best_approach
+        .decision,
+      'no_intervention',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .commercial_relevance,
+      'non_commercial',
+    )
+
+    assert.equal(
+      provider.calls.length,
+      1,
+    )
+  },
+)
+
 
 test(
-  'comunicação v5 integra leitura completa tom comportamentos limites de pressão e escalonamento',
+  'comunicação v6 integra leitura completa tom comportamentos limites de pressão e escalonamento',
   () => {
     const input =
       buildInput()
@@ -851,7 +935,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v5',
+      'phase-5.2-communication-prompt-v6',
     )
 
     assert.match(

@@ -1,4 +1,4 @@
-import type { LeadStatus } from '@/app/types/sales_cycles'
+import type { LeadStatus } from '../../types/sales_cycles'
 import type {
   AISalesContext,
   AISalesSuggestion,
@@ -7,11 +7,11 @@ import type {
   AIAuditSegmentSignals,
   AIAuditFinalResolution,
   ConversationSource,
-} from '@/app/types/ai-sales'
+} from '../../types/ai-sales'
 import {
   TERMINAL_SALES_CYCLE_STATUSES as TERMINAL_STATUSES,
   getSalesCycleLabel,
-} from '@/app/lib/sales-cycle-status'
+} from '../sales-cycle-status'
 import {
   buildTranscriptSegments,
   buildTranscriptSignals,
@@ -21,7 +21,12 @@ import {
   extractSuggestedDateFromText,
   type TranscriptSegments,
   type TranscriptSignals,
-} from '@/app/lib/ai/sales-copilot-transcript'
+} from './sales-copilot-transcript'
+import {
+  isCommercialRelevance,
+  isCommerciallyActionable,
+  type CommercialRelevance,
+} from '../companion/commercial-relevance'
 
 type AnalyzeConversationInput = {
   context: AISalesContext
@@ -46,6 +51,7 @@ type ProviderRawSuggestion = {
   action_channel?: string | null
   summary?: string
   tags?: string[]
+  commercial_relevance?: unknown
   facts?: ProviderCommercialFacts
 }
 
@@ -714,6 +720,66 @@ function getProviderFacts(raw: ProviderRawSuggestion | null): ProviderCommercial
   return raw.facts
 }
 
+function getProviderCommercialRelevance(
+  raw: ProviderRawSuggestion | null,
+): CommercialRelevance {
+  return isCommercialRelevance(
+    raw?.commercial_relevance,
+  )
+    ? raw.commercial_relevance
+    : 'uncertain'
+}
+
+function buildCommerciallyInactiveSuggestion(
+  input: AnalyzeConversationInput,
+  commercialRelevance: Exclude<
+    CommercialRelevance,
+    'commercial'
+  >,
+  source: AISalesSuggestion['source'],
+): AISalesSuggestion {
+  const isNonCommercial =
+    commercialRelevance ===
+      'non_commercial'
+
+  return {
+    recommended_status:
+      input.context.current_status,
+    confidence:
+      isNonCommercial
+        ? 0.95
+        : 0.4,
+    action_channel:
+      null,
+    action_result:
+      null,
+    result_detail:
+      null,
+    next_action:
+      null,
+    next_action_date:
+      null,
+    summary:
+      isNonCommercial
+        ? 'Conversa sem evidência comercial relevante para este ciclo.'
+        : 'A relevância comercial do momento atual não pôde ser confirmada.',
+    tags: [
+      `commercial_relevance:${commercialRelevance}`,
+    ],
+    should_close_won:
+      false,
+    should_close_lost:
+      false,
+    close_reason:
+      null,
+    reason_for_recommendation:
+      isNonCommercial
+        ? 'O assunto atual não possui relevância comercial; CRM, Agenda e próxima ação permanecem sem alteração.'
+        : 'Sem confirmação semântica de relevância comercial, o Yolen aplica fail-closed e não recomenda alteração operacional.',
+    source,
+  }
+}
+
 function isConfirmedFact(value: unknown): boolean {
   return value === true
 }
@@ -731,10 +797,18 @@ function buildSuggestionFromCommercialFacts(
 
   const leadResponded = isConfirmedFact(facts.lead_responded)
 
-  const localLost = fallback.recommended_status === 'perdido'
-  const localWon = fallback.recommended_status === 'ganho'
-  const localNegotiation = fallback.recommended_status === 'negociacao'
-  const localNoResponse = fallback.recommended_status === 'contato'
+  const localLost =
+    fallbackRule ===
+      'lost_explicit'
+  const localWon =
+    fallbackRule ===
+      'won_explicit'
+  const localNegotiation =
+    fallbackRule ===
+      'negotiation_active'
+  const localNoResponse =
+    fallbackRule ===
+      'contact_no_response'
 
   const localFinalAgenda =
     fallbackRule === 'final_resolution' ||
@@ -917,15 +991,23 @@ function buildSuggestionFromCommercialFacts(
 
 function buildSystemPrompt(): string {
   return [
-    'Você é um extrator de fatos comerciais.',
+    'Você é um intérprete semântico e extrator de fatos comerciais.',
     'Leia a conversa e devolva somente JSON válido.',
     'Nunca escreva texto fora do JSON.',
     'Você NÃO decide estágio do funil, próxima ação, ganho ou perda.',
     'O sistema Yolen decide o estágio comercial a partir dos fatos que você extrair.',
-    'Use o contexto e a conversa atual apenas para identificar fatos comprovados.',
+    'Leia a conversa inteira para compreender o assunto real da sessão atual antes de extrair qualquer fato comercial.',
+    'Classifique primeiro commercial_relevance como commercial, non_commercial ou uncertain.',
+    'commercial_relevance=commercial somente quando o assunto atual possuir relação concreta com avaliar, comprar, renovar, contratar, negociar ou dar continuidade a uma oferta da empresa.',
+    'commercial_relevance=non_commercial quando a sessão atual for coerentemente pessoal, cotidiana, profissional fora da venda ou tratar de compromissos sem relação com uma oferta da empresa.',
+    'commercial_relevance=uncertain quando o contexto não permitir confirmar com segurança se o assunto atual pertence à venda.',
+    'O fato de a pessoa existir no CRM, ter respondido, mencionar valor, data ou horário, ou assumir um compromisso não torna a sessão comercial.',
+    'Compromisso não é sinônimo de compromisso comercial. Prometer enviar documento pessoal, foto ou currículo; ligar ao sair do trabalho; jantar; tomar algo; ou ir para casa não cria follow-up nem Agenda comercial.',
+    'Use o contexto e a conversa atual apenas para identificar fatos comerciais comprovados depois desse gate semântico.',
     'Não invente fatos, datas, horários, visitas, pagamentos ou intenções.',
     'Se não houver evidência suficiente, use false.',
-    'Retorne obrigatoriamente os campos: confidence, action_channel, summary, tags e facts.',
+    'Quando commercial_relevance for non_commercial ou uncertain, retorne todos os fatos booleanos como false e final_intent=null.',
+    'Retorne obrigatoriamente os campos: confidence, action_channel, summary, tags, commercial_relevance e facts.',
     'Dentro de facts, retorne obrigatoriamente:',
     'lead_responded, no_response, commercial_objection_active, follow_up_requested, follow_up_has_date_or_period, visit_or_test_drive_scheduled, explicit_win, explicit_loss, final_intent.',
     'lead_responded só é true quando existe resposta real do cliente na conversa.',
@@ -1046,8 +1128,61 @@ export async function analyzeConversationWithCopilotDetailed(
 
   if (!providerResult.raw) {
     return {
-      suggestion: fallbackDecision.suggestion,
-      diagnostics,
+      suggestion:
+        buildCommerciallyInactiveSuggestion(
+          normalizedInput,
+          'uncertain',
+          'fallback',
+        ),
+      diagnostics: {
+        ...diagnostics,
+        selected_rule:
+          'commercial_relevance_uncertain',
+        fallback_rule:
+          diagnostics.selected_rule,
+        notes: [
+          ...diagnostics.notes,
+          'A interpretação semântica ficou indisponível. O Yolen aplicou fail-closed e preservou o estado comercial.',
+        ],
+      },
+    }
+  }
+
+  const commercialRelevance =
+    getProviderCommercialRelevance(
+      providerResult.raw,
+    )
+
+  if (
+    !isCommerciallyActionable(
+      commercialRelevance,
+    )
+  ) {
+    return {
+      suggestion:
+        buildCommerciallyInactiveSuggestion(
+          normalizedInput,
+          commercialRelevance,
+          'yolen',
+        ),
+      diagnostics: {
+        ...diagnostics,
+        engine:
+          'yolen',
+        fallback_rule:
+          diagnostics.selected_rule,
+        selected_rule:
+          `commercial_relevance_${commercialRelevance}`,
+        used_history:
+          false,
+        notes: [
+          ...diagnostics.notes,
+          commercialRelevance ===
+            'non_commercial'
+            ? 'A sessão atual foi classificada como não comercial. O guardrail neutralizou fatos, CRM, Agenda e próxima ação.'
+            : 'A relevância comercial não foi confirmada. O guardrail aplicou fail-closed.',
+        ],
+      },
     }
   }
 
@@ -1055,7 +1190,12 @@ export async function analyzeConversationWithCopilotDetailed(
 
   if (!providerFacts) {
     return {
-      suggestion: fallbackDecision.suggestion,
+      suggestion:
+        buildCommerciallyInactiveSuggestion(
+          normalizedInput,
+          'uncertain',
+          'yolen',
+        ),
       diagnostics: {
         ...diagnostics,
         provider: {
@@ -1065,7 +1205,7 @@ export async function analyzeConversationWithCopilotDetailed(
         },
         notes: [
           ...diagnostics.notes,
-          'A IA respondeu sem fatos comerciais estruturados. O Yolen usou apenas as regras locais.',
+          'A IA respondeu sem fatos comerciais estruturados. O Yolen aplicou fail-closed e preservou o estado comercial.',
         ],
       },
     }

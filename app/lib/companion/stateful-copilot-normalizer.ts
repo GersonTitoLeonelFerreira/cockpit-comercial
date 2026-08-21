@@ -6,6 +6,7 @@ import {
   STATEFUL_COPILOT_COMMITMENT_STATUSES,
   STATEFUL_COPILOT_CONFIDENCE_LEVELS,
   STATEFUL_COPILOT_CONTRACT_VERSION,
+  STATEFUL_COPILOT_COMMERCIAL_RELEVANCES,
   STATEFUL_COPILOT_COMMERCIAL_ROLES,
   type StatefulCopilotAgendaSuggestion,
   type StatefulCopilotCommitmentPatch,
@@ -20,6 +21,10 @@ import {
   type StatefulCopilotStrategy,
   type StatefulCopilotValueItem,
 } from './stateful-copilot-contract'
+
+import {
+  isCommerciallyActionable,
+} from './commercial-relevance'
 
 const LEAD_STATUSES = [
   'novo',
@@ -371,6 +376,44 @@ function requireCommercialRole(
   return value as StatefulCopilotOutput[
     'commercial_role'
   ]
+}
+
+function requireCommercialRelevance(
+  value: unknown,
+  path: string,
+): StatefulCopilotOutput['commercial_relevance'] {
+  if (
+    typeof value !== 'string' ||
+    !STATEFUL_COPILOT_COMMERCIAL_RELEVANCES
+      .includes(
+        value as StatefulCopilotOutput[
+          'commercial_relevance'
+        ],
+      )
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_RELEVANCE',
+      path,
+      `${path} possui uma relevância comercial inválida.`,
+    )
+  }
+
+  return value as StatefulCopilotOutput[
+    'commercial_relevance'
+  ]
+}
+
+function clearStatePatch(
+  statePatch: StatefulCopilotStatePatch,
+): void {
+  for (
+    const key of
+    Object.keys(
+      statePatch,
+    ) as Array<keyof StatefulCopilotStatePatch>
+  ) {
+    statePatch[key] = []
+  }
 }
 
 function requireConfidence(
@@ -1590,6 +1633,12 @@ export function normalizeStatefulCopilotOutput(
       'output.commercial_role',
     )
 
+  const commercialRelevance =
+    requireCommercialRelevance(
+      root.commercial_relevance,
+      'output.commercial_relevance',
+    )
+
   const interpretation =
     normalizeInterpretation(
       root.interpretation,
@@ -1643,19 +1692,21 @@ export function normalizeStatefulCopilotOutput(
       context,
     )
 
-  // O contrato já proíbe avanço operacional e orientação de venda quando o
-  // papel comercial não é "buyer". Em vez de rejeitar a análise inteira
-  // quando o modelo viola essa regra que ele mesmo deveria seguir, o
-  // normalizador corrige a saída para o estado neutro que o contrato exige
-  // — a mesma regra, aplicada de forma determinística em vez de confiada
-  // apenas ao modelo.
-  if (
-    commercialRole !== 'buyer' &&
-    (
-      crm.should_change_crm_stage ||
-      agenda.should_change_agenda
+  const commercialActionAllowed =
+    commercialRole === 'buyer' &&
+    isCommerciallyActionable(
+      commercialRelevance,
     )
-  ) {
+
+  // Papel e assunto atual são gates independentes. Mesmo um comprador
+  // histórico não pode gerar efeito comercial quando a sessão atual é
+  // não comercial ou incerta. O normalizador aplica o fail-closed antes de
+  // o patch chegar ao redutor ou às camadas de CRM, Agenda e comunicação.
+  if (!commercialActionAllowed) {
+    clearStatePatch(
+      statePatch,
+    )
+
     crm.should_change_crm_stage = false
     crm.recommended_status = null
     crm.rationale = null
@@ -1663,17 +1714,29 @@ export function normalizeStatefulCopilotOutput(
     agenda.should_change_agenda = false
     agenda.expected_next_action_at = null
     agenda.rationale = null
-  }
 
-  if (
-    commercialRole !== 'buyer' &&
-    (
-      strategy.recommended_question !== null ||
-      strategy.suggested_message !== null
-    )
-  ) {
+    interpretation.what_changed = null
+    interpretation.customer_need = null
+    interpretation.uncertainties = []
+    interpretation.current_moment.summary =
+      commercialRelevance ===
+        'non_commercial'
+        ? 'Conversa sem evidência comercial relevante para este ciclo.'
+        : 'Momento atual sem relevância comercial confirmada.'
+    interpretation.current_moment.memory_ids = []
+
+    strategy.method_application =
+      'Nenhuma aplicação comercial ao assunto atual.'
+    strategy.rationale =
+      commercialRelevance ===
+        'non_commercial'
+        ? 'A sessão atual não possui relevância comercial.'
+        : 'A relevância comercial da sessão atual não pôde ser confirmada.'
+    strategy.next_move =
+      'Nenhuma ação comercial necessária.'
     strategy.recommended_question = null
     strategy.suggested_message = null
+    strategy.memory_ids = []
   }
 
   const globalEvidenceIds =
@@ -1786,6 +1849,9 @@ export function normalizeStatefulCopilotOutput(
 
     commercial_role:
       commercialRole,
+
+    commercial_relevance:
+      commercialRelevance,
 
     interpretation,
 

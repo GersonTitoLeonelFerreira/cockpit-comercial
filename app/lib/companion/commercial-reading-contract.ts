@@ -7,6 +7,12 @@ import type {
   DiagnosticLeadStatus,
 } from './diagnostic-contract'
 
+import {
+  COMMERCIAL_RELEVANCES,
+  isCommerciallyActionable,
+  type CommercialRelevance,
+} from './commercial-relevance'
+
 export const COMMERCIAL_READING_CONTRACT_VERSION =
   'commercial-reading-v1' as const
 
@@ -20,6 +26,9 @@ export const COMMERCIAL_READING_COMMERCIAL_ROLES = [
   'provider',
   'unknown',
 ] as const
+
+export const COMMERCIAL_READING_COMMERCIAL_RELEVANCES =
+  COMMERCIAL_RELEVANCES
 
 export const COMMERCIAL_READING_EVOLUTION_STATUSES = [
   'completed',
@@ -112,6 +121,9 @@ export type CommercialReadingAnalysisStatus =
 
 export type CommercialReadingCommercialRole =
   (typeof COMMERCIAL_READING_COMMERCIAL_ROLES)[number]
+
+export type CommercialReadingCommercialRelevance =
+  CommercialRelevance
 
 export type CommercialReadingEvolutionStatus =
   (typeof COMMERCIAL_READING_EVOLUTION_STATUSES)[number]
@@ -329,6 +341,9 @@ export type CommercialReading = {
 
   commercial_role:
     CommercialReadingCommercialRole
+
+  commercial_relevance:
+    CommercialReadingCommercialRelevance
 
   conversation_summary:
     CommercialReadingConversationSummary
@@ -1777,6 +1792,139 @@ function ensureGlobalReferences(
   }
 }
 
+function neutralizeNonActionableReading(
+  reading: CommercialReading,
+): CommercialReading {
+  const currentEvidence = [
+    ...reading
+      .conversation_summary
+      .current_state
+      .evidence_message_ids,
+  ]
+
+  const currentSummary =
+    reading.commercial_relevance ===
+      'non_commercial'
+      ? 'Conversa sem evidência comercial relevante para este ciclo.'
+      : 'Momento atual sem relevância comercial confirmada.'
+
+  return {
+    ...reading,
+
+    conversation_summary: {
+      initial_context:
+        null,
+      evolution:
+        null,
+      important_events:
+        [],
+      current_state: {
+        summary:
+          currentSummary,
+        evidence_message_ids:
+          currentEvidence,
+        memory_ids:
+          [],
+      },
+      last_customer_request_or_decision:
+        null,
+    },
+
+    customer: {
+      needs: [],
+      interests: [],
+      decision_criteria: [],
+      preferences: [],
+      open_questions: [],
+      objections: [],
+      uncertainties: [],
+    },
+
+    commercial_evolution:
+      [],
+
+    method: {
+      ...reading.method,
+      stages:
+        reading.method.stages.map(
+          stage => ({
+            ...stage,
+            status:
+              'not_applicable',
+            explanation:
+              'A sessão atual não possui relevância comercial confirmada.',
+            evidence_message_ids:
+              [],
+            memory_ids:
+              [],
+          }),
+        ),
+    },
+
+    seller_strengths:
+      [],
+
+    improvement_points:
+      [],
+
+    risks: {
+      customer_objections: [],
+      service_risks: [],
+    },
+
+    best_approach: {
+      decision:
+        'no_intervention',
+      reason:
+        'Nenhuma ação comercial necessária para o assunto atual.',
+      channel:
+        'none',
+      evidence_message_ids:
+        currentEvidence,
+      memory_ids:
+        [],
+    },
+
+    communication: {
+      intervention_needed:
+        false,
+      recommended_question:
+        null,
+      recommended_message:
+        null,
+    },
+
+    operations: {
+      crm: {
+        should_change_crm_stage:
+          false,
+        recommended_status:
+          null,
+        rationale:
+          null,
+        requires_human_confirmation:
+          true,
+      },
+      agenda: {
+        should_change_agenda:
+          false,
+        expected_next_action_at:
+          null,
+        rationale:
+          null,
+        requires_human_confirmation:
+          true,
+      },
+    },
+
+    evidence_message_ids:
+      currentEvidence,
+
+    memory_ids:
+      [],
+  }
+}
+
 export function normalizeCommercialReading(
   value: unknown,
   context:
@@ -1986,7 +2134,21 @@ export function normalizeCommercialReading(
     'MISSING_GLOBAL_MEMORY',
   )
 
-  return {
+  const commercialRole =
+    requireEnum(
+      root.commercial_role,
+      COMMERCIAL_READING_COMMERCIAL_ROLES,
+      'reading.commercial_role',
+    )
+
+  const commercialRelevance =
+    requireEnum(
+      root.commercial_relevance,
+      COMMERCIAL_READING_COMMERCIAL_RELEVANCES,
+      'reading.commercial_relevance',
+    )
+
+  const reading: CommercialReading = {
     contract_version:
       COMMERCIAL_READING_CONTRACT_VERSION,
 
@@ -1997,11 +2159,10 @@ export function normalizeCommercialReading(
       limitations,
 
     commercial_role:
-      requireEnum(
-        root.commercial_role,
-        COMMERCIAL_READING_COMMERCIAL_ROLES,
-        'reading.commercial_role',
-      ),
+      commercialRole,
+
+    commercial_relevance:
+      commercialRelevance,
 
     conversation_summary:
       conversationSummary,
@@ -2046,4 +2207,15 @@ export function normalizeCommercialReading(
     memory_ids:
       memoryIds,
   }
+
+  return (
+    commercialRole === 'buyer' &&
+    isCommerciallyActionable(
+      commercialRelevance,
+    )
+  )
+    ? reading
+    : neutralizeNonActionableReading(
+        reading,
+      )
 }

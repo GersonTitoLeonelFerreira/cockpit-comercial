@@ -60,6 +60,9 @@ function buildValidReading() {
     commercial_role:
       'buyer',
 
+    commercial_relevance:
+      'commercial',
+
     conversation_summary: {
       initial_context:
         evidence(

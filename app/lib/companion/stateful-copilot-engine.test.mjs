@@ -184,6 +184,7 @@ function buildOutput({
   previousStateVersion = null,
   messageId = 'm1',
   addFact = false,
+  commercialRelevance = 'commercial',
 } = {}) {
   const patch =
     emptyPatch()
@@ -223,6 +224,9 @@ function buildOutput({
 
     commercial_role:
       'buyer',
+
+    commercial_relevance:
+      commercialRelevance,
 
     interpretation: {
       what_changed: {
@@ -331,6 +335,7 @@ function createMemoryId({
 
 function buildCommunicationOutput(
   messageId = 'm1',
+  commercialRelevance = 'commercial',
 ) {
   const recommendedQuestion =
     'Você prefere que eu retome o contato amanhã?'
@@ -368,6 +373,9 @@ function buildCommunicationOutput(
 
       commercial_role:
         'buyer',
+
+      commercial_relevance:
+        commercialRelevance,
 
       conversation_summary: {
         initial_context:
@@ -793,6 +801,167 @@ test(
     assert.deepEqual(
       previousState,
       originalPreviousState,
+    )
+  },
+)
+
+test(
+  'sessão pessoal preserva integralmente o estado comercial anterior e produz silêncio operacional',
+  async () => {
+    const firstResult =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput(),
+
+        previous_state:
+          null,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                addFact:
+                  true,
+              }),
+              buildCommunicationOutput(),
+            ],
+            [],
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    const previousState =
+      firstResult.candidate_state
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          buildDiagnosticInput({
+            messageId:
+              'm2',
+            messageText:
+              'Mais tarde envio meu currículo para você revisar.',
+            referenceTime:
+              '2026-08-06T16:00:00-03:00',
+          }),
+
+        previous_state:
+          previousState,
+
+        known_message_ids: [
+          'm1',
+          'm2',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                previousStateVersion:
+                  1,
+                messageId:
+                  'm2',
+                addFact:
+                  true,
+                commercialRelevance:
+                  'non_commercial',
+              }),
+              buildCommunicationOutput(
+                'm2',
+                'non_commercial',
+              ),
+            ],
+            [],
+          ),
+
+        create_memory_id:
+          createMemoryId,
+      })
+
+    assert.equal(
+      result.mode,
+      'model',
+    )
+    assert.equal(
+      result.output
+        .commercial_role,
+      'buyer',
+    )
+    assert.equal(
+      result.output
+        .commercial_relevance,
+      'non_commercial',
+    )
+    assert.equal(
+      result.output
+        .interpretation
+        .current_moment
+        .summary,
+      'Conversa sem evidência comercial relevante para este ciclo.',
+    )
+    assert.equal(
+      result.output
+        .strategy
+        .next_move,
+      'Nenhuma ação comercial necessária.',
+    )
+    assert.equal(
+      result.output
+        .strategy
+        .suggested_message,
+      null,
+    )
+    assert.equal(
+      result
+        .communication_output
+        .intervention_needed,
+      false,
+    )
+    assert.equal(
+      result
+        .communication_output
+        .commercial_reading
+        .conversation_summary
+        .current_state
+        .summary,
+      'Conversa sem evidência comercial relevante para este ciclo.',
+    )
+    assert.equal(
+      result
+        .communication_output
+        .commercial_reading
+        .operations
+        .agenda
+        .should_change_agenda,
+      false,
+    )
+    assert.deepEqual(
+      result.candidate_state.facts,
+      previousState.facts,
+    )
+    assert.deepEqual(
+      result
+        .candidate_state
+        .current_moment,
+      previousState.current_moment,
+    )
+    assert.deepEqual(
+      result
+        .candidate_state
+        .current_priority,
+      previousState.current_priority,
+    )
+    assert.equal(
+      result
+        .candidate_state
+        .version,
+      previousState.version + 1,
     )
   },
 )
