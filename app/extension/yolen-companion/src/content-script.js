@@ -6785,6 +6785,187 @@
     `
   }
 
+  function getCommercialMethodStatusLabel(
+    status,
+  ) {
+    const labels = {
+      completed: 'Concluído',
+      partial: 'Parcial',
+      not_started:
+        'Não iniciado',
+      skipped: 'Pulado',
+      not_applicable:
+        'Não se aplica',
+    }
+
+    return (
+      labels[status] ||
+      null
+    )
+  }
+
+  function getRichCommercialMethodHtml(
+    commercialReading,
+  ) {
+    const method =
+      commercialReading
+        ?.method
+
+    if (!method) {
+      return ''
+    }
+
+    if (
+      method.configured ===
+      false
+    ) {
+      return `
+        <section class="yolen-rich-section">
+          <div class="yolen-rich-section-title">
+            Método comercial
+          </div>
+
+          <div class="yolen-rich-fact-copy">
+            Nenhum método comercial está configurado para esta operação.
+          </div>
+        </section>
+      `
+    }
+
+    if (
+      method.configured !==
+      true
+    ) {
+      return ''
+    }
+
+    const methodName =
+      getCommercialReadingDisplayText(
+        method.name,
+      )
+
+    const stages =
+      Array.isArray(
+        method.stages,
+      )
+        ? method.stages
+            .map((stage) => {
+              const name =
+                getCommercialReadingDisplayText(
+                  stage?.name,
+                )
+
+              const explanation =
+                getCommercialReadingDisplayText(
+                  stage?.explanation,
+                )
+
+              const statusLabel =
+                getCommercialMethodStatusLabel(
+                  stage?.status,
+                )
+
+              const stepOrder =
+                Number.isSafeInteger(
+                  stage?.step_order,
+                ) &&
+                stage.step_order > 0
+                  ? stage.step_order
+                  : null
+
+              if (
+                !name ||
+                !explanation ||
+                !statusLabel ||
+                stepOrder === null
+              ) {
+                return null
+              }
+
+              return {
+                name,
+                explanation,
+                status:
+                  stage.status,
+                statusLabel,
+                stepOrder,
+              }
+            })
+            .filter(Boolean)
+            .sort(
+              (
+                left,
+                right,
+              ) =>
+                left.stepOrder -
+                right.stepOrder,
+            )
+        : []
+
+    if (
+      !methodName ||
+      stages.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Método comercial
+        </div>
+
+        <div class="yolen-rich-group">
+          <div class="yolen-rich-group-label">
+            Método configurado
+          </div>
+
+          <div class="yolen-rich-fact-copy">
+            ${escapeHtml(
+              methodName,
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${stages
+            .map(
+              stage => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-header">
+                    <div class="yolen-rich-evolution-label">
+                      ${escapeHtml(
+                        stage.name,
+                      )}
+                    </div>
+
+                    <div class="yolen-rich-status ${getCommercialEvolutionStatusClass(
+                      stage.status,
+                    )}">
+                      ${escapeHtml(
+                        stage.statusLabel,
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      stage.explanation,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+
+        <div class="yolen-operational-note">
+          Esta leitura mostra aderência ao método e não determina avanço automático.
+        </div>
+      </section>
+    `
+  }
+
   function getRichCommercialReadingExpandedHtml(
     commercialReading,
   ) {
@@ -6796,6 +6977,9 @@
         commercialReading,
       ),
       getRichCommercialEvolutionHtml(
+        commercialReading,
+      ),
+      getRichCommercialMethodHtml(
         commercialReading,
       ),
     ].filter(Boolean)
@@ -6815,7 +6999,7 @@
             </div>
 
             <div class="yolen-rich-details-subtitle">
-              Resumo, cliente e evolução
+              Resumo, cliente, evolução e método
             </div>
           </div>
 
