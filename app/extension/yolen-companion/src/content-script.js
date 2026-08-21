@@ -5569,6 +5569,46 @@
   }
 
 
+  function getApplySuggestionButtonLabel() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (!commercialReading) {
+      return 'Confirmar atualização na Yolen'
+    }
+
+    const crmChange =
+      commercialReading
+        ?.operations
+        ?.crm
+        ?.should_change_crm_stage ===
+      true
+
+    const agendaChange =
+      commercialReading
+        ?.operations
+        ?.agenda
+        ?.should_change_agenda ===
+      true
+
+    if (
+      crmChange &&
+      agendaChange
+    ) {
+      return 'Confirmar CRM e Agenda'
+    }
+
+    if (crmChange) {
+      return 'Confirmar atualização do CRM'
+    }
+
+    if (agendaChange) {
+      return 'Confirmar atualização da Agenda'
+    }
+
+    return 'Confirmar atualização na Yolen'
+  }
+
   function getAnalysisActionButton() {
     if (
       !canAnalyzeCurrentConversation() ||
@@ -5663,7 +5703,9 @@
             type="button"
             data-yolen-action="apply-suggestion"
           >
-            Confirmar atualização na Yolen
+            ${escapeHtml(
+              getApplySuggestionButtonLabel(),
+            )}
           </button>
         `
         : ''
@@ -6350,6 +6392,9 @@
         ?.should_change_crm_stage ===
         true &&
       crm
+        .requires_human_confirmation ===
+        true &&
+      crm
         .recommended_status
     ) {
       const currentStatus =
@@ -6370,26 +6415,54 @@
           crm.recommended_status,
         )
 
-      items.push(
-        currentLabel
-          ? `CRM: ${currentLabel} → ${targetLabel}`
-          : `CRM: ${targetLabel}`,
-      )
+      const rationale =
+        getCommercialReadingDisplayText(
+          crm.rationale,
+        )
 
       if (
-        typeof crm.rationale ===
-          'string' &&
-        crm.rationale.trim()
+        targetLabel &&
+        rationale
       ) {
-        items.push(
-          `Motivo do CRM: ${crm.rationale.trim()}`,
-        )
+        const stageText =
+          currentLabel
+            ? `${currentLabel} → ${targetLabel}`
+            : targetLabel
+
+        items.push(`
+          <div class="yolen-rich-evolution-item">
+            <div class="yolen-rich-evolution-header">
+              <div class="yolen-rich-evolution-label">
+                CRM
+              </div>
+
+              <div class="yolen-rich-status yolen-rich-status-active">
+                Confirmar
+              </div>
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Etapa: ${escapeHtml(
+                stageText,
+              )}
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Motivo: ${escapeHtml(
+                rationale,
+              )}
+            </div>
+          </div>
+        `)
       }
     }
 
     if (
       agenda
         ?.should_change_agenda ===
+        true &&
+      agenda
+        .requires_human_confirmation ===
         true
     ) {
       const agendaDate =
@@ -6401,21 +6474,40 @@
             )
           : null
 
-      if (agendaDate) {
-        items.push(
-          `Agenda: ${agendaDate}`,
+      const rationale =
+        getCommercialReadingDisplayText(
+          agenda.rationale,
         )
-      }
 
       if (
-        typeof agenda
-          .rationale ===
-          'string' &&
-        agenda.rationale.trim()
+        agendaDate &&
+        rationale
       ) {
-        items.push(
-          `Motivo da Agenda: ${agenda.rationale.trim()}`,
-        )
+        items.push(`
+          <div class="yolen-rich-evolution-item">
+            <div class="yolen-rich-evolution-header">
+              <div class="yolen-rich-evolution-label">
+                Agenda
+              </div>
+
+              <div class="yolen-rich-status yolen-rich-status-active">
+                Confirmar
+              </div>
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Quando: ${escapeHtml(
+                agendaDate,
+              )}
+            </div>
+
+            <div class="yolen-rich-evolution-copy">
+              Motivo: ${escapeHtml(
+                rationale,
+              )}
+            </div>
+          </div>
+        `)
       }
     }
 
@@ -6425,23 +6517,26 @@
       return ''
     }
 
+    const applyAvailable =
+      canApplyCurrentSuggestion()
+
     return `
       <div class="yolen-decision-block yolen-operational-suggestion">
         <div class="yolen-decision-kicker">
           Atualização na Yolen
         </div>
 
-        <div class="yolen-decision-list">
-          ${items
-            .map(
-              item =>
-                `<div class="yolen-decision-list-item">${escapeHtml(item)}</div>`,
-            )
-            .join('')}
+        <div class="yolen-rich-evolution">
+          ${items.join('')}
         </div>
 
         <div class="yolen-operational-note">
           Nada será alterado sem sua confirmação.
+          ${
+            applyAvailable
+              ? ' Revise as mudanças acima antes de confirmar.'
+              : ' A aplicação desta recomendação não está disponível nesta leitura.'
+          }
         </div>
       </div>
     `
@@ -10098,9 +10193,142 @@
     }
   }
 
+  function buildRichApplyConfirmationText(
+    commercialReading,
+  ) {
+    if (
+      !commercialReading ||
+      !isRichCommercialReadingApplyCompatible(
+        commercialReading,
+      )
+    ) {
+      return null
+    }
+
+    const cycle =
+      state
+        .leadResolution
+        ?.cycle
+
+    const crm =
+      commercialReading
+        ?.operations
+        ?.crm
+
+    const agenda =
+      commercialReading
+        ?.operations
+        ?.agenda
+
+    const lines = [
+      'Confirmar atualização na Yolen?',
+      '',
+    ]
+
+    if (
+      crm
+        ?.should_change_crm_stage ===
+        true &&
+      crm
+        .recommended_status
+    ) {
+      const currentLabel =
+        cycle?.status
+          ? getStageLabel(
+              cycle.status,
+            )
+          : null
+
+      const targetLabel =
+        getStageLabel(
+          crm.recommended_status,
+        )
+
+      lines.push(
+        currentLabel
+          ? `CRM: ${currentLabel} → ${targetLabel}`
+          : `CRM: ${targetLabel}`,
+      )
+
+      const rationale =
+        getCommercialReadingDisplayText(
+          crm.rationale,
+        )
+
+      if (rationale) {
+        lines.push(
+          `Motivo do CRM: ${rationale}`,
+        )
+      }
+    }
+
+    if (
+      agenda
+        ?.should_change_agenda ===
+        true
+    ) {
+      const agendaDate =
+        agenda
+          .expected_next_action_at
+          ? formatSuggestionDate(
+              agenda
+                .expected_next_action_at,
+            )
+          : null
+
+      if (agendaDate) {
+        lines.push(
+          `Agenda: ${agendaDate}`,
+        )
+      }
+
+      const rationale =
+        getCommercialReadingDisplayText(
+          agenda.rationale,
+        )
+
+      if (rationale) {
+        lines.push(
+          `Motivo da Agenda: ${rationale}`,
+        )
+      }
+    }
+
+    lines.push('')
+    lines.push(
+      'Nada será alterado sem sua confirmação.',
+    )
+    lines.push(
+      'A atualização será registrada no histórico.',
+    )
+
+    return lines.join('\n')
+  }
+
   function buildApplyConfirmationText() {
-    const suggestion = state.conversationAnalysis?.suggestion
-    const currentStatus = state.leadResolution?.cycle?.status || '-'
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (commercialReading) {
+      return (
+        buildRichApplyConfirmationText(
+          commercialReading,
+        ) ||
+        'Esta atualização não está disponível nesta leitura. Atualize a análise antes de tentar novamente.'
+      )
+    }
+
+    const suggestion =
+      state
+        .conversationAnalysis
+        ?.suggestion
+
+    const currentStatus =
+      state
+        .leadResolution
+        ?.cycle
+        ?.status ||
+      '-'
 
     if (!suggestion) {
       return 'Confirmar aplicação da sugestão na Yolen?'
@@ -10110,19 +10338,33 @@
       'Confirmar aplicação da sugestão na Yolen?',
       '',
       `De: ${getStageLabel(currentStatus)}`,
-      `Para: ${getStageLabel(suggestion.recommended_status)}`,
+      `Para: ${getStageLabel(
+        suggestion.recommended_status,
+      )}`,
     ]
 
-    if (suggestion.next_action) {
-      lines.push(`Próxima ação: ${suggestion.next_action}`)
+    if (
+      suggestion.next_action
+    ) {
+      lines.push(
+        `Próxima ação: ${suggestion.next_action}`,
+      )
     }
 
-    if (suggestion.next_action_date) {
-      lines.push(`Data: ${formatSuggestionDate(suggestion.next_action_date)}`)
+    if (
+      suggestion.next_action_date
+    ) {
+      lines.push(
+        `Data: ${formatSuggestionDate(
+          suggestion.next_action_date,
+        )}`,
+      )
     }
 
     lines.push('')
-    lines.push('Essa ação vai atualizar o ciclo e registrar evento no histórico.')
+    lines.push(
+      'Essa ação vai atualizar o ciclo e registrar evento no histórico.',
+    )
 
     return lines.join('\n')
   }
