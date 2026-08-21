@@ -182,7 +182,7 @@ test(
 
     assert.match(
       expanded,
-      /Resumo, cliente, evolução e método/,
+      /Resumo, cliente, evolução, método/,
     )
 
     const method =

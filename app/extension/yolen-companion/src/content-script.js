@@ -6966,6 +6966,260 @@
     `
   }
 
+  function getRichSellerStrengthsHtml(
+    commercialReading,
+  ) {
+    const strengths =
+      Array.isArray(
+        commercialReading
+          ?.seller_strengths,
+      )
+        ? commercialReading
+            .seller_strengths
+            .map(item =>
+              getCommercialReadingDisplayText(
+                item?.summary,
+              ),
+            )
+            .filter(Boolean)
+        : []
+
+    if (
+      strengths.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Acertos do vendedor
+        </div>
+
+        <div class="yolen-rich-list">
+          ${strengths
+            .map(
+              summary => `
+                <div class="yolen-rich-list-item">
+                  ${escapeHtml(
+                    summary,
+                  )}
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function getRichImprovementPointsHtml(
+    commercialReading,
+  ) {
+    const improvements =
+      Array.isArray(
+        commercialReading
+          ?.improvement_points,
+      )
+        ? commercialReading
+            .improvement_points
+            .map((item) => {
+              const summary =
+                getCommercialReadingDisplayText(
+                  item?.summary,
+                )
+
+              const impact =
+                getCommercialReadingDisplayText(
+                  item?.impact,
+                )
+
+              if (
+                !summary ||
+                !impact
+              ) {
+                return null
+              }
+
+              return {
+                summary,
+                impact,
+              }
+            })
+            .filter(Boolean)
+        : []
+
+    if (
+      improvements.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Pontos de melhoria
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${improvements
+            .map(
+              item => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.summary,
+                    )}
+                  </div>
+
+                  <div class="yolen-rich-fact-label">
+                    Impacto
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.impact,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    `
+  }
+
+  function getCommercialRiskSeverityLabel(
+    severity,
+  ) {
+    const labels = {
+      low: 'Baixo',
+      medium: 'Médio',
+      high: 'Alto',
+    }
+
+    return (
+      labels[severity] ||
+      null
+    )
+  }
+
+  function getRichRiskGroupHtml(
+    label,
+    risks,
+  ) {
+    const items =
+      Array.isArray(risks)
+        ? risks
+            .map((risk) => {
+              const summary =
+                getCommercialReadingDisplayText(
+                  risk?.summary,
+                )
+
+              const severity =
+                getCommercialRiskSeverityLabel(
+                  risk?.severity,
+                )
+
+              if (
+                !summary ||
+                !severity
+              ) {
+                return null
+              }
+
+              return {
+                summary,
+                severity,
+              }
+            })
+            .filter(Boolean)
+        : []
+
+    if (
+      items.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-rich-group">
+        <div class="yolen-rich-group-label">
+          ${escapeHtml(label)}
+        </div>
+
+        <div class="yolen-rich-evolution">
+          ${items
+            .map(
+              item => `
+                <div class="yolen-rich-evolution-item">
+                  <div class="yolen-rich-evolution-header">
+                    <div class="yolen-rich-evolution-label">
+                      Risco identificado
+                    </div>
+
+                    <div class="yolen-rich-status yolen-rich-status-neutral">
+                      ${escapeHtml(
+                        item.severity,
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="yolen-rich-evolution-copy">
+                    ${escapeHtml(
+                      item.summary,
+                    )}
+                  </div>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </div>
+    `
+  }
+
+  function getRichCommercialRisksHtml(
+    commercialReading,
+  ) {
+    const risks =
+      commercialReading
+        ?.risks
+
+    if (!risks) {
+      return ''
+    }
+
+    const groups = [
+      getRichRiskGroupHtml(
+        'Objeções do cliente',
+        risks.customer_objections,
+      ),
+      getRichRiskGroupHtml(
+        'Riscos no atendimento',
+        risks.service_risks,
+      ),
+    ].filter(Boolean)
+
+    if (
+      groups.length === 0
+    ) {
+      return ''
+    }
+
+    return `
+      <section class="yolen-rich-section">
+        <div class="yolen-rich-section-title">
+          Riscos
+        </div>
+
+        ${groups.join('')}
+      </section>
+    `
+  }
+
   function getRichCommercialReadingExpandedHtml(
     commercialReading,
   ) {
@@ -6980,6 +7234,15 @@
         commercialReading,
       ),
       getRichCommercialMethodHtml(
+        commercialReading,
+      ),
+      getRichSellerStrengthsHtml(
+        commercialReading,
+      ),
+      getRichImprovementPointsHtml(
+        commercialReading,
+      ),
+      getRichCommercialRisksHtml(
         commercialReading,
       ),
     ].filter(Boolean)
@@ -6999,7 +7262,7 @@
             </div>
 
             <div class="yolen-rich-details-subtitle">
-              Resumo, cliente, evolução e método
+              Resumo, cliente, evolução, método, atendimento e riscos
             </div>
           </div>
 
