@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run test:companion && npx tsc --noEmit && next build",
     "start": "next start",
     "lint": "eslint",
     "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
