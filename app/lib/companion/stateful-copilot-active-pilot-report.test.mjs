@@ -508,3 +508,181 @@ test(
     )
   },
 )
+
+test(
+  'p95 de latência acima do limite gera OBSERVE, nunca KILL_SWITCH',
+  () => {
+    const report =
+      buildStatefulCopilotActivePilotReport({
+        telemetry: [
+          healthy(
+            80_000,
+          ),
+          healthy(
+            80_000,
+          ),
+          healthy(
+            80_000,
+          ),
+          healthy(
+            80_000,
+          ),
+          healthy(
+            80_000,
+          ),
+          healthy(
+            80_000,
+          ),
+        ],
+      })
+
+    assert.equal(
+      report.decision,
+      'OBSERVE',
+    )
+
+    assert.ok(
+      report.decision_reasons.includes(
+        'p95_latency_above_limit',
+      ),
+    )
+
+    assert.equal(
+      report.latency_ms.p95,
+      80_000,
+    )
+
+    assert.equal(
+      report.safety.passed,
+      true,
+    )
+  },
+)
+
+test(
+  'o limite default de p95 acompanha o deadline de ciclo stateful',
+  () => {
+    const report =
+      buildStatefulCopilotActivePilotReport()
+
+    assert.equal(
+      report.thresholds
+        .maximum_p95_latency_ms,
+      75_000,
+    )
+  },
+)
+
+test(
+  'latência abaixo do limite não afeta a decisão',
+  () => {
+    const report =
+      buildStatefulCopilotActivePilotReport({
+        telemetry: [
+          healthy(
+            1_000,
+          ),
+          healthy(
+            2_000,
+          ),
+          healthy(
+            1_500,
+          ),
+          healthy(
+            1_800,
+          ),
+          healthy(
+            1_200,
+          ),
+        ],
+      })
+
+    assert.equal(
+      report.decision,
+      'CONTINUE_PILOT',
+    )
+
+    assert.ok(
+      !report.decision_reasons.includes(
+        'p95_latency_above_limit',
+      ),
+    )
+  },
+)
+
+test(
+  'o limite de p95 pode ser desabilitado explicitamente com null',
+  () => {
+    const report =
+      buildStatefulCopilotActivePilotReport({
+        telemetry: [
+          healthy(
+            200_000,
+          ),
+          healthy(
+            200_000,
+          ),
+          healthy(
+            200_000,
+          ),
+          healthy(
+            200_000,
+          ),
+          healthy(
+            200_000,
+          ),
+        ],
+
+        thresholds: {
+          maximum_p95_latency_ms:
+            null,
+        },
+      })
+
+    assert.equal(
+      report.decision,
+      'CONTINUE_PILOT',
+    )
+
+    assert.equal(
+      report.thresholds
+        .maximum_p95_latency_ms,
+      null,
+    )
+  },
+)
+
+test(
+  'latência alta nunca produz KILL_SWITCH sozinha, mesmo com muitos eventos',
+  () => {
+    const events = []
+
+    for (
+      let index = 0;
+      index < 20;
+      index += 1
+    ) {
+      events.push(
+        healthy(
+          150_000,
+        ),
+      )
+    }
+
+    const report =
+      buildStatefulCopilotActivePilotReport({
+        telemetry:
+          events,
+      })
+
+    assert.notEqual(
+      report.decision,
+      'KILL_SWITCH',
+    )
+
+    assert.equal(
+      report.decision,
+      'OBSERVE',
+    )
+  },
+)

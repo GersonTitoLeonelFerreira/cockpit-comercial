@@ -964,3 +964,478 @@ test(
     )
   },
 )
+
+function delay(
+  ms,
+) {
+  return new Promise(
+    (
+      resolve,
+    ) => {
+      setTimeout(
+        resolve,
+        ms,
+      )
+    },
+  )
+}
+
+// Cenário A: dentro de um orçamento de ciclo explícito, a chamada ao
+// provedor termina a tempo e o resultado ativo segue normalmente.
+test(
+  'active com deadline de ciclo configurado permanece bem-sucedido quando o provedor termina a tempo',
+  async () => {
+    const context =
+      buildContext()
+
+    let providerCalls =
+      0
+
+    let writerCalls =
+      0
+
+    const orchestrator =
+      createStatefulCopilotServerRuntimeOrchestrator({
+        configured_mode:
+          'active',
+
+        configured_company_ids:
+          companyId,
+
+        configured_engine_version:
+          'v2',
+
+        cycle_deadline_ms:
+          5_000,
+
+        dependencies: {
+          create_context_loader() {
+            return async () =>
+              context
+          },
+
+          create_composition() {
+            return {
+              writer:
+                async () => {
+                  writerCalls +=
+                    1
+
+                  return {
+                    status:
+                      'persisted',
+                  }
+                },
+
+              provider:
+                async () => {
+                  providerCalls +=
+                    1
+
+                  await delay(
+                    10,
+                  )
+
+                  return {
+                    output:
+                      statefulOutput,
+                  }
+                },
+
+              create_memory_id:
+                () =>
+                  'stateful-memory-test',
+            }
+          },
+
+          async run_service({
+            reader,
+            provider,
+            writer,
+          }) {
+            await reader({
+              company_id:
+                companyId,
+
+              cycle_id:
+                cycleId,
+
+              conversation_key:
+                conversationKey,
+
+              known_message_ids: [
+                '1',
+                '2',
+              ],
+
+              active_message_ids: [
+                '2',
+              ],
+            })
+
+            await provider({})
+
+            await writer({
+              operation_key:
+                'op-1',
+
+              plan: {},
+            })
+
+            return buildIntegratedResult()
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'active',
+    )
+
+    assert.equal(
+      result.response_source,
+      'stateful',
+    )
+
+    assert.equal(
+      providerCalls,
+      1,
+    )
+
+    assert.equal(
+      writerCalls,
+      1,
+    )
+  },
+)
+
+// Cenário D/G: o provedor demora além do orçamento agregado do ciclo — o
+// runtime abandona a chamada com segurança e cai para o V1, sem liberar
+// gravação automática de CRM/Agenda.
+test(
+  'active cai para V1 com seguranca quando o deadline global do ciclo esgota durante o provedor',
+  async () => {
+    const context =
+      buildContext()
+
+    let providerCalls =
+      0
+
+    let writerCalls =
+      0
+
+    const orchestrator =
+      createStatefulCopilotServerRuntimeOrchestrator({
+        configured_mode:
+          'active',
+
+        configured_company_ids:
+          companyId,
+
+        configured_engine_version:
+          'v2',
+
+        cycle_deadline_ms:
+          5_000,
+
+        dependencies: {
+          create_context_loader() {
+            return async () =>
+              context
+          },
+
+          create_composition() {
+            return {
+              writer:
+                async () => {
+                  writerCalls +=
+                    1
+
+                  return {
+                    status:
+                      'persisted',
+                  }
+                },
+
+              provider:
+                async () => {
+                  providerCalls +=
+                    1
+
+                  await delay(
+                    5_300,
+                  )
+
+                  return {
+                    output:
+                      statefulOutput,
+                  }
+                },
+
+              create_memory_id:
+                () =>
+                  'stateful-memory-test',
+            }
+          },
+
+          async run_service({
+            reader,
+            provider,
+            writer,
+          }) {
+            await reader({
+              company_id:
+                companyId,
+
+              cycle_id:
+                cycleId,
+
+              conversation_key:
+                conversationKey,
+
+              known_message_ids: [
+                '1',
+                '2',
+              ],
+
+              active_message_ids: [
+                '2',
+              ],
+            })
+
+            // O deadline global deve interromper esta chamada antes que o
+            // provedor "lento" termine — se não interromper, o teste falha
+            // porque o writer abaixo seria alcançado.
+            await provider({})
+
+            await writer({
+              operation_key:
+                'op-1',
+
+              plan: {},
+            })
+
+            return buildIntegratedResult()
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'active_fallback_v1',
+    )
+
+    assert.equal(
+      result.response_source,
+      'v1',
+    )
+
+    assert.equal(
+      result.response,
+      v1Response,
+    )
+
+    assert.equal(
+      result.fallback_reason,
+      'stateful_runtime_failed',
+    )
+
+    assert.equal(
+      result.stateful_failure.code,
+      'STATEFUL_CYCLE_DEADLINE_EXCEEDED',
+    )
+
+    assert.equal(
+      result.automatic_crm_write,
+      false,
+    )
+
+    assert.equal(
+      result.automatic_agenda_write,
+      false,
+    )
+
+    assert.equal(
+      providerCalls,
+      1,
+    )
+
+    assert.equal(
+      writerCalls,
+      0,
+    )
+  },
+)
+
+// Cenário E/F/G: quando o orçamento do ciclo já se esgotou antes da
+// persistência (por exemplo, o motor levou tempo demais processando o
+// resultado do provedor), a gravação nunca é sequer iniciada — nada de
+// estado parcial, nada de estado exposto sem persistência confirmada.
+test(
+  'active nao inicia gravacao quando o deadline global esgota antes da persistencia',
+  async () => {
+    const context =
+      buildContext()
+
+    let providerCalls =
+      0
+
+    let writerCalls =
+      0
+
+    const orchestrator =
+      createStatefulCopilotServerRuntimeOrchestrator({
+        configured_mode:
+          'active',
+
+        configured_company_ids:
+          companyId,
+
+        configured_engine_version:
+          'v2',
+
+        cycle_deadline_ms:
+          5_000,
+
+        dependencies: {
+          create_context_loader() {
+            return async () =>
+              context
+          },
+
+          create_composition() {
+            return {
+              writer:
+                async () => {
+                  writerCalls +=
+                    1
+
+                  return {
+                    status:
+                      'persisted',
+                  }
+                },
+
+              provider:
+                async () => {
+                  providerCalls +=
+                    1
+
+                  return {
+                    output:
+                      statefulOutput,
+                  }
+                },
+
+              create_memory_id:
+                () =>
+                  'stateful-memory-test',
+            }
+          },
+
+          async run_service({
+            reader,
+            provider,
+            writer,
+          }) {
+            await reader({
+              company_id:
+                companyId,
+
+              cycle_id:
+                cycleId,
+
+              conversation_key:
+                conversationKey,
+
+              known_message_ids: [
+                '1',
+                '2',
+              ],
+
+              active_message_ids: [
+                '2',
+              ],
+            })
+
+            await provider({})
+
+            // Simula processamento (motor/reducer) que consumiu o resto do
+            // orçamento do ciclo antes de chegar à persistência.
+            await delay(
+              5_300,
+            )
+
+            await writer({
+              operation_key:
+                'op-1',
+
+              plan: {},
+            })
+
+            return buildIntegratedResult()
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'active_fallback_v1',
+    )
+
+    assert.equal(
+      result.response_source,
+      'v1',
+    )
+
+    assert.equal(
+      result.response,
+      v1Response,
+    )
+
+    assert.equal(
+      result.fallback_reason,
+      'stateful_runtime_failed',
+    )
+
+    assert.equal(
+      result.stateful_failure.code,
+      'STATEFUL_CYCLE_DEADLINE_EXCEEDED',
+    )
+
+    assert.equal(
+      result.automatic_crm_write,
+      false,
+    )
+
+    assert.equal(
+      result.automatic_agenda_write,
+      false,
+    )
+
+    assert.equal(
+      providerCalls,
+      1,
+    )
+
+    assert.equal(
+      writerCalls,
+      0,
+    )
+  },
+)

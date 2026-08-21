@@ -2,6 +2,10 @@ import type {
   StatefulCopilotActivePilotTelemetry,
 } from './stateful-copilot-active-pilot-telemetry'
 
+import {
+  DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS,
+} from './stateful-copilot-cycle-deadline'
+
 export const STATEFUL_COPILOT_ACTIVE_PILOT_REPORT_VERSION =
   'phase-5.4-active-pilot-report-v1' as const
 
@@ -20,6 +24,14 @@ export type StatefulCopilotActivePilotReportThresholds = {
 
   maximum_fallback_rate:
     number
+
+  // Sinal de latência: quando o p95 do ciclo completo ultrapassa esse limite, o
+  // relatório sinaliza OBSERVE (degradação de experiência), nunca KILL_SWITCH — a
+  // latência isolada não é uma violação de segurança. O default acompanha o
+  // deadline de ciclo (ver stateful-copilot-cycle-deadline.ts): passar do
+  // orçamento que o próprio runtime já aplica é o sinal de que vale observar.
+  maximum_p95_latency_ms:
+    number | null
 }
 
 export const DEFAULT_STATEFUL_COPILOT_ACTIVE_PILOT_REPORT_THRESHOLDS:
@@ -29,6 +41,9 @@ export const DEFAULT_STATEFUL_COPILOT_ACTIVE_PILOT_REPORT_THRESHOLDS:
 
     maximum_fallback_rate:
       0.25,
+
+    maximum_p95_latency_ms:
+      DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS,
   }
 
 export type StatefulCopilotActivePilotReport = {
@@ -150,12 +165,38 @@ function normalizeThresholds(
     )
   }
 
+  const maximumP95LatencyMs =
+    input?.maximum_p95_latency_ms ===
+    undefined
+      ? DEFAULT_STATEFUL_COPILOT_ACTIVE_PILOT_REPORT_THRESHOLDS
+          .maximum_p95_latency_ms
+      : input.maximum_p95_latency_ms
+
+  if (
+    maximumP95LatencyMs !==
+      null &&
+    (
+      !Number.isFinite(
+        maximumP95LatencyMs,
+      ) ||
+      maximumP95LatencyMs <=
+        0
+    )
+  ) {
+    throw new Error(
+      'maximum_p95_latency_ms precisa ser nulo ou um número positivo.',
+    )
+  }
+
   return {
     minimum_events:
       minimumEvents,
 
     maximum_fallback_rate:
       maximumFallbackRate,
+
+    maximum_p95_latency_ms:
+      maximumP95LatencyMs,
   }
 }
 
@@ -427,6 +468,12 @@ export function buildStatefulCopilotActivePilotReport({
     persistenceExposureViolations ===
       0
 
+  const p95Latency =
+    percentile(
+      latencies,
+      0.95,
+    )
+
   const decisionReasons:
     string[] =
       []
@@ -514,6 +561,22 @@ export function buildStatefulCopilotActivePilotReport({
     decisionReasons.push(
       'no_successful_active_events',
     )
+  } else if (
+    p95Latency !==
+      null &&
+    normalizedThresholds
+      .maximum_p95_latency_ms !==
+      null &&
+    p95Latency >
+      normalizedThresholds
+        .maximum_p95_latency_ms
+  ) {
+    decision =
+      'OBSERVE'
+
+    decisionReasons.push(
+      'p95_latency_above_limit',
+    )
   } else {
     decisionReasons.push(
       'pilot_within_safety_and_fallback_limits',
@@ -582,10 +645,7 @@ export function buildStatefulCopilotActivePilotReport({
         ),
 
       p95:
-        percentile(
-          latencies,
-          0.95,
-        ),
+        p95Latency,
 
       max:
         latencies.length
