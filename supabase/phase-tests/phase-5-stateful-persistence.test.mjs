@@ -28,6 +28,13 @@ const correctiveMigrationPath = fileURLToPath(
   ),
 );
 
+const sellerAttributionMigrationPath = fileURLToPath(
+  new URL(
+    "../migrations/20260820200000_add_stateful_seller_attribution.sql",
+    import.meta.url,
+  ),
+);
+
 const supabaseBootstrap = `
   create role anon nologin;
   create role authenticated nologin;
@@ -279,6 +286,13 @@ test(
       await db.exec(
         await readFile(
           correctiveMigrationPath,
+          "utf8",
+        ),
+      );
+
+      await db.exec(
+        await readFile(
+          sellerAttributionMigrationPath,
           "utf8",
         ),
       );
@@ -572,6 +586,13 @@ test(
           .audit_event_id,
       );
 
+      await db.exec(`
+        update public.sales_cycles
+        set owner_user_id = null
+        where id = '${cycleId}'
+          and company_id = '${companyId}';
+      `);
+
       const state2 =
         buildState({
           version:
@@ -707,6 +728,7 @@ test(
             operation_key,
             previous_state_version,
             candidate_state_version,
+            seller_user_id,
             automatic_crm_write,
             automatic_agenda_write
           from public.companion_commercial_state_events
@@ -724,6 +746,9 @@ test(
 
             candidate_state_version:
               row.candidate_state_version,
+
+            seller_user_id:
+              row.seller_user_id,
 
             automatic_crm_write:
               row.automatic_crm_write,
@@ -743,6 +768,9 @@ test(
             candidate_state_version:
               1,
 
+            seller_user_id:
+              userId,
+
             automatic_crm_write:
               false,
 
@@ -758,6 +786,9 @@ test(
 
             candidate_state_version:
               2,
+
+            seller_user_id:
+              null,
 
             automatic_crm_write:
               false,
