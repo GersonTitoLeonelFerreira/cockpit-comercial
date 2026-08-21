@@ -81,6 +81,16 @@ function ensureUniqueIds(values: string[], path: string) {
   }
 }
 
+function ensureUniqueDeclaredProvenance(values: string[], path: string) {
+  if (new Set(values).size !== values.length) {
+    fail(
+      'DUPLICATE_DECLARED_PROVENANCE',
+      path,
+      `${path} possui referências declaradas duplicadas.`,
+    )
+  }
+}
+
 function ensureDeclaredIdsMatch(declared: string[], actual: string[], path: string) {
   if (!sameStrings(declared, actual)) {
     fail(
@@ -131,6 +141,35 @@ export function hardenManagerialEvidenceExtraction(
   referenceTime: unknown,
 ): ManagerialEvidenceExtraction {
   const reference = canonicalInstant(referenceTime, 'reference_time')
+
+  ensureUniqueDeclaredProvenance(
+    extraction.analysis_event_ids,
+    'extraction.analysis_event_ids',
+  )
+  ensureUniqueDeclaredProvenance(
+    extraction.action_event_ids,
+    'extraction.action_event_ids',
+  )
+  ensureUniqueDeclaredProvenance(
+    extraction.cycle_event_ids,
+    'extraction.cycle_event_ids',
+  )
+  ensureUniqueDeclaredProvenance(
+    extraction.commercial_reading_cycle_ids,
+    'extraction.commercial_reading_cycle_ids',
+  )
+  ensureUniqueDeclaredProvenance(
+    extraction.commercial_reading_seller_user_ids,
+    'extraction.commercial_reading_seller_user_ids',
+  )
+  ensureUniqueDeclaredProvenance(
+    extraction.cycle_ids,
+    'extraction.cycle_ids',
+  )
+  ensureUniqueDeclaredProvenance(
+    extraction.seller_user_ids,
+    'extraction.seller_user_ids',
+  )
 
   const coverage = extraction.commercial_reading_coverage
     .map((item, index) => {
@@ -318,6 +357,29 @@ export function hardenManagerialEvidenceExtraction(
     hardened.commercial_reading_seller_user_ids,
     coverage.flatMap(item => (item.seller_user_id ? [item.seller_user_id] : [])),
     'extraction.commercial_reading_seller_user_ids',
+  )
+  ensureDeclaredIdsMatch(
+    hardened.cycle_ids,
+    [
+      ...coverage.map(item => item.cycle_id),
+      ...exclusions.map(item => item.cycle_id),
+      ...actionFacts.map(item => item.cycle_id),
+      ...cycleFacts.map(item => item.cycle_id),
+      ...cycleSnapshots.map(item => item.cycle_id),
+    ],
+    'extraction.cycle_ids',
+  )
+  ensureDeclaredIdsMatch(
+    hardened.seller_user_ids,
+    [
+      ...coverage.flatMap(item => (item.seller_user_id ? [item.seller_user_id] : [])),
+      ...exclusions.flatMap(item => (item.seller_user_id ? [item.seller_user_id] : [])),
+      ...actionFacts.map(item => item.seller_user_id),
+      ...cycleSnapshots.flatMap(item =>
+        item.current_owner_user_id ? [item.current_owner_user_id] : [],
+      ),
+    ],
+    'extraction.seller_user_ids',
   )
 
   return hardened

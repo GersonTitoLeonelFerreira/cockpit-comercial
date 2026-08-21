@@ -3,6 +3,9 @@
   const ROOT_CLASS = 'yolen-companion-root'
   const WHATSAPP_APP_SELECTOR = '#app'
   const SESSION_REFRESH_INTERVAL_MS = 60000
+  const RUNTIME_RECOVERY_DELAY_MS = 350
+  const RUNTIME_STARTED_KEY =
+    '__yolenCompanionRuntimeStarted'
   const HASH_SESSION_KEY = 'yolen_companion_session'
   const PANEL_COLLAPSED_STORAGE_KEY =
     'yolen_companion_panel_collapsed'
@@ -45,6 +48,8 @@
   let panelCollapsed = false
   let lastAcknowledgedCollapsedAttentionKey = null
   let sessionRefreshTimerId = 0
+  let runtimeRecoveryTimerId = 0
+  let runtimeRecoveryInFlight = false
   let lastResolvedConversationKey = null
   let lastResolvedContactLookupIdentity = null
 
@@ -12017,8 +12022,8 @@
 
   function observeWhatsAppChanges() {
     const observedRoot =
-      document.querySelector(WHATSAPP_APP_SELECTOR) ||
-      document.body
+      document.body ||
+      document.documentElement
 
     const observer = new MutationObserver((mutations) => {
       const hasRelevantMutation = mutations.some((mutation) => {
@@ -12080,8 +12085,132 @@
 
   observeWhatsAppChanges.timeoutId = 0
 
+  // B7_RUNTIME_HARDENING_START
+  async function recoverCompanionRuntime(
+    reason,
+  ) {
+    if (runtimeRecoveryInFlight) {
+      return
+    }
+
+    runtimeRecoveryInFlight = true
+
+    try {
+      refreshConversationSnapshot()
+
+      checkPendingSuggestedMessageSentFromConversation()
+
+      await loadYolenSession({
+        showLoading: false,
+        resolveLeadAfterLoad: true,
+      })
+
+      if (!state.connected) {
+        return
+      }
+
+      scheduleCaptureIngestion(0)
+
+      const currentFingerprint =
+        getCurrentConversationFingerprint()
+
+      if (
+        currentFingerprint &&
+        currentFingerprint !==
+          state.analyzedConversationFingerprint
+      ) {
+        scheduleAutomaticAnalysis(
+          reason ||
+            'A Yolen retomou a conversa e atualizará a análise em 8 segundos.',
+        )
+      }
+    } finally {
+      runtimeRecoveryInFlight = false
+    }
+  }
+
+  function scheduleRuntimeRecovery(
+    reason,
+  ) {
+    window.clearTimeout(
+      runtimeRecoveryTimerId,
+    )
+
+    runtimeRecoveryTimerId =
+      window.setTimeout(
+        () => {
+          runtimeRecoveryTimerId = 0
+
+          void recoverCompanionRuntime(
+            reason,
+          )
+        },
+        RUNTIME_RECOVERY_DELAY_MS,
+      )
+  }
+
+  function observeRuntimeRecovery() {
+    window.addEventListener(
+      'online',
+      () => {
+        scheduleRuntimeRecovery(
+          'Conexão restabelecida. A Yolen atualizará a análise em 8 segundos se a conversa mudou.',
+        )
+      },
+      true,
+    )
+
+    window.addEventListener(
+      'focus',
+      () => {
+        scheduleRuntimeRecovery(
+          'Yolen retomada. A análise será atualizada em 8 segundos se a conversa mudou.',
+        )
+      },
+      true,
+    )
+
+    window.addEventListener(
+      'pageshow',
+      () => {
+        scheduleRuntimeRecovery(
+          'WhatsApp retomado. A análise será atualizada em 8 segundos se a conversa mudou.',
+        )
+      },
+      true,
+    )
+
+    document.addEventListener(
+      'visibilitychange',
+      () => {
+        if (
+          document.visibilityState !==
+          'visible'
+        ) {
+          return
+        }
+
+        scheduleRuntimeRecovery(
+          'Yolen retomada após pausa. A análise será atualizada em 8 segundos se a conversa mudou.',
+        )
+      },
+      true,
+    )
+  }
+  // B7_RUNTIME_HARDENING_END
+
   async function start() {
     await waitForWhatsAppApp()
+
+    if (
+      globalThis[RUNTIME_STARTED_KEY] ===
+      true
+    ) {
+      return
+    }
+
+    globalThis[RUNTIME_STARTED_KEY] = true
+
     await loadPanelCollapsedPreference()
 
     listenToWhatsAppAudioBridge()
@@ -12092,6 +12221,7 @@
     refreshConversationSnapshot()
     observeConversationScrollActivity()
     observeWhatsAppChanges()
+    observeRuntimeRecovery()
     observeComposerDraftForPreSend()
     observePreSendGateActions()
     observeManualWhatsAppSend()
