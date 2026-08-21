@@ -34,6 +34,7 @@ function emptyExtraction() {
         0,
     },
 
+    commercial_reading_coverage: [],
     semantic_evidence: [],
     action_facts: [],
     cycle_facts: [],

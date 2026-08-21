@@ -1174,9 +1174,156 @@ test(
     )
 
     assert.deepEqual(
+      result
+        .commercial_reading_coverage,
+      [
+        {
+          source:
+            'commercial_reading_coverage',
+
+          analysis_event_id:
+            'analysis-without-pattern',
+
+          cycle_id:
+            'cycle-without-pattern',
+
+          seller_user_id:
+            'seller-coverage',
+
+          occurred_at:
+            '2026-08-20T15:00:00-03:00',
+
+          analysis_status:
+            'complete',
+
+          analysis_limitations:
+            [],
+        },
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .cycle_rollups[0]
+        .historical_seller_user_ids,
+      [
+        'seller-coverage',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .cycle_rollups[0]
+        .analysis_event_ids,
+      [
+        'analysis-without-pattern',
+      ],
+    )
+
+    assert.deepEqual(
       result.cycle_ids,
       [
         'cycle-without-pattern',
+      ],
+    )
+  },
+)
+
+
+test(
+  'handoff preserva status e limitações A4 mesmo sem padrão semântico',
+  () => {
+    const reading =
+      buildReading({
+        status:
+          'limited',
+
+        limitations: [
+          'audio_without_transcription',
+        ],
+      })
+
+    reading.seller_strengths =
+      []
+
+    reading.improvement_points =
+      []
+
+    reading.risks = {
+      customer_objections: [],
+      service_risks: [],
+    }
+
+    const result =
+      runHandoff({
+        ...emptyInput(),
+
+        commercial_reading_events: [
+          analysisEvent({
+            id:
+              'analysis-limited-without-pattern',
+
+            cycleId:
+              'cycle-limited-without-pattern',
+
+            sellerUserId:
+              'seller-limited',
+
+            reading,
+          }),
+        ],
+      })
+
+    assert.equal(
+      result.semantic_patterns.length,
+      0,
+    )
+
+    assert.deepEqual(
+      result
+        .commercial_reading_coverage,
+      [
+        {
+          source:
+            'commercial_reading_coverage',
+
+          analysis_event_id:
+            'analysis-limited-without-pattern',
+
+          cycle_id:
+            'cycle-limited-without-pattern',
+
+          seller_user_id:
+            'seller-limited',
+
+          occurred_at:
+            '2026-08-20T15:00:00-03:00',
+
+          analysis_status:
+            'limited',
+
+          analysis_limitations: [
+            'audio_without_transcription',
+          ],
+        },
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .cycle_rollups[0]
+        .historical_seller_user_ids,
+      [
+        'seller-limited',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .cycle_rollups[0]
+        .analysis_event_ids,
+      [
+        'analysis-limited-without-pattern',
       ],
     )
   },

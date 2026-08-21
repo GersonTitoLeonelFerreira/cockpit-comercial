@@ -1,5 +1,6 @@
 import type {
   ManagerialActionFact,
+  ManagerialCommercialReadingCoverage,
   ManagerialCycleFact,
   ManagerialCycleSnapshot,
   ManagerialEvidenceExtraction,
@@ -186,6 +187,9 @@ export type ManagerialEvidenceAggregation = {
 
   source_coverage:
     ManagerialEvidenceExtraction['coverage']
+
+  commercial_reading_coverage:
+    ManagerialCommercialReadingCoverage[]
 
   aggregation_coverage: {
     semantic_observations:
@@ -1231,6 +1235,7 @@ function touchRollupTime(
 
 function buildCycleRollups({
   cycleIds,
+  commercialReadingCoverage,
   occurrences,
   actionFacts,
   cycleFacts,
@@ -1238,6 +1243,9 @@ function buildCycleRollups({
 }: {
   cycleIds:
     string[]
+
+  commercialReadingCoverage:
+    ManagerialCommercialReadingCoverage[]
 
   occurrences:
     ManagerialSemanticOccurrence[]
@@ -1285,6 +1293,37 @@ function buildCycleRollups({
   for (const cycleId of cycleIds) {
     getRollup(
       cycleId,
+    )
+  }
+
+  for (
+    const coverage
+    of commercialReadingCoverage
+  ) {
+    const rollup =
+      getRollup(
+        coverage.cycle_id,
+      )
+
+    rollup
+      .analysis_event_ids
+      .push(
+        coverage.analysis_event_id,
+      )
+
+    if (
+      coverage.seller_user_id
+    ) {
+      rollup
+        .historical_seller_user_ids
+        .push(
+          coverage.seller_user_id,
+        )
+    }
+
+    touchRollupTime(
+      rollup,
+      coverage.occurred_at,
     )
   }
 
@@ -1467,6 +1506,19 @@ function buildCycleRollups({
     )
 }
 
+function cloneCommercialReadingCoverage(
+  item:
+    ManagerialCommercialReadingCoverage,
+): ManagerialCommercialReadingCoverage {
+  return {
+    ...item,
+
+    analysis_limitations: [
+      ...item.analysis_limitations,
+    ],
+  }
+}
+
 function cloneActionFact(
   fact:
     ManagerialActionFact,
@@ -1556,6 +1608,10 @@ export function aggregateManagerialEvidence(
       cycleIds:
         extraction.cycle_ids,
 
+      commercialReadingCoverage:
+        extraction
+          .commercial_reading_coverage,
+
       occurrences:
         semanticOccurrences,
 
@@ -1588,6 +1644,13 @@ export function aggregateManagerialEvidence(
     source_coverage: {
       ...extraction.coverage,
     },
+
+    commercial_reading_coverage:
+      extraction
+        .commercial_reading_coverage
+        .map(
+          cloneCommercialReadingCoverage,
+        ),
 
     aggregation_coverage: {
       semantic_observations:

@@ -22,6 +22,29 @@ export type ManagerialSemanticEvidenceDimension =
   | 'customer_objection'
   | 'service_risk'
 
+export type ManagerialCommercialReadingCoverage = {
+  source:
+    'commercial_reading_coverage'
+
+  analysis_event_id:
+    string
+
+  cycle_id:
+    string
+
+  seller_user_id:
+    string | null
+
+  occurred_at:
+    string
+
+  analysis_status:
+    CommercialReadingAnalysisStatus
+
+  analysis_limitations:
+    string[]
+}
+
 export type ManagerialSemanticEvidence = {
   source:
     'commercial_reading'
@@ -220,6 +243,9 @@ export type ManagerialEvidenceExtraction = {
     cycle_snapshots:
       number
   }
+
+  commercial_reading_coverage:
+    ManagerialCommercialReadingCoverage[]
 
   semantic_evidence:
     ManagerialSemanticEvidence[]
@@ -686,6 +712,7 @@ function extractCommercialReadingEvidence({
   commercialReadingCycleIds,
   commercialReadingSellerIds,
   compatibleAnalysisIds,
+  commercialReadingCoverage,
   semanticEvidence,
   exclusions,
   sourceLimitations,
@@ -716,6 +743,9 @@ function extractCommercialReadingEvidence({
 
   compatibleAnalysisIds:
     string[]
+
+  commercialReadingCoverage:
+    ManagerialCommercialReadingCoverage[]
 
   semanticEvidence:
     ManagerialSemanticEvidence[]
@@ -859,6 +889,29 @@ function extractCommercialReadingEvidence({
       path +
         '.normalized_output.communication.commercial_reading.analysis_limitations',
     )
+
+  commercialReadingCoverage.push({
+    source:
+      'commercial_reading_coverage',
+
+    analysis_event_id:
+      analysisEventId,
+
+    cycle_id:
+      cycleId,
+
+    seller_user_id:
+      sellerUserId,
+
+    occurred_at:
+      generatedAt,
+
+    analysis_status:
+      analysisStatus,
+
+    analysis_limitations:
+      [...analysisLimitations],
+  })
 
   compatibleAnalysisIds.push(
     analysisEventId,
@@ -1396,6 +1449,10 @@ export function extractManagerialEvidence(
     ManagerialSemanticEvidence[] =
     []
 
+  const commercialReadingCoverage:
+    ManagerialCommercialReadingCoverage[] =
+    []
+
   const actionFacts:
     ManagerialActionFact[] =
     []
@@ -1469,6 +1526,7 @@ export function extractManagerialEvidence(
           commercialReadingCycleIds,
           commercialReadingSellerIds,
           compatibleAnalysisIds,
+          commercialReadingCoverage,
           semanticEvidence,
           exclusions,
           sourceLimitations,
@@ -1864,6 +1922,16 @@ export function extractManagerialEvidence(
       ),
   )
 
+  commercialReadingCoverage.sort(
+    (left, right) =>
+      left.occurred_at.localeCompare(
+        right.occurred_at,
+      ) ||
+      left.analysis_event_id.localeCompare(
+        right.analysis_event_id,
+      ),
+  )
+
   actionFacts.sort(
     (left, right) =>
       left.occurred_at.localeCompare(
@@ -1934,6 +2002,17 @@ export function extractManagerialEvidence(
       cycle_snapshots:
         cycleSnapshots.length,
     },
+
+    commercial_reading_coverage:
+      commercialReadingCoverage.map(
+        item => ({
+          ...item,
+
+          analysis_limitations: [
+            ...item.analysis_limitations,
+          ],
+        }),
+      ),
 
     semantic_evidence:
       semanticEvidence,
