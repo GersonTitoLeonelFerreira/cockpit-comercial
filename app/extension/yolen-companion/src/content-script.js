@@ -140,6 +140,8 @@
     preSendAssessmentConversationKey: null,
     preSendAssessmentFingerprint: null,
     preSendDraft: '',
+    preSendGateOpen: false,
+    preSendBypassKey: null,
   }
 
   function waitForWhatsAppApp() {
@@ -5378,6 +5380,8 @@
         analysisFingerprint,
       preSendDraft:
         normalizedDraft,
+      preSendGateOpen: false,
+      preSendBypassKey: null,
     }
 
     if (
@@ -5447,9 +5451,13 @@
           ),
         '</div>',
 
-        '<div class="yolen-operational-note">',
-          'A B4.2 apenas orienta. O envio do WhatsApp continua funcionando normalmente.',
-        '</div>',
+        state.preSendGateOpen
+          ? getPreSendGateActionsHtml()
+          : [
+              '<div class="yolen-operational-note">',
+                'Se você tentar enviar esta mensagem, a Yolen pedirá sua decisão antes de continuar.',
+              '</div>',
+            ].join(''),
       '</div>',
     ].join('')
   }
@@ -6201,6 +6209,12 @@
   }
 
   async function insertSuggestedMessageInWhatsApp() {
+    return insertSuggestedMessageInWhatsAppWithOptions()
+  }
+
+  async function insertSuggestedMessageInWhatsAppWithOptions(
+    options = {},
+  ) {
     if (isCurrentAnalysisOutdated()) {
       state = {
         ...state,
@@ -6233,7 +6247,10 @@
 
     const currentComposerText = normalizeMessageText(composer.textContent)
 
-    if (currentComposerText) {
+    if (
+      currentComposerText &&
+      options.replaceExisting !== true
+    ) {
       const confirmed = window.confirm(
         'O campo do WhatsApp já tem texto. Substituir pela mensagem sugerida?',
       )
@@ -10914,13 +10931,170 @@
     }, 250)
   }
 
+  // B4_PRE_SEND_GATE_START
+  function decidePreSendAttempt({
+    gateKey,
+    bypassKey,
+    cancelable,
+    collapsed,
+  }) {
+    if (
+      !gateKey ||
+      collapsed === true
+    ) {
+      return 'allow'
+    }
+
+    if (bypassKey === gateKey) {
+      return 'allow_once'
+    }
+
+    if (cancelable !== true) {
+      return 'allow'
+    }
+
+    return 'block'
+  }
+
+  function getCurrentPreSendGateKey() {
+    const assessment =
+      state.preSendAssessment
+
+    if (
+      !assessment ||
+      typeof assessment.kind !== 'string' ||
+      !state.conversationKey ||
+      !state.analyzedConversationFingerprint ||
+      state.preSendAssessmentConversationKey !==
+        state.conversationKey ||
+      state.preSendAssessmentFingerprint !==
+        state.analyzedConversationFingerprint ||
+      state.conversationAnalysisLoading ||
+      isCurrentAnalysisOutdated() ||
+      getActiveCommercialReading()
+        ?.analysis_status !== 'complete'
+    ) {
+      return null
+    }
+
+    const currentDraft =
+      getComposerText()
+
+    if (
+      !currentDraft ||
+      normalizeMessageText(
+        currentDraft,
+      ) !== state.preSendDraft
+    ) {
+      return null
+    }
+
+    return [
+      state.conversationKey,
+      state.analyzedConversationFingerprint,
+      buildConversationFingerprint(
+        state.preSendDraft,
+      ),
+      assessment.kind,
+    ].join('::')
+  }
+
+  function interceptPreSendAttempt(event) {
+    const gateKey =
+      getCurrentPreSendGateKey()
+
+    const decision =
+      decidePreSendAttempt({
+        gateKey,
+        bypassKey:
+          state.preSendBypassKey,
+        cancelable:
+          event?.cancelable === true,
+        collapsed:
+          panelCollapsed === true,
+      })
+
+    if (decision === 'allow') {
+      return false
+    }
+
+    if (decision === 'allow_once') {
+      state = {
+        ...state,
+        preSendGateOpen: false,
+        preSendBypassKey: null,
+      }
+
+      renderPanel()
+      return false
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+
+    state = {
+      ...state,
+      preSendGateOpen: true,
+      preSendBypassKey: null,
+    }
+
+    renderPanel()
+
+    return true
+  }
+
+  function getWhatsAppSendButton() {
+    const main =
+      getMainConversationRoot()
+
+    const scope =
+      main?.querySelector('footer') ||
+      main
+
+    if (!scope) {
+      return null
+    }
+
+    const candidates =
+      scope.querySelectorAll(
+        'button,[role="button"]',
+      )
+
+    for (const candidate of candidates) {
+      if (
+        isWhatsAppSendButtonTarget(
+          candidate,
+        )
+      ) {
+        return candidate
+      }
+    }
+
+    return null
+  }
+
   function observeManualWhatsAppSend() {
     document.addEventListener(
       'click',
       (event) => {
-        if (isWhatsAppSendButtonTarget(event.target)) {
-          scheduleManualSendRegistration()
+        if (
+          !isWhatsAppSendButtonTarget(
+            event.target,
+          )
+        ) {
+          return
         }
+
+        if (
+          interceptPreSendAttempt(
+            event,
+          )
+        ) {
+          return
+        }
+
+        scheduleManualSendRegistration()
       },
       true,
     )
@@ -10929,19 +11103,208 @@
       'keydown',
       (event) => {
         if (
-          event.key === 'Enter' &&
-          !event.shiftKey &&
-          !event.altKey &&
-          !event.ctrlKey &&
-          !event.metaKey &&
-          isComposerEnterTarget(event.target)
+          event.key !== 'Enter' ||
+          event.shiftKey ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          !isComposerEnterTarget(
+            event.target,
+          )
         ) {
-          scheduleManualSendRegistration()
+          return
+        }
+
+        if (
+          interceptPreSendAttempt(
+            event,
+          )
+        ) {
+          return
+        }
+
+        scheduleManualSendRegistration()
+      },
+      true,
+    )
+  }
+  function reviewCurrentPreSendDraft() {
+    state = {
+      ...state,
+      preSendGateOpen: false,
+      preSendBypassKey: null,
+    }
+
+    renderPanel()
+
+    getWhatsAppComposer()?.focus()
+  }
+
+  function sendCurrentPreSendDraftAnyway() {
+    const gateKey =
+      getCurrentPreSendGateKey()
+
+    if (!gateKey) {
+      state = {
+        ...state,
+        preSendGateOpen: false,
+        preSendBypassKey: null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    state = {
+      ...state,
+      preSendGateOpen: false,
+      preSendBypassKey: gateKey,
+    }
+
+    renderPanel()
+
+    const sendButton =
+      getWhatsAppSendButton()
+
+    if (!sendButton) {
+      getWhatsAppComposer()?.focus()
+      return
+    }
+
+    window.setTimeout(
+      () => {
+        if (
+          state.preSendBypassKey !== gateKey ||
+          getCurrentPreSendGateKey() !== gateKey
+        ) {
+          return
+        }
+
+        const currentSendButton =
+          getWhatsAppSendButton()
+
+        if (currentSendButton?.click) {
+          currentSendButton.click()
+          return
+        }
+
+        getWhatsAppComposer()?.focus()
+      },
+      0,
+    )
+  }
+
+  async function useCurrentPreSendSuggestion() {
+    if (!getSuggestedMessage()) {
+      return
+    }
+
+    state = {
+      ...state,
+      preSendGateOpen: false,
+      preSendBypassKey: null,
+    }
+
+    renderPanel()
+
+    await insertSuggestedMessageInWhatsAppWithOptions({
+      replaceExisting: true,
+    })
+  }
+
+  function getPreSendGateActionsHtml() {
+    const hasSuggestion =
+      Boolean(getSuggestedMessage())
+
+    return [
+      '<div class="yolen-pre-send-gate-copy">',
+        'Esta tentativa foi pausada. Você decide como continuar.',
+      '</div>',
+
+      '<div class="yolen-inline-actions yolen-pre-send-actions">',
+
+        '<button',
+          ' class="yolen-primary-button"',
+          ' type="button"',
+          ' data-yolen-action="review-pre-send-message"',
+        '>',
+          'Revisar mensagem',
+        '</button>',
+
+        hasSuggestion
+          ? [
+              '<button',
+                ' class="yolen-secondary-button"',
+                ' type="button"',
+                ' data-yolen-action="use-pre-send-suggestion"',
+              '>',
+                'Usar sugestão Yolen',
+              '</button>',
+            ].join('')
+          : '',
+
+        '<button',
+          ' class="yolen-tertiary-button yolen-pre-send-send-anyway"',
+          ' type="button"',
+          ' data-yolen-action="send-pre-send-anyway"',
+        '>',
+          'Enviar mesmo assim',
+        '</button>',
+
+      '</div>',
+
+      '<div class="yolen-operational-note">',
+        'Nada será enviado sem uma decisão sua.',
+      '</div>',
+    ].join('')
+  }
+
+  function observePreSendGateActions() {
+    document.addEventListener(
+      'click',
+      (event) => {
+        const actionElement =
+          event.target?.closest?.(
+            '[data-yolen-action]',
+          )
+
+        if (!actionElement) {
+          return
+        }
+
+        const action =
+          actionElement.getAttribute(
+            'data-yolen-action',
+          )
+
+        if (
+          action ===
+          'review-pre-send-message'
+        ) {
+          reviewCurrentPreSendDraft()
+          return
+        }
+
+        if (
+          action ===
+          'send-pre-send-anyway'
+        ) {
+          sendCurrentPreSendDraftAnyway()
+          return
+        }
+
+        if (
+          action ===
+          'use-pre-send-suggestion'
+        ) {
+          void useCurrentPreSendSuggestion()
         }
       },
       true,
     )
   }
+
+  // B4_PRE_SEND_GATE_END
 
 
 
@@ -11412,6 +11775,7 @@
     observeConversationScrollActivity()
     observeWhatsAppChanges()
     observeComposerDraftForPreSend()
+    observePreSendGateActions()
     observeManualWhatsAppSend()
     startSessionAutoRefresh()
     loadYolenSession({

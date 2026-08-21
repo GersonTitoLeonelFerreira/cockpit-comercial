@@ -910,3 +910,32 @@ html.yolen-companion-collapsed #app {
 .yolen-operational-note {
   margin-top: 10px;
 }
+
+/* YOLEN B4.3 — SELECTIVE PRE-SEND GATE */
+
+.yolen-pre-send-gate-copy {
+  margin-top: 12px;
+  color: #fff7ed;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.yolen-pre-send-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.yolen-pre-send-actions
+.yolen-primary-button,
+.yolen-pre-send-actions
+.yolen-secondary-button {
+  padding: 10px 12px;
+  border-radius: 11px;
+  font-size: 12px;
+}
+
+.yolen-pre-send-send-anyway {
+  margin-top: 1px;
+  color: #fbbf24;
+}
