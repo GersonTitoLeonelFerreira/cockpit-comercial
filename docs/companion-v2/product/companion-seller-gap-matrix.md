@@ -1,6 +1,12 @@
 # Matriz de Completude — Yolen Companion para o Vendedor
 
 **Auditado contra:** `main` em `4e58bff0605be8efbc94a3f78faf3a31107a2e9a`.
+**Rebaseline pontual:** em `5a48a1ecbc3240c8ad87e84f0789821bbd23ab73`
+(branch `feat/companion-client-operational-intelligence`), os itens A1, A2,
+A3 e a linha de P1-04 foram reavaliados contra o merge do PR #184
+(`0eca3b893ccd70d229a762274ec49ef9d4690ac8`). O restante da matriz (seções
+B–M) **não foi reauditado** nesta rebaseline — permanece como estava na
+auditoria original, exceto onde uma nota explícita diz o contrário.
 **Contrato de referência:** [`companion-seller-product-contract.md`](./companion-seller-product-contract.md).
 **Método:** cada linha foi verificada lendo o contrato de dados real, o
 runtime que o produz, e (quando aplicável) o trecho exato da extensão que
@@ -61,15 +67,27 @@ está marcado explicitamente em cada linha relevante como
 `NÃO VALIDADO EM 12A` (caminho rico) vs. o veredito real para a população
 geral.
 
+**Atualização da rebaseline (P1-04):** o filtro de relevância comercial
+(seção A abaixo) **não** foi resolvido esperando pelo motor "Diagnóstico
+Fase 1" do item 2 — esse motor de preview continua isolado, sem mudanças.
+Em vez disso, a Frente 1 introduziu um módulo compartilhado leve
+(`commercial-relevance.ts`) e ligou-o diretamente aos dois caminhos reais
+(V1 em `sales-copilot.ts`, V2 em `stateful-copilot-engine.ts` e
+`diagnostic-contract.ts`), com fail-closed estrutural (preserva estado
+anterior / recusa CRM-Agenda-intervenção) quando a relevância não é
+confirmada. O achado estrutural de três motores acima continua válido; só a
+lacuna específica de relevância comercial foi fechada por um caminho mais
+direto do que o antecipado na auditoria original.
+
 ---
 
 ## A. Compreensão da conversa
 
 | # | Capacidade | Status | Evidência | Testes | O que falta |
 |---|---|---|---|---|---|
-| A1 | Relevância comercial (comercial / não comercial / incerto) antes de qualquer ação | `BLOQUEADO` (P1-04) | Contrato existe (`diagnostic-contract.ts:10-14`, `commercial_relevance`), com invariantes que bloqueiam CRM/intervenção quando `non_commercial` (`validateGuidance`, `validateCrmSuggestion`). O motor que produz esse campo (`executeCompanionDiagnosticPlan`, `diagnostic-model.ts`) só roda atrás do endpoint de preview `v2/diagnostic-preview`. Nem `sales-copilot.ts` (V1) nem `CommercialReading` (V2) têm este filtro no caminho real de produção — `CommercialReading` tem `commercial_role` (buyer/provider/unknown), que é um conceito diferente (quem é o comprador, não se a conversa é comercial). | `diagnostic-contract.test.mjs`, `diagnostic-model.test.mjs`, `diagnostic-engine.test.mjs` — todos contra o motor de preview, não o de produção. | Ligar o motor/contrato de relevância ao caminho real de análise (V1 e V2). Este é exatamente o escopo do P1-04, em desenvolvimento pela Frente 1 — não deve ser reaberto aqui. |
-| A2 | Regras de não-inferência (compromisso ≠ comercial, data ≠ Agenda, contato no CRM ≠ conversa comercial) | `BLOQUEADO` (depende de A1) | Sem A1 confiável em produção, essas regras não têm um sinal de entrada estável para se apoiar. `CommercialReadingAgendaSuggestion`/`CrmSuggestion` exigem `rationale` e evidência, o que mitiga parcialmente, mas não substitui o filtro de relevância. | — | Mesma dependência de A1. |
-| A3 | Silêncio operacional explícito ("conversa sem evidência comercial relevante") | `PARCIAL` | UI mostra estado de "sem ação necessária" (`getCompanionMomentText`: *"Continue a conversa normalmente. A Yolen acompanha e aparece quando houver algo útil para orientar."*; badge "Sem intervenção necessária"/"Sem intervenção" quando `best_approach.decision === 'no_intervention'`). Isso cobre "nada a fazer *dentro* de uma leitura comercial", mas não a frase específica de "esta conversa não é comercial" pedida no contrato — porque a classificação de A1 não chega à produção. | `b3-commercial-reading-ui.test.mjs` | Depende de A1 para o estado ser semanticamente correto, não só silencioso. |
+| A1 | Relevância comercial (comercial / não comercial / incerto) antes de qualquer ação | `IMPLEMENTADO` *(atualizado em `feat/companion-client-operational-intelligence`, rebaseline pós-P1-04)* | P1-04 (PR #184, merge `0eca3b893ccd70d229a762274ec49ef9d4690ac8`) ligou a relevância comercial aos dois caminhos reais de produção. Novo módulo compartilhado `commercial-relevance.ts` (`isCommerciallyActionable`). **V1**: `sales-copilot.ts` classifica `commercial_relevance` via IA **antes** de extrair qualquer fato comercial; quando `non_commercial`/`uncertain`, `buildCommerciallyInactiveSuggestion` retorna fail-closed com `summary: 'Conversa sem evidência comercial relevante para este ciclo.'`, sem CRM/Agenda/próxima ação. **V2**: `stateful-copilot-engine.ts` preserva o estado anterior inteiro (fatos/necessidades/objeções/etc.) quando `commercial_role !== 'buyer'` ou a relevância não é acionável, em vez de deixar o modelo reinterpretar. `diagnostic-contract.ts` também fail-closed para `uncertain` (antes só bloqueava `non_commercial`). | `commercial-relevance-corpus.test.mjs` (542 linhas), `commercial-relevance-regression.test.mjs` (277 linhas), `diagnostic-contract.test.mjs`, `stateful-copilot-engine.test.mjs`, `stateful-communication.test.mjs` | Nenhuma pendência estrutural. Ressalva: a classificação em si depende do modelo de IA seguir a instrução do prompt — mitigado por corpus de regressão dedicado, mas não é uma garantia matemática (mesma natureza de qualquer classificação semântica por IA). |
+| A2 | Regras de não-inferência (compromisso ≠ comercial, data ≠ Agenda, contato no CRM ≠ conversa comercial) | `IMPLEMENTADO` *(atualizado nesta rebaseline)* | O novo prompt de `sales-copilot.ts` (`buildSystemPrompt`) declara explicitamente: *"O fato de a pessoa existir no CRM, ter respondido, mencionar valor, data ou horário, ou assumir um compromisso não torna a sessão comercial."* e *"Compromisso não é sinônimo de compromisso comercial. Prometer enviar documento pessoal, foto ou currículo; ligar ao sair do trabalho; jantar; tomar algo; ou ir para casa não cria follow-up nem Agenda comercial."* — regras quase literais do contrato de produto (seção 3.1). | Mesmo corpus de A1 (`commercial-relevance-corpus.test.mjs` cobre casos de compromisso pessoal/data/horário não-comercial). | Nenhuma pendência estrutural nesta rebaseline; mesma ressalva de A1 sobre depender de classificação por IA. |
+| A3 | Silêncio operacional explícito ("conversa sem evidência comercial relevante") | `IMPLEMENTADO` *(atualizado nesta rebaseline)* | Agora que A1 chega à produção, o texto de silêncio operacional do contrato de produto (seção 5.1) é literal no código: `buildCommerciallyInactiveSuggestion` gera `summary: 'Conversa sem evidência comercial relevante para este ciclo.'` quando `non_commercial`, que é exatamente o campo (`suggestion.summary`) renderizado como "momento atual" no card legado da extensão. Para `uncertain`, mensagem equivalente e igualmente fail-closed. | `commercial-relevance-corpus.test.mjs`, `commercial-relevance-regression.test.mjs` | Nenhuma pendência estrutural. Não verificado nesta rebaseline: se o texto exato aparece corretamente formatado na extensão em uso real (a UI já lia `suggestion.summary` antes do P1-04 — não houve mudança de contrato de UI, só de conteúdo semântico). |
 
 ## B. Painel principal
 
@@ -184,7 +202,7 @@ geral.
 |---|---|---|
 | **P1-02** | Deadline global do ciclo stateful / latência agregada sem orçamento (ciclos de 61s–130s observados) | **CORRIGIDO** em PR #183 (merge `4e58bff0605be8efbc94a3f78faf3a31107a2e9a`). |
 | **P1-03** | `INVALID_COMMUNICATION_OUTPUT` — retry de comunicação por saída inválida do modelo | **ABERTO**. Evidência adicional encontrada nesta auditoria (sem alterar código): o padrão de retry em `stateful-communication-executor.ts`/`stateful-copilot-orchestrator.ts` só recupera quando a *primeira* tentativa falha rápido com saída inválida — cada tentativa recuperada ainda consome até o timeout individual completo, o que é consistente com os ciclos de ~101s observados no P1-02 (uma etapa rápida + uma etapa de retry no timeout cheio). Não corrigido aqui — fora de escopo desta missão. |
-| **P1-04** | Relevância comercial / conversa pessoal interpretada como venda | **EM DESENVOLVIMENTO** pela Frente 1. Evidência encontrada nesta auditoria: o contrato e o motor de relevância comercial (`diagnostic-contract.ts` + `diagnostic-model.ts`) **já existem e têm cobertura de teste**, mas só são alcançáveis pelo endpoint de preview `v2/diagnostic-preview` — não estão ligados ao caminho real de análise usado em produção (nem V1, nem V2). Ver item A1. |
+| **P1-04** | Relevância comercial / conversa pessoal interpretada como venda | **CORRIGIDO TECNICAMENTE** — PR #184, merge `0eca3b893ccd70d229a762274ec49ef9d4690ac8`. Confirmado nesta rebaseline: módulo compartilhado `commercial-relevance.ts` ligado a `sales-copilot.ts` (V1) e a `stateful-copilot-engine.ts`/`diagnostic-contract.ts` (V2), com fail-closed estrutural e corpus de regressão dedicado (`commercial-relevance-corpus.test.mjs`, `commercial-relevance-regression.test.mjs`). Ver A1/A2/A3, atualizados nesta rebaseline. "Tecnicamente" porque a classificação em si continua dependendo do modelo de IA seguir a instrução — validado por corpus, não uma prova matemática; consistente com a natureza de qualquer classificação semântica por IA. |
 
 ---
 
@@ -205,55 +223,65 @@ caminhos quando eles divergem.
 
 | Status | Quantidade | Itens |
 |---|---|---|
-| `IMPLEMENTADO` | 19 | B4, B6, F1, J1, J2, J3, J4, K1, K2, K3, K4, K5, K6, K7, K9, L1, L2, L3, M1 |
-| `PARCIAL` | 12 | A3, B1, B2, B3, B5, C1, D1, E1, E2, F3, G1, K8 |
+| `IMPLEMENTADO` | 22 | A1, A2, A3, B4, B6, F1, J1, J2, J3, J4, K1, K2, K3, K4, K5, K6, K7, K9, L1, L2, L3, M1 |
+| `PARCIAL` | 11 | B1, B2, B3, B5, C1, D1, E1, E2, F3, G1, K8 |
 | `AUSENTE` | 8 | D2, D3, D4, G2, I1, I2, I3, J6 |
 | `BACKEND_ONLY` | 4 | D5, H1, H2, H3 |
 | `NÃO VALIDADO EM 12A` | 2 | C2, F2 (únicos itens sem nenhum equivalente no caminho geral V1, mas com pipeline completo — contrato+runtime+persistência+UI+teste — só ainda restrito à empresa piloto) |
-| `BLOQUEADO` | 3 | A1, A2, J5 |
+| `BLOQUEADO` | 1 | J5 (depende de I1–I3, ainda ausentes — ver missão de inteligência operacional do cliente) |
 
-Total: 19 + 12 + 8 + 4 + 2 + 3 = 48.
+Total: 22 + 11 + 8 + 4 + 2 + 1 = 48.
+
+*(Atualizado nesta rebaseline: A1, A2 e A3 saíram de `BLOQUEADO`/`PARCIAL`
+para `IMPLEMENTADO` após a confirmação do P1-04. Nenhum outro item mudou.)*
 
 ---
 
 ## Os 10 gaps de maior impacto
 
-Ordenados por impacto na experiência do vendedor médio (não do piloto):
+Ordenados por impacto na experiência do vendedor médio (não do piloto).
+*(Atualizado nesta rebaseline: o gap "relevância comercial não está ligada à
+produção" da auditoria original foi **removido desta lista** — P1-04 o
+resolveu, ver seção A. Isso promoveu o gap de tempo/SLA para a segunda
+posição e trouxe um novo décimo item.)*
 
 1. **V1 (caminho real de quase todas as empresas) não tem nenhuma
    consciência de método comercial.** (F2) — o vendedor nunca vê "em que
    ponto do método estou" fora do piloto.
-2. **Relevância comercial não está ligada à produção.** (A1, P1-04) — sem
-   isso, silêncio operacional (A3) e as regras de não-inferência (A2) não
-   podem funcionar corretamente em nenhum caminho.
-3. **Tempo/SLA/risco de demora não existe para o vendedor.** (I1-I3) — uma
+2. **Tempo/SLA/risco de demora não existe para o vendedor.** (I1-I3) — uma
    das perguntas mais repetidas na lista da seção 2 do contrato de produto
    ("há quanto tempo o cliente espera?") não tem resposta hoje, em nenhum
-   caminho.
-4. **Nenhum histórico/timeline visível da relação**, apesar dos dados
+   caminho. **Esta é a missão em andamento nesta branch
+   (`feat/companion-client-operational-intelligence`).**
+3. **Nenhum histórico/timeline visível da relação**, apesar dos dados
    existirem no banco. (H1-H3) — puro trabalho de exposição, sem precisar
-   de novo runtime de IA.
-5. **A experiência rica (V2) está presa a uma única empresa piloto**, apesar
+   de novo runtime de IA. **Também parte desta missão.**
+4. **A experiência rica (V2) está presa a uma única empresa piloto**, apesar
    de contrato, runtime, persistência, UI e testes já existirem para quase
    todo o contrato de produto (B, C, D, E, F). O caminho técnico para
    escalar já está pronto; falta decisão/execução de rollout.
-6. **V1 (caminho geral) não distingue as 7 categorias de inteligência do
+5. **V1 (caminho geral) não distingue as 7 categorias de inteligência do
    cliente** — só tem `customer_interests`/`objections` soltos, sem
    evidência por item. (D1 geral)
-7. **Concorrentes e produto de interesse do cliente não existem em nenhum
+6. **Concorrentes e produto de interesse do cliente não existem em nenhum
    contrato**, rico ou não. (D3, D4)
-8. **Comunicação observada do cliente não existe.** (G2) — uma das
+7. **Comunicação observada do cliente não existe.** (G2) — uma das
    perguntas explícitas do contrato ("como esse cliente costuma se
    comunicar?") não tem resposta hoje.
-9. **P1-03 provavelmente agrava o gap 1-3 acima indiretamente**: parte da
-   razão de os ciclos serem lentos (P1-02, já corrigido) é a taxa de retry
-   de comunicação — enquanto P1-03 não for corrigido, o deadline de ciclo
-   (P1-02) vai continuar acionando fallback com mais frequência do que
-   deveria nos casos que precisam da leitura rica.
-10. **Compromissos (histórico) e alertas de tempo (cliente
-    aguardando/oportunidade parada) não chegam ao vendedor apesar dos dados
-    existirem parcialmente** (D5, J5) — trabalho de exposição/composição
-    mais do que de novo runtime.
+8. **P1-03 provavelmente agrava a experiência de latência ainda hoje**:
+   parte da razão de os ciclos serem lentos (P1-02, já corrigido) é a taxa
+   de retry de comunicação — enquanto P1-03 não for corrigido, o deadline
+   de ciclo (P1-02) vai continuar acionando fallback com mais frequência do
+   que deveria nos casos que precisam da leitura rica.
+9. **Compromissos (histórico) e alertas de tempo (cliente
+   aguardando/oportunidade parada) não chegam ao vendedor apesar dos dados
+   existirem parcialmente** (D5, J5) — trabalho de exposição/composição
+   mais do que de novo runtime. **J5 depende diretamente do item 2 acima.**
+10. **"Sem invenção de preço/desconto/promessa" (K8) continua sendo regra de
+    prompt, não invariante estrutural de código** — diferente das outras
+    invariantes de segurança (K1-K7, K9), que têm validação de código.
+    Existe um freio parcial no rascunho do vendedor (pre-send gate), mas
+    nada equivalente sobre a leitura comercial gerada pela IA em si.
 
 ---
 
@@ -265,10 +293,9 @@ dependências reais encontradas nesta auditoria:
 1. **Cérebro confiável** — fechar P1-03 (retry de comunicação) antes de
    qualquer expansão de escopo; ele afeta diretamente a confiabilidade de
    tudo que depende de retries (leitura comercial, coaching, método).
-2. **Leitura comercial** — resolver P1-04 (relevância comercial ligada à
-   produção): sem isso, nenhuma capacidade de silêncio operacional ou
-   regras de não-inferência pode ser confiável em nenhum caminho (V1 ou
-   V2).
+2. ~~**Leitura comercial** — resolver P1-04~~ — **concluído tecnicamente**
+   (PR #184, ver seção A). Item mantido na numeração original só para
+   preservar a rastreabilidade da ordem; não requer mais trabalho aqui.
 3. **Coaching** — levar a disciplina de evidência e taxonomia do V2
    (`seller_strengths`/`improvement_points`) para o caminho V1, ou acelerar
    o rollout do V2 além do piloto (ver item 8).
@@ -280,8 +307,14 @@ dependências reais encontradas nesta auditoria:
    própria.
 6. **Histórico** — expor o que já existe no banco (H1-H3, D5): é
    principalmente trabalho de agregação e UI, não de novo motor de IA.
+   **Em andamento em `feat/companion-client-operational-intelligence`.**
 7. **Tempo/SLA/risco** — construir do zero (I1-I3), incluindo configuração
-   de SLA por empresa; desbloqueia os alertas de tempo (J5).
+   de SLA por empresa; desbloqueia os alertas de tempo (J5). **Em andamento
+   na mesma branch, junto com o item 6** — ambos fazem parte da mesma
+   entrega de "inteligência operacional do cliente" (histórico da relação +
+   tempo + waiting state + risco objetivo), deliberadamente sem tocar em
+   coaching/método/relevância semântica (itens 3-5 acima, fora de escopo
+   desta onda).
 8. **UX consolidada** — decidir rollout do V2 além da empresa piloto (maior
    alavanca única desta lista: resolve simultaneamente B1, B2, B3, B5, C1,
    C2, D1, E1, E2 para a população geral, porque o trabalho técnico já

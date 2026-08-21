@@ -32,6 +32,7 @@ const DEPENDENCY_FILES = [
   'capture-resilience.js',
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
+  'companion-client-context-view.js',
 ]
 
 export function escapeHtml(value) {
@@ -91,7 +92,49 @@ export function defaultLeadResolution(overrides = {}) {
   }
 }
 
-function createFakeBackground({ resolutionsByPhone = {} } = {}) {
+export function defaultClientContext(overrides = {}) {
+  return {
+    ok: true,
+    data: {
+      contract_version: 'companion-client-context-v1',
+      generated_at: '2026-08-22T12:00:00.000Z',
+      identity: {
+        company_id: 'company-1',
+        cycle_id: 'cycle-1',
+        conversation_key: 'whatsapp:5511988887777',
+        current_status: 'contato',
+      },
+      relationship: {
+        first_known_interaction_at: '2026-08-05T08:00:00.000Z',
+        relationship_age_ms: 17 * 24 * 60 * 60 * 1000,
+        latest_customer_message_at: '2026-08-22T09:42:00.000Z',
+        latest_seller_message_at: null,
+        last_interaction_at: '2026-08-22T09:42:00.000Z',
+        known_interaction_count: 3,
+      },
+      waiting: {
+        state: 'customer_waiting_for_seller',
+        waiting_since: '2026-08-22T09:42:00.000Z',
+        waiting_duration_ms: 138 * 60 * 1000,
+      },
+      timeline: [],
+      sla: {
+        configured: false,
+        applicable: true,
+        stage: 'contato',
+        stage_label: 'CONTATO',
+        target_minutes: null,
+        warning_minutes: null,
+        danger_minutes: null,
+        elapsed_minutes: 60,
+        risk: null,
+      },
+      ...overrides,
+    },
+  }
+}
+
+function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } = {}) {
   const calls = []
 
   const handlers = {
@@ -111,6 +154,11 @@ function createFakeBackground({ resolutionsByPhone = {} } = {}) {
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
+    LOAD_CLIENT_CONTEXT: async () => ({
+      ok: true,
+      statusCode: 200,
+      payload: clientContextResult ?? defaultClientContext(),
+    }),
   }
 
   const sendMessage = async (message) => {
@@ -125,9 +173,9 @@ function createFakeBackground({ resolutionsByPhone = {} } = {}) {
   return { sendMessage, calls }
 }
 
-export function loadContentScript({ initialHtml, resolutionsByPhone } = {}) {
+export function loadContentScript({ initialHtml, resolutionsByPhone, clientContextResult } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
-  const background = createFakeBackground({ resolutionsByPhone })
+  const background = createFakeBackground({ resolutionsByPhone, clientContextResult })
 
   const fakeChrome = {
     runtime: {
@@ -184,6 +232,10 @@ export function ingestCalls(calls) {
 
 export function resolveLeadCalls(calls) {
   return calls.filter((call) => call.action === 'RESOLVE_LEAD')
+}
+
+export function clientContextCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_CLIENT_CONTEXT')
 }
 
 function sleep(ms) {
