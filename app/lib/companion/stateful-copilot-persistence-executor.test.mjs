@@ -81,6 +81,9 @@ function buildOutput() {
     commercial_role:
       'buyer',
 
+    commercial_relevance:
+      'commercial',
+
     interpretation: {
       what_changed:
         null,

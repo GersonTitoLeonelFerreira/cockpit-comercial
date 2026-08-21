@@ -213,7 +213,7 @@ test(
 
     assert.equal(
       COMPANION_DIAGNOSTIC_PROMPT_VERSION,
-      'phase-5-prompt-v15',
+      'phase-5-prompt-v16',
     )
 
     assert.equal(
@@ -406,7 +406,7 @@ test(
 )
 
 test(
-  'prompt v15 interpreta método V2 sem checklist e aceita espera',
+  'prompt v16 interpreta método V2 sem checklist e aceita espera',
   () => {
     const input =
       buildInput()
@@ -535,7 +535,7 @@ test(
 
 
 test(
-  'prompt v15 aplica guardrails compartilhados de produto e variante V3',
+  'prompt v16 aplica guardrails compartilhados de produto e variante V3',
   () => {
     const input =
       buildInput()
@@ -607,7 +607,7 @@ test(
 )
 
 test(
-  'prompt v15 aplica guardrails compartilhados de fatos oficiais V2',
+  'prompt v16 aplica guardrails compartilhados de fatos oficiais V2',
   () => {
     const input =
       buildInput()
@@ -1199,7 +1199,7 @@ test(
 
 
 test(
-  'prompt v15 aplica guardrails compartilhados de objeções comerciais V2',
+  'prompt v16 aplica guardrails compartilhados de objeções comerciais V2',
   () => {
     const input =
       buildInput()
@@ -1352,7 +1352,7 @@ test(
 
 
 test(
-  'prompt v15 aplica guardrails compartilhados de comportamento e comunicação',
+  'prompt v16 aplica guardrails compartilhados de comportamento e comunicação',
   () => {
     const input =
       buildInput()

@@ -5,6 +5,7 @@ import {
   STATEFUL_COPILOT_COMMITMENT_STATUSES,
   STATEFUL_COPILOT_CONFIDENCE_LEVELS,
   STATEFUL_COPILOT_CONTRACT_VERSION,
+  STATEFUL_COPILOT_COMMERCIAL_RELEVANCES,
   STATEFUL_COPILOT_COMMERCIAL_ROLES,
 } from './stateful-copilot-contract.ts'
 
@@ -19,6 +20,7 @@ const ROOT_FIELDS = [
   'previous_state_version',
   'analyzed_message_ids',
   'commercial_role',
+  'commercial_relevance',
   'interpretation',
   'state_patch',
   'strategy',
@@ -348,6 +350,15 @@ test(
         .enum,
       [
         ...STATEFUL_COPILOT_COMMERCIAL_ROLES,
+      ],
+    )
+
+    assert.deepEqual(
+      root
+        .commercial_relevance
+        .enum,
+      [
+        ...STATEFUL_COPILOT_COMMERCIAL_RELEVANCES,
       ],
     )
 

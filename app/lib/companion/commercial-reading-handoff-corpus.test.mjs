@@ -49,6 +49,7 @@ function evidence(
 
 function buildBaseReading({
   commercialRole = 'buyer',
+  commercialRelevance = 'commercial',
   decision = 'respond',
   channel = 'text',
   interventionNeeded = true,
@@ -77,6 +78,9 @@ function buildBaseReading({
 
     commercial_role:
       commercialRole,
+
+    commercial_relevance:
+      commercialRelevance,
 
     conversation_summary: {
       initial_context:

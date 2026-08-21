@@ -41,7 +41,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v18' as const
+  'phase-5.2-stateful-prompt-v19' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -784,6 +784,12 @@ function buildSystemPrompt(
 
     'commercial_role descreve sempre o papel do contato externo em relação à empresa usuária da Yolen. Não inverta comprador e fornecedor ao interpretar quem iniciou uma solicitação, compra, contratação ou agendamento.',
 
+    'commercial_relevance descreve exclusivamente se o assunto da sessão temporal atual possui relevância para a venda da empresa: commercial, non_commercial ou uncertain.',
+
+    'commercial_role e commercial_relevance são independentes. Um contato historicamente buyer pode estar agora em uma sessão commercial, non_commercial ou uncertain.',
+
+    'Nunca use commercial_role=buyer, a existência do contato no CRM ou uma memória comercial anterior como prova automática de commercial_relevance=commercial.',
+
     'Se a empresa usuária estiver solicitando, comprando, contratando ou agendando um produto ou serviço oferecido pelo contato externo, o contato externo é provider. Se o contato externo estiver avaliando ou comprando uma oferta da empresa usuária, ele é buyer.',
 
     'diagnostic_input.conversation.context_bridge_messages pode conter uma ponte curta com até seis mensagens imediatamente anteriores às mensagens analisadas. Essas mensagens existem somente para resolver referência e continuidade e não expõem IDs canônicos.',
@@ -795,6 +801,16 @@ function buildSystemPrompt(
     'current_moment e strategy precisam usar pelo menos uma evidence_message_ids desta atualização incremental. memory_ids podem complementar, mas nunca substituir essa evidência atual.',
 
     'Se a sessão temporal atual for pessoal, não comercial ou não sustentar avanço, não ressuscite compromisso comercial antigo como momento atual nem como motivo isolado para CRM ou Agenda; preserve-o apenas como memória quando ainda estiver válido.',
+
+    'Leia a sessão temporal atual inteira e determine o assunto real antes de interpretar venda, método, necessidades, objeções, compromissos ou consequências operacionais.',
+
+    'Compromisso não é sinônimo de compromisso comercial. Data, horário, resposta, promessa de enviar algo ou continuidade concreta só possuem efeito comercial quando o objeto do compromisso pertence à venda da empresa.',
+
+    'Uma promessa ou agendamento pessoal, cotidiano ou profissional fora da compra não cria compromisso comercial, sinal, objeção, open loop, CRM, Agenda ou memória comercial.',
+
+    'Quando commercial_relevance=non_commercial, state_patch precisa manter todas as listas vazias; strategy não pode recomendar ação, pergunta ou mensagem comercial; CRM e Agenda precisam permanecer desativados.',
+
+    'Quando commercial_relevance=uncertain, aplique fail-closed: state_patch inteiro vazio, nenhuma mudança de CRM ou Agenda e nenhuma orientação comercial inventada.',
 
     'Mensagens antigas editadas, restauradas ou excluídas podem reaparecer na sessão atual pela observação recente; diferencie occurred_at de observed_at e não finja que o conteúdo original ocorreu agora.',
 
@@ -922,6 +938,8 @@ function buildSystemPrompt(
     'Use unknown quando não for possível comprovar com segurança quem está comprando de quem.',
 
     'Fornecedor ou papel desconhecido não pode receber pergunta persuasiva, mensagem de venda, mudança de CRM ou mudança de Agenda.',
+
+    'Mesmo quando commercial_role=buyer, commercial_relevance diferente de commercial não pode receber pergunta persuasiva, mensagem de venda, mudança de CRM, mudança de Agenda ou novo estado comercial derivado da sessão.',
 
     'CRM e Agenda são consequências operacionais finais, nunca o centro da interpretação.',
 
@@ -1204,6 +1222,7 @@ function buildUserPrompt(
         'previous_state_version',
         'analyzed_message_ids',
         'commercial_role',
+        'commercial_relevance',
         'interpretation',
         'state_patch',
         'strategy',
@@ -1278,6 +1297,12 @@ function buildUserPrompt(
           'buyer',
           'provider',
           'unknown',
+        ],
+
+        commercial_relevance: [
+          'commercial',
+          'non_commercial',
+          'uncertain',
         ],
 
         confidence: [

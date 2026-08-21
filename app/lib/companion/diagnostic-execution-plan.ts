@@ -29,7 +29,7 @@ import {
 } from './commercial-behavior-prompt-rules'
 
 export const COMPANION_DIAGNOSTIC_PROMPT_VERSION =
-  'phase-5-prompt-v15' as const
+  'phase-5-prompt-v16' as const
 
 export type CompanionDiagnosticModelRequest = {
   prompt_version:
@@ -492,17 +492,25 @@ function buildSystemPrompt(
 
     'commercial_role.evidence_message_ids precisa conter as mensagens que comprovam a classificação buyer ou provider.',
 
-    'Se external_contact_role=buyer, commercial_relevance precisa ser commercial.',
+    'commercial_role e commercial_relevance são conceitos independentes: commercial_role responde quem é o contato na relação histórica; commercial_relevance responde se o assunto da sessão atual possui relevância para a venda.',
 
-    'Se external_contact_role=provider, commercial_relevance precisa ser non_commercial, customer_intent precisa ser null e todos os blocos de venda, método, orientação e CRM precisam permanecer desativados.',
+    'Um contato classificado como buyer pode estar em uma sessão commercial, non_commercial ou uncertain. Nunca transforme buyer em prova automática de relevância comercial atual.',
 
-    'Se external_contact_role=unknown, commercial_relevance precisa ser uncertain, analysis_status precisa ser limited, analysis_limitations precisa incluir conversation_context_insufficient e nenhum avanço de CRM pode ser sugerido.',
+    'Se external_contact_role=provider, não produza orientação de venda nem consequência operacional para a empresa, independentemente da relevância geral da interação.',
+
+    'Se external_contact_role=unknown, não invente orientação comercial nem avanço de CRM. Use commercial_relevance=uncertain quando o assunto atual não puder ser classificado com segurança.',
 
     'Exemplo obrigatório: outgoing "Consigo agendar para hoje?" seguido de incoming "Qual horário?", "Temos apenas 16:45h" ou "Agendado" significa que o contato externo é provider, pois ele está oferecendo e confirmando o serviço solicitado pelo usuário da empresa.',
 
     'Mensagem do usuário da empresa não prova aceite, pagamento, recusa, agenda ou intenção comercial do contato externo.',
 
-    'Analise obrigatoriamente nesta ordem: relevância comercial, intenção, necessidades, informações ausentes, perguntas ignoradas, objeções, avaliação do vendedor, método comercial, adequação da solução, orientação e somente depois sugestão de CRM.',
+    'Leia a sessão inteira e analise obrigatoriamente nesta ordem: relevância comercial do momento atual, intenção, necessidades, informações ausentes, perguntas ignoradas, objeções, avaliação do vendedor, método comercial, adequação da solução, orientação e somente depois sugestão de CRM.',
+
+    'Compromisso não é sinônimo de compromisso comercial. Data, horário, promessa de enviar algo, retorno do contato ou continuidade de um assunto pessoal não criam Agenda comercial por si mesmos.',
+
+    'Quando commercial_relevance=non_commercial, mantenha intenção comercial null, necessidades comerciais vazias, objeções vazias, método sem nova conclusão, orientação desativada e CRM/Agenda desativados.',
+
+    'Quando commercial_relevance=uncertain, aplique fail-closed: não avance CRM, não crie Agenda e não recomende pergunta, mensagem ou ação comercial.',
 
     'Não classifique por palavra isolada.',
 

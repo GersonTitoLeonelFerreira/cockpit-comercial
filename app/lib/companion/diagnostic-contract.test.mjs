@@ -298,6 +298,171 @@ test(
 )
 
 test(
+  'conversa não comercial neutra é válida e não produz interpretação comercial',
+  () => {
+    const result =
+      normalizeCompanionDiagnostic(
+        buildDiagnostic({
+          commercial_relevance:
+            'non_commercial',
+
+          customer_intent:
+            null,
+
+          needs: [],
+          missing_information: [],
+          unanswered_questions: [],
+          active_objections: [],
+
+          seller_assessment: {
+            strengths: [],
+            risks: [],
+          },
+
+          sales_method: {
+            configured: true,
+            current_step: null,
+            completed_steps: [],
+            skipped_steps: [],
+            evidence_message_ids: [],
+          },
+
+          solution_fit: {
+            status: 'unknown',
+            rationale: null,
+            evidence_message_ids: [],
+          },
+
+          guidance: {
+            intervention_required: false,
+            next_move: null,
+            recommended_question: null,
+            suggested_message: null,
+          },
+
+          crm_suggestion: {
+            should_change_crm_stage: false,
+            recommended_status: null,
+            next_action_required: false,
+            expected_next_action_at: null,
+            prohibited_statuses: [
+              'ganho',
+              'perdido',
+            ],
+            requires_human_confirmation: true,
+          },
+
+          evidence_message_ids: [
+            'message-003',
+          ],
+        }),
+        CONTEXT,
+      )
+
+    assert.equal(
+      result.commercial_relevance,
+      'non_commercial',
+    )
+
+    assert.equal(
+      result.guidance.intervention_required,
+      false,
+    )
+
+    assert.equal(
+      result.crm_suggestion.next_action_required,
+      false,
+    )
+  },
+)
+
+test(
+  'non_commercial rejeita objeção comercial mesmo sem CRM ou mensagem',
+  () => {
+    assertContractError(
+      () =>
+        normalizeCompanionDiagnostic(
+          buildDiagnostic({
+            commercial_relevance:
+              'non_commercial',
+
+            customer_intent:
+              null,
+
+            needs: [],
+            missing_information: [],
+            unanswered_questions: [],
+
+            active_objections: [
+              {
+                summary:
+                  'Objeção comercial inventada.',
+                evidence_message_ids: [
+                  'message-003',
+                ],
+              },
+            ],
+
+            seller_assessment: {
+              strengths: [],
+              risks: [],
+            },
+
+            sales_method: {
+              configured: true,
+              current_step: null,
+              completed_steps: [],
+              skipped_steps: [],
+              evidence_message_ids: [],
+            },
+
+            solution_fit: {
+              status: 'unknown',
+              rationale: null,
+              evidence_message_ids: [],
+            },
+
+            guidance: {
+              intervention_required: false,
+              next_move: null,
+              recommended_question: null,
+              suggested_message: null,
+            },
+
+            crm_suggestion: {
+              should_change_crm_stage: false,
+              recommended_status: null,
+              next_action_required: false,
+              expected_next_action_at: null,
+              prohibited_statuses: [],
+              requires_human_confirmation: true,
+            },
+          }),
+          CONTEXT,
+        ),
+      'INVARIANT_VIOLATION',
+    )
+  },
+)
+
+test(
+  'relevância incerta também bloqueia orientação CRM e Agenda',
+  () => {
+    assertContractError(
+      () =>
+        normalizeCompanionDiagnostic(
+          buildDiagnostic({
+            commercial_relevance:
+              'uncertain',
+          }),
+          CONTEXT,
+        ),
+      'INVARIANT_VIOLATION',
+    )
+  },
+)
+
+test(
   'análise bloqueada não inventa orientação ou mensagem',
   () => {
     assertContractError(

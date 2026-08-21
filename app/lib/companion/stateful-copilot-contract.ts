@@ -2,6 +2,12 @@ import type {
   DiagnosticLeadStatus,
 } from './diagnostic-contract'
 
+import {
+  COMMERCIAL_RELEVANCES,
+  isCommercialRelevance,
+  type CommercialRelevance,
+} from './commercial-relevance'
+
 export const STATEFUL_COPILOT_CONTRACT_VERSION =
   'phase-5.1-stateful-copilot-v2' as const
 
@@ -10,6 +16,9 @@ export const STATEFUL_COPILOT_COMMERCIAL_ROLES = [
   'provider',
   'unknown',
 ] as const
+
+export const STATEFUL_COPILOT_COMMERCIAL_RELEVANCES =
+  COMMERCIAL_RELEVANCES
 
 export const STATEFUL_COPILOT_CONFIDENCE_LEVELS = [
   'high',
@@ -27,6 +36,9 @@ export const STATEFUL_COPILOT_COMMITMENT_STATUSES = [
 
 export type StatefulCopilotCommercialRole =
   (typeof STATEFUL_COPILOT_COMMERCIAL_ROLES)[number]
+
+export type StatefulCopilotCommercialRelevance =
+  CommercialRelevance
 
 export type StatefulCopilotConfidence =
   (typeof STATEFUL_COPILOT_CONFIDENCE_LEVELS)[number]
@@ -184,6 +196,9 @@ export type StatefulCopilotOutput = {
   commercial_role:
     StatefulCopilotCommercialRole
 
+  commercial_relevance:
+    StatefulCopilotCommercialRelevance
+
   interpretation:
     StatefulCopilotInterpretation
 
@@ -217,6 +232,14 @@ export function isStatefulCopilotCommercialRole(
       .includes(
         value as StatefulCopilotCommercialRole,
       )
+  )
+}
+
+export function isStatefulCopilotCommercialRelevance(
+  value: unknown,
+): value is StatefulCopilotCommercialRelevance {
+  return isCommercialRelevance(
+    value,
   )
 }
 

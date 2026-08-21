@@ -85,6 +85,7 @@ test(
         'analysis_status',
         'analysis_limitations',
         'commercial_role',
+        'commercial_relevance',
         'conversation_summary',
         'customer',
         'commercial_evolution',

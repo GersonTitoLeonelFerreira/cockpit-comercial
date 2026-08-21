@@ -48,6 +48,10 @@ import type {
   StatefulCommunicationOutput,
 } from './stateful-communication-contract'
 
+import {
+  isCommerciallyActionable,
+} from './commercial-relevance'
+
 type StatefulCopilotBlockedPlan =
   Extract<
     StatefulCopilotExecutionPlan,
@@ -367,7 +371,7 @@ export async function runStatefulCopilotEngine({
       },
     }
 
-  const candidateState =
+  let candidateState =
     reduceState({
       previous_state:
         input
@@ -389,6 +393,82 @@ export async function runStatefulCopilotEngine({
 
       create_memory_id,
     })
+
+  const commercialStateCanChange =
+    output.commercial_role ===
+      'buyer' &&
+    isCommerciallyActionable(
+      output.commercial_relevance,
+    )
+
+  if (
+    !commercialStateCanChange &&
+    input.state_context.previous_state
+  ) {
+    const preservedState =
+      input.state_context.previous_state
+
+    candidateState = {
+      ...candidateState,
+
+      commercial_role:
+        preservedState.commercial_role,
+
+      current_moment: {
+        summary:
+          preservedState
+            .current_moment
+            .summary,
+
+        evidence_message_ids: [
+          ...preservedState
+            .current_moment
+            .evidence_message_ids,
+        ],
+      },
+
+      current_priority: {
+        summary:
+          preservedState
+            .current_priority
+            .summary,
+
+        evidence_message_ids: [
+          ...preservedState
+            .current_priority
+            .evidence_message_ids,
+        ],
+      },
+
+      facts: [
+        ...preservedState.facts,
+      ],
+
+      needs: [
+        ...preservedState.needs,
+      ],
+
+      open_loops: [
+        ...preservedState.open_loops,
+      ],
+
+      objections: [
+        ...preservedState.objections,
+      ],
+
+      commitments: [
+        ...preservedState.commitments,
+      ],
+
+      signals: [
+        ...preservedState.signals,
+      ],
+
+      uncertainties: [
+        ...preservedState.uncertainties,
+      ],
+    }
+  }
 
   return {
     mode:

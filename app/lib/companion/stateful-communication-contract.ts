@@ -5,6 +5,7 @@ import type {
 
 import type {
   StatefulCopilotAgendaSuggestion,
+  StatefulCopilotCommercialRelevance,
   StatefulCopilotCommercialRole,
   StatefulCopilotCrmSuggestion,
 } from './stateful-copilot-contract'
@@ -38,6 +39,9 @@ export type StatefulCommunicationOutput = {
 export type StatefulCommunicationNormalizationContext = {
   commercial_role:
     StatefulCopilotCommercialRole
+
+  commercial_relevance:
+    StatefulCopilotCommercialRelevance
 
   commercial_reading:
     CommercialReadingNormalizationContext
