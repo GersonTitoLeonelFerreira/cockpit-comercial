@@ -170,6 +170,13 @@
     return sendToBackground('APPLY_SUGGESTION', payload)
   }
 
+  async function loadClientContext(payload) {
+    return sendToBackground(
+      'LOAD_CLIENT_CONTEXT',
+      payload,
+    )
+  }
+
   async function registerMessageAction(payload) {
     return sendToBackground('REGISTER_MESSAGE_ACTION', payload)
   }
@@ -207,6 +214,7 @@
     applyLeadEnrichment,
     analyzeConversation,
     applySuggestion,
+    loadClientContext,
     registerMessageAction,
     registerActionEvent,
     transcribeAudio,

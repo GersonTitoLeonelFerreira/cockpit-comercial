@@ -33,6 +33,10 @@
     globalThis
       .YolenCompanionLeadEnrichment
 
+  const clientContextViewTools =
+    globalThis
+      .YolenCompanionClientContextView
+
   if (!messageMutationTools) {
     throw new Error(
       'Módulo de integridade das mensagens do Companion não carregado.',
@@ -42,6 +46,12 @@
   if (!captureBatchTools) {
     throw new Error(
       'Módulo de construção dos lotes de captura não carregado.',
+    )
+  }
+
+  if (!clientContextViewTools) {
+    throw new Error(
+      'Módulo de inteligência operacional do cliente não carregado.',
     )
   }
 
@@ -118,6 +128,10 @@
     leadResolutionLoading: false,
     leadResolution: null,
     leadResolutionError: null,
+    companionClientContext: {
+      status: 'idle',
+    },
+    companionClientContextCycleId: null,
     autoLookupStatus: null,
     conversationAnalysisLoading: false,
     conversationAnalysis: null,
@@ -4245,6 +4259,10 @@
       leadResolutionLoading: false,
       leadResolution: null,
       leadResolutionError: null,
+      companionClientContext: {
+        status: 'idle',
+      },
+      companionClientContextCycleId: null,
       autoLookupStatus: null,
       conversationAnalysisLoading: false,
       conversationAnalysis: null,
@@ -8310,6 +8328,142 @@
     `
   }
 
+  // Inteligência operacional do cliente (histórico da relação, tempo de
+  // resposta, quem está aguardando quem, risco por demora). Deliberadamente
+  // independente da análise semântica acima: não depende da IA nem do
+  // estado `conversationAnalysis` — é buscada e renderizada à parte, a
+  // partir de fatos determinísticos do banco (ver
+  // app/api/companion/client-context).
+  async function loadCompanionClientContextForCurrentCycle() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'idle',
+        },
+        companionClientContextCycleId:
+          null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    if (
+      state.companionClientContextCycleId ===
+        cycleId &&
+      state.companionClientContext
+        ?.status === 'ready'
+    ) {
+      return
+    }
+
+    state = {
+      ...state,
+      companionClientContext: {
+        status: 'loading',
+      },
+      companionClientContextCycleId:
+        cycleId,
+    }
+
+    renderPanel()
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadClientContext({
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          })
+
+      if (
+        state.companionClientContextCycleId !==
+        cycleId
+      ) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        state = {
+          ...state,
+          companionClientContext: {
+            status: 'error',
+            error:
+              result?.payload
+                ?.error ||
+              'Não foi possível carregar o relacionamento com o cliente.',
+          },
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch (error) {
+      if (
+        state.companionClientContextCycleId !==
+        cycleId
+      ) {
+        return
+      }
+
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'error',
+          error:
+            error instanceof Error &&
+            error.message
+              ? error.message
+              : 'Não foi possível carregar o relacionamento com o cliente.',
+        },
+      }
+
+      renderPanel()
+    }
+  }
+
+  function getCompanionClientRelationshipCardHtml() {
+    if (
+      state.companionClientContext
+        ?.status === 'idle'
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-card yolen-client-relationship-card">
+        <div class="yolen-section-label">
+          Relacionamento
+        </div>
+
+        ${clientContextViewTools.renderClientContextSection(
+          state.companionClientContext,
+        )}
+      </div>
+    `
+  }
+
   function getAnalysisCardHtml() {
     const commercialReading =
       getActiveCommercialReading()
@@ -9717,6 +9871,8 @@
 
       getAnalysisCardHtml(),
 
+      getCompanionClientRelationshipCardHtml(),
+
       getCompactFooterHtml(),
 
     ].join('')
@@ -10227,6 +10383,10 @@
           scheduleAutomaticAnalysis(
             'Lead localizado. A conversa será analisada automaticamente em 8 segundos.',
           )
+
+          // Independente da análise semântica: dado operacional puro, não
+          // precisa esperar o debounce da análise automática.
+          void loadCompanionClientContextForCurrentCycle()
         })
     } catch (error) {
       retainedPreResolutionCaptures.delete(

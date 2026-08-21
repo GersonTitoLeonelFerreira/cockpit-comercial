@@ -411,6 +411,17 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (
+    message.action ===
+    'LOAD_CLIENT_CONTEXT'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/client-context',
+      message.payload,
+    )
+  }
+
   if (message.action === 'REGISTER_MESSAGE_ACTION') {
     return requestYolenWithToken(
       message,
