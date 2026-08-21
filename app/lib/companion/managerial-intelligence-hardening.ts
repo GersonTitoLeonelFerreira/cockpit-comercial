@@ -154,6 +154,134 @@ function ensureCoverageCounters(extraction: ManagerialEvidenceExtraction) {
   }
 }
 
+function requirePeriodDate(value: unknown, path: string) {
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+    !validCalendarDate(value)
+  ) {
+    fail(
+      'INVALID_PERIOD_DATE',
+      path,
+      `${path} precisa ser uma data válida em YYYY-MM-DD.`,
+    )
+  }
+
+  return value
+}
+
+function referenceOffsetMinutes(referenceTime: unknown) {
+  if (typeof referenceTime !== 'string') {
+    return 0
+  }
+
+  const normalized = referenceTime.trim()
+  if (normalized.endsWith('Z')) {
+    return 0
+  }
+
+  const match = normalized.match(/([+-])(\d{2}):(\d{2})$/)
+  if (!match) {
+    return 0
+  }
+
+  const minutes = Number(match[2]) * 60 + Number(match[3])
+  return match[1] === '+' ? minutes : -minutes
+}
+
+function dateKeyAtOffset(canonical: string, offsetMinutes: number) {
+  return new Date(
+    Date.parse(canonical) + offsetMinutes * 60_000,
+  )
+    .toISOString()
+    .slice(0, 10)
+}
+
+function filterRawSourceByPeriod({
+  source,
+  sourcePath,
+  timeField,
+  periodStart,
+  periodEnd,
+  referenceEpoch,
+  offsetMinutes,
+  includeBeforePeriodStart = false,
+}: {
+  source: unknown
+  sourcePath: string
+  timeField: string
+  periodStart: string
+  periodEnd: string
+  referenceEpoch: number
+  offsetMinutes: number
+  includeBeforePeriodStart?: boolean
+}) {
+  const records = source as Array<Record<string, unknown>>
+
+  return records.filter((record, index) => {
+    const path = `${sourcePath}[${index}].${timeField}`
+    const instant = canonicalInstant(record[timeField], path)
+    ensureNotFuture(instant.canonical, referenceEpoch, path)
+
+    const dateKey = dateKeyAtOffset(instant.canonical, offsetMinutes)
+    if (dateKey > periodEnd) {
+      return false
+    }
+
+    return includeBeforePeriodStart || dateKey >= periodStart
+  })
+}
+
+function filterValidatedSourcesByPeriod(
+  args: BuildHardenedManagerialIntelligenceArgs,
+  reference: ReturnType<typeof canonicalInstant>,
+  periodStart: string,
+  periodEnd: string,
+) {
+  const offsetMinutes = referenceOffsetMinutes(args.reference_time)
+
+  return {
+    expected_company_id: args.expected_company_id,
+    commercial_reading_events: filterRawSourceByPeriod({
+      source: args.commercial_reading_events,
+      sourcePath: 'commercial_reading_events',
+      timeField: 'generated_at',
+      periodStart,
+      periodEnd,
+      referenceEpoch: reference.epoch_ms,
+      offsetMinutes,
+    }),
+    action_events: filterRawSourceByPeriod({
+      source: args.action_events,
+      sourcePath: 'action_events',
+      timeField: 'occurred_at',
+      periodStart,
+      periodEnd,
+      referenceEpoch: reference.epoch_ms,
+      offsetMinutes,
+    }),
+    cycle_events: filterRawSourceByPeriod({
+      source: args.cycle_events,
+      sourcePath: 'cycle_events',
+      timeField: 'occurred_at',
+      periodStart,
+      periodEnd,
+      referenceEpoch: reference.epoch_ms,
+      offsetMinutes,
+    }),
+    cycle_snapshots: filterRawSourceByPeriod({
+      source: args.cycle_snapshots,
+      sourcePath: 'cycle_snapshots',
+      timeField: 'updated_at',
+      periodStart,
+      periodEnd,
+      referenceEpoch: reference.epoch_ms,
+      offsetMinutes,
+      includeBeforePeriodStart: true,
+    }),
+  }
+}
+
 export function hardenManagerialEvidenceExtraction(
   extraction: ManagerialEvidenceExtraction,
   referenceTime: unknown,
@@ -407,8 +535,18 @@ export function buildHardenedManagerialIntelligence(
   args: BuildHardenedManagerialIntelligenceArgs,
 ): ManagerialIntelligence {
   const reference = canonicalInstant(args.reference_time, 'reference_time')
+  const periodStart = requirePeriodDate(args.scope?.period_start, 'scope.period_start')
+  const periodEnd = requirePeriodDate(args.scope?.period_end, 'scope.period_end')
 
-  if (typeof args.scope?.period_end === 'string' && args.scope.period_end > reference.source_date) {
+  if (periodEnd < periodStart) {
+    fail(
+      'INVALID_PERIOD',
+      'scope.period_end',
+      'A data final não pode ser anterior à inicial.',
+    )
+  }
+
+  if (periodEnd > reference.source_date) {
     fail(
       'PERIOD_IN_FUTURE',
       'scope.period_end',
@@ -416,13 +554,22 @@ export function buildHardenedManagerialIntelligence(
     )
   }
 
-  const extraction = extractManagerialEvidence({
+  extractManagerialEvidence({
     expected_company_id: args.expected_company_id,
     commercial_reading_events: args.commercial_reading_events,
     action_events: args.action_events,
     cycle_events: args.cycle_events,
     cycle_snapshots: args.cycle_snapshots,
   })
+
+  const filteredSources = filterValidatedSourcesByPeriod(
+    args,
+    reference,
+    periodStart,
+    periodEnd,
+  )
+
+  const extraction = extractManagerialEvidence(filteredSources)
 
   return assembleManagerialIntelligence({
     extraction: hardenManagerialEvidenceExtraction(extraction, reference.canonical),
