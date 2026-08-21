@@ -453,9 +453,8 @@ function historicalSellerMatchesScope(
   }
 
   return (
-    sellerUserId === null ||
     sellerUserId ===
-      scope.seller_user_id
+    scope.seller_user_id
   )
 }
 
@@ -668,6 +667,26 @@ function buildScopedExtraction(
               '].seller_user_id',
           ),
       )
+
+    extraction
+      .excluded_analysis_events
+      .filter(
+        item =>
+          cycleIsEligible(
+            item.cycle_id,
+            eligibleCycles,
+          ),
+      )
+      .forEach(
+        (item, index) =>
+          ensureTeamSellerIsKnown(
+            item.seller_user_id,
+            availableSellers,
+            'extraction.excluded_analysis_events[' +
+              index +
+              '].seller_user_id',
+          ),
+      )
   }
 
   const coverage =
@@ -797,6 +816,10 @@ function buildScopedExtraction(
           cycleIsEligible(
             item.cycle_id,
             eligibleCycles,
+          ) &&
+          historicalSellerMatchesScope(
+            item.seller_user_id,
+            scope.seller_scope,
           ),
       )
       .map(
@@ -1057,15 +1080,32 @@ function deriveAnalysisState(
       status:
         'insufficient',
 
-      limitations: [
-        'commercial_reading_coverage_missing',
-      ],
+      limitations:
+        uniqueSorted([
+          'commercial_reading_coverage_missing',
+
+          ...extraction
+            .excluded_analysis_events
+            .map(
+              item =>
+                item.reason,
+            ),
+        ]),
     }
   }
 
   const limitations:
     string[] =
     []
+
+  limitations.push(
+    ...extraction
+      .excluded_analysis_events
+      .map(
+        item =>
+          item.reason,
+      ),
+  )
 
   if (
     coverage

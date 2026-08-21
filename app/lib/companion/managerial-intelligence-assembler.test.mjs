@@ -699,7 +699,7 @@ test(
 )
 
 test(
-  'ausência de vendedor histórico nunca é reparada pelo vendedor selecionado',
+  'escopo individual exclui evidência A4 sem vendedor histórico comprovado',
   () => {
     const extraction =
       emptyExtraction()
@@ -747,41 +747,38 @@ test(
 
     assert.equal(
       result.analysis_status,
-      'limited',
-    )
-
-    assert.ok(
-      result
-        .analysis_limitations
-        .includes(
-          'seller_commercial_reading_coverage_missing',
-        ),
+      'insufficient',
     )
 
     assert.deepEqual(
-      result.signals[0]
-        .affected_seller_user_ids,
+      result.analysis_limitations,
+      [
+        'commercial_reading_coverage_missing',
+      ],
+    )
+
+    assert.deepEqual(
+      result.signals,
+      [],
+    )
+
+    assert.deepEqual(
+      result.analysis_event_ids,
       [],
     )
 
     assert.equal(
-      result.signals[0]
-        .category,
-      'customer_pattern',
-    )
-
-    assert.notEqual(
       result
-        .recommendations[0]
-        .action,
-      'coach_seller',
+        .management_decision
+        .priority,
+      'none',
     )
 
     assert.equal(
       result
         .recommendations[0]
         .action,
-      'review_process',
+      'no_action',
     )
   },
 )
@@ -1079,6 +1076,254 @@ test(
         'seller-1',
         'seller-2',
       ],
+    )
+  },
+)
+
+
+test(
+  'escopo de equipe preserva padrão de cliente sem atribuí-lo a um vendedor',
+  () => {
+    const extraction =
+      emptyExtraction()
+
+    extraction.commercial_reading_coverage = [
+      coverage({
+        sellerUserId:
+          null,
+      }),
+    ]
+
+    extraction.semantic_evidence = [
+      semantic({
+        sellerUserId:
+          null,
+
+        semanticKey:
+          'customer_objection:price_resistance',
+
+        dimension:
+          'customer_objection',
+
+        category:
+          'customer_pattern',
+
+        kind:
+          'recurring_objection',
+
+        summary:
+          'O cliente demonstrou resistência ao preço.',
+
+        impact:
+          null,
+
+        riskSeverity:
+          'medium',
+      }),
+    ]
+
+    extraction.source_limitations = [
+      {
+        analysis_event_id:
+          'analysis-1',
+
+        cycle_id:
+          'cycle-1',
+
+        reason:
+          'seller_attribution_missing',
+
+        skipped_dimensions: [
+          'seller_improvement',
+          'seller_strength',
+          'service_risk',
+        ],
+      },
+    ]
+
+    const result =
+      run(
+        extraction,
+        teamScope({
+          cycles: [
+            'cycle-1',
+          ],
+
+          sellers: [
+            'seller-1',
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.analysis_status,
+      'limited',
+    )
+
+    assert.ok(
+      result
+        .analysis_limitations
+        .includes(
+          'seller_attribution_missing',
+        ),
+    )
+
+    assert.deepEqual(
+      result.signals[0]
+        .affected_seller_user_ids,
+      [],
+    )
+
+    assert.equal(
+      result.signals[0]
+        .category,
+      'customer_pattern',
+    )
+
+    assert.equal(
+      result
+        .recommendations[0]
+        .action,
+      'review_process',
+    )
+  },
+)
+
+
+test(
+  'evento A4 incompatível respeita o vendedor histórico no escopo individual',
+  () => {
+    const extraction =
+      emptyExtraction()
+
+    extraction.excluded_analysis_events = [
+      {
+        analysis_event_id:
+          'analysis-seller-1',
+
+        cycle_id:
+          'cycle-1',
+
+        seller_user_id:
+          'seller-1',
+
+        reason:
+          'commercial_reading_incompatible',
+
+        contract_version:
+          'commercial-reading-v0',
+      },
+      {
+        analysis_event_id:
+          'analysis-seller-2',
+
+        cycle_id:
+          'cycle-1',
+
+        seller_user_id:
+          'seller-2',
+
+        reason:
+          'commercial_reading_missing',
+
+        contract_version:
+          null,
+      },
+    ]
+
+    const result =
+      run(
+        extraction,
+        sellerScope({
+          seller:
+            'seller-1',
+
+          cycles: [
+            'cycle-1',
+          ],
+        }),
+      )
+
+    assert.equal(
+      result.analysis_status,
+      'insufficient',
+    )
+
+    assert.deepEqual(
+      result.analysis_limitations,
+      [
+        'commercial_reading_coverage_missing',
+        'commercial_reading_incompatible',
+      ],
+    )
+
+    assert.deepEqual(
+      result.signals,
+      [],
+    )
+
+    assert.equal(
+      result
+        .management_decision
+        .priority,
+      'none',
+    )
+
+    assert.equal(
+      result
+        .recommendations[0]
+        .action,
+      'no_action',
+    )
+  },
+)
+
+
+test(
+  'evento A4 excluído de vendedor fora da equipe falha fechado',
+  () => {
+    const extraction =
+      emptyExtraction()
+
+    extraction.excluded_analysis_events = [
+      {
+        analysis_event_id:
+          'analysis-outside-team',
+
+        cycle_id:
+          'cycle-1',
+
+        seller_user_id:
+          'seller-2',
+
+        reason:
+          'commercial_reading_incompatible',
+
+        contract_version:
+          'commercial-reading-v0',
+      },
+    ]
+
+    assert.throws(
+      () =>
+        run(
+          extraction,
+          teamScope({
+            cycles: [
+              'cycle-1',
+            ],
+
+            sellers: [
+              'seller-1',
+            ],
+          }),
+        ),
+
+      error =>
+        error instanceof
+          ManagerialIntelligenceAssemblerError &&
+        error.code ===
+          'SELLER_OUTSIDE_SCOPE',
     )
   },
 )

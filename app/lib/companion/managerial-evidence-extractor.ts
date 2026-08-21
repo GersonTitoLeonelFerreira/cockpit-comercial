@@ -195,6 +195,9 @@ export type ManagerialExcludedAnalysisEvent = {
   cycle_id:
     string
 
+  seller_user_id:
+    string | null
+
   reason:
     | 'commercial_reading_missing'
     | 'commercial_reading_incompatible'
@@ -838,6 +841,9 @@ function extractCommercialReadingEvidence({
       cycle_id:
         cycleId,
 
+      seller_user_id:
+        sellerUserId,
+
       reason:
         'commercial_reading_missing',
 
@@ -864,6 +870,9 @@ function extractCommercialReadingEvidence({
 
       cycle_id:
         cycleId,
+
+      seller_user_id:
+        sellerUserId,
 
       reason:
         'commercial_reading_incompatible',

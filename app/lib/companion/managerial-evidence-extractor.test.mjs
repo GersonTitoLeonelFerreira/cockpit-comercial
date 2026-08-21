@@ -890,3 +890,90 @@ test(
     )
   },
 )
+
+
+test(
+  'eventos A4 excluídos preservam o vendedor histórico conhecido',
+  () => {
+    const legacy =
+      buildAnalysisEvent({
+        id:
+          'analysis-legacy',
+
+        sellerUserId:
+          'seller-legacy',
+      })
+
+    legacy.normalized_output = {
+      communication: {
+        contract_version:
+          'phase-5.2-communication-v1',
+      },
+    }
+
+    const incompatibleReading =
+      buildReading()
+
+    incompatibleReading.contract_version =
+      'commercial-reading-v0'
+
+    const result =
+      extractManagerialEvidence({
+        ...emptyInput(),
+
+        commercial_reading_events: [
+          legacy,
+
+          buildAnalysisEvent({
+            id:
+              'analysis-incompatible',
+
+            sellerUserId:
+              'seller-incompatible',
+
+            reading:
+              incompatibleReading,
+          }),
+        ],
+      })
+
+    assert.deepEqual(
+      result
+        .excluded_analysis_events
+        .map(
+          item => ({
+            id:
+              item.analysis_event_id,
+
+            seller:
+              item.seller_user_id,
+
+            reason:
+              item.reason,
+          }),
+        ),
+      [
+        {
+          id:
+            'analysis-incompatible',
+
+          seller:
+            'seller-incompatible',
+
+          reason:
+            'commercial_reading_incompatible',
+        },
+        {
+          id:
+            'analysis-legacy',
+
+          seller:
+            'seller-legacy',
+
+          reason:
+            'commercial_reading_missing',
+        },
+      ],
+    )
+  },
+)
