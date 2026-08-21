@@ -249,6 +249,33 @@ test('IDs globais adulterados falham fechados', () => {
   )
 })
 
+test('IDs globais duplicados não podem ser ocultados pela deduplicação', () => {
+  const tampered = clone(extraction())
+  tampered.analysis_event_ids = ['analysis-1', 'analysis-1']
+  expectHardeningError(
+    () => hardenManagerialEvidenceExtraction(tampered, '2026-08-21T02:00:00Z'),
+    'DUPLICATE_DECLARED_PROVENANCE',
+  )
+})
+
+test('cycle_ids declarados precisam corresponder exatamente às fontes', () => {
+  const tampered = clone(extraction())
+  tampered.cycle_ids = ['cycle-forged']
+  expectHardeningError(
+    () => hardenManagerialEvidenceExtraction(tampered, '2026-08-21T02:00:00Z'),
+    'DECLARED_PROVENANCE_MISMATCH',
+  )
+})
+
+test('seller_user_ids declarados precisam corresponder exatamente às fontes', () => {
+  const tampered = clone(extraction())
+  tampered.seller_user_ids = ['seller-forged']
+  expectHardeningError(
+    () => hardenManagerialEvidenceExtraction(tampered, '2026-08-21T02:00:00Z'),
+    'DECLARED_PROVENANCE_MISMATCH',
+  )
+})
+
 test('contadores de cobertura adulterados falham fechados', () => {
   const tampered = clone(extraction())
   tampered.coverage.commercial_reading_events_compatible = 99
