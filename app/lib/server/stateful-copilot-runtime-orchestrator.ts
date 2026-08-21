@@ -77,6 +77,15 @@ export type StatefulCopilotRuntimeFailure = {
   code: string
   status_code: number
   retryable: boolean
+
+  communication_failure_path?:
+    string
+
+  communication_failure_invariant?:
+    string
+
+  communication_attempts?:
+    1 | 2
 }
 
 export type StatefulCopilotRuntimeExecutionSummary = {
@@ -110,6 +119,9 @@ export type StatefulCopilotRuntimeExecutionSummary = {
 
   communication_attempts:
     1 | 2 | null
+
+  communication_recovered_after_retry:
+    boolean | null
 
   known_message_count:
     number
@@ -428,6 +440,52 @@ function normalizeFailure(
       ? error.status_code
       : 500
 
+  const details =
+    isRecord(
+      error.details,
+    )
+      ? error.details
+      : null
+
+  const failurePath =
+    typeof details
+      ?.communication_failure_path ===
+      'string' &&
+    details
+      .communication_failure_path
+      .length <= 300 &&
+    /^[a-zA-Z0-9_.\[\]-]+$/.test(
+      details
+        .communication_failure_path,
+    )
+      ? details
+          .communication_failure_path
+      : null
+
+  const failureInvariant =
+    typeof details
+      ?.communication_failure_invariant ===
+      'string' &&
+    details
+      .communication_failure_invariant
+      .length <= 120 &&
+    /^[A-Z0-9_]+$/.test(
+      details
+        .communication_failure_invariant,
+    )
+      ? details
+          .communication_failure_invariant
+      : null
+
+  const communicationAttempts =
+    details
+      ?.communication_attempts === 1 ||
+    details
+      ?.communication_attempts === 2
+      ? details
+          .communication_attempts
+      : null
+
   return {
     code,
 
@@ -436,6 +494,27 @@ function normalizeFailure(
 
     retryable:
       error.retryable === true,
+
+    ...(failurePath
+      ? {
+          communication_failure_path:
+            failurePath,
+        }
+      : {}),
+
+    ...(failureInvariant
+      ? {
+          communication_failure_invariant:
+            failureInvariant,
+        }
+      : {}),
+
+    ...(communicationAttempts
+      ? {
+          communication_attempts:
+            communicationAttempts,
+        }
+      : {}),
   }
 }
 
@@ -606,6 +685,14 @@ function buildExecutionSummary({
         ? engineResult
             .communication_execution
             .attempts
+        : null,
+
+    communication_recovered_after_retry:
+      engineResult.mode === 'model'
+        ? engineResult
+            .communication_execution
+            .recovered_after_retry ===
+          true
         : null,
 
     known_message_count:

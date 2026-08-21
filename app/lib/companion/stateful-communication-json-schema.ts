@@ -1,13 +1,13 @@
 import {
-  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
-} from './stateful-communication-contract'
-
-import {
-  COMMERCIAL_READING_JSON_SCHEMA,
+  COMMERCIAL_READING_MODEL_JSON_SCHEMA,
 } from './commercial-reading-json-schema'
 
+import {
+  STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
+} from './stateful-communication-contract'
+
 export const STATEFUL_COMMUNICATION_RESPONSE_FORMAT_NAME =
-  'yolen_stateful_communication_v2' as const
+  'yolen_stateful_communication_v3' as const
 
 type JsonSchema =
   Record<string, unknown>
@@ -42,12 +42,17 @@ function deepFreeze<T>(
   )
 }
 
-function nullableStringSchema(): JsonSchema {
+function nullableStringSchema(
+  maximumLength: number,
+): JsonSchema {
   return {
     anyOf: [
       {
         type:
           'string',
+
+        description:
+          `Texto não vazio com no máximo ${maximumLength} caracteres.`,
       },
 
       {
@@ -58,6 +63,45 @@ function nullableStringSchema(): JsonSchema {
   }
 }
 
+const statefulCommunicationModelProperties = {
+  intervention_needed: {
+    type:
+      'boolean',
+  },
+
+  method_application: {
+    type:
+      'string',
+
+    description:
+      'Texto não vazio com no máximo 900 caracteres.',
+  },
+
+  guidance: {
+    type:
+      'string',
+
+    description:
+      'Texto não vazio com no máximo 1400 caracteres.',
+  },
+
+  recommended_question:
+    nullableStringSchema(
+      900,
+    ),
+
+  suggested_message:
+    nullableStringSchema(
+      900,
+    ),
+
+  commercial_reading:
+    COMMERCIAL_READING_MODEL_JSON_SCHEMA,
+} satisfies Record<
+  (typeof STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS)[number],
+  JsonSchema
+>
+
 export const STATEFUL_COMMUNICATION_JSON_SCHEMA =
   deepFreeze({
     type:
@@ -66,49 +110,11 @@ export const STATEFUL_COMMUNICATION_JSON_SCHEMA =
     additionalProperties:
       false,
 
-    properties: {
-      contract_version: {
-        type:
-          'string',
-
-        enum: [
-          STATEFUL_COMMUNICATION_CONTRACT_VERSION,
-        ],
-      },
-
-      intervention_needed: {
-        type:
-          'boolean',
-      },
-
-      method_application: {
-        type:
-          'string',
-      },
-
-      guidance: {
-        type:
-          'string',
-      },
-
-      recommended_question:
-        nullableStringSchema(),
-
-      suggested_message:
-        nullableStringSchema(),
-
-      commercial_reading:
-        COMMERCIAL_READING_JSON_SCHEMA,
-    },
+    properties:
+      statefulCommunicationModelProperties,
 
     required: [
-      'contract_version',
-      'intervention_needed',
-      'method_application',
-      'guidance',
-      'recommended_question',
-      'suggested_message',
-      'commercial_reading',
+      ...STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
     ],
   })
 

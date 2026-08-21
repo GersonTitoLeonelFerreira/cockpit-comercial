@@ -46,12 +46,17 @@ export type StatefulCopilotActivePilotTelemetryArgs = {
     code?: unknown
     status_code?: unknown
     retryable?: unknown
+    communication_failure_path?: unknown
+    communication_failure_invariant?: unknown
+    communication_attempts?: unknown
   } | null
 
   execution?: {
     engine_mode?: unknown
     persistence_mode?: unknown
     persisted?: unknown
+    communication_attempts?: unknown
+    communication_recovered_after_retry?: unknown
   } | null
 
   automatic_crm_write?:
@@ -102,6 +107,18 @@ export type StatefulCopilotActivePilotTelemetry = {
     number | null
 
   failure_retryable:
+    boolean | null
+
+  communication_failure_path:
+    string | null
+
+  communication_failure_invariant:
+    string | null
+
+  communication_attempts:
+    1 | 2 | null
+
+  recovered_after_retry:
     boolean | null
 
   engine_mode:
@@ -177,6 +194,45 @@ function getBoolean(
     : null
 }
 
+function getCommunicationAttempts(
+  value: unknown,
+): 1 | 2 | null {
+  return value === 1 ||
+    value === 2
+    ? value
+    : null
+}
+
+function getTechnicalPath(
+  value: unknown,
+): string | null {
+  const path =
+    getString(value)
+
+  return path &&
+    path.length <= 300 &&
+    /^[a-zA-Z0-9_.\[\]-]+$/.test(
+      path,
+    )
+    ? path
+    : null
+}
+
+function getTechnicalInvariant(
+  value: unknown,
+): string | null {
+  const invariant =
+    getString(value)
+
+  return invariant &&
+    invariant.length <= 120 &&
+    /^[A-Z0-9_]+$/.test(
+      invariant,
+    )
+    ? invariant
+    : null
+}
+
 export function buildStatefulCopilotActivePilotTelemetry(
   args:
     StatefulCopilotActivePilotTelemetryArgs,
@@ -208,6 +264,34 @@ export function buildStatefulCopilotActivePilotTelemetry(
     getBoolean(
       args.failure
         ?.retryable,
+    )
+
+  const communicationFailurePath =
+    getTechnicalPath(
+      args.failure
+        ?.communication_failure_path,
+    )
+
+  const communicationFailureInvariant =
+    getTechnicalInvariant(
+      args.failure
+        ?.communication_failure_invariant,
+    )
+
+  const communicationAttempts =
+    getCommunicationAttempts(
+      args.execution
+        ?.communication_attempts,
+    ) ??
+    getCommunicationAttempts(
+      args.failure
+        ?.communication_attempts,
+    )
+
+  const recoveredAfterRetry =
+    getBoolean(
+      args.execution
+        ?.communication_recovered_after_retry,
     )
 
   const engineMode =
@@ -427,6 +511,18 @@ export function buildStatefulCopilotActivePilotTelemetry(
 
     failure_retryable:
       failureRetryable,
+
+    communication_failure_path:
+      communicationFailurePath,
+
+    communication_failure_invariant:
+      communicationFailureInvariant,
+
+    communication_attempts:
+      communicationAttempts,
+
+    recovered_after_retry:
+      recoveredAfterRetry,
 
     engine_mode:
       engineMode,

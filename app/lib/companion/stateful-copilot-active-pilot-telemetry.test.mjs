@@ -443,3 +443,159 @@ test(
     )
   },
 )
+
+test(
+  'telemetria identifica a invariante e o path do output de comunicação inválido',
+  () => {
+    const telemetry =
+      buildStatefulCopilotActivePilotTelemetry({
+        event:
+          'active_fallback_v1',
+
+        company_id:
+          companyId,
+
+        cycle_id:
+          cycleId,
+
+        runtime_mode:
+          'active_fallback_v1',
+
+        response_source:
+          'v1',
+
+        stateful_executed:
+          true,
+
+        v1_executed:
+          true,
+
+        duration_ms:
+          900,
+
+        fallback_reason:
+          'stateful_runtime_failed',
+
+        failure: {
+          code:
+            'INVALID_COMMUNICATION_OUTPUT',
+
+          status_code:
+            502,
+
+          retryable:
+            true,
+
+          communication_failure_path:
+            'reading.best_approach.channel',
+
+          communication_failure_invariant:
+            'NO_INTERVENTION_CHANNEL',
+
+          communication_attempts:
+            2,
+
+          conversation_content:
+            'não registrar',
+        },
+
+        automatic_crm_write:
+          false,
+
+        automatic_agenda_write:
+          false,
+      })
+
+    assert.equal(
+      telemetry
+        .communication_failure_path,
+      'reading.best_approach.channel',
+    )
+
+    assert.equal(
+      telemetry
+        .communication_failure_invariant,
+      'NO_INTERVENTION_CHANNEL',
+    )
+
+    assert.equal(
+      telemetry
+        .communication_attempts,
+      2,
+    )
+
+    assert.equal(
+      JSON.stringify(
+        telemetry,
+      ).includes(
+        'não registrar',
+      ),
+      false,
+    )
+  },
+)
+
+test(
+  'telemetria registra recuperação da comunicação após retry',
+  () => {
+    const telemetry =
+      buildStatefulCopilotActivePilotTelemetry({
+        event:
+          'active_success',
+
+        company_id:
+          companyId,
+
+        cycle_id:
+          cycleId,
+
+        runtime_mode:
+          'active',
+
+        response_source:
+          'stateful',
+
+        stateful_executed:
+          true,
+
+        v1_executed:
+          false,
+
+        duration_ms:
+          950,
+
+        execution: {
+          engine_mode:
+            'model',
+
+          persistence_mode:
+            'persisted',
+
+          persisted:
+            true,
+
+          communication_attempts:
+            2,
+
+          communication_recovered_after_retry:
+            true,
+        },
+
+        automatic_crm_write:
+          false,
+
+        automatic_agenda_write:
+          false,
+      })
+
+    assert.equal(
+      telemetry.communication_attempts,
+      2,
+    )
+
+    assert.equal(
+      telemetry.recovered_after_retry,
+      true,
+    )
+  },
+)

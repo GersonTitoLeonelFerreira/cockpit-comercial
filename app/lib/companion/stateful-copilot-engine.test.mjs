@@ -18,10 +18,6 @@ import {
 } from './stateful-communication-contract.ts'
 
 import {
-  COMMERCIAL_READING_CONTRACT_VERSION,
-} from './commercial-reading-contract.ts'
-
-import {
   StatefulCommercialStateReductionError,
 } from './stateful-commercial-state-reducer.ts'
 
@@ -344,9 +340,6 @@ function buildCommunicationOutput(
     'Claro. Você prefere que eu retome o contato amanhã?'
 
   return {
-    contract_version:
-      STATEFUL_COMMUNICATION_CONTRACT_VERSION,
-
     intervention_needed:
       true,
 
@@ -363,20 +356,6 @@ function buildCommunicationOutput(
       suggestedMessage,
 
     commercial_reading: {
-      contract_version:
-        COMMERCIAL_READING_CONTRACT_VERSION,
-
-      analysis_status:
-        'complete',
-
-      analysis_limitations: [],
-
-      commercial_role:
-        'buyer',
-
-      commercial_relevance:
-        commercialRelevance,
-
       conversation_summary: {
         initial_context:
           null,
@@ -450,52 +429,6 @@ function buildCommunicationOutput(
         memory_ids: [],
       },
 
-      communication: {
-        intervention_needed:
-          true,
-
-        recommended_question:
-          recommendedQuestion,
-
-        recommended_message:
-          suggestedMessage,
-      },
-
-      operations: {
-        crm: {
-          should_change_crm_stage:
-            false,
-
-          recommended_status:
-            null,
-
-          rationale:
-            null,
-
-          requires_human_confirmation:
-            true,
-        },
-
-        agenda: {
-          should_change_agenda:
-            false,
-
-          expected_next_action_at:
-            null,
-
-          rationale:
-            null,
-
-          requires_human_confirmation:
-            true,
-        },
-      },
-
-      evidence_message_ids: [
-        messageId,
-      ],
-
-      memory_ids: [],
     },
   }
 }

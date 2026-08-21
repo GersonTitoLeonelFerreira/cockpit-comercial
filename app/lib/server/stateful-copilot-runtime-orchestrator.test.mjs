@@ -137,6 +137,9 @@ function buildContext() {
 function buildIntegratedResult({
   engineMode = 'model',
   persistenceMode = 'persisted',
+  communicationAttempts = 1,
+  communicationRecoveredAfterRetry =
+    false,
 } = {}) {
   const engineResult =
     engineMode === 'model'
@@ -149,7 +152,7 @@ function buildIntegratedResult({
 
           communication_output: {
             contract_version:
-              'phase-5.2-communication-v2',
+              'phase-5.2-communication-v3',
 
             intervention_needed:
               true,
@@ -163,7 +166,10 @@ function buildIntegratedResult({
 
           communication_execution: {
             attempts:
-              1,
+              communicationAttempts,
+
+            recovered_after_retry:
+              communicationRecoveredAfterRetry,
           },
 
           candidate_state: {
@@ -247,6 +253,8 @@ function createHarness({
     buildIntegratedResult(),
   runtimeError =
     null,
+  serviceError =
+    null,
 } = {}) {
   const context =
     buildContext()
@@ -262,6 +270,9 @@ function createHarness({
       0,
 
     service:
+      0,
+
+    writer:
       0,
   }
 
@@ -299,10 +310,15 @@ function createHarness({
 
           return {
             writer:
-              async () => ({
-                status:
-                  'persisted',
-              }),
+              async () => {
+                calls.writer +=
+                  1
+
+                return {
+                  status:
+                    'persisted',
+                }
+              },
 
             provider:
               async () => ({
@@ -347,6 +363,10 @@ function createHarness({
             loadedState,
             context.state_read,
           )
+
+          if (serviceError) {
+            throw serviceError
+          }
 
           return integratedResult
         },
@@ -630,7 +650,7 @@ test(
       result
         .stateful_execution
         .communication_contract_version,
-      'phase-5.2-communication-v2',
+      'phase-5.2-communication-v3',
     )
 
     assert.equal(
@@ -725,6 +745,50 @@ test(
     assert.equal(
       calls.service,
       1,
+    )
+  },
+)
+
+test(
+  'runtime expõe recuperação da comunicação após a segunda tentativa',
+  async () => {
+    const {
+      orchestrator,
+    } =
+      createHarness({
+        mode:
+          'active',
+
+        engineVersion:
+          'v2',
+
+        integratedResult:
+          buildIntegratedResult({
+            communicationAttempts:
+              2,
+
+            communicationRecoveredAfterRetry:
+              true,
+          }),
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result
+        .stateful_execution
+        .communication_attempts,
+      2,
+    )
+
+    assert.equal(
+      result
+        .stateful_execution
+        .communication_recovered_after_retry,
+      true,
     )
   },
 )
@@ -914,6 +978,108 @@ test(
         result,
       ).includes(
         internalMessage,
+      ),
+      false,
+    )
+  },
+)
+
+test(
+  'INVALID_COMMUNICATION_OUTPUT propaga somente path invariante e tentativas sem persistir',
+  async () => {
+    const {
+      orchestrator,
+      calls,
+    } =
+      createHarness({
+        mode:
+          'active',
+
+        engineVersion:
+          'v2',
+
+        serviceError: {
+          code:
+            'INVALID_COMMUNICATION_OUTPUT',
+
+          status_code:
+            502,
+
+          retryable:
+            true,
+
+          message:
+            'conteúdo interno que não pode sair',
+
+          details: {
+            communication_failure_path:
+              'reading.best_approach.channel',
+
+            communication_failure_invariant:
+              'NO_INTERVENTION_CHANNEL',
+
+            communication_attempts:
+              2,
+
+            raw_output:
+              'conteúdo da conversa',
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'active_fallback_v1',
+    )
+
+    assert.deepEqual(
+      result.stateful_failure,
+      {
+        code:
+          'INVALID_COMMUNICATION_OUTPUT',
+
+        status_code:
+          502,
+
+        retryable:
+          true,
+
+        communication_failure_path:
+          'reading.best_approach.channel',
+
+        communication_failure_invariant:
+          'NO_INTERVENTION_CHANNEL',
+
+        communication_attempts:
+          2,
+      },
+    )
+
+    assert.equal(
+      calls.writer,
+      0,
+    )
+
+    assert.equal(
+      result.automatic_crm_write,
+      false,
+    )
+
+    assert.equal(
+      result.automatic_agenda_write,
+      false,
+    )
+
+    assert.equal(
+      JSON.stringify(
+        result,
+      ).includes(
+        'conteúdo da conversa',
       ),
       false,
     )

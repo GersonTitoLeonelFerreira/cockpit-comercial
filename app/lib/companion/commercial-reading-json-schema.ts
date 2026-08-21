@@ -12,6 +12,7 @@ import {
   COMMERCIAL_READING_EVOLUTION_STATUSES,
   COMMERCIAL_READING_IMPROVEMENT_KINDS,
   COMMERCIAL_READING_METHOD_STATUSES,
+  COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
   COMMERCIAL_READING_RISK_SEVERITIES,
   COMMERCIAL_READING_SELLER_STRENGTH_KINDS,
 } from './commercial-reading-contract'
@@ -423,6 +424,48 @@ const operationsSchema =
     agenda:
       agendaSchema,
   })
+
+const commercialReadingModelProperties = {
+  conversation_summary:
+    conversationSummarySchema,
+
+  customer:
+    customerSchema,
+
+  commercial_evolution:
+    arraySchema(
+      evolutionItemSchema,
+    ),
+
+  method:
+    methodSchema,
+
+  seller_strengths:
+    arraySchema(
+      sellerStrengthSchema,
+    ),
+
+  improvement_points:
+    arraySchema(
+      improvementPointSchema,
+    ),
+
+  risks:
+    risksSchema,
+
+  best_approach:
+    bestApproachSchema,
+} satisfies Record<
+  (typeof COMMERCIAL_READING_MODEL_OUTPUT_FIELDS)[number],
+  JsonSchema
+>
+
+export const COMMERCIAL_READING_MODEL_JSON_SCHEMA =
+  deepFreeze(
+    objectSchema(
+      commercialReadingModelProperties,
+    ),
+  )
 
 export const COMMERCIAL_READING_JSON_SCHEMA =
   deepFreeze(

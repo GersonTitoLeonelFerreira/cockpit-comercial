@@ -1,5 +1,6 @@
 import type {
   CommercialReading,
+  CommercialReadingModelOutput,
   CommercialReadingNormalizationContext,
 } from './commercial-reading-contract'
 
@@ -11,7 +12,16 @@ import type {
 } from './stateful-copilot-contract'
 
 export const STATEFUL_COMMUNICATION_CONTRACT_VERSION =
-  'phase-5.2-communication-v2' as const
+  'phase-5.2-communication-v3' as const
+
+export const STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS = [
+  'intervention_needed',
+  'method_application',
+  'guidance',
+  'recommended_question',
+  'suggested_message',
+  'commercial_reading',
+] as const
 
 export type StatefulCommunicationOutput = {
   contract_version:
@@ -35,6 +45,16 @@ export type StatefulCommunicationOutput = {
   commercial_reading:
     CommercialReading
 }
+
+export type StatefulCommunicationModelOutput =
+  Omit<
+    StatefulCommunicationOutput,
+    | 'contract_version'
+    | 'commercial_reading'
+  > & {
+    commercial_reading:
+      CommercialReadingModelOutput
+  }
 
 export type StatefulCommunicationNormalizationContext = {
   commercial_role:
