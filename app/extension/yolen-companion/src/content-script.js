@@ -4258,6 +4258,12 @@
       capturedAudioBlobCount: 0,
       audioTranscriptionHistoryLoading: false,
       audioTranscriptionHistoryCycleId: null,
+      preSendAssessment: null,
+      preSendAssessmentConversationKey: null,
+      preSendAssessmentFingerprint: null,
+      preSendDraft: '',
+      preSendGateOpen: false,
+      preSendBypassKey: null,
     }
   }
 
@@ -5463,6 +5469,15 @@
   }
 
   function observeComposerDraftForPreSend() {
+    const observerKey =
+      '__yolenCompanionPreSendDraftObserverInstalled'
+
+    if (globalThis[observerKey] === true) {
+      return
+    }
+
+    globalThis[observerKey] = true
+
     document.addEventListener(
       'input',
       (event) => {
@@ -9334,6 +9349,20 @@
     panelCollapsed =
       Boolean(collapsed)
 
+    if (
+      panelCollapsed &&
+      (
+        state.preSendGateOpen ||
+        state.preSendBypassKey
+      )
+    ) {
+      state = {
+        ...state,
+        preSendGateOpen: false,
+        preSendBypassKey: null,
+      }
+    }
+
     persistPanelCollapsedPreference(
       panelCollapsed,
     )
@@ -10582,6 +10611,20 @@
       return false
     }
 
+    const main = getMainConversationRoot()
+    const footer = main?.querySelector('footer')
+
+    if (
+      !main ||
+      !main.contains(button) ||
+      (
+        footer &&
+        !footer.contains(button)
+      )
+    ) {
+      return false
+    }
+
     const ariaLabel = button.getAttribute('aria-label') || ''
     const title = button.getAttribute('title') || ''
     const text = `${ariaLabel} ${title}`
@@ -10960,9 +11003,23 @@
     const assessment =
       state.preSendAssessment
 
+    const supportedKinds =
+      new Set([
+        'wait_pressure',
+        'sensitive_condition',
+        'pending_issue',
+        'method_premature_close',
+        'agenda_conflict',
+      ])
+
     if (
       !assessment ||
       typeof assessment.kind !== 'string' ||
+      !supportedKinds.has(
+        assessment.kind,
+      ) ||
+      typeof assessment.reason !== 'string' ||
+      !assessment.reason.trim() ||
       !state.conversationKey ||
       !state.analyzedConversationFingerprint ||
       state.preSendAssessmentConversationKey !==
@@ -11075,7 +11132,16 @@
   }
 
   function observeManualWhatsAppSend() {
-    document.addEventListener(
+    const observerKey =
+      '__yolenCompanionManualSendObserverInstalled'
+
+    if (globalThis[observerKey] === true) {
+      return
+    }
+
+    globalThis[observerKey] = true
+
+    window.addEventListener(
       'click',
       (event) => {
         if (
@@ -11099,7 +11165,7 @@
       true,
     )
 
-    document.addEventListener(
+    window.addEventListener(
       'keydown',
       (event) => {
         if (
@@ -11108,6 +11174,8 @@
           event.altKey ||
           event.ctrlKey ||
           event.metaKey ||
+          event.isComposing ||
+          event.keyCode === 229 ||
           !isComposerEnterTarget(
             event.target,
           )
@@ -11167,6 +11235,12 @@
       getWhatsAppSendButton()
 
     if (!sendButton) {
+      state = {
+        ...state,
+        preSendBypassKey: null,
+      }
+
+      renderPanel()
       getWhatsAppComposer()?.focus()
       return
     }
@@ -11174,21 +11248,72 @@
     window.setTimeout(
       () => {
         if (
-          state.preSendBypassKey !== gateKey ||
+          state.preSendBypassKey !== gateKey
+        ) {
+          return
+        }
+
+        if (
           getCurrentPreSendGateKey() !== gateKey
         ) {
+          state = {
+            ...state,
+            preSendGateOpen: false,
+            preSendBypassKey: null,
+          }
+
+          renderPanel()
           return
         }
 
         const currentSendButton =
           getWhatsAppSendButton()
 
-        if (currentSendButton?.click) {
-          currentSendButton.click()
+        if (!currentSendButton?.click) {
+          state = {
+            ...state,
+            preSendGateOpen: false,
+            preSendBypassKey: null,
+          }
+
+          renderPanel()
+          getWhatsAppComposer()?.focus()
           return
         }
 
-        getWhatsAppComposer()?.focus()
+        try {
+          currentSendButton.click()
+        } catch {
+          state = {
+            ...state,
+            preSendGateOpen: false,
+            preSendBypassKey: null,
+          }
+
+          renderPanel()
+          getWhatsAppComposer()?.focus()
+          return
+        }
+
+        window.setTimeout(
+          () => {
+            if (
+              state.preSendBypassKey !==
+              gateKey
+            ) {
+              return
+            }
+
+            state = {
+              ...state,
+              preSendGateOpen: false,
+              preSendBypassKey: null,
+            }
+
+            renderPanel()
+          },
+          250,
+        )
       },
       0,
     )
@@ -11260,6 +11385,15 @@
   }
 
   function observePreSendGateActions() {
+    const observerKey =
+      '__yolenCompanionPreSendGateActionsObserverInstalled'
+
+    if (globalThis[observerKey] === true) {
+      return
+    }
+
+    globalThis[observerKey] = true
+
     document.addEventListener(
       'click',
       (event) => {
@@ -11268,7 +11402,12 @@
             '[data-yolen-action]',
           )
 
-        if (!actionElement) {
+        if (
+          !actionElement ||
+          !actionElement.closest(
+            `#${PANEL_ID}`,
+          )
+        ) {
           return
         }
 
