@@ -43,6 +43,12 @@ import {
   type StatefulCopilotServerRealContextLoaderOptions,
 } from './stateful-copilot-real-context-loader'
 
+import {
+  resolveStatefulCopilotCycleDeadlineMs,
+  wrapStatefulCopilotPersistenceWriterWithDeadline,
+  wrapStatefulCopilotProviderWithDeadline,
+} from '../companion/stateful-copilot-cycle-deadline'
+
 export const STATEFUL_COPILOT_PROJECT_PHASE =
   'phase-5' as const
 
@@ -311,6 +317,9 @@ export type StatefulCopilotServerRuntimeOptions = {
 
   composition_options?:
     StatefulCopilotServerCompositionOptions
+
+  cycle_deadline_ms?:
+    number
 
   dependencies?:
     StatefulCopilotServerRuntimeDependencies
@@ -912,6 +921,12 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
     dependencies.run_service ??
     runStatefulCopilotIntegratedService
 
+  const cycleDeadlineMs =
+    resolveStatefulCopilotCycleDeadlineMs({
+      configured_value:
+        options.cycle_deadline_ms,
+    })
+
   let runtime:
     {
       context_loader:
@@ -1058,6 +1073,10 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
       } =
         getRuntime()
 
+      const deadlineAt =
+        Date.now() +
+        cycleDeadlineMs
+
       context =
         await context_loader({
           company_id,
@@ -1084,10 +1103,22 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
             ),
 
           writer:
-            composition.writer,
+            wrapStatefulCopilotPersistenceWriterWithDeadline({
+              writer:
+                composition.writer,
+
+              deadline_at:
+                deadlineAt,
+            }),
 
           provider:
-            composition.provider,
+            wrapStatefulCopilotProviderWithDeadline({
+              provider:
+                composition.provider,
+
+              deadline_at:
+                deadlineAt,
+            }),
 
           create_memory_id:
             composition.create_memory_id,
