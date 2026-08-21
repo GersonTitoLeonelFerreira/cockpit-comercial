@@ -38,6 +38,238 @@ const conversationKey =
 const referenceTime =
   '2026-08-07T01:00:00.000Z'
 
+
+function buildCommercialProductV2() {
+  return {
+    contract_version:
+      'commercial-product-v2',
+
+    product_kind:
+      'simple',
+
+    name:
+      'Plano Exemplo',
+
+    category:
+      'Serviço',
+
+    commercial_description:
+      'Serviço recorrente com acompanhamento comercial estruturado.',
+
+    indicated_audiences: [
+      'Cliente exemplo',
+    ],
+
+    needs_addressed: [
+      'Acompanhamento',
+    ],
+
+    benefits: [
+      'Processo estruturado',
+    ],
+
+    verified_differentiators: [
+      'Atendimento consultivo',
+    ],
+
+    limitations: [
+      'Depende de disponibilidade',
+    ],
+
+    recommend_when: [
+      'O cliente precisa do acompanhamento oferecido.',
+    ],
+
+    avoid_when: [
+      'A necessidade depende de algo que o serviço não cobre.',
+    ],
+
+    pricing: {
+      model:
+        'recurring',
+
+      amount:
+        199.9,
+
+      currency:
+        'BRL',
+
+      amount_qualifier:
+        'exact',
+
+      recurrence:
+        'monthly',
+
+      installment_count:
+        null,
+
+      installment_amount_basis:
+        null,
+
+      note:
+        null,
+    },
+
+    contract_conditions: [
+      'Contrato mensal',
+    ],
+
+    payment_conditions: [
+      'Pagamento recorrente',
+    ],
+
+    allowed_claims: [
+      'Suporte incluído',
+    ],
+
+    forbidden_claims: [
+      'Resultado garantido',
+    ],
+  }
+}
+
+function buildCommercialFactV2() {
+  return {
+    contract_version:
+      'commercial-fact-v2',
+
+    fact_kind:
+      'official',
+
+    category:
+      'operação',
+
+    fact_key:
+      'horario',
+
+    fact_value:
+      'Atendimento em horário comercial.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+
+      reference_key:
+        null,
+    },
+
+    conditions: [],
+
+    limitations: [],
+
+    validity: {
+      mode:
+        'ongoing',
+
+      valid_from:
+        '2026-08-01T00:00:00.000Z',
+
+      valid_until:
+        null,
+    },
+
+    source: {
+      type:
+        'internal_policy',
+
+      reference:
+        'Configuração oficial.',
+
+      verified_at:
+        '2026-08-06T20:00:00.000Z',
+    },
+  }
+}
+
+function buildCommercialObjectionV2() {
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    objection_kind:
+      'commercial_objection',
+
+    objection_key:
+      'price_value',
+
+    objection:
+      'Preço percebido como alto',
+
+    category:
+      'price',
+
+    description:
+      'Resistência em que o preço dificulta materialmente a decisão comercial.',
+
+    scope: {
+      type:
+        'company',
+
+      product_id:
+        null,
+
+      variant_key:
+        null,
+    },
+
+    signals: [
+      'Está caro.',
+      'Ficou acima do orçamento previsto.',
+    ],
+
+    objection_when: [
+      'O cliente apresenta o preço como bloqueio real para avançar.',
+    ],
+
+    not_objection_when: [
+      'O cliente apenas pergunta qual é o preço.',
+    ],
+
+    distinguish_from: [
+      'question',
+      'information_request',
+      'condition',
+      'postponement',
+      'rejection',
+      'uncertainty',
+    ],
+
+    discovery_questions: [
+      'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
+    ],
+
+    recommended_approach:
+      'Compreender a natureza da resistência antes de responder.',
+
+    response_limits: [
+      'Não presumir falta de dinheiro.',
+      'Não oferecer desconto sem política comercial aplicável.',
+    ],
+
+    resolution_criteria: [
+      'Está claro se o preço continua sendo um bloqueio real.',
+    ],
+
+    wait_when: [
+      'O cliente pediu tempo e assumiu compromisso de retorno.',
+    ],
+
+    give_space_when: [
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
+    ],
+
+    stop_when: [
+      'O cliente fez uma recusa explícita e não solicitou continuidade.',
+    ],
+  }
+}
+
 function createMockClient(
   fixtures,
 ) {
@@ -49,6 +281,9 @@ function createMockClient(
     ) {
       this.table =
         table
+
+      this.selectedColumns =
+        null
 
       this.filters =
         []
@@ -66,7 +301,12 @@ function createMockClient(
         null
     }
 
-    select() {
+    select(
+      columns,
+    ) {
+      this.selectedColumns =
+        columns
+
       return this
     }
 
@@ -126,6 +366,9 @@ function createMockClient(
       calls.push({
         table:
           this.table,
+
+        selected_columns:
+          this.selectedColumns,
 
         filters:
           this.filters.map(
@@ -582,10 +825,92 @@ function buildFixtures({
                 'Atendimento consultivo e estruturado.',
 
               commercial_method_name:
-                'Método consultivo',
+                'Método ATO',
 
               commercial_method_description:
-                'Diagnóstico antes da proposta.',
+                'Acolher, compreender no Tour e Obter o desfecho adequado.',
+
+              commercial_method_contract_version:
+                'commercial-method-v2',
+
+              commercial_method_definition: {
+                contract_version:
+                  'commercial-method-v2',
+
+                name:
+                  'Método ATO',
+
+                description:
+                  'Acolher, compreender no Tour e Obter o desfecho adequado.',
+
+                principles: [
+                  'Esperar é uma decisão comercial válida.',
+                ],
+
+                stages: [
+                  {
+                    key:
+                      'tour',
+
+                    display_order:
+                      1,
+
+                    name:
+                      'Tour',
+
+                    objective:
+                      'Compreender a necessidade relevante.',
+
+                    requirement:
+                      'required',
+
+                    completion_criteria: [
+                      'Necessidade compreendida.',
+                    ],
+
+                    partial_completion_criteria: [],
+
+                    skip_conditions: [],
+
+                    recommended_questions: [],
+
+                    common_mistakes: [],
+
+                    deepen_when: [],
+
+                    sufficient_when: [
+                      'Existe informação suficiente para orientar.',
+                    ],
+
+                    advance_when: [],
+
+                    wait_when: [
+                      'O cliente informou que retornará.',
+                    ],
+
+                    stop_asking_when: [
+                      'Novas perguntas não alterariam a decisão.',
+                    ],
+
+                    dimensions: [
+                      {
+                        key:
+                          'necessidade',
+
+                        name:
+                          'Necessidade',
+
+                        objective:
+                          'Compreender o resultado buscado.',
+
+                        evidence_criteria: [
+                          'Necessidade relevante identificada.',
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
 
               communication_tone:
                 'Direto e respeitoso.',
@@ -680,6 +1005,12 @@ function buildFixtures({
               product_id:
                 productId,
 
+              commercial_product_contract_version:
+                'commercial-product-v2',
+
+              commercial_product_definition:
+                buildCommercialProductV2(),
+
               indicated_audiences: [
                 'Cliente exemplo',
               ],
@@ -738,6 +1069,12 @@ function buildFixtures({
               config_version_id:
                 configVersionId,
 
+              commercial_fact_contract_version:
+                'commercial-fact-v2',
+
+              commercial_fact_definition:
+                buildCommercialFactV2(),
+
               category:
                 'operação',
 
@@ -775,25 +1112,33 @@ function buildFixtures({
               config_version_id:
                 configVersionId,
 
+              commercial_objection_contract_version:
+                'commercial-objection-v2',
+
+              commercial_objection_definition:
+                buildCommercialObjectionV2(),
+
               sort_order:
                 1,
 
               objection:
-                'Preciso pensar.',
+                'Preço percebido como alto',
 
               signals: [
-                'Pedido de prazo.',
+                'Está caro.',
+                'Ficou acima do orçamento previsto.',
               ],
 
               discovery_questions: [
-                'O que precisa avaliar?',
+                'Quando você diz que ficou alto, o que está pesando mais nessa condição?',
               ],
 
               recommended_approach:
-                'Descobrir o ponto pendente.',
+                'Compreender a natureza da resistência antes de responder.',
 
               response_limits: [
-                'Não pressionar.',
+                'Não presumir falta de dinheiro.',
+                'Não oferecer desconto sem política comercial aplicável.',
               ],
 
               is_active:
@@ -1036,9 +1381,198 @@ test(
       result
         .diagnostic_input
         .commercial_context
+        .sales_method
+        .contract_version,
+      'commercial-method-v2',
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Tour',
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .definition
+        .stages[0]
+        .wait_when[0],
+      'O cliente informou que retornará.',
+    )
+
+    const loadedProduct =
+      result
+        .diagnostic_input
+        .commercial_context
+        .products[0]
+
+    assert.equal(
+      loadedProduct
+        .contract_version,
+      'commercial-product-v2',
+    )
+
+    assert.equal(
+      loadedProduct
+        .definition
+        .pricing
+        .model,
+      'recurring',
+    )
+
+    assert.equal(
+      loadedProduct
+        .definition
+        .pricing
+        .recurrence,
+      'monthly',
+    )
+
+    assert.equal(
+      loadedProduct
+        .base_price,
+      null,
+    )
+
+    const productProfileCall =
+      calls.find(
+        call =>
+          call.table ===
+          'company_commercial_product_profiles',
+      )
+
+    assert.ok(
+      productProfileCall,
+    )
+
+    assert.ok(
+      productProfileCall
+        .selected_columns
+        .includes(
+          'commercial_product_contract_version',
+        ),
+    )
+
+    assert.ok(
+      productProfileCall
+        .selected_columns
+        .includes(
+          'commercial_product_definition',
+        ),
+    )
+
+    const factCall =
+      calls.find(
+        call =>
+          call.table ===
+          'company_commercial_facts',
+      )
+
+    assert.ok(
+      factCall,
+    )
+
+    assert.ok(
+      factCall
+        .selected_columns
+        .includes(
+          'commercial_fact_contract_version',
+        ),
+    )
+
+    assert.ok(
+      factCall
+        .selected_columns
+        .includes(
+          'commercial_fact_definition',
+        ),
+    )
+
+    const loadedFact =
+      result
+        .diagnostic_input
+        .commercial_context
         .facts[0]
-        .fact_key,
+
+    assert.equal(
+      loadedFact.fact_key,
       'horario',
+    )
+
+    assert.equal(
+      loadedFact.contract_version,
+      'commercial-fact-v2',
+    )
+
+    assert.equal(
+      loadedFact.validity_status,
+      'current',
+    )
+
+    assert.equal(
+      loadedFact.definition
+        .source
+        .type,
+      'internal_policy',
+    )
+
+    const objectionCall =
+      calls.find(
+        call =>
+          call.table ===
+          'company_commercial_objection_guides',
+      )
+
+    assert.ok(
+      objectionCall,
+    )
+
+    assert.ok(
+      objectionCall
+        .selected_columns
+        .includes(
+          'commercial_objection_contract_version',
+        ),
+    )
+
+    assert.ok(
+      objectionCall
+        .selected_columns
+        .includes(
+          'commercial_objection_definition',
+        ),
+    )
+
+    const loadedObjection =
+      result
+        .diagnostic_input
+        .commercial_context
+        .objection_guides[0]
+
+    assert.equal(
+      loadedObjection.contract_version,
+      'commercial-objection-v2',
+    )
+
+    assert.equal(
+      loadedObjection
+        .definition
+        .category,
+      'price',
+    )
+
+    assert.equal(
+      loadedObjection
+        .definition
+        .give_space_when[0],
+      'Continuar insistindo aumentaria a resistência sem acrescentar informação útil.',
     )
 
     assert.equal(

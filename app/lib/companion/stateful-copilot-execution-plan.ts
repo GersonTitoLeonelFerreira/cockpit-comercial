@@ -11,6 +11,26 @@ import {
   type StatefulCopilotInput,
 } from './stateful-copilot-input'
 
+import {
+  buildCommercialMethodPromptRules,
+} from './commercial-method-prompt-rules'
+
+import {
+  buildCommercialProductPromptRules,
+} from './commercial-product-prompt-rules'
+
+import {
+  buildCommercialFactPromptRules,
+} from './commercial-fact-prompt-rules'
+
+import {
+  buildCommercialObjectionPromptRules,
+} from './commercial-objection-prompt-rules'
+
+import {
+  buildCommercialBehaviorPromptRules,
+} from './commercial-behavior-prompt-rules'
+
 import type {
   StatefulCopilotNormalizationContext,
 } from './stateful-copilot-normalizer'
@@ -21,7 +41,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v12' as const
+  'phase-5.2-stateful-prompt-v18' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -740,7 +760,9 @@ function buildBlockedLimitations(
   ]
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(
+  input: StatefulCopilotInput,
+): string {
   return [
     'Você é o Copiloto Comercial Contextual da Yolen.',
 
@@ -831,15 +853,53 @@ function buildSystemPrompt(): string {
 
     'Mensagem nova que não cancela nem altera um compromisso anterior não deve apagá-lo ou recriá-lo.',
 
-    'Aplique o método comercial configurado como orientação estratégica, não como roteiro mecânico.',
+    buildCommercialMethodPromptRules(
+      input
+        .diagnostic_input
+        .commercial_context
+        .sales_method,
+    ),
 
-    'Evite interrogatório: descoberta consultiva não significa continuar fazendo perguntas indefinidamente quando já existe contexto suficiente para responder ao que o comprador quer compreender.',
+    buildCommercialProductPromptRules(
+      input
+        .diagnostic_input
+        .commercial_context
+        .products,
+    ),
 
-    'Quando a sessão atual já comprovar uma dor concreta, uma consequência operacional e recorrência ou relevância suficiente, e uma capacidade configurada responder diretamente a essa dor, conecte a solução ao problema antes de continuar quantificando detalhes opcionais.',
+    buildCommercialFactPromptRules(
+      input
+        .diagnostic_input
+        .commercial_context
+        .facts,
+    ),
 
-    'Continue aprofundando a descoberta somente quando a informação faltante for necessária para responder ao comprador, verificar aderência, avaliar prioridade ou valor, distinguir alternativas relevantes ou evitar uma afirmação sem sustentação.',
+    buildCommercialObjectionPromptRules(
+      input
+        .diagnostic_input
+        .commercial_context
+        .objection_guides,
+    ),
 
-    'Quando o método não estiver configurado, não invente etapas ou regras comerciais.',
+    buildCommercialBehaviorPromptRules({
+      communication_tone:
+        input
+          .diagnostic_input
+          .commercial_context
+          .communication_tone,
+
+      required_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .required_behaviors,
+
+      prohibited_behaviors:
+        input
+          .diagnostic_input
+          .commercial_context
+          .prohibited_behaviors,
+    }),
 
     'A estratégia precisa explicar como o método, o contexto, as mensagens atuais e as memórias ativas foram integrados.',
 
@@ -1327,7 +1387,9 @@ export function buildStatefulCopilotExecutionPlan(
         STATEFUL_COPILOT_CONTRACT_VERSION,
 
       system_prompt:
-        buildSystemPrompt(),
+        buildSystemPrompt(
+          input,
+        ),
 
       user_prompt:
         buildUserPrompt(

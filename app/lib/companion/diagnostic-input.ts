@@ -1,12 +1,40 @@
 import type {
   CommercialConfigBundle,
   CommercialConfigProductOption,
+  CommercialFact,
+  CommercialObjectionGuide,
+  CommercialProductProfile,
 } from '@/app/types/commercial-config'
 
 import {
   COMPANION_DIAGNOSTIC_CONTRACT_VERSION,
   type DiagnosticLeadStatus,
 } from './diagnostic-contract'
+
+import {
+  validateCommercialMethodDefinition,
+  type CommercialMethodDefinition,
+} from './commercial-method-contract'
+
+import {
+  validateCommercialProductDefinition,
+  type CommercialSimpleProductDefinition,
+} from './commercial-product-contract'
+
+import {
+  validateCommercialComplexProductDefinition,
+  type CommercialComplexProductDefinition,
+} from './commercial-product-complex-contract'
+
+import {
+  validateCommercialFactDefinition,
+  type CommercialFactDefinition,
+} from './commercial-fact-contract'
+
+import {
+  validateCommercialObjectionDefinition,
+  type CommercialObjectionDefinition,
+} from './commercial-objection-contract'
 
 export const COMPANION_DIAGNOSTIC_INPUT_VERSION =
   'phase-5-input-v1' as const
@@ -68,6 +96,17 @@ export type DiagnosticCommercialMethodStep = {
 
 export type DiagnosticCommercialProduct = {
   product_id: string
+
+  contract_version:
+    | 'commercial-product-v1'
+    | 'commercial-product-v2'
+    | 'commercial-product-v3'
+
+  definition:
+    | CommercialSimpleProductDefinition
+    | CommercialComplexProductDefinition
+    | null
+
   name: string | null
   category: string | null
   base_price: number | null
@@ -81,6 +120,42 @@ export type DiagnosticCommercialProduct = {
   payment_conditions: string[]
   allowed_claims: string[]
   forbidden_claims: string[]
+}
+
+export type DiagnosticCommercialFact = {
+  contract_version:
+    | 'commercial-fact-v1'
+    | 'commercial-fact-v2'
+
+  definition:
+    CommercialFactDefinition | null
+
+  validity_status:
+    | 'legacy'
+    | 'current'
+    | 'not_yet_valid'
+    | 'expired'
+
+  category: string
+  fact_key: string
+  fact_value: string
+  source_note: string | null
+}
+
+export type DiagnosticCommercialObjectionGuide = {
+  contract_version:
+    | 'commercial-objection-v1'
+    | 'commercial-objection-v2'
+
+  definition:
+    CommercialObjectionDefinition | null
+
+  sort_order: number
+  objection: string
+  signals: string[]
+  discovery_questions: string[]
+  recommended_approach: string
+  response_limits: string[]
 }
 
 export type CompanionDiagnosticInput = {
@@ -127,8 +202,20 @@ export type CompanionDiagnosticInput = {
 
     sales_method: {
       configured: boolean
+
+      contract_version:
+        | 'commercial-method-v1'
+        | 'commercial-method-v2'
+        | null
+
       name: string | null
       description: string | null
+
+      principles: string[]
+
+      definition:
+        CommercialMethodDefinition | null
+
       steps:
         DiagnosticCommercialMethodStep[]
     }
@@ -136,21 +223,11 @@ export type CompanionDiagnosticInput = {
     products:
       DiagnosticCommercialProduct[]
 
-    facts: Array<{
-      category: string
-      fact_key: string
-      fact_value: string
-      source_note: string | null
-    }>
+    facts:
+      DiagnosticCommercialFact[]
 
-    objection_guides: Array<{
-      sort_order: number
-      objection: string
-      signals: string[]
-      discovery_questions: string[]
-      recommended_approach: string
-      response_limits: string[]
-    }>
+    objection_guides:
+      DiagnosticCommercialObjectionGuide[]
   }
 }
 
@@ -840,6 +917,641 @@ function addLimitation(
   }
 }
 
+type ResolvedCommercialMethod = {
+  contract_version:
+    | 'commercial-method-v1'
+    | 'commercial-method-v2'
+
+  definition:
+    CommercialMethodDefinition | null
+}
+
+function resolveCommercialMethod(
+  bundle: CommercialConfigBundle,
+): ResolvedCommercialMethod {
+  const contractValue: unknown =
+    bundle.version
+      .commercial_method_contract_version
+
+  const definitionValue: unknown =
+    bundle.version
+      .commercial_method_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_METHOD_DEFINITION',
+        'commercial_config.version.commercial_method_definition',
+        'Uma definição semântica não pode existir sem versão do contrato do método.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-method-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-method-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_METHOD_DEFINITION',
+        'commercial_config.version.commercial_method_definition',
+        'O método legado não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-method-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-method-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_CONTRACT',
+      'commercial_config.version.commercial_method_contract_version',
+      'A versão persistida do contrato do método comercial é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_DEFINITION',
+      'commercial_config.version.commercial_method_definition',
+      'O método V2 publicado precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialMethodDefinition
+
+  let validation
+
+  try {
+    validation =
+      validateCommercialMethodDefinition(
+        definition,
+      )
+  } catch {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_DEFINITION',
+      'commercial_config.version.commercial_method_definition',
+      'A definição semântica publicada do método comercial é inválida.',
+    )
+  }
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_METHOD_DEFINITION',
+      'commercial_config.version.commercial_method_definition',
+      'A definição semântica publicada do método comercial não respeita o contrato V2.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-method-v2',
+
+    definition,
+  }
+}
+
+
+type ResolvedCommercialProduct = {
+  contract_version:
+    | 'commercial-product-v1'
+    | 'commercial-product-v2'
+    | 'commercial-product-v3'
+
+  definition:
+    | CommercialSimpleProductDefinition
+    | CommercialComplexProductDefinition
+    | null
+}
+
+function resolveCommercialProduct(
+  profile: CommercialProductProfile,
+  index: number,
+): ResolvedCommercialProduct {
+  const path =
+    'commercial_config.product_profiles[' +
+    index +
+    ']'
+
+  const contractValue: unknown =
+    profile
+      .commercial_product_contract_version
+
+  const definitionValue: unknown =
+    profile
+      .commercial_product_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+        path + '.commercial_product_definition',
+        'Uma definição semântica de produto não pode existir sem versão do contrato.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-product-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-product-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+        path + '.commercial_product_definition',
+        'O produto legado não pode possuir definição semântica.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-product-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+      'commercial-product-v2' &&
+    contractValue !==
+      'commercial-product-v3'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_PRODUCT_CONTRACT',
+      path + '.commercial_product_contract_version',
+      'A versão persistida do contrato comercial do produto é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+      path + '.commercial_product_definition',
+      'O produto semântico publicado precisa possuir uma definição.',
+    )
+  }
+
+  if (
+    contractValue ===
+    'commercial-product-v2'
+  ) {
+    const definition =
+      definitionValue as unknown as
+        CommercialSimpleProductDefinition
+
+    const validation =
+      validateCommercialProductDefinition(
+        definition,
+      )
+
+    if (!validation.valid) {
+      fail(
+        'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+        path + '.commercial_product_definition',
+        'A definição semântica publicada do produto não respeita o contrato V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-product-v2',
+
+      definition,
+    }
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialComplexProductDefinition
+
+  const validation =
+    validateCommercialComplexProductDefinition(
+      definition,
+    )
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_PRODUCT_DEFINITION',
+      path + '.commercial_product_definition',
+      'A definição semântica publicada do produto não respeita o contrato V3.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-product-v3',
+
+    definition,
+  }
+}
+
+type ResolvedCommercialFact = {
+  contract_version:
+    | 'commercial-fact-v1'
+    | 'commercial-fact-v2'
+
+  definition:
+    CommercialFactDefinition | null
+}
+
+function resolveCommercialFact(
+  fact: CommercialFact,
+  index: number,
+): ResolvedCommercialFact {
+  const path =
+    'commercial_config.facts[' +
+    index +
+    ']'
+
+  const contractValue: unknown =
+    fact
+      .commercial_fact_contract_version
+
+  const definitionValue: unknown =
+    fact
+      .commercial_fact_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_FACT_DEFINITION',
+        path + '.commercial_fact_definition',
+        'Uma definição semântica de fato não pode existir sem versão do contrato.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-fact-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-fact-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_FACT_DEFINITION',
+        path + '.commercial_fact_definition',
+        'O fato legado não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-fact-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-fact-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_CONTRACT',
+      path + '.commercial_fact_contract_version',
+      'A versão persistida do contrato do fato comercial é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+      path + '.commercial_fact_definition',
+      'O fato V2 publicado precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialFactDefinition
+
+  const validation =
+    validateCommercialFactDefinition(
+      definition,
+    )
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+      path + '.commercial_fact_definition',
+      'A definição semântica publicada do fato não respeita o contrato V2.',
+    )
+  }
+
+  if (
+    definition.category.trim() !==
+      fact.category.trim() ||
+    definition.fact_key.trim() !==
+      fact.fact_key.trim() ||
+    definition.fact_value.trim() !==
+      fact.fact_value.trim()
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_FACT_DEFINITION',
+      path + '.commercial_fact_definition',
+      'A definição semântica do fato diverge da projeção oficial persistida.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-fact-v2',
+
+    definition,
+  }
+}
+
+function resolveCommercialFactValidityStatus(
+  definition:
+    CommercialFactDefinition | null,
+  referenceTimestamp: number,
+): DiagnosticCommercialFact[
+  'validity_status'
+] {
+  if (!definition) {
+    return 'legacy'
+  }
+
+  const validFrom =
+    definition.validity.valid_from
+
+  if (validFrom) {
+    const validFromTimestamp =
+      Date.parse(validFrom)
+
+    if (
+      Number.isFinite(
+        validFromTimestamp,
+      ) &&
+      validFromTimestamp >
+        referenceTimestamp
+    ) {
+      return 'not_yet_valid'
+    }
+  }
+
+  const validUntil =
+    definition.validity.valid_until
+
+  if (validUntil) {
+    const validUntilTimestamp =
+      Date.parse(validUntil)
+
+    if (
+      Number.isFinite(
+        validUntilTimestamp,
+      ) &&
+      validUntilTimestamp <=
+        referenceTimestamp
+    ) {
+      return 'expired'
+    }
+  }
+
+  return 'current'
+}
+
+type ResolvedCommercialObjectionGuide = {
+  contract_version:
+    | 'commercial-objection-v1'
+    | 'commercial-objection-v2'
+
+  definition:
+    CommercialObjectionDefinition | null
+}
+
+function commercialObjectionProjectionArrayMatches(
+  definitionValues: string[],
+  persistedValues: unknown,
+): boolean {
+  if (
+    !Array.isArray(persistedValues) ||
+    definitionValues.length !==
+      persistedValues.length
+  ) {
+    return false
+  }
+
+  return definitionValues.every(
+    (
+      definitionValue,
+      index,
+    ) =>
+      typeof persistedValues[index] ===
+        'string' &&
+      definitionValue.trim() ===
+        persistedValues[index].trim(),
+  )
+}
+
+function resolveCommercialObjectionGuide(
+  guide: CommercialObjectionGuide,
+  index: number,
+): ResolvedCommercialObjectionGuide {
+  const path =
+    'commercial_config.objection_guides[' +
+    index +
+    ']'
+
+  const contractValue: unknown =
+    guide
+      .commercial_objection_contract_version
+
+  const definitionValue: unknown =
+    guide
+      .commercial_objection_definition
+
+  if (
+    contractValue === undefined ||
+    contractValue === null
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+        path +
+          '.commercial_objection_definition',
+        'Uma definição semântica de objeção não pode existir sem versão do contrato.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-objection-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue ===
+    'commercial-objection-v1'
+  ) {
+    if (
+      definitionValue !== undefined &&
+      definitionValue !== null
+    ) {
+      fail(
+        'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+        path +
+          '.commercial_objection_definition',
+        'A objeção legada não pode possuir definição semântica V2.',
+      )
+    }
+
+    return {
+      contract_version:
+        'commercial-objection-v1',
+
+      definition:
+        null,
+    }
+  }
+
+  if (
+    contractValue !==
+    'commercial-objection-v2'
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_CONTRACT',
+      path +
+        '.commercial_objection_contract_version',
+      'A versão persistida do contrato da objeção comercial é incompatível.',
+    )
+  }
+
+  if (!isRecord(definitionValue)) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+      path +
+        '.commercial_objection_definition',
+      'A objeção V2 publicada precisa possuir uma definição semântica.',
+    )
+  }
+
+  const definition =
+    definitionValue as unknown as
+      CommercialObjectionDefinition
+
+  const validation =
+    validateCommercialObjectionDefinition(
+      definition,
+    )
+
+  if (!validation.valid) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+      path +
+        '.commercial_objection_definition',
+      'A definição semântica publicada da objeção não respeita o contrato V2.',
+    )
+  }
+
+  if (
+    typeof guide.objection !==
+      'string' ||
+    definition.objection.trim() !==
+      guide.objection.trim() ||
+    !commercialObjectionProjectionArrayMatches(
+      definition.signals,
+      guide.signals,
+    ) ||
+    !commercialObjectionProjectionArrayMatches(
+      definition.discovery_questions,
+      guide.discovery_questions,
+    ) ||
+    typeof guide.recommended_approach !==
+      'string' ||
+    definition.recommended_approach.trim() !==
+      guide.recommended_approach.trim() ||
+    !commercialObjectionProjectionArrayMatches(
+      definition.response_limits,
+      guide.response_limits,
+    )
+  ) {
+    fail(
+      'INVALID_COMMERCIAL_OBJECTION_DEFINITION',
+      path +
+        '.commercial_objection_definition',
+      'A definição semântica da objeção diverge da projeção comercial persistida.',
+    )
+  }
+
+  return {
+    contract_version:
+      'commercial-objection-v2',
+
+    definition,
+  }
+}
+
 function buildCommercialContext(
   bundle:
     | CommercialConfigBundle
@@ -847,6 +1559,7 @@ function buildCommercialContext(
   products:
     CommercialConfigProductOption[],
   companyId: string,
+  referenceTimestamp: number,
   limitations: string[],
 ): CompanionDiagnosticInput[
   'commercial_context'
@@ -883,8 +1596,16 @@ function buildCommercialContext(
 
       sales_method: {
         configured: false,
+
+        contract_version: null,
+
         name: null,
         description: null,
+
+        principles: [],
+
+        definition: null,
+
         steps: [],
       },
 
@@ -909,7 +1630,12 @@ function buildCommercialContext(
       ),
     )
 
-  const methodSteps =
+  const resolvedMethod =
+    resolveCommercialMethod(
+      bundle,
+    )
+
+  const legacyMethodSteps =
     [...bundle.method_steps]
       .sort(
         (a, b) =>
@@ -949,6 +1675,53 @@ function buildCommercialContext(
           step.is_required === true,
       }))
 
+  const methodSteps =
+    resolvedMethod.definition
+      ? [
+          ...resolvedMethod
+            .definition
+            .stages,
+        ]
+          .sort(
+            (a, b) =>
+              a.display_order -
+              b.display_order,
+          )
+          .map((stage) => ({
+            step_order:
+              stage.display_order,
+
+            name:
+              normalizeRequiredString(
+                stage.name,
+                'commercial_config.version.commercial_method_definition.stages.name',
+              ),
+
+            objective:
+              normalizeRequiredString(
+                stage.objective,
+                'commercial_config.version.commercial_method_definition.stages.objective',
+                5000,
+              ),
+
+            completion_criteria:
+              normalizeStringArray(
+                stage.completion_criteria,
+                'commercial_config.version.commercial_method_definition.stages.completion_criteria',
+              ),
+
+            recommended_questions:
+              normalizeStringArray(
+                stage.recommended_questions,
+                'commercial_config.version.commercial_method_definition.stages.recommended_questions',
+              ),
+
+            is_required:
+              stage.requirement ===
+              'required',
+          }))
+      : legacyMethodSteps
+
   const methodConfigured =
     methodSteps.length > 0
 
@@ -961,32 +1734,97 @@ function buildCommercialContext(
 
   const commercialProducts =
     bundle.product_profiles.map(
-      (profile) => {
+      (profile, profileIndex) => {
         const catalogProduct =
           catalogById.get(
             profile.product_id,
           )
 
+        const resolvedProduct =
+          resolveCommercialProduct(
+            profile,
+            profileIndex,
+          )
+
+        const semanticDefinition =
+          resolvedProduct.definition
+
+        if (
+          semanticDefinition
+            ?.contract_version ===
+          'commercial-product-v3'
+        ) {
+          const hasStaleStock =
+            semanticDefinition
+              .variants
+              .some((variant) => {
+                const validUntil =
+                  variant.stock
+                    .valid_until
+
+                if (!validUntil) {
+                  return false
+                }
+
+                const validUntilTimestamp =
+                  Date.parse(
+                    validUntil,
+                  )
+
+                return (
+                  Number.isFinite(
+                    validUntilTimestamp,
+                  ) &&
+                  validUntilTimestamp <=
+                    referenceTimestamp
+                )
+              })
+
+          if (hasStaleStock) {
+            addLimitation(
+              limitations,
+              'product_stock_information_stale',
+            )
+          }
+        }
+
+        const semanticSource =
+          semanticDefinition ??
+          profile
+
         return {
           product_id:
             profile.product_id,
 
+          contract_version:
+            resolvedProduct
+              .contract_version,
+
+          definition:
+            semanticDefinition,
+
           name:
+            semanticDefinition
+              ?.name ??
             catalogProduct?.name ??
             null,
 
           category:
+            semanticDefinition
+              ?.category ??
             catalogProduct?.category ??
             null,
 
           base_price:
-            typeof catalogProduct
-              ?.base_price === 'number' &&
-            Number.isFinite(
-              catalogProduct.base_price,
-            )
-              ? catalogProduct.base_price
-              : null,
+            semanticDefinition
+              ? null
+              : typeof catalogProduct
+                  ?.base_price === 'number' &&
+                Number.isFinite(
+                  catalogProduct.base_price,
+                )
+                ? catalogProduct.base_price
+                : null,
 
           active:
             typeof catalogProduct
@@ -996,55 +1834,55 @@ function buildCommercialContext(
 
           indicated_audiences:
             normalizeStringArray(
-              profile.indicated_audiences,
+              semanticSource.indicated_audiences,
               'commercial_config.product_profiles.indicated_audiences',
             ),
 
           needs_addressed:
             normalizeStringArray(
-              profile.needs_addressed,
+              semanticSource.needs_addressed,
               'commercial_config.product_profiles.needs_addressed',
             ),
 
           benefits:
             normalizeStringArray(
-              profile.benefits,
+              semanticSource.benefits,
               'commercial_config.product_profiles.benefits',
             ),
 
           verified_differentiators:
             normalizeStringArray(
-              profile.verified_differentiators,
+              semanticSource.verified_differentiators,
               'commercial_config.product_profiles.verified_differentiators',
             ),
 
           limitations:
             normalizeStringArray(
-              profile.limitations,
+              semanticSource.limitations,
               'commercial_config.product_profiles.limitations',
             ),
 
           contract_conditions:
             normalizeStringArray(
-              profile.contract_conditions,
+              semanticSource.contract_conditions,
               'commercial_config.product_profiles.contract_conditions',
             ),
 
           payment_conditions:
             normalizeStringArray(
-              profile.payment_conditions,
+              semanticSource.payment_conditions,
               'commercial_config.product_profiles.payment_conditions',
             ),
 
           allowed_claims:
             normalizeStringArray(
-              profile.allowed_claims,
+              semanticSource.allowed_claims,
               'commercial_config.product_profiles.allowed_claims',
             ),
 
           forbidden_claims:
             normalizeStringArray(
-              profile.forbidden_claims,
+              semanticSource.forbidden_claims,
               'commercial_config.product_profiles.forbidden_claims',
             ),
         }
@@ -1122,12 +1960,21 @@ function buildCommercialContext(
       configured:
         methodConfigured,
 
+      contract_version:
+        methodConfigured
+          ? resolvedMethod
+              .contract_version
+          : null,
+
       name:
         methodConfigured
           ? normalizeRequiredString(
-              bundle.version
-                .commercial_method_name,
-              'commercial_config.version.commercial_method_name',
+              resolvedMethod
+                .definition
+                ?.name ??
+                bundle.version
+                  .commercial_method_name,
+              'commercial_context.sales_method.name',
               5000,
             )
           : null,
@@ -1135,12 +1982,28 @@ function buildCommercialContext(
       description:
         methodConfigured
           ? normalizeRequiredString(
-              bundle.version
-                .commercial_method_description,
-              'commercial_config.version.commercial_method_description',
+              resolvedMethod
+                .definition
+                ?.description ??
+                bundle.version
+                  .commercial_method_description,
+              'commercial_context.sales_method.description',
               10000,
             )
           : null,
+
+      principles:
+        resolvedMethod.definition
+          ? normalizeStringArray(
+              resolvedMethod
+                .definition
+                .principles,
+              'commercial_context.sales_method.principles',
+            )
+          : [],
+
+      definition:
+        resolvedMethod.definition,
 
       steps:
         methodSteps,
@@ -1155,33 +2018,68 @@ function buildCommercialContext(
           (fact) =>
             fact.is_active,
         )
-        .map((fact) => ({
-          category:
-            normalizeRequiredString(
-              fact.category,
-              'commercial_config.facts.category',
-            ),
+        .map(
+          (
+            fact,
+            factIndex,
+          ) => {
+            const resolvedFact =
+              resolveCommercialFact(
+                fact,
+                factIndex,
+              )
 
-          fact_key:
-            normalizeRequiredString(
-              fact.fact_key,
-              'commercial_config.facts.fact_key',
-            ),
+            const semanticDefinition =
+              resolvedFact.definition
 
-          fact_value:
-            normalizeRequiredString(
-              fact.fact_value,
-              'commercial_config.facts.fact_value',
-              10000,
-            ),
+            return {
+              contract_version:
+                resolvedFact
+                  .contract_version,
 
-          source_note:
-            normalizeNullableString(
-              fact.source_note,
-              'commercial_config.facts.source_note',
-              5000,
-            ),
-        })),
+              definition:
+                semanticDefinition,
+
+              validity_status:
+                resolveCommercialFactValidityStatus(
+                  semanticDefinition,
+                  referenceTimestamp,
+                ),
+
+              category:
+                normalizeRequiredString(
+                  semanticDefinition
+                    ?.category ??
+                    fact.category,
+                  'commercial_config.facts.category',
+                ),
+
+              fact_key:
+                normalizeRequiredString(
+                  semanticDefinition
+                    ?.fact_key ??
+                    fact.fact_key,
+                  'commercial_config.facts.fact_key',
+                ),
+
+              fact_value:
+                normalizeRequiredString(
+                  semanticDefinition
+                    ?.fact_value ??
+                    fact.fact_value,
+                  'commercial_config.facts.fact_value',
+                  10000,
+                ),
+
+              source_note:
+                normalizeNullableString(
+                  fact.source_note,
+                  'commercial_config.facts.source_note',
+                  5000,
+                ),
+            }
+          },
+        ),
 
     objection_guides:
       bundle.objection_guides
@@ -1194,42 +2092,69 @@ function buildCommercialContext(
             a.sort_order -
             b.sort_order,
         )
-        .map((guide) => ({
-          sort_order:
-            guide.sort_order,
+        .map(
+          (
+            guide,
+            guideIndex,
+          ) => {
+            const resolvedGuide =
+              resolveCommercialObjectionGuide(
+                guide,
+                guideIndex,
+              )
 
-          objection:
-            normalizeRequiredString(
-              guide.objection,
-              'commercial_config.objection_guides.objection',
-              5000,
-            ),
+            const semanticDefinition =
+              resolvedGuide.definition
 
-          signals:
-            normalizeStringArray(
-              guide.signals,
-              'commercial_config.objection_guides.signals',
-            ),
+            const semanticSource =
+              semanticDefinition ??
+              guide
 
-          discovery_questions:
-            normalizeStringArray(
-              guide.discovery_questions,
-              'commercial_config.objection_guides.discovery_questions',
-            ),
+            return {
+              contract_version:
+                resolvedGuide
+                  .contract_version,
 
-          recommended_approach:
-            normalizeRequiredString(
-              guide.recommended_approach,
-              'commercial_config.objection_guides.recommended_approach',
-              10000,
-            ),
+              definition:
+                semanticDefinition,
 
-          response_limits:
-            normalizeStringArray(
-              guide.response_limits,
-              'commercial_config.objection_guides.response_limits',
-            ),
-        })),
+              sort_order:
+                guide.sort_order,
+
+              objection:
+                normalizeRequiredString(
+                  semanticSource.objection,
+                  'commercial_config.objection_guides.objection',
+                  5000,
+                ),
+
+              signals:
+                normalizeStringArray(
+                  semanticSource.signals,
+                  'commercial_config.objection_guides.signals',
+                ),
+
+              discovery_questions:
+                normalizeStringArray(
+                  semanticSource.discovery_questions,
+                  'commercial_config.objection_guides.discovery_questions',
+                ),
+
+              recommended_approach:
+                normalizeRequiredString(
+                  semanticSource.recommended_approach,
+                  'commercial_config.objection_guides.recommended_approach',
+                  10000,
+                ),
+
+              response_limits:
+                normalizeStringArray(
+                  semanticSource.response_limits,
+                  'commercial_config.objection_guides.response_limits',
+                ),
+            }
+          },
+        ),
   }
 }
 
@@ -1339,6 +2264,7 @@ export function buildCompanionDiagnosticInput({
       commercial_config,
       products,
       companyId,
+      referenceTime.timestamp,
       limitations,
     )
 
