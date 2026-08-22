@@ -58,6 +58,12 @@ export const STATEFUL_COPILOT_PROJECT_SUBPHASE =
 export const STATEFUL_COPILOT_RUNTIME_STAGE =
   'server-only-orchestrator' as const
 
+export const PHASE12A_ACTIVE_DIAGNOSTIC_MODEL =
+  'gpt-4o-mini-2024-07-18' as const
+
+export const PHASE12A_ACTIVE_COMMUNICATION_MODEL =
+  'gpt-4.1-mini-2025-04-14' as const
+
 type JsonRecord =
   Record<string, unknown>
 
@@ -740,6 +746,68 @@ function buildCommonResult(
   }
 }
 
+function normalizeOptionalRuntimeText(
+  value: unknown,
+): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized =
+    value.trim()
+
+  return normalized || null
+}
+
+function buildCompositionOptionsForActivation({
+  activation,
+  compositionOptions,
+}: {
+  activation:
+    StatefulCopilotActivationDecision
+
+  compositionOptions:
+    StatefulCopilotServerCompositionOptions | undefined
+}): StatefulCopilotServerCompositionOptions | undefined {
+  if (
+    activation.mode !== 'active' ||
+    process.env.VERCEL_ENV === 'preview'
+  ) {
+    return compositionOptions
+  }
+
+  const explicitDiagnosticModel =
+    normalizeOptionalRuntimeText(
+      compositionOptions
+        ?.openai_model,
+    )
+
+  const explicitCommunicationModel =
+    normalizeOptionalRuntimeText(
+      compositionOptions
+        ?.openai_communication_model,
+    )
+
+  const configuredCommunicationModel =
+    normalizeOptionalRuntimeText(
+      process.env
+        .OPENAI_STATEFUL_COMMUNICATION_MODEL,
+    )
+
+  return {
+    ...(compositionOptions ?? {}),
+
+    openai_model:
+      explicitDiagnosticModel ??
+      PHASE12A_ACTIVE_DIAGNOSTIC_MODEL,
+
+    openai_communication_model:
+      explicitCommunicationModel ??
+      configuredCommunicationModel ??
+      PHASE12A_ACTIVE_COMMUNICATION_MODEL,
+  }
+}
+
 function ensureExecutableDecision(
   activation:
     StatefulCopilotActivationDecision,
@@ -1025,7 +1093,10 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
     | null =
       null
 
-  function getRuntime() {
+  function getRuntime(
+    activation:
+      StatefulCopilotActivationDecision,
+  ) {
     if (runtime) {
       return runtime
     }
@@ -1037,7 +1108,12 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
 
     const composition =
       createComposition(
-        options.composition_options,
+        buildCompositionOptionsForActivation({
+          activation,
+
+          compositionOptions:
+            options.composition_options,
+        }),
       )
 
     runtime = {
@@ -1158,7 +1234,9 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
         context_loader,
         composition,
       } =
-        getRuntime()
+        getRuntime(
+          activation,
+        )
 
       const deadlineAt =
         Date.now() +
