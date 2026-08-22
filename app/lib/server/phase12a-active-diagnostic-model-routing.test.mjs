@@ -206,6 +206,12 @@ test(
 
         assert.equal(
           options
+            .openai_diagnostic_reasoning_effort,
+          PHASE12A_ACTIVE_DIAGNOSTIC_REASONING_EFFORT,
+        )
+
+        assert.equal(
+          options
             .openai_communication_model,
           PHASE12A_ACTIVE_COMMUNICATION_MODEL,
         )
