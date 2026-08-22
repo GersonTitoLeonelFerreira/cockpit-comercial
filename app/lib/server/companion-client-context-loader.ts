@@ -822,8 +822,25 @@ async function loadSlaRule({
       )
       .maybeSingle()
 
+  if (error) {
+    // Diferente de "sem regra configurada" (data === null, sem erro): uma
+    // falha na consulta não prova ausência de regra — o banco não
+    // respondeu. Reportar como erro retryable em vez de silenciosamente
+    // devolver `configured: false`, que esconderia um risco real de SLA
+    // atrás de uma falha transitória de leitura.
+    fail({
+      code:
+        'CLIENT_CONTEXT_QUERY_FAILED',
+
+      message:
+        'Não foi possível carregar a configuração de SLA da empresa.',
+
+      status_code: 500,
+      retryable: true,
+    })
+  }
+
   if (
-    error ||
     !isRecord(data) ||
     data.company_id !== companyId ||
     data.status !== status ||

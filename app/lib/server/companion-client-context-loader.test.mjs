@@ -63,6 +63,7 @@ function createFakeAdmin({
     error: null,
   },
   slaRules = [],
+  slaRulesError = null,
 } = {}) {
   const tables = {
     company_memberships:
@@ -178,6 +179,18 @@ function createFakeAdmin({
     }
 
     maybeSingle() {
+      if (
+        this.table ===
+          'sla_rules' &&
+        slaRulesError
+      ) {
+        return Promise.resolve({
+          data: null,
+          error:
+            slaRulesError,
+        })
+      }
+
       const result =
         this.resolveRows()
 
@@ -504,6 +517,261 @@ test(
     assert.equal(
       result.identity.cycle_id,
       CYCLE_ID,
+    )
+  },
+)
+
+// P2 (fast-follow do PR #186): uma falha ao consultar sla_rules não pode
+// virar "sem regra configurada" — o banco não respondeu, isso não prova
+// ausência de regra.
+test(
+  'falha na consulta de sla_rules produz um erro retryable, não configured:false',
+  async () => {
+    const admin =
+      createFakeAdmin(
+        baseFixtures({
+          slaRulesError: {
+            message:
+              'connection reset',
+          },
+        }),
+      )
+
+    await assert.rejects(
+      () =>
+        loadCompanionClientContext({
+          admin,
+
+          token:
+            buildToken(),
+
+          cycle_id:
+            CYCLE_ID,
+
+          conversation_key:
+            CONVERSATION_KEY,
+
+          reference_time:
+            REFERENCE_TIME,
+        }),
+      (
+        error,
+      ) => {
+        assert.ok(
+          error instanceof
+            CompanionClientContextError,
+        )
+
+        assert.equal(
+          error.code,
+          'CLIENT_CONTEXT_QUERY_FAILED',
+        )
+
+        assert.equal(
+          error.retryable,
+          true,
+        )
+
+        return true
+      },
+    )
+  },
+)
+
+// Recuperação após erro transitório: uma segunda tentativa, sem o erro,
+// volta a funcionar normalmente — a falha da consulta não deixou nenhum
+// estado residual incorreto (ex.: uma regra "lembrada" como ausente).
+test(
+  'após uma falha transitória em sla_rules, uma nova tentativa sem o erro volta a reportar o SLA corretamente',
+  async () => {
+    const fixtures =
+      baseFixtures({
+        slaRules: [
+          {
+            company_id:
+              COMPANY_A,
+
+            status:
+              'negociacao',
+
+            target_minutes:
+              60,
+
+            warning_minutes:
+              120,
+
+            danger_minutes:
+              10_000,
+          },
+        ],
+      })
+
+    const failingAdmin =
+      createFakeAdmin({
+        ...fixtures,
+        slaRulesError: {
+          message:
+            'timeout',
+        },
+      })
+
+    await assert.rejects(
+      () =>
+        loadCompanionClientContext({
+          admin:
+            failingAdmin,
+
+          token:
+            buildToken(),
+
+          cycle_id:
+            CYCLE_ID,
+
+          conversation_key:
+            CONVERSATION_KEY,
+
+          reference_time:
+            REFERENCE_TIME,
+        }),
+    )
+
+    const recoveredAdmin =
+      createFakeAdmin(
+        fixtures,
+      )
+
+    const result =
+      await loadCompanionClientContext({
+        admin:
+          recoveredAdmin,
+
+        token:
+          buildToken(),
+
+        cycle_id:
+          CYCLE_ID,
+
+        conversation_key:
+          CONVERSATION_KEY,
+
+        reference_time:
+          REFERENCE_TIME,
+      })
+
+    assert.equal(
+      result.sla.configured,
+      true,
+    )
+
+    assert.equal(
+      result.sla.risk,
+      'medium',
+    )
+  },
+)
+
+test(
+  'lead sem mensagem no ledger, mas com SLA configurado, ainda reporta o SLA (tempo na etapa não depende de mensagens)',
+  async () => {
+    const admin =
+      createFakeAdmin(
+        baseFixtures({
+          slaRules: [
+            {
+              company_id:
+                COMPANY_A,
+
+              status:
+                'negociacao',
+
+              target_minutes:
+                60,
+
+              warning_minutes:
+                120,
+
+              danger_minutes:
+                10_000,
+            },
+          ],
+        }),
+      )
+
+    const result =
+      await loadCompanionClientContext({
+        admin,
+
+        token:
+          buildToken(),
+
+        cycle_id:
+          CYCLE_ID,
+
+        conversation_key:
+          CONVERSATION_KEY,
+
+        reference_time:
+          REFERENCE_TIME,
+      })
+
+    assert.equal(
+      result.relationship
+        .first_known_interaction_at,
+      null,
+    )
+
+    assert.equal(
+      result.sla.configured,
+      true,
+    )
+
+    assert.equal(
+      typeof result.sla
+        .elapsed_minutes,
+      'number',
+    )
+  },
+)
+
+test(
+  'lead sem mensagem no ledger e sem SLA configurado não inventa risco',
+  async () => {
+    const admin =
+      createFakeAdmin(
+        baseFixtures(),
+      )
+
+    const result =
+      await loadCompanionClientContext({
+        admin,
+
+        token:
+          buildToken(),
+
+        cycle_id:
+          CYCLE_ID,
+
+        conversation_key:
+          CONVERSATION_KEY,
+
+        reference_time:
+          REFERENCE_TIME,
+      })
+
+    assert.equal(
+      result.relationship
+        .first_known_interaction_at,
+      null,
+    )
+
+    assert.equal(
+      result.sla.configured,
+      false,
+    )
+
+    assert.equal(
+      result.sla.risk,
+      null,
     )
   },
 )

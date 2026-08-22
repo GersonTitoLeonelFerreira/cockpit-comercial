@@ -16,6 +16,18 @@
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
   const CAPTURE_INGESTION_DELAY_MS = 1200
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
+  // Depois que uma captura é persistida com sucesso para a conversa aberta,
+  // um pequeno debounce antes de rebuscar o contexto operacional do
+  // cliente — coalesce múltiplas ingestões próximas (ex.: várias mensagens
+  // chegando em sequência) numa única requisição, em vez de uma por
+  // mensagem.
+  const COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS = 500
+  // Campos puramente derivados do relógio (tempo de espera, risco de SLA)
+  // precisam continuar corretos mesmo sem nenhuma mensagem nova chegar —
+  // este intervalo só re-renderiza o painel com os dados já carregados
+  // (recalculando localmente a partir de `generated_at`), sem nenhuma
+  // chamada de rede nova.
+  const COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS = 60000
   const DISAPPEARED_MESSAGE_SCROLL_GUARD_MS = 2000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
@@ -58,6 +70,8 @@
   let panelCollapsed = false
   let lastAcknowledgedCollapsedAttentionKey = null
   let sessionRefreshTimerId = 0
+  let companionClientContextTickTimerId = 0
+  let companionClientContextRefreshTimerId = 0
   let runtimeRecoveryTimerId = 0
   let runtimeRecoveryInFlight = false
   let lastResolvedConversationKey = null
@@ -132,6 +146,7 @@
       status: 'idle',
     },
     companionClientContextCycleId: null,
+    companionClientContextConversationKey: null,
     autoLookupStatus: null,
     conversationAnalysisLoading: false,
     conversationAnalysis: null,
@@ -2599,6 +2614,10 @@
             plan.snapshotKey,
           )
 
+          notifyCaptureIngestedForClientContext(
+            contextKey,
+          )
+
           forgetPendingCapturePlan(
             contextKey,
             plan.snapshotKey,
@@ -4250,6 +4269,7 @@
   function clearLeadStateForNewConversation() {
     capturedAudioBlobEntries = []
     clearAutomaticAnalysisTimer()
+    clearCompanionClientContextRefreshTimer()
 
     lastSelectedChatActivitySnapshot =
       getSelectedChatActivitySnapshot()
@@ -4263,6 +4283,7 @@
         status: 'idle',
       },
       companionClientContextCycleId: null,
+      companionClientContextConversationKey: null,
       autoLookupStatus: null,
       conversationAnalysisLoading: false,
       conversationAnalysis: null,
@@ -8334,7 +8355,72 @@
   // estado `conversationAnalysis` — é buscada e renderizada à parte, a
   // partir de fatos determinísticos do banco (ver
   // app/api/companion/client-context).
-  async function loadCompanionClientContextForCurrentCycle() {
+  function clearCompanionClientContextRefreshTimer() {
+    if (
+      companionClientContextRefreshTimerId
+    ) {
+      window.clearTimeout(
+        companionClientContextRefreshTimerId,
+      )
+
+      companionClientContextRefreshTimerId = 0
+    }
+  }
+
+  // Sinal real de "a captura foi persistida", disparado por
+  // runCaptureIngestion() após rememberSuccessfulCapture() — não um sleep
+  // arbitrário. Corrige tanto a primeira leitura (que pode ter ocorrido
+  // sobre um ledger ainda vazio, antes da ingestão terminar) quanto
+  // qualquer leitura posterior (nova mensagem chegando durante a
+  // conversa): as duas situações são, no fundo, "o contexto pode estar
+  // desatualizado porque uma ingestão acabou de confirmar". O pequeno
+  // debounce evita uma requisição por mensagem quando várias chegam em
+  // sequência.
+  function notifyCaptureIngestedForClientContext(
+    contextKey,
+  ) {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return
+    }
+
+    const currentContextKey = [
+      cycleId,
+      conversationKey,
+    ].join('::')
+
+    if (
+      currentContextKey !==
+      contextKey
+    ) {
+      return
+    }
+
+    clearCompanionClientContextRefreshTimer()
+
+    companionClientContextRefreshTimerId =
+      window.setTimeout(() => {
+        companionClientContextRefreshTimerId = 0
+
+        void loadCompanionClientContextForCurrentCycle(
+          {
+            force: true,
+          },
+        )
+      }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
+  }
+
+  async function loadCompanionClientContextForCurrentCycle(
+    options = {},
+  ) {
+    const force =
+      options.force === true
+
     const cycleId =
       state.leadResolution?.cycle?.id
 
@@ -8349,31 +8435,66 @@
         },
         companionClientContextCycleId:
           null,
+        companionClientContextConversationKey:
+          null,
       }
 
       renderPanel()
       return
     }
 
-    if (
+    const isSameContext =
       state.companionClientContextCycleId ===
         cycleId &&
+      state.companionClientContextConversationKey ===
+        conversationKey
+
+    const alreadyReady =
+      isSameContext &&
       state.companionClientContext
         ?.status === 'ready'
-    ) {
+
+    if (alreadyReady && !force) {
       return
     }
 
-    state = {
-      ...state,
-      companionClientContext: {
-        status: 'loading',
-      },
-      companionClientContextCycleId:
-        cycleId,
+    // Uma atualização forçada sobre dados já prontos (nova ingestão
+    // confirmada, tick periódico) acontece em silêncio: o cartão continua
+    // mostrando os últimos dados válidos em vez de piscar para o estado de
+    // carregamento a cada mensagem nova. Só a primeiríssima busca de um
+    // ciclo (ou uma busca depois de erro/idle) mostra o estado de
+    // carregamento.
+    const showLoadingState = !alreadyReady
+
+    if (showLoadingState) {
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'loading',
+        },
+        companionClientContextCycleId:
+          cycleId,
+        companionClientContextConversationKey:
+          conversationKey,
+      }
+
+      renderPanel()
+    } else {
+      state = {
+        ...state,
+        companionClientContextCycleId:
+          cycleId,
+        companionClientContextConversationKey:
+          conversationKey,
+      }
     }
 
-    renderPanel()
+    const isStillCurrentContext =
+      () =>
+        state.companionClientContextCycleId ===
+          cycleId &&
+        state.companionClientContextConversationKey ===
+          conversationKey
 
     try {
       const result =
@@ -8384,10 +8505,7 @@
               conversationKey,
           })
 
-      if (
-        state.companionClientContextCycleId !==
-        cycleId
-      ) {
+      if (!isStillCurrentContext()) {
         return
       }
 
@@ -8395,18 +8513,24 @@
         !result?.ok ||
         !result.payload?.ok
       ) {
-        state = {
-          ...state,
-          companionClientContext: {
-            status: 'error',
-            error:
-              result?.payload
-                ?.error ||
-              'Não foi possível carregar o relacionamento com o cliente.',
-          },
+        if (!alreadyReady) {
+          state = {
+            ...state,
+            companionClientContext: {
+              status: 'error',
+              error:
+                result?.payload
+                  ?.error ||
+                'Não foi possível carregar o relacionamento com o cliente.',
+            },
+          }
+
+          renderPanel()
         }
 
-        renderPanel()
+        // Atualização em segundo plano que falhou: mantém os dados bons
+        // já exibidos em vez de substituí-los por um erro por causa de uma
+        // falha transitória — a próxima ingestão/tick tenta de novo.
         return
       }
 
@@ -8420,26 +8544,25 @@
 
       renderPanel()
     } catch (error) {
-      if (
-        state.companionClientContextCycleId !==
-        cycleId
-      ) {
+      if (!isStillCurrentContext()) {
         return
       }
 
-      state = {
-        ...state,
-        companionClientContext: {
-          status: 'error',
-          error:
-            error instanceof Error &&
-            error.message
-              ? error.message
-              : 'Não foi possível carregar o relacionamento com o cliente.',
-        },
-      }
+      if (!alreadyReady) {
+        state = {
+          ...state,
+          companionClientContext: {
+            status: 'error',
+            error:
+              error instanceof Error &&
+              error.message
+                ? error.message
+                : 'Não foi possível carregar o relacionamento com o cliente.',
+          },
+        }
 
-      renderPanel()
+        renderPanel()
+      }
     }
   }
 
@@ -8459,9 +8582,28 @@
 
         ${clientContextViewTools.renderClientContextSection(
           state.companionClientContext,
+          Date.now(),
         )}
       </div>
     `
+  }
+
+  function startCompanionClientContextTicker() {
+    if (companionClientContextTickTimerId) {
+      window.clearInterval(
+        companionClientContextTickTimerId,
+      )
+    }
+
+    companionClientContextTickTimerId =
+      window.setInterval(() => {
+        if (
+          state.companionClientContext
+            ?.status === 'ready'
+        ) {
+          renderPanel()
+        }
+      }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
   }
 
   function getAnalysisCardHtml() {
@@ -12386,6 +12528,7 @@
     observePreSendGateActions()
     observeManualWhatsAppSend()
     startSessionAutoRefresh()
+    startCompanionClientContextTicker()
     loadYolenSession({
       showLoading: true,
       resolveLeadAfterLoad: true,
