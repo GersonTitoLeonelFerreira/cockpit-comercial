@@ -1,223 +1,132 @@
 import assert from 'node:assert/strict'
-import {
-  readFileSync,
-} from 'node:fs'
+import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const contentScript =
-  readFileSync(
-    new URL(
-      '../src/content-script.js',
-      import.meta.url,
-    ),
-    'utf8',
-  )
+const require = createRequire(import.meta.url)
+const sellerView = require('../src/companion-seller-information-view.js')
+const contentScript = readFileSync(new URL('../src/content-script.js', import.meta.url), 'utf8')
+const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
-const styles =
-  readFileSync(
-    new URL(
-      '../src/styles.css',
-      import.meta.url,
-    ),
-    'utf8',
-  )
-
-function getBlock(
-  startMarker,
-  endMarker,
-) {
-  const start =
-    contentScript.indexOf(
-      startMarker,
-    )
-
-  const end =
-    contentScript.indexOf(
-      endMarker,
-      start,
-    )
-
-  assert.notEqual(
-    start,
-    -1,
-  )
-
-  assert.notEqual(
-    end,
-    -1,
-  )
-
-  return contentScript.slice(
-    start,
-    end,
-  )
+function fact(summary) {
+  return {
+    summary,
+    evidence_message_ids: [],
+    memory_ids: [],
+  }
 }
 
-test(
-  'B3.2 expõe resumo cliente e evolução somente em divulgação progressiva',
-  () => {
-    const expanded =
-      getBlock(
-        'function getCommercialReadingDisplayText(',
-        'function getRichCommercialReadingCardHtml(',
-      )
+function reading(customer, commercialEvolution = []) {
+  return {
+    commercial_relevance: 'commercial',
+    customer,
+    commercial_evolution: commercialEvolution,
+    seller_strengths: [],
+    improvement_points: [],
+    risks: {
+      customer_objections: [],
+      service_risks: [],
+    },
+    method: null,
+  }
+}
 
-    assert.match(
-      expanded,
-      /<details class="yolen-rich-details">/,
-    )
+test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AGORA', () => {
+  const clientHtml = sellerView.renderClientCommercialArea(reading({
+    needs: [fact('Precisa reduzir perdas.')],
+    interests: [fact('Interesse em automação.')],
+    decision_criteria: [],
+    preferences: [],
+    open_questions: [fact('Qual é o prazo?')],
+    objections: [],
+    uncertainties: [],
+  }))
 
-    assert.match(
-      expanded,
-      /Resumo da conversa/,
-    )
+  const analysisHtml = sellerView.renderAnalysisArea(reading({}, [
+    {
+      label: 'Descoberta',
+      status: 'partial',
+      explanation: 'Impacto ainda em aberto.',
+    },
+  ]))
 
-    assert.match(
-      expanded,
-      /Cliente/,
-    )
+  assert.match(clientHtml, /O que sabemos/)
+  assert.match(clientHtml, /Em aberto/)
+  assert.match(analysisHtml, /<details class="yolen-seller-secondary-details">/)
+  assert.match(analysisHtml, /evolução comercial/i)
+  assert.doesNotMatch(analysisHtml, /<details[^>]*open/)
 
-    assert.match(
-      expanded,
-      /Evolução comercial/,
-    )
+  assert.match(contentScript, /getSellerAreaTabHtml\('now', 'Agora'\)/)
+  assert.match(contentScript, /getSellerAreaTabHtml\('analysis', 'Análise'\)/)
+  assert.match(contentScript, /getSellerAreaTabHtml\('client', 'Cliente'\)/)
+})
 
-    assert.match(
-      expanded,
-      /Ver contexto comercial/,
-    )
+test('B3.2 consome os campos seller-facing existentes sem antecipar contratos da Frente 1', () => {
+  const html = sellerView.renderClientCommercialArea(reading({
+    needs: [fact('Necessidade')],
+    interests: [fact('Interesse')],
+    decision_criteria: [fact('Critério')],
+    preferences: [fact('Preferência')],
+    open_questions: [fact('Pergunta')],
+    objections: [fact('Objeção')],
+    uncertainties: [fact('Incerteza')],
+    objectives: [fact('Campo futuro')],
+    discussed_products: [fact('Campo futuro')],
+    missing_discovery: [fact('Campo futuro')],
+    resolved_information: [fact('Campo futuro')],
+  }))
 
-    assert.doesNotMatch(
-      expanded,
-      /<details[^>]*open/,
-    )
-  },
-)
+  for (const copy of [
+    'Necessidade',
+    'Interesse',
+    'Critério',
+    'Preferência',
+    'Pergunta',
+    'Objeção',
+    'Incerteza',
+  ]) {
+    assert.match(html, new RegExp(copy))
+  }
 
-test(
-  'B3.2 consome diretamente os campos oficiais do A4 sem expor evidência técnica',
-  () => {
-    const expanded =
-      getBlock(
-        'function getCommercialReadingDisplayText(',
-        'function getRichCommercialReadingCardHtml(',
-      )
+  assert.doesNotMatch(html, /Campo futuro/)
+  assert.doesNotMatch(html, /evidence_message_ids|memory_ids|contract_version|engine_source/)
+})
 
-    for (const field of [
-      'initial_context',
-      'evolution',
-      'important_events',
-      'last_customer_request_or_decision',
-      'needs',
-      'interests',
-      'decision_criteria',
-      'preferences',
-      'open_questions',
-      'objections',
-      'uncertainties',
-      'commercial_evolution',
-    ]) {
-      assert.match(
-        expanded,
-        new RegExp(field),
-      )
-    }
+test('B3.2 preserva os status conhecidos da evolução comercial', () => {
+  const statuses = [
+    'completed',
+    'active',
+    'partial',
+    'pending',
+    'not_started',
+    'skipped',
+    'not_applicable',
+  ]
 
-    assert.doesNotMatch(
-      expanded,
-      /evidence_message_ids|memory_ids|contract_version|engine_source/,
-    )
+  const html = sellerView.renderAnalysisArea(reading({}, statuses.map((status, index) => ({
+    label: `Etapa ${index + 1}`,
+    status,
+    explanation: `Explicação ${index + 1}`,
+  }))))
 
-    assert.doesNotMatch(
-      expanded,
-      /\.coaching|\.suggestion/,
-    )
-  },
-)
+  for (const label of [
+    'Concluída',
+    'Ativa',
+    'Parcial',
+    'Pendente',
+    'Não iniciada',
+    'Pulada',
+    'Não se aplica',
+  ]) {
+    assert.match(html, new RegExp(label))
+  }
+})
 
-test(
-  'B3.2 preserva todos os status oficiais da evolução comercial',
-  () => {
-    const expanded =
-      getBlock(
-        'function getCommercialEvolutionStatusLabel(',
-        'function getRichCommercialReadingCardHtml(',
-      )
-
-    for (const status of [
-      'completed',
-      'active',
-      'partial',
-      'pending',
-      'not_started',
-      'skipped',
-      'not_applicable',
-    ]) {
-      assert.match(
-        expanded,
-        new RegExp(status),
-      )
-    }
-
-    assert.match(
-      expanded,
-      /item\.status/,
-    )
-
-    assert.match(
-      expanded,
-      /item\.explanation/,
-    )
-  },
-)
-
-test(
-  'B3.2 omite grupos vazios e possui estilo próprio sem alterar o card compacto',
-  () => {
-    const expanded =
-      getBlock(
-        'function getRichReadingListHtml(',
-        'function getRichCommercialReadingCardHtml(',
-      )
-
-    assert.match(
-      expanded,
-      /summaries\.length === 0/,
-    )
-
-    assert.match(
-      expanded,
-      /groups\.length === 0/,
-    )
-
-    assert.match(
-      expanded,
-      /items\.length === 0/,
-    )
-
-    assert.match(
-      expanded,
-      /sections\.length === 0/,
-    )
-
-    assert.match(
-      styles,
-      /\.yolen-rich-details/,
-    )
-
-    assert.match(
-      styles,
-      /\.yolen-rich-section/,
-    )
-
-    assert.match(
-      styles,
-      /\.yolen-rich-evolution-item/,
-    )
-
-    assert.match(
-      styles,
-      /\.yolen-rich-status-completed/,
-    )
-  },
-)
+test('B3.2 omite grupos vazios e mantém detalhe sob demanda sem alterar largura do painel', () => {
+  assert.equal(sellerView.renderClientCommercialArea(reading({})), '')
+  assert.match(styles, /\.yolen-seller-secondary-details/)
+  assert.match(styles, /\.yolen-client-knowledge-section/)
+  assert.match(styles, /\.yolen-seller-workspace/)
+  assert.match(styles, /overflow-wrap:\s*anywhere/)
+  assert.doesNotMatch(styles, /\.yolen-panel\s*\{[^}]*width:\s*[5-9]\d\dpx/s)
+})

@@ -979,3 +979,509 @@ html.yolen-companion-collapsed #app {
   margin-top: 1px;
   color: #fbbf24;
 }
+
+/* ONDA 4 — ARQUITETURA SELLER-FACING: AGORA / ANÁLISE / CLIENTE */
+
+.yolen-seller-workspace {
+  min-width: 0;
+}
+
+.yolen-seller-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 2px 0 12px;
+  padding: 4px;
+  border: 1px solid rgba(126, 153, 194, 0.14);
+  border-radius: 13px;
+  background: rgba(2, 6, 23, 0.52);
+}
+
+.yolen-seller-tab {
+  min-width: 0;
+  padding: 9px 5px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #8193ac;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.yolen-seller-tab:hover {
+  color: #dce8fb;
+  background: rgba(30, 64, 175, 0.12);
+}
+
+.yolen-seller-tab--active {
+  color: #eff6ff;
+  border-color: rgba(96, 165, 250, 0.3);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.28), rgba(30, 64, 175, 0.16));
+  box-shadow: 0 6px 18px rgba(30, 64, 175, 0.16);
+}
+
+.yolen-seller-tab:focus-visible,
+.yolen-seller-secondary-details > summary:focus-visible,
+.yolen-client-timeline > summary:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.yolen-seller-panel[hidden] {
+  display: none !important;
+}
+
+.yolen-seller-panel,
+.yolen-seller-area-card,
+.yolen-client-commercial-card,
+.yolen-client-relationship-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.yolen-analysis-area-card {
+  display: grid;
+  gap: 16px;
+}
+
+.yolen-now-snapshot,
+.yolen-now-attention {
+  margin-top: 12px;
+  padding: 11px;
+  border: 1px solid rgba(126, 153, 194, 0.13);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.34);
+}
+
+.yolen-now-snapshot-copy,
+.yolen-now-attention-copy {
+  color: #e3edf9;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.yolen-now-snapshot-meta {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #b9c8da;
+  background: rgba(15, 23, 42, 0.74);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.yolen-now-attention--warning {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(146, 64, 14, 0.13);
+}
+
+.yolen-now-attention--risk {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(127, 29, 29, 0.14);
+}
+
+.yolen-seller-section {
+  display: grid;
+  gap: 11px;
+}
+
+.yolen-seller-section + .yolen-seller-section,
+.yolen-seller-secondary-details {
+  padding-top: 15px;
+  border-top: 1px solid rgba(126, 153, 194, 0.1);
+}
+
+.yolen-seller-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.yolen-seller-section-heading h3,
+.yolen-client-knowledge-section h3 {
+  margin: 2px 0 0;
+  color: #f2f7ff;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.yolen-seller-section-eyebrow {
+  color: #7890ad;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.yolen-seller-count {
+  min-width: 22px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  color: #a8c7f5;
+  background: rgba(30, 64, 175, 0.18);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+}
+
+.yolen-seller-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.yolen-seller-insight {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(126, 153, 194, 0.12);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.34);
+}
+
+.yolen-seller-insight--positive {
+  border-left: 3px solid rgba(52, 211, 153, 0.72);
+}
+
+.yolen-seller-insight--improvement {
+  border-left: 3px solid rgba(251, 191, 36, 0.72);
+}
+
+.yolen-seller-insight--risk {
+  border-left: 3px solid rgba(248, 113, 113, 0.66);
+}
+
+.yolen-seller-insight-type {
+  color: #8fa5bf;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.yolen-seller-insight-title {
+  margin-top: 4px;
+  color: #edf5ff;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.42;
+}
+
+.yolen-seller-insight-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.yolen-seller-insight-row .yolen-seller-insight-title {
+  margin-top: 0;
+}
+
+.yolen-seller-detail {
+  margin-top: 9px;
+}
+
+.yolen-seller-detail-label {
+  color: #8195ae;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.yolen-seller-detail-copy,
+.yolen-method-adherence-copy,
+.yolen-method-stage-copy {
+  margin-top: 3px;
+  color: #b7c5d6;
+  font-size: 11px;
+  line-height: 1.48;
+}
+
+.yolen-seller-evidence {
+  margin-top: 9px;
+  color: #71849e;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.yolen-seller-text-list,
+.yolen-client-knowledge-list,
+.yolen-client-timeline-list {
+  margin: 5px 0 0;
+  padding-left: 17px;
+}
+
+.yolen-seller-text-list li,
+.yolen-client-knowledge-list li {
+  margin-top: 4px;
+  color: #c4d0de;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.yolen-method-adherence {
+  padding: 10px;
+  border: 1px solid rgba(126, 153, 194, 0.14);
+  border-radius: 11px;
+  background: rgba(2, 6, 23, 0.34);
+}
+
+.yolen-method-adherence-label {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.yolen-adherence-on .yolen-method-adherence-label,
+.yolen-adherence-on.yolen-now-snapshot-meta {
+  color: #86efac;
+}
+
+.yolen-adherence-partial .yolen-method-adherence-label,
+.yolen-adherence-partial.yolen-now-snapshot-meta {
+  color: #fde68a;
+}
+
+.yolen-adherence-off .yolen-method-adherence-label,
+.yolen-adherence-off.yolen-now-snapshot-meta {
+  color: #fca5a5;
+}
+
+.yolen-adherence-neutral .yolen-method-adherence-label,
+.yolen-adherence-neutral.yolen-now-snapshot-meta {
+  color: #aebdd0;
+}
+
+.yolen-method-adherence-note {
+  margin-top: 6px;
+  color: #93a5bb;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.yolen-method-stages {
+  display: grid;
+  gap: 7px;
+}
+
+.yolen-method-stage {
+  padding: 10px;
+  border: 1px solid rgba(126, 153, 194, 0.11);
+  border-radius: 11px;
+  background: rgba(2, 6, 23, 0.3);
+}
+
+.yolen-method-stage--current {
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(30, 64, 175, 0.15);
+  box-shadow: inset 3px 0 0 rgba(96, 165, 250, 0.8);
+}
+
+.yolen-method-stage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.yolen-method-stage-current-label {
+  margin-bottom: 2px;
+  color: #93c5fd;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.yolen-method-stage-name {
+  color: #e6eef9;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.yolen-method-recovery {
+  padding: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.15), rgba(2, 6, 23, 0.34));
+}
+
+.yolen-method-recovery-heading {
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.yolen-risk-group + .yolen-risk-group {
+  margin-top: 4px;
+}
+
+.yolen-risk-group-title {
+  margin-bottom: 7px;
+  color: #9fb1c7;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.yolen-risk-severity {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border-radius: 999px;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.8);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.yolen-risk-severity--high {
+  color: #fca5a5;
+}
+
+.yolen-risk-severity--medium {
+  color: #fde68a;
+}
+
+.yolen-risk-severity--low {
+  color: #bfdbfe;
+}
+
+.yolen-seller-secondary-details > summary,
+.yolen-client-timeline > summary {
+  color: #a9bdd5;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.yolen-seller-secondary-details .yolen-method-stages {
+  margin-top: 10px;
+}
+
+.yolen-seller-empty-state,
+.yolen-client-relationship--loading,
+.yolen-client-relationship--error,
+.yolen-client-relationship--empty {
+  color: #a8b8cb;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.yolen-client-relationship--error {
+  color: #fca5a5;
+}
+
+.yolen-client-commercial-card {
+  display: grid;
+  gap: 15px;
+}
+
+.yolen-client-knowledge-section {
+  display: grid;
+  gap: 10px;
+}
+
+.yolen-client-knowledge-section + .yolen-client-knowledge-section {
+  padding-top: 14px;
+  border-top: 1px solid rgba(126, 153, 194, 0.1);
+}
+
+.yolen-client-knowledge-group {
+  display: grid;
+  gap: 2px;
+}
+
+.yolen-client-knowledge-label {
+  color: #8297b0;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.yolen-client-relationship-rows {
+  display: grid;
+  gap: 2px;
+}
+
+.yolen-client-relationship-row {
+  display: grid;
+  gap: 3px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(126, 153, 194, 0.08);
+}
+
+.yolen-client-relationship-label {
+  color: #7f93ac;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.yolen-client-relationship-value {
+  color: #dce7f4;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.yolen-client-relationship-waiting[data-yolen-waiting-state="customer_waiting_for_seller"] .yolen-client-relationship-value,
+.yolen-client-relationship-sla[data-yolen-sla-risk="medium"] .yolen-client-relationship-value {
+  color: #fde68a;
+}
+
+.yolen-client-relationship-sla[data-yolen-sla-risk="high"] .yolen-client-relationship-value {
+  color: #fca5a5;
+}
+
+.yolen-client-timeline {
+  margin-top: 12px;
+}
+
+.yolen-client-timeline-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.yolen-client-timeline-item {
+  color: #b9c7d7;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.yolen-client-timeline-date {
+  color: #8296af;
+  font-weight: 850;
+}
+
+@media (max-width: 720px) {
+  .yolen-seller-insight-row,
+  .yolen-method-stage-header {
+    align-items: flex-start;
+  }
+}

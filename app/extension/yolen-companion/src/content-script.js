@@ -49,6 +49,10 @@
     globalThis
       .YolenCompanionClientContextView
 
+  const sellerInformationViewTools =
+    globalThis
+      .YolenCompanionSellerInformationView
+
   if (!messageMutationTools) {
     throw new Error(
       'Módulo de integridade das mensagens do Companion não carregado.',
@@ -67,7 +71,14 @@
     )
   }
 
+  if (!sellerInformationViewTools) {
+    throw new Error(
+      'Módulo de arquitetura seller-facing do Companion não carregado.',
+    )
+  }
+
   let panelCollapsed = false
+  let activeSellerArea = 'now'
   let lastAcknowledgedCollapsedAttentionKey = null
   let sessionRefreshTimerId = 0
   let companionClientContextTickTimerId = 0
@@ -4270,6 +4281,7 @@
     capturedAudioBlobEntries = []
     clearAutomaticAnalysisTimer()
     clearCompanionClientContextRefreshTimer()
+    activeSellerArea = 'now'
 
     lastSelectedChatActivitySnapshot =
       getSelectedChatActivitySnapshot()
@@ -7179,7 +7191,7 @@
     return `
       <div class="yolen-decision-block">
         <div class="yolen-decision-kicker">
-          Melhor abordagem
+          Próximo movimento
         </div>
 
         ${
@@ -7777,6 +7789,7 @@
   ) {
     const labels = {
       completed: 'Concluído',
+      active: 'Ativo',
       partial: 'Parcial',
       not_started:
         'Não iniciado',
@@ -8210,67 +8223,46 @@
   function getRichCommercialReadingExpandedHtml(
     commercialReading,
   ) {
-    const sections = [
-      getRichConversationSummaryHtml(
+    return sellerInformationViewTools
+      .renderAnalysisArea(
         commercialReading,
-      ),
-      getRichCustomerHtml(
-        commercialReading,
-      ),
-      getRichCommercialEvolutionHtml(
-        commercialReading,
-      ),
-      getRichCommercialMethodHtml(
-        commercialReading,
-      ),
-      getRichSellerStrengthsHtml(
-        commercialReading,
-      ),
-      getRichImprovementPointsHtml(
-        commercialReading,
-      ),
-      getRichCommercialRisksHtml(
-        commercialReading,
-      ),
-    ].filter(Boolean)
-
-    if (
-      sections.length === 0
-    ) {
-      return ''
-    }
-
-    return `
-      <details class="yolen-rich-details">
-        <summary class="yolen-rich-details-summary">
-          <div>
-            <div class="yolen-rich-details-title">
-              Ver contexto comercial
-            </div>
-
-            <div class="yolen-rich-details-subtitle">
-              Resumo, cliente, evolução, método, atendimento e riscos
-            </div>
-          </div>
-
-          <span
-            class="yolen-rich-details-chevron"
-            aria-hidden="true"
-          >
-            ›
-          </span>
-        </summary>
-
-        <div class="yolen-rich-details-body">
-          ${sections.join('')}
-        </div>
-      </details>
-    `
+      )
   }
 
   function getRichCommercialReadingCardHtml(
     commercialReading,
   ) {
+    if (
+      sellerInformationViewTools
+        .isNeutralCommercialSession(
+          commercialReading,
+        )
+    ) {
+      const neutralCopy =
+        sellerInformationViewTools
+          .getNeutralSessionCopy(
+            commercialReading,
+          )
+
+      return `
+        <div class="yolen-card yolen-decision-card yolen-status-neutral" data-yolen-now-neutral>
+          <div class="yolen-decision-header">
+            <div class="yolen-section-label">Agora</div>
+            <div class="yolen-decision-badge">Neutro</div>
+          </div>
+
+          <div class="yolen-decision-block">
+            <div class="yolen-card-title yolen-decision-title">
+              ${escapeHtml(neutralCopy.title)}
+            </div>
+            <div class="yolen-decision-copy">
+              ${escapeHtml(neutralCopy.description)}
+            </div>
+          </div>
+        </div>
+      `
+    }
+
     const currentState =
       typeof commercialReading
         ?.conversation_summary
@@ -8322,6 +8314,17 @@
           commercialReading,
         )}
 
+        ${sellerInformationViewTools
+          .renderNowMethodSnapshot(
+            commercialReading,
+          )}
+
+        ${sellerInformationViewTools
+          .renderNowAttentionSnapshot(
+            commercialReading,
+            state.companionClientContext,
+          )}
+
         ${getRichCommercialReadingApproachHtml(
           commercialReading,
         )}
@@ -8337,10 +8340,6 @@
         ${getAudioTranscriptionHtml()}
 
         ${getSuggestedMessageHtml()}
-
-        ${getRichCommercialReadingExpandedHtml(
-          commercialReading,
-        )}
 
         <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
@@ -8577,7 +8576,7 @@
     return `
       <div class="yolen-card yolen-client-relationship-card">
         <div class="yolen-section-label">
-          Relacionamento
+          Relacionamento e histórico
         </div>
 
         ${clientContextViewTools.renderClientContextSection(
@@ -8633,6 +8632,260 @@
 
     return (
       getLegacyAnalysisCardHtml()
+    )
+  }
+
+  function getDetailedAnalysisAreaHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    if (
+      commercialReading &&
+      !state.conversationAnalysisLoading &&
+      !state.conversationAnalysisError &&
+      !isCurrentAnalysisOutdated()
+    ) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
+          ${getRichCommercialReadingExpandedHtml(
+            commercialReading,
+          )}
+        </div>
+      `
+    }
+
+    if (state.conversationAnalysisLoading) {
+      return `
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-loading>
+            Analisando sua condução comercial…
+          </div>
+        </div>
+      `
+    }
+
+    if (state.conversationAnalysisError) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-warning">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-error>
+            ${escapeHtml(state.conversationAnalysisError)}
+          </div>
+        </div>
+      `
+    }
+
+    if (isCurrentAnalysisOutdated()) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-warning">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
+            A conversa mudou. Atualize a leitura para avaliar a condução atual.
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      <div class="yolen-card yolen-seller-area-card">
+        <div class="yolen-section-label">Análise</div>
+        <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
+          A leitura atual oferece somente orientação imediata. Ainda não há análise detalhada de coaching e método.
+        </div>
+      </div>
+    `
+  }
+
+  function getClientInformationAreaHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const commercialHtml =
+      commercialReading &&
+      !state.conversationAnalysisError &&
+      !isCurrentAnalysisOutdated()
+        ? sellerInformationViewTools
+            .renderClientCommercialArea(
+              commercialReading,
+            )
+        : ''
+
+    const relationshipHtml =
+      getCompanionClientRelationshipCardHtml()
+
+    if (!commercialHtml && !relationshipHtml) {
+      return `
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Cliente</div>
+          <div class="yolen-seller-empty-state" data-yolen-client-empty>
+            Ainda não há informações suficientes sobre este cliente.
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      ${commercialHtml}
+      ${relationshipHtml}
+    `
+  }
+
+  function getSellerAreaTabHtml(
+    area,
+    label,
+  ) {
+    const selected =
+      activeSellerArea === area
+
+    return `
+      <button
+        id="yolen-seller-tab-${escapeHtml(area)}"
+        class="yolen-seller-tab ${selected ? 'yolen-seller-tab--active' : ''}"
+        type="button"
+        role="tab"
+        data-yolen-seller-area="${escapeHtml(area)}"
+        aria-selected="${selected ? 'true' : 'false'}"
+        aria-controls="yolen-seller-panel-${escapeHtml(area)}"
+        tabindex="${selected ? '0' : '-1'}"
+      >
+        ${escapeHtml(label)}
+      </button>
+    `
+  }
+
+  function getSellerAreaPanelHtml(
+    area,
+    content,
+  ) {
+    const selected =
+      activeSellerArea === area
+
+    return `
+      <section
+        id="yolen-seller-panel-${escapeHtml(area)}"
+        class="yolen-seller-panel"
+        role="tabpanel"
+        aria-labelledby="yolen-seller-tab-${escapeHtml(area)}"
+        data-yolen-seller-panel="${escapeHtml(area)}"
+        ${selected ? '' : 'hidden'}
+      >
+        ${content}
+      </section>
+    `
+  }
+
+  function getSellerInformationArchitectureHtml() {
+    return `
+      <div class="yolen-seller-workspace">
+        <div
+          class="yolen-seller-tabs"
+          role="tablist"
+          aria-label="Áreas do Yolen Companion"
+        >
+          ${getSellerAreaTabHtml('now', 'Agora')}
+          ${getSellerAreaTabHtml('analysis', 'Análise')}
+          ${getSellerAreaTabHtml('client', 'Cliente')}
+        </div>
+
+        ${getSellerAreaPanelHtml(
+          'now',
+          getAnalysisCardHtml(),
+        )}
+
+        ${getSellerAreaPanelHtml(
+          'analysis',
+          getDetailedAnalysisAreaHtml(),
+        )}
+
+        ${getSellerAreaPanelHtml(
+          'client',
+          getClientInformationAreaHtml(),
+        )}
+      </div>
+    `
+  }
+
+  function setActiveSellerArea(
+    nextArea,
+    options = {},
+  ) {
+    const areas = [
+      'now',
+      'analysis',
+      'client',
+    ]
+
+    if (!areas.includes(nextArea)) {
+      return
+    }
+
+    activeSellerArea = nextArea
+    renderPanel()
+
+    if (options.focus === true) {
+      window.setTimeout(() => {
+        document
+          .getElementById(
+            `yolen-seller-tab-${nextArea}`,
+          )
+          ?.focus()
+      }, 0)
+    }
+  }
+
+  function handleSellerAreaKeyboard(
+    event,
+  ) {
+    const areas = [
+      'now',
+      'analysis',
+      'client',
+    ]
+
+    const currentArea =
+      event.currentTarget
+        ?.getAttribute(
+          'data-yolen-seller-area',
+        )
+
+    const currentIndex =
+      areas.indexOf(currentArea)
+
+    if (currentIndex < 0) {
+      return
+    }
+
+    let nextIndex = null
+
+    if (
+      event.key === 'ArrowRight' ||
+      event.key === 'ArrowDown'
+    ) {
+      nextIndex =
+        (currentIndex + 1) %
+        areas.length
+    } else if (
+      event.key === 'ArrowLeft' ||
+      event.key === 'ArrowUp'
+    ) {
+      nextIndex =
+        (currentIndex - 1 + areas.length) %
+        areas.length
+    } else if (event.key === 'Home') {
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      nextIndex = areas.length - 1
+    }
+
+    if (nextIndex === null) {
+      return
+    }
+
+    event.preventDefault()
+    setActiveSellerArea(
+      areas[nextIndex],
+      { focus: true },
     )
   }
 
@@ -10011,13 +10264,34 @@
 
       getPreSendAssessmentCardHtml(),
 
-      getAnalysisCardHtml(),
-
-      getCompanionClientRelationshipCardHtml(),
+      getSellerInformationArchitectureHtml(),
 
       getCompactFooterHtml(),
 
     ].join('')
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-seller-area]',
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          'click',
+          () => {
+            setActiveSellerArea(
+              button.getAttribute(
+                'data-yolen-seller-area',
+              ),
+              { focus: true },
+            )
+          },
+        )
+
+        button.addEventListener(
+          'keydown',
+          handleSellerAreaKeyboard,
+        )
+      })
 
     panel.querySelectorAll('[data-yolen-action="refresh"]').forEach((button) => {
       button.addEventListener('click', () => {

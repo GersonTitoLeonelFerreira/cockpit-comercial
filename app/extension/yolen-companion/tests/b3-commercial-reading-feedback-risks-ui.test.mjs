@@ -168,37 +168,11 @@ test(
 
     assert.match(
       expanded,
-      /getRichSellerStrengthsHtml/,
-    )
-
-    assert.match(
-      expanded,
-      /getRichImprovementPointsHtml/,
-    )
-
-    assert.match(
-      expanded,
-      /getRichCommercialRisksHtml/,
-    )
-
-    assert.match(
-      expanded,
-      /Resumo, cliente, evolução, método, atendimento e riscos/,
-    )
-
-    const b34 =
-      getBlock(
-        'function getRichSellerStrengthsHtml(',
-        'function getRichCommercialReadingExpandedHtml(',
-      )
-
-    assert.doesNotMatch(
-      b34,
-      /evidence_message_ids|memory_ids|contract_version|engine_source|stage_key/,
+      /sellerInformationViewTools[\s\S]*renderAnalysisArea/,
     )
 
     assert.doesNotMatch(
-      b34,
+      expanded,
       /\.coaching|\.suggestion/,
     )
   },

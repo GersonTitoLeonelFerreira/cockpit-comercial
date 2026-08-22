@@ -671,7 +671,7 @@ test('B2 integra candidatos reais no painel com confirmação humana explícita'
 
   assert.match(
     contentScript,
-    /getLeadEnrichmentCandidatesHtml\(\),[\s\S]*getAnalysisCardHtml\(\)/,
+    /getLeadEnrichmentCandidatesHtml\(\),[\s\S]*getSellerInformationArchitectureHtml\(\)/,
   )
 })
 

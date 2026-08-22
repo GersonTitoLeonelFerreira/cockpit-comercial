@@ -25,6 +25,17 @@
     high: 'Risco alto',
   }
 
+  const LEAD_STATUS_LABELS = {
+    novo: 'Novo',
+    contato: 'Contato',
+    respondeu: 'Agenda',
+    negociacao: 'Negociação',
+    pausado: 'Pausado',
+    ganho: 'Ganho',
+    perdido: 'Perdido',
+    cancelado: 'Cancelado',
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -340,6 +351,24 @@
     return rows.join('')
   }
 
+  function renderIdentityRows(identity) {
+    const status =
+      identity?.current_status
+
+    if (!status) {
+      return ''
+    }
+
+    return (
+      '<div class="yolen-client-relationship-row yolen-client-identity-row">' +
+      '<span class="yolen-client-relationship-label">Etapa atual</span>' +
+      `<span class="yolen-client-relationship-value">${escapeHtml(
+        LEAD_STATUS_LABELS[status] || status,
+      )}</span>` +
+      '</div>'
+    )
+  }
+
   function renderSlaRow(
     sla,
     generatedAt,
@@ -436,7 +465,7 @@
 
     return (
       '<details class="yolen-client-timeline">' +
-      '<summary>Histórico da relação</summary>' +
+      '<summary>Ver histórico</summary>' +
       `<ul class="yolen-client-timeline-list">${items}</ul>` +
       '</details>'
     )
@@ -476,7 +505,10 @@
     }
 
     const rows = hasMessageHistory
-      ? renderRelationshipRows(
+      ? renderIdentityRows(
+          context.identity,
+        ) +
+        renderRelationshipRows(
           context.relationship,
         ) +
         renderWaitingRow(
@@ -485,7 +517,10 @@
           now,
         ) +
         slaRow
-      : renderNoMessageHistoryRow() +
+      : renderIdentityRows(
+          context.identity,
+        ) +
+        renderNoMessageHistoryRow() +
         slaRow
 
     const timeline = hasMessageHistory
