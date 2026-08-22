@@ -27,6 +27,7 @@ function emptyPatch() {
 
     objections_to_add: [],
     objection_ids_to_resolve: [],
+    objection_ids_to_supersede: [],
 
     commitments_to_upsert: [],
 
@@ -425,7 +426,7 @@ function expectReductionError(
 }
 
 test(
-  'fixtures do redutor respeitam o contrato stateful v2',
+  'fixtures do redutor respeitam o contrato stateful v3',
   () => {
     const initialOutput =
       buildInitialOutput()
@@ -438,6 +439,14 @@ test(
             'm1',
             'm2',
           ],
+
+          customer_message_ids: [
+            'm1',
+            'm2',
+          ],
+
+          available_products: [],
+          previous_communication_observations: [],
 
           available_memory_ids: [],
           active_memory_ids: [],
@@ -473,6 +482,13 @@ test(
           available_message_ids: [
             'm3',
           ],
+
+          customer_message_ids: [
+            'm3',
+          ],
+
+          available_products: [],
+          previous_communication_observations: [],
 
           available_memory_ids: [
             'facts-1-1',

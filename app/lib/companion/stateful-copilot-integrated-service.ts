@@ -300,6 +300,7 @@ function normalizeLoadedState({
   conversationKey,
   knownMessageIds,
   activeMessageIds,
+  customerMessageIds,
   normalizeState,
 }: {
   stateRead:
@@ -313,6 +314,9 @@ function normalizeLoadedState({
     string[]
 
   activeMessageIds:
+    string[]
+
+  customerMessageIds:
     string[]
 
   normalizeState:
@@ -403,6 +407,9 @@ function normalizeLoadedState({
 
           active_message_ids:
             activeMessageIds,
+
+          customer_message_ids:
+            customerMessageIds,
         },
       )
   } catch (error) {
@@ -483,6 +490,7 @@ function normalizeCandidateState({
   cycleId,
   knownMessageIds,
   activeMessageIds,
+  customerMessageIds,
   normalizeState,
 }: {
   engineResult:
@@ -494,6 +502,9 @@ function normalizeCandidateState({
     string[]
 
   activeMessageIds:
+    string[]
+
+  customerMessageIds:
     string[]
 
   normalizeState:
@@ -522,6 +533,9 @@ function normalizeCandidateState({
 
           active_message_ids:
             activeMessageIds,
+
+          customer_message_ids:
+            customerMessageIds,
         },
       )
   } catch (error) {
@@ -613,6 +627,20 @@ export async function runStatefulCopilotIntegratedService({
       'diagnostic_input.conversation.active_message_ids',
     )
 
+  const customerMessageIds =
+    diagnostic_input
+      .conversation
+      .messages
+      .filter(
+        message =>
+          message.direction ===
+          'incoming',
+      )
+      .map(
+        message =>
+          message.id,
+      )
+
   ensureSubset({
     values:
       activeMessageIds,
@@ -622,6 +650,17 @@ export async function runStatefulCopilotIntegratedService({
 
     path:
       'diagnostic_input.conversation.active_message_ids',
+  })
+
+  ensureSubset({
+    values:
+      customerMessageIds,
+
+    allowedValues:
+      activeMessageIds,
+
+    path:
+      'diagnostic_input.conversation.customer_message_ids',
   })
 
   const rawStateRead =
@@ -653,6 +692,7 @@ export async function runStatefulCopilotIntegratedService({
 
       knownMessageIds,
       activeMessageIds,
+      customerMessageIds,
 
       normalizeState,
     })
@@ -681,6 +721,7 @@ export async function runStatefulCopilotIntegratedService({
 
       knownMessageIds,
       activeMessageIds,
+      customerMessageIds,
 
       normalizeState,
     })

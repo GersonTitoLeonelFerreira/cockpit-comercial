@@ -31,6 +31,15 @@ import {
   buildCommercialBehaviorPromptRules,
 } from './commercial-behavior-prompt-rules'
 
+import {
+  buildClientCommercialIntelligencePromptRules,
+} from './client-commercial-intelligence-prompt-rules'
+
+import {
+  isCommunicationBehavior,
+  parseClientCommercialFactKind,
+} from './client-commercial-intelligence-contract'
+
 import type {
   StatefulCopilotNormalizationContext,
 } from './stateful-copilot-normalizer'
@@ -41,7 +50,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v19' as const
+  'phase-5.2-stateful-prompt-v20' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -697,11 +706,98 @@ function buildNormalizationContext(
   input: StatefulCopilotInput,
   memoryContext: MemoryContext,
 ): StatefulCopilotNormalizationContext {
+  const availableMessageIds =
+    selectAnalysisMessageIds(
+      input,
+    )
+
+  const availableMessageIdSet =
+    new Set(
+      availableMessageIds,
+    )
+
+  const previousCommunicationObservations =
+    (
+      input.state_context
+        .previous_state?.facts ?? []
+    )
+      .filter(
+        fact => {
+          const descriptor =
+            parseClientCommercialFactKind(
+              fact.kind,
+            )
+
+          return (
+            fact.memory_status ===
+              'active' &&
+            descriptor?.category ===
+              'communication' &&
+            isCommunicationBehavior(
+              fact.value,
+            )
+          )
+        },
+      )
+      .map(
+        fact => ({
+          memory_id:
+            fact.id,
+
+          behavior:
+            fact.value as NonNullable<
+              typeof fact.value
+            >,
+
+          evidence_count:
+            new Set(
+              fact.evidence_message_ids,
+            ).size,
+        }),
+      )
+
   return {
     available_message_ids:
-      selectAnalysisMessageIds(
-        input,
-      ),
+      availableMessageIds,
+
+    customer_message_ids:
+      input
+        .diagnostic_input
+        .conversation
+        .messages
+        .filter(
+          message =>
+            availableMessageIdSet.has(
+              message.id,
+            ) &&
+            message.direction ===
+              'incoming',
+        )
+        .map(
+          message =>
+            message.id,
+        ),
+
+    available_products:
+      input
+        .diagnostic_input
+        .commercial_context
+        .products
+        .map(
+          product => ({
+            product_id:
+              product.product_id,
+
+            name:
+              product.name ??
+              product.definition
+                ?.name ??
+              null,
+          }),
+        ),
+
+    previous_communication_observations:
+      previousCommunicationObservations,
 
     negotiation_evidence_detected:
       hasCurrentNegotiationEvidence(
@@ -916,6 +1012,8 @@ function buildSystemPrompt(
           .commercial_context
           .prohibited_behaviors,
     }),
+
+    buildClientCommercialIntelligencePromptRules(),
 
     'A estratégia precisa explicar como o método, o contexto, as mensagens atuais e as memórias ativas foram integrados.',
 
@@ -1255,6 +1353,7 @@ function buildUserPrompt(
           'open_loop_ids_to_resolve',
           'objections_to_add',
           'objection_ids_to_resolve',
+          'objection_ids_to_supersede',
           'commitments_to_upsert',
           'signals_to_add',
           'signal_ids_to_resolve',

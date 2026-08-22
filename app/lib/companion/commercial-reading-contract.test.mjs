@@ -98,6 +98,10 @@ function buildValidReading() {
     },
 
     customer: {
+      objectives: [],
+      problems: [],
+      impacts: [],
+
       needs: [
         evidence(
           'Reduzir perda de follow-up.',
@@ -138,6 +142,19 @@ function buildValidReading() {
       ],
 
       uncertainties: [],
+
+      discussed_products: [],
+      primary_product_interest: null,
+      competitors: [],
+      commitments: [],
+      missing_discovery: [],
+      resolved_information: [],
+      superseded_information: [],
+
+      communication: {
+        events: [],
+        patterns: [],
+      },
     },
 
     commercial_evolution: [

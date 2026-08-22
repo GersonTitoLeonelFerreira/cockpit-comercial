@@ -26,6 +26,15 @@ import {
   isCommerciallyActionable,
 } from './commercial-relevance'
 
+import {
+  CLIENT_COMMERCIAL_MISSING_DISCOVERY_PREFIX,
+  CLIENT_COMMERCIAL_OPEN_QUESTION_KIND,
+  containsForbiddenPsychologicalProfile,
+  isCommunicationBehavior,
+  parseClientCommercialFactKind,
+  parseMissingDiscoveryKind,
+} from './client-commercial-intelligence-contract'
+
 const LEAD_STATUSES = [
   'novo',
   'contato',
@@ -42,6 +51,19 @@ type JsonRecord =
 
 export type StatefulCopilotNormalizationContext = {
   available_message_ids: string[]
+
+  customer_message_ids: string[]
+
+  available_products: Array<{
+    product_id: string
+    name: string | null
+  }>
+
+  previous_communication_observations: Array<{
+    memory_id: string
+    behavior: string
+    evidence_count: number
+  }>
 
   available_memory_ids: string[]
 
@@ -60,6 +82,396 @@ export type StatefulCopilotNormalizationContext = {
     DiagnosticLeadStatus[]
 
   reference_time: string
+}
+
+function validateClientStatePatch(
+  patch: StatefulCopilotStatePatch,
+  context:
+    StatefulCopilotNormalizationContext,
+): void {
+  const customerMessageIds =
+    new Set(
+      context.customer_message_ids,
+    )
+
+  const availableProducts =
+    new Set(
+      context.available_products.map(
+        product =>
+          product.product_id,
+      ),
+    )
+
+  const objectionIdsToResolve =
+    new Set(
+      patch.objection_ids_to_resolve,
+    )
+
+  const duplicatedObjectionClosure =
+    patch.objection_ids_to_supersede.find(
+      id =>
+        objectionIdsToResolve.has(id),
+    )
+
+  if (duplicatedObjectionClosure) {
+    fail(
+      'CONFLICTING_OBJECTION_CLOSURE',
+      'output.state_patch',
+      `A objeção ${duplicatedObjectionClosure} não pode ser resolvida e substituída no mesmo ciclo.`,
+    )
+  }
+
+  const requireCustomerEvidence = (
+    evidenceMessageIds: string[],
+    path: string,
+  ) => {
+    if (
+      !evidenceMessageIds.some(
+        id =>
+          customerMessageIds.has(id),
+      )
+    ) {
+      fail(
+        'CUSTOMER_EVIDENCE_REQUIRED',
+        path,
+        'A inteligência do cliente precisa apontar para uma mensagem incoming do próprio cliente.',
+      )
+    }
+  }
+
+  let primaryProducts = 0
+
+  patch.facts_to_add.forEach(
+    (fact, index) => {
+      const path =
+        `output.state_patch.facts_to_add[${index}]`
+
+      const descriptor =
+        parseClientCommercialFactKind(
+          fact.kind,
+        )
+
+      if (!descriptor) {
+        if (
+          fact.kind.startsWith(
+            'client.',
+          )
+        ) {
+          fail(
+            'UNKNOWN_CLIENT_FACT_KIND',
+            `${path}.kind`,
+            'O tipo de inteligência comercial do cliente não é canônico.',
+          )
+        }
+
+        return
+      }
+
+      requireCustomerEvidence(
+        fact.evidence_message_ids,
+        `${path}.evidence_message_ids`,
+      )
+
+      if (
+        descriptor.category ===
+          'objective' ||
+        descriptor.category ===
+          'problem' ||
+        descriptor.category ===
+          'impact' ||
+        descriptor.category ===
+          'interest' ||
+        descriptor.category ===
+          'decision_criterion' ||
+        descriptor.category ===
+          'preference'
+      ) {
+        if (fact.value !== null) {
+          fail(
+            'CLIENT_FACT_VALUE_NOT_ALLOWED',
+            `${path}.value`,
+            'Objetivo, problema, impacto, interesse, critério e preferência usam summary e value=null.',
+          )
+        }
+
+        return
+      }
+
+      if (
+        descriptor.category ===
+        'product'
+      ) {
+        if (!fact.value) {
+          fail(
+            'PRODUCT_REFERENCE_REQUIRED',
+            `${path}.value`,
+            'Produto discutido precisa preservar o product_id canônico ou o nome observado.',
+          )
+        }
+
+        if (
+          descriptor.source ===
+            'catalog' &&
+          !availableProducts.has(
+            fact.value,
+          )
+        ) {
+          fail(
+            'UNKNOWN_CANONICAL_PRODUCT',
+            `${path}.value`,
+            'O product_id informado não pertence ao catálogo canônico disponível.',
+          )
+        }
+
+        if (
+          descriptor.interest_level ===
+          'primary'
+        ) {
+          primaryProducts += 1
+        }
+
+        return
+      }
+
+      if (
+        descriptor.category ===
+          'competitor'
+      ) {
+        if (
+          (
+            descriptor.mention_type ===
+              'named' &&
+            !fact.value
+          ) ||
+          (
+            descriptor.mention_type ===
+              'unnamed_alternative' &&
+            fact.value !== null
+          )
+        ) {
+          fail(
+            'COMPETITOR_REFERENCE_MISMATCH',
+            `${path}.value`,
+            'Concorrente nominal exige nome; alternativa sem nome precisa usar value=null.',
+          )
+        }
+
+        return
+      }
+
+      if (
+        descriptor.category !==
+        'communication'
+      ) {
+        return
+      }
+
+      if (
+        !isCommunicationBehavior(
+          fact.value,
+        )
+      ) {
+        fail(
+          'INVALID_COMMUNICATION_BEHAVIOR',
+          `${path}.value`,
+          'A comunicação observada precisa usar um comportamento permitido.',
+        )
+      }
+
+      if (
+        containsForbiddenPsychologicalProfile(
+          fact.summary,
+        )
+      ) {
+        fail(
+          'PSYCHOLOGICAL_PROFILE_NOT_ALLOWED',
+          `${path}.summary`,
+          'Comunicação observada não pode afirmar psicologia ou personalidade.',
+        )
+      }
+
+      if (
+        descriptor.observation_type ===
+        'pattern'
+      ) {
+        const currentEvidenceCount =
+          new Set(
+            fact.evidence_message_ids
+              .filter(
+                id =>
+                  customerMessageIds.has(id),
+              ),
+          ).size
+
+        const previousEvidenceCount =
+          context
+            .previous_communication_observations
+            .filter(
+              observation =>
+                observation.behavior ===
+                  fact.value &&
+                patch
+                  .fact_ids_to_supersede
+                  .includes(
+                    observation.memory_id,
+                  ),
+            )
+            .reduce(
+              (
+                total,
+                observation,
+              ) =>
+                total +
+                observation
+                  .evidence_count,
+              0,
+            )
+
+        if (
+          currentEvidenceCount +
+          previousEvidenceCount <
+          2
+        ) {
+          fail(
+            'COMMUNICATION_PATTERN_EVIDENCE_REQUIRED',
+            `${path}.evidence_message_ids`,
+            'Padrão de comunicação exige pelo menos duas evidências incoming, atuais ou acumuladas por memória substituída.',
+          )
+        }
+      }
+    },
+  )
+
+  if (primaryProducts > 1) {
+    fail(
+      'MULTIPLE_PRIMARY_PRODUCTS',
+      'output.state_patch.facts_to_add',
+      'Somente um produto pode ser o maior interesse atual do cliente.',
+    )
+  }
+
+  patch.needs_to_add.forEach(
+    (item, index) =>
+      requireCustomerEvidence(
+        item.evidence_message_ids,
+        `output.state_patch.needs_to_add[${index}].evidence_message_ids`,
+      ),
+  )
+
+  patch.objections_to_add.forEach(
+    (item, index) =>
+      requireCustomerEvidence(
+        item.evidence_message_ids,
+        `output.state_patch.objections_to_add[${index}].evidence_message_ids`,
+      ),
+  )
+
+  patch.open_loops_to_add.forEach(
+    (item, index) => {
+      if (
+        item.kind ===
+        CLIENT_COMMERCIAL_OPEN_QUESTION_KIND
+      ) {
+        requireCustomerEvidence(
+          item.evidence_message_ids,
+          `output.state_patch.open_loops_to_add[${index}].evidence_message_ids`,
+        )
+      }
+    },
+  )
+
+  patch.uncertainties_to_add.forEach(
+    (item, index) => {
+      const path =
+        `output.state_patch.uncertainties_to_add[${index}]`
+
+      if (
+        item.kind.startsWith(
+          CLIENT_COMMERCIAL_MISSING_DISCOVERY_PREFIX,
+        ) &&
+        parseMissingDiscoveryKind(
+          item.kind,
+        ) === null
+      ) {
+        fail(
+          'INVALID_MISSING_DISCOVERY_TOPIC',
+          `${path}.kind`,
+          'Missing discovery precisa usar um tópico canônico.',
+        )
+      }
+
+      requireCustomerEvidence(
+        item.evidence_message_ids,
+        `${path}.evidence_message_ids`,
+      )
+    },
+  )
+
+  const semanticStatements = [
+    ...patch.facts_to_add
+      .map(
+        fact => ({
+          category:
+            parseClientCommercialFactKind(
+              fact.kind,
+            )?.category,
+          summary:
+            fact.summary
+              .trim()
+              .toLocaleLowerCase(
+                'pt-BR',
+              ),
+        }),
+      )
+      .filter(
+        item =>
+          [
+            'objective',
+            'problem',
+            'impact',
+          ].includes(
+            item.category ?? '',
+          ),
+      ),
+    ...patch.needs_to_add.map(
+      need => ({
+        category:
+          'need',
+        summary:
+          need.summary
+            .trim()
+            .toLocaleLowerCase(
+              'pt-BR',
+            ),
+      }),
+    ),
+  ]
+
+  for (
+    let index = 0;
+    index < semanticStatements.length;
+    index += 1
+  ) {
+    const statement =
+      semanticStatements[index]
+
+    if (
+      semanticStatements.some(
+        (candidate, candidateIndex) =>
+          candidateIndex !== index &&
+          candidate.category !==
+            statement.category &&
+          candidate.summary ===
+            statement.summary,
+      )
+    ) {
+      fail(
+        'CLIENT_CONCEPT_DUPLICATION',
+        'output.state_patch',
+        'Objetivo, problema, impacto e necessidade não podem repetir a mesma afirmação.',
+      )
+    }
+  }
 }
 
 export class StatefulCopilotContractError
@@ -1015,6 +1427,15 @@ function normalizeStatePatch(
         collectedMemoryIds,
       ),
 
+    objection_ids_to_supersede:
+      normalizeMemoryIds(
+        record.objection_ids_to_supersede,
+        `${path}.objection_ids_to_supersede`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
+      ),
+
     commitments_to_upsert:
       normalizeList(
         record.commitments_to_upsert,
@@ -1539,6 +1960,25 @@ export function normalizeStatefulCopilotOutput(
       context.available_message_ids,
     )
 
+  const customerMessageIds =
+    new Set(
+      context.customer_message_ids,
+    )
+
+  for (const messageId of customerMessageIds) {
+    if (
+      !availableMessageIds.has(
+        messageId,
+      )
+    ) {
+      fail(
+        'CUSTOMER_MESSAGE_NOT_AVAILABLE',
+        'context.customer_message_ids',
+        `A mensagem incoming ${messageId} não pertence à fotografia analisada.`,
+      )
+    }
+  }
+
   const availableMemoryIds =
     new Set(
       context.available_memory_ids,
@@ -1660,6 +2100,11 @@ export function normalizeStatefulCopilotOutput(
       activeMemoryIds,
       collectedMemoryIds,
     )
+
+  validateClientStatePatch(
+    statePatch,
+    context,
+  )
 
   const strategy =
     normalizeStrategy(

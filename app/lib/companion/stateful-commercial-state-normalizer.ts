@@ -21,6 +21,12 @@ import {
   type StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import {
+  CLIENT_COMMERCIAL_OPEN_QUESTION_KIND,
+  isClientCommercialMemory,
+  validateClientCommercialState,
+} from './client-commercial-intelligence-contract'
+
 type JsonRecord =
   Record<string, unknown>
 
@@ -31,6 +37,9 @@ export type StatefulCommercialStateNormalizationContext = {
     string[]
 
   active_message_ids:
+    string[]
+
+  customer_message_ids?:
     string[]
 }
 
@@ -824,6 +833,17 @@ export function normalizeStatefulCommercialState(
       ),
     )
 
+  const customerMessageIds =
+    context.customer_message_ids ===
+      undefined
+      ? null
+      : new Set(
+          requireUniqueStringArray(
+            context.customer_message_ids,
+            'context.customer_message_ids',
+          ),
+        )
+
   ensureSubset(
     [
       ...activeMessageIds,
@@ -832,6 +852,17 @@ export function normalizeStatefulCommercialState(
     'context.active_message_ids',
     'ACTIVE_MESSAGE_NOT_KNOWN',
   )
+
+  if (customerMessageIds) {
+    ensureSubset(
+      [
+        ...customerMessageIds,
+      ],
+      knownMessageIds,
+      'context.customer_message_ids',
+      'CUSTOMER_MESSAGE_NOT_KNOWN',
+    )
+  }
 
   const state =
     requireRecord(
@@ -1019,7 +1050,8 @@ export function normalizeStatefulCommercialState(
     )
   }
 
-  return {
+  const normalizedState:
+    StatefulCommercialState = {
     contract_version:
       STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION,
 
@@ -1063,4 +1095,59 @@ export function normalizeStatefulCommercialState(
     updated_at:
       updatedAt,
   }
+
+  const customerMemories: Array<
+    StatefulCommercialMemoryBase
+  > = [
+    ...normalizedState.facts.filter(
+      isClientCommercialMemory,
+    ),
+    ...normalizedState.needs,
+    ...normalizedState.open_loops.filter(
+      item =>
+        item.kind ===
+        CLIENT_COMMERCIAL_OPEN_QUESTION_KIND,
+    ),
+    ...normalizedState.objections,
+    ...normalizedState.uncertainties,
+  ]
+
+  for (const memory of customerMemories) {
+    if (
+      memory.memory_status ===
+        'active' &&
+      customerMessageIds !== null &&
+      memory.evidence_message_ids
+        .some(
+          id =>
+            activeMessageIds.has(id),
+        ) &&
+      !memory.evidence_message_ids
+        .some(
+          id =>
+            customerMessageIds.has(id),
+        )
+    ) {
+      fail(
+        'CUSTOMER_MEMORY_EVIDENCE_REQUIRED',
+        'state',
+        `A memória comercial atual ${memory.id} precisa apontar para uma mensagem incoming ativa do cliente quando usar evidência da fotografia atual.`,
+      )
+    }
+  }
+
+  const clientStateIssue =
+    validateClientCommercialState(
+      normalizedState,
+    )[0]
+
+  if (clientStateIssue) {
+    fail(
+      clientStateIssue.code,
+      clientStateIssue.path,
+      clientStateIssue.message,
+    )
+  }
+
+  return normalizedState
 }

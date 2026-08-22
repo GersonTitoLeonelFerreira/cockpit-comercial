@@ -119,6 +119,7 @@ function buildOutput() {
 
       objections_to_add: [],
       objection_ids_to_resolve: [],
+      objection_ids_to_supersede: [],
 
       commitments_to_upsert: [],
 

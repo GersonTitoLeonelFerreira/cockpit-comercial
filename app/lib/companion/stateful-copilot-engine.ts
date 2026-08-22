@@ -211,6 +211,96 @@ function fail(
   )
 }
 
+export function preservePreviousCommercialStateWhenClosed({
+  candidateState,
+  previousState,
+  output,
+}: {
+  candidateState:
+    StatefulCommercialState
+
+  previousState:
+    StatefulCommercialState | null
+
+  output:
+    StatefulCopilotOutput
+}): StatefulCommercialState {
+  const commercialStateCanChange =
+    output.commercial_role ===
+      'buyer' &&
+    isCommerciallyActionable(
+      output.commercial_relevance,
+    )
+
+  if (
+    commercialStateCanChange ||
+    previousState === null
+  ) {
+    return candidateState
+  }
+
+  return {
+    ...candidateState,
+
+    commercial_role:
+      previousState.commercial_role,
+
+    current_moment: {
+      summary:
+        previousState
+          .current_moment
+          .summary,
+
+      evidence_message_ids: [
+        ...previousState
+          .current_moment
+          .evidence_message_ids,
+      ],
+    },
+
+    current_priority: {
+      summary:
+        previousState
+          .current_priority
+          .summary,
+
+      evidence_message_ids: [
+        ...previousState
+          .current_priority
+          .evidence_message_ids,
+      ],
+    },
+
+    facts: [
+      ...previousState.facts,
+    ],
+
+    needs: [
+      ...previousState.needs,
+    ],
+
+    open_loops: [
+      ...previousState.open_loops,
+    ],
+
+    objections: [
+      ...previousState.objections,
+    ],
+
+    commitments: [
+      ...previousState.commitments,
+    ],
+
+    signals: [
+      ...previousState.signals,
+    ],
+
+    uncertainties: [
+      ...previousState.uncertainties,
+    ],
+  }
+}
+
 export async function runStatefulCopilotEngine({
   diagnostic_input,
   previous_state,
@@ -319,12 +409,49 @@ export async function runStatefulCopilotEngine({
     )
   }
 
+  const diagnosticCandidateState =
+    preservePreviousCommercialStateWhenClosed({
+      candidateState:
+        reduceState({
+          previous_state:
+            input
+              .state_context
+              .previous_state,
+
+          output:
+            orchestration.output,
+
+          cycle_id:
+            input
+              .diagnostic_input
+              .cycle_id,
+
+          applied_at:
+            input
+              .diagnostic_input
+              .reference_time,
+
+          create_memory_id,
+        }),
+
+      previousState:
+        input
+          .state_context
+          .previous_state,
+
+      output:
+        orchestration.output,
+    })
+
   const communicationPlan =
     buildCommunicationPlan({
       input,
 
       diagnostic_output:
         orchestration.output,
+
+      candidate_state:
+        diagnosticCandidateState,
     })
 
   const communication =
@@ -371,29 +498,6 @@ export async function runStatefulCopilotEngine({
       },
     }
 
-  let candidateState =
-    reduceState({
-      previous_state:
-        input
-          .state_context
-          .previous_state,
-
-      output:
-        output,
-
-      cycle_id:
-        input
-          .diagnostic_input
-          .cycle_id,
-
-      applied_at:
-        input
-          .diagnostic_input
-          .reference_time,
-
-      create_memory_id,
-    })
-
   const commercialStateCanChange =
     output.commercial_role ===
       'buyer' &&
@@ -401,74 +505,25 @@ export async function runStatefulCopilotEngine({
       output.commercial_relevance,
     )
 
-  if (
-    !commercialStateCanChange &&
-    input.state_context.previous_state
-  ) {
-    const preservedState =
-      input.state_context.previous_state
+  const candidateState =
+    commercialStateCanChange
+      ? {
+          ...diagnosticCandidateState,
 
-    candidateState = {
-      ...candidateState,
+          current_priority: {
+            summary:
+              output
+                .strategy
+                .next_move,
 
-      commercial_role:
-        preservedState.commercial_role,
-
-      current_moment: {
-        summary:
-          preservedState
-            .current_moment
-            .summary,
-
-        evidence_message_ids: [
-          ...preservedState
-            .current_moment
-            .evidence_message_ids,
-        ],
-      },
-
-      current_priority: {
-        summary:
-          preservedState
-            .current_priority
-            .summary,
-
-        evidence_message_ids: [
-          ...preservedState
-            .current_priority
-            .evidence_message_ids,
-        ],
-      },
-
-      facts: [
-        ...preservedState.facts,
-      ],
-
-      needs: [
-        ...preservedState.needs,
-      ],
-
-      open_loops: [
-        ...preservedState.open_loops,
-      ],
-
-      objections: [
-        ...preservedState.objections,
-      ],
-
-      commitments: [
-        ...preservedState.commitments,
-      ],
-
-      signals: [
-        ...preservedState.signals,
-      ],
-
-      uncertainties: [
-        ...preservedState.uncertainties,
-      ],
-    }
-  }
+            evidence_message_ids: [
+              ...output
+                .strategy
+                .evidence_message_ids,
+            ],
+          },
+        }
+      : diagnosticCandidateState
 
   return {
     mode:

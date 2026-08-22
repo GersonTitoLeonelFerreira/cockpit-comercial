@@ -16,6 +16,14 @@ const normalizationContext = {
     'm8',
   ],
 
+  customer_message_ids: [
+    'm8',
+  ],
+
+  available_products: [],
+
+  previous_communication_observations: [],
+
   available_memory_ids: [
     'commitment-demo-1',
   ],
@@ -166,6 +174,7 @@ function buildValidOutput() {
 
       objections_to_add: [],
       objection_ids_to_resolve: [],
+      objection_ids_to_supersede: [],
 
       commitments_to_upsert: [],
 
@@ -271,14 +280,6 @@ function buildValidOutput() {
       'commitment-demo-1',
     ],
   }
-}
-
-function clone(
-  value,
-) {
-  return JSON.parse(
-    JSON.stringify(value),
-  )
 }
 
 function expectContractError(

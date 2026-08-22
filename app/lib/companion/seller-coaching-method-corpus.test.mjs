@@ -261,15 +261,6 @@ function buildModelOutput({
       last_customer_request_or_decision:
         null,
     },
-    customer: {
-      needs: [],
-      interests: [],
-      decision_criteria: [],
-      preferences: [],
-      open_questions: [],
-      objections: [],
-      uncertainties: [],
-    },
     commercial_evolution: [],
     method,
     seller_strengths:
@@ -349,6 +340,29 @@ function normalizeCase({
         'buyer',
       commercial_relevance:
         commercialRelevance,
+      customer: {
+        objectives: [],
+        problems: [],
+        impacts: [],
+        needs: [],
+        interests: [],
+        decision_criteria: [],
+        preferences: [],
+        open_questions: [],
+        objections: [],
+        uncertainties: [],
+        discussed_products: [],
+        primary_product_interest: null,
+        competitors: [],
+        commitments: [],
+        missing_discovery: [],
+        resolved_information: [],
+        superseded_information: [],
+        communication: {
+          events: [],
+          patterns: [],
+        },
+      },
       communication: {
         intervention_needed:
           interventionNeeded,
