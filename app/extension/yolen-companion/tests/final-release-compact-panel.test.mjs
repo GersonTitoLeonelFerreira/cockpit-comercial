@@ -101,7 +101,7 @@ test(
 
     assert.match(
       renderPanel,
-      /getAnalysisCardHtml/,
+      /getSellerInformationArchitectureHtml/,
     )
 
     assert.match(

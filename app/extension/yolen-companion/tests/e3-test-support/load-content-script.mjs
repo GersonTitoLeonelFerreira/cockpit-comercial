@@ -33,6 +33,7 @@ const DEPENDENCY_FILES = [
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
   'companion-client-context-view.js',
+  'companion-seller-information-view.js',
 ]
 
 export function escapeHtml(value) {
@@ -169,7 +170,11 @@ export function emptyClientContext(overrides = {}) {
   })
 }
 
-function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } = {}) {
+function createFakeBackground({
+  resolutionsByPhone = {},
+  clientContextResult,
+  analysisResult,
+} = {}) {
   const calls = []
   let loadClientContextCallCount = 0
 
@@ -190,6 +195,21 @@ function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } =
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
+    ANALYZE_CONVERSATION: async (requestPayload) => {
+      const payload =
+        typeof analysisResult === 'function'
+          ? await analysisResult(requestPayload)
+          : analysisResult
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Análise não configurada neste cenário de teste.',
+        },
+      }
+    },
     // `clientContextResult` pode ser um valor estático (todo chamada
     // devolve o mesmo payload, como antes) ou uma função `(callNumber) =>
     // payload` — usada pelos testes de refresh ao vivo para simular a
@@ -199,10 +219,11 @@ function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } =
     LOAD_CLIENT_CONTEXT: async (requestPayload) => {
       loadClientContextCallCount += 1
 
-      const payload =
+      const payload = await (
         typeof clientContextResult === 'function'
           ? clientContextResult(loadClientContextCallCount, requestPayload)
           : (clientContextResult ?? defaultClientContext())
+      )
 
       return {
         ok: true,
@@ -224,9 +245,18 @@ function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } =
   return { sendMessage, calls }
 }
 
-export function loadContentScript({ initialHtml, resolutionsByPhone, clientContextResult } = {}) {
+export function loadContentScript({
+  initialHtml,
+  resolutionsByPhone,
+  clientContextResult,
+  analysisResult,
+} = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
-  const background = createFakeBackground({ resolutionsByPhone, clientContextResult })
+  const background = createFakeBackground({
+    resolutionsByPhone,
+    clientContextResult,
+    analysisResult,
+  })
 
   const fakeChrome = {
     runtime: {
@@ -287,6 +317,10 @@ export function resolveLeadCalls(calls) {
 
 export function clientContextCalls(calls) {
   return calls.filter((call) => call.action === 'LOAD_CLIENT_CONTEXT')
+}
+
+export function analysisCalls(calls) {
+  return calls.filter((call) => call.action === 'ANALYZE_CONVERSATION')
 }
 
 function sleep(ms) {
