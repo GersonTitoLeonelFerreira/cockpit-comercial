@@ -10,7 +10,6 @@ import {
 } from './commercial-reading-contract.ts'
 
 import {
-  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
   STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
 } from './stateful-communication-contract.ts'
 
@@ -226,8 +225,41 @@ function buildInput() {
           configured:
             true,
 
+          contract_version:
+            'commercial-method-v1',
+
           name:
             'SPIN',
+
+          description:
+            'Método consultivo configurado.',
+
+          principles: [],
+
+          definition:
+            null,
+
+          steps: [
+            {
+              step_order:
+                1,
+
+              name:
+                'Contexto',
+
+              objective:
+                'Compreender a situação relevante.',
+
+              completion_criteria: [
+                'Contexto comercial compreendido.',
+              ],
+
+              recommended_questions: [],
+
+              is_required:
+                true,
+            },
+          ],
         },
 
         products: [],
@@ -261,10 +293,6 @@ function buildCommercialReadingOutput({
   commercialRole = 'buyer',
   commercialRelevance = 'commercial',
   interventionNeeded = true,
-  recommendedQuestion =
-    'Você prefere que eu retome o contato ou que outra pessoa fale com você?',
-  suggestedMessage =
-    'Claro. Você prefere que eu retome o contato ou que outra pessoa fale com você?',
 } = {}) {
   const canIntervene =
     commercialRole ===
@@ -272,6 +300,12 @@ function buildCommercialReadingOutput({
     commercialRelevance ===
       'commercial' &&
     interventionNeeded
+
+  const canAssessMethod =
+    commercialRole ===
+      'buyer' &&
+    commercialRelevance ===
+      'commercial'
 
   return {
     conversation_summary: {
@@ -367,38 +401,57 @@ function buildCommercialReadingOutput({
       },
     ],
 
-    method: {
-      configured:
-        true,
+    method:
+      canAssessMethod
+        ? {
+            stages: [
+              {
+                step_order:
+                  1,
 
-      name:
-        'SPIN',
+                status:
+                  'completed',
 
-      stages: [
-        {
-          step_order:
-            1,
+                explanation:
+                  'A necessidade imediata de esclarecer a retomada está compreendida.',
 
-          stage_key:
-            'context',
+                evidence_message_ids: [
+                  'm2',
+                ],
 
-          name:
-            'Contexto',
+                memory_ids: [],
+              },
+            ],
 
-          status:
-            'completed',
+            adherence: {
+              status:
+                'on_method',
 
-          explanation:
-            'A necessidade imediata de esclarecer a retomada está compreendida.',
+              summary:
+                'A conversa permanece dentro do método configurado.',
 
-          evidence_message_ids: [
-            'm2',
-          ],
+              deviation_stage_order:
+                null,
 
-          memory_ids: [],
-        },
-      ],
-    },
+              what_happened:
+                null,
+
+              missing_information: [],
+
+              why_it_matters:
+                null,
+
+              evidence_message_ids: [
+                'm2',
+              ],
+
+              memory_ids: [],
+            },
+
+            recovery_guidance:
+              null,
+          }
+        : null,
 
     seller_strengths: [],
     improvement_points: [],
@@ -446,12 +499,6 @@ function buildCommunicationOutput({
   return {
     intervention_needed:
       interventionNeeded,
-
-    method_application:
-      'Usei o contexto para esclarecer o próximo passo sem abrir uma investigação nova.',
-
-    guidance:
-      'Responda diretamente à dúvida sobre a retomada e deixe a responsabilidade clara.',
 
     recommended_question:
       recommendedQuestion,
@@ -599,7 +646,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v7',
+      'phase-5.2-communication-prompt-v8',
     )
 
     assert.match(
@@ -686,6 +733,43 @@ test(
         .best_approach
         .decision,
       'respond',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .method
+        .name,
+      'SPIN',
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .method
+        .current_stage
+        .name,
+      'Contexto',
+    )
+
+    assert.equal(
+      result
+        .output
+        .method_application,
+      'Etapa atual: Contexto. A conversa permanece dentro do método configurado.',
+    )
+
+    assert.equal(
+      result
+        .output
+        .guidance,
+      result
+        .output
+        .commercial_reading
+        .best_approach
+        .reason,
     )
 
     assert.equal(
@@ -903,7 +987,7 @@ test(
 
 
 test(
-  'comunicação v7 integra leitura completa tom comportamentos limites de pressão e escalonamento',
+  'comunicação v8 integra coaching método tom comportamentos limites e escalonamento',
   () => {
     const input =
       buildInput()
@@ -932,7 +1016,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v7',
+      'phase-5.2-communication-prompt-v8',
     )
 
     assert.match(
@@ -959,6 +1043,16 @@ test(
       plan.system_prompt,
       /Nenhuma regra comportamental, isoladamente, autoriza alteração automática de CRM, Agenda/,
     )
+
+    assert.match(
+      plan.system_prompt,
+      /recovery_guidance torna-se obrigatório/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Aplique o método comercial configurado como orientação estratégica/,
+    )
   },
 )
 
@@ -976,6 +1070,17 @@ test(
       [
         ...STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
       ],
+    )
+
+    assert.equal(
+      schema.properties
+        .method_application,
+      undefined,
+    )
+
+    assert.equal(
+      schema.properties.guidance,
+      undefined,
     )
 
     assert.deepEqual(
@@ -1203,7 +1308,7 @@ test(
     const missing =
       buildCommunicationOutput()
 
-    delete missing.guidance
+    delete missing.recommended_question
 
     const missingError =
       await executeTwiceExpectingFailure({
@@ -1214,7 +1319,7 @@ test(
     assert.equal(
       missingError.details
         .communication_failure_path,
-      'communication.guidance',
+      'communication.recommended_question',
     )
 
     assert.equal(

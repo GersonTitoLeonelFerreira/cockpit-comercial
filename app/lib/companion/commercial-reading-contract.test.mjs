@@ -252,6 +252,46 @@ function buildValidReading() {
           memory_ids: [],
         },
       ],
+
+      current_stage: {
+        step_order:
+          2,
+
+        stage_key:
+          'tour',
+
+        name:
+          'Tour',
+      },
+
+      adherence: {
+        status:
+          'on_method',
+
+        summary:
+          'A conversa permanece dentro do método e está aprofundando a descoberta.',
+
+        deviation_stage_order:
+          null,
+
+        what_happened:
+          null,
+
+        missing_information: [],
+
+        why_it_matters:
+          null,
+
+        evidence_message_ids: [
+          'm1',
+          'm2',
+        ],
+
+        memory_ids: [],
+      },
+
+      recovery_guidance:
+        null,
     },
 
     seller_strengths: [
@@ -261,6 +301,9 @@ function buildValidReading() {
 
         summary:
           'O vendedor respondeu diretamente à dúvida inicial do cliente.',
+
+        why_it_matters:
+          'A resposta removeu uma dúvida antes de qualquer novo avanço.',
 
         evidence_message_ids: [
           'm3',
@@ -278,8 +321,14 @@ function buildValidReading() {
         summary:
           'O vendedor retomou avanço antes de concluir uma dúvida aberta.',
 
+        why_it_matters:
+          'Perguntas abertas precisam ser resolvidas antes de pedir nova decisão.',
+
         impact:
           'Pode aumentar resistência e reduzir confiança.',
+
+        how_to_improve:
+          'Responder à dúvida aberta e confirmar se o cliente compreendeu antes de avançar.',
 
         evidence_message_ids: [
           'm3',
@@ -514,6 +563,7 @@ test(
     for (
       const status of [
         'completed',
+        'active',
         'partial',
         'not_started',
         'skipped',
@@ -543,22 +593,30 @@ test(
 test(
   'acerto do vendedor exige ação concreta e evidência da conversa',
   () => {
-    const reading =
-      buildValidReading()
+    for (
+      const genericPraise of [
+        'Bom atendimento.',
+        'Boa comunicação.',
+        'Excelente condução.',
+      ]
+    ) {
+      const reading =
+        buildValidReading()
 
-    reading
-      .seller_strengths[0]
-      .summary =
-        'Bom atendimento.'
+      reading
+        .seller_strengths[0]
+        .summary =
+          genericPraise
 
-    expectError(
-      () =>
-        normalizeCommercialReading(
-          reading,
-          context,
-        ),
-      'GENERIC_SELLER_PRAISE',
-    )
+      expectError(
+        () =>
+          normalizeCommercialReading(
+            reading,
+            context,
+          ),
+        'GENERIC_SELLER_PRAISE',
+      )
+    }
 
     const withoutEvidence =
       buildValidReading()
@@ -574,6 +632,20 @@ test(
           context,
         ),
       'DIRECT_EVIDENCE_REQUIRED',
+    )
+
+    expectError(
+      () =>
+        normalizeCommercialReading(
+          buildValidReading(),
+          {
+            ...context,
+            seller_message_ids: [
+              'm5',
+            ],
+          },
+        ),
+      'SELLER_EVIDENCE_REQUIRED',
     )
   },
 )

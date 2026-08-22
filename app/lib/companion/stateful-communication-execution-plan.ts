@@ -16,6 +16,10 @@ import {
 } from './commercial-behavior-prompt-rules'
 
 import {
+  buildCommercialMethodPromptRules,
+} from './commercial-method-prompt-rules'
+
+import {
   COMMERCIAL_READING_CONTRACT_VERSION,
   COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
 } from './commercial-reading-contract'
@@ -25,7 +29,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v7' as const
+  'phase-5.2-communication-prompt-v8' as const
 
 export const STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION =
   'Repare somente a estrutura indicada e retorne novamente o objeto completo conforme o schema.' as const
@@ -90,9 +94,23 @@ function buildSystemPrompt(
 
     'Acertos do vendedor, pontos de melhoria e riscos do atendimento precisam apontar para mensagem concreta do vendedor. Não escreva elogios genéricos como bom atendimento, ótimo atendimento ou excelente atendimento.',
 
+    'Em seller_strengths, kind classifica o acerto; summary descreve exatamente o que o vendedor fez; why_it_matters explica por que essa ação ajudou a venda; evidências precisam apontar para a mensagem concreta.',
+
+    'Em improvement_points, kind classifica o desvio; summary descreve o que aconteceu; why_it_matters explica por que é um problema; impact descreve consequência ou risco; how_to_improve indica uma correção prática. Não gere crítica sem evidência direta do vendedor.',
+
     'Riscos do cliente e riscos do atendimento são categorias diferentes: objeção, dúvida ou resistência do cliente não deve ser apresentada como erro do vendedor; pressão, promessa indevida ou informação incorreta do vendedor não deve ser apresentada como objeção do cliente.',
 
-    'O método deve refletir exclusivamente commercial_context.sales_method. Se não houver método configurado, use configured=false, name=null e stages=[]. Não invente etapas.',
+    'O método deve refletir exclusivamente commercial_context.sales_method. configured, name, stage_key e nome das etapas são derivados deterministicamente e não podem ser redecididos pelo modelo.',
+
+    'Quando commercial_context.sales_method.configured=false, use commercial_reading.method=null. Quando o papel ou a relevância não autorizarem avaliação comercial, também use commercial_reading.method=null.',
+
+    'Quando houver método configurado e a sessão for comercial, commercial_reading.method deve avaliar cada etapa canônica exatamente uma vez usando somente step_order, status, explanation e referências. Os status possíveis são completed, active, partial, not_started, skipped e not_applicable.',
+
+    'method.adherence.status deve responder explicitamente se a conversa está on_method, partially_on_method, off_method, not_configured ou insufficient_evidence. Não marque off_method por ordem literal: evidência espontânea pode concluir etapa, e uma etapa pode não se aplicar ou ser pulada quando o método permitir.',
+
+    'Quando method.adherence.status=off_method, indique deviation_stage_order, what_happened, missing_information, why_it_matters e evidência direta. recovery_guidance torna-se obrigatório com objective, missing_information, recommended_move e optional_question quando útil.',
+
+    'Quando method.adherence.status não for off_method, deviation_stage_order, what_happened e why_it_matters devem ser null e recovery_guidance deve ser null. A etapa atual será derivada deterministicamente dos status; não a gere novamente.',
 
     'Não inclua novamente em commercial_reading: contract_version, analysis_status, analysis_limitations, commercial_role, commercial_relevance, communication, operations, evidence_message_ids ou memory_ids globais. Esses campos são derivados de contratos já validados; esta camada não pode redecidi-los.',
 
@@ -130,13 +148,20 @@ function buildSystemPrompt(
           .prohibited_behaviors,
     }),
 
+    buildCommercialMethodPromptRules(
+      input
+        .diagnostic_input
+        .commercial_context
+        .sales_method,
+    ),
+
     'A mensagem sugerida deve soar natural dentro da conversa existente, não como relatório, formulário ou texto de consultoria.',
 
     'Antes de finalizar recommended_question ou suggested_message, revise silenciosamente o texto em português do Brasil para garantir gramática, concordância, clareza, naturalidade e fluidez. Entregue somente uma formulação pronta para uso pelo vendedor, sem explicar a revisão.',
 
-    'method_application deve explicar de forma breve como o método comercial foi usado na decisão, ou informar naturalmente que não havia método configurado.',
+    'method_application e guidance da resposta final serão derivados da Leitura Comercial Completa validada. Não gere esses campos novamente.',
 
-    'Limites obrigatórios: method_application deve ter de 1 a 900 caracteres; guidance, de 1 a 1400; recommended_question e suggested_message devem ser null ou ter de 1 a 900 caracteres.',
+    'Limites obrigatórios: recommended_question e suggested_message devem ser null ou ter de 1 a 900 caracteres.',
 
     'Quando uma pergunta for a melhor continuação, recommended_question e suggested_message podem conter a pergunta pronta para uso.',
 
@@ -646,6 +671,21 @@ export function buildStatefulCommunicationExecutionPlan({
             input,
           ),
 
+        seller_message_ids:
+          input
+            .diagnostic_input
+            .conversation
+            .messages
+            .filter(
+              message =>
+                message.direction ===
+                'outgoing',
+            )
+            .map(
+              message =>
+                message.id,
+            ),
+
         current_crm_status:
           input
             .diagnostic_input
@@ -672,6 +712,12 @@ export function buildStatefulCommunicationExecutionPlan({
         diagnostic_output
           .operational_suggestions
           .agenda,
+
+      sales_method:
+        input
+          .diagnostic_input
+          .commercial_context
+          .sales_method,
     },
   }
 }

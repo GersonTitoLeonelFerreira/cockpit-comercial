@@ -7,7 +7,7 @@ import {
 } from './stateful-communication-contract'
 
 export const STATEFUL_COMMUNICATION_RESPONSE_FORMAT_NAME =
-  'yolen_stateful_communication_v3' as const
+  'yolen_stateful_communication_v4' as const
 
 type JsonSchema =
   Record<string, unknown>
@@ -67,22 +67,6 @@ const statefulCommunicationModelProperties = {
   intervention_needed: {
     type:
       'boolean',
-  },
-
-  method_application: {
-    type:
-      'string',
-
-    description:
-      'Texto não vazio com no máximo 900 caracteres.',
-  },
-
-  guidance: {
-    type:
-      'string',
-
-    description:
-      'Texto não vazio com no máximo 1400 caracteres.',
   },
 
   recommended_question:

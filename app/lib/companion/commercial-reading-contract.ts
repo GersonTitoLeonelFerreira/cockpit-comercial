@@ -7,6 +7,10 @@ import type {
   DiagnosticLeadStatus,
 } from './diagnostic-contract'
 
+import type {
+  CompanionDiagnosticInput,
+} from './diagnostic-input'
+
 import {
   COMMERCIAL_RELEVANCES,
   isCommerciallyActionable,
@@ -42,10 +46,19 @@ export const COMMERCIAL_READING_EVOLUTION_STATUSES = [
 
 export const COMMERCIAL_READING_METHOD_STATUSES = [
   'completed',
+  'active',
   'partial',
   'not_started',
   'skipped',
   'not_applicable',
+] as const
+
+export const COMMERCIAL_READING_METHOD_ADHERENCE_STATUSES = [
+  'on_method',
+  'partially_on_method',
+  'off_method',
+  'not_configured',
+  'insufficient_evidence',
 ] as const
 
 export const COMMERCIAL_READING_DECISIONS = [
@@ -100,10 +113,15 @@ export const COMMERCIAL_READING_SELLER_STRENGTH_KINDS = [
 export const COMMERCIAL_READING_IMPROVEMENT_KINDS = [
   'unanswered_question',
   'premature_price',
+  'premature_presentation',
   'insufficient_discovery',
   'interrogation',
+  'repetition',
   'pressure',
   'incorrect_information',
+  'poor_objection_handling',
+  'advance_without_confirmation',
+  'missing_next_commitment',
   'method_misapplication',
   'promise_risk',
   'missed_commitment',
@@ -141,6 +159,9 @@ export type CommercialReadingEvolutionStatus =
 
 export type CommercialReadingMethodStatus =
   (typeof COMMERCIAL_READING_METHOD_STATUSES)[number]
+
+export type CommercialReadingMethodAdherenceStatus =
+  (typeof COMMERCIAL_READING_METHOD_ADHERENCE_STATUSES)[number]
 
 export type CommercialReadingDecision =
   (typeof COMMERCIAL_READING_DECISIONS)[number]
@@ -238,12 +259,70 @@ export type CommercialReadingMethodStage = {
     string[]
 }
 
+export type CommercialReadingCurrentMethodStage = {
+  step_order: number
+  stage_key: string | null
+  name: string
+}
+
+export type CommercialReadingMethodAdherence = {
+  status:
+    CommercialReadingMethodAdherenceStatus
+
+  summary: string
+
+  deviation_stage_order:
+    number | null
+
+  what_happened:
+    string | null
+
+  missing_information:
+    string[]
+
+  why_it_matters:
+    string | null
+
+  evidence_message_ids:
+    string[]
+
+  memory_ids:
+    string[]
+}
+
+export type CommercialReadingRecoveryGuidance = {
+  objective: string
+
+  missing_information:
+    string[]
+
+  recommended_move: string
+
+  optional_question:
+    string | null
+
+  evidence_message_ids:
+    string[]
+
+  memory_ids:
+    string[]
+}
+
 export type CommercialReadingMethod = {
   configured: boolean
   name: string | null
 
   stages:
     CommercialReadingMethodStage[]
+
+  current_stage:
+    CommercialReadingCurrentMethodStage | null
+
+  adherence:
+    CommercialReadingMethodAdherence
+
+  recovery_guidance:
+    CommercialReadingRecoveryGuidance | null
 }
 
 export type CommercialReadingSellerStrength = {
@@ -251,6 +330,8 @@ export type CommercialReadingSellerStrength = {
     CommercialReadingSellerStrengthKind
 
   summary: string
+
+  why_it_matters: string
 
   evidence_message_ids:
     string[]
@@ -264,7 +345,9 @@ export type CommercialReadingImprovementPoint = {
     CommercialReadingImprovementKind
 
   summary: string
+  why_it_matters: string
   impact: string
+  how_to_improve: string
 
   evidence_message_ids:
     string[]
@@ -403,11 +486,48 @@ export type CommercialReading = {
     string[]
 }
 
+export type CommercialReadingMethodStageModelOutput = {
+  step_order: number
+
+  status:
+    CommercialReadingMethodStatus
+
+  explanation: string
+
+  evidence_message_ids:
+    string[]
+
+  memory_ids:
+    string[]
+}
+
+export type CommercialReadingMethodModelOutput = {
+  stages:
+    CommercialReadingMethodStageModelOutput[]
+
+  adherence:
+    CommercialReadingMethodAdherence
+
+  recovery_guidance:
+    CommercialReadingRecoveryGuidance | null
+}
+
 export type CommercialReadingModelOutput =
-  Pick<
-    CommercialReading,
-    (typeof COMMERCIAL_READING_MODEL_OUTPUT_FIELDS)[number]
-  >
+  Omit<
+    Pick<
+      CommercialReading,
+      (typeof COMMERCIAL_READING_MODEL_OUTPUT_FIELDS)[number]
+    >,
+    'method'
+  > & {
+    method:
+      CommercialReadingMethodModelOutput | null
+  }
+
+export type CommercialReadingSalesMethod =
+  CompanionDiagnosticInput[
+    'commercial_context'
+  ]['sales_method']
 
 export type CommercialReadingDerivedOutput =
   Pick<
@@ -418,10 +538,16 @@ export type CommercialReadingDerivedOutput =
     | 'commercial_relevance'
     | 'communication'
     | 'operations'
-  >
+  > & {
+    sales_method:
+      CommercialReadingSalesMethod
+  }
 
 export type CommercialReadingNormalizationContext = {
   available_message_ids:
+    string[]
+
+  seller_message_ids?:
     string[]
 
   available_memory_ids:
@@ -666,6 +792,20 @@ function requirePositiveInteger(
   return value
 }
 
+function requireNullablePositiveInteger(
+  value: unknown,
+  path: string,
+): number | null {
+  if (value === null) {
+    return null
+  }
+
+  return requirePositiveInteger(
+    value,
+    path,
+  )
+}
+
 function requireEnum<
   const TValues extends readonly string[],
 >(
@@ -791,6 +931,23 @@ function normalizeReferences(
       'DIRECT_EVIDENCE_REQUIRED',
       `${path}.evidence_message_ids`,
       `${path} precisa de evidência concreta da conversa.`,
+    )
+  }
+
+  if (
+    requireDirectMessage &&
+    context.seller_message_ids &&
+    !messageIds.some(
+      id =>
+        context
+          .seller_message_ids
+          ?.includes(id),
+    )
+  ) {
+    fail(
+      'SELLER_EVIDENCE_REQUIRED',
+      `${path}.evidence_message_ids`,
+      `${path} precisa apontar para uma mensagem do vendedor.`,
     )
   }
 
@@ -1127,6 +1284,369 @@ function normalizeEvolution(
   )
 }
 
+function normalizeMethodAdherence(
+  value: unknown,
+  path: string,
+  configured: boolean,
+  stageOrders: Set<number>,
+  context:
+    CommercialReadingNormalizationContext,
+  collectedMessageIds:
+    Set<string>,
+  collectedMemoryIds:
+    Set<string>,
+): CommercialReadingMethodAdherence {
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  requireExactFields(
+    record,
+    [
+      'status',
+      'summary',
+      'deviation_stage_order',
+      'what_happened',
+      'missing_information',
+      'why_it_matters',
+      'evidence_message_ids',
+      'memory_ids',
+    ],
+    path,
+  )
+
+  const status =
+    requireEnum(
+      record.status,
+      COMMERCIAL_READING_METHOD_ADHERENCE_STATUSES,
+      `${path}.status`,
+    )
+
+  const deviationStageOrder =
+    requireNullablePositiveInteger(
+      record.deviation_stage_order,
+      `${path}.deviation_stage_order`,
+    )
+
+  const whatHappened =
+    requireNullableString(
+      record.what_happened,
+      `${path}.what_happened`,
+    )
+
+  const missingInformation =
+    requireUniqueStringArray(
+      record.missing_information,
+      `${path}.missing_information`,
+    )
+
+  const whyItMatters =
+    requireNullableString(
+      record.why_it_matters,
+      `${path}.why_it_matters`,
+    )
+
+  if (
+    configured &&
+    status === 'not_configured'
+  ) {
+    fail(
+      'METHOD_ADHERENCE_MISMATCH',
+      `${path}.status`,
+      'Método configurado não pode ser avaliado como não configurado.',
+    )
+  }
+
+  if (
+    !configured &&
+    status !== 'not_configured'
+  ) {
+    fail(
+      'METHOD_ADHERENCE_MISMATCH',
+      `${path}.status`,
+      'Método ausente precisa usar aderência not_configured.',
+    )
+  }
+
+  if (
+    status === 'off_method'
+  ) {
+    if (
+      deviationStageOrder === null ||
+      !stageOrders.has(
+        deviationStageOrder,
+      )
+    ) {
+      fail(
+        'METHOD_DEVIATION_STAGE_REQUIRED',
+        `${path}.deviation_stage_order`,
+        'Saída do método precisa apontar para uma etapa canônica.',
+      )
+    }
+
+    if (
+      whatHappened === null ||
+      missingInformation.length === 0 ||
+      whyItMatters === null
+    ) {
+      fail(
+        'METHOD_DEVIATION_EXPLANATION_REQUIRED',
+        path,
+        'Saída do método precisa explicar o que aconteceu, o que faltou e por que importa.',
+      )
+    }
+  } else if (
+    deviationStageOrder !== null ||
+    whatHappened !== null ||
+    whyItMatters !== null
+  ) {
+    fail(
+      'METHOD_DEVIATION_NOT_ALLOWED',
+      path,
+      'Detalhes de saída só são permitidos quando a conversa saiu do método.',
+    )
+  }
+
+  const requiresGrounding =
+    ![
+      'not_configured',
+      'insufficient_evidence',
+    ].includes(status)
+
+  return {
+    status,
+
+    summary:
+      requireString(
+        record.summary,
+        `${path}.summary`,
+      ),
+
+    deviation_stage_order:
+      deviationStageOrder,
+
+    what_happened:
+      whatHappened,
+
+    missing_information:
+      missingInformation,
+
+    why_it_matters:
+      whyItMatters,
+
+    ...normalizeReferences(
+      record,
+      path,
+      context,
+      collectedMessageIds,
+      collectedMemoryIds,
+      requiresGrounding,
+      status === 'off_method',
+    ),
+  }
+}
+
+function normalizeRecoveryGuidance(
+  value: unknown,
+  path: string,
+  adherenceStatus:
+    CommercialReadingMethodAdherenceStatus,
+  context:
+    CommercialReadingNormalizationContext,
+  collectedMessageIds:
+    Set<string>,
+  collectedMemoryIds:
+    Set<string>,
+): CommercialReadingRecoveryGuidance | null {
+  if (value === null) {
+    if (
+      adherenceStatus === 'off_method'
+    ) {
+      fail(
+        'METHOD_RECOVERY_REQUIRED',
+        path,
+        'Saída do método precisa de uma condução corretiva.',
+      )
+    }
+
+    return null
+  }
+
+  if (
+    adherenceStatus !== 'off_method'
+  ) {
+    fail(
+      'METHOD_RECOVERY_NOT_ALLOWED',
+      path,
+      'Condução corretiva só é permitida quando a conversa saiu do método.',
+    )
+  }
+
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  requireExactFields(
+    record,
+    [
+      'objective',
+      'missing_information',
+      'recommended_move',
+      'optional_question',
+      'evidence_message_ids',
+      'memory_ids',
+    ],
+    path,
+  )
+
+  const missingInformation =
+    requireUniqueStringArray(
+      record.missing_information,
+      `${path}.missing_information`,
+    )
+
+  if (missingInformation.length === 0) {
+    fail(
+      'METHOD_RECOVERY_MISSING_INFORMATION_REQUIRED',
+      `${path}.missing_information`,
+      'Condução corretiva precisa declarar o que ainda falta compreender.',
+    )
+  }
+
+  return {
+    objective:
+      requireString(
+        record.objective,
+        `${path}.objective`,
+      ),
+
+    missing_information:
+      missingInformation,
+
+    recommended_move:
+      requireString(
+        record.recommended_move,
+        `${path}.recommended_move`,
+      ),
+
+    optional_question:
+      requireNullableString(
+        record.optional_question,
+        `${path}.optional_question`,
+      ),
+
+    ...normalizeReferences(
+      record,
+      path,
+      context,
+      collectedMessageIds,
+      collectedMemoryIds,
+      true,
+      true,
+    ),
+  }
+}
+
+function deriveCurrentMethodStage(
+  stages:
+    CommercialReadingMethodStage[],
+  adherenceStatus:
+    CommercialReadingMethodAdherenceStatus,
+): CommercialReadingCurrentMethodStage | null {
+  if (
+    [
+      'not_configured',
+      'insufficient_evidence',
+    ].includes(adherenceStatus)
+  ) {
+    return null
+  }
+
+  const stage =
+    stages.find(
+      item =>
+        item.status === 'active',
+    ) ??
+    stages.find(
+      item =>
+        item.status === 'partial',
+    ) ??
+    stages.find(
+      item =>
+        item.status === 'not_started',
+    ) ??
+    [...stages]
+      .reverse()
+      .find(
+        item =>
+          item.status === 'completed',
+      ) ??
+    null
+
+  return stage
+    ? {
+        step_order:
+          stage.step_order,
+
+        stage_key:
+          stage.stage_key,
+
+        name:
+          stage.name,
+      }
+    : null
+}
+
+function normalizeCurrentMethodStage(
+  value: unknown,
+  path: string,
+): CommercialReadingCurrentMethodStage | null {
+  if (value === null) {
+    return null
+  }
+
+  const record =
+    requireRecord(
+      value,
+      path,
+    )
+
+  requireExactFields(
+    record,
+    [
+      'step_order',
+      'stage_key',
+      'name',
+    ],
+    path,
+  )
+
+  return {
+    step_order:
+      requirePositiveInteger(
+        record.step_order,
+        `${path}.step_order`,
+      ),
+
+    stage_key:
+      requireNullableString(
+        record.stage_key,
+        `${path}.stage_key`,
+      ),
+
+    name:
+      requireString(
+        record.name,
+        `${path}.name`,
+        500,
+      ),
+  }
+}
+
 function normalizeMethod(
   value: unknown,
   context:
@@ -1148,6 +1668,9 @@ function normalizeMethod(
       'configured',
       'name',
       'stages',
+      'current_stage',
+      'adherence',
+      'recovery_guidance',
     ],
     'reading.method',
   )
@@ -1205,11 +1728,7 @@ function normalizeMethod(
             `${path}.step_order`,
           )
 
-        if (
-          usedOrders.has(
-            stepOrder,
-          )
-        ) {
+        if (usedOrders.has(stepOrder)) {
           fail(
             'DUPLICATE_METHOD_ORDER',
             `${path}.step_order`,
@@ -1217,9 +1736,7 @@ function normalizeMethod(
           )
         }
 
-        usedOrders.add(
-          stepOrder,
-        )
+        usedOrders.add(stepOrder)
 
         const stageKey =
           requireNullableString(
@@ -1287,6 +1804,63 @@ function normalizeMethod(
     )
 
   if (
+    stages.filter(
+      stage =>
+        stage.status === 'active',
+    ).length > 1
+  ) {
+    fail(
+      'MULTIPLE_ACTIVE_METHOD_STAGES',
+      'reading.method.stages',
+      'Somente uma etapa pode representar o momento atual do método.',
+    )
+  }
+
+  const adherence =
+    normalizeMethodAdherence(
+      record.adherence,
+      'reading.method.adherence',
+      configured,
+      usedOrders,
+      context,
+      collectedMessageIds,
+      collectedMemoryIds,
+    )
+
+  const recoveryGuidance =
+    normalizeRecoveryGuidance(
+      record.recovery_guidance,
+      'reading.method.recovery_guidance',
+      adherence.status,
+      context,
+      collectedMessageIds,
+      collectedMemoryIds,
+    )
+
+  const currentStage =
+    normalizeCurrentMethodStage(
+      record.current_stage,
+      'reading.method.current_stage',
+    )
+
+  const expectedCurrentStage =
+    deriveCurrentMethodStage(
+      stages,
+      adherence.status,
+    )
+
+  if (
+    JSON.stringify(currentStage) !==
+    JSON.stringify(expectedCurrentStage)
+  ) {
+    fail(
+      'CURRENT_METHOD_STAGE_MISMATCH',
+      'reading.method.current_stage',
+      'Etapa atual precisa ser derivada dos status canônicos do método.',
+    )
+  }
+
+  if (
     configured &&
     name === null
   ) {
@@ -1312,13 +1886,15 @@ function normalizeMethod(
     !configured &&
     (
       name !== null ||
-      stages.length > 0
+      stages.length > 0 ||
+      currentStage !== null ||
+      recoveryGuidance !== null
     )
   ) {
     fail(
       'METHOD_NOT_CONFIGURED',
       'reading.method',
-      'Método não configurado não pode inventar nome ou etapas.',
+      'Método não configurado não pode inventar avaliação ou etapas.',
     )
   }
 
@@ -1326,7 +1902,433 @@ function normalizeMethod(
     configured,
     name,
     stages,
+    current_stage:
+      currentStage,
+    adherence,
+    recovery_guidance:
+      recoveryGuidance,
   }
+}
+
+type CanonicalMethodStage = {
+  step_order: number
+  stage_key: string | null
+  name: string
+  required: boolean
+}
+
+function buildCanonicalMethodStages(
+  salesMethod:
+    CommercialReadingSalesMethod,
+): CanonicalMethodStage[] {
+  if (!salesMethod.configured) {
+    return []
+  }
+
+  if (
+    salesMethod.contract_version ===
+      'commercial-method-v2' &&
+    salesMethod.definition
+  ) {
+    return [
+      ...salesMethod
+        .definition
+        .stages,
+    ]
+      .sort(
+        (a, b) =>
+          a.display_order -
+          b.display_order,
+      )
+      .map(
+        stage => ({
+          step_order:
+            stage.display_order,
+
+          stage_key:
+            stage.key,
+
+          name:
+            stage.name,
+
+          required:
+            stage.requirement ===
+            'required',
+        }),
+      )
+  }
+
+  return [
+    ...salesMethod.steps,
+  ]
+    .sort(
+      (a, b) =>
+        a.step_order -
+        b.step_order,
+    )
+    .map(
+      stage => ({
+        step_order:
+          stage.step_order,
+
+        stage_key:
+          null,
+
+        name:
+          stage.name,
+
+        required:
+          stage.is_required,
+      }),
+    )
+}
+
+function buildUnavailableMethod(
+  salesMethod:
+    CommercialReadingSalesMethod,
+  reason:
+    'not_configured' |
+    'insufficient_evidence',
+): CommercialReadingMethod {
+  const stages =
+    buildCanonicalMethodStages(
+      salesMethod,
+    )
+      .map(
+        stage => ({
+          step_order:
+            stage.step_order,
+
+          stage_key:
+            stage.stage_key,
+
+          name:
+            stage.name,
+
+          status:
+            'not_applicable' as const,
+
+          explanation:
+            'A sessão atual não possui relevância comercial confirmada para avaliar esta etapa.',
+
+          evidence_message_ids: [],
+
+          memory_ids: [],
+        }),
+      )
+
+  const configured =
+    reason !== 'not_configured'
+
+  return {
+    configured,
+
+    name:
+      configured
+        ? salesMethod.name
+        : null,
+
+    stages,
+
+    current_stage:
+      null,
+
+    adherence: {
+      status:
+        reason,
+
+      summary:
+        reason === 'not_configured'
+          ? 'Método comercial não configurado.'
+          : 'A sessão atual não possui evidência comercial suficiente para avaliar o método.',
+
+      deviation_stage_order:
+        null,
+
+      what_happened:
+        null,
+
+      missing_information: [],
+
+      why_it_matters:
+        null,
+
+      evidence_message_ids: [],
+
+      memory_ids: [],
+    },
+
+    recovery_guidance:
+      null,
+  }
+}
+
+function normalizeMethodModelOutput({
+  value,
+  salesMethod,
+  commerciallyActionable,
+  context,
+}: {
+  value: unknown
+  salesMethod:
+    CommercialReadingSalesMethod
+  commerciallyActionable: boolean
+  context:
+    CommercialReadingNormalizationContext
+}): CommercialReadingMethod {
+  if (!salesMethod.configured) {
+    if (value !== null) {
+      fail(
+        'METHOD_NOT_CONFIGURED',
+        'reading.method',
+        'Método não configurado precisa ser derivado como null no output do modelo.',
+      )
+    }
+
+    return buildUnavailableMethod(
+      salesMethod,
+      'not_configured',
+    )
+  }
+
+  const canonicalStages =
+    buildCanonicalMethodStages(
+      salesMethod,
+    )
+
+  if (
+    !salesMethod.name ||
+    canonicalStages.length === 0
+  ) {
+    fail(
+      'INVALID_CANONICAL_METHOD',
+      'context.sales_method',
+      'Método canônico configurado precisa possuir nome e etapas.',
+    )
+  }
+
+  if (!commerciallyActionable) {
+    if (value !== null) {
+      fail(
+        'METHOD_ASSESSMENT_NOT_ALLOWED',
+        'reading.method',
+        'Sessão sem relevância comercial não pode gerar avaliação nova do método.',
+      )
+    }
+
+    return buildUnavailableMethod(
+      salesMethod,
+      'insufficient_evidence',
+    )
+  }
+
+  const record =
+    requireRecord(
+      value,
+      'reading.method',
+    )
+
+  requireExactFields(
+    record,
+    [
+      'stages',
+      'adherence',
+      'recovery_guidance',
+    ],
+    'reading.method',
+  )
+
+  const stageOutputByOrder =
+    new Map<
+      number,
+      JsonRecord
+    >()
+
+  requireArray(
+    record.stages,
+    'reading.method.stages',
+  ).forEach(
+    (item, index) => {
+      const path =
+        `reading.method.stages[${index}]`
+
+      const stage =
+        requireRecord(
+          item,
+          path,
+        )
+
+      requireExactFields(
+        stage,
+        [
+          'step_order',
+          'status',
+          'explanation',
+          'evidence_message_ids',
+          'memory_ids',
+        ],
+        path,
+      )
+
+      const stepOrder =
+        requirePositiveInteger(
+          stage.step_order,
+          `${path}.step_order`,
+        )
+
+      if (
+        stageOutputByOrder.has(
+          stepOrder,
+        )
+      ) {
+        fail(
+          'DUPLICATE_METHOD_ORDER',
+          `${path}.step_order`,
+          'A ordem da etapa está duplicada.',
+        )
+      }
+
+      stageOutputByOrder.set(
+        stepOrder,
+        stage,
+      )
+    },
+  )
+
+  if (
+    stageOutputByOrder.size !==
+    canonicalStages.length
+  ) {
+    fail(
+      'METHOD_STAGE_SET_MISMATCH',
+      'reading.method.stages',
+      'O modelo precisa avaliar exatamente as etapas do método canônico.',
+    )
+  }
+
+  const modelStages =
+    canonicalStages.map(
+      (canonicalStage, index) => {
+        const stage =
+          stageOutputByOrder.get(
+            canonicalStage.step_order,
+          )
+
+        if (!stage) {
+          fail(
+            'METHOD_STAGE_SET_MISMATCH',
+            `reading.method.stages[${index}].step_order`,
+            'Etapa canônica ausente na avaliação do método.',
+          )
+        }
+
+        const status =
+          requireEnum(
+            stage.status,
+            COMMERCIAL_READING_METHOD_STATUSES,
+            `reading.method.stages[${index}].status`,
+          )
+
+        if (
+          canonicalStage.required &&
+          status === 'skipped'
+        ) {
+          fail(
+            'REQUIRED_METHOD_STAGE_SKIPPED',
+            `reading.method.stages[${index}].status`,
+            'Etapa obrigatória não pode ser marcada como pulada.',
+          )
+        }
+
+        return {
+          step_order:
+            canonicalStage.step_order,
+
+          stage_key:
+            canonicalStage.stage_key,
+
+          name:
+            canonicalStage.name,
+
+          status,
+
+          explanation:
+            requireString(
+              stage.explanation,
+              `reading.method.stages[${index}].explanation`,
+            ),
+
+          evidence_message_ids:
+            stage.evidence_message_ids,
+
+          memory_ids:
+            stage.memory_ids,
+        }
+      },
+    )
+
+  const methodCandidate:
+    JsonRecord = {
+    configured:
+      true,
+
+    name:
+      salesMethod.name,
+
+    stages:
+      modelStages,
+
+    current_stage:
+      null,
+
+    adherence:
+      record.adherence,
+
+    recovery_guidance:
+      record.recovery_guidance,
+  }
+
+  const provisionalMessageIds =
+    new Set<string>()
+
+  const provisionalMemoryIds =
+    new Set<string>()
+
+  const adherence =
+    normalizeMethodAdherence(
+      methodCandidate.adherence,
+      'reading.method.adherence',
+      true,
+      new Set(
+        canonicalStages.map(
+          stage =>
+            stage.step_order,
+        ),
+      ),
+      context,
+      provisionalMessageIds,
+      provisionalMemoryIds,
+    )
+
+  methodCandidate.current_stage =
+    deriveCurrentMethodStage(
+      modelStages as
+        CommercialReadingMethodStage[],
+      adherence.status,
+    )
+
+  const normalizedMessageIds =
+    new Set<string>()
+
+  const normalizedMemoryIds =
+    new Set<string>()
+
+  return normalizeMethod(
+    methodCandidate,
+    context,
+    normalizedMessageIds,
+    normalizedMemoryIds,
+  )
 }
 
 function normalizedSearchText(
@@ -1374,6 +2376,7 @@ function normalizeSellerStrengths(
         [
           'kind',
           'summary',
+          'why_it_matters',
           'evidence_message_ids',
           'memory_ids',
         ],
@@ -1392,12 +2395,19 @@ function normalizeSellerStrengths(
         )
 
       if (
-        normalizedSummary ===
-          'bom atendimento' ||
-        normalizedSummary ===
-          'otimo atendimento' ||
-        normalizedSummary ===
-          'excelente atendimento'
+        [
+          'bom atendimento',
+          'otimo atendimento',
+          'excelente atendimento',
+          'boa comunicacao',
+          'otima comunicacao',
+          'excelente comunicacao',
+          'boa conducao',
+          'otima conducao',
+          'excelente conducao',
+        ].includes(
+          normalizedSummary,
+        )
       ) {
         fail(
           'GENERIC_SELLER_PRAISE',
@@ -1415,6 +2425,12 @@ function normalizeSellerStrengths(
           ),
 
         summary,
+
+        why_it_matters:
+          requireString(
+            record.why_it_matters,
+            `${path}.why_it_matters`,
+          ),
 
         ...normalizeReferences(
           record,
@@ -1458,7 +2474,9 @@ function normalizeImprovementPoints(
         [
           'kind',
           'summary',
+          'why_it_matters',
           'impact',
+          'how_to_improve',
           'evidence_message_ids',
           'memory_ids',
         ],
@@ -1479,10 +2497,22 @@ function normalizeImprovementPoints(
             `${path}.summary`,
           ),
 
+        why_it_matters:
+          requireString(
+            record.why_it_matters,
+            `${path}.why_it_matters`,
+          ),
+
         impact:
           requireString(
             record.impact,
             `${path}.impact`,
+          ),
+
+        how_to_improve:
+          requireString(
+            record.how_to_improve,
+            `${path}.how_to_improve`,
           ),
 
         ...normalizeReferences(
@@ -2070,6 +3100,7 @@ function neutralizeNonActionableReading(
 
     method: {
       ...reading.method,
+
       stages:
         reading.method.stages.map(
           stage => ({
@@ -2084,6 +3115,39 @@ function neutralizeNonActionableReading(
               [],
           }),
         ),
+
+      current_stage:
+        null,
+
+      adherence: {
+        status:
+          reading.method.configured
+            ? 'insufficient_evidence'
+            : 'not_configured',
+
+        summary:
+          reading.method.configured
+            ? 'A sessão atual não possui evidência comercial suficiente para avaliar o método.'
+            : 'Método comercial não configurado.',
+
+        deviation_stage_order:
+          null,
+
+        what_happened:
+          null,
+
+        missing_information: [],
+
+        why_it_matters:
+          null,
+
+        evidence_message_ids: [],
+
+        memory_ids: [],
+      },
+
+      recovery_guidance:
+        null,
     },
 
     seller_strengths:
@@ -2239,6 +3303,31 @@ export function normalizeCommercialReadingModelOutput({
     'reading',
   )
 
+  const normalizedMethod =
+    normalizeMethodModelOutput({
+      value:
+        modelOutput.method,
+
+      salesMethod:
+        derived.sales_method,
+
+      commerciallyActionable:
+        derived.commercial_role ===
+          'buyer' &&
+        isCommerciallyActionable(
+          derived.commercial_relevance,
+        ),
+
+      context,
+    })
+
+  const normalizedModelOutput = {
+    ...modelOutput,
+
+    method:
+      normalizedMethod,
+  }
+
   const evidenceMessageIds =
     new Set<string>()
 
@@ -2246,13 +3335,13 @@ export function normalizeCommercialReadingModelOutput({
     new Set<string>()
 
   collectModelReferenceIds(
-    modelOutput,
+    normalizedModelOutput,
     'evidence_message_ids',
     evidenceMessageIds,
   )
 
   collectModelReferenceIds(
-    modelOutput,
+    normalizedModelOutput,
     'memory_ids',
     memoryIds,
   )
@@ -2274,7 +3363,7 @@ export function normalizeCommercialReadingModelOutput({
       commercial_relevance:
         derived.commercial_relevance,
 
-      ...modelOutput,
+      ...normalizedModelOutput,
 
       communication:
         derived.communication,

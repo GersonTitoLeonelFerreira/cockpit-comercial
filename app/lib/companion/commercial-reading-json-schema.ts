@@ -11,6 +11,7 @@ import {
   COMMERCIAL_READING_DECISIONS,
   COMMERCIAL_READING_EVOLUTION_STATUSES,
   COMMERCIAL_READING_IMPROVEMENT_KINDS,
+  COMMERCIAL_READING_METHOD_ADHERENCE_STATUSES,
   COMMERCIAL_READING_METHOD_STATUSES,
   COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
   COMMERCIAL_READING_RISK_SEVERITIES,
@@ -280,6 +281,78 @@ const methodStageSchema =
     ...referenceFields,
   })
 
+const methodStageModelSchema =
+  objectSchema({
+    step_order:
+      integerSchema,
+
+    status:
+      enumSchema(
+        COMMERCIAL_READING_METHOD_STATUSES,
+      ),
+
+    explanation:
+      stringSchema,
+
+    ...referenceFields,
+  })
+
+const currentMethodStageSchema =
+  objectSchema({
+    step_order:
+      integerSchema,
+
+    stage_key:
+      nullableStringSchema,
+
+    name:
+      stringSchema,
+  })
+
+const methodAdherenceSchema =
+  objectSchema({
+    status:
+      enumSchema(
+        COMMERCIAL_READING_METHOD_ADHERENCE_STATUSES,
+      ),
+
+    summary:
+      stringSchema,
+
+    deviation_stage_order:
+      nullableSchema(
+        integerSchema,
+      ),
+
+    what_happened:
+      nullableStringSchema,
+
+    missing_information:
+      stringArraySchema,
+
+    why_it_matters:
+      nullableStringSchema,
+
+    ...referenceFields,
+  })
+
+const recoveryGuidanceSchema =
+  objectSchema({
+    objective:
+      stringSchema,
+
+    missing_information:
+      stringArraySchema,
+
+    recommended_move:
+      stringSchema,
+
+    optional_question:
+      nullableStringSchema,
+
+    ...referenceFields,
+  })
+
 const methodSchema =
   objectSchema({
     configured:
@@ -292,7 +365,44 @@ const methodSchema =
       arraySchema(
         methodStageSchema,
       ),
+
+    current_stage:
+      nullableSchema(
+        currentMethodStageSchema,
+      ),
+
+    adherence:
+      methodAdherenceSchema,
+
+    recovery_guidance:
+      nullableSchema(
+        recoveryGuidanceSchema,
+      ),
   })
+
+const methodModelSchema = {
+  anyOf: [
+    {
+      type:
+        'null',
+    },
+
+    objectSchema({
+      stages:
+        arraySchema(
+          methodStageModelSchema,
+        ),
+
+      adherence:
+        methodAdherenceSchema,
+
+      recovery_guidance:
+        nullableSchema(
+          recoveryGuidanceSchema,
+        ),
+    }),
+  ],
+}
 
 const sellerStrengthSchema =
   objectSchema({
@@ -302,6 +412,9 @@ const sellerStrengthSchema =
       ),
 
     summary:
+      stringSchema,
+
+    why_it_matters:
       stringSchema,
 
     ...referenceFields,
@@ -317,7 +430,13 @@ const improvementPointSchema =
     summary:
       stringSchema,
 
+    why_it_matters:
+      stringSchema,
+
     impact:
+      stringSchema,
+
+    how_to_improve:
       stringSchema,
 
     ...referenceFields,
@@ -438,7 +557,7 @@ const commercialReadingModelProperties = {
     ),
 
   method:
-    methodSchema,
+    methodModelSchema,
 
   seller_strengths:
     arraySchema(
