@@ -350,7 +350,7 @@ test('Cliente agrupa somente dados existentes e mantém detalhe sob demanda', ()
   assert.equal(view.renderClientCommercialArea(empty), '')
 })
 
-test('AGORA resume método e prioriza off_method e SLA sem confundir objeção do cliente', () => {
+test('AGORA mostra somente o alerta de maior prioridade e deixa o detalhe do método em ANÁLISE', () => {
   const reading = buildReading()
   reading.improvement_points = []
   reading.method.adherence.status = 'off_method'
@@ -373,10 +373,226 @@ test('AGORA resume método e prioriza off_method e SLA sem confundir objeção d
   const attention = view.renderNowAttentionSnapshot(reading, contextState)
 
   assert.match(method, /Diagnóstico · Ativa/)
-  assert.match(method, /Fora do método/)
-  assert.match(attention, /data-yolen-now-attention="off_method"/)
+  assert.doesNotMatch(method, /Fora do método/)
   assert.match(attention, /data-yolen-now-attention="sla"/)
+  assert.match(attention, /data-yolen-alert-priority="critical"/)
+  assert.doesNotMatch(attention, /data-yolen-now-attention="off_method"/)
   assert.doesNotMatch(attention, /considera o preço alto/)
+  assert.equal((attention.match(/data-yolen-now-attention=/g) || []).length, 1)
+})
+
+function buildQuietReading(overrides = {}) {
+  const reading = buildReading(overrides)
+  reading.improvement_points = []
+  reading.risks.service_risks = []
+  reading.customer.open_questions = []
+  reading.customer.objections = []
+  reading.risks.customer_objections = []
+  reading.best_approach.decision = 'deepen_discovery'
+  reading.communication.intervention_needed = false
+  reading.communication.recommended_question = null
+  reading.communication.recommended_message = null
+  return reading
+}
+
+function contextWith({
+  waitingState = 'no_pending_response',
+  waitingDurationMs = null,
+  slaConfigured = false,
+  slaRisk = null,
+  elapsedMinutes = null,
+  warningMinutes = null,
+  dangerMinutes = null,
+} = {}) {
+  return {
+    status: 'ready',
+    data: {
+      generated_at: '2026-08-22T12:00:00.000Z',
+      waiting: {
+        state: waitingState,
+        waiting_duration_ms: waitingDurationMs,
+      },
+      sla: {
+        configured: slaConfigured,
+        applicable: true,
+        risk: slaRisk,
+        stage: 'contato',
+        stage_label: 'Contato',
+        elapsed_minutes: elapsedMinutes,
+        target_minutes: 60,
+        warning_minutes: warningMinutes,
+        danger_minutes: dangerMinutes,
+      },
+    },
+  }
+}
+
+test('resolvedor fica quieto sem sinal útil e cria um único alerta quando necessário', () => {
+  const reading = buildQuietReading()
+
+  assert.equal(view.resolveSellerAttentionSnapshot(reading, null), null)
+  assert.equal(view.renderNowAttentionSnapshot(reading, null), '')
+
+  reading.method.adherence.status = 'off_method'
+  const attention = view.resolveSellerAttentionSnapshot(reading, null)
+
+  assert.deepEqual(attention, {
+    priority: 'high',
+    source: 'off_method',
+    label: 'Atenção · Método',
+    copy: 'Você saiu do método.',
+  })
+})
+
+test('crítico vence alto e médio independentemente da ordem dos sinais', () => {
+  const reading = buildQuietReading()
+  reading.method.adherence.status = 'off_method'
+  reading.improvement_points = [
+    {
+      kind: 'insufficient_discovery',
+      summary: 'Ainda falta aprofundar o impacto.',
+    },
+  ]
+  reading.risks.service_risks = [
+    {
+      kind: 'promise_risk',
+      severity: 'high',
+      summary: 'A promessa apresentada não está sustentada.',
+    },
+  ]
+
+  const attention = view.resolveSellerAttentionSnapshot(reading, null)
+
+  assert.equal(attention.source, 'service_risk')
+  assert.equal(attention.priority, 'critical')
+  assert.match(attention.copy, /promessa apresentada/)
+})
+
+test('aderência parcial, método não configurado e evidência insuficiente não viram falso alerta', () => {
+  for (const status of [
+    'partially_on_method',
+    'not_configured',
+    'insufficient_evidence',
+  ]) {
+    const reading = buildQuietReading()
+    reading.method.adherence.status = status
+    reading.method.configured = status !== 'not_configured'
+
+    assert.equal(
+      view.resolveSellerAttentionSnapshot(reading, null),
+      null,
+      status,
+    )
+  }
+})
+
+test('SLA usa apenas limites configurados e evolui de low para medium e high com o tick local', () => {
+  const reading = buildQuietReading()
+  const context = contextWith({
+    slaConfigured: true,
+    slaRisk: 'low',
+    elapsedMinutes: 30,
+    warningMinutes: 60,
+    dangerMinutes: 120,
+  })
+  const generatedAt = new Date('2026-08-22T12:00:00.000Z').getTime()
+
+  assert.equal(
+    view.resolveSellerAttentionSnapshot(reading, context, { now: generatedAt }),
+    null,
+  )
+
+  const medium = view.resolveSellerAttentionSnapshot(reading, context, {
+    now: generatedAt + 30 * 60 * 1000,
+  })
+  assert.equal(medium.source, 'sla')
+  assert.equal(medium.priority, 'high')
+
+  const high = view.resolveSellerAttentionSnapshot(reading, context, {
+    now: generatedAt + 90 * 60 * 1000,
+  })
+  assert.equal(high.source, 'sla')
+  assert.equal(high.priority, 'critical')
+})
+
+test('espera sem SLA só chama atenção quando o cliente aguarda; vendedor aguardando e ciclo fechado ficam quietos', () => {
+  const reading = buildQuietReading()
+  const customerWaiting = contextWith({
+    waitingState: 'customer_waiting_for_seller',
+    waitingDurationMs: 2 * 60 * 60 * 1000,
+  })
+  const sellerWaiting = contextWith({
+    waitingState: 'seller_waiting_for_customer',
+    waitingDurationMs: 6 * 60 * 60 * 1000,
+  })
+
+  assert.equal(
+    view.resolveSellerAttentionSnapshot(reading, customerWaiting)?.source,
+    'waiting',
+  )
+  assert.equal(view.resolveSellerAttentionSnapshot(reading, sellerWaiting), null)
+  assert.equal(
+    view.resolveSellerAttentionSnapshot(reading, customerWaiting, { cycleClosed: true }),
+    null,
+  )
+})
+
+test('sem SLA configurado não inventa risco e espera curta permanece silenciosa', () => {
+  const reading = buildQuietReading()
+  const context = contextWith({
+    waitingState: 'customer_waiting_for_seller',
+    waitingDurationMs: 20 * 60 * 1000,
+  })
+
+  assert.equal(view.resolveSellerAttentionSnapshot(reading, context), null)
+})
+
+test('pergunta ignorada, objeção aberta e pressão recebem prioridades proporcionais', () => {
+  const question = buildQuietReading()
+  question.best_approach.decision = 'respond'
+  question.customer.open_questions = [evidence('Qual é o prazo?')]
+  assert.equal(
+    view.resolveSellerAttentionSnapshot(question, null)?.source,
+    'open_question',
+  )
+
+  const objection = buildQuietReading()
+  objection.best_approach.decision = 'handle_objection'
+  objection.customer.objections = [evidence('Está caro.')]
+  assert.deepEqual(
+    view.resolveSellerAttentionSnapshot(objection, null),
+    {
+      priority: 'medium',
+      source: 'customer_objection',
+      label: 'Atenção · Objeção aberta',
+      copy: 'Há uma objeção relevante do cliente para tratar.',
+    },
+  )
+
+  const pressure = buildQuietReading()
+  pressure.improvement_points = [{
+    kind: 'pressure',
+    summary: 'Você pressionou por uma resposta imediata.',
+  }]
+  assert.equal(
+    view.resolveSellerAttentionSnapshot(pressure, null)?.priority,
+    'high',
+  )
+})
+
+test('non-commercial e fallback V1 sem dados ricos nunca fabricam alerta', () => {
+  const neutral = buildQuietReading({ commercial_relevance: 'non_commercial' })
+  neutral.method.adherence.status = 'off_method'
+
+  assert.equal(view.resolveSellerAttentionSnapshot(neutral, null), null)
+  assert.equal(
+    view.resolveSellerAttentionSnapshot({
+      analysis_status: 'complete',
+      commercial_role: 'buyer',
+      commercial_relevance: 'commercial',
+    }, null),
+    null,
+  )
 })
 
 test('todo conteúdo seller-facing escapa HTML não confiável', () => {

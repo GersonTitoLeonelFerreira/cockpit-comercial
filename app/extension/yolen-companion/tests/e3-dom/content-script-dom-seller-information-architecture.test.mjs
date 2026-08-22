@@ -335,10 +335,12 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   const nowPanel = runtime.document.querySelector('[data-yolen-seller-panel="now"]')
   assert.match(nowPanel.textContent, /Momento atual/i)
   assert.match(nowPanel.textContent, /Diagnóstico/)
-  assert.match(nowPanel.textContent, /Fora do método/)
   assert.match(nowPanel.textContent, /Risco alto na etapa CONTATO/)
+  assert.doesNotMatch(nowPanel.textContent, /Fora do método/)
+  assert.equal(nowPanel.querySelectorAll('[data-yolen-now-attention]').length, 1)
   assert.match(nowPanel.textContent, /Próximo movimento/)
   assert.match(nowPanel.textContent, /Mensagem sugerida/)
+  assert.doesNotMatch(nowPanel.textContent, /Pergunta recomendada/)
 
   runtime.document.querySelector('[data-yolen-seller-area="analysis"]').click()
   await waitFor(() => !runtime.document.querySelector('[data-yolen-seller-panel="analysis"]').hidden)
@@ -491,6 +493,15 @@ test('loading e error da análise aparecem sem quebrar a navegação', async () 
   errorRuntime.document.querySelector('[data-yolen-seller-area="analysis"]').click()
   await waitFor(() => errorRuntime.document.querySelector('[data-yolen-analysis-error]'))
   assert.match(errorRuntime.document.querySelector('[data-yolen-analysis-error]').textContent, /Falha controlada/)
+  assert.equal(
+    errorRuntime.document.querySelector('[data-yolen-analysis-error]').getAttribute('role'),
+    'alert',
+  )
+  const previousAnalysisCalls = analysisCalls(errorRuntime.calls).length
+  errorRuntime.document
+    .querySelector('[data-yolen-seller-panel="analysis"] [data-yolen-action="analyze-conversation"]')
+    .click()
+  await waitFor(() => analysisCalls(errorRuntime.calls).length > previousAnalysisCalls)
   assert.ok(errorRuntime.document.querySelector('[data-yolen-seller-area="client"]'))
 })
 

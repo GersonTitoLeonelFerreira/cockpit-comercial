@@ -4757,6 +4757,11 @@
         'complete' ||
       reading.commercial_role !==
         'buyer' ||
+      (
+        reading.commercial_relevance &&
+        reading.commercial_relevance !==
+          'commercial'
+      ) ||
       !reading.best_approach ||
       !reading.customer ||
       !reading.method ||
@@ -7263,6 +7268,44 @@
       return ''
     }
 
+    const recommendedMessage =
+      typeof communication
+        .recommended_message ===
+        'string'
+        ? communication
+            .recommended_message
+            .trim()
+        : ''
+
+    const normalizeForComparison = (
+      value,
+    ) => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('pt-BR')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const normalizedQuestion =
+      normalizeForComparison(
+        question,
+      )
+
+    // Se a mensagem sugerida já contém a pergunta, AGORA mostra apenas a
+    // mensagem acionável. A pergunta continua disponível no contrato, sem
+    // ocupar dois blocos com o mesmo conteúdo no primeiro nível.
+    if (
+      normalizedQuestion &&
+      normalizeForComparison(
+        recommendedMessage,
+      ).includes(
+        normalizedQuestion,
+      )
+    ) {
+      return ''
+    }
+
     return `
       <div class="yolen-decision-block">
         <div class="yolen-decision-kicker">
@@ -8323,6 +8366,13 @@
           .renderNowAttentionSnapshot(
             commercialReading,
             state.companionClientContext,
+            {
+              now: Date.now(),
+              cycleClosed:
+                state.leadResolution
+                  ?.flags
+                  ?.is_closed === true,
+            },
           )}
 
         ${getRichCommercialReadingApproachHtml(
@@ -8658,7 +8708,7 @@
       return `
         <div class="yolen-card yolen-seller-area-card">
           <div class="yolen-section-label">Análise</div>
-          <div class="yolen-seller-empty-state" data-yolen-analysis-loading>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
             Analisando sua condução comercial…
           </div>
         </div>
@@ -8669,9 +8719,24 @@
       return `
         <div class="yolen-card yolen-seller-area-card yolen-status-warning">
           <div class="yolen-section-label">Análise</div>
-          <div class="yolen-seller-empty-state" data-yolen-analysis-error>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
             ${escapeHtml(state.conversationAnalysisError)}
           </div>
+          ${
+            canAnalyzeCurrentConversation()
+              ? `
+                <div class="yolen-inline-actions">
+                  <button
+                    class="yolen-secondary-button"
+                    type="button"
+                    data-yolen-action="analyze-conversation"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              `
+              : ''
+          }
         </div>
       `
     }
@@ -9910,33 +9975,6 @@
       return null
     }
 
-    const preSendGateKey =
-      getCurrentPreSendGateKey()
-
-    if (preSendGateKey) {
-      return {
-        level: 'risk',
-        key:
-          `risk:${preSendGateKey}`,
-        label:
-          'Risco comercial antes do envio',
-      }
-    }
-
-    if (
-      state.leadResolution?.status ===
-        'NOT_FOUND' &&
-      !state.leadResolutionLoading
-    ) {
-      return {
-        level: 'attention',
-        key:
-          `attention:new-lead:${state.conversationKey}`,
-        label:
-          'Contato ainda não cadastrado na Yolen',
-      }
-    }
-
     const commercialReading =
       getActiveCommercialReading()
 
@@ -9949,11 +9987,115 @@
           'complete',
       )
 
+    const neutralSession =
+      hasCurrentReading &&
+      sellerInformationViewTools
+        .isNeutralCommercialSession(
+          commercialReading,
+        )
+
+    // Uma conversa pessoal ou incerta não acende sinal comercial no rail.
+    // O histórico persistido continua disponível em CLIENTE ao abrir.
+    if (neutralSession) {
+      return null
+    }
+
+    const candidates = []
+    const addCandidate = (
+      candidate,
+      rank,
+    ) => {
+      if (!candidate) {
+        return
+      }
+
+      candidates.push({
+        ...candidate,
+        rank,
+      })
+    }
+
+    const preSendGateKey =
+      getCurrentPreSendGateKey()
+
+    if (preSendGateKey) {
+      addCandidate({
+        level: 'risk',
+        key:
+          `risk:${preSendGateKey}`,
+        label:
+          'Risco comercial antes do envio',
+      }, 500)
+    }
+
+    const sellerAttention =
+      hasCurrentReading
+        ? sellerInformationViewTools
+            .resolveSellerAttentionSnapshot(
+              commercialReading,
+              state.companionClientContext,
+              {
+                now: Date.now(),
+                cycleClosed:
+                  state.leadResolution
+                    ?.flags
+                    ?.is_closed === true,
+              },
+            )
+        : null
+
+    if (sellerAttention) {
+      const levels = {
+        critical: 'risk',
+        high: 'attention',
+        medium: 'recommendation',
+      }
+
+      const ranks = {
+        critical: 400,
+        high: 300,
+        medium: 200,
+      }
+
+      addCandidate({
+        level:
+          levels[
+            sellerAttention.priority
+          ],
+        key:
+          [
+            'seller-attention',
+            state.conversationKey,
+            state.analyzedConversationFingerprint,
+            sellerAttention.source,
+            sellerAttention.priority,
+          ]
+            .filter(Boolean)
+            .join(':'),
+        label:
+          sellerAttention.copy,
+      }, ranks[sellerAttention.priority])
+    }
+
+    if (
+      state.leadResolution?.status ===
+        'NOT_FOUND' &&
+      !state.leadResolutionLoading
+    ) {
+      addCandidate({
+        level: 'attention',
+        key:
+          `attention:new-lead:${state.conversationKey}`,
+        label:
+          'Contato ainda não cadastrado na Yolen',
+      }, 310)
+    }
+
     if (
       hasCurrentReading &&
       hasCurrentOperationalSuggestionChange()
     ) {
-      return {
+      addCandidate({
         level: 'attention',
         key:
           [
@@ -9965,7 +10107,7 @@
             .join(':'),
         label:
           'Ação da Yolen aguardando revisão',
-      }
+      }, 305)
     }
 
     if (
@@ -9974,7 +10116,7 @@
         ?.communication
         ?.intervention_needed === true
     ) {
-      return {
+      addCandidate({
         level: 'recommendation',
         key:
           [
@@ -9986,7 +10128,7 @@
             .join(':'),
         label:
           'Recomendação disponível para esta conversa',
-      }
+      }, 190)
     }
 
     const enrichmentCandidates =
@@ -10005,7 +10147,7 @@
           .filter(Boolean)
           .sort()
 
-      return {
+      addCandidate({
         level: 'information',
         key:
           [
@@ -10015,10 +10157,26 @@
           ].join(':'),
         label:
           'Novos dados encontrados na conversa',
-      }
+      }, 100)
     }
 
-    return null
+    candidates.sort(
+      (left, right) =>
+        right.rank - left.rank,
+    )
+
+    const attention =
+      candidates[0]
+
+    if (!attention) {
+      return null
+    }
+
+    return {
+      level: attention.level,
+      key: attention.key,
+      label: attention.label,
+    }
   }
 
   function getUnacknowledgedCollapsedAttention() {
@@ -10214,6 +10372,7 @@
             ' type="button"',
             ' data-yolen-action="refresh"',
             ' title="Atualizar"',
+            ' aria-label="Atualizar Yolen Companion"',
           '>',
             '↻',
           '</button>',
@@ -10385,9 +10544,11 @@
       openYolen(url)
     })
 
-    panel.querySelector('[data-yolen-action="analyze-conversation"]')?.addEventListener('click', () => {
-      analyzeCurrentConversation({
-        automatic: false,
+    panel.querySelectorAll('[data-yolen-action="analyze-conversation"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        analyzeCurrentConversation({
+          automatic: false,
+        })
       })
     })
 

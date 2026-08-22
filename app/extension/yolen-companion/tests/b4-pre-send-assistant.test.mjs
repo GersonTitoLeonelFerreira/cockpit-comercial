@@ -70,6 +70,7 @@ function makeReading({
   reason = 'Responder com clareza.',
   analysisStatus = 'complete',
   commercialRole = 'buyer',
+  commercialRelevance = 'commercial',
   openQuestions = [],
   objections = [],
   customerObjections = [],
@@ -85,6 +86,9 @@ function makeReading({
 
     commercial_role:
       commercialRole,
+
+    commercial_relevance:
+      commercialRelevance,
 
     conversation_summary: {
       initial_context: null,
@@ -597,6 +601,30 @@ test(
       }),
       null,
     )
+  },
+)
+
+test(
+  'sessão non-commercial não reaproveita memória histórica para alertar no pré-envio',
+  () => {
+    const result = assess({
+      draft:
+        'Vamos fechar hoje? Preciso da sua resposta agora.',
+      reading: makeReading({
+        decision: 'wait',
+        reason: 'O cliente pediu espaço.',
+        commercialRelevance: 'non_commercial',
+        objections: [
+          {
+            summary: 'Objeção comercial histórica.',
+            evidence_message_ids: [],
+            memory_ids: ['memory-1'],
+          },
+        ],
+      }),
+    })
+
+    assert.equal(result, null)
   },
 )
 
