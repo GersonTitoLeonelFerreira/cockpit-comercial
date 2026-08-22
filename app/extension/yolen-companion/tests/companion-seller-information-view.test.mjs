@@ -301,7 +301,7 @@ test('not_configured e insufficient_evidence não inventam erro ou metodologia',
   assert.doesNotMatch(insufficientHtml, /Fora do método/)
 })
 
-test('objeção do cliente fica separada de risco na condução do vendedor', () => {
+test('objeção fica em CLIENTE e ANÁLISE mostra somente risco da condução', () => {
   const reading = buildReading()
   reading.risks.service_risks = [
     {
@@ -313,26 +313,30 @@ test('objeção do cliente fica separada de risco na condução do vendedor', ()
     },
   ]
 
-  const html = view.renderAnalysisArea(reading)
+  const analysisHtml = view.renderAnalysisArea(reading)
+  const clientHtml = view.renderClientCommercialArea(reading)
 
-  assert.match(html, /data-yolen-risk-group="customer"/)
-  assert.match(html, /Risco ou objeção do cliente/)
-  assert.match(html, /considera o preço alto/)
-  assert.match(html, /data-yolen-risk-group="seller"/)
-  assert.match(html, /Risco na condução do vendedor/)
-  assert.match(html, /pressão excessiva/)
+  assert.doesNotMatch(analysisHtml, /data-yolen-risk-group="customer"/)
+  assert.doesNotMatch(analysisHtml, /considera o preço alto/)
+  assert.match(analysisHtml, /data-yolen-risk-group="seller"/)
+  assert.match(analysisHtml, /Risco na condução do vendedor/)
+  assert.match(analysisHtml, /pressão excessiva/)
+  assert.match(clientHtml, /Objeções atuais do cliente/)
+  assert.match(clientHtml, /Considera o preço alto/)
 })
 
-test('Cliente agrupa somente dados existentes em O que sabemos e Em aberto', () => {
+test('Cliente agrupa somente dados existentes e mantém detalhe sob demanda', () => {
   const html = view.renderClientCommercialArea(buildReading())
 
-  assert.match(html, /O que sabemos/)
+  assert.match(html, /O que ele quer/)
   assert.match(html, /Necessidades/)
   assert.match(html, /Critérios de decisão/)
-  assert.match(html, /Em aberto/)
+  assert.match(html, /Outros pontos em aberto/)
   assert.match(html, /Perguntas em aberto/)
-  assert.match(html, /Objeções do cliente/)
-  assert.doesNotMatch(html, /discussed_products|missing_discovery|resolved_information/)
+  assert.match(html, /Objeções atuais do cliente/)
+  assert.doesNotMatch(html, /data-yolen-client-field="discussed_products"/)
+  assert.doesNotMatch(html, /data-yolen-client-field="missing_discovery"/)
+  assert.doesNotMatch(html, /data-yolen-client-field="resolved_information"/)
 
   const empty = buildReading()
   empty.customer.needs = []

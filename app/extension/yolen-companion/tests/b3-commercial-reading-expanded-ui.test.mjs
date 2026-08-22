@@ -50,8 +50,8 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
     },
   ]))
 
-  assert.match(clientHtml, /O que sabemos/)
-  assert.match(clientHtml, /Em aberto/)
+  assert.match(clientHtml, /O que ele quer/)
+  assert.match(clientHtml, /Outros pontos em aberto/)
   assert.match(analysisHtml, /<details class="yolen-seller-secondary-details">/)
   assert.match(analysisHtml, /evolução comercial/i)
   assert.doesNotMatch(analysisHtml, /<details[^>]*open/)
@@ -61,7 +61,7 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
   assert.match(contentScript, /getSellerAreaTabHtml\('client', 'Cliente'\)/)
 })
 
-test('B3.2 consome os campos seller-facing existentes sem antecipar contratos da Frente 1', () => {
+test('B3.2 consome os campos seller-facing consolidados pelo contrato do cliente', () => {
   const html = sellerView.renderClientCommercialArea(reading({
     needs: [fact('Necessidade')],
     interests: [fact('Interesse')],
@@ -70,13 +70,25 @@ test('B3.2 consome os campos seller-facing existentes sem antecipar contratos da
     open_questions: [fact('Pergunta')],
     objections: [fact('Objeção')],
     uncertainties: [fact('Incerteza')],
-    objectives: [fact('Campo futuro')],
-    discussed_products: [fact('Campo futuro')],
-    missing_discovery: [fact('Campo futuro')],
-    resolved_information: [fact('Campo futuro')],
+    objectives: [fact('Objetivo')],
+    discussed_products: [{
+      ...fact('Produto discutido'),
+      canonical_product_id: 'product-yolen',
+      name: 'Yolen',
+      interest_level: 'interested',
+    }],
+    missing_discovery: [{
+      ...fact('Orçamento em aberto'),
+      topic: 'budget',
+    }],
+    resolved_information: [{
+      ...fact('Informação resolvida'),
+      category: 'objection',
+    }],
   }))
 
   for (const copy of [
+    'Objetivo',
     'Necessidade',
     'Interesse',
     'Critério',
@@ -84,11 +96,13 @@ test('B3.2 consome os campos seller-facing existentes sem antecipar contratos da
     'Pergunta',
     'Objeção',
     'Incerteza',
+    'Yolen',
+    'Orçamento em aberto',
+    'Informação resolvida',
   ]) {
     assert.match(html, new RegExp(copy))
   }
 
-  assert.doesNotMatch(html, /Campo futuro/)
   assert.doesNotMatch(html, /evidence_message_ids|memory_ids|contract_version|engine_source/)
 })
 
@@ -125,7 +139,7 @@ test('B3.2 preserva os status conhecidos da evolução comercial', () => {
 test('B3.2 omite grupos vazios e mantém detalhe sob demanda sem alterar largura do painel', () => {
   assert.equal(sellerView.renderClientCommercialArea(reading({})), '')
   assert.match(styles, /\.yolen-seller-secondary-details/)
-  assert.match(styles, /\.yolen-client-knowledge-section/)
+  assert.match(styles, /\.yolen-client-intelligence-group/)
   assert.match(styles, /\.yolen-seller-workspace/)
   assert.match(styles, /overflow-wrap:\s*anywhere/)
   assert.doesNotMatch(styles, /\.yolen-panel\s*\{[^}]*width:\s*[5-9]\d\dpx/s)
