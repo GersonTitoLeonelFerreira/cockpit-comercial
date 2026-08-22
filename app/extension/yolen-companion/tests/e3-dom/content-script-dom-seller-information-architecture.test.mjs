@@ -33,13 +33,66 @@ function buildRichReading(overrides = {}) {
       current_state: evidence('Cliente interessado, mas o impacto ainda não foi confirmado.'),
     },
     customer: {
+      objectives: [evidence('Aumentar a conversão comercial.')],
+      problems: [evidence('Leads ficam sem follow-up.')],
+      impacts: [evidence('Oportunidades são perdidas.')],
       needs: [evidence('Precisa reduzir perdas no follow-up.')],
-      interests: [evidence('Tem interesse em automação comercial.')],
+      interests: [
+        evidence('Tem interesse em automação comercial.'),
+        evidence('Busca visibilidade gerencial.'),
+      ],
       decision_criteria: [evidence('Implantação simples.')],
       preferences: [evidence('Prefere mensagens objetivas.')],
       open_questions: [evidence('Qual é o prazo de implantação?')],
       objections: [evidence('Considera o preço alto.')],
       uncertainties: [evidence('Ainda não confirmou o decisor.')],
+      discussed_products: [evidence('Demonstrou interesse na Yolen.', {
+        canonical_product_id: 'product-yolen',
+        name: 'Yolen',
+        interest_level: 'primary',
+      })],
+      primary_product_interest: evidence('Demonstrou interesse na Yolen.', {
+        canonical_product_id: 'product-yolen',
+        name: 'Yolen',
+        interest_level: 'primary',
+      }),
+      competitors: [
+        evidence('Está comparando com a RD Station.', {
+          name: 'RD Station',
+          mention_type: 'named',
+        }),
+        evidence('Também avalia outra solução.', {
+          name: null,
+          mention_type: 'unnamed_alternative',
+        }),
+      ],
+      commitments: [evidence('Demonstração confirmada.', {
+        status: 'confirmed',
+        scheduled_at: '2026-08-22T15:00:00-03:00',
+        proposed_at: '2026-08-21T12:00:00-03:00',
+      })],
+      missing_discovery: [evidence('O impacto financeiro ainda precisa ser confirmado.', {
+        topic: 'impact',
+        memory_ids: ['missing-impact'],
+      })],
+      resolved_information: [evidence('Informação resolvida: orçamento confirmado.', {
+        category: 'missing_discovery',
+        memory_ids: ['missing-budget'],
+      })],
+      superseded_information: [evidence('Informação anterior substituída: preço era o critério principal.', {
+        category: 'decision_criterion',
+        memory_ids: ['criterion-old'],
+      })],
+      communication: {
+        patterns: [evidence('Pediu dados em diferentes momentos.', {
+          observation_type: 'pattern',
+          behavior: 'requests_data_or_numbers',
+        })],
+        events: [evidence('Fez uma pergunta direta nesta mensagem.', {
+          observation_type: 'event',
+          behavior: 'direct_questions',
+        })],
+      },
     },
     commercial_evolution: [
       {
@@ -301,7 +354,8 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   assert.ok(analysisPanel.querySelector('[data-yolen-current-method-stage="true"]'))
   assert.ok(analysisPanel.querySelector('[data-yolen-method-adherence="off_method"]'))
   assert.ok(analysisPanel.querySelector('[data-yolen-method-recovery]'))
-  assert.match(analysisPanel.querySelector('[data-yolen-risk-group="customer"]').textContent, /preço alto/)
+  assert.equal(analysisPanel.querySelector('[data-yolen-risk-group="customer"]'), null)
+  assert.doesNotMatch(analysisPanel.textContent, /cliente considera o preço alto/i)
   assert.match(analysisPanel.querySelector('[data-yolen-risk-group="seller"]').textContent, /condução apressada/)
 
   runtime.document.querySelector('[data-yolen-seller-area="client"]').click()
@@ -309,13 +363,31 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   await waitFor(() => runtime.document.querySelector('.yolen-client-relationship-card'))
 
   const clientPanel = runtime.document.querySelector('[data-yolen-seller-panel="client"]')
-  assert.match(clientPanel.textContent, /O que sabemos/)
-  assert.match(clientPanel.textContent, /Em aberto/)
+  assert.match(clientPanel.textContent, /Aumentar a conversão comercial/)
+  assert.match(clientPanel.textContent, /O que ele quer/)
+  assert.match(clientPanel.textContent, /Contexto e problema/)
+  assert.match(clientPanel.textContent, /Como ele decide/)
+  assert.match(clientPanel.textContent, /Comunicação observada/)
+  assert.match(clientPanel.textContent, /Ainda precisamos descobrir/)
+  assert.match(clientPanel.textContent, /Objeções atuais do cliente/)
+  assert.match(clientPanel.textContent, /Considera o preço alto/)
+  assert.match(clientPanel.textContent, /Compromissos comerciais/)
+  assert.match(clientPanel.textContent, /Informações resolvidas e atualizadas/)
+  assert.ok(clientPanel.querySelector('[data-yolen-client-product-source="catalog"]'))
+  assert.ok(clientPanel.querySelector('[data-yolen-client-competitor-type="named"]'))
+  assert.ok(clientPanel.querySelector('[data-yolen-client-competitor-type="unnamed_alternative"]'))
+  assert.ok(clientPanel.querySelector('[data-yolen-client-communication="requests_data_or_numbers"]'))
+  assert.ok(clientPanel.querySelector('[data-yolen-client-missing-topic="impact"]'))
   assert.match(clientPanel.textContent, /Relacionamento e histórico/)
   assert.match(clientPanel.textContent, /Cliente aguardando você/)
   assert.match(clientPanel.textContent, /Risco alto/)
   assert.match(clientPanel.textContent, /Ver histórico/)
   assert.ok(clientPanel.querySelector('details.yolen-client-timeline'))
+
+  const wants = clientPanel.querySelector('[data-yolen-client-intelligence-group="wants"]')
+  assert.equal(wants.open, false)
+  wants.querySelector('summary').click()
+  assert.equal(wants.open, true)
 })
 
 test('non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do cliente', async () => {
@@ -347,6 +419,8 @@ test('non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do
   runtime.document.querySelector('[data-yolen-seller-area="client"]').click()
   await waitFor(() => runtime.document.querySelector('.yolen-client-relationship-card'))
   const clientPanel = runtime.document.querySelector('[data-yolen-seller-panel="client"]')
+  assert.match(clientPanel.textContent, /Aumentar a conversão comercial/)
+  assert.match(clientPanel.textContent, /O impacto financeiro ainda precisa ser confirmado/)
   assert.match(clientPanel.textContent, /Precisa reduzir perdas no follow-up/)
   assert.match(clientPanel.textContent, /Relacionamento/)
 })

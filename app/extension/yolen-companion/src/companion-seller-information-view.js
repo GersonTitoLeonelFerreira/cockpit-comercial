@@ -52,6 +52,68 @@
     high: 'Alto',
   }
 
+  const PRODUCT_INTEREST_LABELS = {
+    discussed: 'Produto discutido',
+    interested: 'Interesse demonstrado',
+    primary: 'Maior interesse',
+  }
+
+  const COMMUNICATION_OBSERVATION_LABELS = {
+    event: 'Comportamento observado',
+    explicit_preference: 'Preferência explícita',
+    pattern: 'Padrão observado',
+  }
+
+  const COMMUNICATION_BEHAVIOR_LABELS = {
+    short_responses: 'Mensagens objetivas',
+    direct_questions: 'Perguntas diretas',
+    requests_data_or_numbers: 'Busca dados ou números',
+    frequent_audio: 'Uso frequente de áudio',
+    prefers_short_explanations: 'Prefere explicações curtas',
+    negative_reaction_to_pressure: 'Reação negativa à pressão',
+    responds_to_clear_alternatives: 'Responde a alternativas claras',
+    other_observed_behavior: 'Outro comportamento observado',
+  }
+
+  const MISSING_DISCOVERY_LABELS = {
+    objective: 'Objetivo',
+    problem: 'Problema',
+    impact: 'Impacto',
+    need: 'Necessidade',
+    budget: 'Orçamento',
+    timeline: 'Prazo',
+    decision_maker: 'Decisor',
+    priority: 'Prioridade',
+    decision_criteria: 'Critério de decisão',
+    current_process: 'Processo atual',
+    product_fit: 'Aderência do produto',
+    other: 'Outro ponto',
+  }
+
+  const COMMITMENT_STATUS_LABELS = {
+    proposed: 'Proposto',
+    confirmed: 'Confirmado',
+    reschedule_requested: 'Reagendamento solicitado',
+    cancelled: 'Cancelado',
+    completed: 'Concluído',
+  }
+
+  const CUSTOMER_HISTORY_CATEGORY_LABELS = {
+    objective: 'Objetivo',
+    problem: 'Problema',
+    impact: 'Impacto',
+    need: 'Necessidade',
+    interest: 'Interesse',
+    decision_criterion: 'Critério de decisão',
+    preference: 'Preferência',
+    open_question: 'Pergunta em aberto',
+    objection: 'Objeção',
+    uncertainty: 'Incerteza',
+    missing_discovery: 'Descoberta',
+    product: 'Produto',
+    competitor: 'Concorrente',
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -74,6 +136,29 @@
     return Array.isArray(items)
       ? items.filter((item) => item && typeof item === 'object')
       : []
+  }
+
+  function displayDateTime(value) {
+    const clean = displayText(value)
+
+    if (!clean) {
+      return null
+    }
+
+    const date = new Date(clean)
+
+    if (Number.isNaN(date.getTime())) {
+      return clean
+    }
+
+    try {
+      return new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(date)
+    } catch {
+      return clean
+    }
   }
 
   function isNeutralCommercialSession(reading) {
@@ -486,19 +571,13 @@
   }
 
   function renderRisks(reading) {
-    const customer = renderRiskGroup(
-      'Risco ou objeção do cliente',
-      reading?.risks?.customer_objections,
-      'customer',
-    )
-
     const seller = renderRiskGroup(
       'Risco na condução do vendedor',
       reading?.risks?.service_risks,
       'seller',
     )
 
-    if (!customer && !seller) {
+    if (!seller) {
       return ''
     }
 
@@ -506,11 +585,10 @@
       <section class="yolen-seller-section" data-yolen-analysis-section="risks">
         <div class="yolen-seller-section-heading">
           <div>
-            <div class="yolen-seller-section-eyebrow">Leitura de risco</div>
-            <h3>Cliente e condução</h3>
+            <div class="yolen-seller-section-eyebrow">Condução</div>
+            <h3>Riscos no atendimento</h3>
           </div>
         </div>
-        ${customer}
         ${seller}
       </section>
     `
@@ -580,7 +658,7 @@
     return sections.join('')
   }
 
-  function renderCustomerItems(label, items) {
+  function renderCustomerItems(label, items, field) {
     const summaries = displayItems(items)
       .map((item) => displayText(item.summary))
       .filter(Boolean)
@@ -590,11 +668,357 @@
     }
 
     return `
-      <div class="yolen-client-knowledge-group">
+      <div
+        class="yolen-client-knowledge-group"
+        data-yolen-client-field="${escapeHtml(field)}"
+      >
         <div class="yolen-client-knowledge-label">${escapeHtml(label)}</div>
         <ul class="yolen-client-knowledge-list">
           ${summaries.map((summary) => `<li>${escapeHtml(summary)}</li>`).join('')}
         </ul>
+      </div>
+    `
+  }
+
+  function renderCustomerRichItems(label, items, renderItem, field) {
+    const renderedItems = displayItems(items)
+      .map(renderItem)
+      .filter(Boolean)
+
+    if (renderedItems.length === 0) {
+      return ''
+    }
+
+    return `
+      <div
+        class="yolen-client-knowledge-group"
+        data-yolen-client-field="${escapeHtml(field)}"
+      >
+        <div class="yolen-client-knowledge-label">${escapeHtml(label)}</div>
+        <div class="yolen-client-rich-list">
+          ${renderedItems.join('')}
+        </div>
+      </div>
+    `
+  }
+
+  function renderCustomerGroup({
+    key,
+    title,
+    sections,
+    count,
+  }) {
+    const content = sections.filter(Boolean)
+
+    if (content.length === 0 || count <= 0) {
+      return ''
+    }
+
+    return `
+      <details
+        class="yolen-client-intelligence-group"
+        data-yolen-client-intelligence-group="${escapeHtml(key)}"
+      >
+        <summary>
+          <span>${escapeHtml(title)}</span>
+          <span class="yolen-client-group-count">${escapeHtml(count)}</span>
+        </summary>
+        <div class="yolen-client-intelligence-group-content">
+          ${content.join('')}
+        </div>
+      </details>
+    `
+  }
+
+  function customerItemCount(items) {
+    return displayItems(items)
+      .filter((item) => displayText(item.summary))
+      .length
+  }
+
+  function uniqueProducts(customer) {
+    const products = displayItems(customer?.discussed_products)
+      .filter((item) => displayText(item.name) || displayText(item.summary))
+
+    const primary = customer?.primary_product_interest
+
+    if (!primary || typeof primary !== 'object') {
+      return products
+    }
+
+    const alreadyIncluded = products.some((product) => (
+      product.canonical_product_id === primary.canonical_product_id &&
+      displayText(product.name) === displayText(primary.name) &&
+      product.interest_level === primary.interest_level &&
+      displayText(product.summary) === displayText(primary.summary)
+    ))
+
+    return alreadyIncluded
+      ? products
+      : [...products, primary]
+  }
+
+  function renderProduct(product) {
+    const name = displayText(product?.name)
+    const summary = displayText(product?.summary)
+    const interestLabel = PRODUCT_INTEREST_LABELS[product?.interest_level]
+
+    if ((!name && !summary) || !interestLabel) {
+      return ''
+    }
+
+    const source = displayText(product.canonical_product_id)
+      ? 'catalog'
+      : 'observed'
+
+    const sourceLabel = source === 'catalog'
+      ? 'Produto identificado'
+      : 'Menção observada'
+
+    return `
+      <article
+        class="yolen-client-rich-item"
+        data-yolen-client-product-source="${source}"
+        data-yolen-client-product-interest="${escapeHtml(product.interest_level)}"
+      >
+        <div class="yolen-client-rich-item-meta">
+          ${escapeHtml(sourceLabel)} · ${escapeHtml(interestLabel)}
+        </div>
+        <div class="yolen-client-rich-item-title">${escapeHtml(name || summary)}</div>
+        ${summary && summary !== name ? `<div class="yolen-client-rich-item-copy">${escapeHtml(summary)}</div>` : ''}
+      </article>
+    `
+  }
+
+  function renderCompetitor(competitor) {
+    const summary = displayText(competitor?.summary)
+    const mentionType = competitor?.mention_type
+
+    if (
+      mentionType !== 'named' &&
+      mentionType !== 'unnamed_alternative'
+    ) {
+      return ''
+    }
+
+    const name = mentionType === 'named'
+      ? displayText(competitor.name)
+      : null
+
+    if (mentionType === 'named' && !name) {
+      return ''
+    }
+
+    if (!name && !summary) {
+      return ''
+    }
+
+    return `
+      <article
+        class="yolen-client-rich-item"
+        data-yolen-client-competitor-type="${escapeHtml(mentionType)}"
+      >
+        <div class="yolen-client-rich-item-meta">
+          ${mentionType === 'named' ? 'Concorrente identificado' : 'Alternativa sem nome'}
+        </div>
+        <div class="yolen-client-rich-item-title">
+          ${escapeHtml(name || 'Outra solução em avaliação')}
+        </div>
+        ${summary && summary !== name ? `<div class="yolen-client-rich-item-copy">${escapeHtml(summary)}</div>` : ''}
+      </article>
+    `
+  }
+
+  function renderCommunicationObservation(observation) {
+    const summary = displayText(observation?.summary)
+    const observationLabel = COMMUNICATION_OBSERVATION_LABELS[
+      observation?.observation_type
+    ]
+    const behaviorLabel = COMMUNICATION_BEHAVIOR_LABELS[
+      observation?.behavior
+    ]
+
+    if (!summary || !observationLabel || !behaviorLabel) {
+      return ''
+    }
+
+    return `
+      <article
+        class="yolen-client-rich-item"
+        data-yolen-client-communication="${escapeHtml(observation.behavior)}"
+        data-yolen-client-communication-type="${escapeHtml(observation.observation_type)}"
+      >
+        <div class="yolen-client-rich-item-meta">${escapeHtml(observationLabel)}</div>
+        <div class="yolen-client-rich-item-title">${escapeHtml(behaviorLabel)}</div>
+        <div class="yolen-client-rich-item-copy">${escapeHtml(summary)}</div>
+      </article>
+    `
+  }
+
+  function renderMissingDiscovery(item) {
+    const summary = displayText(item?.summary)
+    const topicLabel = MISSING_DISCOVERY_LABELS[item?.topic]
+
+    if (!summary || !topicLabel) {
+      return ''
+    }
+
+    return `
+      <article
+        class="yolen-client-rich-item yolen-client-rich-item--attention"
+        data-yolen-client-missing-topic="${escapeHtml(item.topic)}"
+      >
+        <div class="yolen-client-rich-item-meta">${escapeHtml(topicLabel)}</div>
+        <div class="yolen-client-rich-item-title">${escapeHtml(summary)}</div>
+      </article>
+    `
+  }
+
+  function renderCommitment(commitment) {
+    const summary = displayText(commitment?.summary)
+    const statusLabel = COMMITMENT_STATUS_LABELS[commitment?.status]
+
+    if (!summary || !statusLabel) {
+      return ''
+    }
+
+    const scheduledAt = displayDateTime(commitment.scheduled_at)
+
+    return `
+      <article
+        class="yolen-client-rich-item"
+        data-yolen-client-commitment-status="${escapeHtml(commitment.status)}"
+      >
+        <div class="yolen-client-rich-item-meta">${escapeHtml(statusLabel)}</div>
+        <div class="yolen-client-rich-item-title">${escapeHtml(summary)}</div>
+        ${scheduledAt ? `<div class="yolen-client-rich-item-copy">Data combinada: ${escapeHtml(scheduledAt)}</div>` : ''}
+      </article>
+    `
+  }
+
+  function renderCustomerHistoryItem(item, state) {
+    const summary = displayText(item?.summary)
+    const categoryLabel = CUSTOMER_HISTORY_CATEGORY_LABELS[item?.category]
+
+    if (!summary || !categoryLabel) {
+      return ''
+    }
+
+    return `
+      <article
+        class="yolen-client-rich-item yolen-client-rich-item--history"
+        data-yolen-client-history-state="${escapeHtml(state)}"
+        data-yolen-client-history-category="${escapeHtml(item.category)}"
+      >
+        <div class="yolen-client-rich-item-meta">${escapeHtml(categoryLabel)}</div>
+        <div class="yolen-client-rich-item-copy">${escapeHtml(summary)}</div>
+      </article>
+    `
+  }
+
+  function hasSharedMemoryId(item, historyItems) {
+    const memoryIds = Array.isArray(item?.memory_ids)
+      ? item.memory_ids.filter(displayText)
+      : []
+
+    if (memoryIds.length === 0) {
+      return false
+    }
+
+    return displayItems(historyItems).some((history) => (
+      history.category === 'missing_discovery' &&
+      Array.isArray(history.memory_ids) &&
+      history.memory_ids.some((id) => memoryIds.includes(id))
+    ))
+  }
+
+  function getActiveMissingDiscovery(customer) {
+    const history = [
+      ...displayItems(customer?.resolved_information),
+      ...displayItems(customer?.superseded_information),
+    ]
+
+    return displayItems(customer?.missing_discovery)
+      .filter((item) => !hasSharedMemoryId(item, history))
+  }
+
+  function renderCustomerSummary(customer, products, missingDiscovery) {
+    const summaryItems = []
+    const objective = displayItems(customer.objectives)
+      .map((item) => displayText(item.summary))
+      .find(Boolean)
+
+    if (objective) {
+      summaryItems.push({
+        label: 'Objetivo',
+        value: objective,
+      })
+    }
+
+    const primary = customer.primary_product_interest
+    const primaryName = displayText(primary?.name)
+
+    if (primaryName) {
+      summaryItems.push({
+        label: primary.canonical_product_id
+          ? 'Produto principal'
+          : 'Maior interesse observado',
+        value: primaryName,
+      })
+    }
+
+    if (summaryItems.length === 0) {
+      const fallbacks = [
+        ['Necessidade', customer.needs],
+        ['Problema', customer.problems],
+        ['Interesse', customer.interests],
+        ['Objeção atual', customer.objections],
+      ]
+
+      for (const [label, items] of fallbacks) {
+        const value = displayItems(items)
+          .map((item) => displayText(item.summary))
+          .find(Boolean)
+
+        if (value) {
+          summaryItems.push({ label, value })
+          break
+        }
+      }
+    }
+
+    if (missingDiscovery.length > 0) {
+      summaryItems.push({
+        label: 'Descoberta',
+        value: `${missingDiscovery.length} ${missingDiscovery.length === 1 ? 'ponto ainda precisa' : 'pontos ainda precisam'} ser confirmado${missingDiscovery.length === 1 ? '' : 's'}.`,
+      })
+    }
+
+    if (summaryItems.length === 0 && products.length > 0) {
+      const productName = displayText(products[0].name)
+
+      if (productName) {
+        summaryItems.push({
+          label: products[0].canonical_product_id
+            ? 'Produto identificado'
+            : 'Menção observada',
+          value: productName,
+        })
+      }
+    }
+
+    if (summaryItems.length === 0) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-client-intelligence-summary" data-yolen-client-summary>
+        ${summaryItems.slice(0, 3).map(({ label, value }) => `
+          <div class="yolen-client-summary-item">
+            <div class="yolen-client-summary-label">${escapeHtml(label)}</div>
+            <div class="yolen-client-summary-copy">${escapeHtml(value)}</div>
+          </div>
+        `).join('')}
       </div>
     `
   }
@@ -606,42 +1030,134 @@
       return ''
     }
 
-    const known = [
-      renderCustomerItems('Necessidades', customer.needs),
-      renderCustomerItems('Interesses', customer.interests),
-      renderCustomerItems('Critérios de decisão', customer.decision_criteria),
-      renderCustomerItems('Preferências', customer.preferences),
+    const products = uniqueProducts(customer)
+    const communicationPatterns = displayItems(customer.communication?.patterns)
+    const communicationEvents = displayItems(customer.communication?.events)
+    const missingDiscovery = getActiveMissingDiscovery(customer)
+    const resolvedInformation = displayItems(customer.resolved_information)
+    const supersededInformation = displayItems(customer.superseded_information)
+
+    const groups = [
+      renderCustomerGroup({
+        key: 'wants',
+        title: 'O que ele quer',
+        count:
+          customerItemCount(customer.objectives) +
+          customerItemCount(customer.needs) +
+          customerItemCount(customer.interests),
+        sections: [
+          renderCustomerItems('Objetivos', customer.objectives, 'objectives'),
+          renderCustomerItems('Necessidades', customer.needs, 'needs'),
+          renderCustomerItems('Interesses', customer.interests, 'interests'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'context',
+        title: 'Contexto e problema',
+        count:
+          customerItemCount(customer.problems) +
+          customerItemCount(customer.impacts),
+        sections: [
+          renderCustomerItems('Problemas', customer.problems, 'problems'),
+          renderCustomerItems('Impactos', customer.impacts, 'impacts'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'decision',
+        title: 'Como ele decide',
+        count:
+          customerItemCount(customer.decision_criteria) +
+          customerItemCount(customer.preferences) +
+          products.length +
+          displayItems(customer.competitors).length,
+        sections: [
+          renderCustomerItems('Critérios de decisão', customer.decision_criteria, 'decision_criteria'),
+          renderCustomerItems('Preferências comerciais', customer.preferences, 'preferences'),
+          renderCustomerRichItems('Produtos avaliados', products, renderProduct, 'discussed_products'),
+          renderCustomerRichItems('Concorrentes e alternativas', customer.competitors, renderCompetitor, 'competitors'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'communication',
+        title: 'Comunicação observada',
+        count: communicationPatterns.length + communicationEvents.length,
+        sections: [
+          renderCustomerRichItems('Padrões e preferências', communicationPatterns, renderCommunicationObservation, 'communication_patterns'),
+          renderCustomerRichItems('Observações recentes', communicationEvents, renderCommunicationObservation, 'communication_events'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'missing-discovery',
+        title: 'Ainda precisamos descobrir',
+        count: missingDiscovery.length,
+        sections: [
+          renderCustomerRichItems('Pontos de descoberta', missingDiscovery, renderMissingDiscovery, 'missing_discovery'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'open',
+        title: 'Outros pontos em aberto',
+        count:
+          customerItemCount(customer.open_questions) +
+          customerItemCount(customer.uncertainties),
+        sections: [
+          renderCustomerItems('Perguntas em aberto', customer.open_questions, 'open_questions'),
+          renderCustomerItems('Incertezas', customer.uncertainties, 'uncertainties'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'objections',
+        title: 'Objeções atuais do cliente',
+        count: customerItemCount(customer.objections),
+        sections: [
+          renderCustomerItems('Objeções', customer.objections, 'objections'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'commitments',
+        title: 'Compromissos comerciais',
+        count: customerItemCount(customer.commitments),
+        sections: [
+          renderCustomerRichItems('Compromissos', customer.commitments, renderCommitment, 'commitments'),
+        ],
+      }),
+      renderCustomerGroup({
+        key: 'history',
+        title: 'Informações resolvidas e atualizadas',
+        count: resolvedInformation.length + supersededInformation.length,
+        sections: [
+          renderCustomerRichItems(
+            'O que já foi resolvido',
+            resolvedInformation,
+            (item) => renderCustomerHistoryItem(item, 'resolved'),
+            'resolved_information',
+          ),
+          renderCustomerRichItems(
+            'Informações anteriores substituídas',
+            supersededInformation,
+            (item) => renderCustomerHistoryItem(item, 'superseded'),
+            'superseded_information',
+          ),
+        ],
+      }),
     ].filter(Boolean)
 
-    const open = [
-      renderCustomerItems('Perguntas em aberto', customer.open_questions),
-      renderCustomerItems('Objeções do cliente', customer.objections),
-      renderCustomerItems('Incertezas', customer.uncertainties),
-    ].filter(Boolean)
-
-    const sections = []
-
-    if (known.length > 0) {
-      sections.push(`
-        <section class="yolen-client-knowledge-section" data-yolen-client-section="known">
-          <h3>O que sabemos</h3>
-          ${known.join('')}
-        </section>
-      `)
+    if (groups.length === 0) {
+      return ''
     }
 
-    if (open.length > 0) {
-      sections.push(`
-        <section class="yolen-client-knowledge-section" data-yolen-client-section="open">
-          <h3>Em aberto</h3>
-          ${open.join('')}
-        </section>
-      `)
-    }
-
-    return sections.length > 0
-      ? `<div class="yolen-card yolen-client-commercial-card">${sections.join('')}</div>`
-      : ''
+    return `
+      <div class="yolen-card yolen-client-commercial-card" data-yolen-client-intelligence>
+        <div class="yolen-client-intelligence-heading">
+          <div class="yolen-section-label">Inteligência comercial</div>
+          <h3>Cliente</h3>
+        </div>
+        ${renderCustomerSummary(customer, products, missingDiscovery)}
+        <div class="yolen-client-intelligence-groups">
+          ${groups.join('')}
+        </div>
+      </div>
+    `
   }
 
   function renderNowMethodSnapshot(reading) {

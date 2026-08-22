@@ -1027,6 +1027,7 @@ html.yolen-companion-collapsed #app {
 
 .yolen-seller-tab:focus-visible,
 .yolen-seller-secondary-details > summary:focus-visible,
+.yolen-client-intelligence-group > summary:focus-visible,
 .yolen-client-timeline > summary:focus-visible {
   outline: 2px solid #60a5fa;
   outline-offset: 2px;
@@ -1107,8 +1108,7 @@ html.yolen-companion-collapsed #app {
   gap: 10px;
 }
 
-.yolen-seller-section-heading h3,
-.yolen-client-knowledge-section h3 {
+.yolen-seller-section-heading h3 {
   margin: 2px 0 0;
   color: #f2f7ff;
   font-size: 13px;
@@ -1395,22 +1395,116 @@ html.yolen-companion-collapsed #app {
 
 .yolen-client-commercial-card {
   display: grid;
-  gap: 15px;
+  gap: 12px;
 }
 
-.yolen-client-knowledge-section {
+.yolen-client-intelligence-heading {
   display: grid;
-  gap: 10px;
+  gap: 3px;
 }
 
-.yolen-client-knowledge-section + .yolen-client-knowledge-section {
-  padding-top: 14px;
+.yolen-client-intelligence-heading h3 {
+  margin: 0;
+  color: #edf5ff;
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.yolen-client-intelligence-summary {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.17);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(30, 64, 175, 0.16), rgba(2, 6, 23, 0.38));
+}
+
+.yolen-client-summary-item {
+  display: grid;
+  gap: 2px;
+}
+
+.yolen-client-summary-item + .yolen-client-summary-item {
+  padding-top: 7px;
   border-top: 1px solid rgba(126, 153, 194, 0.1);
+}
+
+.yolen-client-summary-label,
+.yolen-client-rich-item-meta {
+  color: #80a6d6;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.yolen-client-summary-copy {
+  color: #e2ecf8;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.42;
+}
+
+.yolen-client-intelligence-groups {
+  display: grid;
+  gap: 7px;
+}
+
+.yolen-client-intelligence-group {
+  min-width: 0;
+  border: 1px solid rgba(126, 153, 194, 0.12);
+  border-radius: 11px;
+  background: rgba(2, 6, 23, 0.28);
+  overflow: hidden;
+}
+
+.yolen-client-intelligence-group > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: #c7d6e8;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.35;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.yolen-client-intelligence-group[open] > summary {
+  color: #eff6ff;
+  background: rgba(30, 64, 175, 0.12);
+}
+
+.yolen-client-group-count {
+  display: inline-flex;
+  min-width: 20px;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  border: 1px solid rgba(126, 153, 194, 0.13);
+  border-radius: 999px;
+  color: #9eb2cb;
+  background: rgba(15, 23, 42, 0.74);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.yolen-client-intelligence-group-content {
+  display: grid;
+  gap: 12px;
+  padding: 2px 10px 11px;
+  border-top: 1px solid rgba(126, 153, 194, 0.08);
 }
 
 .yolen-client-knowledge-group {
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 .yolen-client-knowledge-label {
@@ -1419,6 +1513,44 @@ html.yolen-companion-collapsed #app {
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.yolen-client-rich-list {
+  display: grid;
+  gap: 7px;
+}
+
+.yolen-client-rich-item {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(126, 153, 194, 0.1);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.48);
+  overflow-wrap: anywhere;
+}
+
+.yolen-client-rich-item--attention {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(120, 53, 15, 0.12);
+}
+
+.yolen-client-rich-item--history {
+  background: rgba(15, 23, 42, 0.32);
+}
+
+.yolen-client-rich-item-title {
+  margin-top: 3px;
+  color: #dfeaf7;
+  font-size: 11px;
+  font-weight: 780;
+  line-height: 1.42;
+}
+
+.yolen-client-rich-item-copy {
+  margin-top: 3px;
+  color: #aebed1;
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .yolen-client-relationship-rows {
