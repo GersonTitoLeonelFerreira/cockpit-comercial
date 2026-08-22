@@ -190,6 +190,41 @@ test(
 )
 
 test(
+  'minimizado reutiliza a mesma prioridade de AGORA e mantém um único indicador',
+  () => {
+    assert.match(
+      b5Block,
+      /resolveSellerAttentionSnapshot\(/,
+    )
+
+    assert.match(
+      b5Block,
+      /critical:\s*400[\s\S]*high:\s*300[\s\S]*medium:\s*200/,
+    )
+
+    assert.match(
+      b5Block,
+      /candidates\.sort\([\s\S]*right\.rank - left\.rank/,
+    )
+
+    assert.match(
+      b5Block,
+      /const attention =[\s\S]*candidates\[0\]/,
+    )
+  },
+)
+
+test(
+  'sessão non-commercial mantém o rail neutro',
+  () => {
+    assert.match(
+      b5Block,
+      /isNeutralCommercialSession\([\s\S]*if \(neutralSession\) \{[\s\S]*return null/,
+    )
+  },
+)
+
+test(
   'contato não cadastrado vira atenção sem abrir painel',
   () => {
     assert.match(
