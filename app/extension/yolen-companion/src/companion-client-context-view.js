@@ -121,14 +121,125 @@
     )
   }
 
-  function renderWaitingRow(waiting) {
+  // `generatedAt` + `now` permitem "crescer" localmente um valor que o
+  // servidor calculou uma vez (ex.: quanto tempo o cliente já está
+  // esperando), sem precisar de uma nova chamada de rede a cada minuto que
+  // passa. Quando `now` não é informado (todo o resto do módulo, incluindo
+  // todos os testes existentes), o comportamento é idêntico ao valor
+  // estático que já vinha do servidor — só content-script.js, ao renderizar
+  // o painel de verdade, passa `Date.now()` para ativar o crescimento.
+  function computeGrownValue(
+    baseValue,
+    generatedAt,
+    now,
+    unitMs,
+  ) {
+    if (
+      typeof baseValue !== 'number'
+    ) {
+      return null
+    }
+
+    if (
+      typeof now !== 'number' ||
+      !generatedAt
+    ) {
+      return baseValue
+    }
+
+    const anchor = new Date(
+      generatedAt,
+    ).getTime()
+
+    if (
+      !Number.isFinite(anchor)
+    ) {
+      return baseValue
+    }
+
+    // O crescimento nunca pode ser negativo: se `now` vier antes de
+    // `generatedAt` (relógio do dispositivo adiantado/atrasado, ou um
+    // `generated_at` já no passado do servidor mas "no futuro" do
+    // navegador por alguns segundos), o valor relatado pelo servidor é
+    // mantido como está — nunca reduzido. Diminuir um tempo de espera ou
+    // um risco de SLA por causa de desvio de relógio esconderia um risco
+    // real, o que é pior do que simplesmente não crescer ainda.
+    const elapsedSinceGeneratedAt =
+      Math.max(
+        0,
+        now - anchor,
+      )
+
+    return (
+      baseValue +
+      elapsedSinceGeneratedAt /
+        unitMs
+    )
+  }
+
+  function computeRiskForElapsed(
+    sla,
+    elapsedMinutes,
+  ) {
+    if (
+      typeof elapsedMinutes !==
+      'number'
+    ) {
+      return sla?.risk ?? null
+    }
+
+    if (
+      typeof sla.danger_minutes ===
+        'number' &&
+      elapsedMinutes >=
+        sla.danger_minutes
+    ) {
+      return 'high'
+    }
+
+    if (
+      typeof sla.warning_minutes ===
+        'number' &&
+      elapsedMinutes >=
+        sla.warning_minutes
+    ) {
+      return 'medium'
+    }
+
+    if (
+      typeof sla.target_minutes ===
+        'number' ||
+      typeof sla.warning_minutes ===
+        'number' ||
+      typeof sla.danger_minutes ===
+        'number'
+    ) {
+      return 'low'
+    }
+
+    return sla?.risk ?? null
+  }
+
+  function renderWaitingRow(
+    waiting,
+    generatedAt,
+    now,
+  ) {
     const label =
       WAITING_STATE_LABELS[waiting?.state] ||
       WAITING_STATE_LABELS.unknown
 
+    const durationMs =
+      computeGrownValue(
+        waiting?.waiting_duration_ms,
+        generatedAt,
+        now,
+        1,
+      )
+
     const duration =
       formatRelativeDuration(
-        waiting?.waiting_duration_ms,
+        durationMs,
       )
 
     return (
@@ -229,29 +340,65 @@
     return rows.join('')
   }
 
-  function renderSlaRow(sla) {
+  function renderSlaRow(
+    sla,
+    generatedAt,
+    now,
+  ) {
     if (
       !sla ||
       !sla.applicable ||
-      !sla.configured ||
-      !sla.risk
+      !sla.configured
     ) {
       return ''
     }
 
+    const elapsedMinutes =
+      computeGrownValue(
+        sla.elapsed_minutes,
+        generatedAt,
+        now,
+        60000,
+      )
+
+    // Sem `now` (chamada estática, ex.: testes), confiamos no `risk` que o
+    // servidor já calculou. Com `now`, recalculamos localmente contra os
+    // mesmos limites reais (`warning_minutes`/`danger_minutes`) que o
+    // servidor já enviou — nunca inventando um novo limite, só reaplicando
+    // a regra real com o tempo decorrido atualizado.
+    const risk =
+      typeof now === 'number'
+        ? computeRiskForElapsed(
+            sla,
+            elapsedMinutes,
+          )
+        : sla.risk
+
+    if (!risk) {
+      return ''
+    }
+
     const riskLabel =
-      SLA_RISK_LABELS[sla.risk] ||
-      sla.risk
+      SLA_RISK_LABELS[risk] ||
+      risk
 
     return (
       `<div class="yolen-client-relationship-row yolen-client-relationship-sla" ` +
-      `data-yolen-sla-risk="${escapeHtml(sla.risk)}">` +
+      `data-yolen-sla-risk="${escapeHtml(risk)}">` +
       `<span class="yolen-client-relationship-label">Tempo na etapa "${escapeHtml(
         sla.stage_label || sla.stage || '',
       )}"</span>` +
       `<span class="yolen-client-relationship-value">${escapeHtml(
         riskLabel,
       )}</span>` +
+      '</div>'
+    )
+  }
+
+  function renderNoMessageHistoryRow() {
+    return (
+      '<div class="yolen-client-relationship-row yolen-client-relationship-no-history">' +
+      '<span class="yolen-client-relationship-value">Sem histórico de conversa ainda.</span>' +
       '</div>'
     )
   }
@@ -295,31 +442,57 @@
     )
   }
 
-  function renderRelationshipCard(context) {
+  function renderRelationshipCard(
+    context,
+    now,
+  ) {
+    if (!context) {
+      return renderEmptyState()
+    }
+
+    const hasMessageHistory =
+      Boolean(
+        context.relationship
+          ?.first_known_interaction_at,
+      )
+
+    // Um lead recém-importado pode não ter mensagens ainda e mesmo assim
+    // já estar há muito tempo numa etapa com SLA configurado — "sem
+    // histórico de conversa" não é o mesmo que "sem inteligência
+    // operacional nenhuma". Por isso o SLA é calculado antes de decidir
+    // se cai no estado vazio.
+    const slaRow =
+      renderSlaRow(
+        context.sla,
+        context.generated_at,
+        now,
+      )
+
     if (
-      !context ||
-      !context.relationship ||
-      !context.relationship
-        .first_known_interaction_at
+      !hasMessageHistory &&
+      !slaRow
     ) {
       return renderEmptyState()
     }
 
-    const rows =
-      renderRelationshipRows(
-        context.relationship,
-      ) +
-      renderWaitingRow(
-        context.waiting,
-      ) +
-      renderSlaRow(
-        context.sla,
-      )
+    const rows = hasMessageHistory
+      ? renderRelationshipRows(
+          context.relationship,
+        ) +
+        renderWaitingRow(
+          context.waiting,
+          context.generated_at,
+          now,
+        ) +
+        slaRow
+      : renderNoMessageHistoryRow() +
+        slaRow
 
-    const timeline =
-      renderTimelineList(
-        context.timeline,
-      )
+    const timeline = hasMessageHistory
+      ? renderTimelineList(
+          context.timeline,
+        )
+      : ''
 
     return (
       '<div class="yolen-client-relationship yolen-client-relationship--ready">' +
@@ -329,7 +502,10 @@
     )
   }
 
-  function renderClientContextSection(state) {
+  function renderClientContextSection(
+    state,
+    now,
+  ) {
     const status =
       state?.status ||
       'idle'
@@ -350,6 +526,7 @@
     ) {
       return renderRelationshipCard(
         state.data,
+        now,
       )
     }
 

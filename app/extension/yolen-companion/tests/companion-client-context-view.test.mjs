@@ -481,6 +481,236 @@ test(
   },
 )
 
+// P2 (fast-follow do PR #186): SLA deve aparecer mesmo sem histórico de
+// mensagens (lead recém-importado, sem conversa, mas já há muito tempo na
+// etapa com SLA configurado).
+test(
+  'lead sem mensagem e sem SLA configurado permanece no estado vazio',
+  () => {
+    const html =
+      view.renderRelationshipCard(
+        buildContext({
+          relationship: {
+            first_known_interaction_at:
+              null,
+            relationship_age_ms:
+              null,
+            latest_customer_message_at:
+              null,
+            latest_seller_message_at:
+              null,
+            last_interaction_at:
+              null,
+            known_interaction_count:
+              0,
+          },
+        }),
+      )
+
+    assert.match(
+      html,
+      /yolen-client-relationship--empty/,
+    )
+
+    assert.doesNotMatch(
+      html,
+      /data-yolen-sla-risk/,
+    )
+  },
+)
+
+test(
+  'lead sem mensagem mas com SLA configurado e estourado mostra "sem histórico" e o SLA simultaneamente',
+  () => {
+    const html =
+      view.renderRelationshipCard(
+        buildContext({
+          relationship: {
+            first_known_interaction_at:
+              null,
+            relationship_age_ms:
+              null,
+            latest_customer_message_at:
+              null,
+            latest_seller_message_at:
+              null,
+            last_interaction_at:
+              null,
+            known_interaction_count:
+              0,
+          },
+          sla: {
+            configured: true,
+            applicable: true,
+            stage: 'contato',
+            stage_label: 'CONTATO',
+            target_minutes: 60,
+            warning_minutes: 120,
+            danger_minutes: 240,
+            elapsed_minutes: 300,
+            risk: 'high',
+          },
+        }),
+      )
+
+    assert.doesNotMatch(
+      html,
+      /yolen-client-relationship--empty/,
+    )
+
+    assert.match(
+      html,
+      /Sem histórico de conversa ainda\./,
+    )
+
+    assert.match(
+      html,
+      /data-yolen-sla-risk="high"/,
+    )
+
+    assert.match(
+      html,
+      /Risco alto/,
+    )
+  },
+)
+
+// P1 (fast-follow do PR #186): campos derivados do relógio (espera, SLA)
+// crescem localmente quando `now` é informado, sem precisar de nova busca.
+test(
+  'sem `now`, o tempo de espera e o risco de SLA continuam estáticos (compatibilidade retroativa)',
+  () => {
+    const html =
+      view.renderRelationshipCard(
+        buildContext({
+          sla: {
+            configured: true,
+            applicable: true,
+            stage: 'negociacao',
+            stage_label: 'NEGOCIAÇÃO',
+            target_minutes: 60,
+            warning_minutes: 120,
+            danger_minutes: 240,
+            elapsed_minutes: 100,
+            risk: 'low',
+          },
+        }),
+      )
+
+    assert.match(
+      html,
+      /data-yolen-sla-risk="low"/,
+    )
+  },
+)
+
+test(
+  'com `now`, o tempo de espera cresce a partir de `generated_at`',
+  () => {
+    const generatedAt =
+      '2026-08-22T12:00:00.000Z'
+
+    const now =
+      new Date(
+        generatedAt,
+      ).getTime() +
+      30 * 60 * 1000
+
+    const html =
+      view.renderRelationshipCard(
+        buildContext({
+          generated_at:
+            generatedAt,
+
+          waiting: {
+            state:
+              'seller_waiting_for_customer',
+
+            waiting_since:
+              '2026-08-22T10:08:00.000Z',
+
+            waiting_duration_ms:
+              112 *
+              60 *
+              1000,
+          },
+        }),
+        now,
+      )
+
+    // 112min na geração + 30min decorridos localmente = 142min = 2h22.
+    assert.match(
+      html,
+      /há 2h22/,
+    )
+  },
+)
+
+test(
+  'com `now`, o risco de SLA cruza de baixo para alto sem nova busca ao servidor',
+  () => {
+    const generatedAt =
+      '2026-08-22T12:00:00.000Z'
+
+    const sla = {
+      configured: true,
+      applicable: true,
+      stage: 'negociacao',
+      stage_label: 'NEGOCIAÇÃO',
+      target_minutes: 60,
+      warning_minutes: 120,
+      danger_minutes: 180,
+      elapsed_minutes: 100,
+      risk: 'low',
+    }
+
+    const stillLow =
+      view.renderRelationshipCard(
+        buildContext({
+          generated_at:
+            generatedAt,
+          sla,
+        }),
+        new Date(
+          generatedAt,
+        ).getTime() +
+          5 * 60 * 1000,
+      )
+
+    assert.match(
+      stillLow,
+      /data-yolen-sla-risk="low"/,
+    )
+
+    const nowHigh =
+      new Date(
+        generatedAt,
+      ).getTime() +
+      90 * 60 * 1000
+
+    const becameHigh =
+      view.renderRelationshipCard(
+        buildContext({
+          generated_at:
+            generatedAt,
+          sla,
+        }),
+        nowHigh,
+      )
+
+    // 100min na geração + 90min decorridos = 190min ≥ danger_minutes (180).
+    assert.match(
+      becameHigh,
+      /data-yolen-sla-risk="high"/,
+    )
+
+    assert.match(
+      becameHigh,
+      /Risco alto/,
+    )
+  },
+)
+
 test(
   'formatRelativeDuration cobre minutos, horas e dias',
   () => {

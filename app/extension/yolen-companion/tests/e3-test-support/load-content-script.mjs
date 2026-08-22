@@ -134,8 +134,44 @@ export function defaultClientContext(overrides = {}) {
   }
 }
 
+// Uma resposta de client-context "precoce": lida antes de qualquer
+// ingestão terminar, sem histórico de mensagens nem SLA configurado — o
+// mesmo formato que o endpoint real devolveria se consultado sobre um
+// ledger ainda vazio.
+export function emptyClientContext(overrides = {}) {
+  return defaultClientContext({
+    relationship: {
+      first_known_interaction_at: null,
+      relationship_age_ms: null,
+      latest_customer_message_at: null,
+      latest_seller_message_at: null,
+      last_interaction_at: null,
+      known_interaction_count: 0,
+    },
+    waiting: {
+      state: 'unknown',
+      waiting_since: null,
+      waiting_duration_ms: null,
+    },
+    timeline: [],
+    sla: {
+      configured: false,
+      applicable: true,
+      stage: 'contato',
+      stage_label: 'CONTATO',
+      target_minutes: null,
+      warning_minutes: null,
+      danger_minutes: null,
+      elapsed_minutes: null,
+      risk: null,
+    },
+    ...overrides,
+  })
+}
+
 function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } = {}) {
   const calls = []
+  let loadClientContextCallCount = 0
 
   const handlers = {
     GET_ME: async () => ({
@@ -154,11 +190,26 @@ function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } =
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
-    LOAD_CLIENT_CONTEXT: async () => ({
-      ok: true,
-      statusCode: 200,
-      payload: clientContextResult ?? defaultClientContext(),
-    }),
+    // `clientContextResult` pode ser um valor estático (todo chamada
+    // devolve o mesmo payload, como antes) ou uma função `(callNumber) =>
+    // payload` — usada pelos testes de refresh ao vivo para simular a
+    // resposta mudando depois que uma ingestão é confirmada (ex.: primeira
+    // chamada devolve um estado precoce/vazio, chamadas seguintes devolvem
+    // o relacionamento já correto).
+    LOAD_CLIENT_CONTEXT: async (requestPayload) => {
+      loadClientContextCallCount += 1
+
+      const payload =
+        typeof clientContextResult === 'function'
+          ? clientContextResult(loadClientContextCallCount, requestPayload)
+          : (clientContextResult ?? defaultClientContext())
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
