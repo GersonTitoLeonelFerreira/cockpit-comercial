@@ -368,8 +368,17 @@ const diagnosticNullSchema:
     'null',
 }
 
-const diagnosticStrategySchema =
-  objectSchema({
+function buildDiagnosticStrategySchema({
+  evidenceMessageIds,
+  memoryIds,
+}: {
+  evidenceMessageIds:
+    JsonSchema
+
+  memoryIds:
+    JsonSchema
+}): JsonSchema {
+  return objectSchema({
     method_application:
       diagnosticDeferredStrategyTextSchema,
 
@@ -386,11 +395,39 @@ const diagnosticStrategySchema =
       diagnosticNullSchema,
 
     evidence_message_ids:
-      stringArraySchema,
+      evidenceMessageIds,
 
     memory_ids:
-      stringArraySchema,
+      memoryIds,
   })
+}
+
+const diagnosticStrategySchema:
+  JsonSchema = {
+  anyOf: [
+    buildDiagnosticStrategySchema({
+      evidenceMessageIds: {
+        ...stringArraySchema,
+        minItems:
+          1,
+      },
+
+      memoryIds:
+        stringArraySchema,
+    }),
+
+    buildDiagnosticStrategySchema({
+      evidenceMessageIds:
+        stringArraySchema,
+
+      memoryIds: {
+        ...stringArraySchema,
+        minItems:
+          1,
+      },
+    }),
+  ],
+}
 
 const crmSuggestionSchema =
   objectSchema({
