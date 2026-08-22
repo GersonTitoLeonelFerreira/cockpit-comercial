@@ -13,6 +13,7 @@ import {
   STATEFUL_COPILOT_JSON_SCHEMA,
   STATEFUL_COPILOT_RESPONSE_FORMAT_NAME,
   STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+  buildStatefulCopilotDiagnosticStructuredOutputFormat,
 } from './stateful-copilot-json-schema.ts'
 
 const ROOT_FIELDS = [
@@ -567,6 +568,198 @@ test(
         JSON.parse(
           firstSerialization,
         ),
+    )
+  },
+)
+
+
+test(
+  'diagnóstico restringe memory_ids às memórias ativas do contexto',
+  () => {
+    const activeMemoryIds = [
+      'memory-a',
+      'memory-b',
+    ]
+
+    const format =
+      buildStatefulCopilotDiagnosticStructuredOutputFormat({
+        active_memory_ids:
+          activeMemoryIds,
+      })
+
+    const root =
+      format
+        .schema
+        .properties
+
+    const assertAllowedMemoryArray = (
+      schema,
+      path,
+    ) => {
+      assert.deepEqual(
+        schema
+          .items
+          .enum,
+        activeMemoryIds,
+        path,
+      )
+    }
+
+    assertAllowedMemoryArray(
+      root.memory_ids,
+      'root.memory_ids',
+    )
+
+    const interpretation =
+      root
+        .interpretation
+        .properties
+
+    assertAllowedMemoryArray(
+      interpretation
+        .current_moment
+        .properties
+        .memory_ids,
+      'current_moment.memory_ids',
+    )
+
+    assertAllowedMemoryArray(
+      interpretation
+        .what_remains_valid
+        .items
+        .properties
+        .memory_ids,
+      'what_remains_valid.memory_ids',
+    )
+
+    assertAllowedMemoryArray(
+      interpretation
+        .customer_need
+        .anyOf[0]
+        .properties
+        .memory_ids,
+      'customer_need.memory_ids',
+    )
+
+    assertAllowedMemoryArray(
+      interpretation
+        .uncertainties
+        .items
+        .properties
+        .memory_ids,
+      'uncertainties.memory_ids',
+    )
+
+    assertAllowedMemoryArray(
+      root
+        .strategy
+        .properties
+        .memory_ids,
+      'strategy.memory_ids',
+    )
+
+    const statePatch =
+      root
+        .state_patch
+        .properties
+
+    const referenceFields = [
+      'fact_ids_to_supersede',
+      'need_ids_to_resolve',
+      'open_loop_ids_to_resolve',
+      'objection_ids_to_resolve',
+      'objection_ids_to_supersede',
+      'signal_ids_to_resolve',
+      'uncertainty_ids_to_resolve',
+    ]
+
+    for (
+      const field of
+      referenceFields
+    ) {
+      assertAllowedMemoryArray(
+        statePatch[field],
+        field,
+      )
+    }
+
+    assert.deepEqual(
+      statePatch
+        .commitments_to_upsert
+        .items
+        .properties
+        .commitment_id
+        .anyOf[0]
+        .enum,
+      activeMemoryIds,
+    )
+
+    assert.equal(
+      statePatch
+        .commitments_to_upsert
+        .items
+        .properties
+        .commitment_id
+        .anyOf[1]
+        .type,
+      'null',
+    )
+  },
+)
+
+test(
+  'diagnóstico proíbe memory_id quando não existe memória ativa',
+  () => {
+    const format =
+      buildStatefulCopilotDiagnosticStructuredOutputFormat({
+        active_memory_ids: [],
+      })
+
+    const root =
+      format
+        .schema
+        .properties
+
+    assert.equal(
+      root
+        .memory_ids
+        .maxItems,
+      0,
+    )
+
+    assert.equal(
+      root
+        .interpretation
+        .properties
+        .customer_need
+        .anyOf[0]
+        .properties
+        .memory_ids
+        .maxItems,
+      0,
+    )
+
+    assert.equal(
+      root
+        .state_patch
+        .properties
+        .need_ids_to_resolve
+        .maxItems,
+      0,
+    )
+
+    assert.deepEqual(
+      root
+        .state_patch
+        .properties
+        .commitments_to_upsert
+        .items
+        .properties
+        .commitment_id,
+      {
+        type:
+          'null',
+      },
     )
   },
 )
