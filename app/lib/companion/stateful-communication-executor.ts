@@ -417,6 +417,9 @@ function normalizeCommercialReadingOutput({
             ...context.expected_agenda,
           },
         },
+
+        sales_method:
+          context.sales_method,
       },
     })
   } catch (error) {
@@ -575,6 +578,46 @@ function parseModelOutput(
   return parsed
 }
 
+function deriveMethodApplication(
+  reading:
+    CommercialReading,
+): string {
+  if (!reading.method.configured) {
+    return 'Método comercial não configurado.'
+  }
+
+  const currentStage =
+    reading.method.current_stage
+
+  const stagePrefix =
+    currentStage
+      ? `Etapa atual: ${currentStage.name}. `
+      : ''
+
+  return `${stagePrefix}${reading.method.adherence.summary}`
+    .trim()
+    .slice(0, 900)
+}
+
+function deriveGuidance(
+  reading:
+    CommercialReading,
+): string {
+  if (
+    reading.method
+      .recovery_guidance
+  ) {
+    return reading.method
+      .recovery_guidance
+      .recommended_move
+      .slice(0, 1_400)
+  }
+
+  return reading.best_approach
+    .reason
+    .slice(0, 1_400)
+}
+
 function normalizeCommunicationOutput({
   value,
   context,
@@ -652,20 +695,6 @@ function normalizeCommunicationOutput({
   const interventionNeeded =
     value.intervention_needed
 
-  const methodApplication =
-    requireString(
-      value.method_application,
-      'communication.method_application',
-      900,
-    )
-
-  const guidance =
-    requireString(
-      value.guidance,
-      'communication.guidance',
-      1_400,
-    )
-
   const recommendedQuestion =
     requireNullableString(
       value.recommended_question,
@@ -718,6 +747,16 @@ function normalizeCommunicationOutput({
       suggested_message:
         suggestedMessage,
     })
+
+  const methodApplication =
+    deriveMethodApplication(
+      commercialReading,
+    )
+
+  const guidance =
+    deriveGuidance(
+      commercialReading,
+    )
 
   const output:
     StatefulCommunicationOutput = {

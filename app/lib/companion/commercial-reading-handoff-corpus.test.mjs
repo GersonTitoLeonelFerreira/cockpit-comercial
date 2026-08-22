@@ -231,6 +231,45 @@ function buildBaseReading({
                 memory_ids: [],
               },
             ],
+
+            current_stage: {
+              step_order:
+                2,
+
+              stage_key:
+                'decision',
+
+              name:
+                'Decisão',
+            },
+
+            adherence: {
+              status:
+                'on_method',
+
+              summary:
+                'A conversa permanece dentro do método e aguarda a etapa de decisão.',
+
+              deviation_stage_order:
+                null,
+
+              what_happened:
+                null,
+
+              missing_information: [],
+
+              why_it_matters:
+                null,
+
+              evidence_message_ids: [
+                'm2',
+              ],
+
+              memory_ids: [],
+            },
+
+            recovery_guidance:
+              null,
           }
         : {
             configured:
@@ -240,6 +279,35 @@ function buildBaseReading({
               null,
 
             stages: [],
+
+            current_stage:
+              null,
+
+            adherence: {
+              status:
+                'not_configured',
+
+              summary:
+                'Método comercial não configurado.',
+
+              deviation_stage_order:
+                null,
+
+              what_happened:
+                null,
+
+              missing_information: [],
+
+              why_it_matters:
+                null,
+
+              evidence_message_ids: [],
+
+              memory_ids: [],
+            },
+
+            recovery_guidance:
+              null,
           },
 
     seller_strengths: [
@@ -249,6 +317,9 @@ function buildBaseReading({
 
         summary:
           'O vendedor respondeu diretamente a uma pergunta anterior do cliente.',
+
+        why_it_matters:
+          'A resposta removeu uma dúvida concreta antes de avançar.',
 
         evidence_message_ids: [
           'm3',

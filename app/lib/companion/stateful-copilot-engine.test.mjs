@@ -14,10 +14,6 @@ import {
 } from './stateful-copilot-contract.ts'
 
 import {
-  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
-} from './stateful-communication-contract.ts'
-
-import {
   StatefulCommercialStateReductionError,
 } from './stateful-commercial-state-reducer.ts'
 
@@ -331,7 +327,6 @@ function createMemoryId({
 
 function buildCommunicationOutput(
   messageId = 'm1',
-  commercialRelevance = 'commercial',
 ) {
   const recommendedQuestion =
     'Você prefere que eu retome o contato amanhã?'
@@ -342,12 +337,6 @@ function buildCommunicationOutput(
   return {
     intervention_needed:
       true,
-
-    method_application:
-      'Usar o contexto para responder ao ponto atual antes de avançar.',
-
-    guidance:
-      'Responder diretamente e confirmar o próximo passo de forma natural.',
 
     recommended_question:
       recommendedQuestion,
@@ -392,15 +381,8 @@ function buildCommunicationOutput(
 
       commercial_evolution: [],
 
-      method: {
-        configured:
-          false,
-
-        name:
-          null,
-
-        stages: [],
-      },
+      method:
+        null,
 
       seller_strengths: [],
 
@@ -807,7 +789,6 @@ test(
               }),
               buildCommunicationOutput(
                 'm2',
-                'non_commercial',
               ),
             ],
             [],
