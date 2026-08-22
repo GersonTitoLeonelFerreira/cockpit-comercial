@@ -402,32 +402,17 @@ function buildDiagnosticStrategySchema({
   })
 }
 
-const diagnosticStrategySchema:
-  JsonSchema = {
-  anyOf: [
-    buildDiagnosticStrategySchema({
-      evidenceMessageIds: {
-        ...stringArraySchema,
-        minItems:
-          1,
-      },
+const diagnosticStrategySchema =
+  buildDiagnosticStrategySchema({
+    evidenceMessageIds: {
+      ...stringArraySchema,
+      minItems:
+        1,
+    },
 
-      memoryIds:
-        stringArraySchema,
-    }),
-
-    buildDiagnosticStrategySchema({
-      evidenceMessageIds:
-        stringArraySchema,
-
-      memoryIds: {
-        ...stringArraySchema,
-        minItems:
-          1,
-      },
-    }),
-  ],
-}
+    memoryIds:
+      stringArraySchema,
+  })
 
 const crmSuggestionSchema =
   objectSchema({

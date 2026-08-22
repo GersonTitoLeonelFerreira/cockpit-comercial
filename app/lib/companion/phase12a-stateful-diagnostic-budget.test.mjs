@@ -55,100 +55,72 @@ test(
 test(
   '12A chamada diagnóstica adia conteúdo textual de strategy',
   () => {
-    const branches =
+    const strategy =
       STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA
         .properties
         .strategy
-        .anyOf
+        .properties
 
-    assert.equal(
-      branches.length,
-      2,
+    assert.deepEqual(
+      strategy
+        .method_application
+        .enum,
+      [
+        'deferred_to_communication',
+      ],
     )
 
-    for (const branch of branches) {
-      const strategy =
-        branch.properties
+    assert.deepEqual(
+      strategy.rationale.enum,
+      [
+        'deferred_to_communication',
+      ],
+    )
 
-      assert.deepEqual(
-        strategy
-          .method_application
-          .enum,
-        [
-          'deferred_to_communication',
-        ],
-      )
+    assert.deepEqual(
+      strategy.next_move.enum,
+      [
+        'deferred_to_communication',
+      ],
+    )
 
-      assert.deepEqual(
-        strategy.rationale.enum,
-        [
-          'deferred_to_communication',
-        ],
-      )
+    assert.equal(
+      strategy
+        .recommended_question
+        .type,
+      'null',
+    )
 
-      assert.deepEqual(
-        strategy.next_move.enum,
-        [
-          'deferred_to_communication',
-        ],
-      )
-
-      assert.equal(
-        strategy
-          .recommended_question
-          .type,
-        'null',
-      )
-
-      assert.equal(
-        strategy
-          .suggested_message
-          .type,
-        'null',
-      )
-    }
+    assert.equal(
+      strategy
+        .suggested_message
+        .type,
+      'null',
+    )
   },
 )
 
 test(
-  '12A strategy diagnóstica exige evidência atual ou memória anterior',
+  '12A strategy diagnóstica exige evidência atual e aceita memória complementar',
   () => {
-    const branches =
+    const strategy =
       STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA
         .properties
         .strategy
-        .anyOf
+        .properties
 
     assert.equal(
-      branches[0]
-        .properties
+      strategy
         .evidence_message_ids
         .minItems,
       1,
     )
 
     assert.equal(
-      branches[0]
-        .properties
+      strategy
         .memory_ids
         .minItems,
       undefined,
-    )
-
-    assert.equal(
-      branches[1]
-        .properties
-        .evidence_message_ids
-        .minItems,
-      undefined,
-    )
-
-    assert.equal(
-      branches[1]
-        .properties
-        .memory_ids
-        .minItems,
-      1,
     )
   },
 )
