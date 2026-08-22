@@ -574,6 +574,64 @@ const methodSchema =
       ),
   })
 
+const methodAdherenceWithoutDeviationModelSchema =
+  objectSchema({
+    status:
+      enumSchema([
+        'on_method',
+        'partially_on_method',
+        'insufficient_evidence',
+      ] as const),
+
+    summary:
+      stringSchema,
+
+    deviation_stage_order: {
+      type:
+        'null',
+    },
+
+    what_happened: {
+      type:
+        'null',
+    },
+
+    missing_information:
+      stringArraySchema,
+
+    why_it_matters: {
+      type:
+        'null',
+    },
+
+    ...referenceFields,
+  })
+
+const offMethodAdherenceModelSchema =
+  objectSchema({
+    status:
+      enumSchema([
+        'off_method',
+      ] as const),
+
+    summary:
+      stringSchema,
+
+    deviation_stage_order:
+      integerSchema,
+
+    what_happened:
+      stringSchema,
+
+    missing_information:
+      stringArraySchema,
+
+    why_it_matters:
+      stringSchema,
+
+    ...referenceFields,
+  })
+
 const methodModelSchema = {
   anyOf: [
     {
@@ -588,12 +646,25 @@ const methodModelSchema = {
         ),
 
       adherence:
-        methodAdherenceSchema,
+        methodAdherenceWithoutDeviationModelSchema,
+
+      recovery_guidance: {
+        type:
+          'null',
+      },
+    }),
+
+    objectSchema({
+      stages:
+        arraySchema(
+          methodStageModelSchema,
+        ),
+
+      adherence:
+        offMethodAdherenceModelSchema,
 
       recovery_guidance:
-        nullableSchema(
-          recoveryGuidanceSchema,
-        ),
+        recoveryGuidanceSchema,
     }),
   ],
 }

@@ -119,3 +119,63 @@ export const STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT =
     schema:
       STATEFUL_COMMUNICATION_JSON_SCHEMA,
   })
+
+
+function cloneJsonSchema<T>(
+  value: T,
+): T {
+  return JSON.parse(
+    JSON.stringify(
+      value,
+    ),
+  ) as T
+}
+
+export function buildStatefulCommunicationStructuredOutputFormat({
+  method_assessment_allowed,
+}: {
+  method_assessment_allowed:
+    boolean
+}) {
+  if (
+    method_assessment_allowed
+  ) {
+    return STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT
+  }
+
+  const schema =
+    cloneJsonSchema(
+      STATEFUL_COMMUNICATION_JSON_SCHEMA,
+    ) as JsonSchema
+
+  const rootProperties =
+    schema.properties as
+      Record<
+        string,
+        JsonSchema
+      >
+
+  const commercialReadingSchema =
+    rootProperties
+      .commercial_reading
+
+  const commercialReadingProperties =
+    commercialReadingSchema
+      .properties as
+      Record<
+        string,
+        JsonSchema
+      >
+
+  commercialReadingProperties
+    .method = {
+    type:
+      'null',
+  }
+
+  return deepFreeze({
+    ...STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT,
+
+    schema,
+  })
+}

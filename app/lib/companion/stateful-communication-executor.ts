@@ -18,7 +18,7 @@ import {
 } from './stateful-communication-execution-plan'
 
 import {
-  STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT,
+  buildStatefulCommunicationStructuredOutputFormat,
 } from './stateful-communication-json-schema'
 
 import {
@@ -920,7 +920,21 @@ async function executeAttempt({
           plan.user_prompt,
 
         structured_output_format:
-          STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT,
+          buildStatefulCommunicationStructuredOutputFormat({
+            method_assessment_allowed:
+              plan
+                .normalization_context
+                .sales_method
+                .configured &&
+              plan
+                .normalization_context
+                .commercial_role ===
+                'buyer' &&
+              plan
+                .normalization_context
+                .commercial_relevance ===
+                'commercial',
+          }),
       })
   } catch (error) {
     if (
