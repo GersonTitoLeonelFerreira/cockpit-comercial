@@ -12,8 +12,16 @@ import type {
   StatefulCopilotCrmSuggestion,
 } from './stateful-copilot-contract'
 
+import type {
+  CompanionDiagnosticInput,
+} from './diagnostic-input'
+
+import type {
+  StatefulCommercialState,
+} from './stateful-commercial-state'
+
 export const STATEFUL_COMMUNICATION_CONTRACT_VERSION =
-  'phase-5.2-communication-v4' as const
+  'phase-5.2-communication-v5' as const
 
 export const STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS = [
   'intervention_needed',
@@ -58,6 +66,14 @@ export type StatefulCommunicationModelOutput =
   }
 
 export type StatefulCommunicationNormalizationContext = {
+  candidate_state:
+    StatefulCommercialState
+
+  products:
+    CompanionDiagnosticInput[
+      'commercial_context'
+    ]['products']
+
   commercial_role:
     StatefulCopilotCommercialRole
 

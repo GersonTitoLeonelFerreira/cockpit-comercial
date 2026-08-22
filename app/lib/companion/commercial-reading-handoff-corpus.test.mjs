@@ -116,6 +116,10 @@ function buildBaseReading({
     },
 
     customer: {
+      objectives: [],
+      problems: [],
+      impacts: [],
+
       needs: [
         evidence(
           'Existe uma necessidade comercial ativa.',
@@ -135,6 +139,19 @@ function buildBaseReading({
       objections: [],
 
       uncertainties: [],
+
+      discussed_products: [],
+      primary_product_interest: null,
+      competitors: [],
+      commitments: [],
+      missing_discovery: [],
+      resolved_information: [],
+      superseded_information: [],
+
+      communication: {
+        events: [],
+        patterns: [],
+      },
     },
 
     commercial_evolution: [

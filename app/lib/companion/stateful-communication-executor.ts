@@ -22,6 +22,10 @@ import {
 } from './stateful-communication-json-schema'
 
 import {
+  buildCommercialReadingCustomerFromState,
+} from './client-commercial-intelligence-contract'
+
+import {
   StatefulCopilotExecutionError,
   type StatefulCopilotProvider,
   type StatefulCopilotProviderResponse,
@@ -386,6 +390,15 @@ function normalizeCommercialReadingOutput({
 
         commercial_relevance:
           context.commercial_relevance,
+
+        customer:
+          buildCommercialReadingCustomerFromState({
+            state:
+              context.candidate_state,
+
+            products:
+              context.products,
+          }),
 
         communication:
           commerciallyActionable

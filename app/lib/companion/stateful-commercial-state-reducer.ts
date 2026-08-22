@@ -18,6 +18,10 @@ import {
   type StatefulCommercialState,
 } from './stateful-commercial-state'
 
+import {
+  validateClientCommercialState,
+} from './client-commercial-intelligence-contract'
+
 export type StatefulCommercialMemoryIdInput = {
   cycle_id: string
 
@@ -972,11 +976,19 @@ export function reduceStatefulCommercialState(
   const objections =
     appendObservedItems(
       closeMemoryItems(
-        previousState?.objections ?? [],
+        closeMemoryItems(
+          previousState?.objections ?? [],
+          args.output
+            .state_patch
+            .objection_ids_to_resolve,
+          'resolved',
+          'objections',
+          nextVersion,
+        ),
         args.output
           .state_patch
-          .objection_ids_to_resolve,
-        'resolved',
+          .objection_ids_to_supersede,
+        'superseded',
         'objections',
         nextVersion,
       ),
@@ -1032,7 +1044,8 @@ export function reduceStatefulCommercialState(
       commonAdditionArgs,
     )
 
-  return {
+  const nextState:
+    StatefulCommercialState = {
     contract_version:
       STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION,
 
@@ -1103,4 +1116,19 @@ export function reduceStatefulCommercialState(
     updated_at:
       appliedAt,
   }
+
+  const clientStateIssue =
+    validateClientCommercialState(
+      nextState,
+    )[0]
+
+  if (clientStateIssue) {
+    fail(
+      clientStateIssue.code,
+      clientStateIssue.path,
+      clientStateIssue.message,
+    )
+  }
+
+  return nextState
 }

@@ -26,10 +26,11 @@ import {
 
 import type {
   StatefulCommercialMemoryBase,
+  StatefulCommercialState,
 } from './stateful-commercial-state'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v8' as const
+  'phase-5.2-communication-prompt-v9' as const
 
 export const STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION =
   'Repare somente a estrutura indicada e retorne novamente o objeto completo conforme o schema.' as const
@@ -83,6 +84,10 @@ function buildSystemPrompt(
     'commercial_role e commercial_relevance são gates independentes. commercial_role descreve quem é o contato; commercial_relevance descreve se o assunto da sessão atual pertence à venda.',
 
     'Sua responsabilidade é interpretar somente os campos analíticos ainda não decididos da Leitura Comercial Completa e decidir qual ajuda seria realmente útil ao vendedor agora.',
+
+    'A inteligência comercial do cliente já foi decidida no estado candidato validado. Não gere customer novamente: objetivos, problemas, impactos, necessidades, interesses, critérios, preferências, produtos, concorrentes, objeções, lacunas e observações de comunicação serão derivados deterministicamente de commercial_memory.',
+
+    'Coaching e método devem consumir essa memória canônica. Se apontarem descoberta insuficiente ou informação faltante, use o kind client.missing_discovery.<topic> já presente em commercial_memory.uncertainties e cite seu memory_id; não redescubra uma lacuna em paralelo nem continue cobrando memória resolvida ou substituída.',
 
     `Em commercial_reading, gere exclusivamente estes campos: ${COMMERCIAL_READING_MODEL_OUTPUT_FIELDS.join(', ')}. Os demais campos da Leitura Comercial Completa serão derivados deterministicamente depois da resposta.`,
 
@@ -335,25 +340,8 @@ function sanitizeActiveMemoryItems<
 }
 
 function buildActiveCommercialMemoryContext(
-  input: StatefulCopilotInput,
+  state: StatefulCommercialState,
 ) {
-  const state =
-    input
-      .state_context
-      .previous_state
-
-  if (state === null) {
-    return {
-      facts: [],
-      needs: [],
-      open_loops: [],
-      objections: [],
-      commitments: [],
-      signals: [],
-      uncertainties: [],
-    }
-  }
-
   return {
     facts:
       sanitizeActiveMemoryItems(
@@ -392,18 +380,10 @@ function buildActiveCommercialMemoryContext(
   }
 }
 
-function collectActiveMemoryIds(
-  input: StatefulCopilotInput,
+function collectMemoryIds(
+  state: StatefulCommercialState,
+  onlyActive: boolean,
 ): string[] {
-  const state =
-    input
-      .state_context
-      .previous_state
-
-  if (state === null) {
-    return []
-  }
-
   return [
     ...state.facts,
     ...state.needs,
@@ -415,8 +395,9 @@ function collectActiveMemoryIds(
   ]
     .filter(
       item =>
+        !onlyActive ||
         item.memory_status ===
-        'active',
+          'active',
     )
     .map(
       item =>
@@ -462,12 +443,16 @@ function buildDiagnosticContext(
 function buildUserPrompt({
   input,
   diagnosticOutput,
+  candidateState,
 }: {
   input:
     StatefulCopilotInput
 
   diagnosticOutput:
     StatefulCopilotOutput
+
+  candidateState:
+    StatefulCommercialState
 }): string {
   const analysisStatus =
     input
@@ -488,13 +473,14 @@ function buildUserPrompt({
         ]
 
   const activeMemoryIds =
-    collectActiveMemoryIds(
-      input,
+    collectMemoryIds(
+      candidateState,
+      true,
     )
 
   const commercialMemory =
     buildActiveCommercialMemoryContext(
-      input,
+      candidateState,
     )
 
   return JSON.stringify(
@@ -604,12 +590,16 @@ export function buildStatefulCommunicationRepairExecutionPlan({
 export function buildStatefulCommunicationExecutionPlan({
   input,
   diagnostic_output,
+  candidate_state,
 }: {
   input:
     StatefulCopilotInput
 
   diagnostic_output:
     StatefulCopilotOutput
+
+  candidate_state:
+    StatefulCommercialState
 }): StatefulCommunicationExecutionPlan {
   const analysisStatus =
     input
@@ -647,9 +637,20 @@ export function buildStatefulCommunicationExecutionPlan({
 
         diagnosticOutput:
           diagnostic_output,
+
+        candidateState:
+          candidate_state,
       }),
 
     normalization_context: {
+      candidate_state,
+
+      products:
+        input
+          .diagnostic_input
+          .commercial_context
+          .products,
+
       commercial_role:
         diagnostic_output
           .commercial_role,
@@ -667,8 +668,9 @@ export function buildStatefulCommunicationExecutionPlan({
         ],
 
         available_memory_ids:
-          collectActiveMemoryIds(
-            input,
+          collectMemoryIds(
+            candidate_state,
+            false,
           ),
 
         seller_message_ids:

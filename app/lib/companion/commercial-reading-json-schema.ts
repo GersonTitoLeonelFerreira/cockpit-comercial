@@ -5,15 +5,21 @@ import type {
 import {
   COMMERCIAL_READING_ANALYSIS_STATUSES,
   COMMERCIAL_READING_CHANNELS,
+  COMMERCIAL_READING_COMMUNICATION_BEHAVIORS,
+  COMMERCIAL_READING_COMMUNICATION_OBSERVATION_TYPES,
   COMMERCIAL_READING_COMMERCIAL_RELEVANCES,
   COMMERCIAL_READING_COMMERCIAL_ROLES,
+  COMMERCIAL_READING_COMPETITOR_MENTION_TYPES,
   COMMERCIAL_READING_CONTRACT_VERSION,
+  COMMERCIAL_READING_CUSTOMER_HISTORY_CATEGORIES,
   COMMERCIAL_READING_DECISIONS,
   COMMERCIAL_READING_EVOLUTION_STATUSES,
   COMMERCIAL_READING_IMPROVEMENT_KINDS,
   COMMERCIAL_READING_METHOD_ADHERENCE_STATUSES,
   COMMERCIAL_READING_METHOD_STATUSES,
+  COMMERCIAL_READING_MISSING_DISCOVERY_TOPICS,
   COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
+  COMMERCIAL_READING_PRODUCT_INTEREST_LEVELS,
   COMMERCIAL_READING_RISK_SEVERITIES,
   COMMERCIAL_READING_SELLER_STRENGTH_KINDS,
 } from './commercial-reading-contract'
@@ -204,6 +210,21 @@ const conversationSummarySchema =
 
 const customerSchema =
   objectSchema({
+    objectives:
+      arraySchema(
+        evidenceItemSchema,
+      ),
+
+    problems:
+      arraySchema(
+        evidenceItemSchema,
+      ),
+
+    impacts:
+      arraySchema(
+        evidenceItemSchema,
+      ),
+
     needs:
       arraySchema(
         evidenceItemSchema,
@@ -238,6 +259,179 @@ const customerSchema =
       arraySchema(
         evidenceItemSchema,
       ),
+
+    discussed_products:
+      arraySchema(
+        objectSchema({
+          canonical_product_id:
+            nullableStringSchema,
+
+          name:
+            stringSchema,
+
+          interest_level:
+            enumSchema(
+              COMMERCIAL_READING_PRODUCT_INTEREST_LEVELS,
+            ),
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    primary_product_interest:
+      nullableSchema(
+        objectSchema({
+          canonical_product_id:
+            nullableStringSchema,
+
+          name:
+            stringSchema,
+
+          interest_level:
+            enumSchema(
+              COMMERCIAL_READING_PRODUCT_INTEREST_LEVELS,
+            ),
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    competitors:
+      arraySchema(
+        objectSchema({
+          name:
+            nullableStringSchema,
+
+          mention_type:
+            enumSchema(
+              COMMERCIAL_READING_COMPETITOR_MENTION_TYPES,
+            ),
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    commitments:
+      arraySchema(
+        objectSchema({
+          status:
+            enumSchema([
+              'proposed',
+              'confirmed',
+              'reschedule_requested',
+              'cancelled',
+              'completed',
+            ] as const),
+
+          scheduled_at:
+            nullableStringSchema,
+
+          proposed_at:
+            nullableStringSchema,
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    missing_discovery:
+      arraySchema(
+        objectSchema({
+          topic:
+            enumSchema(
+              COMMERCIAL_READING_MISSING_DISCOVERY_TOPICS,
+            ),
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    resolved_information:
+      arraySchema(
+        objectSchema({
+          category:
+            enumSchema(
+              COMMERCIAL_READING_CUSTOMER_HISTORY_CATEGORIES,
+            ),
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    superseded_information:
+      arraySchema(
+        objectSchema({
+          category:
+            enumSchema(
+              COMMERCIAL_READING_CUSTOMER_HISTORY_CATEGORIES,
+            ),
+
+          summary:
+            stringSchema,
+
+          ...referenceFields,
+        }),
+      ),
+
+    communication:
+      objectSchema({
+        events:
+          arraySchema(
+            objectSchema({
+              observation_type:
+                enumSchema(
+                  COMMERCIAL_READING_COMMUNICATION_OBSERVATION_TYPES,
+                ),
+
+              behavior:
+                enumSchema(
+                  COMMERCIAL_READING_COMMUNICATION_BEHAVIORS,
+                ),
+
+              summary:
+                stringSchema,
+
+              ...referenceFields,
+            }),
+          ),
+
+        patterns:
+          arraySchema(
+            objectSchema({
+              observation_type:
+                enumSchema(
+                  COMMERCIAL_READING_COMMUNICATION_OBSERVATION_TYPES,
+                ),
+
+              behavior:
+                enumSchema(
+                  COMMERCIAL_READING_COMMUNICATION_BEHAVIORS,
+                ),
+
+              summary:
+                stringSchema,
+
+              ...referenceFields,
+            }),
+          ),
+      }),
   })
 
 const evolutionItemSchema =
@@ -547,9 +741,6 @@ const operationsSchema =
 const commercialReadingModelProperties = {
   conversation_summary:
     conversationSummarySchema,
-
-  customer:
-    customerSchema,
 
   commercial_evolution:
     arraySchema(

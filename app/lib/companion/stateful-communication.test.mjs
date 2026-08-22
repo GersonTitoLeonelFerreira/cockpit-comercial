@@ -26,6 +26,56 @@ import {
   STATEFUL_COMMUNICATION_STRUCTURED_OUTPUT_FORMAT,
 } from './stateful-communication-json-schema.ts'
 
+import {
+  STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION,
+} from './stateful-commercial-state.ts'
+
+function buildCandidateState(
+  overrides = {},
+) {
+  return {
+    contract_version:
+      STATEFUL_COMMERCIAL_STATE_CONTRACT_VERSION,
+
+    cycle_id:
+      'cycle-1',
+
+    version:
+      1,
+
+    commercial_role:
+      'buyer',
+
+    current_moment: {
+      summary:
+        'O cliente pediu clareza sobre a retomada.',
+      evidence_message_ids: ['m2'],
+    },
+
+    current_priority: {
+      summary:
+        'Esclarecer a retomada.',
+      evidence_message_ids: ['m2'],
+    },
+
+    last_analyzed_message_ids: ['m2'],
+    last_evidence_message_ids: ['m2'],
+    facts: [],
+    needs: [],
+    open_loops: [],
+    objections: [],
+    commitments: [],
+    signals: [],
+    uncertainties: [],
+    created_at:
+      '2026-08-06T15:30:00-03:00',
+    updated_at:
+      '2026-08-06T15:30:00-03:00',
+
+    ...overrides,
+  }
+}
+
 function buildDiagnosticOutput({
   commercialRole = 'buyer',
   commercialRelevance = 'commercial',
@@ -276,6 +326,8 @@ function buildInput() {
 function buildPlan({
   commercialRole = 'buyer',
   commercialRelevance = 'commercial',
+  candidateState =
+    buildCandidateState(),
 } = {}) {
   return buildStatefulCommunicationExecutionPlan({
     input:
@@ -286,6 +338,9 @@ function buildPlan({
         commercialRole,
         commercialRelevance,
       }),
+
+    candidate_state:
+      candidateState,
   })
 }
 
@@ -354,29 +409,6 @@ function buildCommercialReadingOutput({
 
         memory_ids: [],
       },
-    },
-
-    customer: {
-      needs: [],
-      interests: [],
-      decision_criteria: [],
-      preferences: [],
-
-      open_questions: [
-        {
-          summary:
-            'Quem será responsável pela retomada do contato?',
-
-          evidence_message_ids: [
-            'm2',
-          ],
-
-          memory_ids: [],
-        },
-      ],
-
-      objections: [],
-      uncertainties: [],
     },
 
     commercial_evolution: [
@@ -646,12 +678,22 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v8',
+      'phase-5.2-communication-prompt-v9',
     )
 
     assert.match(
       plan.system_prompt,
       /revise silenciosamente o texto em português do Brasil/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /Coaching e método devem consumir essa memória canônica/,
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /não redescubra uma lacuna em paralelo/,
     )
 
     assert.equal(
@@ -831,6 +873,81 @@ test(
 )
 
 test(
+  'customer é derivado do estado candidato sem ser regenerado pelo modelo',
+  async () => {
+    const candidateState =
+      buildCandidateState({
+        facts: [
+          {
+            id:
+              'objective-1',
+            kind:
+              'client.objective',
+            value:
+              null,
+            confidence:
+              'high',
+            summary:
+              'Aumentar a conversão comercial.',
+            evidence_message_ids: [
+              'm2',
+            ],
+            memory_status:
+              'active',
+            created_in_state_version:
+              1,
+            updated_in_state_version:
+              1,
+            closed_in_state_version:
+              null,
+          },
+        ],
+      })
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan:
+          buildPlan({
+            candidateState,
+          }),
+
+        provider:
+          createProvider([
+            buildCommunicationOutput(),
+          ]).provider,
+      })
+
+    assert.deepEqual(
+      result
+        .output
+        .commercial_reading
+        .customer
+        .objectives,
+      [
+        {
+          summary:
+            'Aumentar a conversão comercial.',
+          evidence_message_ids: [],
+          memory_ids: [
+            'objective-1',
+          ],
+        },
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .output
+        .commercial_reading
+        .memory_ids,
+      [
+        'objective-1',
+      ],
+    )
+  },
+)
+
+test(
   'executor repete uma vez quando a primeira saída é inválida',
   async () => {
     const provider =
@@ -987,7 +1104,7 @@ test(
 
 
 test(
-  'comunicação v8 integra coaching método tom comportamentos limites e escalonamento',
+  'comunicação v9 integra coaching método tom comportamentos limites e escalonamento',
   () => {
     const input =
       buildInput()
@@ -1012,11 +1129,14 @@ test(
 
         diagnostic_output:
           buildDiagnosticOutput(),
+
+        candidate_state:
+          buildCandidateState(),
       })
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v8',
+      'phase-5.2-communication-prompt-v9',
     )
 
     assert.match(
@@ -1092,7 +1212,6 @@ test(
       ),
       [
         'conversation_summary',
-        'customer',
         'commercial_evolution',
         'method',
         'seller_strengths',
@@ -1128,7 +1247,7 @@ test(
 
     delete output
       .commercial_reading
-      .customer
+      .conversation_summary
 
     const error =
       await executeTwiceExpectingFailure({
@@ -1147,7 +1266,7 @@ test(
 
     assert.equal(
       error.details.reading_path,
-      'reading.customer',
+      'reading.conversation_summary',
     )
 
     assert.equal(
@@ -1167,6 +1286,20 @@ test(
 
       value:
         'provider',
+    })
+  },
+)
+
+test(
+  'customer não pode ser redecidido pela camada de comunicação',
+  async () => {
+    await assertDerivedFieldCannotBeRedecided({
+      field:
+        'customer',
+
+      value: {
+        objectives: [],
+      },
     })
   },
 )

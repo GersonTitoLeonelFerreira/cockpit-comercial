@@ -134,9 +134,67 @@ export const COMMERCIAL_READING_RISK_SEVERITIES = [
   'high',
 ] as const
 
+export const COMMERCIAL_READING_PRODUCT_INTEREST_LEVELS = [
+  'discussed',
+  'interested',
+  'primary',
+] as const
+
+export const COMMERCIAL_READING_COMPETITOR_MENTION_TYPES = [
+  'named',
+  'unnamed_alternative',
+] as const
+
+export const COMMERCIAL_READING_COMMUNICATION_OBSERVATION_TYPES = [
+  'event',
+  'explicit_preference',
+  'pattern',
+] as const
+
+export const COMMERCIAL_READING_COMMUNICATION_BEHAVIORS = [
+  'short_responses',
+  'direct_questions',
+  'requests_data_or_numbers',
+  'frequent_audio',
+  'prefers_short_explanations',
+  'negative_reaction_to_pressure',
+  'responds_to_clear_alternatives',
+  'other_observed_behavior',
+] as const
+
+export const COMMERCIAL_READING_MISSING_DISCOVERY_TOPICS = [
+  'objective',
+  'problem',
+  'impact',
+  'need',
+  'budget',
+  'timeline',
+  'decision_maker',
+  'priority',
+  'decision_criteria',
+  'current_process',
+  'product_fit',
+  'other',
+] as const
+
+export const COMMERCIAL_READING_CUSTOMER_HISTORY_CATEGORIES = [
+  'objective',
+  'problem',
+  'impact',
+  'need',
+  'interest',
+  'decision_criterion',
+  'preference',
+  'open_question',
+  'objection',
+  'uncertainty',
+  'missing_discovery',
+  'product',
+  'competitor',
+] as const
+
 export const COMMERCIAL_READING_MODEL_OUTPUT_FIELDS = [
   'conversation_summary',
-  'customer',
   'commercial_evolution',
   'method',
   'seller_strengths',
@@ -178,6 +236,24 @@ export type CommercialReadingImprovementKind =
 export type CommercialReadingRiskSeverity =
   (typeof COMMERCIAL_READING_RISK_SEVERITIES)[number]
 
+export type CommercialReadingProductInterestLevel =
+  (typeof COMMERCIAL_READING_PRODUCT_INTEREST_LEVELS)[number]
+
+export type CommercialReadingCompetitorMentionType =
+  (typeof COMMERCIAL_READING_COMPETITOR_MENTION_TYPES)[number]
+
+export type CommercialReadingCommunicationObservationType =
+  (typeof COMMERCIAL_READING_COMMUNICATION_OBSERVATION_TYPES)[number]
+
+export type CommercialReadingCommunicationBehavior =
+  (typeof COMMERCIAL_READING_COMMUNICATION_BEHAVIORS)[number]
+
+export type CommercialReadingMissingDiscoveryTopic =
+  (typeof COMMERCIAL_READING_MISSING_DISCOVERY_TOPICS)[number]
+
+export type CommercialReadingCustomerHistoryCategory =
+  (typeof COMMERCIAL_READING_CUSTOMER_HISTORY_CATEGORIES)[number]
+
 export type CommercialReadingEvidenceItem = {
   summary: string
   evidence_message_ids: string[]
@@ -202,6 +278,15 @@ export type CommercialReadingConversationSummary = {
 }
 
 export type CommercialReadingCustomer = {
+  objectives:
+    CommercialReadingEvidenceItem[]
+
+  problems:
+    CommercialReadingEvidenceItem[]
+
+  impacts:
+    CommercialReadingEvidenceItem[]
+
   needs:
     CommercialReadingEvidenceItem[]
 
@@ -222,7 +307,85 @@ export type CommercialReadingCustomer = {
 
   uncertainties:
     CommercialReadingEvidenceItem[]
+
+  discussed_products:
+    CommercialReadingCustomerProduct[]
+
+  primary_product_interest:
+    CommercialReadingCustomerProduct | null
+
+  competitors:
+    CommercialReadingCustomerCompetitor[]
+
+  commitments:
+    CommercialReadingCustomerCommitment[]
+
+  missing_discovery:
+    CommercialReadingMissingDiscoveryItem[]
+
+  resolved_information:
+    CommercialReadingCustomerHistoryItem[]
+
+  superseded_information:
+    CommercialReadingCustomerHistoryItem[]
+
+  communication: {
+    events:
+      CommercialReadingCommunicationObservation[]
+
+    patterns:
+      CommercialReadingCommunicationObservation[]
+  }
 }
+
+export type CommercialReadingCustomerProduct =
+  CommercialReadingEvidenceItem & {
+    canonical_product_id: string | null
+    name: string
+    interest_level:
+      CommercialReadingProductInterestLevel
+  }
+
+export type CommercialReadingCustomerCompetitor =
+  CommercialReadingEvidenceItem & {
+    name: string | null
+    mention_type:
+      CommercialReadingCompetitorMentionType
+  }
+
+export type CommercialReadingCustomerCommitment =
+  CommercialReadingEvidenceItem & {
+    status:
+      'proposed' |
+      'confirmed' |
+      'reschedule_requested' |
+      'cancelled' |
+      'completed'
+
+    scheduled_at: string | null
+    proposed_at: string | null
+  }
+
+export type CommercialReadingMissingDiscoveryItem =
+  CommercialReadingEvidenceItem & {
+    topic:
+      CommercialReadingMissingDiscoveryTopic
+  }
+
+export type CommercialReadingCommunicationObservation =
+  CommercialReadingEvidenceItem & {
+    observation_type:
+      CommercialReadingCommunicationObservationType
+
+    behavior:
+      CommercialReadingCommunicationBehavior
+  }
+
+export type CommercialReadingCustomerHistoryItem =
+  CommercialReadingEvidenceItem & {
+    category:
+      CommercialReadingCustomerHistoryCategory
+  }
 
 export type CommercialReadingEvolutionItem = {
   key: string
@@ -536,6 +699,7 @@ export type CommercialReadingDerivedOutput =
     | 'analysis_limitations'
     | 'commercial_role'
     | 'commercial_relevance'
+    | 'customer'
     | 'communication'
     | 'operations'
   > & {
@@ -1154,6 +1318,469 @@ function normalizeCustomer(
     )
 
   const fields = [
+    'objectives',
+    'problems',
+    'impacts',
+    'needs',
+    'interests',
+    'decision_criteria',
+    'preferences',
+    'open_questions',
+    'objections',
+    'uncertainties',
+    'discussed_products',
+    'primary_product_interest',
+    'competitors',
+    'commitments',
+    'missing_discovery',
+    'resolved_information',
+    'superseded_information',
+    'communication',
+  ] as const
+
+  requireExactFields(
+    record,
+    fields,
+    'reading.customer',
+  )
+
+  const normalizeProduct = (
+    value: unknown,
+    path: string,
+  ): CommercialReadingCustomerProduct => {
+    const product =
+      requireRecord(
+        value,
+        path,
+      )
+
+    requireExactFields(
+      product,
+      [
+        'canonical_product_id',
+        'name',
+        'interest_level',
+        'summary',
+        'evidence_message_ids',
+        'memory_ids',
+      ],
+      path,
+    )
+
+    return {
+      canonical_product_id:
+        requireNullableString(
+          product.canonical_product_id,
+          `${path}.canonical_product_id`,
+        ),
+
+      name:
+        requireString(
+          product.name,
+          `${path}.name`,
+          500,
+        ),
+
+      interest_level:
+        requireEnum(
+          product.interest_level,
+          COMMERCIAL_READING_PRODUCT_INTEREST_LEVELS,
+          `${path}.interest_level`,
+        ),
+
+      summary:
+        requireString(
+          product.summary,
+          `${path}.summary`,
+        ),
+
+      ...normalizeReferences(
+        product,
+        path,
+        context,
+        collectedMessageIds,
+        collectedMemoryIds,
+      ),
+    }
+  }
+
+  const products =
+    requireArray(
+      record.discussed_products,
+      'reading.customer.discussed_products',
+    ).map(
+      (item, index) =>
+        normalizeProduct(
+          item,
+          `reading.customer.discussed_products[${index}]`,
+        ),
+    )
+
+  const primaryProduct =
+    record.primary_product_interest === null
+      ? null
+      : normalizeProduct(
+          record.primary_product_interest,
+          'reading.customer.primary_product_interest',
+        )
+
+  if (
+    primaryProduct !== null &&
+    (
+      primaryProduct.interest_level !==
+        'primary' ||
+      !products.some(
+        product =>
+          product.canonical_product_id ===
+            primaryProduct.canonical_product_id &&
+          product.name ===
+            primaryProduct.name &&
+          product.interest_level ===
+            primaryProduct.interest_level &&
+          product.summary ===
+            primaryProduct.summary &&
+          product.evidence_message_ids.length ===
+            primaryProduct.evidence_message_ids.length &&
+          product.evidence_message_ids.every(
+            (id, index) =>
+              id ===
+              primaryProduct.evidence_message_ids[index],
+          ) &&
+          product.memory_ids.length ===
+            primaryProduct.memory_ids.length &&
+          product.memory_ids.every(
+            (id, index) =>
+              id ===
+              primaryProduct.memory_ids[index],
+          ),
+      )
+    )
+  ) {
+    fail(
+      'PRIMARY_PRODUCT_MISMATCH',
+      'reading.customer.primary_product_interest',
+      'O produto principal precisa ser um item primary da lista de produtos discutidos.',
+    )
+  }
+
+  const competitors =
+    requireArray(
+      record.competitors,
+      'reading.customer.competitors',
+    ).map(
+      (item, index) => {
+        const path =
+          `reading.customer.competitors[${index}]`
+
+        const competitor =
+          requireRecord(
+            item,
+            path,
+          )
+
+        requireExactFields(
+          competitor,
+          [
+            'name',
+            'mention_type',
+            'summary',
+            'evidence_message_ids',
+            'memory_ids',
+          ],
+          path,
+        )
+
+        const mentionType =
+          requireEnum(
+            competitor.mention_type,
+            COMMERCIAL_READING_COMPETITOR_MENTION_TYPES,
+            `${path}.mention_type`,
+          )
+
+        const name =
+          requireNullableString(
+            competitor.name,
+            `${path}.name`,
+          )
+
+        if (
+          (
+            mentionType === 'named' &&
+            name === null
+          ) ||
+          (
+            mentionType === 'unnamed_alternative' &&
+            name !== null
+          )
+        ) {
+          fail(
+            'COMPETITOR_NAME_MISMATCH',
+            `${path}.name`,
+            'Concorrente nominal exige nome; alternativa sem nome precisa permanecer desconhecida.',
+          )
+        }
+
+        return {
+          name,
+          mention_type:
+            mentionType,
+
+          summary:
+            requireString(
+              competitor.summary,
+              `${path}.summary`,
+            ),
+
+          ...normalizeReferences(
+            competitor,
+            path,
+            context,
+            collectedMessageIds,
+            collectedMemoryIds,
+          ),
+        }
+      },
+    )
+
+  const commitments =
+    requireArray(
+      record.commitments,
+      'reading.customer.commitments',
+    ).map(
+      (item, index) => {
+        const path =
+          `reading.customer.commitments[${index}]`
+
+        const commitment =
+          requireRecord(
+            item,
+            path,
+          )
+
+        requireExactFields(
+          commitment,
+          [
+            'status',
+            'scheduled_at',
+            'proposed_at',
+            'summary',
+            'evidence_message_ids',
+            'memory_ids',
+          ],
+          path,
+        )
+
+        return {
+          status:
+            requireEnum(
+              commitment.status,
+              [
+                'proposed',
+                'confirmed',
+                'reschedule_requested',
+                'cancelled',
+                'completed',
+              ] as const,
+              `${path}.status`,
+            ),
+
+          scheduled_at:
+            requireNullableString(
+              commitment.scheduled_at,
+              `${path}.scheduled_at`,
+            ),
+
+          proposed_at:
+            requireNullableString(
+              commitment.proposed_at,
+              `${path}.proposed_at`,
+            ),
+
+          summary:
+            requireString(
+              commitment.summary,
+              `${path}.summary`,
+            ),
+
+          ...normalizeReferences(
+            commitment,
+            path,
+            context,
+            collectedMessageIds,
+            collectedMemoryIds,
+          ),
+        }
+      },
+    )
+
+  const missingDiscovery =
+    requireArray(
+      record.missing_discovery,
+      'reading.customer.missing_discovery',
+    ).map(
+      (item, index) => {
+        const path =
+          `reading.customer.missing_discovery[${index}]`
+
+        const missing =
+          requireRecord(
+            item,
+            path,
+          )
+
+        requireExactFields(
+          missing,
+          [
+            'topic',
+            'summary',
+            'evidence_message_ids',
+            'memory_ids',
+          ],
+          path,
+        )
+
+        return {
+          topic:
+            requireEnum(
+              missing.topic,
+              COMMERCIAL_READING_MISSING_DISCOVERY_TOPICS,
+              `${path}.topic`,
+            ),
+
+          summary:
+            requireString(
+              missing.summary,
+              `${path}.summary`,
+            ),
+
+          ...normalizeReferences(
+            missing,
+            path,
+            context,
+            collectedMessageIds,
+            collectedMemoryIds,
+          ),
+        }
+      },
+    )
+
+  const normalizeHistory = (
+    value: unknown,
+    path: string,
+  ): CommercialReadingCustomerHistoryItem => {
+    const history =
+      requireRecord(
+        value,
+        path,
+      )
+
+    requireExactFields(
+      history,
+      [
+        'category',
+        'summary',
+        'evidence_message_ids',
+        'memory_ids',
+      ],
+      path,
+    )
+
+    return {
+      category:
+        requireEnum(
+          history.category,
+          COMMERCIAL_READING_CUSTOMER_HISTORY_CATEGORIES,
+          `${path}.category`,
+        ),
+
+      summary:
+        requireString(
+          history.summary,
+          `${path}.summary`,
+        ),
+
+      ...normalizeReferences(
+        history,
+        path,
+        context,
+        collectedMessageIds,
+        collectedMemoryIds,
+      ),
+    }
+  }
+
+  const communication =
+    requireRecord(
+      record.communication,
+      'reading.customer.communication',
+    )
+
+  requireExactFields(
+    communication,
+    [
+      'events',
+      'patterns',
+    ],
+    'reading.customer.communication',
+  )
+
+  const normalizeCommunication = (
+    value: unknown,
+    path: string,
+  ): CommercialReadingCommunicationObservation => {
+    const observation =
+      requireRecord(
+        value,
+        path,
+      )
+
+    requireExactFields(
+      observation,
+      [
+        'observation_type',
+        'behavior',
+        'summary',
+        'evidence_message_ids',
+        'memory_ids',
+      ],
+      path,
+    )
+
+    return {
+      observation_type:
+        requireEnum(
+          observation.observation_type,
+          COMMERCIAL_READING_COMMUNICATION_OBSERVATION_TYPES,
+          `${path}.observation_type`,
+        ),
+
+      behavior:
+        requireEnum(
+          observation.behavior,
+          COMMERCIAL_READING_COMMUNICATION_BEHAVIORS,
+          `${path}.behavior`,
+        ),
+
+      summary:
+        requireString(
+          observation.summary,
+          `${path}.summary`,
+        ),
+
+      ...normalizeReferences(
+        observation,
+        path,
+        context,
+        collectedMessageIds,
+        collectedMemoryIds,
+      ),
+    }
+  }
+
+  const evidenceFields = [
+    'objectives',
+    'problems',
+    'impacts',
     'needs',
     'interests',
     'decision_criteria',
@@ -1163,27 +1790,90 @@ function normalizeCustomer(
     'uncertainties',
   ] as const
 
-  requireExactFields(
-    record,
-    fields,
-    'reading.customer',
-  )
+  const evidenceLists =
+    Object.fromEntries(
+      evidenceFields.map(
+        field => [
+          field,
+          normalizeEvidenceList(
+            record[field],
+            `reading.customer.${field}`,
+            context,
+            collectedMessageIds,
+            collectedMemoryIds,
+          ),
+        ],
+      ),
+    ) as Pick<
+      CommercialReadingCustomer,
+      (typeof evidenceFields)[number]
+    >
 
-  const normalized =
-    {} as CommercialReadingCustomer
+  return {
+    ...evidenceLists,
 
-  for (const field of fields) {
-    normalized[field] =
-      normalizeEvidenceList(
-        record[field],
-        `reading.customer.${field}`,
-        context,
-        collectedMessageIds,
-        collectedMemoryIds,
-      )
+    discussed_products:
+      products,
+
+    primary_product_interest:
+      primaryProduct,
+
+    competitors,
+    commitments,
+
+    missing_discovery:
+      missingDiscovery,
+
+    resolved_information:
+      requireArray(
+        record.resolved_information,
+        'reading.customer.resolved_information',
+      ).map(
+        (item, index) =>
+          normalizeHistory(
+            item,
+            `reading.customer.resolved_information[${index}]`,
+          ),
+      ),
+
+    superseded_information:
+      requireArray(
+        record.superseded_information,
+        'reading.customer.superseded_information',
+      ).map(
+        (item, index) =>
+          normalizeHistory(
+            item,
+            `reading.customer.superseded_information[${index}]`,
+          ),
+      ),
+
+    communication: {
+      events:
+        requireArray(
+          communication.events,
+          'reading.customer.communication.events',
+        ).map(
+          (item, index) =>
+            normalizeCommunication(
+              item,
+              `reading.customer.communication.events[${index}]`,
+            ),
+        ),
+
+      patterns:
+        requireArray(
+          communication.patterns,
+          'reading.customer.communication.patterns',
+        ).map(
+          (item, index) =>
+            normalizeCommunication(
+              item,
+              `reading.customer.communication.patterns[${index}]`,
+            ),
+        ),
+    },
   }
-
-  return normalized
 }
 
 function normalizeEvolution(
@@ -3086,6 +3776,9 @@ function neutralizeNonActionableReading(
     },
 
     customer: {
+      objectives: [],
+      problems: [],
+      impacts: [],
       needs: [],
       interests: [],
       decision_criteria: [],
@@ -3093,6 +3786,18 @@ function neutralizeNonActionableReading(
       open_questions: [],
       objections: [],
       uncertainties: [],
+      discussed_products: [],
+      primary_product_interest:
+        null,
+      competitors: [],
+      commitments: [],
+      missing_discovery: [],
+      resolved_information: [],
+      superseded_information: [],
+      communication: {
+        events: [],
+        patterns: [],
+      },
     },
 
     commercial_evolution:
@@ -3324,6 +4029,9 @@ export function normalizeCommercialReadingModelOutput({
   const normalizedModelOutput = {
     ...modelOutput,
 
+    customer:
+      derived.customer,
+
     method:
       normalizedMethod,
   }
@@ -3416,6 +4124,7 @@ export function normalizeCommercialReading(
       'analysis_limitations',
       'commercial_role',
       'commercial_relevance',
+      'customer',
       ...COMMERCIAL_READING_MODEL_OUTPUT_FIELDS,
       'communication',
       'operations',

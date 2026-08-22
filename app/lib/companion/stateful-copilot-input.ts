@@ -511,6 +511,20 @@ export function buildStatefulCopilotInput(
 
           active_message_ids:
             activeMessageIds,
+
+          customer_message_ids:
+            diagnosticInput
+              .conversation
+              .messages
+              .filter(
+                message =>
+                  message.direction ===
+                  'incoming',
+              )
+              .map(
+                message =>
+                  message.id,
+              ),
         },
       )
 

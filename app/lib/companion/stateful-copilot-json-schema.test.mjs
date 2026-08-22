@@ -294,7 +294,7 @@ test(
 )
 
 test(
-  'raiz do schema coincide com o contrato stateful v2',
+  'raiz do schema coincide com o contrato stateful v3',
   () => {
     const properties =
       getObjectProperties(

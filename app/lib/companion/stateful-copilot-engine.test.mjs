@@ -34,6 +34,7 @@ function emptyPatch() {
 
     objections_to_add: [],
     objection_ids_to_resolve: [],
+    objection_ids_to_supersede: [],
 
     commitments_to_upsert: [],
 
@@ -185,10 +186,10 @@ function buildOutput({
     patch.facts_to_add = [
       {
         kind:
-          'declared_interest',
+          'client.interest',
 
         value:
-          'interesse confirmado',
+          null,
 
         summary:
           'O cliente declarou interesse em conhecer a solução.',
@@ -367,16 +368,6 @@ function buildCommunicationOutput(
 
         last_customer_request_or_decision:
           null,
-      },
-
-      customer: {
-        needs: [],
-        interests: [],
-        decision_criteria: [],
-        preferences: [],
-        open_questions: [],
-        objections: [],
-        uncertainties: [],
       },
 
       commercial_evolution: [],
@@ -584,6 +575,29 @@ test(
     assert.equal(
       calls.length,
       2,
+    )
+
+    const communicationPayload =
+      JSON.parse(
+        calls[1].user_prompt,
+      )
+
+    assert.equal(
+      communicationPayload
+        .commercial_memory
+        .facts[0]
+        .id,
+      'facts-1-1',
+    )
+
+    assert.equal(
+      result
+        .communication_output
+        .commercial_reading
+        .customer
+        .interests[0]
+        .memory_ids[0],
+      'facts-1-1',
     )
 
     assert.deepEqual(
@@ -1065,7 +1079,7 @@ test(
 
     assert.equal(
       calls.length,
-      2,
+      1,
     )
 
     assert.deepEqual(

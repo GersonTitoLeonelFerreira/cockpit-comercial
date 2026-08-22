@@ -11,7 +11,7 @@ import {
 } from './stateful-copilot-contract'
 
 export const STATEFUL_COPILOT_RESPONSE_FORMAT_NAME =
-  'yolen_stateful_copilot_v2' as const
+  'yolen_stateful_copilot_v3' as const
 
 const LEAD_STATUSES = [
   'novo',
@@ -275,6 +275,9 @@ const statePatchSchema =
       ),
 
     objection_ids_to_resolve:
+      stringArraySchema,
+
+    objection_ids_to_supersede:
       stringArraySchema,
 
     commitments_to_upsert:

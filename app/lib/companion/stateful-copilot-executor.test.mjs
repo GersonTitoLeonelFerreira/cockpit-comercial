@@ -25,6 +25,15 @@ function buildNormalizationContext() {
       'm3',
     ],
 
+    customer_message_ids: [
+      'm2',
+      'm3',
+    ],
+
+    available_products: [],
+
+    previous_communication_observations: [],
+
     available_memory_ids: [],
     active_memory_ids: [],
 
@@ -81,6 +90,7 @@ function emptyPatch() {
 
     objections_to_add: [],
     objection_ids_to_resolve: [],
+    objection_ids_to_supersede: [],
 
     commitments_to_upsert: [],
 

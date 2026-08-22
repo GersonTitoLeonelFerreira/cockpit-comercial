@@ -7,7 +7,7 @@ import {
 } from './stateful-communication-contract'
 
 export const STATEFUL_COMMUNICATION_RESPONSE_FORMAT_NAME =
-  'yolen_stateful_communication_v4' as const
+  'yolen_stateful_communication_v5' as const
 
 type JsonSchema =
   Record<string, unknown>

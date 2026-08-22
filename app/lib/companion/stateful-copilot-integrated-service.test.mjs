@@ -454,6 +454,9 @@ function buildModelEngineResult({
         objection_ids_to_resolve:
           [],
 
+        objection_ids_to_supersede:
+          [],
+
         commitments_to_upsert:
           [],
 
@@ -663,7 +666,7 @@ function buildModelPersistencePlan(
 
       normalized_output: {
         contract_version:
-          'phase-5.1-stateful-copilot-v2',
+          'phase-5.2-stateful-copilot-v3',
       },
 
       execution: {

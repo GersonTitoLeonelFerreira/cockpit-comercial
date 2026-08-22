@@ -1294,7 +1294,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v19',
+      'phase-5.2-stateful-prompt-v20',
     )
 
     assert.match(
@@ -2156,6 +2156,52 @@ test(
     assert.match(
       plan.request.system_prompt,
       /Pedido explícito de espaço deve ser respeitado/,
+    )
+  },
+)
+
+test(
+  'prompt stateful v20 decide inteligência do cliente no state patch canônico',
+  () => {
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        buildInput(),
+      )
+
+    assert.equal(plan.mode, 'model')
+
+    assert.match(
+      plan.request.system_prompt,
+      /state_patch é a única camada que decide e atualiza a memória comercial do cliente/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Objetivo, problema, impacto e necessidade são conceitos distintos/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /client\.communication\.pattern exige pelo menos duas mensagens incoming distintas/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /perfil psicológico/,
+    )
+
+    assert.ok(
+      plan.request.normalization_context
+        .customer_message_ids.length > 0,
+    )
+
+    assert.ok(
+      plan.request.normalization_context
+        .available_products.some(
+          product =>
+            product.product_id ===
+            'product-yolen',
+        ),
     )
   },
 )

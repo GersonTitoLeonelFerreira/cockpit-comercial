@@ -140,6 +140,11 @@ const NORMALIZATION_CONTEXT = {
   available_message_ids: [
     'm-current',
   ],
+  customer_message_ids: [
+    'm-current',
+  ],
+  available_products: [],
+  previous_communication_observations: [],
   available_memory_ids: [
     'memory-commercial-history',
   ],
@@ -246,6 +251,7 @@ function buildAttemptedOutput(
         },
       ],
       objection_ids_to_resolve: [],
+      objection_ids_to_supersede: [],
       commitments_to_upsert: [
         {
           commitment_id:
