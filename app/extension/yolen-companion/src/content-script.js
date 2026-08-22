@@ -5610,7 +5610,63 @@
       .slice(0, 10)
   }
 
+  function getLegacySuggestionCommercialRelevance() {
+    const tags =
+      state
+        .conversationAnalysis
+        ?.suggestion
+        ?.tags
+
+    if (!Array.isArray(tags)) {
+      return null
+    }
+
+    for (const tag of tags) {
+      if (
+        typeof tag !== 'string' ||
+        !tag.startsWith(
+          'commercial_relevance:',
+        )
+      ) {
+        continue
+      }
+
+      const relevance =
+        tag
+          .slice(
+            'commercial_relevance:'.length,
+          )
+          .trim()
+
+      if (
+        relevance === 'commercial' ||
+        relevance === 'non_commercial' ||
+        relevance === 'uncertain'
+      ) {
+        return relevance
+      }
+    }
+
+    return null
+  }
+
+  function isLegacySuggestionCommerciallyActionable() {
+    const relevance =
+      getLegacySuggestionCommercialRelevance()
+
+    return (
+      relevance === null ||
+      relevance === 'commercial'
+    )
+  }
+
   function hasOperationalSuggestionChange() {
+    if (
+      !isLegacySuggestionCommerciallyActionable()
+    ) {
+      return false
+    }
+
     const suggestion =
       state
         .conversationAnalysis
@@ -6101,6 +6157,12 @@
           ? message.trim()
           : null
       )
+    }
+
+    if (
+      !isLegacySuggestionCommerciallyActionable()
+    ) {
+      return null
     }
 
     const message =
@@ -6793,6 +6855,12 @@
   }
 
   function getCompanionNextMoveText() {
+    if (
+      !isLegacySuggestionCommerciallyActionable()
+    ) {
+      return null
+    }
+
     const nextMove =
       state
         .conversationAnalysis
