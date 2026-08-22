@@ -599,3 +599,86 @@ test(
     )
   },
 )
+
+
+test(
+  'telemetria identifica path e invariante do diagnóstico inválido',
+  () => {
+    const telemetry =
+      buildStatefulCopilotActivePilotTelemetry({
+        event:
+          'active_fallback_v1',
+
+        company_id:
+          companyId,
+
+        cycle_id:
+          cycleId,
+
+        runtime_mode:
+          'active_fallback_v1',
+
+        response_source:
+          'v1',
+
+        stateful_executed:
+          true,
+
+        v1_executed:
+          true,
+
+        duration_ms:
+          21708,
+
+        fallback_reason:
+          'stateful_runtime_failed',
+
+        failure: {
+          code:
+            'INVALID_MODEL_OUTPUT',
+
+          status_code:
+            502,
+
+          retryable:
+            true,
+
+          diagnostic_failure_path:
+            'state_patch.commitments_to_upsert[0].status',
+
+          diagnostic_failure_invariant:
+            'INVALID_COMMITMENT_STATUS',
+
+          conversation_content:
+            'não registrar',
+        },
+
+        automatic_crm_write:
+          false,
+
+        automatic_agenda_write:
+          false,
+      })
+
+    assert.equal(
+      telemetry
+        .diagnostic_failure_path,
+      'state_patch.commitments_to_upsert[0].status',
+    )
+
+    assert.equal(
+      telemetry
+        .diagnostic_failure_invariant,
+      'INVALID_COMMITMENT_STATUS',
+    )
+
+    assert.equal(
+      JSON.stringify(
+        telemetry,
+      ).includes(
+        'não registrar',
+      ),
+      false,
+    )
+  },
+)

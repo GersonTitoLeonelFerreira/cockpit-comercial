@@ -1605,3 +1605,75 @@ test(
     )
   },
 )
+
+
+test(
+  '12A runtime preserva path e invariante seguros do diagnóstico inválido',
+  async () => {
+    const {
+      orchestrator,
+    } =
+      createHarness({
+        mode:
+          'active',
+
+        engineVersion:
+          'v2',
+
+        serviceError: {
+          code:
+            'INVALID_MODEL_OUTPUT',
+
+          status_code:
+            502,
+
+          retryable:
+            true,
+
+          details: {
+            contract_error_path:
+              'state_patch.commitments_to_upsert[0].status',
+
+            contract_error_code:
+              'INVALID_COMMITMENT_STATUS',
+
+            internal_message:
+              'conteúdo que não pode sair',
+          },
+        },
+      })
+
+    const result =
+      await orchestrator(
+        buildRunArgs(),
+      )
+
+    assert.equal(
+      result.mode,
+      'active_fallback_v1',
+    )
+
+    assert.equal(
+      result
+        .stateful_failure
+        .diagnostic_failure_path,
+      'state_patch.commitments_to_upsert[0].status',
+    )
+
+    assert.equal(
+      result
+        .stateful_failure
+        .diagnostic_failure_invariant,
+      'INVALID_COMMITMENT_STATUS',
+    )
+
+    assert.equal(
+      JSON.stringify(
+        result.stateful_failure,
+      ).includes(
+        'conteúdo que não pode sair',
+      ),
+      false,
+    )
+  },
+)
