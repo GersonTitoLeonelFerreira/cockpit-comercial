@@ -1000,3 +1000,70 @@ test(
     )
   },
 )
+
+
+test(
+  'reasoning configurado fica restrito ao diagnóstico',
+  async () => {
+    const bodies = []
+
+    const provider =
+      createStatefulCopilotOpenAIProvider({
+        api_key:
+          'test-api-key',
+
+        model:
+          'gpt-5.6-luna',
+
+        communication_model:
+          'gpt-4.1-mini-2025-04-14',
+
+        diagnostic_reasoning_effort:
+          'none',
+
+        fetch_impl:
+          async (_url, init) => {
+            bodies.push(
+              JSON.parse(
+                init.body,
+              ),
+            )
+
+            return buildResponse(
+              buildCompletedPayload(),
+            )
+          },
+      })
+
+    await provider(
+      buildRequest(),
+    )
+
+    await provider(
+      buildCommunicationRequest(),
+    )
+
+    assert.deepEqual(
+      bodies[0].reasoning,
+      {
+        effort:
+          'none',
+      },
+    )
+
+    assert.equal(
+      bodies[1].reasoning,
+      undefined,
+    )
+
+    assert.equal(
+      bodies[0].model,
+      'gpt-5.6-luna',
+    )
+
+    assert.equal(
+      bodies[1].model,
+      'gpt-4.1-mini-2025-04-14',
+    )
+  },
+)

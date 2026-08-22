@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   PHASE12A_ACTIVE_COMMUNICATION_MODEL,
   PHASE12A_ACTIVE_DIAGNOSTIC_MODEL,
+  PHASE12A_ACTIVE_DIAGNOSTIC_REASONING_EFFORT,
   createStatefulCopilotServerRuntimeOrchestrator,
 } from './stateful-copilot-runtime-orchestrator.ts'
 
@@ -201,6 +202,12 @@ test(
         assert.equal(
           options.openai_model,
           PHASE12A_ACTIVE_DIAGNOSTIC_MODEL,
+        )
+
+        assert.equal(
+          options
+            .openai_diagnostic_reasoning_effort,
+          PHASE12A_ACTIVE_DIAGNOSTIC_REASONING_EFFORT,
         )
 
         assert.equal(

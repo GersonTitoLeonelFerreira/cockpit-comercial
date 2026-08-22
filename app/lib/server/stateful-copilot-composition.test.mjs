@@ -276,3 +276,30 @@ test(
     )
   },
 )
+
+
+test(
+  'server composition encaminha reasoning do diagnóstico',
+  async () => {
+    await withEnvironment(
+      {
+        VERCEL_ENV:
+          'production',
+      },
+
+      async () => {
+        const options =
+          captureOpenAiOptions({
+            openai_diagnostic_reasoning_effort:
+              'none',
+          })
+
+        assert.equal(
+          options
+            .diagnostic_reasoning_effort,
+          'none',
+        )
+      },
+    )
+  },
+)
