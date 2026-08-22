@@ -11,6 +11,10 @@ import {
   type StatefulCopilotSupabaseClient,
 } from '../companion/stateful-copilot-composition'
 
+import type {
+  StatefulCopilotOpenAIReasoningEffort,
+} from '../companion/stateful-copilot-openai-provider'
+
 const STATEFUL_SUPABASE_CLIENT_OPTIONS = {
   auth: {
     persistSession:
@@ -46,6 +50,9 @@ export type StatefulCopilotServerCompositionOptions = {
 
   openai_communication_model?:
     string | null
+
+  openai_diagnostic_reasoning_effort?:
+    StatefulCopilotOpenAIReasoningEffort | null
 
   openai_timeout_ms?:
     number
@@ -317,6 +324,17 @@ export function createStatefulCopilotServerComposition(
             .OPENAI_STATEFUL_COMMUNICATION_MODEL ??
           previewCommunicationModel,
         ),
+
+      ...(options
+        .openai_diagnostic_reasoning_effort !== undefined &&
+      options
+        .openai_diagnostic_reasoning_effort !== null
+        ? {
+            diagnostic_reasoning_effort:
+              options
+                .openai_diagnostic_reasoning_effort,
+          }
+        : {}),
 
       timeout_ms:
         options.openai_timeout_ms,

@@ -31,10 +31,27 @@ type JsonRecord =
 type OpenAIFetch =
   typeof fetch
 
+export const STATEFUL_COPILOT_OPENAI_REASONING_EFFORTS =
+  [
+    'none',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ] as const
+
+export type StatefulCopilotOpenAIReasoningEffort =
+  (typeof STATEFUL_COPILOT_OPENAI_REASONING_EFFORTS)[number]
+
 export type StatefulCopilotOpenAIProviderOptions = {
   api_key?: string | null
   model?: string | null
   communication_model?: string | null
+
+  diagnostic_reasoning_effort?:
+    StatefulCopilotOpenAIReasoningEffort | null
+
   timeout_ms?: number
   max_output_tokens?: number
   fetch_impl?: OpenAIFetch
@@ -241,6 +258,55 @@ function resolveModel(
   )
 }
 
+function resolveDiagnosticReasoningEffort(
+  options:
+    StatefulCopilotOpenAIProviderOptions,
+
+  request:
+    StatefulCopilotProviderRequest,
+): StatefulCopilotOpenAIReasoningEffort | null {
+  if (
+    request.output_contract_version ===
+    STATEFUL_COMMUNICATION_CONTRACT_VERSION
+  ) {
+    return null
+  }
+
+  const value =
+    options
+      .diagnostic_reasoning_effort
+
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null
+  }
+
+  if (
+    !STATEFUL_COPILOT_OPENAI_REASONING_EFFORTS
+      .includes(
+        value,
+      )
+  ) {
+    fail({
+      code:
+        'INVALID_OPENAI_PROVIDER_REQUEST',
+
+      message:
+        'O reasoning effort configurado para o diagnóstico é inválido.',
+
+      status_code:
+        500,
+
+      retryable:
+        false,
+    })
+  }
+
+  return value
+}
+
 function validateProviderRequest(
   request:
     StatefulCopilotProviderRequest,
@@ -329,12 +395,17 @@ function validateProviderRequest(
 function buildOpenAIRequestBody({
   request,
   model,
+  diagnostic_reasoning_effort,
   max_output_tokens,
 }: {
   request:
     StatefulCopilotProviderRequest
 
   model: string
+
+  diagnostic_reasoning_effort:
+    StatefulCopilotOpenAIReasoningEffort | null
+
   max_output_tokens: number
 }): JsonRecord {
   return {
@@ -344,6 +415,15 @@ function buildOpenAIRequestBody({
       false,
 
     max_output_tokens,
+
+    ...(diagnostic_reasoning_effort
+      ? {
+          reasoning: {
+            effort:
+              diagnostic_reasoning_effort,
+          },
+        }
+      : {}),
 
     instructions:
       request.system_prompt,
@@ -725,6 +805,12 @@ export function createStatefulCopilotOpenAIProvider(
         request,
       )
 
+    const diagnosticReasoningEffort =
+      resolveDiagnosticReasoningEffort(
+        options,
+        request,
+      )
+
     const timeout =
       normalizeBoundedInteger({
         value:
@@ -800,6 +886,9 @@ export function createStatefulCopilotOpenAIProvider(
                   buildOpenAIRequestBody({
                     request,
                     model,
+
+                    diagnostic_reasoning_effort:
+                      diagnosticReasoningEffort,
 
                     max_output_tokens:
                       maxOutputTokens,

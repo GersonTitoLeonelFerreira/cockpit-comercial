@@ -59,7 +59,10 @@ export const STATEFUL_COPILOT_RUNTIME_STAGE =
   'server-only-orchestrator' as const
 
 export const PHASE12A_ACTIVE_DIAGNOSTIC_MODEL =
-  'gpt-4o-mini-2024-07-18' as const
+  'gpt-5.6-luna' as const
+
+export const PHASE12A_ACTIVE_DIAGNOSTIC_REASONING_EFFORT =
+  'none' as const
 
 export const PHASE12A_ACTIVE_COMMUNICATION_MODEL =
   'gpt-4.1-mini-2025-04-14' as const
@@ -852,6 +855,15 @@ function buildCompositionOptionsForActivation({
     openai_model:
       explicitDiagnosticModel ??
       PHASE12A_ACTIVE_DIAGNOSTIC_MODEL,
+
+    openai_diagnostic_reasoning_effort:
+      compositionOptions
+        ?.openai_diagnostic_reasoning_effort ??
+      (
+        explicitDiagnosticModel
+          ? undefined
+          : PHASE12A_ACTIVE_DIAGNOSTIC_REASONING_EFFORT
+      ),
 
     openai_communication_model:
       explicitCommunicationModel ??
