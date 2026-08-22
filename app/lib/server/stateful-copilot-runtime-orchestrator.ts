@@ -84,6 +84,12 @@ export type StatefulCopilotRuntimeFailure = {
   status_code: number
   retryable: boolean
 
+  diagnostic_failure_path?:
+    string
+
+  diagnostic_failure_invariant?:
+    string
+
   communication_failure_path?:
     string
 
@@ -453,6 +459,38 @@ function normalizeFailure(
       ? error.details
       : null
 
+  const diagnosticFailurePath =
+    code === 'INVALID_MODEL_OUTPUT' &&
+    typeof details
+      ?.contract_error_path ===
+      'string' &&
+    details
+      .contract_error_path
+      .length <= 300 &&
+    /^[a-zA-Z0-9_.\[\]-]+$/.test(
+      details
+        .contract_error_path,
+    )
+      ? details
+          .contract_error_path
+      : null
+
+  const diagnosticFailureInvariant =
+    code === 'INVALID_MODEL_OUTPUT' &&
+    typeof details
+      ?.contract_error_code ===
+      'string' &&
+    details
+      .contract_error_code
+      .length <= 120 &&
+    /^[A-Z0-9_]+$/.test(
+      details
+        .contract_error_code,
+    )
+      ? details
+          .contract_error_code
+      : null
+
   const failurePath =
     typeof details
       ?.communication_failure_path ===
@@ -500,6 +538,20 @@ function normalizeFailure(
 
     retryable:
       error.retryable === true,
+
+    ...(diagnosticFailurePath
+      ? {
+          diagnostic_failure_path:
+            diagnosticFailurePath,
+        }
+      : {}),
+
+    ...(diagnosticFailureInvariant
+      ? {
+          diagnostic_failure_invariant:
+            diagnosticFailureInvariant,
+        }
+      : {}),
 
     ...(failurePath
       ? {

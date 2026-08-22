@@ -46,6 +46,8 @@ export type StatefulCopilotActivePilotTelemetryArgs = {
     code?: unknown
     status_code?: unknown
     retryable?: unknown
+    diagnostic_failure_path?: unknown
+    diagnostic_failure_invariant?: unknown
     communication_failure_path?: unknown
     communication_failure_invariant?: unknown
     communication_attempts?: unknown
@@ -108,6 +110,12 @@ export type StatefulCopilotActivePilotTelemetry = {
 
   failure_retryable:
     boolean | null
+
+  diagnostic_failure_path:
+    string | null
+
+  diagnostic_failure_invariant:
+    string | null
 
   communication_failure_path:
     string | null
@@ -264,6 +272,18 @@ export function buildStatefulCopilotActivePilotTelemetry(
     getBoolean(
       args.failure
         ?.retryable,
+    )
+
+  const diagnosticFailurePath =
+    getTechnicalPath(
+      args.failure
+        ?.diagnostic_failure_path,
+    )
+
+  const diagnosticFailureInvariant =
+    getTechnicalInvariant(
+      args.failure
+        ?.diagnostic_failure_invariant,
     )
 
   const communicationFailurePath =
@@ -511,6 +531,12 @@ export function buildStatefulCopilotActivePilotTelemetry(
 
     failure_retryable:
       failureRetryable,
+
+    diagnostic_failure_path:
+      diagnosticFailurePath,
+
+    diagnostic_failure_invariant:
+      diagnosticFailureInvariant,
 
     communication_failure_path:
       communicationFailurePath,
