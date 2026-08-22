@@ -50,7 +50,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v21' as const
+  'phase-5.2-stateful-prompt-v22' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -1475,6 +1475,19 @@ function buildUserPrompt(
           'perdido',
           null,
         ],
+      },
+
+      evidence_scope: {
+        current_message_ids:
+          normalizationContext
+            .available_message_ids,
+
+        current_customer_message_ids:
+          normalizationContext
+            .customer_message_ids,
+
+        rule:
+          'Todo item criado em state_patch precisa ter evidence_message_ids não vazio. Inteligência do cliente precisa incluir pelo menos um ID de current_customer_message_ids. Mensagem outgoing pode contextualizar, mas não substitui evidência incoming. Sem evidência do cliente, não crie o item.',
       },
 
       input:

@@ -1276,7 +1276,7 @@ test(
 )
 
 test(
-  'prompt 5.2 v19 separa papel, relevância, continuidade e contexto incremental',
+  'prompt 5.2 v22 separa papel, relevância, continuidade e contexto incremental',
   () => {
     const plan =
       buildStatefulCopilotExecutionPlan(
@@ -1293,7 +1293,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v21',
+      'phase-5.2-stateful-prompt-v22',
     )
 
     assert.match(

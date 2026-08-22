@@ -553,6 +553,108 @@ export const STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA =
     properties.strategy =
       diagnosticStrategySchema
 
+    const diagnosticStatePatchProperties =
+      (
+        properties
+          .state_patch
+          .properties as
+            Record<
+              string,
+              JsonSchema
+            >
+      )
+
+    const diagnosticEvidenceCollections = [
+      'facts_to_add',
+      'needs_to_add',
+      'open_loops_to_add',
+      'objections_to_add',
+      'commitments_to_upsert',
+      'signals_to_add',
+      'uncertainties_to_add',
+    ] as const
+
+    for (
+      const collectionName of
+      diagnosticEvidenceCollections
+    ) {
+      const collectionSchema =
+        diagnosticStatePatchProperties[
+          collectionName
+        ]
+
+      const itemSchema =
+        collectionSchema
+          .items as
+            JsonSchema
+
+      const itemProperties =
+        itemSchema
+          .properties as
+            Record<
+              string,
+              JsonSchema
+            >
+
+      itemProperties
+        .evidence_message_ids = {
+        ...itemProperties
+          .evidence_message_ids,
+
+        minItems:
+          1,
+      }
+    }
+
+    const diagnosticInterpretationProperties =
+      (
+        properties
+          .interpretation
+          .properties as
+            Record<
+              string,
+              JsonSchema
+            >
+      )
+
+    const diagnosticCurrentMomentProperties =
+      (
+        diagnosticInterpretationProperties
+          .current_moment
+          .properties as
+            Record<
+              string,
+              JsonSchema
+            >
+      )
+
+    diagnosticCurrentMomentProperties
+      .evidence_message_ids = {
+      ...diagnosticCurrentMomentProperties
+        .evidence_message_ids,
+
+      minItems:
+        1,
+    }
+
+    properties
+      .analyzed_message_ids = {
+      ...properties
+        .analyzed_message_ids,
+
+      minItems:
+        1,
+    }
+
+    properties
+      .evidence_message_ids = {
+      ...properties
+        .evidence_message_ids,
+
+      minItems:
+        1,
+    }
+
     return deepFreeze(
       schema,
     )
