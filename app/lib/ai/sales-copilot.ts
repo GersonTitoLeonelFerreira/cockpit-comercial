@@ -32,6 +32,7 @@ type AnalyzeConversationInput = {
   context: AISalesContext
   conversationText: string
   source: ConversationSource
+  providerTimeoutMs?: number
 }
 
 type ProviderCommercialFacts = {
@@ -1039,9 +1040,28 @@ async function callOpenAI(input: AnalyzeConversationInput): Promise<ProviderCall
     conversation_text: input.conversationText,
   }
 
+  const providerTimeoutMs =
+    typeof input.providerTimeoutMs === 'number' &&
+    Number.isFinite(
+      input.providerTimeoutMs,
+    )
+      ? Math.max(
+          1_000,
+          Math.floor(
+            input.providerTimeoutMs,
+          ),
+        )
+      : null
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
+      signal:
+        providerTimeoutMs
+          ? AbortSignal.timeout(
+              providerTimeoutMs,
+            )
+          : undefined,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -1091,10 +1111,20 @@ async function callOpenAI(input: AnalyzeConversationInput): Promise<ProviderCall
         failureReason: 'openai_invalid_json',
       }
     }
-  } catch {
+  } catch (error: unknown) {
+    const timedOut =
+      error instanceof Error &&
+      (
+        error.name === 'TimeoutError' ||
+        error.name === 'AbortError'
+      )
+
     return {
       raw: null,
-      failureReason: 'openai_fetch_failed',
+      failureReason:
+        timedOut
+          ? 'openai_timeout'
+          : 'openai_fetch_failed',
     }
   }
 }

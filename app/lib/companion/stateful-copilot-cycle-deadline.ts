@@ -17,7 +17,7 @@ import {
 // criada a partir do mesmo `deadline_at` sabe quanto tempo resta e para de esperar
 // quando o orçamento acaba, permitindo que o runtime caia com segurança para o V1.
 export const DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS =
-  75_000
+  25_000
 
 export const STATEFUL_COPILOT_CYCLE_DEADLINE_MINIMUM_MS =
   5_000

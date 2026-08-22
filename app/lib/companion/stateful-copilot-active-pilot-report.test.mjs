@@ -5,6 +5,10 @@ import {
   buildStatefulCopilotActivePilotReport,
 } from './stateful-copilot-active-pilot-report.ts'
 
+import {
+  DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS,
+} from './stateful-copilot-cycle-deadline.ts'
+
 const companyId =
   '10000000-0000-4000-8000-000000000001'
 
@@ -568,7 +572,7 @@ test(
     assert.equal(
       report.thresholds
         .maximum_p95_latency_ms,
-      75_000,
+      DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS,
     )
   },
 )

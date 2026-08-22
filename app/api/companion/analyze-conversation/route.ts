@@ -1851,6 +1851,9 @@ export async function POST(request: Request) {
      * a execução continua e o V1 é calculado somente
      * como fallback seguro.
      */
+    let statefulActiveFallbackTriggered =
+      false
+
     if (
       statefulRouteMode ===
       'active'
@@ -1967,6 +1970,9 @@ export async function POST(request: Request) {
           )
         }
 
+        statefulActiveFallbackTriggered =
+          true
+
         const fallbackTelemetry =
           buildStatefulCopilotActivePilotTelemetry({
             event:
@@ -2035,6 +2041,9 @@ export async function POST(request: Request) {
           ),
         )
       } catch {
+        statefulActiveFallbackTriggered =
+          true
+
         const unhandledTelemetry =
           buildStatefulCopilotActivePilotTelemetry({
             event:
@@ -2084,13 +2093,26 @@ export async function POST(request: Request) {
       context,
       conversationText: analysisText,
       source,
+      providerTimeoutMs:
+        statefulActiveFallbackTriggered
+          ? 8_000
+          : undefined,
     })
 
-    const coaching = await generateCompanionCoachingOrFallback({
-      context,
-      analysisText,
-      suggestion: result.suggestion,
-    })
+    const coaching =
+      statefulActiveFallbackTriggered
+        ? buildCompanionCoaching({
+            conversationText:
+              analysisText,
+            suggestion:
+              result.suggestion,
+          })
+        : await generateCompanionCoachingOrFallback({
+            context,
+            analysisText,
+            suggestion:
+              result.suggestion,
+          })
 
     const yolenDecision =
       buildYolenDecision({
