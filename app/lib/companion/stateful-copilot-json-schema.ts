@@ -677,3 +677,240 @@ export const STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT =
     schema:
       STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA,
   })
+
+function buildDiagnosticMemoryArraySchema(
+  activeMemoryIds:
+    readonly string[],
+): JsonSchema {
+  if (
+    activeMemoryIds.length ===
+    0
+  ) {
+    return {
+      ...stringArraySchema,
+
+      maxItems:
+        0,
+    }
+  }
+
+  return arraySchema(
+    enumSchema(
+      activeMemoryIds,
+    ),
+  )
+}
+
+function buildDiagnosticNullableMemoryIdSchema(
+  activeMemoryIds:
+    readonly string[],
+): JsonSchema {
+  if (
+    activeMemoryIds.length ===
+    0
+  ) {
+    return {
+      type:
+        'null',
+    }
+  }
+
+  return nullableSchema(
+    enumSchema(
+      activeMemoryIds,
+    ),
+  )
+}
+
+export function buildStatefulCopilotDiagnosticStructuredOutputFormat({
+  active_memory_ids,
+}: {
+  active_memory_ids:
+    readonly string[]
+}) {
+  const activeMemoryIds = [
+    ...new Set(
+      active_memory_ids,
+    ),
+  ]
+
+  const schema =
+    cloneStatefulCopilotJsonSchema(
+      STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA,
+    ) as JsonSchema
+
+  const rootProperties =
+    schema.properties as
+      Record<
+        string,
+        JsonSchema
+      >
+
+  const memoryArraySchema =
+    buildDiagnosticMemoryArraySchema(
+      activeMemoryIds,
+    )
+
+  const assignMemoryArray = (
+    properties:
+      Record<
+        string,
+        JsonSchema
+      >,
+    key:
+      string,
+  ) => {
+    properties[key] =
+      cloneStatefulCopilotJsonSchema(
+        memoryArraySchema,
+      )
+  }
+
+  assignMemoryArray(
+    rootProperties,
+    'memory_ids',
+  )
+
+  const interpretationProperties =
+    rootProperties
+      .interpretation
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  const whatRemainsValidProperties =
+    (
+      interpretationProperties
+        .what_remains_valid
+        .items as JsonSchema
+    )
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  assignMemoryArray(
+    whatRemainsValidProperties,
+    'memory_ids',
+  )
+
+  const currentMomentProperties =
+    interpretationProperties
+      .current_moment
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  assignMemoryArray(
+    currentMomentProperties,
+    'memory_ids',
+  )
+
+  const customerNeedAlternatives =
+    interpretationProperties
+      .customer_need
+      .anyOf as
+        JsonSchema[]
+
+  const customerNeedProperties =
+    customerNeedAlternatives[0]
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  assignMemoryArray(
+    customerNeedProperties,
+    'memory_ids',
+  )
+
+  const uncertaintyProperties =
+    (
+      interpretationProperties
+        .uncertainties
+        .items as JsonSchema
+    )
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  assignMemoryArray(
+    uncertaintyProperties,
+    'memory_ids',
+  )
+
+  const strategyProperties =
+    rootProperties
+      .strategy
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  assignMemoryArray(
+    strategyProperties,
+    'memory_ids',
+  )
+
+  const statePatchProperties =
+    rootProperties
+      .state_patch
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  const statePatchMemoryReferences = [
+    'fact_ids_to_supersede',
+    'need_ids_to_resolve',
+    'open_loop_ids_to_resolve',
+    'objection_ids_to_resolve',
+    'objection_ids_to_supersede',
+    'signal_ids_to_resolve',
+    'uncertainty_ids_to_resolve',
+  ] as const
+
+  for (
+    const field of
+    statePatchMemoryReferences
+  ) {
+    assignMemoryArray(
+      statePatchProperties,
+      field,
+    )
+  }
+
+  const commitmentProperties =
+    (
+      statePatchProperties
+        .commitments_to_upsert
+        .items as JsonSchema
+    )
+      .properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+  commitmentProperties
+    .commitment_id =
+    buildDiagnosticNullableMemoryIdSchema(
+      activeMemoryIds,
+    )
+
+  return deepFreeze({
+    ...STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT,
+
+    schema,
+  })
+}

@@ -10,7 +10,7 @@ import {
 } from './stateful-copilot-execution-plan.ts'
 
 import {
-  STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT,
+  buildStatefulCopilotDiagnosticStructuredOutputFormat,
 } from './stateful-copilot-json-schema.ts'
 
 import {
@@ -367,7 +367,9 @@ test(
     assert.deepEqual(
       receivedRequest
         .structured_output_format,
-      STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT,
+      buildStatefulCopilotDiagnosticStructuredOutputFormat({
+        active_memory_ids: [],
+      }),
     )
 
     assert.equal(
