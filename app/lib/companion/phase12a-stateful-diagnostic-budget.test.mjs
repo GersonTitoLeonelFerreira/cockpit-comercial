@@ -335,3 +335,297 @@ test(
     )
   },
 )
+
+
+test(
+  '12A state patch não permite item novo sem evidência',
+  () => {
+    const schema =
+      STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA
+
+    const statePatch =
+      schema
+        .properties
+        .state_patch
+        .properties
+
+    const collections = [
+      'facts_to_add',
+      'needs_to_add',
+      'open_loops_to_add',
+      'objections_to_add',
+      'commitments_to_upsert',
+      'signals_to_add',
+      'uncertainties_to_add',
+    ]
+
+    for (const collection of collections) {
+      assert.equal(
+        statePatch[collection]
+          .items
+          .properties
+          .evidence_message_ids
+          .minItems,
+        1,
+        collection,
+      )
+    }
+
+    assert.equal(
+      schema
+        .properties
+        .interpretation
+        .properties
+        .current_moment
+        .properties
+        .evidence_message_ids
+        .minItems,
+      1,
+    )
+
+    assert.equal(
+      schema
+        .properties
+        .analyzed_message_ids
+        .minItems,
+      1,
+    )
+
+    assert.equal(
+      schema
+        .properties
+        .evidence_message_ids
+        .minItems,
+      1,
+    )
+  },
+)
+
+
+test(
+  '12A diagnóstico informa explicitamente os IDs incoming válidos',
+  () => {
+    const input = {
+      input_version:
+        STATEFUL_COPILOT_INPUT_VERSION,
+
+      output_contract_version:
+        STATEFUL_COPILOT_CONTRACT_VERSION,
+
+      diagnostic_input: {
+        input_version:
+          'phase-5-input-v1',
+
+        diagnostic_contract_version:
+          COMPANION_DIAGNOSTIC_CONTRACT_VERSION,
+
+        company_id:
+          'company-1',
+
+        cycle_id:
+          'cycle-1',
+
+        conversation_key:
+          'conversation-1',
+
+        current_crm_status:
+          'respondeu',
+
+        reference_time:
+          '2026-08-22T15:00:00-03:00',
+
+        analysis_precondition: {
+          status:
+            'ready',
+
+          limitations: [],
+        },
+
+        conversation: {
+          active_message_ids: [
+            'seller-1',
+            'customer-1',
+          ],
+
+          excluded_message_ids: [],
+
+          messages: [
+            {
+              id:
+                'seller-1',
+
+              message_key:
+                'seller-message',
+
+              version:
+                1,
+
+              sequence:
+                1,
+
+              direction:
+                'outgoing',
+
+              occurred_at:
+                '2026-08-22T14:58:00-03:00',
+
+              observed_at:
+                '2026-08-22T14:58:01-03:00',
+
+              content_type:
+                'text',
+
+              text_content:
+                'Como vocês acompanham os retornos hoje?',
+
+              audio_transcription:
+                null,
+            },
+            {
+              id:
+                'customer-1',
+
+              message_key:
+                'customer-message',
+
+              version:
+                1,
+
+              sequence:
+                2,
+
+              direction:
+                'incoming',
+
+              occurred_at:
+                '2026-08-22T14:59:00-03:00',
+
+              observed_at:
+                '2026-08-22T14:59:01-03:00',
+
+              content_type:
+                'text',
+
+              text_content:
+                'Normalmente percebemos os leads sem retorno tarde demais.',
+
+              audio_transcription:
+                null,
+            },
+          ],
+
+          excluded_messages: [],
+        },
+
+        commercial_context: {
+          configured:
+            true,
+
+          config_version_id:
+            'config-1',
+
+          config_version_number:
+            1,
+
+          config_contract_version:
+            'commercial-config-v1',
+
+          business_description:
+            'Software comercial.',
+
+          target_audience:
+            'Empresas com equipes comerciais.',
+
+          value_proposition:
+            'Melhorar execução comercial.',
+
+          communication_tone:
+            'Consultivo.',
+
+          required_behaviors: [],
+          prohibited_behaviors: [],
+
+          sales_method: {
+            configured:
+              false,
+
+            contract_version:
+              null,
+
+            name:
+              null,
+
+            description:
+              null,
+
+            principles: [],
+
+            definition:
+              null,
+
+            steps: [],
+          },
+
+          products: [],
+          facts: [],
+          objection_guides: [],
+        },
+      },
+
+      state_context: {
+        mode:
+          'initial',
+
+        previous_state_version:
+          null,
+
+        target_state_version:
+          1,
+
+        previous_state:
+          null,
+      },
+    }
+
+    const plan =
+      buildStatefulCopilotExecutionPlan(
+        input,
+      )
+
+    assert.equal(
+      plan.mode,
+      'model',
+    )
+
+    const payload =
+      JSON.parse(
+        plan.request.user_prompt,
+      )
+
+    assert.deepEqual(
+      payload
+        .evidence_scope
+        .current_message_ids,
+      [
+        'seller-1',
+        'customer-1',
+      ],
+    )
+
+    assert.deepEqual(
+      payload
+        .evidence_scope
+        .current_customer_message_ids,
+      [
+        'customer-1',
+      ],
+    )
+
+    assert.match(
+      payload
+        .evidence_scope
+        .rule,
+      /não substitui evidência incoming/,
+    )
+  },
+)
