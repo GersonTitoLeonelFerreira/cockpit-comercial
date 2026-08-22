@@ -65,7 +65,7 @@ test(
 
     const dispatch =
       getBlock(
-        'function getAnalysisCardHtml()',
+        'function getCompanionAgoraTabHtml()',
         'function getLeadEnrichmentAddressValue',
       )
 
@@ -92,7 +92,7 @@ test(
     const rich =
       getBlock(
         'function getCommercialReadingDecisionLabel(',
-        'function getAnalysisCardHtml()',
+        'function getCompanionAgoraTabHtml()',
       )
 
     assert.match(
@@ -183,7 +183,7 @@ test(
     const rich =
       getBlock(
         'function getCommercialReadingDecisionLabel(',
-        'function getAnalysisCardHtml()',
+        'function getCompanionAgoraTabHtml()',
       )
 
     assert.match(
@@ -245,7 +245,7 @@ test(
     const rich =
       getBlock(
         'function getCommercialReadingDecisionLabel(',
-        'function getAnalysisCardHtml()',
+        'function getCompanionAgoraTabHtml()',
       )
 
     assert.match(

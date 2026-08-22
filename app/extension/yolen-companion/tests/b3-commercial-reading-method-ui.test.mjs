@@ -50,7 +50,7 @@ test(
     const method =
       getBlock(
         'function getCommercialMethodStatusLabel(',
-        'function getRichCommercialReadingExpandedHtml(',
+        'function getRichSellerStrengthsHtml(',
       )
 
     assert.match(
@@ -101,7 +101,7 @@ test(
     const method =
       getBlock(
         'function getRichCommercialMethodHtml(',
-        'function getRichCommercialReadingExpandedHtml(',
+        'function getRichSellerStrengthsHtml(',
       )
 
     assert.match(
@@ -151,7 +151,7 @@ test(
     const method =
       getBlock(
         'function getRichCommercialMethodHtml(',
-        'function getRichCommercialReadingExpandedHtml(',
+        'function getRichSellerStrengthsHtml(',
       )
 
     assert.doesNotMatch(
@@ -167,28 +167,107 @@ test(
 )
 
 test(
-  'B3.3 inclui método no contexto progressivo sem expor campos técnicos',
+  'B3.3 inclui aderência e recovery no método, sem inventar quando insuficiente',
   () => {
-    const expanded =
+    const method =
       getBlock(
-        'function getRichCommercialReadingExpandedHtml(',
-        'function getRichCommercialReadingCardHtml(',
+        'function getRichCommercialMethodHtml(',
+        'function getRichSellerStrengthsHtml(',
       )
 
     assert.match(
-      expanded,
+      method,
+      /getMethodAdherenceBlockHtml/,
+    )
+
+    assert.match(
+      method,
+      /getMethodRecoveryBlockHtml/,
+    )
+
+    const adherenceBlock =
+      getBlock(
+        'function getMethodAdherenceBlockHtml(',
+        'function getMethodRecoveryBlockHtml(',
+      )
+
+    assert.match(
+      adherenceBlock,
+      /insufficient_evidence/,
+    )
+
+    assert.match(
+      adherenceBlock,
+      /Não há evidência suficiente para avaliar esta etapa\./,
+    )
+
+    const recoveryBlock =
+      getBlock(
+        'function getMethodRecoveryBlockHtml(',
+        'function getRichCommercialMethodHtml(',
+      )
+
+    assert.match(
+      recoveryBlock,
+      /adherence\?\.status !==[\s\S]*'off_method'/,
+    )
+
+    assert.match(
+      recoveryBlock,
+      /what_happened/,
+    )
+
+    assert.match(
+      recoveryBlock,
+      /missing_information/,
+    )
+
+    assert.match(
+      recoveryBlock,
+      /why_it_matters/,
+    )
+
+    assert.match(
+      recoveryBlock,
+      /recommended_move/,
+    )
+  },
+)
+
+test(
+  'B3.3 método aparece em ANÁLISE, com resumo na aba AGORA, sem expor campos técnicos',
+  () => {
+    const analiseSection =
+      getBlock(
+        'function getCompanionMethodDetailsHtml(',
+        'function getCompanionEvolutionDetailsHtml(',
+      )
+
+    assert.match(
+      analiseSection,
       /getRichCommercialMethodHtml/,
     )
 
     assert.match(
-      expanded,
-      /Resumo, cliente, evolução, método/,
+      analiseSection,
+      /title: 'Método'/,
+    )
+
+    const agoraLine =
+      getBlock(
+        'function getAgoraMethodLineHtml(',
+        'function getAgoraAttentionLineHtml(',
+      )
+
+    assert.match(
+      agoraLine,
+      /current_stage/,
     )
 
     const method =
       getBlock(
         'function getCommercialMethodStatusLabel(',
-        'function getRichCommercialReadingExpandedHtml(',
+        'function getRichSellerStrengthsHtml(',
       )
 
     assert.doesNotMatch(

@@ -54,42 +54,64 @@ function getBlock(
 }
 
 test(
-  'B3.2 expõe resumo cliente e evolução somente em divulgação progressiva',
+  'B3.2 expõe contexto/cliente/evolução somente em divulgação progressiva (áreas ANÁLISE e CLIENTE)',
   () => {
-    const expanded =
+    // Onda 4: deixou de ser um único <details> "Ver contexto comercial" —
+    // vira a área CLIENTE (contexto/o que sabemos/em aberto, visível de
+    // cara — timeline é a única parte secundária, ver b189) e a área
+    // ANÁLISE (coaching/método/progresso/riscos, cada bloco no seu
+    // próprio <details>, resumo primeiro).
+    const clienteBuckets =
       getBlock(
-        'function getCommercialReadingDisplayText(',
-        'function getRichCommercialReadingCardHtml(',
+        'function getCompanionClientContextNarrativeHtml(',
+        'function getCommercialEvolutionStatusLabel(',
       )
 
     assert.match(
-      expanded,
-      /<details class="yolen-rich-details">/,
+      clienteBuckets,
+      /Contexto/,
     )
 
     assert.match(
-      expanded,
-      /Resumo da conversa/,
+      clienteBuckets,
+      /O que sabemos/,
     )
 
     assert.match(
-      expanded,
-      /Cliente/,
+      clienteBuckets,
+      /Em aberto/,
+    )
+
+    const analiseTab =
+      getBlock(
+        'function getAnaliseDetailsHtml(',
+        'function getCompanionRelationshipSectionHtml(',
+      )
+
+    assert.match(
+      analiseTab,
+      /<details class="yolen-rich-details yolen-analise-details"/,
+    )
+
+    const evolutionDetails =
+      getBlock(
+        'function getCompanionEvolutionDetailsHtml(',
+        'function getCompanionServiceRisksDetailsHtml(',
+      )
+
+    assert.match(
+      evolutionDetails,
+      /Progresso comercial/,
     )
 
     assert.match(
-      expanded,
+      evolutionDetails,
+      /getRichCommercialEvolutionHtml/,
+    )
+
+    assert.match(
+      contentScript,
       /Evolução comercial/,
-    )
-
-    assert.match(
-      expanded,
-      /Ver contexto comercial/,
-    )
-
-    assert.doesNotMatch(
-      expanded,
-      /<details[^>]*open/,
     )
   },
 )
@@ -97,10 +119,10 @@ test(
 test(
   'B3.2 consome diretamente os campos oficiais do A4 sem expor evidência técnica',
   () => {
-    const expanded =
+    const clienteAndAnalise =
       getBlock(
-        'function getCommercialReadingDisplayText(',
-        'function getRichCommercialReadingCardHtml(',
+        'function getCompanionClientContextNarrativeHtml(',
+        'function getCompanionRelationshipSectionHtml(',
       )
 
     for (const field of [
@@ -118,18 +140,18 @@ test(
       'commercial_evolution',
     ]) {
       assert.match(
-        expanded,
+        clienteAndAnalise,
         new RegExp(field),
       )
     }
 
     assert.doesNotMatch(
-      expanded,
+      clienteAndAnalise,
       /evidence_message_ids|memory_ids|contract_version|engine_source/,
     )
 
     assert.doesNotMatch(
-      expanded,
+      clienteAndAnalise,
       /\.coaching|\.suggestion/,
     )
   },
@@ -141,7 +163,7 @@ test(
     const expanded =
       getBlock(
         'function getCommercialEvolutionStatusLabel(',
-        'function getRichCommercialReadingCardHtml(',
+        'function getCommercialMethodStatusLabel(',
       )
 
     for (const status of [
@@ -177,7 +199,7 @@ test(
     const expanded =
       getBlock(
         'function getRichReadingListHtml(',
-        'function getRichCommercialReadingCardHtml(',
+        'function getCompanionKnownAboutClientHtml(',
       )
 
     assert.match(
@@ -185,18 +207,25 @@ test(
       /summaries\.length === 0/,
     )
 
+    const clienteGroups =
+      getBlock(
+        'function getCompanionKnownAboutClientHtml(',
+        'function getCommercialEvolutionStatusLabel(',
+      )
+
     assert.match(
-      expanded,
+      clienteGroups,
       /groups\.length === 0/,
     )
 
-    assert.match(
-      expanded,
-      /items\.length === 0/,
-    )
+    const analiseTab =
+      getBlock(
+        'function getCompanionAnaliseTabHtml() {',
+        'function getCompanionRelationshipSectionHtml(',
+      )
 
     assert.match(
-      expanded,
+      analiseTab,
       /sections\.length === 0/,
     )
 
@@ -218,6 +247,16 @@ test(
     assert.match(
       styles,
       /\.yolen-rich-status-completed/,
+    )
+
+    assert.match(
+      styles,
+      /\.yolen-analise-details/,
+    )
+
+    assert.match(
+      styles,
+      /\.yolen-cliente-tab/,
     )
   },
 )

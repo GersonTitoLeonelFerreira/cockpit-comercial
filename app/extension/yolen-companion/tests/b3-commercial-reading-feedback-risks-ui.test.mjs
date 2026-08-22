@@ -88,45 +88,46 @@ test(
 test(
   'B3.4 mantém objeções do cliente separadas dos riscos no atendimento',
   () => {
-    const risks =
+    // Onda 4: a separação deixou de ser só visual dentro de um bloco —
+    // service_risks (erro do vendedor, aparece em ANÁLISE) e
+    // customer_objections (resistência do cliente, aparece em CLIENTE)
+    // agora vivem em funções diferentes, cada uma cega para o campo da
+    // outra.
+    const serviceRisksBlock =
       getBlock(
-        'function getCommercialRiskSeverityLabel(',
-        'function getRichCommercialReadingExpandedHtml(',
+        'function getRichServiceRisksHtml(',
+        'function getRichCustomerObjectionsHtml(',
       )
 
     assert.match(
-      risks,
-      /risks\.customer_objections/,
+      serviceRisksBlock,
+      /risks\?\.service_risks/,
+    )
+
+    assert.doesNotMatch(
+      serviceRisksBlock,
+      /customer_objections/,
     )
 
     assert.match(
-      risks,
-      /risks\.service_risks/,
-    )
-
-    assert.match(
-      risks,
-      /Objeções do cliente/,
-    )
-
-    assert.match(
-      risks,
+      serviceRisksBlock,
       /Riscos no atendimento/,
     )
 
-    const customerIndex =
-      risks.indexOf(
-        'risks.customer_objections',
+    const customerObjectionsBlock =
+      getBlock(
+        'function getRichCustomerObjectionsHtml(',
+        'function getAnaliseDetailsHtml(',
       )
 
-    const serviceIndex =
-      risks.indexOf(
-        'risks.service_risks',
-      )
+    assert.match(
+      customerObjectionsBlock,
+      /risks\?\.customer_objections/,
+    )
 
-    assert.ok(
-      customerIndex >= 0 &&
-      serviceIndex > customerIndex,
+    assert.doesNotMatch(
+      customerObjectionsBlock,
+      /service_risks/,
     )
   },
 )
@@ -158,38 +159,44 @@ test(
 )
 
 test(
-  'B3.4 permanece no contexto progressivo e não expõe evidência técnica ou coaching legado',
+  'B3.4 permanece no contexto progressivo (ANÁLISE) e não expõe evidência técnica ou coaching legado',
   () => {
-    const expanded =
+    const coachingDetails =
       getBlock(
-        'function getRichCommercialReadingExpandedHtml(',
-        'function getRichCommercialReadingCardHtml(',
+        'function getCompanionCoachingDetailsHtml(',
+        'function getCompanionMethodDetailsHtml(',
       )
 
     assert.match(
-      expanded,
+      coachingDetails,
       /getRichSellerStrengthsHtml/,
     )
 
     assert.match(
-      expanded,
+      coachingDetails,
       /getRichImprovementPointsHtml/,
     )
 
     assert.match(
-      expanded,
-      /getRichCommercialRisksHtml/,
+      coachingDetails,
+      /title: 'Coaching'/,
     )
 
+    const serviceRisksDetails =
+      getBlock(
+        'function getCompanionServiceRisksDetailsHtml(',
+        'function getCompanionAnaliseTabHtml(',
+      )
+
     assert.match(
-      expanded,
-      /Resumo, cliente, evolução, método, atendimento e riscos/,
+      serviceRisksDetails,
+      /getRichServiceRisksHtml/,
     )
 
     const b34 =
       getBlock(
         'function getRichSellerStrengthsHtml(',
-        'function getRichCommercialReadingExpandedHtml(',
+        'function getAnaliseDetailsHtml(',
       )
 
     assert.doesNotMatch(

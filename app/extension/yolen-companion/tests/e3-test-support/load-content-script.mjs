@@ -169,9 +169,222 @@ export function emptyClientContext(overrides = {}) {
   })
 }
 
-function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } = {}) {
+// Leitura V2 (stateful) completa e "feliz": método configurado e dentro
+// dele (on_method), um acerto, uma melhoria com todos os campos do PR
+// #188 (why_it_matters/impact/how_to_improve), uma objeção do cliente e
+// um risco de atendimento distintos. Testes de off_method/aderência
+// parcial/evidência insuficiente sobrescrevem `method` a partir daqui.
+export function defaultCommercialReading(overrides = {}) {
+  return {
+    contract_version: 'commercial-reading-v1',
+    analysis_status: 'complete',
+    analysis_limitations: [],
+    commercial_role: 'buyer',
+    commercial_relevance: 'commercial',
+    conversation_summary: {
+      initial_context: {
+        summary: 'Cliente chegou perguntando sobre o plano empresarial.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      evolution: {
+        summary: 'A conversa avançou para uma discussão de preço.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      important_events: [],
+      current_state: {
+        summary: 'Cliente interessado, mas o impacto ainda não foi confirmado.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      last_customer_request_or_decision: null,
+    },
+    customer: {
+      needs: [
+        { summary: 'Precisa de um plano para 20 usuários.', evidence_message_ids: [], memory_ids: [] },
+      ],
+      interests: [
+        { summary: 'Interessado em automação de relatórios.', evidence_message_ids: [], memory_ids: [] },
+      ],
+      decision_criteria: [],
+      preferences: [],
+      open_questions: [
+        { summary: 'Ainda não confirmou o orçamento disponível.', evidence_message_ids: [], memory_ids: [] },
+      ],
+      objections: [],
+      uncertainties: [],
+    },
+    commercial_evolution: [
+      {
+        key: 'first_contact',
+        label: 'Primeiro contato',
+        status: 'completed',
+        explanation: 'Cliente iniciou a conversa.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+    ],
+    method: {
+      configured: true,
+      name: 'Método SPIN',
+      stages: [
+        {
+          step_order: 1,
+          stage_key: 'situacao',
+          name: 'Situação',
+          status: 'completed',
+          explanation: 'Entendemos o cenário atual do cliente.',
+          evidence_message_ids: [],
+          memory_ids: [],
+        },
+        {
+          step_order: 2,
+          stage_key: 'problema',
+          name: 'Problema',
+          status: 'active',
+          explanation: 'Ainda mapeando os problemas do cliente.',
+          evidence_message_ids: [],
+          memory_ids: [],
+        },
+        {
+          step_order: 3,
+          stage_key: 'implicacao',
+          name: 'Implicação',
+          status: 'not_started',
+          explanation: 'Ainda não abordado.',
+          evidence_message_ids: [],
+          memory_ids: [],
+        },
+      ],
+      current_stage: { step_order: 2, stage_key: 'problema', name: 'Problema' },
+      adherence: {
+        status: 'on_method',
+        summary: 'A conversa segue a ordem esperada do método.',
+        deviation_stage_order: null,
+        what_happened: null,
+        missing_information: [],
+        why_it_matters: null,
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      recovery_guidance: null,
+    },
+    seller_strengths: [
+      {
+        kind: 'good_discovery',
+        summary: 'Fez perguntas abertas para entender o cenário do cliente.',
+        why_it_matters: 'Isso ajuda a personalizar a proposta.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+    ],
+    improvement_points: [
+      {
+        kind: 'premature_price',
+        summary: 'Mencionou o preço antes de confirmar o impacto.',
+        why_it_matters: 'Falar de preço cedo demais pode travar a negociação.',
+        impact: 'O cliente pode ancorar no valor sem entender o valor entregue.',
+        how_to_improve: 'Confirme o impacto do problema antes de apresentar valores.',
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+    ],
+    risks: {
+      customer_objections: [
+        {
+          kind: 'price',
+          severity: 'medium',
+          summary: 'Cliente comentou que o valor está acima do esperado.',
+          evidence_message_ids: [],
+          memory_ids: [],
+        },
+      ],
+      service_risks: [
+        {
+          kind: 'premature_price',
+          severity: 'low',
+          summary: 'Preço apresentado antes do diagnóstico terminar.',
+          evidence_message_ids: [],
+          memory_ids: [],
+        },
+      ],
+    },
+    best_approach: {
+      decision: 'deepen_discovery',
+      reason: 'Entender o impacto antes de continuar negociando.',
+      channel: 'text',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: true,
+      recommended_question: 'Como esse problema afeta o dia a dia da sua equipe?',
+      recommended_message: null,
+    },
+    operations: {
+      crm: {
+        should_change_crm_stage: false,
+        recommended_status: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+      agenda: {
+        should_change_agenda: false,
+        expected_next_action_at: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+    },
+    evidence_message_ids: [],
+    memory_ids: [],
+    ...overrides,
+  }
+}
+
+export function defaultAnalyzeConversationResult(overrides = {}) {
+  return {
+    ok: true,
+    data: {
+      engine_source: 'stateful',
+      commercial_reading: defaultCommercialReading(
+        overrides.commercial_reading,
+      ),
+      ...overrides,
+    },
+  }
+}
+
+// V1/legado: bem mais pobre que a leitura V2 — só resumo + coaching
+// simples, sem method/adherence/seller_strengths/improvement_points. A UI
+// não pode quebrar nem fingir dado que não existe aqui.
+export function legacyAnalyzeConversationResult(overrides = {}) {
+  return {
+    ok: true,
+    data: {
+      engine_source: 'v1',
+      suggestion: {
+        summary: 'Cliente perguntou sobre o produto.',
+        recommended_status: null,
+        next_action: null,
+        next_action_date: null,
+      },
+      coaching: {
+        recommended_next_approach: 'Pergunte mais sobre o orçamento do cliente.',
+      },
+      ...overrides,
+    },
+  }
+}
+
+function createFakeBackground({
+  resolutionsByPhone = {},
+  clientContextResult,
+  analyzeConversationResult,
+} = {}) {
   const calls = []
   let loadClientContextCallCount = 0
+  let analyzeConversationCallCount = 0
 
   const handlers = {
     GET_ME: async () => ({
@@ -210,6 +423,33 @@ function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } =
         payload,
       }
     },
+    // `analyzeConversationResult` segue o mesmo formato dos outros
+    // resultados falsos: um valor estático (padrão: leitura V2 feliz) ou
+    // uma função `(callNumber, requestPayload) => resultado`, para testes
+    // que precisam simular a análise mudando entre chamadas.
+    ANALYZE_CONVERSATION: async (requestPayload) => {
+      analyzeConversationCallCount += 1
+
+      // `await` aqui é o que permite a um teste passar uma função que
+      // devolve uma Promise que nunca resolve (`() => new Promise(() =>
+      // {})`) para manter o estado "carregando" observável de propósito —
+      // sem isso, a Promise pendente viraria o próprio `payload`, o que o
+      // content-script trataria como uma resposta malformada (falha), não
+      // como "ainda carregando". Não muda nada para os outros usos
+      // (objeto estático ou função síncrona): `await` sobre um valor que
+      // já não é uma Promise resolve no mesmo instante.
+      const payload = await (
+        typeof analyzeConversationResult === 'function'
+          ? analyzeConversationResult(analyzeConversationCallCount, requestPayload)
+          : (analyzeConversationResult ?? defaultAnalyzeConversationResult())
+      )
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -224,9 +464,18 @@ function createFakeBackground({ resolutionsByPhone = {}, clientContextResult } =
   return { sendMessage, calls }
 }
 
-export function loadContentScript({ initialHtml, resolutionsByPhone, clientContextResult } = {}) {
+export function loadContentScript({
+  initialHtml,
+  resolutionsByPhone,
+  clientContextResult,
+  analyzeConversationResult,
+} = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
-  const background = createFakeBackground({ resolutionsByPhone, clientContextResult })
+  const background = createFakeBackground({
+    resolutionsByPhone,
+    clientContextResult,
+    analyzeConversationResult,
+  })
 
   const fakeChrome = {
     runtime: {
@@ -287,6 +536,10 @@ export function resolveLeadCalls(calls) {
 
 export function clientContextCalls(calls) {
   return calls.filter((call) => call.action === 'LOAD_CLIENT_CONTEXT')
+}
+
+export function analyzeConversationCalls(calls) {
+  return calls.filter((call) => call.action === 'ANALYZE_CONVERSATION')
 }
 
 function sleep(ms) {

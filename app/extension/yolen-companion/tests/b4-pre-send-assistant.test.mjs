@@ -703,7 +703,7 @@ test(
 
     assert.match(
       contentScript,
-      /getPreSendAssessmentCardHtml\(\),[\s\S]*getAnalysisCardHtml\(\),/,
+      /getPreSendAssessmentCardHtml\(\),[\s\S]*getCompanionTabNavHtml\(\),[\s\S]*getCompanionTabPanelsHtml\(\),/,
     )
 
     assert.match(
