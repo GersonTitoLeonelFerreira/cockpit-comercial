@@ -50,7 +50,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v20' as const
+  'phase-5.2-stateful-prompt-v21' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -1015,7 +1015,7 @@ function buildSystemPrompt(
 
     buildClientCommercialIntelligencePromptRules(),
 
-    'A estratégia precisa explicar como o método, o contexto, as mensagens atuais e as memórias ativas foram integrados.',
+    'Nesta etapa diagnóstica, strategy existe somente para preservar grounding até a camada de comunicação. Use exatamente deferred_to_communication em method_application, rationale e next_move; recommended_question e suggested_message devem ser null. A decisão seller-facing será produzida exclusivamente pela camada de comunicação.',
 
     'Pergunta do cliente ainda sem resposta deve ser tratada antes de retomar pressão comercial.',
 
@@ -1177,6 +1177,47 @@ function compactPreviousStateForModel(
   return result
 }
 
+function buildDiagnosticCommercialContextForModel(
+  input: StatefulCopilotInput,
+) {
+  const context =
+    input
+      .diagnostic_input
+      .commercial_context
+
+  return {
+    configured:
+      context.configured,
+
+    config_version_id:
+      context.config_version_id,
+
+    config_version_number:
+      context.config_version_number,
+
+    config_contract_version:
+      context.config_contract_version,
+
+    business_description:
+      context.business_description,
+
+    target_audience:
+      context.target_audience,
+
+    value_proposition:
+      context.value_proposition,
+
+    products:
+      context.products,
+
+    facts:
+      context.facts,
+
+    objection_guides:
+      context.objection_guides,
+  }
+}
+
 function buildModelInput(
   input: StatefulCopilotInput,
 ) {
@@ -1241,6 +1282,11 @@ function buildModelInput(
     diagnostic_input: {
       ...input.diagnostic_input,
 
+      commercial_context:
+        buildDiagnosticCommercialContextForModel(
+          input,
+        ),
+
       conversation: {
         ...input
           .diagnostic_input
@@ -1290,7 +1336,7 @@ function buildUserPrompt(
         STATEFUL_COPILOT_PROMPT_VERSION,
 
       task:
-        'Atualize a compreensão comercial contextual e produza estratégia, patch de estado e sugestões operacionais sem executar nenhuma alteração.',
+        'Atualize a compreensão comercial contextual, o patch de estado e as sugestões operacionais. Preserve apenas o grounding de strategy; a comunicação seller-facing será produzida pela camada seguinte.',
 
       required_output_contract_version:
         STATEFUL_COPILOT_CONTRACT_VERSION,

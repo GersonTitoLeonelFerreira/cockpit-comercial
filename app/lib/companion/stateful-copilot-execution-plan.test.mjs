@@ -1032,7 +1032,7 @@ test(
 )
 
 test(
-  'user prompt preserva método produto contrato e estrutura obrigatória',
+  'user prompt preserva produto contrato e estrutura sem duplicar método bruto',
   () => {
     const input =
       buildInput({
@@ -1078,9 +1078,8 @@ test(
         .input
         .diagnostic_input
         .commercial_context
-        .sales_method
-        .name,
-      'Venda consultiva',
+        .sales_method,
+      undefined,
     )
 
     assert.equal(
@@ -1294,7 +1293,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v20',
+      'phase-5.2-stateful-prompt-v21',
     )
 
     assert.match(

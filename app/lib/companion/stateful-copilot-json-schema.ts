@@ -352,6 +352,46 @@ const strategySchema =
       stringArraySchema,
   })
 
+const diagnosticDeferredStrategyTextSchema:
+  JsonSchema = {
+  type:
+    'string',
+
+  enum: [
+    'deferred_to_communication',
+  ],
+}
+
+const diagnosticNullSchema:
+  JsonSchema = {
+  type:
+    'null',
+}
+
+const diagnosticStrategySchema =
+  objectSchema({
+    method_application:
+      diagnosticDeferredStrategyTextSchema,
+
+    rationale:
+      diagnosticDeferredStrategyTextSchema,
+
+    next_move:
+      diagnosticDeferredStrategyTextSchema,
+
+    recommended_question:
+      diagnosticNullSchema,
+
+    suggested_message:
+      diagnosticNullSchema,
+
+    evidence_message_ids:
+      stringArraySchema,
+
+    memory_ids:
+      stringArraySchema,
+  })
+
 const crmSuggestionSchema =
   objectSchema({
     should_change_crm_stage: {
@@ -461,4 +501,55 @@ export const STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT =
 
     schema:
       STATEFUL_COPILOT_JSON_SCHEMA,
+  })
+
+
+function cloneStatefulCopilotJsonSchema<T>(
+  value: T,
+): T {
+  return JSON.parse(
+    JSON.stringify(
+      value,
+    ),
+  ) as T
+}
+
+export const STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA =
+  (() => {
+    const schema =
+      cloneStatefulCopilotJsonSchema(
+        STATEFUL_COPILOT_JSON_SCHEMA,
+      ) as JsonSchema
+
+    const properties =
+      schema.properties as
+        Record<
+          string,
+          JsonSchema
+        >
+
+    properties.strategy =
+      diagnosticStrategySchema
+
+    return deepFreeze(
+      schema,
+    )
+  })()
+
+export const STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT =
+  deepFreeze({
+    type:
+      'json_schema',
+
+    name:
+      'yolen_stateful_diagnostic_v1',
+
+    description:
+      'Diagnóstico contextual stateful sem duplicar a comunicação seller-facing.',
+
+    strict:
+      true,
+
+    schema:
+      STATEFUL_COPILOT_DIAGNOSTIC_JSON_SCHEMA,
   })

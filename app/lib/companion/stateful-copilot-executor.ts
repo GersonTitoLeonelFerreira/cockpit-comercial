@@ -14,7 +14,7 @@ import {
 } from './stateful-copilot-normalizer'
 
 import {
-  STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+  STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT,
 } from './stateful-copilot-json-schema'
 
 const MAX_MODEL_CONTENT_LENGTH =
@@ -356,7 +356,7 @@ function buildProviderRequest(
       plan.request.user_prompt,
 
     structured_output_format:
-      STATEFUL_COPILOT_STRUCTURED_OUTPUT_FORMAT,
+      STATEFUL_COPILOT_DIAGNOSTIC_STRUCTURED_OUTPUT_FORMAT,
   })
 }
 
