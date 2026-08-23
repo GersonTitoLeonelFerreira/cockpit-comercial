@@ -239,6 +239,19 @@ export function preservePreviousCommercialStateWhenClosed({
     return candidateState
   }
 
+  const preservedEvidenceMessageIds = [
+    ...previousState
+      .last_evidence_message_ids,
+  ]
+
+  const carriedAnalyzedMessageIds = [
+    ...new Set([
+      ...preservedEvidenceMessageIds,
+      ...candidateState
+        .last_analyzed_message_ids,
+    ]),
+  ]
+
   return {
     ...candidateState,
 
@@ -270,6 +283,12 @@ export function preservePreviousCommercialStateWhenClosed({
           .evidence_message_ids,
       ],
     },
+
+    last_analyzed_message_ids:
+      carriedAnalyzedMessageIds,
+
+    last_evidence_message_ids:
+      preservedEvidenceMessageIds,
 
     facts: [
       ...previousState.facts,
