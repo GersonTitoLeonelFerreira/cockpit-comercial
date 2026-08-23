@@ -519,3 +519,118 @@ test(
     })
   },
 )
+
+// Frente Paralela 3 — auditoria adversarial do PR #209 (deep-result
+// delivery, head 0661ff6). Controle Mestre pediu prova executável de que
+// "retry terminal" (vendedor clica novamente em Analisar agora / Tentar
+// novamente sobre um job já `failed`, mesma conversa, nenhuma mensagem
+// nova) não está implementado.
+//
+// Achado (leitura de código, sem alterar nada): em
+// app/api/companion/analyze-conversation/route.ts, `shouldScheduleBackground`
+// só é setado para `true` uma única vez no arquivo inteiro — dentro do
+// branch de INSERT bem-sucedido do job. Quando o INSERT colide (23505 —
+// exatamente o que acontece ao tentar reenfileirar com o mesmo
+// `(company_id, cycle_id, conversation_key, message_watermark)` de um job
+// já existente), o código busca a linha existente e a devolve como
+// `deepAnalysis`, mas nunca seta `shouldScheduleBackground = true` e
+// portanto nunca chama `send(...)` para a fila — não importa se o status
+// da linha existente é `queued`, `running`, `succeeded`, `failed` ou
+// `superseded`. Ou seja: um job `failed` nunca é reprocessado por um
+// clique de retry com o mesmo watermark; a UI só voltaria a tentar de
+// verdade se o watermark mudasse (nova mensagem).
+//
+// Este teste prova a PRECONDIÇÃO real e observável no banco (a colisão de
+// constraint que força o código a cair no branch sem reprocessamento) e
+// documenta a leitura de código como evidência complementar. Não inventa
+// um mock de Supabase para `analyze-conversation/route.ts` (arquivo de
+// produção, fora do escopo desta frente) — prova o contrato de dados que
+// sustenta o achado.
+test(
+  '(retry-terminal) job failed + retry com o mesmo watermark colide na constraint de unicidade — precondição real do gap de retry terminal do PR #209',
+  async () => {
+    await withDb(async (db) => {
+      const failedWatermark = watermark('retry-terminal-wm')
+      const failedJobId = jobId('retry-terminal-failed')
+
+      await db.exec(
+        insertJobSql({
+          analysisJobId: failedJobId,
+          messageWatermark: failedWatermark,
+          status: 'queued',
+          requestedAt: '2026-08-23T10:00:00Z',
+        }),
+      )
+
+      await db.exec(`
+        update public.companion_background_analysis_jobs
+        set status = 'failed', failure_code = 'INVALID_COMMUNICATION_OUTPUT', completed_at = '2026-08-23T10:01:00Z'
+        where analysis_job_id = '${failedJobId}';
+      `)
+
+      // Vendedor clica "Analisar agora" de novo, mesma conversa, nenhuma
+      // mensagem nova (mesmo watermark) — exatamente o INSERT que
+      // analyze-conversation/route.ts tenta antes de cair no branch 23505.
+      await assert.rejects(
+        () =>
+          db.exec(
+            insertJobSql({
+              analysisJobId: jobId('retry-terminal-retry-attempt'),
+              messageWatermark: failedWatermark,
+              status: 'queued',
+              requestedAt: '2026-08-23T10:05:00Z',
+            }),
+          ),
+        /companion_background_analysis_jobs_scope_unique|duplicate key/i,
+        'o retry com o mesmo watermark deveria colidir na constraint de unicidade — é essa colisão que hoje leva ' +
+          'analyze-conversation/route.ts a devolver o job failed existente sem nunca publicar um novo job na fila',
+      )
+
+      const { rows } = await db.query(`
+        select status, failure_code
+        from public.companion_background_analysis_jobs
+        where analysis_job_id = '${failedJobId}'
+      `)
+
+      assert.deepEqual(
+        rows,
+        [{ status: 'failed', failure_code: 'INVALID_COMMUNICATION_OUTPUT' }],
+        'a linha original permanece failed — nenhum novo processamento foi criado pelo retry',
+      )
+    })
+  },
+)
+
+test(
+  '(retry-terminal) shouldScheduleBackground só é atribuído true uma vez em analyze-conversation/route.ts, dentro do branch de INSERT novo — nunca no branch de colisão 23505',
+  async () => {
+    const routeSourcePath = fileURLToPath(
+      new URL(
+        '../../app/api/companion/analyze-conversation/route.ts',
+        import.meta.url,
+      ),
+    )
+
+    const routeSource = await readFile(routeSourcePath, 'utf8')
+
+    const trueAssignments =
+      routeSource.match(
+        /shouldScheduleBackground\s*=\s*true/g,
+      ) || []
+
+    assert.equal(
+      trueAssignments.length,
+      1,
+      'esperava exatamente UMA atribuição de shouldScheduleBackground=true no arquivo inteiro (dentro do branch de ' +
+        'INSERT bem-sucedido) — se este número mudou, a Frente Principal pode ter adicionado um caminho de retry ' +
+        'real para o branch 23505/failed; revalidar manualmente e, se for a correção esperada, atualizar este teste ' +
+        'para refletir o novo contrato em vez de apenas relaxar a asserção',
+    )
+
+    assert.match(
+      routeSource,
+      /23505/,
+      'o branch de colisão de constraint (23505) deveria continuar existindo — se sumiu, a estratégia de dedupe/reuso mudou e este teste precisa ser revisto',
+    )
+  },
+)
