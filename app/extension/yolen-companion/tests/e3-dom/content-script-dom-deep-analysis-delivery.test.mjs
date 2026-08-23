@@ -1,11 +1,3 @@
-// Testes de comportamento REAL de content-script.js (não modificado neste
-// arquivo — só lido, como os demais testes e3-dom) para a entrega do
-// resultado da análise profunda ao seller-facing (Frente "Deep Result
-// Delivery"): acompanhamento de analysis_job_id, polling com backoff,
-// guard de contexto reaproveitado de analyzeCurrentConversation(), e as
-// regras de não-contaminação entre conversas / não-degradação por job
-// antigo.
-
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -36,7 +28,11 @@ const PHONE_B = onlyDigits(CONVERSATION_B_TITLE)
 function leadResolutionFor(cycleId, phone, overrides = {}) {
   return defaultLeadResolution({
     phone,
-    cycle: { id: cycleId, status: 'contato', owner_user_id: 'user-1' },
+    cycle: {
+      id: cycleId,
+      status: 'contato',
+      owner_user_id: 'user-1',
+    },
     ...overrides,
   })
 }
@@ -44,17 +40,30 @@ function leadResolutionFor(cycleId, phone, overrides = {}) {
 function pageHtmlFor({ headerTitle, messageId, prePlainText, text }) {
   return buildWhatsAppPageHtml({
     headerTitle,
-    messagesHtml: buildMessageHtml({ id: messageId, prePlainText, text }),
+    messagesHtml: buildMessageHtml({
+      id: messageId,
+      prePlainText,
+      text,
+    }),
   })
 }
 
-function switchConversationDom(document, { headerTitle, messageId, prePlainText, text }) {
+function switchConversationDom(document, {
+  headerTitle,
+  messageId,
+  prePlainText,
+  text,
+}) {
   const conversationBody = document.getElementById('conversation-body')
   const headerTitleSpan = document.querySelector('header span[title]')
 
   headerTitleSpan.setAttribute('title', headerTitle)
   headerTitleSpan.textContent = headerTitle
-  conversationBody.innerHTML = buildMessageHtml({ id: messageId, prePlainText, text })
+  conversationBody.innerHTML = buildMessageHtml({
+    id: messageId,
+    prePlainText,
+    text,
+  })
 }
 
 function getPanel(document) {
@@ -62,13 +71,17 @@ function getPanel(document) {
 }
 
 function getAnalyzeButton(document) {
-  return getPanel(document)?.querySelector('[data-yolen-action="analyze-conversation"]')
+  return getPanel(document)?.querySelector(
+    '[data-yolen-action="analyze-conversation"]',
+  )
 }
 
 function getDeepAnalysisStatusText(document) {
   return (
     getPanel(document)
-      ?.querySelector('.yolen-deep-analysis-status .yolen-decision-copy')
+      ?.querySelector(
+        '.yolen-deep-analysis-status .yolen-decision-copy',
+      )
       ?.textContent
       ?.trim() ?? null
   )
@@ -76,8 +89,11 @@ function getDeepAnalysisStatusText(document) {
 
 async function clickAnalyzeAndWaitForRequest({ document, calls, cycleId }) {
   await waitFor(() => Boolean(getAnalyzeButton(document)))
+
   const before = calls.filter(
-    (call) => call.action === 'ANALYZE_CONVERSATION' && call.payload?.cycle_id === cycleId,
+    (call) =>
+      call.action === 'ANALYZE_CONVERSATION' &&
+      call.payload?.cycle_id === cycleId,
   ).length
 
   getAnalyzeButton(document).dispatchEvent(
@@ -87,37 +103,201 @@ async function clickAnalyzeAndWaitForRequest({ document, calls, cycleId }) {
   await waitFor(
     () =>
       calls.filter(
-        (call) => call.action === 'ANALYZE_CONVERSATION' && call.payload?.cycle_id === cycleId,
+        (call) =>
+          call.action === 'ANALYZE_CONVERSATION' &&
+          call.payload?.cycle_id === cycleId,
       ).length > before,
   )
 }
 
-async function goToConversationB({ document, calls, resolveLeadCountBefore, title, messageId, prePlainText, text }) {
-  switchConversationDom(document, { headerTitle: title, messageId, prePlainText, text })
-  await waitFor(() => resolveLeadCalls(calls).length > resolveLeadCountBefore)
+async function goToConversationB({
+  document,
+  calls,
+  resolveLeadCountBefore,
+  title,
+  messageId,
+  prePlainText,
+  text,
+}) {
+  switchConversationDom(document, {
+    headerTitle: title,
+    messageId,
+    prePlainText,
+    text,
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveLeadCountBefore,
+  )
+
   await waitFor(() => {
     const ingests = ingestCalls(calls)
-    return ingests.at(-1)?.payload.messages.some((message) => message.message_key?.includes(messageId))
+    return ingests.at(-1)?.payload.messages.some(
+      (message) => message.message_key?.includes(messageId),
+    )
   })
 }
 
-function deepOutput(overrides = {}) {
+function evidence(summary) {
   return {
-    contract_version: 'phase-5.2-stateful-copilot-v3',
-    commercial_relevance: 'commercial',
-    interpretation: {
-      current_moment: {
-        summary: 'Cliente pediu desconto no plano anual.',
-      },
-    },
-    strategy: {
-      suggested_message: 'Consigo 10% no plano anual, fechamos hoje?',
-    },
-    ...overrides,
+    summary,
+    evidence_message_ids: ['msg-a1'],
+    memory_ids: [],
   }
 }
 
-function analysisResultWithDeepJob({ summary, analysisJobId, deepStatus = 'queued', watermark = 'wm-1' }) {
+function deepReading(relevance = 'commercial') {
+  const commercial = relevance === 'commercial'
+
+  return {
+    contract_version: 'commercial-reading-v1',
+    analysis_status: 'complete',
+    analysis_limitations: [],
+    commercial_role: commercial ? 'buyer' : 'unknown',
+    commercial_relevance: relevance,
+    conversation_summary: {
+      current_state: evidence(
+        commercial
+          ? 'Estado profundo comercial.'
+          : 'Conversa sem evidência comercial.',
+      ),
+    },
+    customer: {
+      objectives: [],
+      problems: [],
+      impacts: [],
+      needs: commercial
+        ? [evidence('Necessidade profunda do cliente.')]
+        : [],
+      interests: [],
+      decision_criteria: [],
+      preferences: [],
+      open_questions: [],
+      objections: [],
+      uncertainties: [],
+      discussed_products: [],
+      primary_product_interest: null,
+      competitors: [],
+      commitments: [],
+      missing_discovery: [],
+      resolved_information: [],
+      superseded_information: [],
+      communication: {
+        patterns: [],
+        events: [],
+      },
+    },
+    commercial_evolution: [],
+    method: {
+      configured: commercial,
+      name: commercial ? 'Método Deep' : null,
+      stages: [],
+      current_stage: null,
+      adherence: {
+        status: commercial ? 'on_method' : 'insufficient_evidence',
+        summary: commercial
+          ? 'Aderência profunda confirmada.'
+          : 'Sem evidência suficiente.',
+        deviation_stage_order: null,
+        what_happened: null,
+        missing_information: [],
+        why_it_matters: null,
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      recovery_guidance: null,
+    },
+    seller_strengths: commercial
+      ? [{
+          kind: 'good_discovery',
+          summary: 'Acerto profundo do vendedor.',
+          why_it_matters: 'Mantém o diagnóstico consistente.',
+          evidence_message_ids: ['msg-a1'],
+          memory_ids: [],
+        }]
+      : [],
+    improvement_points: [],
+    risks: {
+      customer_objections: [],
+      service_risks: [],
+    },
+    best_approach: {
+      decision: commercial ? 'deepen_discovery' : 'no_intervention',
+      reason: commercial
+        ? 'Aprofundar antes de negociar.'
+        : 'Nenhuma intervenção comercial necessária.',
+      channel: commercial ? 'text' : 'none',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: commercial,
+      recommended_question: commercial
+        ? 'Qual impacto isso gera hoje?'
+        : null,
+      recommended_message: commercial
+        ? 'Mensagem profunda para o cliente.'
+        : null,
+    },
+    operations: {
+      crm: {
+        should_change_crm_stage: false,
+        recommended_status: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+      agenda: {
+        should_change_agenda: false,
+        expected_next_action_at: null,
+        rationale: null,
+        requires_human_confirmation: true,
+      },
+    },
+    evidence_message_ids: [],
+    memory_ids: [],
+  }
+}
+
+function deepOutput(overrides = {}) {
+  const relevance =
+    overrides.commercial_relevance ??
+    'commercial'
+
+  const base = {
+    contract_version: 'phase12a-deep-seller-v1',
+    engine_source: 'stateful',
+    commercial_relevance: relevance,
+    commercial_role: relevance === 'commercial' ? 'buyer' : 'unknown',
+    summary: relevance === 'commercial'
+      ? 'Cliente pediu desconto no plano anual.'
+      : 'Conversa sem evidência comercial relevante.',
+    commercial_reading: deepReading(relevance),
+    recommended_next_approach: relevance === 'commercial'
+      ? 'Aprofundar valor antes de negociar.'
+      : 'Não realizar intervenção comercial.',
+    recommended_question: relevance === 'commercial'
+      ? 'Qual impacto isso gera hoje?'
+      : null,
+    suggested_message: relevance === 'commercial'
+      ? 'Consigo 10% no plano anual, fechamos hoje?'
+      : null,
+  }
+
+  return {
+    ...base,
+    ...overrides,
+    commercial_reading:
+      overrides.commercial_reading ??
+      base.commercial_reading,
+  }
+}
+
+function analysisResultWithDeepJob({
+  summary,
+  analysisJobId,
+  deepStatus = 'queued',
+  watermark = 'wm-1',
+}) {
   return {
     ok: true,
     data: {
@@ -137,12 +317,19 @@ function analysisResultWithDeepJob({ summary, analysisJobId, deepStatus = 'queue
   }
 }
 
-// ---------------------------------------------------------------------
-// (1)/(7)/(8)/(9)/(10) queued -> polling com backoff -> succeeded atualiza
-// a área ANÁLISE, sem bloquear a UI (o resumo rápido já aparece antes).
-// ---------------------------------------------------------------------
+function succeededStatus(result, watermark = 'wm-1') {
+  return {
+    ok: true,
+    data: {
+      analysis_job_id: 'a'.repeat(64),
+      status: 'succeeded',
+      message_watermark: watermark,
+      result,
+    },
+  }
+}
 
-test('deep_analysis queued: aparece "em andamento" e, ao concluir, a leitura aprofundada é mesclada sem bloquear a UI', async () => {
+test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -157,15 +344,17 @@ test('deep_analysis queued: aparece "em andamento" e, ao concluir, a leitura apr
       summary: 'RESUMO RAPIDO A',
       analysisJobId: 'a'.repeat(64),
     }),
-    analysisJobStatusResult: { ok: true, data: { status: 'succeeded', result: deepOutput() } },
+    analysisJobStatusResult: succeededStatus(deepOutput()),
   })
 
-  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
-  // O resumo rápido (v1) já apareceu — a UI nunca fica bloqueada esperando
-  // a análise profunda.
-  await waitFor(() => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento')
+  await waitFor(
+    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
+  )
 
   await waitFor(
     () =>
@@ -175,15 +364,70 @@ test('deep_analysis queued: aparece "em andamento" e, ao concluir, a leitura apr
   )
 
   assert.ok(analysisJobStatusCalls(calls).length >= 1)
-  assert.equal(analysisJobStatusCalls(calls)[0].payload.analysis_job_id, 'a'.repeat(64))
-  assert.equal(analysisJobStatusCalls(calls)[0].payload.cycle_id, CYCLE_A)
+  assert.deepEqual(
+    Object.keys(analysisJobStatusCalls(calls)[0].payload),
+    ['analysis_job_id'],
+  )
 })
 
-// ---------------------------------------------------------------------
-// (2) failed
-// ---------------------------------------------------------------------
+test('succeeded promove commercial_reading real para ANÁLISE e CLIENTE', async () => {
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Quero entender melhor a solução e o impacto no follow-up.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      summary: 'RESUMO RAPIDO A',
+      analysisJobId: 'a'.repeat(64),
+    }),
+    analysisJobStatusResult: succeededStatus(deepOutput()),
+  })
 
-test('deep_analysis failed: mostra falha, nunca expõe job id/queue/worker/watermark ao vendedor', async () => {
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+  await waitFor(
+    () => getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:'),
+    { timeoutMs: 8000 },
+  )
+
+  const analysisButton = document.querySelector('[data-yolen-seller-area="analysis"]')
+  analysisButton?.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(
+    () => !document.querySelector('[data-yolen-seller-panel="analysis"]')?.hidden,
+  )
+
+  const analysisText =
+    document.querySelector('[data-yolen-seller-panel="analysis"]')?.textContent ?? ''
+
+  assert.match(analysisText, /Método Deep/)
+  assert.match(analysisText, /Acerto profundo/)
+
+  const clientButton = document.querySelector('[data-yolen-seller-area="client"]')
+  clientButton?.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(
+    () => !document.querySelector('[data-yolen-seller-panel="client"]')?.hidden,
+  )
+
+  const clientText =
+    document.querySelector('[data-yolen-seller-panel="client"]')?.textContent ?? ''
+
+  assert.match(clientText, /Necessidade profunda/)
+})
+
+test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -191,15 +435,27 @@ test('deep_analysis failed: mostra falha, nunca expõe job id/queue/worker/water
       prePlainText: '[10:00, 21/08/2026] Cliente A: ',
       text: 'Olá, quero saber mais sobre o plano mensal.',
     }),
-    resolutionsByPhone: { [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A) },
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
     analysisResult: analysisResultWithDeepJob({
       summary: 'RESUMO RAPIDO A',
       analysisJobId: 'a'.repeat(64),
     }),
-    analysisJobStatusResult: { ok: true, data: { status: 'failed', result: null } },
+    analysisJobStatusResult: {
+      ok: true,
+      data: {
+        analysis_job_id: 'a'.repeat(64),
+        status: 'failed',
+        message_watermark: 'wm-1',
+        result: null,
+      },
+    },
   })
 
-  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(
@@ -213,11 +469,7 @@ test('deep_analysis failed: mostra falha, nunca expõe job id/queue/worker/water
   assert.doesNotMatch(panelHtml, /queue|worker|watermark|candidate/i)
 })
 
-// ---------------------------------------------------------------------
-// (3)/(18) superseded nunca vira corrente
-// ---------------------------------------------------------------------
-
-test('deep_analysis superseded: nunca aparece como resultado, some silenciosamente', async () => {
+test('superseded: nunca aparece como resultado corrente', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -225,15 +477,27 @@ test('deep_analysis superseded: nunca aparece como resultado, some silenciosamen
       prePlainText: '[10:00, 21/08/2026] Cliente A: ',
       text: 'Olá, quero saber mais sobre o plano mensal.',
     }),
-    resolutionsByPhone: { [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A) },
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
     analysisResult: analysisResultWithDeepJob({
       summary: 'RESUMO RAPIDO A',
       analysisJobId: 'a'.repeat(64),
     }),
-    analysisJobStatusResult: { ok: true, data: { status: 'superseded', result: null } },
+    analysisJobStatusResult: {
+      ok: true,
+      data: {
+        analysis_job_id: 'a'.repeat(64),
+        status: 'superseded',
+        message_watermark: 'wm-1',
+        result: null,
+      },
+    },
   })
 
-  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(() => analysisJobStatusCalls(calls).length > 0)
@@ -242,13 +506,7 @@ test('deep_analysis superseded: nunca aparece como resultado, some silenciosamen
   assert.equal(getDeepAnalysisStatusText(document), null)
 })
 
-// ---------------------------------------------------------------------
-// (4)/(8)/(9)/(10)/(11) guard de contexto: job de A pendente, vendedor
-// troca para B antes do poll resolver — B nunca recebe o resultado
-// profundo de A (fingerprint/ANÁLISE/AGORA/CLIENTE/loading de B intactos).
-// ---------------------------------------------------------------------
-
-test('deep_analysis pendente de A nunca contamina a conversa B depois da troca', async () => {
+test('deep pendente de A nunca contamina conversa B', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -272,20 +530,27 @@ test('deep_analysis pendente de A nunca contamina a conversa B depois da troca',
         ok: true,
         data: {
           engine_source: 'v1',
-          suggestion: { summary: 'RESUMO RAPIDO B', recommended_status: 'contato', tags: [] },
+          suggestion: {
+            summary: 'RESUMO RAPIDO B',
+            recommended_status: 'contato',
+            tags: [],
+          },
           coaching: {},
         },
       }
     },
-    analysisJobStatusResult: { ok: true, data: { status: 'succeeded', result: deepOutput() } },
+    analysisJobStatusResult: succeededStatus(deepOutput()),
   })
 
-  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
   const resolveLeadCountAfterA = resolveLeadCalls(calls).length
 
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
-  // O job de A ficou "pendente" no painel antes da troca.
-  await waitFor(() => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento')
+  await waitFor(
+    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
+  )
 
   await goToConversationB({
     document,
@@ -297,33 +562,18 @@ test('deep_analysis pendente de A nunca contamina a conversa B depois da troca',
     text: 'Bom dia, preciso de ajuda para agendar uma visita.',
   })
 
-  // A troca já reseta o indicador de análise profunda de B para nada
-  // (nenhum job de B foi criado ainda).
   assert.equal(getDeepAnalysisStatusText(document), null)
-
-  // Dá tempo suficiente para o poll (ainda amarrado ao contexto antigo de
-  // A) ter uma chance de resolver, se o guard falhasse.
   await new Promise((resolve) => setTimeout(resolve, 2000))
-
-  assert.equal(
-    getDeepAnalysisStatusText(document),
-    null,
-    'a leitura aprofundada de A nunca pode aparecer na conversa B',
-  )
+  assert.equal(getDeepAnalysisStatusText(document), null)
 
   const panelHtml = getPanel(document)?.innerHTML ?? ''
   assert.doesNotMatch(panelHtml, /Consigo 10% no plano anual/)
 })
 
-// ---------------------------------------------------------------------
-// (6)/(23)/(24) mesma conversa: A1 pendente -> A2 inicia (novo clique,
-// via "Analisar agora" — MESMO pipeline) -> A2 conclui primeiro -> A1
-// conclui depois. A1 nunca pode degradar o resultado já aplicado de A2.
-// ---------------------------------------------------------------------
-
-test('dentro da mesma conversa, resultado profundo de um job antigo nunca sobrescreve o de um job mais novo já aplicado', async () => {
+test('A1 antigo nunca sobrescreve deep A2 mais novo na mesma conversa', async () => {
   let analyzeCallCount = 0
   let resolveStatusA1
+
   const statusA1Gate = new Promise((resolve) => {
     resolveStatusA1 = resolve
   })
@@ -335,80 +585,154 @@ test('dentro da mesma conversa, resultado profundo de um job antigo nunca sobres
       prePlainText: '[10:00, 21/08/2026] Cliente A: ',
       text: 'Olá, quero saber mais sobre o plano mensal e o plano anual.',
     }),
-    resolutionsByPhone: { [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A) },
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
     analysisResult: async () => {
       analyzeCallCount += 1
 
-      if (analyzeCallCount === 1) {
-        return analysisResultWithDeepJob({
-          summary: 'RESUMO RAPIDO A1',
-          analysisJobId: 'a'.repeat(64),
-        })
-      }
-
       return analysisResultWithDeepJob({
-        summary: 'RESUMO RAPIDO A2',
-        analysisJobId: 'c'.repeat(64),
+        summary: analyzeCallCount === 1
+          ? 'RESUMO RAPIDO A1'
+          : 'RESUMO RAPIDO A2',
+        analysisJobId: analyzeCallCount === 1
+          ? 'a'.repeat(64)
+          : 'c'.repeat(64),
+        watermark: analyzeCallCount === 1
+          ? 'wm-1'
+          : 'wm-2',
       })
     },
     analysisJobStatusResult: async (requestPayload) => {
       if (requestPayload.analysis_job_id === 'a'.repeat(64)) {
         await statusA1Gate
-        return { ok: true, data: { status: 'succeeded', result: deepOutput({ strategy: { suggested_message: 'MENSAGEM DO JOB ANTIGO' } }) } }
+        return {
+          ok: true,
+          data: {
+            analysis_job_id: 'a'.repeat(64),
+            status: 'succeeded',
+            message_watermark: 'wm-1',
+            result: deepOutput({
+              suggested_message: 'MENSAGEM DO JOB ANTIGO',
+            }),
+          },
+        }
       }
 
-      return { ok: true, data: { status: 'succeeded', result: deepOutput({ strategy: { suggested_message: 'MENSAGEM DO JOB NOVO' } }) } }
+      return {
+        ok: true,
+        data: {
+          analysis_job_id: 'c'.repeat(64),
+          status: 'succeeded',
+          message_watermark: 'wm-2',
+          result: deepOutput({
+            suggested_message: 'MENSAGEM DO JOB NOVO',
+          }),
+        },
+      }
     },
   })
 
-  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
 
-  // Primeira análise (A1): job "a...a" fica pendente, preso em
-  // statusA1Gate.
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
-  await waitFor(() => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento')
-  await waitFor(() => analysisJobStatusCalls(calls).some((call) => call.payload.analysis_job_id === 'a'.repeat(64)))
+  await waitFor(
+    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
+  )
+  await waitFor(
+    () => analysisJobStatusCalls(calls).some(
+      (call) => call.payload.analysis_job_id === 'a'.repeat(64),
+    ),
+  )
 
-  // Sai e volta para reabilitar o botão (mesma técnica real de UI usada
-  // pelo guard já testado em PR anterior), e dispara a 2ª análise (A2),
-  // que usa o MESMO pipeline "Analisar agora" -> analyze-conversation ->
-  // deep job -> tracking -> guard -> render.
-  const headerTitleSpan = document.querySelector('header span[title]')
-  headerTitleSpan.setAttribute('title', CONVERSATION_A_TITLE)
   document.getElementById('conversation-body').innerHTML = buildMessageHtml({
     id: 'msg-a2',
     prePlainText: '[11:00, 21/08/2026] Cliente A: ',
     text: 'Ainda aqui, alguma novidade?',
   })
 
+  await waitFor(
+    () => ingestCalls(calls).some(
+      (call) => call.payload.messages.some(
+        (message) => message.message_key?.includes('msg-a2'),
+      ),
+    ),
+  )
+
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(
-    () =>
-      getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB NOVO'),
+    () => getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB NOVO'),
     { timeoutMs: 8000 },
   )
 
-  // Só agora o job antigo (A1), preso desde o início, finalmente resolve.
   resolveStatusA1()
   await new Promise((resolve) => setTimeout(resolve, 300))
 
   assert.ok(
     getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB NOVO'),
-    'o resultado do job antigo (A1) nunca pode degradar o resultado já aplicado do job novo (A2)',
   )
   assert.ok(
     !getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB ANTIGO'),
   )
 })
 
-// ---------------------------------------------------------------------
-// (25)/(26)/(27) non-commercial: nenhum CTA, nenhuma mensagem sugerida,
-// nenhuma next-action quando a relevância atual não justifica ação
-// comercial.
-// ---------------------------------------------------------------------
+test('mutação de mensagem enquanto poll está em voo invalida succeeded antes do próximo debounce', async () => {
+  let releaseStatus
+  const statusGate = new Promise((resolve) => {
+    releaseStatus = resolve
+  })
 
-test('deep_analysis non_commercial: nenhuma mensagem sugerida nem CTA comercial aparece, mesmo se o backend enviar uma por engano', async () => {
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Quero saber mais sobre o plano anual.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      summary: 'RESUMO RAPIDO A',
+      analysisJobId: 'a'.repeat(64),
+    }),
+    analysisJobStatusResult: async () => {
+      await statusGate
+      return succeededStatus(
+        deepOutput({
+          suggested_message: 'STALE NÃO PODE APARECER',
+        }),
+      )
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+  await waitFor(
+    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
+  )
+  await waitFor(() => analysisJobStatusCalls(calls).length > 0)
+
+  const messageText = document.querySelector(
+    '[data-pre-plain-text] [data-testid="selectable-text"] > span',
+  )
+  messageText.textContent = 'Mensagem editada antes do próximo debounce.'
+
+  /* Não esperamos uma nova análise. A mutação DOM por si só deve retirar
+   * imediatamente a autoridade de A1 enquanto o status HTTP ainda está em voo. */
+  releaseStatus()
+  await new Promise((resolve) => setTimeout(resolve, 500))
+
+  const panelHtml = getPanel(document)?.innerHTML ?? ''
+  assert.doesNotMatch(panelHtml, /STALE NÃO PODE APARECER/)
+})
+
+test('non-commercial deep substitui atomicamente mensagem/CTA comercial antigo', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -416,31 +740,56 @@ test('deep_analysis non_commercial: nenhuma mensagem sugerida nem CTA comercial 
       prePlainText: '[10:00, 21/08/2026] Cliente A: ',
       text: 'Oi, tudo bem? Só passando pra dizer oi.',
     }),
-    resolutionsByPhone: { [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A) },
-    analysisResult: analysisResultWithDeepJob({
-      summary: 'CONVERSA PESSOAL',
-      analysisJobId: 'a'.repeat(64),
-    }),
-    analysisJobStatusResult: {
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: {
       ok: true,
       data: {
-        status: 'succeeded',
-        result: deepOutput({
-          commercial_relevance: 'non_commercial',
-          strategy: { suggested_message: 'MENSAGEM QUE NUNCA DEVE APARECER' },
-        }),
+        engine_source: 'v1',
+        suggestion: {
+          summary: 'V1 COMERCIAL ANTIGO',
+          next_action: 'CTA ANTIGO NÃO PODE SOBREVIVER',
+          next_action_date: '2026-08-24',
+          recommended_status: 'negociacao',
+          tags: [],
+        },
+        coaching: {
+          suggested_message: 'MENSAGEM V1 ANTIGA NÃO PODE SOBREVIVER',
+        },
+        deep_analysis: {
+          analysis_job_id: 'a'.repeat(64),
+          status: 'queued',
+          message_watermark: 'wm-1',
+        },
       },
     },
+    analysisJobStatusResult: succeededStatus(
+      deepOutput({
+        commercial_relevance: 'non_commercial',
+        commercial_role: 'unknown',
+        summary: 'Conversa pessoal sem evidência comercial.',
+        commercial_reading: deepReading('non_commercial'),
+        recommended_next_approach: 'Não realizar intervenção comercial.',
+        recommended_question: null,
+        suggested_message: null,
+      }),
+    ),
   })
 
-  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(
-    () => getDeepAnalysisStatusText(document)?.includes('nenhuma intervenção comercial necessária'),
+    () => getDeepAnalysisStatusText(document)?.includes(
+      'nenhuma intervenção comercial necessária',
+    ),
     { timeoutMs: 8000 },
   )
 
-  const panelHtml = getPanel(document)?.innerHTML ?? ''
-  assert.doesNotMatch(panelHtml, /MENSAGEM QUE NUNCA DEVE APARECER/)
+  const panelText = getPanel(document)?.textContent ?? ''
+  assert.doesNotMatch(panelText, /CTA ANTIGO NÃO PODE SOBREVIVER/)
+  assert.doesNotMatch(panelText, /MENSAGEM V1 ANTIGA NÃO PODE SOBREVIVER/)
 })
