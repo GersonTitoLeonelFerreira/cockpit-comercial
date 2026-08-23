@@ -107,6 +107,12 @@
   let lastConversationScrollAt = 0
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
+  // Incrementado a cada análise (automática ou manual) iniciada, qualquer
+  // que seja a conversa. Usado por analyzeCurrentConversation() para saber,
+  // quando uma resposta assíncrona chega, se ela ainda é a mais recente —
+  // sem isso, uma resposta antiga da MESMA conversa poderia vencer uma
+  // resposta mais nova (ex.: duplo clique em "Analisar agora").
+  let conversationAnalysisRequestSequence = 0
   let captureIngestionTimerId = 0
   let captureIngestionInFlight = false
   let captureIngestionQueued = false
@@ -4709,7 +4715,7 @@
       return null
     }
 
-    return window.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
+    return globalThis.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
       {
         cycleId,
         conversationKey,
@@ -4745,7 +4751,7 @@
     }
 
     const stillCurrent =
-      window.YolenCompanionConversationRegistrationTools.shouldApplyConversationRegistrationResult(
+      globalThis.YolenCompanionConversationRegistrationTools.shouldApplyConversationRegistrationResult(
         {
           requestCycleId,
           requestConversationKey,
@@ -4777,7 +4783,7 @@
       return
     }
 
-    const key = window.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
+    const key = globalThis.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
       {
         cycleId,
         conversationKey,
@@ -4877,7 +4883,7 @@
       return
     }
 
-    const key = window.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
+    const key = globalThis.YolenCompanionConversationRegistrationTools.buildConversationRegistrationKey(
       {
         cycleId,
         conversationKey,
@@ -11772,6 +11778,9 @@
     const cycleId =
       state.leadResolution?.cycle?.id
 
+    const conversationKeyAtRequest =
+      getCaptureConversationKey()
+
     const companionMessages =
       getStructuredMessagesForAnalysis()
 
@@ -11818,6 +11827,31 @@
     const mutationRevisionAtRequest =
       messageLedgerMutationRevision
 
+    // Identidade imutável do contexto que pediu esta análise + número de
+    // sequência da requisição. Quando a resposta (ou o erro) chegar,
+    // isAnalysisResponseStillCurrent() responde "este resultado pertence
+    // ao contexto para o qual foi iniciado, e nenhuma requisição mais nova
+    // já começou?" — se não, a resposta é descartada silenciosamente e
+    // NUNCA é aplicada a `state` (nunca sobrescreve a conversa/ciclo
+    // atualmente visível, que já tem seu próprio estado zerado por
+    // clearLeadStateForNewConversation() na troca, ou preenchido por uma
+    // análise mais recente). O resultado da conversa de origem não é
+    // "destruído" por isso — ele simplesmente nunca chega a ser escrito
+    // num `state` que já pertence a outra conversa.
+    const requestSequence =
+      ++conversationAnalysisRequestSequence
+
+    const isAnalysisResponseStillCurrent = () =>
+      requestSequence ===
+        conversationAnalysisRequestSequence &&
+      globalThis.YolenCompanionConversationRegistrationTools
+        .shouldApplyConversationRegistrationResult({
+          requestCycleId: cycleId,
+          requestConversationKey: conversationKeyAtRequest,
+          currentCycleId: state.leadResolution?.cycle?.id,
+          currentConversationKey: getCaptureConversationKey(),
+        })
+
     state = {
       ...state,
       conversationAnalysisLoading: true,
@@ -11846,7 +11880,7 @@
           .analyzeConversation({
             cycle_id: cycleId,
             conversation_key:
-              getCaptureConversationKey(),
+              conversationKeyAtRequest,
             conversation_text:
               conversationText,
             messages:
@@ -11860,6 +11894,10 @@
             message_snapshot_hash:
               conversationFingerprint,
           })
+
+      if (!isAnalysisResponseStillCurrent()) {
+        return
+      }
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
         state = {
@@ -11924,6 +11962,10 @@
         )
       }
     } catch (error) {
+      if (!isAnalysisResponseStillCurrent()) {
+        return
+      }
+
       state = {
         ...state,
         conversationAnalysisLoading: false,

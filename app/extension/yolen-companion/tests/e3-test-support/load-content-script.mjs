@@ -28,6 +28,7 @@ function readSource(fileName) {
 const DEPENDENCY_FILES = [
   'yolen-api.js',
   'message-mutations.js',
+  'conversation-registration-tools.js',
   'capture-batch.js',
   'capture-resilience.js',
   'capture-resilience-null-base.js',
