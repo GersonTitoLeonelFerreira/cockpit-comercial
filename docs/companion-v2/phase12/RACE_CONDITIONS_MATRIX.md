@@ -100,6 +100,97 @@ guard `isStillCurrentContext()`). Os itens 1/5, 2/5 e 4/5 são exatamente o
 que a correção da Frente Principal precisa fazer virar `PASS`, sem regredir
 os dois que já passam.
 
+## Validação independente do PR #208 — 5/5 PASS confirmado
+
+O PR #208 (`fix(companion): isola resposta de análise por contexto de
+conversa (A->B)`, head `8599d0a8c3b88917327556e789e2b32c9bca73dd`, ainda
+**aberto, não mergeado** em `main` no momento desta validação) implementa
+exatamente o guard pedido: um contador monotônico
+`conversationAnalysisRequestSequence` incrementado a cada início de análise
+(automática ou manual), mais uma função
+`isAnalysisResponseStillCurrent()` que só libera a aplicação de uma
+resposta se (a) nenhuma requisição mais nova já começou (`requestSequence
+=== conversationAnalysisRequestSequence`) **e** (b) o contexto atual
+(`cycle_id`+`conversation_key`, via `getCaptureConversationKey()`) ainda é
+o mesmo que pediu a análise — reaproveitando a mesma função pura
+`shouldApplyConversationRegistrationResult` que já protegia "Registrar
+conversa" (`conversation-registration-tools.js`, PR #207), agora chamada
+via `globalThis.X` em vez de `window.X` em todos os pontos (o que também
+resolve, na origem, o gap de sandbox de teste que esta frente havia
+contornado no harness — ver commit `4a3a6fa`). O guard é checado tanto no
+caminho de sucesso quanto no bloco `catch` — uma resposta de erro atrasada
+também é descartada, não só um sucesso atrasado.
+
+**Validação foi feita sem esperar o merge administrativo**, via worktree
+temporário (`git worktree add /tmp/pr208-validate 8599d0a8...`, removido ao
+final — nunca mergeado nem tocado na branch persistente do PR #206), usando
+três baterias independentes contra o head exato do PR #208:
+
+1. **Meu próprio teste original** (`content-script-dom-stale-analysis-cross-conversation-race.test.mjs`,
+   não modificado) rodado contra o código do PR #208:
+
+   | # | Verificação | Antes (`ba21b8f`) | Depois (PR #208, `8599d0a`) |
+   |---|---|---|---|
+   | 1/5 | Análise de B não é substituída pela de A | `FAIL` | **`PASS`** |
+   | 2/5 | Fingerprint de B não é contaminado pelo de A | `FAIL` | **`PASS`** |
+   | 3/5 | Loading/error de B não é alterado pela chegada tardia de A | `PASS` | **`PASS`** |
+   | 4/5 | Área ANÁLISE de B não é contaminada | `FAIL` | **`PASS`** |
+   | 5/5 | Área CLIENTE de B não é afetada (controle) | `PASS` | **`PASS`** |
+
+   **5/5 PASS, confirmado de forma independente.** Nenhum dos dois itens
+   que já passavam antes regrediu.
+
+2. **A própria suíte nova do PR #208**
+   (`content-script-dom-analysis-context-guard.test.mjs`, 5 testes: resposta
+   atrasada cross-conversa, fingerprint, A→B→C→volta A, duplo-clique
+   same-conversation, non-commercial cross-conversa) rodada como
+   contraprova — **5/5 PASS**, incluindo verificação de que a telemetria
+   `suggestion_shown` (`REGISTER_ACTION_EVENT`) não é emitida para o ciclo
+   de origem quando a resposta é descartada por estar obsoleta (fecha a
+   exigência da seção 7 do mandato sobre telemetria stale, para o caso
+   cross-conversa).
+
+3. **Dois novos testes desta frente**, escritos e validados de forma
+   totalmente independente da suíte do PR #208, cobrindo dois sub-cenários
+   do sequence guard que nem meu teste original nem a suíte do PR #208
+   exercitavam:
+
+   - `content-script-dom-analysis-sequence-guard-adversarial.test.mjs`
+     (2 testes): (1) um **erro** de uma tentativa antiga chegando depois de
+     um **sucesso** mais novo já aplicado (mesma conversa) — prova que o
+     guard no bloco `catch` funciona de verdade, não só por leitura de
+     código; (2) um resultado **comercial** antigo chegando depois de um
+     resultado mais novo **sem evidência comercial** (mesma conversa) —
+     prova que o guard é agnóstico ao conteúdo (sequência + identidade,
+     não semântica de negócio), fechando a exigência da seção 5 do mandato
+     sobre "erro antigo não deve substituir sucesso novo" e "resultado
+     antigo não deve reintroduzir CTA".
+   - `content-script-dom-analysis-multihop-guard-adversarial.test.mjs`
+     (1 teste): três conversas (A/B/C) com análise disparada em cada uma
+     antes de qualquer resposta chegar, respostas resolvidas fora de ordem
+     (C, depois A, depois B) enquanto o vendedor permanece em C, e depois
+     confirma que voltar para A e para B mostra o estado inicial (nunca
+     analisado) — não um "resultado fantasma" reaparecendo. Prova mais
+     forte do que "não aparece agora": prova que uma resposta descartada
+     nunca é aplicada a `state` em lugar nenhum, nem fica "esperando"
+     silenciosamente para reaparecer depois.
+
+   **Ambos os arquivos falham hoje (2/2 e 1/1) contra a branch atual do
+   PR #206** (esperado — o guard ainda não existe aqui) **e passam 100%
+   contra o head do PR #208** (2/2 e 1/1). Ficam commitados nesta branch
+   documentando o gap remanescente, exatamente como o teste original já
+   fazia, e devem virar verdes junto com ele quando `origin/main` (com o
+   PR #208 já mergeado) for trazido para esta branch.
+
+**Conclusão desta seção**: a correção do PR #208 é estruturalmente sólida e
+passou em toda bateria adversarial aplicada até agora, incluindo dois
+sub-cenários e um cenário multi-hop que a própria suíte do PR #208 não
+cobria. **Nenhum `BLOCKER` novo encontrado.** A branch do PR #206
+permanece, por instrução do Controle Mestre, sem o merge de `origin/main`
+até o PR #208 ser integrado administrativamente — os três arquivos de teste
+citados acima já estão prontos e só aguardam esse merge para virarem verdes
+nesta branch.
+
 ## PR #207 mergeado — nova matriz real (A–N) substitui a numeração histórica abaixo
 
 O PR #207 (`ba21b8f`, "move análise profunda stateful para background

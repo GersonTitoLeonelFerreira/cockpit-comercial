@@ -36,6 +36,7 @@ documentados como pendentes até os PRs A/B/C existirem.
 | `OBSERVABILITY_CONTRACT.md` | Telemetria hoje existente, conjunto mínimo necessário, o que nunca deve ser registrado. |
 | `P1_03_REVALIDATION_ROADMAP.md` | Roteiro de revalidação para quando `INVALID_COMMUNICATION_OUTPUT` for corrigido. |
 | `FIREFOX_12A_CHECKLIST.md` | Checklist manual para revalidação em Firefox real. |
+| `DEEP_RESULT_DELIVERY_ADVERSARIAL_MATRIX.md` | Bateria adversarial preparada com antecedência para `feat/phase12a-deep-result-delivery` (segurança/IDOR, matriz A–P, polling, stale/watermark) — antes de a branch existir. |
 
 ## Escopo — o que não foi e não pode ser alterado
 
