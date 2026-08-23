@@ -255,6 +255,25 @@ function translateCycleEvent(
     }
   }
 
+  if (
+    event.event_type ===
+    'conversation_registered'
+  ) {
+    return {
+      kind:
+        'conversation_registered',
+
+      occurred_at:
+        event.occurred_at,
+
+      label:
+        'Conversa registrada no histórico',
+
+      detail:
+        null,
+    }
+  }
+
   return null
 }
 

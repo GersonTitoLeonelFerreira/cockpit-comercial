@@ -454,6 +454,28 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (
+    message.action ===
+    'PREVIEW_CONVERSATION_REGISTRATION'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/register-conversation/preview',
+      message.payload,
+    )
+  }
+
+  if (
+    message.action ===
+    'CONFIRM_CONVERSATION_REGISTRATION'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/register-conversation/confirm',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,

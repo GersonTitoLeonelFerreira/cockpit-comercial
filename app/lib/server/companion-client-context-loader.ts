@@ -64,6 +64,7 @@ const CYCLE_EVENT_TYPES_OF_INTEREST = [
   'ai_suggestion_applied',
   'closed_won',
   'closed_lost',
+  'conversation_registered',
 ]
 
 type JsonRecord =
