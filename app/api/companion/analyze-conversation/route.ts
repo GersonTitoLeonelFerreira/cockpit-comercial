@@ -1288,6 +1288,10 @@ export async function OPTIONS(request: Request) {
 export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request)
 
+  const analysisRequestedAt =
+    new Date()
+      .toISOString()
+
   try {
     const tokenPayload = verifyCompanionToken(request)
 
@@ -1945,8 +1949,7 @@ export async function POST(request: Request) {
             conversationHash,
 
           requested_at:
-            new Date()
-              .toISOString(),
+            analysisRequestedAt,
         })
 
       let shouldScheduleBackground =

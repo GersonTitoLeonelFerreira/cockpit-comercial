@@ -6,6 +6,7 @@ import {
 
 import {
   STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
+  STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS,
   parseStatefulCopilotBackgroundJobMessage,
   shouldRetryStatefulCopilotBackgroundFailure,
 } from './stateful-copilot-background-job'
@@ -196,6 +197,8 @@ export async function processStatefulCopilotBackgroundMessage(
     currentJob.status ===
       'succeeded' ||
     currentJob.status ===
+      'failed' ||
+    currentJob.status ===
       'superseded'
   ) {
     return
@@ -343,11 +346,43 @@ export async function processStatefulCopilotBackgroundMessage(
     return
   }
 
-  const {
-    error:
-      markRunningError,
-  } =
-    await admin
+  const previousStartedAt =
+    typeof currentJob
+      .started_at ===
+      'string'
+      ? currentJob
+          .started_at
+      : null
+
+  const previousStartedAtMs =
+    previousStartedAt
+      ? Date.parse(
+          previousStartedAt,
+        )
+      : Number.NaN
+
+  const runningLeaseExpired =
+    currentJob.status ===
+      'running' &&
+    Number.isFinite(
+      previousStartedAtMs,
+    ) &&
+    Date.now() -
+      previousStartedAtMs >=
+      STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS
+
+  if (
+    currentJob.status ===
+      'running' &&
+    !runningLeaseExpired
+  ) {
+    throw new StatefulCopilotBackgroundRetryError(
+      'BACKGROUND_JOB_ALREADY_RUNNING',
+    )
+  }
+
+  let claimQuery =
+    admin
       .from(
         'companion_background_analysis_jobs',
       )
@@ -404,10 +439,64 @@ export async function processStatefulCopilotBackgroundMessage(
       )
 
   if (
-    markRunningError
+    currentJob.status ===
+      'running'
+  ) {
+    claimQuery =
+      claimQuery
+        .eq(
+          'status',
+          'running',
+        )
+        .eq(
+          'started_at',
+          previousStartedAt,
+        )
+  } else {
+    claimQuery =
+      claimQuery
+        .eq(
+          'status',
+          'queued',
+        )
+  }
+
+  const {
+    data:
+      claimedJob,
+
+    error:
+      claimJobError,
+  } =
+    await claimQuery
+      .select(
+        'analysis_job_id',
+      )
+      .maybeSingle()
+
+  if (
+    claimJobError
+      ?.code ===
+      '23505'
+  ) {
+    throw new StatefulCopilotBackgroundRetryError(
+      'BACKGROUND_CONVERSATION_BUSY',
+    )
+  }
+
+  if (
+    claimJobError
   ) {
     throw new StatefulCopilotBackgroundRetryError(
       'BACKGROUND_JOB_START_FAILED',
+    )
+  }
+
+  if (
+    !claimedJob
+  ) {
+    throw new StatefulCopilotBackgroundRetryError(
+      'BACKGROUND_JOB_CLAIM_LOST',
     )
   }
 
@@ -503,6 +592,14 @@ export async function processStatefulCopilotBackgroundMessage(
             'message_watermark',
             job.message_watermark,
           )
+          .eq(
+            'status',
+            'running',
+          )
+          .eq(
+            'started_at',
+            startedAt,
+          )
 
       if (
         safetyError
@@ -589,6 +686,14 @@ export async function processStatefulCopilotBackgroundMessage(
           .eq(
             'message_watermark',
             job.message_watermark,
+          )
+          .eq(
+            'status',
+            'running',
+          )
+          .eq(
+            'started_at',
+            startedAt,
           )
 
       if (
@@ -749,6 +854,14 @@ export async function processStatefulCopilotBackgroundMessage(
             'message_watermark',
             job.message_watermark,
           )
+          .eq(
+            'status',
+            'running',
+          )
+          .eq(
+            'started_at',
+            startedAt,
+          )
 
       if (
         retryWriteError
@@ -835,6 +948,14 @@ export async function processStatefulCopilotBackgroundMessage(
         .eq(
           'message_watermark',
           job.message_watermark,
+        )
+        .eq(
+          'status',
+          'running',
+        )
+        .eq(
+          'started_at',
+          startedAt,
         )
 
     if (
@@ -969,6 +1090,14 @@ export async function processStatefulCopilotBackgroundMessage(
             'message_watermark',
             job.message_watermark,
           )
+          .eq(
+            'status',
+            'running',
+          )
+          .eq(
+            'started_at',
+            startedAt,
+          )
 
       if (
         retryWriteError
@@ -1025,6 +1154,14 @@ export async function processStatefulCopilotBackgroundMessage(
       .eq(
         'message_watermark',
         job.message_watermark,
+      )
+      .eq(
+        'status',
+        'running',
+      )
+      .eq(
+        'started_at',
+        startedAt,
       )
   }
 }

@@ -148,6 +148,16 @@ on public.companion_background_analysis_jobs (
   requested_at desc
 );
 
+create unique index
+  companion_background_analysis_jobs_one_running_per_conversation_idx
+on public.companion_background_analysis_jobs (
+  company_id,
+  cycle_id,
+  conversation_key
+)
+where
+  status = 'running';
+
 alter table
   public.companion_background_analysis_jobs
 enable row level security;
