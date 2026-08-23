@@ -203,6 +203,20 @@
     )
   }
 
+  async function previewConversationRegistration(payload) {
+    return sendToBackground(
+      'PREVIEW_CONVERSATION_REGISTRATION',
+      payload,
+    )
+  }
+
+  async function confirmConversationRegistration(payload) {
+    return sendToBackground(
+      'CONFIRM_CONVERSATION_REGISTRATION',
+      payload,
+    )
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -220,5 +234,7 @@
     transcribeAudio,
     loadAudioTranscriptions,
     ingestCapturedMessages,
+    previewConversationRegistration,
+    confirmConversationRegistration,
   }
 })()

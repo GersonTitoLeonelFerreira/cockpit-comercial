@@ -45,6 +45,7 @@ export const COMPANION_CLIENT_TIMELINE_EVENT_KINDS = [
   'ai_suggestion_applied',
   'closed_won',
   'closed_lost',
+  'conversation_registered',
   'suggestion_shown',
   'suggestion_copied',
   'suggestion_inserted',

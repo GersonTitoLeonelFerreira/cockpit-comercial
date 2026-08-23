@@ -73,6 +73,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/companion-client-context-view.js',
   'src/companion-seller-information-view.js',
   'src/content-script.js',
+  'src/conversation-registration-tools.js',
   'src/lead-automation.css',
   'src/lead-automation.js',
   'src/lead-enrichment.js',
