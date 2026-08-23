@@ -105,7 +105,6 @@ async function getOrCreateDeviceKey() {
 }
 
 async function getCachedSession() {
-
   const stored = await storageGet(SESSION_STORAGE_KEY)
   return stored?.[SESSION_STORAGE_KEY] ?? null
 }
@@ -329,6 +328,44 @@ async function handleConversationAnalysis(message) {
   }
 }
 
+async function handleAnalysisJobRetry(message) {
+  try {
+    const deviceKey =
+      await getOrCreateDeviceKey()
+
+    const analysisJobId =
+      typeof message.payload?.analysis_job_id === 'string'
+        ? message.payload.analysis_job_id
+        : null
+
+    return requestYolenWithToken(
+      message,
+      '/api/companion/analysis-job-retry',
+      {
+        analysis_job_id:
+          analysisJobId,
+        device_key:
+          deviceKey,
+      },
+    )
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: 400,
+      payload: {
+        ok: false,
+        status:
+          'INVALID_ANALYSIS_RETRY_TRANSPORT',
+        error:
+          error instanceof Error &&
+          error.message
+            ? error.message
+            : 'Não foi possível preparar a nova tentativa da análise profunda.',
+      },
+    }
+  }
+}
+
 async function handleCompanionMessage(message) {
   if (message.action === 'GET_ME') {
     const cachedSession = await getValidCachedSession()
@@ -419,6 +456,15 @@ async function handleCompanionMessage(message) {
       message,
       '/api/companion/analysis-job-status',
       message.payload,
+    )
+  }
+
+  if (
+    message.action ===
+    'RETRY_ANALYSIS_JOB'
+  ) {
+    return handleAnalysisJobRetry(
+      message,
     )
   }
 
