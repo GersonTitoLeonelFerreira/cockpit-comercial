@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { register } from 'node:module'
+import { createRequire, register } from 'node:module'
 import test, { mock } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 register(
   fileURLToPath(
@@ -23,21 +23,46 @@ register(
   import.meta.url,
 )
 
-import {
+const {
   bearerHeader,
   buildToken,
   installFakeSupabaseEnv,
-} from '../../../lib/companion/e2-test-support/fake-companion-token.mjs'
+} = await import(
+  '../../../lib/companion/e2-test-support/fake-companion-token.mjs'
+)
 
 installFakeSupabaseEnv()
 
 const adminBox = { admin: null }
 
-mock.module('@supabase/supabase-js', {
+const createFakeSupabaseClient =
+  () => adminBox.admin
+
+const supabaseMockOptions = {
   namedExports: {
-    createClient: () => adminBox.admin,
+    createClient:
+      createFakeSupabaseClient,
   },
-})
+}
+
+const require =
+  createRequire(import.meta.url)
+
+mock.module(
+  import.meta.resolve(
+    '@supabase/supabase-js',
+  ),
+  supabaseMockOptions,
+)
+
+mock.module(
+  pathToFileURL(
+    require.resolve(
+      '@supabase/supabase-js',
+    ),
+  ).href,
+  supabaseMockOptions,
+)
 
 const { POST } = await import('./route.ts')
 

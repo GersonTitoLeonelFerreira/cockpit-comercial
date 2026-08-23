@@ -22,9 +22,10 @@ export async function resolve(
       context,
     )
   } catch (error) {
-    const isRelativeSpecifier =
+    const isRelativeOrFileSpecifier =
       specifier.startsWith('./') ||
-      specifier.startsWith('../')
+      specifier.startsWith('../') ||
+      specifier.startsWith('file:')
 
     const alreadyHasExtension =
       /\.[a-z0-9]+$/i.test(
@@ -33,7 +34,7 @@ export async function resolve(
 
     if (
       !isModuleNotFoundError(error) ||
-      !isRelativeSpecifier ||
+      !isRelativeOrFileSpecifier ||
       alreadyHasExtension
     ) {
       throw error
