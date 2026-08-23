@@ -678,7 +678,7 @@ test(
 
     assert.equal(
       STATEFUL_COMMUNICATION_PROMPT_VERSION,
-      'phase-5.2-communication-prompt-v9',
+      'phase-5.2-communication-prompt-v10',
     )
 
     assert.match(
@@ -716,6 +716,19 @@ test(
         .current_messages[0]
         .id,
       'm2',
+    )
+
+    assert.deepEqual(
+      payload
+        .seller_evidence_message_ids,
+      [
+        'm1',
+      ],
+    )
+
+    assert.match(
+      plan.system_prompt,
+      /seller_evidence_message_ids contém exclusivamente IDs de mensagens outgoing do vendedor/,
     )
 
     assert.equal(
@@ -1104,7 +1117,7 @@ test(
 
 
 test(
-  'comunicação v9 integra coaching método tom comportamentos limites e escalonamento',
+  'comunicação v10 integra coaching método tom comportamentos limites e escalonamento',
   () => {
     const input =
       buildInput()
@@ -1136,7 +1149,7 @@ test(
 
     assert.equal(
       plan.prompt_version,
-      'phase-5.2-communication-prompt-v9',
+      'phase-5.2-communication-prompt-v10',
     )
 
     assert.match(
@@ -1805,7 +1818,7 @@ test(
           'VALID_JSON_OBJECT',
 
         instruction:
-          'Repare somente a estrutura indicada e retorne novamente o objeto completo conforme o schema.',
+          'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar ou reutilizar evidência do cliente.',
       },
     )
   },
@@ -1860,6 +1873,144 @@ test(
 
         return true
       },
+    )
+  },
+)
+
+
+test(
+  'repair de SELLER_EVIDENCE_REQUIRED usa somente evidência do vendedor',
+  async () => {
+    const invalidOutput =
+      buildCommunicationOutput()
+
+    invalidOutput
+      .commercial_reading
+      .improvement_points = [
+        {
+          kind:
+            'missing_next_commitment',
+
+          summary:
+            'O vendedor não consolidou o próximo compromisso.',
+
+          why_it_matters:
+            'Sem compromisso explícito, a continuidade pode ficar ambígua.',
+
+          impact:
+            'A retomada pode perder clareza.',
+
+          how_to_improve:
+            'Confirmar de forma objetiva quem retoma e quando.',
+
+          evidence_message_ids: [
+            'm2',
+          ],
+
+          memory_ids: [],
+        },
+      ]
+
+    const repairedOutput =
+      structuredClone(
+        invalidOutput,
+      )
+
+    repairedOutput
+      .commercial_reading
+      .improvement_points[0]
+      .evidence_message_ids = [
+        'm1',
+      ]
+
+    const calls = []
+
+    const provider =
+      createProvider(
+        [
+          invalidOutput,
+          repairedOutput,
+        ],
+        calls,
+      )
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan:
+          buildPlan(),
+
+        provider:
+          provider.provider,
+      })
+
+    assert.equal(
+      result
+        .execution
+        .attempts,
+      2,
+    )
+
+    assert.equal(
+      result
+        .execution
+        .recovered_after_retry,
+      true,
+    )
+
+    assert.equal(
+      result
+        .output
+        .commercial_reading
+        .improvement_points[0]
+        .evidence_message_ids[0],
+      'm1',
+    )
+
+    assert.equal(
+      calls.length,
+      2,
+    )
+
+    const repairPayload =
+      JSON.parse(
+        calls[1]
+          .user_prompt,
+      )
+
+    assert.deepEqual(
+      repairPayload
+        .seller_evidence_message_ids,
+      [
+        'm1',
+      ],
+    )
+
+    assert.equal(
+      repairPayload
+        .repair_context
+        .previous_failure_code,
+      'INVALID_COMMUNICATION_OUTPUT',
+    )
+
+    assert.equal(
+      repairPayload
+        .repair_context
+        .previous_failure_path,
+      'reading.improvement_points[0].evidence_message_ids',
+    )
+
+    assert.equal(
+      repairPayload
+        .repair_context
+        .previous_failure_invariant,
+      'SELLER_EVIDENCE_REQUIRED',
+    )
+
+    assert.match(
+      repairPayload
+        .repair_context
+        .instruction,
+      /seller_evidence_message_ids/,
     )
   },
 )
