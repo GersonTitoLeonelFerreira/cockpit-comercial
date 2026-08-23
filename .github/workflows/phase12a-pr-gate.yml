@@ -1,0 +1,127 @@
+name: Phase 12A PR deep gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  harden-and-verify:
+    if: github.head_ref == 'feat/phase12a-deep-result-delivery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/phase12a-deep-result-delivery
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply hardening patch encoded in controller workflow
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          text = Path('.github/workflows/phase12a-complete.yml').read_text().splitlines()
+          start = None
+          run_line = None
+          for i, line in enumerate(text):
+              if line.strip() == '- name: Apply Phase 12A hardening patches':
+                  start = i
+                  continue
+              if start is not None and line.strip() == 'run: |':
+                  run_line = i
+                  break
+          if run_line is None:
+              raise SystemExit('patch step not found')
+
+          collected = []
+          for line in text[run_line + 1:]:
+              if line.startswith('      - name:') or line.startswith('      - uses:'):
+                  break
+              if line.startswith('          '):
+                  collected.append(line[10:])
+              elif line.strip():
+                  raise SystemExit(f'unexpected workflow indentation: {line!r}')
+              else:
+                  collected.append('')
+
+          script = '\n'.join(collected) + '\n'
+          Path('/tmp/phase12a-apply.sh').write_text(script)
+          PY
+          bash -euxo pipefail /tmp/phase12a-apply.sh
+
+      - name: Diff sanity
+        run: git diff --check
+
+      - name: Companion suite
+        run: npm run test:companion
+
+      - name: Deep backend route tests
+        run: node --experimental-test-module-mocks --test app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs
+
+      - name: Freshness and adversarial tests
+        run: |
+          node --test app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs
+          node --test app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: |
+          npx eslint \
+            app/api/companion/analyze-conversation/route.ts \
+            app/api/companion/analysis-job-status/route.ts \
+            app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs \
+            app/lib/server/companion-analysis-job-reader.ts \
+            app/extension/yolen-companion/src/content-script.js \
+            app/extension/yolen-companion/src/yolen-api.js \
+            app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs \
+            app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs \
+            app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Extension DOM suite
+        run: npm run test:companion-extension-dom
+
+      - name: Build and extension RC
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          COMPANION_TOKEN_SECRET: placeholder-placeholder-placeholder
+        run: |
+          npm run build
+          node app/extension/yolen-companion/scripts/build-package.mjs
+
+      - name: Commit verified hardening
+        run: |
+          git config user.name "ChatGPT Phase12A Integrator"
+          git config user.email "noreply@openai.com"
+          git rm .github/workflows/phase12a-complete.yml .github/workflows/phase12a-pr-gate.yml
+          git add \
+            app/api/companion/analyze-conversation/route.ts \
+            app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs \
+            app/extension/yolen-companion/src/content-script.js \
+            app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs \
+            app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs \
+            app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs
+          git commit -m "fix(companion): fecha gates adversariais do deep delivery"
+          git push origin HEAD:feat/phase12a-deep-result-delivery
