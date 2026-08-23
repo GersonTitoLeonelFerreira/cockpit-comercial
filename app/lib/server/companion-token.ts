@@ -177,3 +177,128 @@ export function verifyCompanionRequestToken(
 
   return verifyCompanionTokenValue(token, nowSeconds)
 }
+
+// ---------------------------------------------------------------------------
+// Token de confirmação de "Registrar conversa" (Fase 12A).
+//
+// Reaproveita o MESMO mecanismo de assinatura do token de sessão do
+// Companion acima (HMAC-SHA256 sobre payload base64url, mesmo segredo via
+// getTokenSecret(), mesma comparação em tempo constante) — não introduz um
+// segundo esquema criptográfico no projeto.
+//
+// Por que existe: o preview roda no servidor e devolve summary_text, mas o
+// confirm chega numa requisição HTTP separada. Sem isso, o confirm teria
+// que confiar cegamente no summary_text que a extensão devolve, tornando o
+// cliente autoridade sobre o conteúdo que entra no histórico canônico. Este
+// token vincula criptograficamente o preview ao confirm: prova que o
+// summary_text confirmado é hash-idêntico ao que o servidor gerou, para o
+// mesmo company_id/cycle_id/conversation_key/watermark, dentro de uma
+// janela curta de validade — sem exigir um novo mecanismo de assinatura.
+// ---------------------------------------------------------------------------
+
+export const CONVERSATION_REGISTRATION_CONFIRMATION_TOKEN_TTL_SECONDS = 600
+
+export type ConversationRegistrationConfirmationTokenPayload = {
+  sub: string
+  company_id: string
+  cycle_id: string
+  conversation_key: string
+  watermark: string
+  summary_hash: string
+  exp: number
+}
+
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/
+
+function normalizeConversationRegistrationConfirmationTokenPayload(
+  value: unknown,
+  nowSeconds: number,
+): ConversationRegistrationConfirmationTokenPayload | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const sub = value.sub
+  const companyId = value.company_id
+  const cycleId = value.cycle_id
+  const conversationKey = value.conversation_key
+  const watermark = value.watermark
+  const summaryHash = value.summary_hash
+  const expiresAt = value.exp
+
+  if (
+    typeof sub !== 'string' ||
+    !UUID_PATTERN.test(sub) ||
+    typeof companyId !== 'string' ||
+    !UUID_PATTERN.test(companyId) ||
+    typeof cycleId !== 'string' ||
+    !UUID_PATTERN.test(cycleId) ||
+    typeof conversationKey !== 'string' ||
+    conversationKey.trim() !== conversationKey ||
+    conversationKey.length < 1 ||
+    conversationKey.length > 500 ||
+    typeof watermark !== 'string' ||
+    !SHA256_HEX_PATTERN.test(watermark) ||
+    typeof summaryHash !== 'string' ||
+    !SHA256_HEX_PATTERN.test(summaryHash) ||
+    typeof expiresAt !== 'number' ||
+    !Number.isInteger(expiresAt) ||
+    expiresAt <= 0
+  ) {
+    return null
+  }
+
+  if (expiresAt <= nowSeconds) {
+    return null
+  }
+
+  return {
+    sub: sub.toLowerCase(),
+    company_id: companyId.toLowerCase(),
+    cycle_id: cycleId.toLowerCase(),
+    conversation_key: conversationKey,
+    watermark,
+    summary_hash: summaryHash,
+    exp: expiresAt,
+  }
+}
+
+export function createConversationRegistrationConfirmationToken(
+  payload: ConversationRegistrationConfirmationTokenPayload,
+) {
+  const encodedPayload = encodeBase64Url(payload)
+  const signature = signEncodedPayload(encodedPayload)
+
+  return `${encodedPayload}.${signature}`
+}
+
+export function verifyConversationRegistrationConfirmationTokenValue(
+  token: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): ConversationRegistrationConfirmationTokenPayload | null {
+  try {
+    const parts = token.split('.')
+
+    if (parts.length !== 2) {
+      return null
+    }
+
+    const [encodedPayload, receivedSignature] = parts
+
+    if (!encodedPayload || !receivedSignature) {
+      return null
+    }
+
+    const expectedSignature = signEncodedPayload(encodedPayload)
+
+    if (!safeCompare(receivedSignature, expectedSignature)) {
+      return null
+    }
+
+    const decodedPayload = decodeBase64UrlJson(encodedPayload)
+
+    return normalizeConversationRegistrationConfirmationTokenPayload(decodedPayload, nowSeconds)
+  } catch {
+    return null
+  }
+}

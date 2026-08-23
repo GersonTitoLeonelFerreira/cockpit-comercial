@@ -318,3 +318,39 @@ test(
     )
   },
 )
+
+// Fase 12A: "Registrar conversa" precisa aparecer na timeline canônica já
+// usada pelo Companion, e não como um silo separado.
+test(
+  'conversation_registered aparece na timeline com rótulo de registro no histórico',
+  () => {
+    const timeline =
+      buildCompanionClientTimeline({
+        first_known_interaction_at:
+          null,
+
+        cycle_events: [
+          {
+            event_type:
+              'conversation_registered',
+
+            occurred_at:
+              '2026-08-22T08:00:00.000Z',
+          },
+        ],
+
+        action_events:
+          [],
+      })
+
+    assert.equal(
+      timeline[0].kind,
+      'conversation_registered',
+    )
+
+    assert.equal(
+      timeline[0].label,
+      'Conversa registrada no histórico',
+    )
+  },
+)
