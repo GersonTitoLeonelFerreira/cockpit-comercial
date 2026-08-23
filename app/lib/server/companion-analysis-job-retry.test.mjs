@@ -23,7 +23,7 @@ const IDS = {
   cycle: 'aaaaaaaa-0000-4000-8000-0000000000d1',
 }
 
-const JOB_ID = 'a'.repeat(64)
+const JOB_ID = 'b71f88ea13bd4b300015d296857d7de3afb7a8ba3b4875cc545f370919e258e1'
 const WATERMARK = 'watermark-1'
 const CONVERSATION = 'whatsapp:+5511999999999'
 
@@ -137,7 +137,9 @@ function createAdmin(data, hooks = {}) {
     async maybeSingle() {
       const rows = await this.resolveRows()
       return {
-        data: rows[0] ?? null,
+        data: rows[0]
+          ? { ...rows[0] }
+          : null,
         error: null,
       }
     }
