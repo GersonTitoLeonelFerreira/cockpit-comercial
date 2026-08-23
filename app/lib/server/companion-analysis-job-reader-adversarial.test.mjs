@@ -1,6 +1,6 @@
 // Frente Paralela 3 (FASE 12A) — validação adversarial independente do
 // PR #209 ("feat: entrega o resultado da análise profunda ao
-// seller-facing"), head auditado 0661ff6893299b9a912a2653c2f902cfa3cdac1c.
+// seller-facing").
 //
 // Este arquivo testa `loadCompanionAnalysisJobStatus`
 // (app/lib/server/companion-analysis-job-reader.ts) DIRETAMENTE — a função
@@ -9,19 +9,18 @@
 // dá para escrever um teste de unidade real, sem HTTP e sem
 // `node:test`'s `mock.module`, usando um fake admin construído aqui.
 //
-// IMPORTANTE: `companion-analysis-job-reader.ts` ainda NÃO EXISTE nesta
-// branch (`claude/adversarial-validation-progressive-inf2cq`) — é um
-// arquivo novo do PR #209, que ainda não foi mergeado em `main` no momento
-// em que este teste foi escrito. Rodar este arquivo AGORA, contra esta
-// branch, falha na importação (módulo inexistente) — isso é esperado e
-// documentado, não um teste quebrado por engano. Cada cenário abaixo foi
-// validado de forma independente contra um worktree temporário no head
-// 0661ff6 do PR #209 (nunca mergeado nesta branch) antes de ser commitado
-// aqui; os resultados dessa validação estão registrados em
+// Histórico: escrito originalmente contra um worktree temporário do head
+// 0661ff6893299b9a912a2653c2f902cfa3cdac1c do PR #209 (BLOCKER de stale
+// watermark + FAIL de raw output). A Frente 1 avançou a branch para
+// 8dafed050c1e7ef18899a899265979d0a7a80088 (raw output corrigido via DTO
+// seller-facing, retry real adicionado) e este arquivo foi reexecutado
+// contra esse head — algumas asserções foram atualizadas para acompanhar
+// mudanças estruturais reais (nunca para tolerar regressão; ver
+// comentários inline em cada teste afetado). O PR #209 foi então
+// mergeado em `main` e esta branch sincronizada — o arquivo agora roda
+// de verdade contra o código mergeado (13/13 passando). Resultados
+// completos registrados em
 // docs/companion-v2/phase12/DEEP_RESULT_DELIVERY_ADVERSARIAL_MATRIX.md.
-// Este arquivo deve rodar de verdade (e continuar passando ponto a ponto)
-// assim que o PR #209 for mergeado e esta branch for sincronizada com
-// `main`.
 
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'

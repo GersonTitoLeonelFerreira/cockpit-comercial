@@ -1,5 +1,37 @@
 # Matriz adversarial — entrega do resultado profundo (deep-result delivery)
 
+## Atualização — PR #209 mergeado em `main`, branch sincronizada, harness restaurado
+
+Depois da reauditoria do head `8dafed0` (abaixo), o PR #209 foi mergeado
+em `main` e esta branch (`claude/adversarial-validation-progressive-inf2cq`)
+foi sincronizada — o código do PR #209 agora está diretamente nesta
+branch (não mais só num worktree temporário), confirmado byte-idêntico ao
+head `8dafed0` já auditado (742/494 linhas em
+`companion-analysis-job-reader.ts`/`companion-analysis-job-retry.ts`).
+
+**Achado da sincronização (test-only, corrigido por esta frente)**: a
+sincronização perdeu, silenciosamente, duas adições de
+`app/extension/yolen-companion/tests/e3-test-support/load-content-script.mjs`
+que os DOIS lados tinham feito independentemente nesse arquivo
+compartilhado de harness — a entrada `'conversation-registration-tools.js'`
+em `DEPENDENCY_FILES` (desta frente, para o fluxo "Registrar conversa") e
+o handler `GET_ANALYSIS_JOB_STATUS`/`analysisJobStatusCalls` (da Frente 1,
+para o novo poller). O resultado prático: **29 de 36 testes de DOM desta
+frente passaram a falhar** — incluindo as 5 provas do BLOCKER A→B já
+corrigido pelo PR #208 — porque `buildConversationRegistrationKey` ficava
+`undefined` e travava a renderização do botão "Analisar agora" antes de
+qualquer teste conseguir clicar nele; e o arquivo de teste de DOM da
+própria Frente 1 (`content-script-dom-deep-analysis-delivery.test.mjs`,
+8 testes) falhava na importação por um export ausente. Corrigido por esta
+frente (arquivo de teste, permitido pelo mandato): as duas adições foram
+reaplicadas lado a lado no mesmo arquivo. Confirmado depois da correção:
+**43/43 testes de DOM passando** (35 desta frente + 8 da Frente 1), mais
+`test:companion` (1332/1332), `test:companion-background-jobs-db` (9/9),
+e os dois arquivos novos desta frente rodando de verdade contra o código
+real mergeado (13/13 + 4/4). Este não é um achado sobre o PR #209 em si
+— é uma lacuna de merge no arquivo de suporte de teste compartilhado,
+documentada aqui por transparência e já corrigida.
+
 ## Atualização — PR #209 reauditado (head `8dafed050c1e7ef18899a899265979d0a7a80088`)
 
 `feat/phase12a-deep-result-delivery` existe. Primeira auditoria feita no

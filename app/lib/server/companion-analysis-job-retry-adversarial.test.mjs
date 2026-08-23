@@ -1,8 +1,5 @@
 // Frente Paralela 3 (FASE 12A) — validação adversarial independente do
-// PR #209, reauditado no head 8dafed050c1e7ef18899a899265979d0a7a80088
-// (moveu de 0661ff6893299b9a912a2653c2f902cfa3cdac1c durante esta própria
-// auditoria — a Frente 1 adicionou `companion-analysis-job-retry.ts`,
-// que não existia no head anterior).
+// PR #209.
 //
 // Testa `retryCompanionAnalysisJob` diretamente (função recebe `admin` e
 // `publish` como parâmetros injetados), cobrindo T26-T29 do mandato:
@@ -10,15 +7,14 @@
 // orfanizar um `queued`, duplo-clique só um vence o CAS, compensação de
 // uma tentativa antiga não pode derrubar uma tentativa nova válida.
 //
-// IMPORTANTE: `companion-analysis-job-retry.ts` e
-// `companion-analysis-job-reader.ts` (na forma usada aqui, com DTO
-// seller-facing) ainda NÃO EXISTEM nesta branch
-// (`claude/adversarial-validation-progressive-inf2cq`) no momento em que
-// este teste foi escrito — são código do PR #209 (head 8dafed0), ainda
-// não mergeado em `main`. Rodar este arquivo AGORA, contra esta branch,
-// falha na importação — isso é esperado e documentado. Cada cenário foi
-// validado contra um worktree temporário no head 8dafed0 (nunca mergeado
-// nesta branch) antes de ser commitado aqui; resultados registrados em
+// Histórico: `companion-analysis-job-retry.ts` foi adicionado pela
+// Frente 1 no head 8dafed050c1e7ef18899a899265979d0a7a80088 do PR #209
+// (não existia no head anterior, 0661ff6, quando esta frente classificou
+// retry terminal como FAIL). Este arquivo foi escrito e validado contra
+// um worktree temporário desse head antes do PR #209 ser mergeado em
+// `main`. Depois do merge e da sincronização desta branch, roda
+// diretamente contra o código real (4/4 passando). Resultados completos
+// registrados em
 // docs/companion-v2/phase12/DEEP_RESULT_DELIVERY_ADVERSARIAL_MATRIX.md.
 
 import assert from 'node:assert/strict'

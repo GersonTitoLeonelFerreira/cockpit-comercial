@@ -32,6 +32,7 @@ const DEPENDENCY_FILES = [
   'capture-resilience.js',
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
+  'conversation-registration-tools.js',
   'companion-client-context-view.js',
   'companion-seller-information-view.js',
 ]
@@ -174,6 +175,7 @@ function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   analysisResult,
+  analysisJobStatusResult,
   previewConversationRegistrationResult,
   confirmConversationRegistrationResult,
 } = {}) {
@@ -197,6 +199,21 @@ function createFakeBackground({
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
+    GET_ANALYSIS_JOB_STATUS: async (requestPayload) => {
+      const payload =
+        typeof analysisJobStatusResult === 'function'
+          ? await analysisJobStatusResult(requestPayload)
+          : analysisJobStatusResult
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Status de análise profunda não configurado neste cenário de teste.',
+        },
+      }
+    },
     ANALYZE_CONVERSATION: async (requestPayload) => {
       const payload =
         typeof analysisResult === 'function'
@@ -288,6 +305,7 @@ export function loadContentScript({
   resolutionsByPhone,
   clientContextResult,
   analysisResult,
+  analysisJobStatusResult,
   previewConversationRegistrationResult,
   confirmConversationRegistrationResult,
 } = {}) {
@@ -296,6 +314,7 @@ export function loadContentScript({
     resolutionsByPhone,
     clientContextResult,
     analysisResult,
+    analysisJobStatusResult,
     previewConversationRegistrationResult,
     confirmConversationRegistrationResult,
   })
@@ -385,6 +404,10 @@ export function clientContextCalls(calls) {
 
 export function analysisCalls(calls) {
   return calls.filter((call) => call.action === 'ANALYZE_CONVERSATION')
+}
+
+export function analysisJobStatusCalls(calls) {
+  return calls.filter((call) => call.action === 'GET_ANALYSIS_JOB_STATUS')
 }
 
 export function previewConversationRegistrationCalls(calls) {
