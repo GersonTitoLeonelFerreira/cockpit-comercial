@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import { after, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { send } from '@vercel/queue'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
@@ -8,22 +9,18 @@ import {
   resolveStatefulCopilotActivationGate,
 } from '@/app/lib/companion/stateful-copilot-activation-gate'
 import {
-  buildStatefulActiveResponseData,
-} from '@/app/lib/companion/stateful-copilot-active-response'
-import {
-  buildStatefulCopilotActivePilotTelemetry,
-} from '@/app/lib/companion/stateful-copilot-active-pilot-telemetry'
-import {
-  persistStatefulCopilotActivePilotTelemetry,
-  type StatefulCopilotActivePilotTelemetryRpcClient,
-} from '@/app/lib/server/stateful-copilot-active-pilot-telemetry-persistence'
-import {
   resolveStatefulCopilotRouteMode,
   type StatefulCopilotRouteMode,
 } from '@/app/lib/companion/stateful-copilot-route-mode'
 import {
   createStatefulCopilotServerRuntimeOrchestrator,
 } from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
+import {
+  STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+  buildStatefulCopilotBackgroundJobDescriptor,
+  buildStatefulCopilotBackgroundJobMessage,
+  isStatefulCopilotBackgroundJobStatus,
+} from '@/app/lib/server/stateful-copilot-background-job'
 import {
   selectStructuredMessageBatch,
   shouldForceReanalysis,
@@ -1291,6 +1288,10 @@ export async function OPTIONS(request: Request) {
 export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request)
 
+  const analysisRequestedAt =
+    new Date()
+      .toISOString()
+
   try {
     const tokenPayload = verifyCompanionToken(request)
 
@@ -1413,9 +1414,6 @@ export async function POST(request: Request) {
         autoRefreshToken: false,
       },
     })
-
-    const activePilotTelemetryAdmin =
-      admin as unknown as StatefulCopilotActivePilotTelemetryRpcClient
 
     const { data: membership, error: membershipError } = await admin
       .from('company_memberships')
@@ -1839,268 +1837,22 @@ export async function POST(request: Request) {
     )
   }
 
-    /*
-     * Fase 5.3 — active:
-     *
-     * O V2 é tentado antes do motor V1.
-     *
-     * Se o stateful produzir saída válida e persistida,
-     * a resposta V2 é devolvida e o V1 não é executado.
-     *
-     * Se o V2 falhar, bloquear ou não persistir,
-     * a execução continua e o V1 é calculado somente
-     * como fallback seguro.
-     */
-    let statefulActiveFallbackTriggered =
-      false
-
-    if (
+    const statefulActiveBackgroundRequested =
       statefulRouteMode ===
       'active'
-    ) {
-      const startedAt =
-        Date.now()
-
-      try {
-        const statefulResult =
-          await runStatefulCopilotRuntime({
-            company_id:
-              tokenPayload.company_id,
-
-            cycle_id:
-              cycleId,
-
-            conversation_key:
-              conversationKey,
-
-            device_key:
-              deviceKey,
-
-            reference_time:
-              new Date().toISOString(),
-
-            v1_response:
-              undefined,
-          })
-
-        if (
-          statefulResult.mode ===
-          'active'
-        ) {
-          const activeResponseData =
-            buildStatefulActiveResponseData({
-              context,
-
-              output:
-                statefulResult.response,
-
-              commercial_reading:
-                statefulResult
-                  .commercial_reading,
-            })
-
-          const activeTelemetry =
-            buildStatefulCopilotActivePilotTelemetry({
-              event:
-                'active_success',
-
-              company_id:
-                tokenPayload.company_id,
-
-              cycle_id:
-                cycleId,
-
-              runtime_mode:
-                statefulResult.mode,
-
-              response_source:
-                statefulResult
-                  .response_source,
-
-              stateful_executed:
-                statefulResult
-                  .stateful_executed,
-
-              v1_executed:
-                false,
-
-              duration_ms:
-                Date.now() -
-                startedAt,
-
-              execution:
-                statefulResult
-                  .stateful_execution,
-
-              automatic_crm_write:
-                statefulResult
-                  .automatic_crm_write,
-
-              automatic_agenda_write:
-                statefulResult
-                  .automatic_agenda_write,
-            })
-
-          await persistStatefulCopilotActivePilotTelemetry({
-            admin:
-              activePilotTelemetryAdmin,
-
-            telemetry:
-              activeTelemetry,
-          })
-
-          console.info(
-            'YOLEN_COMPANION_STATEFUL_ACTIVE',
-            JSON.stringify(
-              activeTelemetry,
-            ),
-          )
-
-          return NextResponse.json<AnalyzeConversationResponse>(
-            {
-              ok: true,
-
-              data:
-                activeResponseData,
-            },
-            {
-              headers:
-                corsHeaders,
-            },
-          )
-        }
-
-        statefulActiveFallbackTriggered =
-          true
-
-        const fallbackTelemetry =
-          buildStatefulCopilotActivePilotTelemetry({
-            event:
-              'active_fallback_v1',
-
-            company_id:
-              tokenPayload.company_id,
-
-            cycle_id:
-              cycleId,
-
-            runtime_mode:
-              statefulResult.mode,
-
-            response_source:
-              statefulResult
-                .response_source,
-
-            stateful_executed:
-              statefulResult
-                .stateful_executed,
-
-            v1_executed:
-              true,
-
-            duration_ms:
-              Date.now() -
-              startedAt,
-
-            fallback_reason:
-              statefulResult.mode ===
-              'active_fallback_v1'
-                ? statefulResult
-                    .fallback_reason
-                : 'activation_changed',
-
-            failure:
-              statefulResult
-                .stateful_failure,
-
-            execution:
-              statefulResult
-                .stateful_execution,
-
-            automatic_crm_write:
-              statefulResult
-                .automatic_crm_write,
-
-            automatic_agenda_write:
-              statefulResult
-                .automatic_agenda_write,
-          })
-
-        await persistStatefulCopilotActivePilotTelemetry({
-          admin:
-            activePilotTelemetryAdmin,
-
-          telemetry:
-            fallbackTelemetry,
-        })
-
-        console.warn(
-          'YOLEN_COMPANION_STATEFUL_ACTIVE',
-          JSON.stringify(
-            fallbackTelemetry,
-          ),
-        )
-      } catch {
-        statefulActiveFallbackTriggered =
-          true
-
-        const unhandledTelemetry =
-          buildStatefulCopilotActivePilotTelemetry({
-            event:
-              'active_unhandled_fallback_v1',
-
-            company_id:
-              tokenPayload.company_id,
-
-            cycle_id:
-              cycleId,
-
-            v1_executed:
-              true,
-
-            duration_ms:
-              Date.now() -
-              startedAt,
-
-            automatic_crm_write:
-              false,
-
-            automatic_agenda_write:
-              false,
-          })
-
-        await persistStatefulCopilotActivePilotTelemetry({
-          admin:
-            activePilotTelemetryAdmin,
-
-          telemetry:
-            unhandledTelemetry,
-        }).catch(
-          () =>
-            null,
-        )
-
-        console.warn(
-          'YOLEN_COMPANION_STATEFUL_ACTIVE',
-          JSON.stringify(
-            unhandledTelemetry,
-          ),
-        )
-      }
-    }
 
     const result = await analyzeConversationWithCopilotDetailed({
       context,
       conversationText: analysisText,
       source,
       providerTimeoutMs:
-        statefulActiveFallbackTriggered
+        statefulActiveBackgroundRequested
           ? 8_000
           : undefined,
     })
 
     const coaching =
-      statefulActiveFallbackTriggered
+      statefulActiveBackgroundRequested
         ? buildCompanionCoaching({
             conversationText:
               analysisText,
@@ -2166,6 +1918,384 @@ export async function POST(request: Request) {
         buildResponseCoaching(
           coaching,
         ),
+    }
+
+    let deepAnalysis:
+      NonNullable<
+        AnalyzeConversationResponse[
+          'data'
+        ]
+      >['deep_analysis'] =
+        undefined
+
+    if (
+      statefulActiveBackgroundRequested &&
+      conversationKey &&
+      deviceKey
+    ) {
+      const backgroundJob =
+        buildStatefulCopilotBackgroundJobDescriptor({
+          company_id:
+            tokenPayload.company_id,
+
+          cycle_id:
+            cycleId,
+
+          conversation_key:
+            conversationKey,
+
+          message_watermark:
+            messageSnapshotHash ||
+            conversationHash,
+
+          requested_at:
+            analysisRequestedAt,
+        })
+
+      let shouldScheduleBackground =
+        false
+
+      const {
+        data:
+          insertedBackgroundJob,
+
+        error:
+          insertBackgroundJobError,
+      } =
+        await admin
+          .from(
+            'companion_background_analysis_jobs',
+          )
+          .insert({
+            analysis_job_id:
+              backgroundJob
+                .analysis_job_id,
+
+            company_id:
+              backgroundJob
+                .company_id,
+
+            cycle_id:
+              backgroundJob
+                .cycle_id,
+
+            conversation_key:
+              backgroundJob
+                .conversation_key,
+
+            message_watermark:
+              backgroundJob
+                .message_watermark,
+
+            status:
+              'queued',
+
+            requested_at:
+              backgroundJob
+                .requested_at,
+
+            automatic_crm_write:
+              false,
+
+            automatic_agenda_write:
+              false,
+          })
+          .select(
+            'analysis_job_id, status, message_watermark',
+          )
+          .single()
+
+      if (
+        !insertBackgroundJobError &&
+        insertedBackgroundJob &&
+        isStatefulCopilotBackgroundJobStatus(
+          insertedBackgroundJob
+            .status,
+        )
+      ) {
+        shouldScheduleBackground =
+          true
+
+        deepAnalysis = {
+          analysis_job_id:
+            String(
+              insertedBackgroundJob
+                .analysis_job_id,
+            ),
+
+          status:
+            insertedBackgroundJob
+              .status,
+
+          message_watermark:
+            String(
+              insertedBackgroundJob
+                .message_watermark,
+            ),
+        }
+      } else if (
+        insertBackgroundJobError
+          ?.code ===
+          '23505'
+      ) {
+        const {
+          data:
+            existingBackgroundJob,
+
+          error:
+            existingBackgroundJobError,
+        } =
+          await admin
+            .from(
+              'companion_background_analysis_jobs',
+            )
+            .select(
+              'analysis_job_id, status, message_watermark',
+            )
+            .eq(
+              'analysis_job_id',
+              backgroundJob
+                .analysis_job_id,
+            )
+            .eq(
+              'company_id',
+              backgroundJob
+                .company_id,
+            )
+            .eq(
+              'cycle_id',
+              backgroundJob
+                .cycle_id,
+            )
+            .eq(
+              'conversation_key',
+              backgroundJob
+                .conversation_key,
+            )
+            .eq(
+              'message_watermark',
+              backgroundJob
+                .message_watermark,
+            )
+            .maybeSingle()
+
+        if (
+          !existingBackgroundJobError &&
+          existingBackgroundJob &&
+          isStatefulCopilotBackgroundJobStatus(
+            existingBackgroundJob
+              .status,
+          )
+        ) {
+          deepAnalysis = {
+            analysis_job_id:
+              String(
+                existingBackgroundJob
+                  .analysis_job_id,
+              ),
+
+            status:
+              existingBackgroundJob
+                .status,
+
+            message_watermark:
+              String(
+                existingBackgroundJob
+                  .message_watermark,
+              ),
+          }
+        }
+      } else if (
+        insertBackgroundJobError
+      ) {
+        console.warn(
+          'YOLEN_COMPANION_BACKGROUND_JOB',
+          JSON.stringify({
+            event:
+              'background_job_enqueue_failed',
+
+            company_id:
+              backgroundJob
+                .company_id,
+
+            cycle_id:
+              backgroundJob
+                .cycle_id,
+
+            analysis_job_id:
+              backgroundJob
+                .analysis_job_id,
+
+            database_code:
+              insertBackgroundJobError
+                .code ??
+              null,
+          }),
+        )
+      }
+
+      if (
+        shouldScheduleBackground
+      ) {
+        try {
+          await send(
+            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+
+            buildStatefulCopilotBackgroundJobMessage({
+              descriptor:
+                backgroundJob,
+
+              device_key:
+                deviceKey,
+            }),
+
+            {
+              idempotencyKey:
+                backgroundJob
+                  .analysis_job_id,
+
+              retentionSeconds:
+                24 *
+                60 *
+                60,
+            },
+          )
+
+          console.info(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_published',
+
+              company_id:
+                backgroundJob
+                  .company_id,
+
+              cycle_id:
+                backgroundJob
+                  .cycle_id,
+
+              analysis_job_id:
+                backgroundJob
+                  .analysis_job_id,
+
+              message_watermark:
+                backgroundJob
+                  .message_watermark,
+            }),
+          )
+        } catch {
+          const completedAt =
+            new Date()
+              .toISOString()
+
+          const {
+            error:
+              publishFailurePersistenceError,
+          } =
+            await admin
+              .from(
+                'companion_background_analysis_jobs',
+              )
+              .update({
+                status:
+                  'failed',
+
+                completed_at:
+                  completedAt,
+
+                updated_at:
+                  completedAt,
+
+                failure_code:
+                  'QUEUE_PUBLISH_FAILED',
+
+                automatic_crm_write:
+                  false,
+
+                automatic_agenda_write:
+                  false,
+              })
+              .eq(
+                'analysis_job_id',
+                backgroundJob
+                  .analysis_job_id,
+              )
+              .eq(
+                'company_id',
+                backgroundJob
+                  .company_id,
+              )
+              .eq(
+                'cycle_id',
+                backgroundJob
+                  .cycle_id,
+              )
+              .eq(
+                'conversation_key',
+                backgroundJob
+                  .conversation_key,
+              )
+              .eq(
+                'message_watermark',
+                backgroundJob
+                  .message_watermark,
+              )
+              .eq(
+                'status',
+                'queued',
+              )
+
+          deepAnalysis = {
+            analysis_job_id:
+              backgroundJob
+                .analysis_job_id,
+
+            status:
+              'failed',
+
+            message_watermark:
+              backgroundJob
+                .message_watermark,
+          }
+
+          console.warn(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_publish_failed',
+
+              company_id:
+                backgroundJob
+                  .company_id,
+
+              cycle_id:
+                backgroundJob
+                  .cycle_id,
+
+              analysis_job_id:
+                backgroundJob
+                  .analysis_job_id,
+
+              persistence_failed:
+                Boolean(
+                  publishFailurePersistenceError,
+                ),
+            }),
+          )
+        }
+      }
+    }
+
+    const responseData = {
+      ...v1ResponseData,
+
+      ...(deepAnalysis
+        ? {
+            deep_analysis:
+              deepAnalysis,
+          }
+        : {}),
     }
 
     /*
@@ -2286,7 +2416,7 @@ export async function POST(request: Request) {
         ok: true,
 
         data:
-          v1ResponseData,
+          responseData,
       },
       {
         headers:

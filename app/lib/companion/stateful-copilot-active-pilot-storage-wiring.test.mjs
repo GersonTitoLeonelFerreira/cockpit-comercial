@@ -4,108 +4,104 @@ import {
 } from 'node:fs'
 import test from 'node:test'
 
-const source =
+const migrationSource =
   readFileSync(
     new URL(
-      '../../api/companion/analyze-conversation/route.ts',
+      '../../../supabase/migrations/20260823001500_create_companion_background_analysis_jobs.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+const workerSource =
+  readFileSync(
+    new URL(
+      '../server/stateful-copilot-background-worker.ts',
       import.meta.url,
     ),
     'utf8',
   )
 
 test(
-  'active persiste telemetria antes de expor resposta V2',
+  'storage possui escopo e watermark',
   () => {
-    const activeTelemetry =
-      source.indexOf(
-        'const activeTelemetry =',
+    for (
+      const field of [
+        'company_id',
+        'cycle_id',
+        'conversation_key',
+        'message_watermark',
+        'attempt_count',
+      ]
+    ) {
+      assert.match(
+        migrationSource,
+        new RegExp(
+          field,
+        ),
       )
+    }
+  },
+)
 
-    const persistence =
-      source.indexOf(
-        'await persistStatefulCopilotActivePilotTelemetry',
-        activeTelemetry,
+test(
+  'storage suporta estados do job',
+  () => {
+    for (
+      const status of [
+        'queued',
+        'running',
+        'succeeded',
+        'failed',
+        'superseded',
+      ]
+    ) {
+      assert.match(
+        migrationSource,
+        new RegExp(
+          `'${status}'`,
+        ),
       )
+    }
+  },
+)
 
-    const response =
-      source.indexOf(
-        'return NextResponse.json<AnalyzeConversationResponse>',
-        activeTelemetry,
-      )
-
-    assert.ok(
-      activeTelemetry >= 0,
+test(
+  'worker persiste diagnóstico seguro',
+  () => {
+    assert.match(
+      workerSource,
+      /communication_attempts:/,
     )
 
-    assert.ok(
-      persistence >
-        activeTelemetry,
+    assert.match(
+      workerSource,
+      /failure_code:/,
     )
 
-    assert.ok(
-      response >
-        persistence,
+    assert.match(
+      workerSource,
+      /failure_path:/,
+    )
+
+    assert.match(
+      workerSource,
+      /failure_invariant:/,
     )
   },
 )
 
 test(
-  'fallback V1 também possui auditoria durável',
+  'storage não guarda conteúdo da conversa',
   () => {
-    const fallback =
-      source.indexOf(
-        'const fallbackTelemetry =',
-      )
-
-    const persistence =
-      source.indexOf(
-        'await persistStatefulCopilotActivePilotTelemetry',
-        fallback,
-      )
-
-    assert.ok(
-      fallback >= 0,
+    assert.doesNotMatch(
+      migrationSource,
+      /conversation_text/,
     )
 
-    assert.ok(
-      persistence >
-        fallback,
-    )
-  },
-)
-
-test(
-  'falha não tratada usa persistência best effort e preserva fallback V1',
-  () => {
-    const unhandled =
-      source.indexOf(
-        'const unhandledTelemetry =',
-      )
-
-    const persistence =
-      source.indexOf(
-        'await persistStatefulCopilotActivePilotTelemetry',
-        unhandled,
-      )
-
-    const bestEffort =
-      source.indexOf(
-        '.catch(',
-        persistence,
-      )
-
-    assert.ok(
-      unhandled >= 0,
-    )
-
-    assert.ok(
-      persistence >
-        unhandled,
-    )
-
-    assert.ok(
-      bestEffort >
-        persistence,
+    assert.doesNotMatch(
+      migrationSource,
+      /suggested_message/,
     )
   },
 )

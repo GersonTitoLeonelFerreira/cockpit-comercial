@@ -288,6 +288,9 @@ function createMockClient(
       this.filters =
         []
 
+      this.upperBounds =
+        []
+
       this.orders =
         []
 
@@ -315,6 +318,18 @@ function createMockClient(
       value,
     ) {
       this.filters.push({
+        column,
+        value,
+      })
+
+      return this
+    }
+
+    lte(
+      column,
+      value,
+    ) {
+      this.upperBounds.push({
         column,
         value,
       })
@@ -430,6 +445,20 @@ function createMockClient(
                 filter.column
               ] ===
               filter.value,
+          )
+      }
+
+      for (
+        const upperBound of
+        this.upperBounds
+      ) {
+        rows =
+          rows.filter(
+            row =>
+              row[
+                upperBound.column
+              ] <=
+              upperBound.value,
           )
       }
 
@@ -1883,6 +1912,110 @@ test(
     assert.equal(
       factoryExecutions,
       0,
+    )
+  },
+)
+
+
+test(
+  'snapshot stateful exclui mensagem observada depois do reference_time',
+  async () => {
+    const fixtures =
+      buildFixtures()
+
+    fixtures
+      .conversation_messages
+      .push({
+        id:
+          '99',
+
+        company_id:
+          companyId,
+
+        cycle_id:
+          cycleId,
+
+        conversation_key:
+          conversationKey,
+
+        message_key:
+          'message-future',
+
+        version:
+          1,
+
+        direction:
+          'incoming',
+
+        occurred_at:
+          '2026-08-07T00:59:59.000Z',
+
+        observed_at:
+          '2026-08-07T01:00:01.000Z',
+
+        content_type:
+          'text',
+
+        text_content:
+          'Mensagem posterior ao snapshot.',
+
+        audio_transcription:
+          null,
+
+        is_deleted:
+          false,
+      })
+
+    const {
+      client,
+    } =
+      createMockClient(
+        fixtures,
+      )
+
+    const loader =
+      createStatefulCopilotRealContextLoader(
+        client,
+      )
+
+    const result =
+      await loader({
+        company_id:
+          companyId,
+
+        cycle_id:
+          cycleId,
+
+        conversation_key:
+          conversationKey,
+
+        device_key:
+          deviceKey,
+
+        reference_time:
+          referenceTime,
+      })
+
+    assert.equal(
+      result
+        .known_message_ids
+        .includes(
+          '99',
+        ),
+      false,
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .conversation
+        .messages
+        .some(
+          message =>
+            message.id ===
+            '99',
+        ),
+      false,
     )
   },
 )

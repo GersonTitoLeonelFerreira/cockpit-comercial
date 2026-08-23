@@ -215,6 +215,11 @@ export type StatefulCopilotContextQuery = PromiseLike<
     value: unknown,
   ) => StatefulCopilotContextQuery
 
+  lte: (
+    column: string,
+    value: unknown,
+  ) => StatefulCopilotContextQuery
+
   order: (
     column: string,
     options?: {
@@ -1164,6 +1169,7 @@ async function loadLedgerRows({
   companyId,
   cycleId,
   conversationKey,
+  referenceTime,
 }: {
   client:
     StatefulCopilotRealContextSupabaseClient
@@ -1171,6 +1177,7 @@ async function loadLedgerRows({
   companyId: string
   cycleId: string
   conversationKey: string
+  referenceTime: string
 }): Promise<unknown[]> {
   const rows:
     unknown[] = []
@@ -1199,6 +1206,10 @@ async function loadLedgerRows({
           .eq(
             'conversation_key',
             conversationKey,
+          )
+          .lte(
+            'observed_at',
+            referenceTime,
           )
           .order(
             'id',
@@ -2162,6 +2173,7 @@ export function createStatefulCopilotRealContextLoader(
           companyId,
           cycleId,
           conversationKey,
+          referenceTime,
         }),
 
         readOptionalSingle(

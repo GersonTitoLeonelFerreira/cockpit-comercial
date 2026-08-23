@@ -30,10 +30,10 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COMMUNICATION_PROMPT_VERSION =
-  'phase-5.2-communication-prompt-v9' as const
+  'phase-5.2-communication-prompt-v10' as const
 
 export const STATEFUL_COMMUNICATION_REPAIR_INSTRUCTION =
-  'Repare somente a estrutura indicada e retorne novamente o objeto completo conforme o schema.' as const
+  'Repare somente o caminho indicado e retorne novamente o objeto completo conforme o schema. Se previous_failure_invariant=SELLER_EVIDENCE_REQUIRED, use somente IDs presentes em seller_evidence_message_ids que sustentem diretamente o item; se nenhum ID dessa lista sustentar o item, remova o item em vez de inventar ou reutilizar evidência do cliente.' as const
 
 const COMMUNICATION_CONTEXT_BRIDGE_MAX_MESSAGES =
   6
@@ -94,6 +94,8 @@ function buildSystemPrompt(
     'Não crie uma interpretação paralela. commercial_reading precisa permanecer coerente com diagnostic_context.',
 
     'Use conversation.reading_messages para evidência histórica ainda disponível na fotografia canônica. Use os IDs dessas mensagens em evidence_message_ids somente quando elas realmente sustentarem a afirmação.',
+
+    'seller_evidence_message_ids contém exclusivamente IDs de mensagens outgoing do vendedor que podem ser citadas em avaliações sobre o vendedor. Em seller_strengths, improvement_points e riscos de atendimento, evidence_message_ids precisa conter pelo menos um ID dessa lista que sustente diretamente o item. Mensagens incoming do cliente nunca satisfazem SELLER_EVIDENCE_REQUIRED. Se nenhuma mensagem do vendedor sustentar diretamente a avaliação, não gere o item.',
 
     'Use commercial_memory somente como memória histórica ativa. Referencie-a por memory_ids. Nunca transforme evidence_message_ids históricos removidos da memória em evidência atual.',
 
@@ -483,6 +485,21 @@ function buildUserPrompt({
       candidateState,
     )
 
+  const sellerEvidenceMessageIds =
+    input
+      .diagnostic_input
+      .conversation
+      .messages
+      .filter(
+        message =>
+          message.direction ===
+          'outgoing',
+      )
+      .map(
+        message =>
+          message.id,
+      )
+
   return JSON.stringify(
     {
       prompt_version:
@@ -528,6 +545,9 @@ function buildUserPrompt({
           input,
           diagnosticOutput,
         }),
+
+      seller_evidence_message_ids:
+        sellerEvidenceMessageIds,
 
       commercial_memory:
         commercialMemory,

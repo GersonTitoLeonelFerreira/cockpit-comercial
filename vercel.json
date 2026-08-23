@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/queues/companion-deep-analysis/route.ts": {
+      "maxDuration": 180,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "companion-deep-analysis-v1",
+          "retryAfterSeconds": 15,
+          "initialDelaySeconds": 0
+        }
+      ]
+    }
+  }
+}

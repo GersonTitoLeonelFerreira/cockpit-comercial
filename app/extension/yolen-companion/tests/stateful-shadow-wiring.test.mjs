@@ -31,8 +31,17 @@ const analyzeRoute =
     'utf8',
   )
 
+const queueRoute =
+  readFileSync(
+    new URL(
+      '../../../api/queues/companion-deep-analysis/route.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test(
-  'análise envia a chave canônica usada pelo ledger',
+  'análise envia conversation key canônica',
   () => {
     const start =
       contentScript.indexOf(
@@ -58,13 +67,8 @@ test(
 )
 
 test(
-  'background injeta o device key da instalação na análise',
+  'background da extensão injeta device key',
   () => {
-    assert.match(
-      background,
-      /async function handleConversationAnalysis\(message\)/,
-    )
-
     assert.match(
       background,
       /handleConversationAnalysis[\s\S]*getOrCreateDeviceKey\(\)/,
@@ -74,51 +78,11 @@ test(
       background,
       /device_key:\s*deviceKey/,
     )
-
-    assert.match(
-      background,
-      /message\.action === 'ANALYZE_CONVERSATION'[\s\S]*handleConversationAnalysis/,
-    )
   },
 )
 
 test(
-  'rota operacional possui roteamento explícito v1 shadow active',
-  () => {
-    assert.match(
-      analyzeRoute,
-      /resolveStatefulCopilotRouteMode/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /getStatefulRouteMode/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /statefulRouteMode ===\s*'shadow'/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /statefulRouteMode ===\s*'active'/,
-    )
-
-    assert.doesNotMatch(
-      analyzeRoute,
-      /O motor Companion V2 ainda não está disponível/,
-    )
-
-    assert.doesNotMatch(
-      analyzeRoute,
-      /resolveCompanionEngineVersion/,
-    )
-  },
-)
-
-test(
-  'shadow continua executando stateful depois da resposta operacional',
+  'shadow continua usando after',
   () => {
     assert.match(
       analyzeRoute,
@@ -129,165 +93,40 @@ test(
       analyzeRoute,
       /stateful_shadow_completed/,
     )
+  },
+)
 
+test(
+  'active usa Queue e não after para V2 profundo',
+  () => {
     assert.match(
       analyzeRoute,
-      /YOLEN_COMPANION_STATEFUL_SHADOW/,
+      /statefulActiveBackgroundRequested[\s\S]*await send\(/,
+    )
+
+    const afterOccurrences =
+      analyzeRoute.match(
+        /after\(async \(\) => \{/g,
+      ) ?? []
+
+    assert.equal(
+      afterOccurrences.length,
+      1,
     )
   },
 )
 
 test(
-  'active executa stateful sincronamente e adapta saída para a extensão',
+  'consumer é separado da chamada seller-facing',
   () => {
     assert.match(
-      analyzeRoute,
-      /statefulRouteMode ===\s*'active'[\s\S]*await runStatefulCopilotRuntime\(\{/,
+      queueRoute,
+      /handleCallback/,
     )
 
     assert.match(
-      analyzeRoute,
-      /statefulResult\.mode ===\s*'active'/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /buildStatefulActiveResponseData/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /data:\s*activeResponseData/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /active_success/,
-    )
-  },
-)
-
-test(
-  'active preserva fallback V1 quando V2 não pode ser exposto',
-  () => {
-    assert.match(
-      analyzeRoute,
-      /active_fallback_v1/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /active_unhandled_fallback_v1/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /data:\s*v1ResponseData/,
-    )
-  },
-)
-
-test(
-  'active executa V2 antes de qualquer análise V1',
-  () => {
-    const activeStart =
-      analyzeRoute.indexOf(
-        'Fase 5.3 — active:',
-      )
-
-    const activeRuntimeCall =
-      analyzeRoute.indexOf(
-        'await runStatefulCopilotRuntime({',
-        activeStart,
-      )
-
-    const v1AnalysisCall =
-      analyzeRoute.indexOf(
-        'const result = await analyzeConversationWithCopilotDetailed({',
-      )
-
-    assert.notEqual(
-      activeStart,
-      -1,
-    )
-
-    assert.notEqual(
-      activeRuntimeCall,
-      -1,
-    )
-
-    assert.notEqual(
-      v1AnalysisCall,
-      -1,
-    )
-
-    assert.ok(
-      activeRuntimeCall <
-        v1AnalysisCall,
-      'V2 active precisa executar antes da análise V1.',
-    )
-
-    const activeSection =
-      analyzeRoute.slice(
-        activeStart,
-        v1AnalysisCall,
-      )
-
-    assert.match(
-      activeSection,
-      /v1_response:\s*undefined/,
-    )
-
-    assert.match(
-      activeSection,
-      /v1_executed:\s*false/,
-    )
-  },
-)
-
-test(
-  'shadow permanece depois do V1 e recebe v1ResponseData',
-  () => {
-    const v1AnalysisCall =
-      analyzeRoute.indexOf(
-        'const result = await analyzeConversationWithCopilotDetailed({',
-      )
-
-    const shadowStart =
-      analyzeRoute.indexOf(
-        'Fase 5.3 — shadow:',
-        v1AnalysisCall,
-      )
-
-    assert.notEqual(
-      v1AnalysisCall,
-      -1,
-    )
-
-    assert.notEqual(
-      shadowStart,
-      -1,
-    )
-
-    assert.ok(
-      shadowStart >
-        v1AnalysisCall,
-      'Shadow deve permanecer posterior à análise V1.',
-    )
-
-    const shadowSection =
-      analyzeRoute.slice(
-        shadowStart,
-      )
-
-    assert.match(
-      shadowSection,
-      /v1_response:\s*v1ResponseData/,
-    )
-
-    assert.match(
-      shadowSection,
-      /after\(async \(\) => \{/,
+      queueRoute,
+      /processStatefulCopilotBackgroundMessage/,
     )
   },
 )

@@ -35,6 +35,13 @@ const sellerAttributionMigrationPath = fileURLToPath(
   ),
 );
 
+const outputV3MigrationPath = fileURLToPath(
+  new URL(
+    "../migrations/20260823054000_align_stateful_output_v3_persistence.sql",
+    import.meta.url,
+  ),
+);
+
 const supabaseBootstrap = `
   create role anon nologin;
   create role authenticated nologin;
@@ -141,6 +148,8 @@ function buildAudit({
   previousVersion,
   candidateVersion,
   generatedAt,
+  outputContractVersion =
+    "phase-5.1-stateful-copilot-v2",
 }) {
   return {
     event_type:
@@ -176,7 +185,7 @@ function buildAudit({
 
     normalized_output: {
       contract_version:
-        "phase-5.1-stateful-copilot-v2",
+        outputContractVersion,
     },
 
     execution: {
@@ -586,6 +595,37 @@ test(
           .audit_event_id,
       );
 
+      await db.exec(
+        await readFile(
+          outputV3MigrationPath,
+          "utf8",
+        ),
+      );
+
+      const historicalContract =
+        await db.query(`
+          select
+            output_contract_version,
+            normalized_output ->>
+              'contract_version'
+              as normalized_contract_version
+          from public.companion_commercial_state_events
+          where candidate_state_version = 1
+        `);
+
+      assert.deepEqual(
+        historicalContract.rows,
+        [
+          {
+            output_contract_version:
+              "phase-5.1-stateful-copilot-v2",
+
+            normalized_contract_version:
+              "phase-5.1-stateful-copilot-v2",
+          },
+        ],
+      );
+
       await db.exec(`
         update public.sales_cycles
         set owner_user_id = null
@@ -612,6 +652,9 @@ test(
 
           generatedAt:
             "2026-08-06T18:10:01-03:00",
+
+          outputContractVersion:
+            "phase-5.2-stateful-copilot-v3",
         });
 
       const secondPersist =
@@ -648,6 +691,45 @@ test(
           .rows[0]
           .persisted_state_version,
         2,
+      );
+
+      const contractHistory =
+        await db.query(`
+          select
+            candidate_state_version,
+            output_contract_version,
+            normalized_output ->>
+              'contract_version'
+              as normalized_contract_version
+          from public.companion_commercial_state_events
+          order by candidate_state_version
+        `);
+
+      assert.deepEqual(
+        contractHistory.rows,
+        [
+          {
+            candidate_state_version:
+              1,
+
+            output_contract_version:
+              "phase-5.1-stateful-copilot-v2",
+
+            normalized_contract_version:
+              "phase-5.1-stateful-copilot-v2",
+          },
+
+          {
+            candidate_state_version:
+              2,
+
+            output_contract_version:
+              "phase-5.2-stateful-copilot-v3",
+
+            normalized_contract_version:
+              "phase-5.2-stateful-copilot-v3",
+          },
+        ],
       );
 
       const staleAttempt =

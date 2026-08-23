@@ -93,6 +93,12 @@ export type StatefulCopilotRuntimeFailure = {
   diagnostic_failure_invariant?:
     string
 
+  state_failure_path?:
+    string
+
+  state_failure_invariant?:
+    string
+
   communication_failure_path?:
     string
 
@@ -494,6 +500,38 @@ function normalizeFailure(
           .contract_error_code
       : null
 
+  const stateFailurePath =
+    code === 'INVALID_CANDIDATE_STATE' &&
+    typeof details
+      ?.state_failure_path ===
+      'string' &&
+    details
+      .state_failure_path
+      .length <= 300 &&
+    /^[a-zA-Z0-9_.\[\]-]+$/.test(
+      details
+        .state_failure_path,
+    )
+      ? details
+          .state_failure_path
+      : null
+
+  const stateFailureInvariant =
+    code === 'INVALID_CANDIDATE_STATE' &&
+    typeof details
+      ?.state_failure_invariant ===
+      'string' &&
+    details
+      .state_failure_invariant
+      .length <= 120 &&
+    /^[A-Z0-9_]+$/.test(
+      details
+        .state_failure_invariant,
+    )
+      ? details
+          .state_failure_invariant
+      : null
+
   const failurePath =
     typeof details
       ?.communication_failure_path ===
@@ -553,6 +591,20 @@ function normalizeFailure(
       ? {
           diagnostic_failure_invariant:
             diagnosticFailureInvariant,
+        }
+      : {}),
+
+    ...(stateFailurePath
+      ? {
+          state_failure_path:
+            stateFailurePath,
+        }
+      : {}),
+
+    ...(stateFailureInvariant
+      ? {
+          state_failure_invariant:
+            stateFailureInvariant,
         }
       : {}),
 

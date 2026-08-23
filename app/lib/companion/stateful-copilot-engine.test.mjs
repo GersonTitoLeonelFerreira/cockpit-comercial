@@ -885,6 +885,76 @@ test(
         .current_priority,
       previousState.current_priority,
     )
+
+    assert.deepEqual(
+      result
+        .candidate_state
+        .last_evidence_message_ids,
+      [
+        'm1',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .candidate_state
+        .last_analyzed_message_ids,
+      [
+        'm1',
+        'm2',
+      ],
+    )
+
+    assert.equal(
+      result
+        .candidate_state
+        .current_moment
+        .evidence_message_ids
+        .every(
+          messageId =>
+            result
+              .candidate_state
+              .last_evidence_message_ids
+              .includes(
+                messageId,
+              ),
+        ),
+      true,
+    )
+
+    assert.equal(
+      result
+        .candidate_state
+        .current_priority
+        .evidence_message_ids
+        .every(
+          messageId =>
+            result
+              .candidate_state
+              .last_evidence_message_ids
+              .includes(
+                messageId,
+              ),
+        ),
+      true,
+    )
+
+    assert.equal(
+      result
+        .candidate_state
+        .last_evidence_message_ids
+        .every(
+          messageId =>
+            result
+              .candidate_state
+              .last_analyzed_message_ids
+              .includes(
+                messageId,
+              ),
+        ),
+      true,
+    )
+
     assert.equal(
       result
         .candidate_state

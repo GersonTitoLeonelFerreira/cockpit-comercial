@@ -13,6 +13,15 @@ const deadlineSource =
     'utf8',
   )
 
+const backgroundJobSource =
+  readFileSync(
+    new URL(
+      '../server/stateful-copilot-background-job.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 const routeSource =
   readFileSync(
     new URL(
@@ -32,7 +41,7 @@ const salesCopilotSource =
   )
 
 test(
-  '12A limita o ciclo stateful seller-facing a 25 segundos',
+  'guardrail stateful padrão permanece em 25s',
   () => {
     assert.match(
       deadlineSource,
@@ -42,31 +51,51 @@ test(
 )
 
 test(
-  '12A limita o V1 quando ele é fallback de um stateful lento ou inválido',
+  'background profundo possui orçamento separado de 120s',
+  () => {
+    assert.match(
+      backgroundJobSource,
+      /STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS\s*=\s*120_000/,
+    )
+  },
+)
+
+test(
+  'first value active limita V1 a 8s',
   () => {
     assert.match(
       routeSource,
-      /providerTimeoutMs:\s*statefulActiveFallbackTriggered\s*\?\s*8_000\s*:\s*undefined/,
+      /providerTimeoutMs:\s*statefulActiveBackgroundRequested\s*\?\s*8_000\s*:\s*undefined/,
     )
 
     assert.match(
       salesCopilotSource,
       /AbortSignal\.timeout\(\s*providerTimeoutMs/,
     )
+  },
+)
 
+test(
+  'first value active evita segunda IA de coaching',
+  () => {
     assert.match(
-      salesCopilotSource,
-      /openai_timeout/,
+      routeSource,
+      /statefulActiveBackgroundRequested\s*\?\s*buildCompanionCoaching/,
     )
   },
 )
 
 test(
-  '12A não executa uma segunda IA de coaching depois do fallback stateful',
+  'request seller-facing não executa runtime V2 profundo',
   () => {
+    assert.doesNotMatch(
+      routeSource,
+      /runStatefulCopilotBackgroundRuntime/,
+    )
+
     assert.match(
       routeSource,
-      /statefulActiveFallbackTriggered\s*\?\s*buildCompanionCoaching/,
+      /await send\(/,
     )
   },
 )

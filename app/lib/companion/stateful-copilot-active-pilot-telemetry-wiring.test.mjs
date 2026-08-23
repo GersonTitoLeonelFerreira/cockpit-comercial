@@ -1,47 +1,79 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import {
+  readFileSync,
+} from 'node:fs'
 import test from 'node:test'
 
-const routeSource =
+const workerSource =
   readFileSync(
     new URL(
-      '../../api/companion/analyze-conversation/route.ts',
+      '../server/stateful-copilot-background-worker.ts',
       import.meta.url,
     ),
     'utf8',
   )
 
 test(
-  'rota active utiliza telemetria padronizada da fase 5.4',
+  'worker emite sucesso falha e superseded',
   () => {
     assert.match(
-      routeSource,
-      /buildStatefulCopilotActivePilotTelemetry/,
+      workerSource,
+      /background_analysis_succeeded/,
     )
 
     assert.match(
-      routeSource,
-      /event:\s*'active_success'/,
+      workerSource,
+      /background_analysis_failed/,
     )
 
     assert.match(
-      routeSource,
-      /event:\s*'active_fallback_v1'/,
-    )
-
-    assert.match(
-      routeSource,
-      /event:\s*'active_unhandled_fallback_v1'/,
+      workerSource,
+      /background_analysis_superseded/,
     )
   },
 )
 
 test(
-  'telemetria active continua usando canal exclusivo do piloto',
+  'telemetria mantém escopo e safety',
   () => {
     assert.match(
-      routeSource,
-      /YOLEN_COMPANION_STATEFUL_ACTIVE/,
+      workerSource,
+      /analysis_job_id:/,
+    )
+
+    assert.match(
+      workerSource,
+      /company_id:/,
+    )
+
+    assert.match(
+      workerSource,
+      /cycle_id:/,
+    )
+
+    assert.match(
+      workerSource,
+      /communication_attempts:/,
+    )
+
+    assert.match(
+      workerSource,
+      /automatic_crm_write:/,
+    )
+
+    assert.match(
+      workerSource,
+      /automatic_agenda_write:/,
+    )
+  },
+)
+
+test(
+  'telemetria não escreve conversation text',
+  () => {
+    assert.doesNotMatch(
+      workerSource,
+      /conversation_text/,
     )
   },
 )
