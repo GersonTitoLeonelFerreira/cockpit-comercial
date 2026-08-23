@@ -14,6 +14,10 @@ import type {
   StatefulCommunicationOutput,
 } from './stateful-communication-contract'
 
+import {
+  isCommerciallyActionable,
+} from './commercial-relevance'
+
 export const STATEFUL_COPILOT_PERSISTENCE_PLAN_VERSION =
   'phase-5.2-persistence-plan-v1' as const
 
@@ -439,16 +443,75 @@ function validateModelResult(
     )
   }
 
+  const commercialStateCanChange =
+    output.commercial_role ===
+      'buyer' &&
+    isCommerciallyActionable(
+      output.commercial_relevance,
+    )
+
+  if (
+    commercialStateCanChange ||
+    result.previous_state === null
+  ) {
+    ensureSameValues(
+      candidate.last_analyzed_message_ids,
+      output.analyzed_message_ids,
+      'engine_result.candidate_state.last_analyzed_message_ids',
+    )
+
+    ensureSameValues(
+      candidate.last_evidence_message_ids,
+      output.evidence_message_ids,
+      'engine_result.candidate_state.last_evidence_message_ids',
+    )
+
+    return
+  }
+
+  const previousState =
+    result.previous_state
+
+  const expectedCarriedAnalyzedMessageIds = [
+    ...new Set([
+      ...previousState
+        .last_evidence_message_ids,
+
+      ...output
+        .analyzed_message_ids,
+    ]),
+  ]
+
   ensureSameValues(
     candidate.last_analyzed_message_ids,
-    output.analyzed_message_ids,
+    expectedCarriedAnalyzedMessageIds,
     'engine_result.candidate_state.last_analyzed_message_ids',
   )
 
   ensureSameValues(
     candidate.last_evidence_message_ids,
-    output.evidence_message_ids,
+    previousState.last_evidence_message_ids,
     'engine_result.candidate_state.last_evidence_message_ids',
+  )
+
+  ensureSameValues(
+    candidate
+      .current_moment
+      .evidence_message_ids,
+    previousState
+      .current_moment
+      .evidence_message_ids,
+    'engine_result.candidate_state.current_moment.evidence_message_ids',
+  )
+
+  ensureSameValues(
+    candidate
+      .current_priority
+      .evidence_message_ids,
+    previousState
+      .current_priority
+      .evidence_message_ids,
+    'engine_result.candidate_state.current_priority.evidence_message_ids',
   )
 }
 

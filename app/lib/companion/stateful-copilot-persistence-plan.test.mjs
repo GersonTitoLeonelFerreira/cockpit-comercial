@@ -423,6 +423,95 @@ function buildModelResult() {
   }
 }
 
+function buildPreservedModelResult() {
+  const previousState =
+    buildState({
+      version:
+        1,
+
+      updatedAt:
+        '2026-08-06T17:00:00-03:00',
+    })
+
+  previousState
+    .current_moment
+    .evidence_message_ids = [
+      'm1',
+    ]
+
+  previousState
+    .current_priority
+    .evidence_message_ids = [
+      'm1',
+    ]
+
+  previousState
+    .last_analyzed_message_ids = [
+      'm1',
+    ]
+
+  previousState
+    .last_evidence_message_ids = [
+      'm1',
+    ]
+
+  const result =
+    buildModelResult()
+
+  result.input =
+    buildInput({
+      previousState,
+    })
+
+  result.previous_state =
+    clone(
+      previousState,
+    )
+
+  result.output =
+    buildOutput({
+      previousStateVersion:
+        1,
+    })
+
+  result.output
+    .commercial_relevance =
+      'non_commercial'
+
+  result.candidate_state =
+    buildState({
+      version:
+        2,
+    })
+
+  result.candidate_state
+    .current_moment =
+      clone(
+        previousState
+          .current_moment,
+      )
+
+  result.candidate_state
+    .current_priority =
+      clone(
+        previousState
+          .current_priority,
+      )
+
+  result.candidate_state
+    .last_analyzed_message_ids = [
+      'm1',
+      'm2',
+    ]
+
+  result.candidate_state
+    .last_evidence_message_ids = [
+      'm1',
+    ]
+
+  return result
+}
+
 function buildBlockedResult() {
   const input =
     buildInput()
@@ -641,6 +730,100 @@ test(
         .audit_event
         .automatic_agenda_write,
       false,
+    )
+  },
+)
+
+test(
+  'estado preservado separa evidência histórica da auditoria da análise atual',
+  () => {
+    const result =
+      buildStatefulCopilotPersistencePlan({
+        engine_result:
+          buildPreservedModelResult(),
+
+        company_id:
+          'company-1',
+
+        conversation_key:
+          'conversation-1',
+
+        generated_at:
+          '2026-08-06T18:00:01-03:00',
+      })
+
+    assert.equal(
+      result.mode,
+      'model',
+    )
+
+    assert.deepEqual(
+      result
+        .state_snapshot
+        .last_analyzed_message_ids,
+      [
+        'm1',
+        'm2',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .state_snapshot
+        .last_evidence_message_ids,
+      [
+        'm1',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .audit_event
+        .analyzed_message_ids,
+      [
+        'm2',
+      ],
+    )
+
+    assert.deepEqual(
+      result
+        .audit_event
+        .evidence_message_ids,
+      [
+        'm2',
+      ],
+    )
+  },
+)
+
+test(
+  'estado preservado continua rejeitando bookkeeping histórico adulterado',
+  () => {
+    const engineResult =
+      buildPreservedModelResult()
+
+    engineResult
+      .candidate_state
+      .last_analyzed_message_ids = [
+        'm2',
+      ]
+
+    expectPlanError(
+      () =>
+        buildStatefulCopilotPersistencePlan({
+          engine_result:
+            engineResult,
+
+          company_id:
+            'company-1',
+
+          conversation_key:
+            'conversation-1',
+
+          generated_at:
+            '2026-08-06T18:00:01-03:00',
+        }),
+      'VALUE_SET_MISMATCH',
     )
   },
 )
