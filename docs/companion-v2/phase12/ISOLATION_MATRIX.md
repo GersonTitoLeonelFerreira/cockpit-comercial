@@ -30,17 +30,42 @@ A tabela `companion_commercial_states` já impõe
 `device_key` identifica o navegador/dispositivo que capturou, mas não faz
 parte da identidade do estado.
 
-**Gap confirmado:** o guard de escopo existente
-(`createLoadedStateReader` → `STATEFUL_RUNTIME_SCOPE_MISMATCH`) verifica
+**Gap original (pré-PR #207):** o guard de escopo existente
+(`createLoadedStateReader` → `STATEFUL_RUNTIME_SCOPE_MISMATCH`) verificava
 consistência interna de uma única chamada (o contexto carregado bate com o
-que foi pedido), não impede que um resultado calculado para
-`(company A, cycle X, conversation Y)` seja aplicado à tela de
+que foi pedido), não impedia que um resultado calculado para
+`(company A, cycle X, conversation Y)` fosse aplicado à tela de
 `(company B, cycle X, conversation Y)` num fluxo assíncrono de background —
-porque hoje não existe fluxo assíncrono de background nesse sentido (a
-"execução em segundo plano" atual é `after()` dentro da mesma invocação
-serverless, sempre atrelada à mesma requisição/escopo). Esse gap **passa a
-importar de verdade** assim que a Frente Principal introduzir jobs
-verdadeiramente assíncronos (PR A).
+porque não existia fluxo assíncrono de background nesse sentido (a
+"execução em segundo plano" era `after()` dentro da mesma invocação
+serverless, sempre atrelada à mesma requisição/escopo).
+
+**Atualização pós-PR #207**: jobs assíncronos reais agora existem
+(`companion_background_analysis_jobs`). O isolamento por
+`company_id`/`cycle_id`/`conversation_key` é reforçado por: FK composta
+`(company_id, cycle_id) references sales_cycles(company_id, id)`
+(impede um job apontar `cycle_id` de uma empresa com `company_id` de
+outra — provado por teste real desta frente, ver abaixo) e filtros
+explícitos `.eq('company_id', ...)` em toda query do worker (confirmado
+por leitura de código, não estruturalmente pelo banco — ver ressalva de
+RLS abaixo). **Novo achado**: a tabela tem RLS habilitada e forçada, mas a
+role `service_role` (usada pelo worker) tem o atributo `bypassrls` — ou
+seja, **a RLS desta tabela não é uma segunda barreira contra vazamento
+cross-tenant para o worker**; a proteção real está inteiramente nos
+filtros de aplicação. Um `.eq('company_id', ...)` esquecido em uma query
+futura do worker não seria pego pelo banco. Isso não é um `BLOCKER` hoje
+(a auditoria confirmou que os filtros existem em todas as queries lidas),
+mas é uma lacuna estrutural real, sem rede de segurança, que vale
+registrar para qualquer PR futuro que adicione novas queries ao worker.
+
+Prova executável nova (sem alterar runtime):
+`supabase/phase-tests/phase-12a-background-jobs-database-contract.test.mjs`,
+teste `'(isolamento) company_id isola corretamente quando a query filtra
+por ele; RLS não é uma segunda barreira para service_role'` (`npm run
+test:companion-background-jobs-db`) e teste `'(L) job não pode ser criado
+para um ciclo inexistente, nem para a combinação errada de
+company_id/cycle_id entre empresas'` (prova a FK composta com dado real
+contra Postgres via PGlite, não regex).
 
 ## I1 — Isolamento entre empresas (cross-tenant)
 
@@ -73,6 +98,20 @@ empresa em contexto de outra").
 | I3.1 | Vendedor troca de conversa A → B enquanto job de A está em background. | Resultado de A nunca aparece renderizado em B. | BLOCKER |
 | I3.2 | Vendedor troca A → B → C → A rapidamente. Múltiplos jobs podem estar em voo simultaneamente. | Ao voltar para A, só o estado pertencente a A pode aparecer (o mais recente válido de A, nunca de B ou C). | BLOCKER |
 | I3.3 | Duas abas/janelas do mesmo navegador abertas na mesma conversa A. | Resultado aplicado em uma aba não deveria contaminar a outra com dado de escopo diferente (mesma conversa é OK; escopo diferente não). | FAIL se contaminar com escopo diferente; PASS COM RESSALVA se houver apenas duplicação de UI dentro do mesmo escopo. |
+
+**I3.1/I3.2 executados de verdade, com dois resultados opostos**:
+
+- **"Analisar agora" (`analyzeCurrentConversation`)**: `BLOCKER` confirmado
+  — `content-script-dom-stale-analysis-cross-conversation-race.test.mjs`
+  (`npm run test:companion-extension-dom`), triado pelo Controle Mestre,
+  atribuído à Frente Principal. Ver `RACE_CONDITIONS_MATRIX.md`.
+- **"Registrar conversa" (`registerCurrentConversation`/PR #205)**: `PASS`
+  confirmado — `content-script-dom-register-conversation-cross-conversation-race.test.mjs`
+  (mesma suíte). O guard `shouldApplyConversationRegistrationResult`
+  (`conversation-registration-tools.js`, introduzido pelo PR #207) já
+  resolve I3.1 de ponta a ponta para esse fluxo, e é a evidência de que o
+  padrão certo já existe no repositório — só não foi aplicado ao caminho
+  de análise.
 
 ## I4 — Persistência entre reload/refresh
 

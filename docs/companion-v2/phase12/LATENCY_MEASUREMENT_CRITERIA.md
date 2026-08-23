@@ -5,9 +5,44 @@
 Formaliza **Time to First Value (TTFV)** e **Time to Deep Analysis (TTDA)**
 como métricas distintas, e define os pontos de instrumentação necessários
 para medi-las com dados reais. Este documento **não define um número de
-PASS**. O mandato desta frente é explícito: "Não definir um número mágico
-como PASS sem evidência." A Fase 12A vai estabelecer thresholds depois que
-esta bateria coletar dados reais contra os PRs A/B/C.
+PASS**. O mandato do Controle Mestre é explícito, reafirmado após o PR #207:
+"Não volte a usar 'deep analysis <= 25s' como critério." A Fase 12A vai
+estabelecer thresholds a partir de dados reais, não de suposição.
+
+## Atualização pós-PR #207 — orçamentos reais confirmados (não são thresholds de aceite)
+
+Auditoria desta frente encontrou os dois orçamentos que a Frente Principal
+já codificou — **estes são tetos de engenharia (circuit breakers), não
+critérios de PASS/FAIL de latência**, exatamente como o mandato pede:
+
+- **Caminho rápido (seller-facing)**: `providerTimeoutMs: 8_000` — a
+  chamada V1 sincrona que compõe a resposta imediata do vendedor é limitada
+  a 8s (`app/api/companion/analyze-conversation/route.ts`, confirmado por
+  `phase12a-stateful-latency.test.mjs`, teste `'first value active limita
+  V1 a 8s'`). O guardrail antigo de 25s
+  (`DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS`) continua existindo, mas
+  não é mais o teto que o vendedor experimenta — o teste
+  `'guardrail stateful padrão permanece em 25s'` confirma que ele
+  permanece como orçamento interno, não como SLA de resposta.
+- **Caminho profundo (background)**:
+  `STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS = 120_000` (120s) —
+  orçamento próprio do job em background, desacoplado da resposta
+  seller-facing (`stateful-copilot-background-job.ts`, confirmado por
+  `phase12a-stateful-latency.test.mjs`, teste `'background profundo possui
+  orçamento separado de 120s'`).
+- **Teto absoluto da função consumer**: `maxDuration: 180` (`vercel.json`)
+  — se o job profundo (com seus próprios retries) ultrapassar 180s, a
+  própria plataforma encerra a função antes do orçamento de 120s do job
+  conseguir se manifestar como erro controlado. Isso não foi testado nesta
+  auditoria (exigiria um ambiente Vercel real), só documentado como risco.
+
+Isso confirma exatamente a orientação do Controle Mestre: **a arquitetura
+pode ter TTDA > 25s legitimamente**, desde que TTFV continue curto (hoje,
+teto de 8s no caminho rápido) e o job permaneça correto. Nenhum destes
+números (8s, 25s, 120s, 180s) deve ser citado como "critério de PASS de
+latência" nos relatórios desta frente — são orçamentos de engenharia já
+existentes no código, não uma meta de experiência validada com dados reais
+de uso.
 
 ## Por que TTFV e TTDA não podem ser medidos juntos
 
@@ -93,6 +128,20 @@ gap em `OBSERVABILITY_CONTRACT.md`. O que existe hoje
 execução, sem quebra por estágio, e nenhum "job id" para correlacionar os
 pontos 5-9 entre si ao longo do tempo (uma execução síncrona de hoje não
 precisa disso; um job assíncrono real precisa).
+
+**Atualização pós-PR #207**: os pontos 5, 6 e 7 (TTDA) agora **têm um
+equivalente parcial real** na tabela `companion_background_analysis_jobs`
+— `requested_at` (≈ item 5, capturado antes até da chamada V1 seller-facing),
+`started_at` (item 6) e `completed_at` (item 7, mas só sabe dizer que
+terminou, não que o resultado ficou "disponível para o vendedor", porque
+não existe caminho de entrega — ver `RACE_CONDITIONS_MATRIX.md`, achado
+estrutural da matriz A–N). `attempt_count` cobre o item 10. **Ainda
+faltam**: os pontos 1-4 (TTFV — debounce/leitura rápida/relevance gate não
+existem como conceito no código hoje, nem síncrono nem em background),
+`deep_job_timeout_at` como campo dedicado (hoje só `failure_code`
+genérico), e `fallback_applied_at`. TTDA já pode ser calculado
+parcialmente hoje como `completed_at - started_at` diretamente da tabela
+— é o primeiro dos 10 pontos que deixa de ser 100% teórico.
 
 ## O que esta bateria mede vs. o que ela não decide
 

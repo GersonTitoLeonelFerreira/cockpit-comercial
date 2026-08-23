@@ -9,6 +9,15 @@ arquitetura progressiva que a Frente Principal está construindo em PR A
 (fundação de background), PR B (leitura rápida) e PR C (UX progressiva /
 "Analisar agora").
 
+**Atualização — PR #207 mergeado (`ba21b8f`)**: a fundação de background
+(PR A, na numeração original) já existe de verdade —
+`companion_background_analysis_jobs`, Vercel Queue, worker durável,
+persistência V3. Esta branch foi atualizada a partir da `main` pós-PR#207
+sem conflitos nos arquivos desta frente (um gap pré-existente do harness de
+teste da extensão foi corrigido — ver commit correspondente). Toda a
+auditoria e as matrizes abaixo foram revisadas contra a implementação real;
+seções ainda teóricas (aguardando PR B/C) permanecem marcadas como tal.
+
 Esta frente **não implementa** nada da arquitetura em si e **não altera**
 nenhum arquivo de runtime protegido (lista completa na seção "Escopo"
 abaixo). Ela produz: auditoria, matrizes de cenário, critérios de medição,
@@ -21,7 +30,7 @@ documentados como pendentes até os PRs A/B/C existirem.
 | Documento | Conteúdo |
 |---|---|
 | `PROGRESSIVE_BACKGROUND_VALIDATION_CONTRACT.md` (este) | Arquitetura auditada, gaps, watermark canônico, stale-result policy. |
-| `RACE_CONDITIONS_MATRIX.md` | Cenários A–I do mandato, com um `BLOCKER` já confirmado por teste executável. |
+| `RACE_CONDITIONS_MATRIX.md` | Cenários A–I históricos (pré-PR#207) + matriz A–N real pós-PR#207, com um `BLOCKER` confirmado e vários cenários já provados por teste executável (DB real + DOM real). |
 | `ISOLATION_MATRIX.md` | Isolamento cross-tenant, cross-cycle, cross-client, reload. |
 | `LATENCY_MEASUREMENT_CRITERIA.md` | TTFV vs. TTDA, pontos de instrumentação, sem número mágico de PASS. |
 | `OBSERVABILITY_CONTRACT.md` | Telemetria hoje existente, conjunto mínimo necessário, o que nunca deve ser registrado. |
@@ -193,57 +202,126 @@ vendedor (distinto da regra de conteúdo do corpus, que testa o
 pessoal e a comercial seguinte). Registrado como cenário pendente para
 quando o PR B existir.
 
-## Gaps confirmados (resumo executivo)
+**Atualização pós-PR #207**: o teste
+`content-script-dom-seller-information-architecture.test.mjs`
+("non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do
+cliente") já existia **antes** do PR #207 (não foi alterado por ele) e já
+cobre, ao nível de DOM real, que uma leitura `non_commercial` neutraliza as
+áreas AGORA/ANÁLISE sem apagar fatos do cliente já persistidos — ou seja, a
+metade "sessão pessoal não some com o histórico comercial anterior" do
+cenário `commercial → personal → commercial` já tem evidência real. A
+metade que falta é a inversa: confirmar que uma sessão pessoal, sozinha,
+nunca é a **origem** de uma nova evidência comercial — isso depende do
+pré-filtro determinístico do item 1 acima, que ainda não existe.
 
-1. **Nenhum guard de resultado obsoleto na camada de entrega ao vendedor** —
-   confirmado e provado por teste (`RACE_CONDITIONS_MATRIX.md`, cenário B).
-   Existe hoje, em produção, independente de qualquer arquitetura de
-   background futura.
-2. **Nenhum `job_id`/`run_id` emitido no início de uma execução** — o que
-   existe (`operation_key`) é um fingerprint de idempotência calculado no
-   fim, não um handle mintável no início para correlacionar estágios.
-3. **Nenhum coalescing/single-flight por escopo no servidor** — duas
-   requisições concorrentes para o mesmo `(company_id, cycle_id, conversation_key)`
-   podem rodar o pipeline completo em paralelo; só a escrita final é
-   arbitrada pelo CAS.
-4. **Três sinais de watermark não unificados** — ver seção "Watermark"
-   acima.
+## Registrar conversa — cobertura adversarial (mandato, seção 13)
+
+PR #205 entregou "Registrar conversa"; PR #207 acrescentou o guard de
+isolamento dedicado. Cruzando a lista de cenários pedida pelo mandato
+contra a cobertura já existente (auditada nesta frente) e o que esta
+frente acrescentou:
+
+| Cenário do mandato | Cobertura | Onde |
+|---|---|---|
+| A gera preview → muda para B → A confirma | **Não é uma corrida de rede — é bloqueado pela própria estrutura do estado.** `getCurrentConversationRegistrationEntry()` sempre lê pela chave da conversa **atual** (`getConversationRegistrationKey()`); a entrada de A fica indexada só sob a chave de A. Ao trocar para B, não existe nenhum botão "Confirmar" de A na tela — o botão de confirmar só aparece para a entrada da conversa atualmente exibida. `PASS por construção`, mas não tinha teste de DOM real provando isso — **novo teste desta frente** (`content-script-dom-register-conversation-cross-conversation-race.test.mjs`) prova a metade preview→troca; a metade troca→tentativa-de-confirmar-A-estando-em-B não foi testada separadamente porque o botão correspondente comprovadamente não existe no DOM nesse estado (mesma evidência do teste novo). |
+| Watermark velho + mensagem nova | **Já coberto**, sem duplicar: `register-conversation-route.test.mjs` ("stale watermark: message changed after preview") já testa exatamente isso no servidor. |
+| Summary adulterado | **Já coberto**: `register-conversation-route.test.mjs` (hash mismatch do `summary_text` tentado). |
+| Token expirado | **Já coberto**: `register-conversation-route.test.mjs` (token expirado). |
+| Duplo clique | **Já coberto**: `register-conversation-route.test.mjs` ("dois cliques... idempotência", RPC chamada duas vezes sequencialmente, uma única linha persistida). |
+| Replay | **Já coberto** para replay sequencial (mesmo teste acima). **Gap real, não coberto**: replay **concorrente** (duas confirmações em paralelo de verdade, não sequenciais) — nenhum teste (nem os existentes, nem os desta frente) exercita isso. Fica registrado como gap, não fabricado um teste de concorrência real sem ambiente adequado. |
+
+Nenhum teste novo duplicou a suíte já existente de
+`register-conversation-route.test.mjs`/`companion-conversation-registration-loader.test.mjs`
+— o único teste novo desta frente para esse fluxo
+(`content-script-dom-register-conversation-cross-conversation-race.test.mjs`)
+cobre exatamente a lacuna que não existia: a ligação real entre o guard de
+unidade (`conversation-registration-tools.test.mjs`, já existia) e o DOM.
+
+## Gaps confirmados (resumo executivo, com status pós-PR #207)
+
+1. **Nenhum guard de resultado obsoleto na camada de entrega ao vendedor**
+   — **ABERTO, BLOCKER triado pelo Controle Mestre.** Confirmado e provado
+   por teste (`RACE_CONDITIONS_MATRIX.md`, cenário B histórico / cenários
+   B, J, N da matriz A–N). Existe hoje, em produção, independente de
+   qualquer arquitetura de background.
+2. **Nenhum `job_id`/`run_id` emitido no início de uma execução** —
+   **FECHADO pelo PR #207.** `analysis_job_id` (sha256 determinístico) é
+   emitido no enqueue, provado real por `phase-12a-background-jobs-database-contract.test.mjs`.
+3. **Nenhum coalescing/single-flight por escopo no servidor** — **FECHADO
+   pelo PR #207.** `companion_background_analysis_jobs_scope_unique` +
+   índice único parcial `one_running_per_conversation_idx` — provado real
+   pelos testes `(D)` e `(G)` do novo arquivo de contrato de banco.
+4. **Três sinais de watermark não unificados** — **PARCIALMENTE FECHADO.**
+   O job de background agora usa um único `message_watermark` canônico. Os
+   dois outros sinais (versão de estado + conjunto de ids de mensagem)
+   continuam existindo, sem relação formal com o watermark do job — mas
+   isso é aceitável, porque cada um protege uma camada diferente (job vs.
+   estado persistido).
 5. **Nenhum pré-filtro determinístico de relevância comercial antes da
-   chamada cara ao modelo** — a economia de custo/latência para conteúdo
-   pessoal, se desejada pela arquitetura progressiva, precisa ser
-   desenhada, não reaproveitada.
-6. **Telemetria sem os campos necessários para TTFV/TTDA/superseded** — ver
-   `OBSERVABILITY_CONTRACT.md`.
-7. **Isolamento cross-tenant de conteúdo real não tem teste automatizado** —
-   confirmado como lacuna explícita já registrada em
-   `SECURITY_AND_DATA_BASELINE.md` ("proibição de conteúdo de uma empresa em
-   contexto de outra" como requisito pendente, não verificado).
-8. **P1-03 (`INVALID_COMMUNICATION_OUTPUT`) infla TTDA hoje** — retry lento
-   no motor de comunicação stateful, relevante diretamente para TTDA da nova
-   arquitetura (ver `P1_03_REVALIDATION_ROADMAP.md`).
+   chamada cara ao modelo** — **ABERTO, inalterado pelo PR #207.** A
+   economia de custo/latência para conteúdo pessoal, se desejada, precisa
+   ser desenhada, não reaproveitada.
+6. **Telemetria sem os campos necessários para TTFV/TTDA/superseded** —
+   **MAIORIA FECHADA para TTDA/superseded** (ver `OBSERVABILITY_CONTRACT.md`
+   — `companion_background_analysis_jobs` tem quase todos os campos
+   pedidos). TTFV continua sem nenhuma instrumentação.
+7. **Isolamento cross-tenant de conteúdo real não tem teste automatizado**
+   — **PARCIALMENTE FECHADO para a tabela de jobs** (novo teste de
+   isolamento desta frente, ver `ISOLATION_MATRIX.md`); continua aberto
+   para o restante do pipeline (`companion_commercial_states` e as demais
+   tabelas do Companion, fora do escopo desta auditoria pontual).
+8. **P1-03 (`INVALID_COMMUNICATION_OUTPUT`) infla TTDA** — **Controle
+   Mestre declarou PASS**; auditoria desta frente confirma a evidência com
+   ressalva (a correção é arquitetural — desacopla o vendedor do retry —
+   não uma redução do retry em si). Ver `P1_03_REVALIDATION_ROADMAP.md`.
+9. **(Novo, achado pelo PR #207) Nenhum caminho de entrega do resultado
+   profundo ao vendedor** — o job `succeeded` fica só no banco; não existe
+   polling nem qualquer leitura de volta pela extensão. Isso não é uma
+   falha do PR #207 (provavelmente é trabalho do próximo PR), mas precisa
+   ser registrado como pré-requisito: quando esse caminho for construído,
+   ele **herda automaticamente** a obrigação do gap #1 (não aplicar
+   resultado de escopo/watermark errado à UI atual).
+10. **(Novo) RLS não é uma segunda barreira contra vazamento cross-tenant
+    para `service_role`** — `companion_background_analysis_jobs` tem RLS
+    habilitada+forçada, mas a role usada pelo worker tem `bypassrls`. A
+    proteção real é só o filtro de aplicação. Ver `ISOLATION_MATRIX.md`.
+11. **(Novo) Nenhum teste executa o worker de verdade** — toda a cobertura
+    pré-existente para `stateful-copilot-background-worker.ts` é
+    regex/substring sobre o código-fonte; os novos testes desta frente
+    provam as *constraints do banco* com SQL real, mas não a *orquestração*
+    (claim → runtime → persist) da função TypeScript, porque
+    `createAdminClient()` cria o client Supabase real internamente, sem
+    seam de injeção. Ver `RACE_CONDITIONS_MATRIX.md`, "O que continua sem
+    verificação".
 
 ## O que esta frente entrega como executável hoje
 
-- Um teste de regressão real e isolado
-  (`app/extension/yolen-companion/tests/e3-dom/content-script-dom-stale-analysis-cross-conversation-race.test.mjs`,
-  rodável via `npm run test:companion-extension-dom`), estruturado como 5
-  verificações independentes (análise, fingerprint, loading/error, área
-  ANÁLISE, área CLIENTE) que **falham em 3 delas hoje**, provando o gap #1
-  acima contra o `content-script.js` real, sem modificá-lo. Ratificado pelo
-  Controle Mestre como o checklist de regressão para a correção da Frente
-  Principal.
-- Todas as matrizes e critérios documentados nesta pasta, prontos para virar
-  testes executáveis assim que PR A/B/C existirem (cada linha das matrizes
-  indica se já é executável ou pendente).
+- **Extensão — troca de conversa durante análise** (`analyzeCurrentConversation`):
+  `content-script-dom-stale-analysis-cross-conversation-race.test.mjs`
+  (`npm run test:companion-extension-dom`), 5 verificações independentes,
+  **3 falham hoje** — o `BLOCKER` já triado pelo Controle Mestre.
+- **Extensão — troca de conversa durante "Registrar conversa"**
+  (`registerCurrentConversation`): novo teste
+  `content-script-dom-register-conversation-cross-conversation-race.test.mjs`,
+  **passa hoje** — evidência positiva de que o padrão de guard correto já
+  existe no repositório para outro fluxo.
+- **Banco — contrato real de `companion_background_analysis_jobs`**: novo
+  arquivo `supabase/phase-tests/phase-12a-background-jobs-database-contract.test.mjs`
+  (`npm run test:companion-background-jobs-db`), 7 testes, SQL real contra
+  Postgres via PGlite (não regex) — prova unicidade de escopo+watermark,
+  serialização de "running" por conversa, detecção de job mais novo, FK
+  cross-tenant, fail-closed de CRM/Agenda, limites de retry e isolamento
+  por `company_id`.
+- Todas as matrizes e critérios documentados nesta pasta, atualizados
+  contra a implementação real do PR #207.
 
-## O que fica pendente até PR A/B/C
+## O que fica pendente
 
-Listado item a item em `RACE_CONDITIONS_MATRIX.md` (tabela "Resumo de
-rastreamento") e `ISOLATION_MATRIX.md` (seção I4). Em resumo: qualquer
-cenário que dependa de um job verdadeiramente assíncrono (fila, worker,
-polling, cancelamento) não pode ser testado contra código que não existe —
-está documentado como roteiro pronto para ser executado assim que a Frente
-Principal mergear a fundação de background.
+Listado item a item em `RACE_CONDITIONS_MATRIX.md` (tabela "Matriz A–N" e
+seção "O que continua sem verificação"). Em resumo: execução real e
+concorrente do worker TypeScript (exigiria mock de módulo ou ambiente
+Supabase real), o caminho de entrega do resultado profundo à UI (ainda não
+existe), e tudo que depender dele (cenários B/I/J/N da matriz A–N).
 
 ## Regra de atualização desta bateria
 

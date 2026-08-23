@@ -100,6 +100,128 @@ guard `isStillCurrentContext()`). Os itens 1/5, 2/5 e 4/5 são exatamente o
 que a correção da Frente Principal precisa fazer virar `PASS`, sem regredir
 os dois que já passam.
 
+## PR #207 mergeado — nova matriz real (A–N) substitui a numeração histórica abaixo
+
+O PR #207 (`ba21b8f`, "move análise profunda stateful para background
+durável") mergeou em `main` depois que a matriz original (seção seguinte,
+cenários A–I) foi escrita. Ele entrega jobs duráveis reais: Vercel Queue,
+consumer separado, `companion_background_analysis_jobs`, watermark
+canônico, snapshot congelado, serialização por conversa, leases,
+redelivery guards e persistência V3. Isso torna vários cenários antes
+teóricos executáveis contra implementação real.
+
+**Atenção a uma diferença estrutural importante**: a numeração de letras do
+Controle Mestre mudou entre o mandato original (A–I, sobre a arquitetura
+síncrona V1) e o mandato pós-PR#207 (A–N, sobre os jobs de background
+reais) — **as letras não correspondem ao mesmo cenário nas duas listas**.
+A seção "Matriz histórica" abaixo (cenários A–I originais) é mantida como
+está, sem renumerar, para não quebrar as referências já registradas na
+Triagem do Controle Mestre acima (que cita "cenário B" no sentido
+histórico). A nova matriz A–N desta seção é a referência atual para tudo
+relacionado a jobs de background.
+
+### Identificadores reais confirmados (auditoria desta frente, sem alterar runtime)
+
+- **Job id**: `analysis_job_id` — não é aleatório. É
+  `sha256(JOB_VERSION, company_id, cycle_id, conversation_key, message_watermark)`,
+  hex de 64 caracteres (`stateful-copilot-background-job.ts`,
+  `buildStatefulCopilotBackgroundJobDescriptor`). Determinístico: o mesmo
+  escopo+watermark sempre produz o mesmo id.
+- **Watermark canônico**: `message_watermark` (texto opaco, sem formato
+  exigido pela migration além de `not null`) — na prática é o
+  `message_snapshot_hash` enviado pelo cliente ou o hash do texto da
+  conversa calculado no servidor. É o único watermark que participa da
+  identidade do job; os outros dois sinais já documentados nesta pasta
+  (versão de estado, conjunto de ids de mensagem) continuam existindo só na
+  camada de persistência do estado comercial, não no job em si.
+- **Serialização por conversa**: dupla trava real no banco —
+  `companion_background_analysis_jobs_scope_unique` em
+  `(company_id, cycle_id, conversation_key, message_watermark)` (dedup de
+  enqueue) e um **índice único parcial**
+  `companion_background_analysis_jobs_one_running_per_conversation_idx` em
+  `(company_id, cycle_id, conversation_key) where status = 'running'`
+  (só um job pode estar `running` por conversa a qualquer momento — isto
+  serializa a execução de jobs concorrentes da mesma conversa de verdade,
+  não só por convenção de aplicação).
+- **Lease**: `STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS = 210_000` (210s).
+  Reclamação por concorrência otimista: se `running` e o lease não expirou,
+  lança `BACKGROUND_JOB_ALREADY_RUNNING`; se expirou, um worker pode
+  reclamar comparando o `started_at` exato da tentativa anterior.
+- **Superseded**: `status = 'superseded'`, decidido **uma única vez**, antes
+  do claim, por `select ... where (company_id,cycle_id,conversation_key) = ...
+  and requested_at > job.requested_at` — se existir linha mais nova, o job
+  atual vira `superseded` e nunca chega a rodar o runtime. Não há uma
+  segunda checagem entre "runtime terminou" e "grava succeeded" — mas,
+  como o índice único parcial serializa execução (só um `running` por
+  conversa), um job mais novo não consegue começar a rodar enquanto o mais
+  velho ainda está com o lease, e ao ser liberado o mais novo sempre roda
+  sua própria checagem de superseded antes de reivindicar — na leitura do
+  código, isso fecha a janela de corrida entre dois jobs realmente
+  concorrentes. **Não confirmado por execução real** (ver "O que continua
+  sem verificação" abaixo).
+- **Redelivery**: `idempotencyKey: analysis_job_id` no publish da fila +
+  status terminal (`succeeded`/`failed`/`superseded`) como curto-circuito +
+  toda escrita de transição condicionada a
+  `.eq('status','running').eq('started_at', startedAt)` (uma redelivery
+  atrasada não pode sobrescrever um resultado já commitado por outra
+  execução do mesmo job).
+- **Retry**: nível de fila (`retryAfterSeconds: 15`, `vercel.json`) +
+  aplicação (`shouldRetryStatefulCopilotBackgroundFailure`, máximo 5
+  tentativas via `delivery_count` da própria fila — não há um contador de
+  tentativa separado no banco além do espelho `attempt_count`).
+- **Achado estrutural mais importante desta auditoria**: **não existe
+  nenhum caminho, nesta PR, que devolva o resultado profundo (`succeeded`)
+  ao vendedor.** A resposta síncrona de `POST /api/companion/analyze-conversation`
+  no modo `active` inclui só um envelope de identidade/status
+  (`deep_analysis: {analysis_job_id, status, message_watermark}`), nunca o
+  conteúdo do resultado profundo. Não há endpoint de polling nem qualquer
+  código na extensão que leia de volta um job `succeeded`. Isso significa
+  que **vários cenários abaixo ainda não têm como se manifestar como bug
+  visível ao vendedor hoje** — mas o guard que os preveniria também não
+  existe ainda, então quem construir o caminho de entrega (PR B/C) herda a
+  obrigação de aplicá-lo desde o primeiro commit que ligar isso à UI, não
+  depois.
+
+### Matriz A–N (mandato pós-PR #207)
+
+| # | Cenário | Esperado | Estado real (evidência) | Classificação | Executável agora? |
+|---|---|---|---|---|---|
+| A | Job A inicia → termina normalmente | Resultado profundo é computado e persistido para A | Caminho feliz. Constraints de banco provadas por `phase-12a-background-jobs-database-contract.test.mjs` (novo, 7/7 `PASS`, `npm run test:companion-background-jobs-db`). Execução real do worker (claim → runtime → persist) só tem cobertura por regex (`phase12a-background-analysis-foundation.test.mjs`), não por execução. | `PASS COM RESSALVA` — contrato de dados provado; orquestração ponta a ponta não exercitada por nenhum teste (nem os já existentes, nem o novo desta frente). | Parcial (DB sim, worker completo não — `createAdminClient()` cria o client Supabase real internamente, sem seam de injeção; testar o worker de ponta a ponta exigiria mock de módulo (`node:test` `mock.module`, experimental) ou um Supabase real/local, fora do escopo desta passada). |
+| B | Job A inicia → usuário abre B → A termina | Resultado de A nunca aparece em B | **Ainda não aplicável ao resultado profundo** — não existe caminho de entrega (ver achado estrutural acima). Aplicável hoje só à resposta rápida/síncrona (`suggestion`/`coaching` de V1), que é exatamente o mesmo `analyzeCurrentConversation` já provado `BLOCKER` na seção "Triagem do Controle Mestre". | `BLOCKER` já registrado (caminho rápido) / `N/A` (caminho profundo, ainda sem entrega) | Caminho rápido: sim (já executado). Caminho profundo: não aplicável ainda — **fica registrado como requisito obrigatório para quando o caminho de entrega for construído**, não como pendência nova. |
+| C | Watermark 1 → nova mensagem → watermark 2 → job 2. Resultado antigo nunca degrada estado novo | Job de watermark 1 não sobrescreve a interpretação da versão 2 | Dupla proteção: (1) CAS na persistência do estado comercial (inalterado pela V3, confirmado pela auditoria — `expected_previous_state_version` continua rejeitando escrita desatualizada); (2) supersede-check do job antes do claim (ver acima). | `PASS COM RESSALVA` — as duas camadas de proteção existem e têm evidência (CAS já testado; supersede-check provado por SQL direto nesta frente), mas nenhum teste faz as DUAS mensagens correrem de fato em paralelo contra o worker real. | Parcial — ver DB contract test (`(E/I)` no arquivo novo) para a query de supersede; CAS já coberto por testes pré-existentes. |
+| D | Dois triggers equivalentes para o mesmo snapshot → idempotência/coalescing | Dois enqueues idênticos não geram dois jobs efetivos | **Provado.** `companion_background_analysis_jobs_scope_unique (company_id, cycle_id, conversation_key, message_watermark)` — segundo enqueue idêntico colide na constraint; o route trata o erro `23505` como "job já existe, reusar". | `PASS` | **Sim — novo teste `(D)` em `phase-12a-background-jobs-database-contract.test.mjs`, execução real contra Postgres (PGlite), não regex.** |
+| E | Job antigo demora → job mais novo termina antes | Antigo é superseded/neutralizado e nunca vence | Provado ao nível de query (a mesma consulta que o worker usa) e ao nível de design (índice único parcial impede os dois de rodarem `running` ao mesmo tempo — ver "Achado" acima). | `PASS COM RESSALVA` | **Sim, ao nível de contrato de dados — novo teste `(E/I)`.** Execução real de dois jobs concorrentes contra o worker de verdade: não feita. |
+| F | Redelivery da Queue | Não produz intervenção duplicada | `idempotencyKey` no publish + status terminal como curto-circuito + escrita condicionada ao lease (`started_at` exato). Toda essa lógica só tem cobertura por regex hoje (`phase12a-background-concurrency.test.mjs`, teste "failed é terminal para redelivery duplicada" — string matching, não executa o worker duas vezes de verdade). | `PASS COM RESSALVA` | Não — exigiria simular uma redelivery real da fila contra o worker, não feito nesta passada. |
+| G | Lease concorrente | Um worker efetivo por job/conversa | **Provado ao nível de constraint**: índice único parcial `one_running_per_conversation_idx` rejeita um segundo `running` para a mesma conversa mesmo com watermark diferente; depois que o primeiro termina, um novo `running` é aceito normalmente. | `PASS` | **Sim — novo teste `(G)` em `phase-12a-background-jobs-database-contract.test.mjs`.** A reclamação de lease expirado (`runningLeaseExpired`, comparação de `started_at` exato) só tem cobertura por regex — não testado com tempo real/mockado. |
+| H | Job falha → retry | Retry controlado e sem duplicar estado válido | `shouldRetryStatefulCopilotBackgroundFailure` (máx. 5 tentativas via `delivery_count` da fila) só tem teste de unidade para a função pura (`stateful-copilot-background-job.test.mjs` — este sim executa a função real, não é regex). O caminho completo (falha → reset para `queued` → throw → fila redeleta → reclaim) não é exercitado ponta a ponta. | `PASS COM RESSALVA` | Parcial — a função de decisão de retry é testada de verdade; o fluxo completo, não. |
+| I | Reload da extensão durante job | Job continua pertencendo à conversa correta | Sem caminho de entrega do resultado profundo (achado estrutural acima), não há "estado errado" possível de aparecer na extensão hoje — o job continua existindo no banco, isolado por escopo, independentemente de reload do cliente. | `N/A` hoje / requisito futuro | Não aplicável até existir consumo client-side do resultado profundo. |
+| J | Usuário troca B → C → A enquanto job A roda | Ao voltar para A, só estado de A pode aparecer | Mesma situação do item B — aplicável hoje só ao caminho rápido (herdando o mesmo `BLOCKER`); não aplicável ao resultado profundo por falta de entrega. | `BLOCKER` (caminho rápido, herdado) / `N/A` (profundo) | Caminho rápido: extensão trivial do teste já existente, não duplicada aqui para não fragmentar o mesmo achado. Caminho profundo: pendente de entrega. |
+| K | Ciclo fechado enquanto job está em voo | — | FK `(company_id, cycle_id) references sales_cycles(company_id, id) on delete restrict` impede que o ciclo seja **excluído** enquanto há jobs referenciando-o (`on delete restrict`, provado indiretamente pelo teste `(L)` desta frente, que usa a mesma FK). Não encontrada nenhuma lógica que trate especificamente um ciclo **fechado/perdido/ganho** (mudança de `status`, não exclusão) enquanto um job está em voo — o worker não consulta `sales_cycles.status` em nenhum momento do trecho lido. | `PASS COM RESSALVA` (proteção contra exclusão) / **gap não coberto** (mudança de status durante o job) | Parcial — a proteção de FK contra exclusão é coberta pelo teste `(L)`; o comportamento com ciclo fechado por mudança de status não tem teste nem evidência de tratamento no código lido. |
+| L | Lead/cycle alterado validamente depois do snapshot | — | O job está ligado a `cycle_id` fixo, não a `lead_id` — uma alteração no lead (nome, telefone) depois do snapshot não afeta a identidade do job. Reatribuição de dono (`owner_user_id`) do ciclo durante o job: não verificada nesta auditoria. | `PASS COM RESSALVA` | Não testado nesta passada — cenário de menor prioridade dado que o job não referencia dados mutáveis do lead diretamente. |
+| M | Job superseded antes de terminar | — | Ver cenário E — a única checagem de supersede acontece antes do claim; não há segunda checagem entre "runtime terminou" e "grava succeeded". Pela análise de design (índice único parcial serializando `running`), a janela de corrida onde isso importaria não deveria se abrir na prática — mas isso é uma inferência de leitura de código, não uma prova por execução. | `PASS COM RESSALVA` — **maior prioridade de investigação adicional recomendada ao Controle Mestre antes de qualquer promoção além do piloto.** | Não — exigiria forçar deliberadamente a janela de corrida (dois workers reais, ou mock de timing) contra o worker de verdade. |
+| N | Resultado chega depois de uma análise manual mais nova | Resultado antigo não sobrescreve uma análise manual mais recente | "Análise manual" (clique em "Analisar agora") hoje usa o mesmo caminho síncrono de sempre (`analyzeCurrentConversation`), sem nenhuma relação com `message_watermark`/jobs de background. Se um job de background antigo algum dia for entregue à UI (quando o caminho de entrega existir), ele precisará checar contra o estado exibido no momento, exatamente a mesma lacuna do cenário B/J. | `BLOCKER` (herdado, mesma causa raiz) / `N/A` (sem entrega ainda) | Não — depende do caminho de entrega existir primeiro. |
+
+### O que continua sem verificação (declarado ao Controle Mestre)
+
+Nenhum teste — nem os pré-existentes (`phase12a-background-analysis-foundation.test.mjs`,
+`phase12a-background-concurrency.test.mjs`, ambos regex sobre texto-fonte)
+nem os novos desta frente (`phase-12a-background-jobs-database-contract.test.mjs`,
+que exercita constraints de banco reais mas não a função TypeScript do
+worker) — **invoca `processStatefulCopilotBackgroundMessage` de verdade**.
+`createAdminClient()` cria o client Supabase real internamente
+(`app/lib/server/stateful-copilot-background-worker.ts:74-105`), sem
+nenhum ponto de injeção — testar essa função exigiria `node:test`
+`mock.module` (experimental, precisaria de flag dedicada) ou um ambiente
+Supabase real/local. Isso foi avaliado e considerado fora do orçamento
+desta passada, dado o risco de um mock manual da cadeia de chamadas
+encadeadas (`.eq().eq().gt().maybeSingle()`, updates condicionais) produzir
+falsa confiança se a simulação não replicar exatamente a semântica do
+Postgres real — os testes de contrato de banco (SQL direto contra Postgres
+real via PGlite) foram priorizados por serem mais confiáveis com o mesmo
+esforço. Registrado como gap explícito, não escondido.
+
+## Matriz histórica (pré-PR #207 — cenários A–I originais, mantida para rastreabilidade)
+
 ## Cenário A — Conversa A inicia análise, usuário permanece em A, resultado chega
 
 | Campo | Conteúdo |

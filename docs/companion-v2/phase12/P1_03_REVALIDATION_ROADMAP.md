@@ -1,5 +1,47 @@
 # Roteiro de revalidação — P1-03 (`INVALID_COMMUNICATION_OUTPUT`)
 
+## Atualização pós-PR #207 — Controle Mestre declarou "P1-03 PASS"
+
+Auditoria desta frente confirma a evidência, com uma ressalva importante
+sobre **o que exatamente mudou**:
+
+- O laço de retry de comunicação em si
+  (`stateful-communication-executor.ts`/`stateful-copilot-orchestrator.ts`,
+  1-2 tentativas via `communication_attempts`) **não foi alterado** pelo
+  PR #207 — continua podendo levar múltiplas chamadas ao modelo.
+- O que mudou estruturalmente: esse laço agora roda inteiramente **dentro
+  do job de background** (`stateful-copilot-background-worker.ts`), com
+  orçamento próprio de `STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS = 120_000`
+  (120s) — e a resposta síncrona ao vendedor (`POST /api/companion/analyze-conversation`)
+  **nunca mais invoca esse runtime profundo diretamente**: o teste
+  `app/lib/companion/phase12a-stateful-latency.test.mjs` (`'request seller-facing
+  não executa runtime V2 profundo'`) confirma via regex que `routeSource`
+  não contém `runStatefulCopilotBackgroundRuntime`, e que o caminho
+  seller-facing usa `providerTimeoutMs: 8_000` só para a chamada V1 (teste
+  `'first value active limita V1 a 8s'`).
+- Ou seja: **"PASS" significa que o vendedor não bloqueia mais no retry de
+  comunicação** — não que o retry ficou mais rápido em si. O TTDA (tempo até
+  o resultado profundo, quando ele existir) ainda pode sofrer o mesmo
+  padrão de retry lento documentado abaixo; só não é mais o vendedor quem
+  espera por ele.
+- **Achado novo desta frente, não coberto por nenhum teste existente**: não
+  foi encontrado nenhum timeout interno que impeça o laço de 1-2 tentativas
+  de comunicação, somado ao laço de diagnóstico, de se aproximar ou
+  ultrapassar o próprio orçamento de 120s do job — e o `maxDuration: 180`
+  do consumer da fila (`vercel.json`) é o teto absoluto antes da própria
+  função ser encerrada pela plataforma. Isso não foi classificado como
+  `BLOCKER` (não há evidência de que já aconteça), mas fica registrado como
+  item de acompanhamento: revalidar com dados reais de latência do job
+  assim que houver telemetria de estágio (ver `LATENCY_MEASUREMENT_CRITERIA.md`
+  e `OBSERVABILITY_CONTRACT.md`, ambos atualizados nesta auditoria com o gap
+  de instrumentação por estágio).
+
+O restante deste documento (escrito antes do PR #207) permanece válido como
+metodologia geral de revalidação — os itens de "linha de base antes/depois"
+abaixo agora podem ser coletados a partir da telemetria de
+`companion_background_analysis_jobs`, uma vez que os campos de estágio
+(`started_at`/`completed_at`/`attempt_count`) existam de fato na tabela.
+
 ## Papel deste documento
 
 Este roteiro **não corrige P1-03**. Ele define como a Frente Paralela 3

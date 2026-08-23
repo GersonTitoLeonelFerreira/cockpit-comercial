@@ -28,7 +28,6 @@ function readSource(fileName) {
 const DEPENDENCY_FILES = [
   'yolen-api.js',
   'message-mutations.js',
-  'conversation-registration-tools.js',
   'capture-batch.js',
   'capture-resilience.js',
   'capture-resilience-null-base.js',
@@ -176,7 +175,8 @@ function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   analysisResult,
-  analysisJobStatusResult,
+  previewConversationRegistrationResult,
+  confirmConversationRegistrationResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -213,21 +213,6 @@ function createFakeBackground({
         },
       }
     },
-    GET_ANALYSIS_JOB_STATUS: async (requestPayload) => {
-      const payload =
-        typeof analysisJobStatusResult === 'function'
-          ? await analysisJobStatusResult(requestPayload)
-          : analysisJobStatusResult
-
-      return {
-        ok: true,
-        statusCode: 200,
-        payload: payload ?? {
-          ok: false,
-          error: 'Status de análise profunda não configurado neste cenário de teste.',
-        },
-      }
-    },
     // `clientContextResult` pode ser um valor estático (todo chamada
     // devolve o mesmo payload, como antes) ou uma função `(callNumber) =>
     // payload` — usada pelos testes de refresh ao vivo para simular a
@@ -249,6 +234,42 @@ function createFakeBackground({
         payload,
       }
     },
+    // `previewConversationRegistrationResult`/`confirmConversationRegistrationResult`
+    // seguem o mesmo formato de `analysisResult`: um valor estático ou uma
+    // função `(requestPayload) => payload`. Usado para simular o fluxo
+    // "Registrar conversa" (PR #205/#207) — em particular, uma resposta
+    // atrasada de preview/confirm que só resolve depois do vendedor trocar
+    // de conversa.
+    PREVIEW_CONVERSATION_REGISTRATION: async (requestPayload) => {
+      const payload =
+        typeof previewConversationRegistrationResult === 'function'
+          ? await previewConversationRegistrationResult(requestPayload)
+          : previewConversationRegistrationResult
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Preview de registro não configurado neste cenário de teste.',
+        },
+      }
+    },
+    CONFIRM_CONVERSATION_REGISTRATION: async (requestPayload) => {
+      const payload =
+        typeof confirmConversationRegistrationResult === 'function'
+          ? await confirmConversationRegistrationResult(requestPayload)
+          : confirmConversationRegistrationResult
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Confirmação de registro não configurada neste cenário de teste.',
+        },
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -268,14 +289,16 @@ export function loadContentScript({
   resolutionsByPhone,
   clientContextResult,
   analysisResult,
-  analysisJobStatusResult,
+  previewConversationRegistrationResult,
+  confirmConversationRegistrationResult,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   const background = createFakeBackground({
     resolutionsByPhone,
     clientContextResult,
     analysisResult,
-    analysisJobStatusResult,
+    previewConversationRegistrationResult,
+    confirmConversationRegistrationResult,
   })
 
   const fakeChrome = {
@@ -365,8 +388,12 @@ export function analysisCalls(calls) {
   return calls.filter((call) => call.action === 'ANALYZE_CONVERSATION')
 }
 
-export function analysisJobStatusCalls(calls) {
-  return calls.filter((call) => call.action === 'GET_ANALYSIS_JOB_STATUS')
+export function previewConversationRegistrationCalls(calls) {
+  return calls.filter((call) => call.action === 'PREVIEW_CONVERSATION_REGISTRATION')
+}
+
+export function confirmConversationRegistrationCalls(calls) {
+  return calls.filter((call) => call.action === 'CONFIRM_CONVERSATION_REGISTRATION')
 }
 
 function sleep(ms) {

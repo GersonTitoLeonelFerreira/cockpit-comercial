@@ -8,7 +8,52 @@ registrar conteúdo sensível, e documenta os gaps. Não altera nenhum runtime
 de produção nem nenhum schema de telemetria — é insumo para a Frente
 Principal decidir o que instrumentar no PR A.
 
-## O que já existe hoje
+## Atualização pós-PR #207 — canal novo real: `companion_background_analysis_jobs`
+
+O PR #207 criou um terceiro canal, muito mais próximo do que o mandato
+pede do que os dois canais originais abaixo — é uma **tabela**, não só log
+estruturado. Mapeamento direto contra a lista do mandato (seção 10):
+
+| Campo pedido | Existe? | Coluna real |
+|---|---|---|
+| job id | **Sim** | `analysis_job_id` (texto, sha256 de 64 hex — determinístico, não é UUID aleatório) |
+| company/cycle/conversation identificador | **Sim** | `company_id`, `cycle_id`, `conversation_key` (texto puro — telefone normalizado; não é hash. Ver ressalva abaixo) |
+| watermark | **Sim** | `message_watermark` |
+| created_at | **Sim** | `created_at` (default `clock_timestamp()`) — mas o momento que importa para latência é `requested_at`, capturado no código antes até da chamada V1 seller-facing |
+| started_at | **Sim** | `started_at` |
+| completed_at | **Sim** | `completed_at` |
+| status | **Sim** | `status` (`queued`\|`running`\|`succeeded`\|`failed`\|`superseded`) |
+| failure code | **Sim** | `failure_code` (+ `failure_path`, `failure_invariant`, extra) |
+| superseded/stale | **Parcial** | expresso só como `status='superseded'` — não existe uma coluna booleana separada nem histórico de "foi superseded na tentativa N" |
+| deep analysis attempts | **Sim** | `attempt_count` (espelha o `delivery_count` da fila) + `communication_attempts` (sub-estágio) |
+| time-to-first-value | **Não** | não existe conceito de "leitura rápida" separada no schema |
+| time-to-deep-analysis | **Parcial** | calculável como `completed_at - started_at`, mas nada marca quando (ou se) o resultado chegou a ficar disponível para o vendedor — porque não existe caminho de entrega ainda (ver `RACE_CONDITIONS_MATRIX.md`) |
+| candidate_state_version | **Sim** | `candidate_state_version` (nullable integer) |
+
+**Ressalva sobre `conversation_key`**: é texto puro (telefone normalizado),
+não hasheado, na própria tabela de jobs — mesmo padrão já usado em
+`companion_commercial_states`. Não é "conteúdo da conversa" (é um
+identificador operacional, necessário para roteamento), mas é dado pessoal
+identificável; a regra desta seção sobre "hash quando adequado" (mandato)
+seria mais estrita do que a prática já consolidada no restante do schema.
+Não é uma inconsistência introduzida pelo PR #207 — é o padrão já usado em
+toda a base; registrado aqui como observação, não como gap novo.
+
+**Confirmado ausente, mesmo depois do PR #207**: `worker_id`/instância que
+reivindicou o lease (não dá para saber qual execução física rodou um job,
+útil para depurar leases expirados); `lease_expires_at` (a expiração é
+calculada em memória a partir de `started_at` + `210_000`, nunca
+persistida); `queue_message_id` (nenhuma correlação entre a linha do banco
+e a entrega específica da fila do Vercel Queue); histórico por tentativa
+(`failure_code`/`failure_path` da tentativa anterior são sobrescritos a
+cada retry — só a última tentativa é visível).
+
+Novo teste que exercita a tabela real (não regex) e prova os campos acima
+existem com os tipos/constraints certos:
+`supabase/phase-tests/phase-12a-background-jobs-database-contract.test.mjs`
+(`npm run test:companion-background-jobs-db`).
+
+## O que já existe hoje (canais originais, pré-PR #207)
 
 ### Canal 1 — telemetria de shadow (em produção, não persistida em tabela dedicada)
 
@@ -90,15 +135,32 @@ existem, o que falta e o que pode ser reaproveitado:
   `findForbiddenMetadataPath`) e deveria se estender a qualquer novo canal de
   telemetria de job em background.
 
-## Gap declarado ao Controle Mestre
+## Gap declarado ao Controle Mestre (estado original, pré-PR #207 — mantido para rastreabilidade)
 
-A telemetria atual foi desenhada para uma execução síncrona única por
-ciclo. Ela não tem os campos necessários para: (1) correlacionar estágios de
-um job assíncrono ao longo do tempo (`job_id` ausente), (2) medir TTFV/TTDA
-separadamente (sem quebra de `duration_ms` por estágio), (3) expressar que um
-resultado foi descartado por estar obsoleto (`superseded`/`stale` ausentes
-do vocabulário). Nenhuma dessas lacunas foi fechada por esta frente — isso
-exigiria alterar `stateful-copilot-active-pilot-telemetry.ts` e o schema de
-persistência correspondente, fora do escopo desta missão (arquivos
-protegidos). Esta seção documenta a lacuna para a Frente Principal decidir
-como fechá-la no PR A.
+A telemetria original (canais 1 e 2 acima) foi desenhada para uma execução
+síncrona única por ciclo. Ela não tinha os campos necessários para: (1)
+correlacionar estágios de um job assíncrono ao longo do tempo (`job_id`
+ausente), (2) medir TTFV/TTDA separadamente (sem quebra de `duration_ms`
+por estágio), (3) expressar que um resultado foi descartado por estar
+obsoleto (`superseded`/`stale` ausentes do vocabulário).
+
+## Gap atualizado pós-PR #207
+
+O PR #207 fechou os itens (1) e (3) de verdade — `analysis_job_id` e
+`status='superseded'` existem e são reais, provados pelo novo teste de
+contrato de banco desta frente. O item (2) só ficou **parcialmente**
+fechado: TTDA agora é calculável (`completed_at - started_at`), mas TTFV
+continua sem nenhum campo dedicado, porque o conceito de "leitura rápida"
+separada da resposta síncrona V1 ainda não existe no código — a resposta
+seller-facing de hoje é só V1 + o envelope de status do job, não um estágio
+de leitura rápida próprio.
+
+Gaps que **continuam abertos** mesmo depois do PR #207: `worker_id`,
+`lease_expires_at`, `queue_message_id`, histórico por tentativa (ver seção
+acima) — e a ausência total de qualquer instrumentação de TTFV. Nenhuma
+dessas lacunas foi fechada por esta frente — fechá-las exigiria alterar
+`stateful-copilot-background-worker.ts`/`stateful-copilot-background-job.ts`
+e/ou a migration correspondente, fora do escopo desta missão (arquivos
+protegidos). Esta seção documenta a lacuna atualizada para a Frente
+Principal decidir como fechá-la no próximo PR de background/leitura
+rápida.
