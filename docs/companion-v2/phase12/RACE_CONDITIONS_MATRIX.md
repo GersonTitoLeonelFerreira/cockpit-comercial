@@ -175,21 +175,35 @@ três baterias independentes contra o head exato do PR #208:
      nunca é aplicada a `state` em lugar nenhum, nem fica "esperando"
      silenciosamente para reaparecer depois.
 
-   **Ambos os arquivos falham hoje (2/2 e 1/1) contra a branch atual do
-   PR #206** (esperado — o guard ainda não existe aqui) **e passam 100%
-   contra o head do PR #208** (2/2 e 1/1). Ficam commitados nesta branch
-   documentando o gap remanescente, exatamente como o teste original já
-   fazia, e devem virar verdes junto com ele quando `origin/main` (com o
-   PR #208 já mergeado) for trazido para esta branch.
+   Quando escritos (antes do merge administrativo do PR #208), ambos os
+   arquivos falhavam contra a branch do PR #206 e passavam 100% contra o
+   head isolado do PR #208 via worktree temporário.
+
+**Atualização — PR #208 mergeado em `main` (`1021867d`)**: `origin/main`
+foi trazido para esta branch (`git merge`, sem conflitos reais — só uma
+entrada duplicada de `'conversation-registration-tools.js'` em
+`DEPENDENCY_FILES`, resultado de as duas frentes terem corrigido o mesmo
+gap do harness de forma independente e não-conflitante; removida a
+duplicata). Depois do merge, rodando `npm run test:companion-extension-dom`
+de verdade nesta branch:
+
+```text
+tests 35
+pass 35
+fail 0
+```
+
+**35/35 PASS — os cinco checks originais do mandato, os cinco testes da
+suíte própria do PR #208, e os três testes novos desta frente, todos
+verdes ao mesmo tempo, sem nenhuma regressão.** Este é o resultado
+oficialmente confirmado pela Frente Paralela 3, de forma independente, para
+o gate pedido pelo Controle Mestre.
 
 **Conclusão desta seção**: a correção do PR #208 é estruturalmente sólida e
-passou em toda bateria adversarial aplicada até agora, incluindo dois
-sub-cenários e um cenário multi-hop que a própria suíte do PR #208 não
-cobria. **Nenhum `BLOCKER` novo encontrado.** A branch do PR #206
-permanece, por instrução do Controle Mestre, sem o merge de `origin/main`
-até o PR #208 ser integrado administrativamente — os três arquivos de teste
-citados acima já estão prontos e só aguardam esse merge para virarem verdes
-nesta branch.
+passou em toda bateria adversarial aplicada, incluindo dois sub-cenários e
+um cenário multi-hop que a própria suíte do PR #208 não cobria. **Nenhum
+`BLOCKER` novo encontrado. O BLOCKER histórico A→B está resolvido e
+confirmado.**
 
 ## PR #207 mergeado — nova matriz real (A–N) substitui a numeração histórica abaixo
 
@@ -407,7 +421,7 @@ esforço. Registrado como gap explícito, não escondido.
 | Cenário | Executável agora | Resultado atual | Bloqueia promoção da arquitetura progressiva? |
 |---|---|---|---|
 | A | Sim | PASS (caminho feliz já exercitado) | Não |
-| B | **Sim** | **BLOCKER triado** — 2/5 PASS, 3/5 FAIL (teste novo, ver "Triagem do Controle Mestre" acima) | **Sim — atribuído à Frente Principal, correção exigida no PR A** |
+| B | **Sim** | **RESOLVIDO — 5/5 PASS confirmado após o merge do PR #208** (ver "Validação independente do PR #208" acima) | Não — corrigido e confirmado. |
 | C | Parcial (persistência sim, exibição não) | PASS (persistência) / gap não testado (exibição) | Sim, na parte de exibição |
 | D | Não (falta harness de concorrência real) | Gap documentado, não testado | Sim, quando jobs assíncronos existirem |
 | E | Não (extensão trivial do teste B, propositalmente não duplicado ainda) | Gap por herança do cenário B | Sim |

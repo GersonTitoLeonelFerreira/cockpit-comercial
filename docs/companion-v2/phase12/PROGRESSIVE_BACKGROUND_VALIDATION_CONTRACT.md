@@ -241,10 +241,12 @@ unidade (`conversation-registration-tools.test.mjs`, já existia) e o DOM.
 ## Gaps confirmados (resumo executivo, com status pós-PR #207)
 
 1. **Nenhum guard de resultado obsoleto na camada de entrega ao vendedor**
-   — **ABERTO, BLOCKER triado pelo Controle Mestre.** Confirmado e provado
-   por teste (`RACE_CONDITIONS_MATRIX.md`, cenário B histórico / cenários
-   B, J, N da matriz A–N). Existe hoje, em produção, independente de
-   qualquer arquitetura de background.
+   — **FECHADO pelo PR #208** (`1021867d`, mergeado em `main`), confirmado
+   de forma independente por esta frente: 35/35 testes verdes
+   (`RACE_CONDITIONS_MATRIX.md`, "Validação independente do PR #208").
+   Continua relevante como requisito para o cenário B/J/N da matriz A–N
+   quando a entrega do resultado profundo existir — ver
+   `DEEP_RESULT_DELIVERY_ADVERSARIAL_MATRIX.md`.
 2. **Nenhum `job_id`/`run_id` emitido no início de uma execução** —
    **FECHADO pelo PR #207.** `analysis_job_id` (sha256 determinístico) é
    emitido no enqueue, provado real por `phase-12a-background-jobs-database-contract.test.mjs`.

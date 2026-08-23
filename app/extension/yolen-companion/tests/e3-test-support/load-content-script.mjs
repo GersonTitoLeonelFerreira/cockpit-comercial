@@ -32,7 +32,6 @@ const DEPENDENCY_FILES = [
   'capture-resilience.js',
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
-  'conversation-registration-tools.js',
   'companion-client-context-view.js',
   'companion-seller-information-view.js',
 ]
