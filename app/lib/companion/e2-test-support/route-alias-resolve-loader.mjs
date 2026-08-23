@@ -43,16 +43,47 @@ function resolveAliasPath(aliasPath) {
   return null
 }
 
+function normalizeAliasSpecifier(specifier) {
+  if (specifier.startsWith('@/')) {
+    return specifier
+  }
+
+  if (specifier.startsWith('file:')) {
+    try {
+      const url = new URL(specifier)
+      const marker = '/@/'
+      const markerIndex = url.pathname.indexOf(marker)
+
+      if (markerIndex !== -1) {
+        return `@/${url.pathname.slice(
+          markerIndex + marker.length,
+        )}`
+      }
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === 'next/server') {
     return nextResolve('next/server.js', context)
   }
 
-  if (specifier.startsWith('@/')) {
-    const resolvedPath = resolveAliasPath(specifier)
+  const aliasSpecifier =
+    normalizeAliasSpecifier(specifier)
+
+  if (aliasSpecifier) {
+    const resolvedPath =
+      resolveAliasPath(aliasSpecifier)
 
     if (resolvedPath) {
-      return nextResolve(pathToFileURL(resolvedPath).href, context)
+      return {
+        url: pathToFileURL(resolvedPath).href,
+        shortCircuit: true,
+      }
     }
   }
 

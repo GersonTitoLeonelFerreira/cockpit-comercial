@@ -113,6 +113,13 @@
   // sem isso, uma resposta antiga da MESMA conversa poderia vencer uma
   // resposta mais nova (ex.: duplo clique em "Analisar agora").
   let conversationAnalysisRequestSequence = 0
+  // Timer do poller de análise profunda em curso (setTimeout id). Cada novo
+  // ciclo de análise (analyzeCurrentConversation) cancela o timer anterior
+  // antes de, no máximo, agendar um novo — nunca existem dois timers vivos
+  // ao mesmo tempo.
+  let deepAnalysisPollTimerId = 0
+  const DEEP_ANALYSIS_POLL_DELAYS_MS = [1500, 2000, 3000, 4000, 5000]
+  const DEEP_ANALYSIS_POLL_TIMEOUT_MS = 240000
   let captureIngestionTimerId = 0
   let captureIngestionInFlight = false
   let captureIngestionQueued = false
@@ -170,6 +177,8 @@
     conversationAnalysisError: null,
     analyzedConversationFingerprint: null,
     automaticAnalysisStatus: null,
+    deepAnalysisStatus: null,
+    deepAnalysisResult: null,
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
     suggestionApplyError: null,
@@ -4286,6 +4295,7 @@
   function clearLeadStateForNewConversation() {
     capturedAudioBlobEntries = []
     clearAutomaticAnalysisTimer()
+    clearDeepAnalysisPollTimer()
     clearCompanionClientContextRefreshTimer()
     activeSellerArea = 'now'
 
@@ -4308,6 +4318,8 @@
       conversationAnalysisError: null,
       analyzedConversationFingerprint: null,
       automaticAnalysisStatus: null,
+      deepAnalysisStatus: null,
+      deepAnalysisResult: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -6404,6 +6416,92 @@
     }
   }
 
+  // A área ANÁLISE nunca expõe job id, queue, worker, watermark ou
+  // candidate version ao vendedor — apenas um rótulo de progresso e,
+  // quando concluída e comercialmente relevante, a leitura/mensagem
+  // aprofundada em texto simples.
+  function isDeepAnalysisCommerciallyActionable() {
+    return (
+      state.deepAnalysisResult
+        ?.commercial_relevance ===
+      'commercial'
+    )
+  }
+
+  function getDeepAnalysisStatusDetails() {
+    if (state.deepAnalysisStatus === 'pending') {
+      return [
+        'Análise aprofundada em andamento',
+      ]
+    }
+
+    if (state.deepAnalysisStatus === 'failed') {
+      return [
+        'Falha na análise aprofundada — nova tentativa na próxima leitura',
+      ]
+    }
+
+    if (state.deepAnalysisStatus === 'succeeded') {
+      if (!isDeepAnalysisCommerciallyActionable()) {
+        return [
+          'Análise aprofundada concluída — nenhuma intervenção comercial necessária',
+        ]
+      }
+
+      const details = [
+        'Análise atualizada com leitura aprofundada',
+      ]
+
+      const deepSummary =
+        state.deepAnalysisResult
+          ?.interpretation
+          ?.current_moment
+          ?.summary
+
+      if (deepSummary) {
+        details.push(
+          `Leitura aprofundada: ${deepSummary}`,
+        )
+      }
+
+      const deepMessage =
+        state.deepAnalysisResult
+          ?.strategy
+          ?.suggested_message
+
+      if (deepMessage) {
+        details.push(
+          `Mensagem sugerida (aprofundada): ${deepMessage}`,
+        )
+      }
+
+      return details
+    }
+
+    return []
+  }
+
+  function getDeepAnalysisStatusBlockHtml() {
+    const details =
+      getDeepAnalysisStatusDetails()
+
+    if (details.length === 0) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-decision-block yolen-deep-analysis-status">
+        <div class="yolen-decision-kicker">
+          Análise aprofundada
+        </div>
+
+        <div class="yolen-decision-copy">
+          ${escapeHtml(details.join(' · '))}
+        </div>
+      </div>
+    `
+  }
+
   function getAnalysisDescription() {
     if (state.suggestionApplyLoading) {
       return 'A Yolen está atualizando o ciclo, registrando evento e preservando o histórico.'
@@ -7412,6 +7510,8 @@
             )}
           </div>
         </div>
+
+        ${getDeepAnalysisStatusBlockHtml()}
 
         ${
           nextMove &&
@@ -8773,6 +8873,8 @@
               ${escapeHtml(neutralCopy.description)}
             </div>
           </div>
+
+          ${getDeepAnalysisStatusBlockHtml()}
         </div>
       `
     }
@@ -8823,6 +8925,8 @@
             `
             : ''
         }
+
+        ${getDeepAnalysisStatusBlockHtml()}
 
         ${getRichCommercialReadingLimitationsHtml(
           commercialReading,
@@ -11754,12 +11858,154 @@
     })
   }
 
+  function clearDeepAnalysisPollTimer() {
+    if (deepAnalysisPollTimerId) {
+      window.clearTimeout(deepAnalysisPollTimerId)
+      deepAnalysisPollTimerId = 0
+    }
+  }
+
+  // Acompanha, sem bloquear a UI, um job de análise profunda já criado pela
+  // resposta rápida do analyze-conversation. Reaproveita a MESMA identidade
+  // imutável de contexto (cycleId/conversationKeyAtRequest/requestSequence)
+  // capturada por analyzeCurrentConversation() através de
+  // isAnalysisResponseStillCurrent(): a cada tick, se a conversa/ciclo
+  // mudou ou uma análise mais nova já começou, o resultado profundo é
+  // descartado silenciosamente e nunca é aplicado a `state`.
+  //
+  // Backoff controlado (1.5s, 2s, 3s, 4s, 5s, 5s...), sem polling agressivo.
+  // Timeout total limitado (DEEP_ANALYSIS_POLL_TIMEOUT_MS) — nunca há
+  // polling infinito. Apenas um timer de poll vive por vez
+  // (deepAnalysisPollTimerId): iniciar um novo poll sempre cancela o
+  // anterior primeiro, então dois pollers "equivalentes" nunca aplicam
+  // estado em duplicidade.
+  function startDeepAnalysisPolling({
+    analysisJobId,
+    cycleId,
+    conversationKeyAtRequest,
+    isAnalysisResponseStillCurrent,
+  }) {
+    clearDeepAnalysisPollTimer()
+
+    const startedAtMs = Date.now()
+    let attempt = 0
+
+    const scheduleNextTick = () => {
+      if (!isAnalysisResponseStillCurrent()) {
+        return
+      }
+
+      if (Date.now() - startedAtMs >= DEEP_ANALYSIS_POLL_TIMEOUT_MS) {
+        state = {
+          ...state,
+          deepAnalysisStatus: 'failed',
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      const delay =
+        DEEP_ANALYSIS_POLL_DELAYS_MS[
+          Math.min(
+            attempt,
+            DEEP_ANALYSIS_POLL_DELAYS_MS.length - 1,
+          )
+        ]
+
+      attempt += 1
+
+      deepAnalysisPollTimerId =
+        window.setTimeout(runTick, delay)
+    }
+
+    const runTick = async () => {
+      deepAnalysisPollTimerId = 0
+
+      if (!isAnalysisResponseStillCurrent()) {
+        return
+      }
+
+      let response = null
+
+      try {
+        response =
+          await window.YolenCompanionApi
+            .getAnalysisJobStatus({
+              cycle_id: cycleId,
+              conversation_key: conversationKeyAtRequest,
+              analysis_job_id: analysisJobId,
+            })
+      } catch {
+        response = null
+      }
+
+      if (!isAnalysisResponseStillCurrent()) {
+        return
+      }
+
+      const data =
+        response?.ok && response.payload?.ok
+          ? response.payload.data
+          : null
+
+      if (!data || typeof data.status !== 'string') {
+        // Falha isolada de rede/servidor num único tick não vira estado de
+        // erro seller-facing — apenas tenta de novo no próximo backoff.
+        scheduleNextTick()
+        return
+      }
+
+      if (data.status === 'queued' || data.status === 'running') {
+        scheduleNextTick()
+        return
+      }
+
+      if (data.status === 'succeeded') {
+        state = {
+          ...state,
+          deepAnalysisStatus: 'succeeded',
+          deepAnalysisResult: data.result || null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (data.status === 'superseded') {
+        // Um job mais novo para a MESMA conversa já assumiu o lugar deste.
+        // Este job nunca vira estado corrente — não é falha, é apenas
+        // descartado.
+        state = {
+          ...state,
+          deepAnalysisStatus: null,
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        deepAnalysisStatus: 'failed',
+        deepAnalysisResult: null,
+      }
+
+      renderPanel()
+    }
+
+    scheduleNextTick()
+  }
+
   async function analyzeCurrentConversation(
     options = {},
   ) {
     const isAutomatic =
       options.automatic === true
 
+    clearDeepAnalysisPollTimer()
     clearAutomaticAnalysisTimer()
 
     if (!canAnalyzeCurrentConversation()) {
@@ -11862,6 +12108,8 @@
         isAutomatic
           ? 'Analisando automaticamente as novas mensagens...'
           : null,
+      deepAnalysisStatus: null,
+      deepAnalysisResult: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -11942,6 +12190,49 @@
       )
 
       renderPanel()
+
+      const deepAnalysisJob =
+        result.payload.data.deep_analysis
+
+      if (
+        deepAnalysisJob?.analysis_job_id &&
+        (
+          deepAnalysisJob.status === 'queued' ||
+          deepAnalysisJob.status === 'running' ||
+          deepAnalysisJob.status === 'succeeded'
+        )
+      ) {
+        state = {
+          ...state,
+          deepAnalysisStatus: 'pending',
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+
+        startDeepAnalysisPolling({
+          analysisJobId:
+            deepAnalysisJob.analysis_job_id,
+          cycleId,
+          conversationKeyAtRequest,
+          isAnalysisResponseStillCurrent,
+        })
+      } else if (
+        deepAnalysisJob?.analysis_job_id
+      ) {
+        // status já veio 'failed' ou 'superseded' na própria resposta
+        // rápida — nada a acompanhar.
+        state = {
+          ...state,
+          deepAnalysisStatus:
+            deepAnalysisJob.status === 'failed'
+              ? 'failed'
+              : null,
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+      }
 
       registerSuggestionShownTelemetry({
         cycleId,
