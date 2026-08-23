@@ -153,6 +153,16 @@ persistência (CAS por versão). A lacuna é replicar o mesmo princípio na
 camada de entrega ao vendedor (extensão) e, futuramente, na camada de
 fila/worker que a Frente Principal introduzir no PR A.
 
+**Ratificação do Controle Mestre (sobre o PR #206):** esta política foi
+confirmada como regra obrigatória e estrutural do background foundation,
+com o cenário B da matriz de corrida como BLOCKER de referência. Correção
+atribuída à Frente Principal, preferencialmente no PR A. O checklist de
+regressão de 5 pontos (análise, fingerprint, loading/error, área ANÁLISE,
+área CLIENTE) está em `RACE_CONDITIONS_MATRIX.md`, seção "Triagem do
+Controle Mestre", e no próprio teste
+`content-script-dom-stale-analysis-cross-conversation-race.test.mjs`
+(`npm run test:companion-extension-dom`) — hoje 2/5 `PASS`, 3/5 `FAIL`.
+
 ## Non-commercial — o que a auditoria confirmou
 
 `commercial-relevance.ts` define `commercial`/`non_commercial`/`uncertain`,
@@ -215,9 +225,13 @@ quando o PR B existir.
 ## O que esta frente entrega como executável hoje
 
 - Um teste de regressão real e isolado
-  (`app/extension/yolen-companion/tests/e3-dom/content-script-dom-stale-analysis-cross-conversation-race.test.mjs`)
-  que **falha hoje**, provando o gap #1 acima contra o `content-script.js`
-  real, sem modificá-lo.
+  (`app/extension/yolen-companion/tests/e3-dom/content-script-dom-stale-analysis-cross-conversation-race.test.mjs`,
+  rodável via `npm run test:companion-extension-dom`), estruturado como 5
+  verificações independentes (análise, fingerprint, loading/error, área
+  ANÁLISE, área CLIENTE) que **falham em 3 delas hoje**, provando o gap #1
+  acima contra o `content-script.js` real, sem modificá-lo. Ratificado pelo
+  Controle Mestre como o checklist de regressão para a correção da Frente
+  Principal.
 - Todas as matrizes e critérios documentados nesta pasta, prontos para virar
   testes executáveis assim que PR A/B/C existirem (cada linha das matrizes
   indica se já é executável ou pendente).

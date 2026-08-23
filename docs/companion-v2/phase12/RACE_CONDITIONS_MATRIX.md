@@ -41,7 +41,7 @@ app/extension/yolen-companion/tests/e3-dom/content-script-dom-stale-analysis-cro
 Rodar com:
 
 ```bash
-node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/content-script-dom-stale-analysis-cross-conversation-race.test.mjs
+npm run test:companion-extension-dom
 ```
 
 Este teste carrega o `content-script.js` real (não modificado) e falha hoje
@@ -52,6 +52,53 @@ mudou desde a última leitura", porque o fingerprint de A contamina o estado
 interno usado para decidir se a leitura de B está desatualizada. Ele deve
 virar verde quando um guard equivalente a `isStillCurrentContext()` for
 aplicado a `analyzeCurrentConversation` — fora do escopo desta frente.
+
+## Triagem do Controle Mestre (registrada sobre o PR #206)
+
+O Controle Mestre confirmou o cenário B como **BLOCKER estrutural da Fase
+12A** e decidiu:
+
+1. A correção pertence à **Frente Principal**, preferencialmente no primeiro
+   PR que tocar o ciclo de vida de um resultado assíncrono (PR A — background
+   foundation) — nunca nesta frente.
+2. **Regra obrigatória** (vinculante para a arquitetura progressiva): todo
+   resultado assíncrono deve continuar vinculado ao contexto que iniciou a
+   operação (`company_id`, `cycle_id`, `conversation_key`,
+   watermark/fingerprint apropriado). Quando o resultado chegar, se a
+   conversa atualmente exibida for diferente, **não aplicar esse resultado à
+   UI atual**. Na arquitetura de background futura, o resultado pode
+   continuar pertencendo/persistindo para a conversa original (A) — o que é
+   proibido é `resultado A → estado/UI de B`.
+3. **Cenário bidirecional obrigatório**, explicitamente detalhado pelo
+   Controle Mestre: "A inicia → B abre → B analisa → A termina depois". O
+   resultado de A não pode: substituir a análise de B; substituir o
+   fingerprint de B; marcar B falsamente como desatualizada; alterar
+   loading/error de B; alterar as áreas AGORA/ANÁLISE/CLIENTE de B.
+4. **Regressão obrigatória**: depois da correção, o mesmo cenário deve ser
+   trazido ou replicado na branch principal e provar `PASS`, sem depender do
+   PR #206 estar mergeado. Quando a correção entrar na `main`, esta frente
+   atualiza sua branch e o teste original deve passar.
+
+O teste `content-script-dom-stale-analysis-cross-conversation-race.test.mjs`
+foi expandido para servir exatamente como esse checklist de regressão — cada
+um dos cinco pontos do item 3 acima é um `test()` independente no arquivo,
+para que a correção possa ser validada ponto a ponto, não só como um
+resultado agregado. Estado atual (antes da correção):
+
+| # | Verificação | Resultado hoje |
+|---|---|---|
+| 1/5 | Análise de B não é substituída pela de A | `FAIL` |
+| 2/5 | Fingerprint de B não é contaminado pelo de A | `FAIL` |
+| 3/5 | Loading/error de B não é alterado pela chegada tardia de A | `PASS` |
+| 4/5 | Área ANÁLISE de B não é contaminada | `FAIL` |
+| 5/5 | Área CLIENTE de B não é afetada (controle) | `PASS` |
+
+Os itens 3/5 e 5/5 já passam hoje porque usam estados internos separados
+(`conversationAnalysisLoading`/`conversationAnalysisError` não são tocados
+pela resposta bem-sucedida de A; `companionClientContext` já tem seu próprio
+guard `isStillCurrentContext()`). Os itens 1/5, 2/5 e 4/5 são exatamente o
+que a correção da Frente Principal precisa fazer virar `PASS`, sem regredir
+os dois que já passam.
 
 ## Cenário A — Conversa A inicia análise, usuário permanece em A, resultado chega
 
@@ -69,9 +116,9 @@ aplicado a `analyzeCurrentConversation` — fora do escopo desta frente.
 |---|---|
 | Esperado | Resultado de A nunca aparece em B. |
 | Classificação se violado | `BLOCKER`. |
-| Estado hoje | **FAIL confirmado** — ver "Achado que atravessa toda a matriz" acima. |
-| Executável agora? | **Sim, já executado e falhando** — `content-script-dom-stale-analysis-cross-conversation-race.test.mjs`. |
-| Pendente PR A/B/C | Reexecutar o mesmo teste (ou uma variante) contra a leitura rápida e contra o resultado profundo em background quando existirem; o guard precisa cobrir os dois estágios, não só a chamada única de hoje. |
+| Estado hoje | **BLOCKER confirmado e triado pelo Controle Mestre** — ver "Achado que atravessa toda a matriz" e "Triagem do Controle Mestre" acima. Correção atribuída à Frente Principal (PR A), não a esta frente. |
+| Executável agora? | **Sim, já executado — 2/5 PASS, 3/5 FAIL** — `content-script-dom-stale-analysis-cross-conversation-race.test.mjs` (`npm run test:companion-extension-dom`). |
+| Pendente PR A/B/C | Depois da correção: reexecutar este mesmo arquivo (os 5 `test()`) contra a `main` corrigida e provar os 5/5 `PASS`, sem depender do PR #206 estar mergeado; depois reexecutar contra a leitura rápida e o resultado profundo em background quando esses dois estágios existirem — o guard precisa cobrir ambos, não só a chamada única de hoje. |
 
 ## Cenário C — A dispara com watermark 1, nova mensagem eleva para watermark 2, resultado de watermark 1 chega depois
 
@@ -147,7 +194,7 @@ aplicado a `analyzeCurrentConversation` — fora do escopo desta frente.
 | Cenário | Executável agora | Resultado atual | Bloqueia promoção da arquitetura progressiva? |
 |---|---|---|---|
 | A | Sim | PASS (caminho feliz já exercitado) | Não |
-| B | **Sim** | **FAIL confirmado** (teste novo, ver acima) | **Sim — precisa de correção antes do PR A/B/C** |
+| B | **Sim** | **BLOCKER triado** — 2/5 PASS, 3/5 FAIL (teste novo, ver "Triagem do Controle Mestre" acima) | **Sim — atribuído à Frente Principal, correção exigida no PR A** |
 | C | Parcial (persistência sim, exibição não) | PASS (persistência) / gap não testado (exibição) | Sim, na parte de exibição |
 | D | Não (falta harness de concorrência real) | Gap documentado, não testado | Sim, quando jobs assíncronos existirem |
 | E | Não (extensão trivial do teste B, propositalmente não duplicado ainda) | Gap por herança do cenário B | Sim |
@@ -156,7 +203,9 @@ aplicado a `analyzeCurrentConversation` — fora do escopo desta frente.
 | H | Parcial (padrão provado em outro componente) | Gap não testado no caminho de análise | Recomendado, não bloqueante por si só |
 | I | Não (falta reproduzir chamada "abandonada" terminando tarde) | Gap documentado, prioridade alta de investigação | Sim |
 
-O cenário B já está provado como `BLOCKER` hoje, antes mesmo do PR A. Isso
-deve ser reportado ao Controle Mestre como achado independente da missão de
-background — é uma falha de isolamento de conversa que já existe em
-produção no V1.
+O cenário B já está provado como `BLOCKER` hoje, antes mesmo do PR A — é uma
+falha de isolamento de conversa que já existe em produção no V1, independente
+da missão de background. **Triado pelo Controle Mestre**: correção exigida na
+Frente Principal, preferencialmente no PR A (background foundation), seguindo
+a regra obrigatória e o checklist de 5 pontos descritos em "Triagem do
+Controle Mestre" acima. Esta frente não corrige — só mede e reporta.
