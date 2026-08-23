@@ -188,6 +188,18 @@ export interface AnalyzeConversationResponse {
   data?: {
     engine_source?: 'v1' | 'stateful'
 
+    deep_analysis?: {
+      analysis_job_id: string
+
+      status:
+        | 'queued'
+        | 'running'
+        | 'succeeded'
+        | 'failed'
+
+      message_watermark: string
+    }
+
     commercial_reading?:
       CommercialReading
 

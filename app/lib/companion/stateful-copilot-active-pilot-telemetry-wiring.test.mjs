@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import {
+  readFileSync,
+} from 'node:fs'
 import test from 'node:test'
 
 const routeSource =
@@ -12,36 +14,56 @@ const routeSource =
   )
 
 test(
-  'rota active utiliza telemetria padronizada da fase 5.4',
+  'runtime background emite diagnóstico técnico sem conteúdo da conversa',
   () => {
     assert.match(
       routeSource,
-      /buildStatefulCopilotActivePilotTelemetry/,
+      /YOLEN_COMPANION_STATEFUL_BACKGROUND/,
     )
 
     assert.match(
       routeSource,
-      /event:\s*'active_success'/,
+      /background_analysis_succeeded/,
     )
 
     assert.match(
       routeSource,
-      /event:\s*'active_fallback_v1'/,
+      /background_analysis_failed/,
     )
 
     assert.match(
       routeSource,
-      /event:\s*'active_unhandled_fallback_v1'/,
+      /communication_attempts:/,
     )
   },
 )
 
 test(
-  'telemetria active continua usando canal exclusivo do piloto',
+  'telemetria background preserva escopo e safety',
   () => {
     assert.match(
       routeSource,
-      /YOLEN_COMPANION_STATEFUL_ACTIVE/,
+      /analysis_job_id:/,
+    )
+
+    assert.match(
+      routeSource,
+      /company_id:/,
+    )
+
+    assert.match(
+      routeSource,
+      /cycle_id:/,
+    )
+
+    assert.match(
+      routeSource,
+      /automatic_crm_write:/,
+    )
+
+    assert.match(
+      routeSource,
+      /automatic_agenda_write:/,
     )
   },
 )
