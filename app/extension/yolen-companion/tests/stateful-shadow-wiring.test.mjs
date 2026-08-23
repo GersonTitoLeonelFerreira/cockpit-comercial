@@ -31,8 +31,17 @@ const analyzeRoute =
     'utf8',
   )
 
+const queueRoute =
+  readFileSync(
+    new URL(
+      '../../../api/queues/companion-deep-analysis/route.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test(
-  'análise envia a chave canônica usada pelo ledger',
+  'análise envia conversation key canônica',
   () => {
     const start =
       contentScript.indexOf(
@@ -58,13 +67,8 @@ test(
 )
 
 test(
-  'background injeta device key da instalação na análise',
+  'background da extensão injeta device key',
   () => {
-    assert.match(
-      background,
-      /async function handleConversationAnalysis\(message\)/,
-    )
-
     assert.match(
       background,
       /handleConversationAnalysis[\s\S]*getOrCreateDeviceKey\(\)/,
@@ -78,22 +82,7 @@ test(
 )
 
 test(
-  'rota mantém roteamento explícito v1 shadow active',
-  () => {
-    assert.match(
-      analyzeRoute,
-      /statefulRouteMode ===\s*'shadow'/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /statefulRouteMode ===\s*'active'/,
-    )
-  },
-)
-
-test(
-  'shadow continua executando stateful depois da resposta operacional',
+  'shadow continua usando after',
   () => {
     assert.match(
       analyzeRoute,
@@ -108,83 +97,36 @@ test(
 )
 
 test(
-  'active executa V1 primeiro e agenda V2 profundo em background',
+  'active usa Queue e não after para V2 profundo',
   () => {
-    const v1Analysis =
-      analyzeRoute.indexOf(
-        'const result = await analyzeConversationWithCopilotDetailed({',
-      )
-
-    const backgroundRuntime =
-      analyzeRoute.indexOf(
-        'runStatefulCopilotBackgroundRuntime({',
-      )
-
-    assert.ok(
-      v1Analysis >=
-        0,
-    )
-
-    assert.ok(
-      backgroundRuntime >
-        v1Analysis,
-    )
-
-    const activeBackground =
-      analyzeRoute.slice(
-        v1Analysis,
-        backgroundRuntime +
-          300,
-      )
-
     assert.match(
-      activeBackground,
-      /after\(async \(\) => \{/,
+      analyzeRoute,
+      /statefulActiveBackgroundRequested[\s\S]*await send\(/,
+    )
+
+    const afterOccurrences =
+      analyzeRoute.match(
+        /after\(async \(\) => \{/g,
+      ) ?? []
+
+    assert.equal(
+      afterOccurrences.length,
+      1,
     )
   },
 )
 
 test(
-  'active seller-facing permanece V1 enquanto análise profunda processa',
+  'consumer é separado da chamada seller-facing',
   () => {
     assert.match(
-      analyzeRoute,
-      /const responseData = \{[\s\S]*\.\.\.v1ResponseData/,
+      queueRoute,
+      /handleCallback/,
     )
 
     assert.match(
-      analyzeRoute,
-      /deep_analysis:\s*deepAnalysis/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /data:\s*responseData/,
-    )
-
-    assert.doesNotMatch(
-      analyzeRoute,
-      /data:\s*activeResponseData/,
-    )
-  },
-)
-
-test(
-  'job mantém conversation e watermark originais mesmo com troca posterior de chat',
-  () => {
-    assert.match(
-      analyzeRoute,
-      /conversation_key:\s*backgroundJob\s*\.conversation_key/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /reference_time:\s*backgroundJob\s*\.requested_at/,
-    )
-
-    assert.match(
-      analyzeRoute,
-      /message_watermark:\s*backgroundJob\s*\.message_watermark/,
+      queueRoute,
+      /processStatefulCopilotBackgroundMessage/,
     )
   },
 )

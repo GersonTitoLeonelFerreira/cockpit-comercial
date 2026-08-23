@@ -3,8 +3,13 @@ import test from 'node:test'
 
 import {
   STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
+  STATEFUL_COPILOT_BACKGROUND_JOB_VERSION,
+  STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
   buildStatefulCopilotBackgroundJobDescriptor,
+  buildStatefulCopilotBackgroundJobMessage,
   isStatefulCopilotBackgroundJobStatus,
+  parseStatefulCopilotBackgroundJobMessage,
+  shouldRetryStatefulCopilotBackgroundFailure,
 } from './stateful-copilot-background-job.ts'
 
 function buildJob(
@@ -31,7 +36,7 @@ function buildJob(
 }
 
 test(
-  'background profundo possui orçamento separado de 120 segundos',
+  'background profundo possui orçamento próprio de 120 segundos',
   () => {
     assert.equal(
       STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
@@ -41,26 +46,38 @@ test(
 )
 
 test(
-  'mesmo escopo e watermark produzem o mesmo job id',
+  'fila usa contrato versionado',
   () => {
-    const first =
-      buildJob()
-
-    const second =
-      buildJob({
-        requested_at:
-          '2026-08-23T00:11:00.000Z',
-      })
+    assert.equal(
+      STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+      'companion-deep-analysis-v1',
+    )
 
     assert.equal(
-      first.analysis_job_id,
-      second.analysis_job_id,
+      STATEFUL_COPILOT_BACKGROUND_JOB_VERSION,
+      'phase12a-background-job-v2',
     )
   },
 )
 
 test(
-  'troca de conversa produz outro job id',
+  'mesmo escopo e watermark produzem mesmo job id',
+  () => {
+    assert.equal(
+      buildJob()
+        .analysis_job_id,
+
+      buildJob({
+        requested_at:
+          '2026-08-23T00:11:00.000Z',
+      })
+        .analysis_job_id,
+    )
+  },
+)
+
+test(
+  'outra conversa produz outro job',
   () => {
     assert.notEqual(
       buildJob()
@@ -76,7 +93,7 @@ test(
 )
 
 test(
-  'nova fotografia produz outro job id',
+  'nova fotografia produz outro job',
   () => {
     assert.notEqual(
       buildJob()
@@ -92,48 +109,113 @@ test(
 )
 
 test(
-  'status de job é fail closed',
+  'mensagem não transporta conteúdo da conversa',
   () => {
+    const message =
+      buildStatefulCopilotBackgroundJobMessage({
+        descriptor:
+          buildJob(),
+
+        device_key:
+          'device-a',
+      })
+
     assert.equal(
-      isStatefulCopilotBackgroundJobStatus(
-        'queued',
-      ),
-      true,
+      message.device_key,
+      'device-a',
     )
 
     assert.equal(
-      isStatefulCopilotBackgroundJobStatus(
-        'succeeded',
-      ),
-      true,
+      'conversation_text' in
+        message,
+      false,
     )
 
     assert.equal(
-      isStatefulCopilotBackgroundJobStatus(
-        'invented',
-      ),
+      'messages' in
+        message,
       false,
     )
   },
 )
 
 test(
-  'job rejeita escopo ou watermark vazio',
+  'parser rejeita analysis job adulterado',
   () => {
-    assert.throws(
-      () =>
-        buildJob({
-          conversation_key:
-            '',
-        }),
-    )
+    const message =
+      buildStatefulCopilotBackgroundJobMessage({
+        descriptor:
+          buildJob(),
+
+        device_key:
+          'device-a',
+      })
 
     assert.throws(
       () =>
-        buildJob({
-          message_watermark:
-            '',
+        parseStatefulCopilotBackgroundJobMessage({
+          ...message,
+
+          analysis_job_id:
+            'adulterado',
         }),
+    )
+
+    assert.deepEqual(
+      parseStatefulCopilotBackgroundJobMessage(
+        message,
+      ),
+      message,
+    )
+  },
+)
+
+test(
+  'status inclui superseded',
+  () => {
+    assert.equal(
+      isStatefulCopilotBackgroundJobStatus(
+        'superseded',
+      ),
+      true,
+    )
+  },
+)
+
+test(
+  'retry é limitado a cinco entregas',
+  () => {
+    assert.equal(
+      shouldRetryStatefulCopilotBackgroundFailure({
+        retryable:
+          true,
+
+        delivery_count:
+          1,
+      }),
+      true,
+    )
+
+    assert.equal(
+      shouldRetryStatefulCopilotBackgroundFailure({
+        retryable:
+          true,
+
+        delivery_count:
+          4,
+      }),
+      true,
+    )
+
+    assert.equal(
+      shouldRetryStatefulCopilotBackgroundFailure({
+        retryable:
+          true,
+
+        delivery_count:
+          5,
+      }),
+      false,
     )
   },
 )

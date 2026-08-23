@@ -1,9 +1,9 @@
 -- Yolen Companion — FASE 12A
--- Jobs duráveis da análise profunda executada fora do caminho síncrono.
+-- Jobs duráveis da análise profunda fora do request seller-facing.
 --
--- Não armazena conteúdo da conversa.
--- Não autoriza escrita automática em CRM ou Agenda.
--- Isolamento obrigatório por empresa, ciclo, conversa e watermark.
+-- Queue transporta somente identidade/escopo do job.
+-- Conteúdo da conversa continua no ledger canônico.
+-- CRM e Agenda permanecem fail-closed.
 
 create table
   public.companion_background_analysis_jobs (
@@ -46,6 +46,10 @@ create table
 
     communication_attempts smallint,
 
+    attempt_count smallint
+      default 0
+      not null,
+
     automatic_crm_write boolean
       default false
       not null,
@@ -70,70 +74,31 @@ create table
       ),
 
     constraint
-      companion_background_analysis_jobs_conversation_check
-      check (
-        char_length(
-          btrim(
-            conversation_key
-          )
-        )
-          between 1 and 500
-      ),
-
-    constraint
-      companion_background_analysis_jobs_watermark_check
-      check (
-        char_length(
-          btrim(
-            message_watermark
-          )
-        )
-          between 1 and 200
-      ),
-
-    constraint
       companion_background_analysis_jobs_status_check
       check (
         status in (
           'queued',
           'running',
           'succeeded',
-          'failed'
+          'failed',
+          'superseded'
         )
       ),
 
     constraint
-      companion_background_analysis_jobs_attempts_check
+      companion_background_analysis_jobs_attempt_count_check
+      check (
+        attempt_count
+          between 0 and 100
+      ),
+
+    constraint
+      companion_background_analysis_jobs_communication_attempts_check
       check (
         communication_attempts is null
         or communication_attempts in (
           1,
           2
-        )
-      ),
-
-    constraint
-      companion_background_analysis_jobs_timestamps_check
-      check (
-        (
-          status = 'queued'
-          and started_at is null
-          and completed_at is null
-        )
-        or
-        (
-          status = 'running'
-          and started_at is not null
-          and completed_at is null
-        )
-        or
-        (
-          status in (
-            'succeeded',
-            'failed'
-          )
-          and started_at is not null
-          and completed_at is not null
         )
       ),
 

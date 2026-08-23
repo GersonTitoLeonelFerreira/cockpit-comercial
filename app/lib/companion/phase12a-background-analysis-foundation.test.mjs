@@ -13,10 +13,19 @@ const routeSource =
     'utf8',
   )
 
-const deadlineSource =
+const queueRouteSource =
   readFileSync(
     new URL(
-      './stateful-copilot-cycle-deadline.ts',
+      '../../api/queues/companion-deep-analysis/route.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+const workerSource =
+  readFileSync(
+    new URL(
+      '../server/stateful-copilot-background-worker.ts',
       import.meta.url,
     ),
     'utf8',
@@ -31,10 +40,10 @@ const backgroundJobSource =
     'utf8',
   )
 
-const responseTypeSource =
+const loaderSource =
   readFileSync(
     new URL(
-      '../../types/ai-sales.ts',
+      './stateful-copilot-real-context-loader.ts',
       import.meta.url,
     ),
     'utf8',
@@ -49,12 +58,88 @@ const migrationSource =
     'utf8',
   )
 
+const vercelSource =
+  readFileSync(
+    new URL(
+      '../../../vercel.json',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+const packageSource =
+  readFileSync(
+    new URL(
+      '../../../package.json',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test(
-  '12A mantém 25s como guardrail legado e dá 120s somente ao V2 background',
+  'active publica V2 na Queue depois do first value',
+  () => {
+    const v1 =
+      routeSource.indexOf(
+        'const result = await analyzeConversationWithCopilotDetailed({',
+      )
+
+    const publish =
+      routeSource.indexOf(
+        'await send(',
+      )
+
+    assert.ok(
+      v1 >= 0,
+    )
+
+    assert.ok(
+      publish > v1,
+    )
+
+    assert.match(
+      routeSource,
+      /STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /runStatefulCopilotBackgroundRuntime/,
+    )
+  },
+)
+
+test(
+  'Queue possui consumer push separado da request',
   () => {
     assert.match(
-      deadlineSource,
-      /DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS\s*=\s*25_000/,
+      packageSource,
+      /"@vercel\/queue":\s*"0\.5\.0"/,
+    )
+
+    assert.match(
+      queueRouteSource,
+      /handleCallback/,
+    )
+
+    assert.match(
+      vercelSource,
+      /"type":\s*"queue\/v2beta"/,
+    )
+
+    assert.match(
+      vercelSource,
+      /"topic":\s*"companion-deep-analysis-v1"/,
+    )
+  },
+)
+
+test(
+  'consumer possui 180s e V2 interno possui 120s',
+  () => {
+    assert.match(
+      queueRouteSource,
+      /maxDuration\s*=\s*180/,
     )
 
     assert.match(
@@ -63,99 +148,59 @@ test(
     )
 
     assert.match(
-      routeSource,
-      /runStatefulCopilotBackgroundRuntime\s*=\s*createStatefulCopilotServerRuntimeOrchestrator\(\{[\s\S]*cycle_deadline_ms:\s*STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS/,
+      workerSource,
+      /cycle_deadline_ms:\s*STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS/,
     )
   },
 )
 
 test(
-  'active não aguarda V2 antes de responder ao vendedor',
+  'fotografia stateful é congelada pelo observed_at',
   () => {
-    const v1 =
-      routeSource.indexOf(
-        'const result = await analyzeConversationWithCopilotDetailed({',
-      )
-
-    const background =
-      routeSource.indexOf(
-        'runStatefulCopilotBackgroundRuntime({',
-      )
-
-    assert.ok(
-      v1 >=
-        0,
-    )
-
-    assert.ok(
-      background >
-        v1,
+    assert.match(
+      workerSource,
+      /reference_time:\s*job\.requested_at/,
     )
 
     assert.match(
-      routeSource,
-      /statefulActiveBackgroundRequested\s*=\s*statefulRouteMode ===\s*'active'/,
-    )
-
-    assert.match(
-      routeSource,
-      /after\(async \(\) => \{[\s\S]*runStatefulCopilotBackgroundRuntime/,
-    )
-
-    assert.doesNotMatch(
-      routeSource,
-      /buildStatefulActiveResponseData/,
+      loaderSource,
+      /\.lte\(\s*'observed_at',\s*referenceTime/,
     )
   },
 )
 
 test(
-  'first value active limita V1 a 8s e evita segunda IA de coaching',
+  'job antigo pode ser superseded',
+  () => {
+    assert.match(
+      workerSource,
+      /\.gt\(\s*'requested_at',\s*job\.requested_at/,
+    )
+
+    assert.match(
+      workerSource,
+      /status:\s*'superseded'/,
+    )
+  },
+)
+
+test(
+  'publicação usa idempotency key e retention',
   () => {
     assert.match(
       routeSource,
-      /providerTimeoutMs:\s*statefulActiveBackgroundRequested\s*\?\s*8_000\s*:\s*undefined/,
+      /idempotencyKey:\s*backgroundJob\s*\.analysis_job_id/,
     )
 
     assert.match(
       routeSource,
-      /const coaching =\s*statefulActiveBackgroundRequested\s*\?\s*buildCompanionCoaching/,
+      /retentionSeconds:/,
     )
   },
 )
 
 test(
-  'job fica isolado por company cycle conversation e watermark',
-  () => {
-    assert.match(
-      routeSource,
-      /company_id:\s*tokenPayload\.company_id/,
-    )
-
-    assert.match(
-      routeSource,
-      /cycle_id:\s*cycleId/,
-    )
-
-    assert.match(
-      routeSource,
-      /conversation_key:\s*conversationKey/,
-    )
-
-    assert.match(
-      routeSource,
-      /message_watermark:\s*messageSnapshotHash\s*\|\|\s*conversationHash/,
-    )
-
-    assert.match(
-      migrationSource,
-      /unique\s*\(\s*company_id,\s*cycle_id,\s*conversation_key,\s*message_watermark\s*\)/,
-    )
-  },
-)
-
-test(
-  'background nunca autoriza escrita automática em CRM ou Agenda',
+  'background permanece fail closed para CRM e Agenda',
   () => {
     assert.match(
       migrationSource,
@@ -163,43 +208,28 @@ test(
     )
 
     assert.match(
-      routeSource,
-      /automatic_crm_write:\s*statefulResult\s*\.automatic_crm_write/,
-    )
-
-    assert.match(
-      routeSource,
-      /automatic_agenda_write:\s*statefulResult\s*\.automatic_agenda_write/,
+      workerSource,
+      /AUTOMATIC_WRITE_SAFETY_VIOLATION/,
     )
   },
 )
 
 test(
-  'job server-side não fica acessível para anon ou authenticated',
+  'job e Queue não transportam conteúdo da conversa',
   () => {
-    assert.match(
-      migrationSource,
-      /to anon, authenticated[\s\S]*using\s*\(false\)[\s\S]*with check\s*\(false\)/,
-    )
-
-    assert.match(
-      migrationSource,
-      /grant[\s\S]*select,[\s\S]*insert,[\s\S]*update[\s\S]*to service_role/,
-    )
-  },
-)
-
-test(
-  'resposta transporta somente identidade e status do job',
-  () => {
-    assert.match(
-      responseTypeSource,
-      /deep_analysis\?:\s*\{[\s\S]*analysis_job_id: string[\s\S]*message_watermark: string/,
+    assert.doesNotMatch(
+      backgroundJobSource,
+      /conversation_text/,
     )
 
     assert.doesNotMatch(
-      responseTypeSource,
-      /deep_analysis\?:\s*\{[\s\S]*conversation_text/,
+      backgroundJobSource,
+      /suggested_message/,
+    )
+
+    assert.doesNotMatch(
+      migrationSource,
+      /conversation_text/,
     )
   },
 )

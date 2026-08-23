@@ -41,7 +41,7 @@ const salesCopilotSource =
   )
 
 test(
-  '12A preserva o deadline padrão de 25 segundos',
+  'guardrail stateful padrão permanece em 25s',
   () => {
     assert.match(
       deadlineSource,
@@ -51,7 +51,7 @@ test(
 )
 
 test(
-  '12A possui orçamento profundo separado de 120 segundos',
+  'background profundo possui orçamento separado de 120s',
   () => {
     assert.match(
       backgroundJobSource,
@@ -61,7 +61,7 @@ test(
 )
 
 test(
-  '12A limita o first value V1 a 8 segundos quando active roda em background',
+  'first value active limita V1 a 8s',
   () => {
     assert.match(
       routeSource,
@@ -72,20 +72,30 @@ test(
       salesCopilotSource,
       /AbortSignal\.timeout\(\s*providerTimeoutMs/,
     )
+  },
+)
 
+test(
+  'first value active evita segunda IA de coaching',
+  () => {
     assert.match(
-      salesCopilotSource,
-      /openai_timeout/,
+      routeSource,
+      /statefulActiveBackgroundRequested\s*\?\s*buildCompanionCoaching/,
     )
   },
 )
 
 test(
-  '12A não executa segunda IA de coaching antes de devolver first value',
+  'request seller-facing não executa runtime V2 profundo',
   () => {
+    assert.doesNotMatch(
+      routeSource,
+      /runStatefulCopilotBackgroundRuntime/,
+    )
+
     assert.match(
       routeSource,
-      /statefulActiveBackgroundRequested\s*\?\s*buildCompanionCoaching/,
+      /await send\(/,
     )
   },
 )

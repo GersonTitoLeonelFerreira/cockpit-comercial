@@ -4,15 +4,6 @@ import {
 } from 'node:fs'
 import test from 'node:test'
 
-const routeSource =
-  readFileSync(
-    new URL(
-      '../../api/companion/analyze-conversation/route.ts',
-      import.meta.url,
-    ),
-    'utf8',
-  )
-
 const migrationSource =
   readFileSync(
     new URL(
@@ -22,33 +13,39 @@ const migrationSource =
     'utf8',
   )
 
+const workerSource =
+  readFileSync(
+    new URL(
+      '../server/stateful-copilot-background-worker.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test(
-  'active cria job durável antes de executar o runtime background',
+  'storage possui escopo e watermark',
   () => {
-    const insert =
-      routeSource.indexOf(
-        ".from(\n            'companion_background_analysis_jobs'",
+    for (
+      const field of [
+        'company_id',
+        'cycle_id',
+        'conversation_key',
+        'message_watermark',
+        'attempt_count',
+      ]
+    ) {
+      assert.match(
+        migrationSource,
+        new RegExp(
+          field,
+        ),
       )
-
-    const runtime =
-      routeSource.indexOf(
-        'runStatefulCopilotBackgroundRuntime({',
-      )
-
-    assert.ok(
-      insert >=
-        0,
-    )
-
-    assert.ok(
-      runtime >
-        insert,
-    )
+    }
   },
 )
 
 test(
-  'job possui estados queued running succeeded failed',
+  'storage suporta estados do job',
   () => {
     for (
       const status of [
@@ -56,6 +53,7 @@ test(
         'running',
         'succeeded',
         'failed',
+        'superseded',
       ]
     ) {
       assert.match(
@@ -69,32 +67,32 @@ test(
 )
 
 test(
-  'resultado persiste communication attempts e falha segura',
+  'worker persiste diagnóstico seguro',
   () => {
     assert.match(
-      routeSource,
+      workerSource,
       /communication_attempts:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /failure_code:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /failure_path:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /failure_invariant:/,
     )
   },
 )
 
 test(
-  'storage não contém conteúdo da conversa',
+  'storage não guarda conteúdo da conversa',
   () => {
     assert.doesNotMatch(
       migrationSource,

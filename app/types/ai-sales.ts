@@ -196,6 +196,7 @@ export interface AnalyzeConversationResponse {
         | 'running'
         | 'succeeded'
         | 'failed'
+        | 'superseded'
 
       message_watermark: string
     }

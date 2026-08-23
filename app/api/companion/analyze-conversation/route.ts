@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import { after, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { send } from '@vercel/queue'
 
 import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
 import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
@@ -15,8 +16,9 @@ import {
   createStatefulCopilotServerRuntimeOrchestrator,
 } from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
 import {
-  STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
+  STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
   buildStatefulCopilotBackgroundJobDescriptor,
+  buildStatefulCopilotBackgroundJobMessage,
   isStatefulCopilotBackgroundJobStatus,
 } from '@/app/lib/server/stateful-copilot-background-job'
 import {
@@ -57,12 +59,6 @@ type AnalyzeCompanionBody = {
 
 const runStatefulCopilotRuntime =
   createStatefulCopilotServerRuntimeOrchestrator()
-
-const runStatefulCopilotBackgroundRuntime =
-  createStatefulCopilotServerRuntimeOrchestrator({
-    cycle_deadline_ms:
-      STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
-  })
 
 type CompanionMessageDirection =
   | 'incoming'
@@ -2138,14 +2134,61 @@ export async function POST(request: Request) {
       if (
         shouldScheduleBackground
       ) {
-        after(async () => {
-          const startedAt =
+        try {
+          await send(
+            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+
+            buildStatefulCopilotBackgroundJobMessage({
+              descriptor:
+                backgroundJob,
+
+              device_key:
+                deviceKey,
+            }),
+
+            {
+              idempotencyKey:
+                backgroundJob
+                  .analysis_job_id,
+
+              retentionSeconds:
+                24 *
+                60 *
+                60,
+            },
+          )
+
+          console.info(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_published',
+
+              company_id:
+                backgroundJob
+                  .company_id,
+
+              cycle_id:
+                backgroundJob
+                  .cycle_id,
+
+              analysis_job_id:
+                backgroundJob
+                  .analysis_job_id,
+
+              message_watermark:
+                backgroundJob
+                  .message_watermark,
+            }),
+          )
+        } catch {
+          const completedAt =
             new Date()
               .toISOString()
 
           const {
             error:
-              markRunningError,
+              publishFailurePersistenceError,
           } =
             await admin
               .from(
@@ -2153,13 +2196,22 @@ export async function POST(request: Request) {
               )
               .update({
                 status:
-                  'running',
+                  'failed',
 
-                started_at:
-                  startedAt,
+                completed_at:
+                  completedAt,
 
                 updated_at:
-                  startedAt,
+                  completedAt,
+
+                failure_code:
+                  'QUEUE_PUBLISH_FAILED',
+
+                automatic_crm_write:
+                  false,
+
+                automatic_agenda_write:
+                  false,
               })
               .eq(
                 'analysis_job_id',
@@ -2191,484 +2243,44 @@ export async function POST(request: Request) {
                 'queued',
               )
 
-          if (
-            markRunningError
-          ) {
-            console.warn(
-              'YOLEN_COMPANION_STATEFUL_BACKGROUND',
-              JSON.stringify({
-                event:
-                  'background_job_start_failed',
+          deepAnalysis = {
+            analysis_job_id:
+              backgroundJob
+                .analysis_job_id,
 
-                company_id:
-                  backgroundJob
-                    .company_id,
+            status:
+              'failed',
 
-                cycle_id:
-                  backgroundJob
-                    .cycle_id,
-
-                analysis_job_id:
-                  backgroundJob
-                    .analysis_job_id,
-
-                database_code:
-                  markRunningError
-                    .code ??
-                  null,
-              }),
-            )
-
-            return
+            message_watermark:
+              backgroundJob
+                .message_watermark,
           }
 
-          const runtimeStartedAt =
-            Date.now()
+          console.warn(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_publish_failed',
 
-          try {
-            const statefulResult =
-              await runStatefulCopilotBackgroundRuntime({
-                company_id:
-                  backgroundJob
-                    .company_id,
-
-                cycle_id:
-                  backgroundJob
-                    .cycle_id,
-
-                conversation_key:
-                  backgroundJob
-                    .conversation_key,
-
-                device_key:
-                  deviceKey,
-
-                reference_time:
-                  backgroundJob
-                    .requested_at,
-
-                v1_response:
-                  v1ResponseData,
-              })
-
-            const completedAt =
-              new Date()
-                .toISOString()
-
-            if (
-              statefulResult.mode ===
-              'active'
-            ) {
-              const {
-                error:
-                  markSuccessError,
-              } =
-                await admin
-                  .from(
-                    'companion_background_analysis_jobs',
-                  )
-                  .update({
-                    status:
-                      'succeeded',
-
-                    completed_at:
-                      completedAt,
-
-                    updated_at:
-                      completedAt,
-
-                    runtime_mode:
-                      statefulResult
-                        .mode,
-
-                    response_source:
-                      statefulResult
-                        .response_source,
-
-                    candidate_state_version:
-                      statefulResult
-                        .stateful_execution
-                        .candidate_state_version,
-
-                    failure_code:
-                      null,
-
-                    failure_path:
-                      null,
-
-                    failure_invariant:
-                      null,
-
-                    communication_attempts:
-                      statefulResult
-                        .stateful_execution
-                        .communication_attempts,
-
-                    automatic_crm_write:
-                      statefulResult
-                        .automatic_crm_write,
-
-                    automatic_agenda_write:
-                      statefulResult
-                        .automatic_agenda_write,
-                  })
-                  .eq(
-                    'analysis_job_id',
-                    backgroundJob
-                      .analysis_job_id,
-                  )
-                  .eq(
-                    'company_id',
-                    backgroundJob
-                      .company_id,
-                  )
-                  .eq(
-                    'cycle_id',
-                    backgroundJob
-                      .cycle_id,
-                  )
-                  .eq(
-                    'conversation_key',
-                    backgroundJob
-                      .conversation_key,
-                  )
-                  .eq(
-                    'message_watermark',
-                    backgroundJob
-                      .message_watermark,
-                  )
-                  .eq(
-                    'status',
-                    'running',
-                  )
-
-              console.info(
-                'YOLEN_COMPANION_STATEFUL_BACKGROUND',
-                JSON.stringify({
-                  event:
-                    markSuccessError
-                      ? 'background_result_persistence_failed'
-                      : 'background_analysis_succeeded',
-
-                  company_id:
-                    backgroundJob
-                      .company_id,
-
-                  cycle_id:
-                    backgroundJob
-                      .cycle_id,
-
-                  analysis_job_id:
-                    backgroundJob
-                      .analysis_job_id,
-
-                  message_watermark:
-                    backgroundJob
-                      .message_watermark,
-
-                  duration_ms:
-                    Math.max(
-                      0,
-                      Date.now() -
-                        runtimeStartedAt,
-                    ),
-
-                  communication_attempts:
-                    statefulResult
-                      .stateful_execution
-                      .communication_attempts,
-
-                  automatic_crm_write:
-                    statefulResult
-                      .automatic_crm_write,
-
-                  automatic_agenda_write:
-                    statefulResult
-                      .automatic_agenda_write,
-                }),
-              )
-
-              return
-            }
-
-            const failure =
-              statefulResult
-                .stateful_failure
-
-            const execution =
-              statefulResult
-                .stateful_execution
-
-            const failurePath =
-              failure
-                ?.communication_failure_path ??
-              failure
-                ?.diagnostic_failure_path ??
-              null
-
-            const failureInvariant =
-              failure
-                ?.communication_failure_invariant ??
-              failure
-                ?.diagnostic_failure_invariant ??
-              null
-
-            await admin
-              .from(
-                'companion_background_analysis_jobs',
-              )
-              .update({
-                status:
-                  'failed',
-
-                completed_at:
-                  completedAt,
-
-                updated_at:
-                  completedAt,
-
-                runtime_mode:
-                  statefulResult
-                    .mode,
-
-                response_source:
-                  statefulResult
-                    .response_source,
-
-                candidate_state_version:
-                  execution
-                    ?.candidate_state_version ??
-                  null,
-
-                failure_code:
-                  failure
-                    ?.code ??
-                  statefulResult
-                    .mode,
-
-                failure_path:
-                  failurePath,
-
-                failure_invariant:
-                  failureInvariant,
-
-                communication_attempts:
-                  execution
-                    ?.communication_attempts ??
-                  failure
-                    ?.communication_attempts ??
-                  null,
-
-                automatic_crm_write:
-                  statefulResult
-                    .automatic_crm_write,
-
-                automatic_agenda_write:
-                  statefulResult
-                    .automatic_agenda_write,
-              })
-              .eq(
-                'analysis_job_id',
-                backgroundJob
-                  .analysis_job_id,
-              )
-              .eq(
-                'company_id',
+              company_id:
                 backgroundJob
                   .company_id,
-              )
-              .eq(
-                'cycle_id',
+
+              cycle_id:
                 backgroundJob
                   .cycle_id,
-              )
-              .eq(
-                'conversation_key',
-                backgroundJob
-                  .conversation_key,
-              )
-              .eq(
-                'message_watermark',
-                backgroundJob
-                  .message_watermark,
-              )
-              .eq(
-                'status',
-                'running',
-              )
 
-            console.warn(
-              'YOLEN_COMPANION_STATEFUL_BACKGROUND',
-              JSON.stringify({
-                event:
-                  'background_analysis_failed',
-
-                company_id:
-                  backgroundJob
-                    .company_id,
-
-                cycle_id:
-                  backgroundJob
-                    .cycle_id,
-
-                analysis_job_id:
-                  backgroundJob
-                    .analysis_job_id,
-
-                message_watermark:
-                  backgroundJob
-                    .message_watermark,
-
-                duration_ms:
-                  Math.max(
-                    0,
-                    Date.now() -
-                      runtimeStartedAt,
-                  ),
-
-                failure_code:
-                  failure
-                    ?.code ??
-                  null,
-
-                failure_path:
-                  failurePath,
-
-                failure_invariant:
-                  failureInvariant,
-
-                communication_attempts:
-                  execution
-                    ?.communication_attempts ??
-                  failure
-                    ?.communication_attempts ??
-                  null,
-
-                automatic_crm_write:
-                  statefulResult
-                    .automatic_crm_write,
-
-                automatic_agenda_write:
-                  statefulResult
-                    .automatic_agenda_write,
-              }),
-            )
-          } catch (error) {
-            const completedAt =
-              new Date()
-                .toISOString()
-
-            const safeFailureCode =
-              isRecord(
-                error,
-              ) &&
-              typeof error.code ===
-                'string'
-                ? error.code
-                    .trim()
-                    .slice(
-                      0,
-                      120,
-                    ) ||
-                  'BACKGROUND_RUNTIME_FAILED'
-                : 'BACKGROUND_RUNTIME_FAILED'
-
-            await admin
-              .from(
-                'companion_background_analysis_jobs',
-              )
-              .update({
-                status:
-                  'failed',
-
-                completed_at:
-                  completedAt,
-
-                updated_at:
-                  completedAt,
-
-                runtime_mode:
-                  'background_unhandled_failure',
-
-                response_source:
-                  'v1',
-
-                failure_code:
-                  safeFailureCode,
-
-                automatic_crm_write:
-                  false,
-
-                automatic_agenda_write:
-                  false,
-              })
-              .eq(
-                'analysis_job_id',
+              analysis_job_id:
                 backgroundJob
                   .analysis_job_id,
-              )
-              .eq(
-                'company_id',
-                backgroundJob
-                  .company_id,
-              )
-              .eq(
-                'cycle_id',
-                backgroundJob
-                  .cycle_id,
-              )
-              .eq(
-                'conversation_key',
-                backgroundJob
-                  .conversation_key,
-              )
-              .eq(
-                'message_watermark',
-                backgroundJob
-                  .message_watermark,
-              )
-              .eq(
-                'status',
-                'running',
-              )
 
-            console.warn(
-              'YOLEN_COMPANION_STATEFUL_BACKGROUND',
-              JSON.stringify({
-                event:
-                  'background_analysis_unhandled_failure',
-
-                company_id:
-                  backgroundJob
-                    .company_id,
-
-                cycle_id:
-                  backgroundJob
-                    .cycle_id,
-
-                analysis_job_id:
-                  backgroundJob
-                    .analysis_job_id,
-
-                duration_ms:
-                  Math.max(
-                    0,
-                    Date.now() -
-                      runtimeStartedAt,
-                  ),
-
-                failure_code:
-                  safeFailureCode,
-
-                automatic_crm_write:
-                  false,
-
-                automatic_agenda_write:
-                  false,
-              }),
-            )
-          }
-        })
+              persistence_failed:
+                Boolean(
+                  publishFailurePersistenceError,
+                ),
+            }),
+          )
+        }
       }
     }
 

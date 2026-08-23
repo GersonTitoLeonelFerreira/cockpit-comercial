@@ -5,16 +5,23 @@ import {
 } from 'crypto'
 
 export const STATEFUL_COPILOT_BACKGROUND_JOB_VERSION =
-  'phase12a-background-job-v1' as const
+  'phase12a-background-job-v2' as const
+
+export const STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC =
+  'companion-deep-analysis-v1' as const
 
 export const STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS =
   120_000
+
+export const STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS =
+  5
 
 export const STATEFUL_COPILOT_BACKGROUND_JOB_STATUSES = [
   'queued',
   'running',
   'succeeded',
   'failed',
+  'superseded',
 ] as const
 
 export type StatefulCopilotBackgroundJobStatus =
@@ -41,6 +48,26 @@ export type StatefulCopilotBackgroundJobDescriptor = {
 
   requested_at:
     string
+}
+
+export type StatefulCopilotBackgroundJobMessage =
+  StatefulCopilotBackgroundJobDescriptor & {
+    device_key:
+      string
+  }
+
+function isRecord(
+  value:
+    unknown,
+): value is Record<string, unknown> {
+  return (
+    Boolean(value) &&
+    typeof value ===
+      'object' &&
+    !Array.isArray(
+      value,
+    )
+  )
 }
 
 function requireText(
@@ -87,11 +114,14 @@ function requireDateTime(
       80,
     )
 
+  const timestamp =
+    Date.parse(
+      normalized,
+    )
+
   if (
     !Number.isFinite(
-      Date.parse(
-        normalized,
-      ),
+      timestamp,
     )
   ) {
     throw new Error(
@@ -99,7 +129,9 @@ function requireDateTime(
     )
   }
 
-  return normalized
+  return new Date(
+    timestamp,
+  ).toISOString()
 }
 
 export function isStatefulCopilotBackgroundJobStatus(
@@ -210,4 +242,112 @@ export function buildStatefulCopilotBackgroundJobDescriptor({
     requested_at:
       requestedAt,
   })
+}
+
+export function buildStatefulCopilotBackgroundJobMessage({
+  descriptor,
+  device_key,
+}: {
+  descriptor:
+    StatefulCopilotBackgroundJobDescriptor
+
+  device_key:
+    unknown
+}): StatefulCopilotBackgroundJobMessage {
+  return Object.freeze({
+    ...descriptor,
+
+    device_key:
+      requireText(
+        device_key,
+        'device_key',
+        100,
+      ),
+  })
+}
+
+export function parseStatefulCopilotBackgroundJobMessage(
+  value:
+    unknown,
+): StatefulCopilotBackgroundJobMessage {
+  if (
+    !isRecord(
+      value,
+    )
+  ) {
+    throw new Error(
+      'Mensagem do job background inválida.',
+    )
+  }
+
+  if (
+    value.job_version !==
+    STATEFUL_COPILOT_BACKGROUND_JOB_VERSION
+  ) {
+    throw new Error(
+      'Versão do job background incompatível.',
+    )
+  }
+
+  const descriptor =
+    buildStatefulCopilotBackgroundJobDescriptor({
+      company_id:
+        value.company_id,
+
+      cycle_id:
+        value.cycle_id,
+
+      conversation_key:
+        value.conversation_key,
+
+      message_watermark:
+        value.message_watermark,
+
+      requested_at:
+        value.requested_at,
+    })
+
+  if (
+    value.analysis_job_id !==
+    descriptor.analysis_job_id
+  ) {
+    throw new Error(
+      'analysis_job_id não corresponde ao escopo do job.',
+    )
+  }
+
+  return buildStatefulCopilotBackgroundJobMessage({
+    descriptor,
+
+    device_key:
+      value.device_key,
+  })
+}
+
+export function shouldRetryStatefulCopilotBackgroundFailure({
+  retryable,
+  delivery_count,
+}: {
+  retryable:
+    unknown
+
+  delivery_count:
+    unknown
+}): boolean {
+  if (
+    retryable !== true ||
+    typeof delivery_count !==
+      'number' ||
+    !Number.isSafeInteger(
+      delivery_count,
+    ) ||
+    delivery_count < 1
+  ) {
+    return false
+  }
+
+  return (
+    delivery_count <
+    STATEFUL_COPILOT_BACKGROUND_MAX_DELIVERY_ATTEMPTS
+  )
 }

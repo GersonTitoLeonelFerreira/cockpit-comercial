@@ -4,66 +4,76 @@ import {
 } from 'node:fs'
 import test from 'node:test'
 
-const routeSource =
+const workerSource =
   readFileSync(
     new URL(
-      '../../api/companion/analyze-conversation/route.ts',
+      '../server/stateful-copilot-background-worker.ts',
       import.meta.url,
     ),
     'utf8',
   )
 
 test(
-  'runtime background emite diagnóstico técnico sem conteúdo da conversa',
+  'worker emite sucesso falha e superseded',
   () => {
     assert.match(
-      routeSource,
-      /YOLEN_COMPANION_STATEFUL_BACKGROUND/,
-    )
-
-    assert.match(
-      routeSource,
+      workerSource,
       /background_analysis_succeeded/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /background_analysis_failed/,
     )
 
     assert.match(
-      routeSource,
-      /communication_attempts:/,
+      workerSource,
+      /background_analysis_superseded/,
     )
   },
 )
 
 test(
-  'telemetria background preserva escopo e safety',
+  'telemetria mantém escopo e safety',
   () => {
     assert.match(
-      routeSource,
+      workerSource,
       /analysis_job_id:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /company_id:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /cycle_id:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
+      /communication_attempts:/,
+    )
+
+    assert.match(
+      workerSource,
       /automatic_crm_write:/,
     )
 
     assert.match(
-      routeSource,
+      workerSource,
       /automatic_agenda_write:/,
+    )
+  },
+)
+
+test(
+  'telemetria não escreve conversation text',
+  () => {
+    assert.doesNotMatch(
+      workerSource,
+      /conversation_text/,
     )
   },
 )
