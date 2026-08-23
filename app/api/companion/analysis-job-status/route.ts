@@ -16,8 +16,6 @@ import {
 } from '@/app/lib/server/companion-token'
 
 type AnalysisJobStatusBody = {
-  cycle_id?: unknown
-  conversation_key?: unknown
   analysis_job_id?: unknown
 }
 
@@ -86,13 +84,10 @@ export async function OPTIONS(
 }
 
 /*
- * Endpoint somente leitura sobre um resultado de análise profunda já
- * produzido e já persistido. Nunca chama OpenAI, nunca cria job, nunca
- * escreve em CRM/Agenda. A autorização é encadeada e fail-closed:
- * token autenticado -> empresa autorizada -> ciclo autorizado (e da
- * carteira do usuário) -> job pertence exatamente a esse
- * company_id/cycle_id/conversation_key. analysis_job_id sozinho nunca
- * é aceito como chave de busca.
+ * Endpoint read-only de uma análise profunda já produzida/persistida.
+ * O cliente fornece somente analysis_job_id. company_id vem do token e
+ * cycle/conversation/version são derivados server-side do próprio job.
+ * A rota nunca chama OpenAI, nunca cria job e nunca escreve CRM/Agenda.
  */
 export async function POST(
   request: Request,
@@ -184,12 +179,6 @@ export async function POST(
       await loadCompanionAnalysisJobStatus({
         admin,
         token,
-
-        cycle_id:
-          body.cycle_id,
-
-        conversation_key:
-          body.conversation_key,
 
         analysis_job_id:
           body.analysis_job_id,
