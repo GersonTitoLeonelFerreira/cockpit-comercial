@@ -175,6 +175,7 @@ function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   analysisResult,
+  analysisJobStatusResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -208,6 +209,21 @@ function createFakeBackground({
         payload: payload ?? {
           ok: false,
           error: 'Análise não configurada neste cenário de teste.',
+        },
+      }
+    },
+    GET_ANALYSIS_JOB_STATUS: async (requestPayload) => {
+      const payload =
+        typeof analysisJobStatusResult === 'function'
+          ? await analysisJobStatusResult(requestPayload)
+          : analysisJobStatusResult
+
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: payload ?? {
+          ok: false,
+          error: 'Status de análise profunda não configurado neste cenário de teste.',
         },
       }
     },
@@ -251,12 +267,14 @@ export function loadContentScript({
   resolutionsByPhone,
   clientContextResult,
   analysisResult,
+  analysisJobStatusResult,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   const background = createFakeBackground({
     resolutionsByPhone,
     clientContextResult,
     analysisResult,
+    analysisJobStatusResult,
   })
 
   const fakeChrome = {
@@ -322,6 +340,10 @@ export function clientContextCalls(calls) {
 
 export function analysisCalls(calls) {
   return calls.filter((call) => call.action === 'ANALYZE_CONVERSATION')
+}
+
+export function analysisJobStatusCalls(calls) {
+  return calls.filter((call) => call.action === 'GET_ANALYSIS_JOB_STATUS')
 }
 
 function sleep(ms) {

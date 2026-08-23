@@ -413,6 +413,17 @@ async function handleCompanionMessage(message) {
 
   if (
     message.action ===
+    'GET_ANALYSIS_JOB_STATUS'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/analysis-job-status',
+      message.payload,
+    )
+  }
+
+  if (
+    message.action ===
     'LOAD_CLIENT_CONTEXT'
   ) {
     return requestYolenWithToken(

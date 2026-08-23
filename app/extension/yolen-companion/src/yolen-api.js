@@ -170,6 +170,13 @@
     return sendToBackground('APPLY_SUGGESTION', payload)
   }
 
+  async function getAnalysisJobStatus(payload) {
+    return sendToBackground(
+      'GET_ANALYSIS_JOB_STATUS',
+      payload,
+    )
+  }
+
   async function loadClientContext(payload) {
     return sendToBackground(
       'LOAD_CLIENT_CONTEXT',
@@ -228,6 +235,7 @@
     applyLeadEnrichment,
     analyzeConversation,
     applySuggestion,
+    getAnalysisJobStatus,
     loadClientContext,
     registerMessageAction,
     registerActionEvent,
