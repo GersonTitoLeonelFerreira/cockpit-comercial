@@ -9,12 +9,13 @@
 
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
+  let messageDomRevision = 0
 
   /*
-   * Freshness local do deep-result. O capture pipeline já observa
-   * add/edit/delete/restore/transcrição imediatamente, antes do debounce
-   * da próxima análise. Mantemos uma revisão semântica por conversa para
-   * retirar autoridade de um job antigo assim que a captura muda.
+   * Freshness local do deep-result. Mantemos duas barreiras independentes:
+   * 1) revisão semântica do payload efetivamente capturado;
+   * 2) revisão imediata do DOM de mensagens, para fechar a janela entre uma
+   *    mutação visual e o próximo debounce/ingest.
    */
   const captureMessagesByConversation =
     new Map()
@@ -22,6 +23,16 @@
     new Map()
   const analysisJobFreshnessById =
     new Map()
+  const failedJobBySnapshotKey =
+    new Map()
+
+  function isRecord(value) {
+    return (
+      Boolean(value) &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    )
+  }
 
   function getAllowedSessionBaseUrl(value) {
     if (
@@ -104,8 +115,126 @@
       : null
   }
 
+  function buildSnapshotKey(
+    conversationKey,
+    messageWatermark,
+  ) {
+    if (
+      !conversationKey ||
+      typeof messageWatermark !== 'string' ||
+      !messageWatermark.trim()
+    ) {
+      return null
+    }
+
+    return `${conversationKey}\u0000${messageWatermark.trim()}`
+  }
+
+  function getElementForNode(node) {
+    if (!node) {
+      return null
+    }
+
+    if (node.nodeType === 1) {
+      return node
+    }
+
+    return node.parentElement || null
+  }
+
+  function nodeContainsWhatsAppMessage(node) {
+    const element =
+      getElementForNode(node)
+
+    if (!element) {
+      return false
+    }
+
+    if (
+      typeof element.closest === 'function' &&
+      element.closest('[data-pre-plain-text]')
+    ) {
+      return true
+    }
+
+    return (
+      typeof element.matches === 'function' &&
+      element.matches('[data-pre-plain-text]')
+    ) || (
+      typeof element.querySelector === 'function' &&
+      Boolean(
+        element.querySelector('[data-pre-plain-text]'),
+      )
+    )
+  }
+
+  function mutationTouchesWhatsAppMessage(mutation) {
+    if (
+      nodeContainsWhatsAppMessage(
+        mutation?.target,
+      )
+    ) {
+      return true
+    }
+
+    for (const collection of [
+      mutation?.addedNodes,
+      mutation?.removedNodes,
+    ]) {
+      if (!collection) {
+        continue
+      }
+
+      for (const node of collection) {
+        if (nodeContainsWhatsAppMessage(node)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  function installImmediateMessageMutationGuard() {
+    if (
+      typeof MutationObserver === 'undefined' ||
+      typeof document === 'undefined' ||
+      !document.documentElement
+    ) {
+      return
+    }
+
+    const observer =
+      new MutationObserver(
+        mutations => {
+          if (
+            mutations.some(
+              mutationTouchesWhatsAppMessage,
+            )
+          ) {
+            messageDomRevision += 1
+          }
+        },
+      )
+
+    observer.observe(
+      document.documentElement,
+      {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: [
+          'data-pre-plain-text',
+        ],
+      },
+    )
+  }
+
+  installImmediateMessageMutationGuard()
+
   function buildCaptureMessageSignature(message) {
-    if (!message || typeof message !== 'object') {
+    if (!isRecord(message)) {
       return null
     }
 
@@ -202,6 +331,17 @@
     )
   }
 
+  function isFreshnessStillCurrent(freshness) {
+    return Boolean(
+      freshness &&
+      getCaptureRevision(
+        freshness.conversationKey,
+      ) === freshness.revisionAtRequest &&
+      messageDomRevision ===
+        freshness.domRevisionAtRequest
+    )
+  }
+
   function buildSyntheticSupersededResponse(
     analysisJobId,
     freshness,
@@ -228,6 +368,146 @@
           result_generated_at:
             null,
         },
+      },
+    }
+  }
+
+  function rememberFailedSnapshot(freshness) {
+    if (
+      freshness?.snapshotKey &&
+      freshness?.analysisJobId
+    ) {
+      failedJobBySnapshotKey.set(
+        freshness.snapshotKey,
+        freshness.analysisJobId,
+      )
+    }
+  }
+
+  function clearFailedSnapshot(freshness) {
+    if (!freshness?.snapshotKey) {
+      return
+    }
+
+    if (
+      failedJobBySnapshotKey.get(
+        freshness.snapshotKey,
+      ) === freshness.analysisJobId
+    ) {
+      failedJobBySnapshotKey.delete(
+        freshness.snapshotKey,
+      )
+    }
+  }
+
+  function promoteDeepSellerResult(
+    deepResult,
+    freshness,
+  ) {
+    if (
+      !isRecord(deepResult) ||
+      deepResult.contract_version !==
+        'phase12a-deep-seller-v1' ||
+      !isRecord(
+        deepResult.commercial_reading,
+      )
+    ) {
+      return null
+    }
+
+    const isCommercial =
+      deepResult.commercial_relevance ===
+        'commercial'
+
+    const analysisData =
+      freshness?.analysisDataRef
+
+    /*
+     * `result.payload.data` é o mesmo objeto que content-script guarda em
+     * state.conversationAnalysis. Mutá-lo aqui, antes de devolver `succeeded`,
+     * promove o deep result para a arquitetura seller-facing já existente sem
+     * criar um segundo estado paralelo.
+     */
+    if (isRecord(analysisData)) {
+      const previousSuggestion =
+        isRecord(analysisData.suggestion)
+          ? analysisData.suggestion
+          : {}
+
+      const previousCoaching =
+        isRecord(analysisData.coaching)
+          ? analysisData.coaching
+          : {}
+
+      analysisData.engine_source =
+        'stateful'
+
+      analysisData.commercial_reading =
+        deepResult.commercial_reading
+
+      analysisData.commercial_relevance =
+        deepResult.commercial_relevance
+
+      analysisData.suggestion = {
+        ...previousSuggestion,
+        summary:
+          typeof deepResult.summary === 'string'
+            ? deepResult.summary
+            : previousSuggestion.summary ?? '',
+        next_action:
+          isCommercial &&
+          typeof deepResult.recommended_next_approach === 'string'
+            ? deepResult.recommended_next_approach
+            : null,
+        next_action_date:
+          isCommercial
+            ? previousSuggestion.next_action_date ?? null
+            : null,
+        recommended_status:
+          isCommercial
+            ? previousSuggestion.recommended_status ?? null
+            : null,
+      }
+
+      analysisData.coaching =
+        isCommercial
+          ? {
+              ...previousCoaching,
+              recommended_next_approach:
+                deepResult.recommended_next_approach ?? null,
+              recommended_question:
+                deepResult.recommended_question ?? null,
+              suggested_message:
+                deepResult.suggested_message ?? null,
+            }
+          : {
+              recommended_next_approach:
+                null,
+              recommended_question:
+                null,
+              suggested_message:
+                null,
+            }
+    }
+
+    /*
+     * Compatibilidade temporária com o bloco mínimo de progresso do #209.
+     * O payload público do servidor continua sendo DTO mínimo; estes campos
+     * são montados apenas dentro da extensão para o renderer legado.
+     */
+    return {
+      ...deepResult,
+      interpretation: {
+        current_moment: {
+          summary:
+            deepResult.summary ?? '',
+        },
+      },
+      strategy: {
+        suggested_message:
+          isCommercial
+            ? deepResult.suggested_message ?? null
+            : null,
       },
     }
   }
@@ -277,6 +557,7 @@
       captureMessagesByConversation.clear()
       captureRevisionByConversation.clear()
       analysisJobFreshnessById.clear()
+      failedJobBySnapshotKey.clear()
     }
 
     return result
@@ -318,6 +599,30 @@
         payload?.conversation_key,
       )
 
+    const messageWatermark =
+      typeof payload?.message_snapshot_hash === 'string'
+        ? payload.message_snapshot_hash
+        : null
+
+    const snapshotKey =
+      buildSnapshotKey(
+        conversationKey,
+        messageWatermark,
+      )
+
+    /*
+     * Só existe candidato a retry quando esta própria sessão já observou o
+     * mesmo snapshot terminar em `failed`. O auto-analysis não repete um
+     * fingerprint inalterado; portanto a próxima chamada desse snapshot é o
+     * fluxo manual "Analisar agora/Atualizar análise".
+     */
+    const failedJobAtStart =
+      snapshotKey
+        ? failedJobBySnapshotKey.get(
+            snapshotKey,
+          ) || null
+        : null
+
     const revisionAtRequest =
       conversationKey
         ? getCaptureRevision(
@@ -325,32 +630,110 @@
           )
         : 0
 
+    const domRevisionAtRequest =
+      messageDomRevision
+
     const result =
       await sendToBackground(
         'ANALYZE_CONVERSATION',
         payload,
       )
 
-    const deepAnalysis =
+    let deepAnalysis =
       result?.payload?.data?.deep_analysis
 
     if (
       conversationKey &&
       deepAnalysis?.analysis_job_id
     ) {
-      analysisJobFreshnessById.set(
-        deepAnalysis.analysis_job_id,
-        {
-          conversationKey,
-          revisionAtRequest,
-          messageWatermark:
+      const freshness = {
+        analysisJobId:
+          deepAnalysis.analysis_job_id,
+        conversationKey,
+        revisionAtRequest,
+        domRevisionAtRequest,
+        messageWatermark:
+          typeof deepAnalysis.message_watermark === 'string'
+            ? deepAnalysis.message_watermark
+            : messageWatermark,
+        snapshotKey:
+          buildSnapshotKey(
+            conversationKey,
             typeof deepAnalysis.message_watermark === 'string'
               ? deepAnalysis.message_watermark
-              : typeof payload?.message_snapshot_hash === 'string'
-                ? payload.message_snapshot_hash
-                : null,
-        },
+              : messageWatermark,
+          ),
+        analysisDataRef:
+          result?.payload?.data ||
+          null,
+      }
+
+      analysisJobFreshnessById.set(
+        deepAnalysis.analysis_job_id,
+        freshness,
       )
+
+      if (
+        deepAnalysis.status === 'failed' &&
+        failedJobAtStart ===
+          deepAnalysis.analysis_job_id &&
+        isFreshnessStillCurrent(
+          freshness,
+        )
+      ) {
+        const retryResult =
+          await sendToBackground(
+            'RETRY_ANALYSIS_JOB',
+            {
+              analysis_job_id:
+                deepAnalysis.analysis_job_id,
+            },
+          )
+
+        const retried =
+          retryResult?.payload?.data
+
+        if (
+          retryResult?.ok &&
+          retryResult?.payload?.ok &&
+          retried?.analysis_job_id ===
+            deepAnalysis.analysis_job_id &&
+          (
+            retried.status === 'queued' ||
+            retried.status === 'running'
+          )
+        ) {
+          deepAnalysis = {
+            ...deepAnalysis,
+            status:
+              retried.status,
+            message_watermark:
+              retried.message_watermark ||
+              deepAnalysis.message_watermark,
+          }
+
+          result.payload.data.deep_analysis =
+            deepAnalysis
+
+          clearFailedSnapshot(
+            freshness,
+          )
+        } else {
+          rememberFailedSnapshot(
+            freshness,
+          )
+        }
+      } else if (
+        deepAnalysis.status === 'failed'
+      ) {
+        rememberFailedSnapshot(
+          freshness,
+        )
+      } else {
+        clearFailedSnapshot(
+          freshness,
+        )
+      }
     }
 
     return result
@@ -376,9 +759,9 @@
     if (
       analysisJobId &&
       freshness &&
-      getCaptureRevision(
-        freshness.conversationKey,
-      ) !== freshness.revisionAtRequest
+      !isFreshnessStillCurrent(
+        freshness,
+      )
     ) {
       return buildSyntheticSupersededResponse(
         analysisJobId,
@@ -406,9 +789,9 @@
       data?.status === 'succeeded' &&
       freshness &&
       (
-        getCaptureRevision(
-          freshness.conversationKey,
-        ) !== freshness.revisionAtRequest ||
+        !isFreshnessStillCurrent(
+          freshness,
+        ) ||
         (
           freshness.messageWatermark &&
           data.message_watermark !==
@@ -418,6 +801,51 @@
     ) {
       return buildSyntheticSupersededResponse(
         analysisJobId,
+        freshness,
+      )
+    }
+
+    if (
+      result?.ok &&
+      result?.payload?.ok &&
+      data?.status === 'failed' &&
+      freshness
+    ) {
+      rememberFailedSnapshot(
+        freshness,
+      )
+    }
+
+    if (
+      result?.ok &&
+      result?.payload?.ok &&
+      data?.status === 'succeeded' &&
+      freshness
+    ) {
+      const promoted =
+        promoteDeepSellerResult(
+          data.result,
+          freshness,
+        )
+
+      if (!promoted) {
+        return {
+          ok: false,
+          statusCode: 502,
+          payload: {
+            ok: false,
+            code:
+              'INVALID_DEEP_SELLER_RESULT',
+            error:
+              'A análise aprofundada retornou um contrato incompatível.',
+          },
+        }
+      }
+
+      data.result =
+        promoted
+
+      clearFailedSnapshot(
         freshness,
       )
     }
