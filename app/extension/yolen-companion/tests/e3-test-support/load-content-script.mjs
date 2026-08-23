@@ -33,6 +33,7 @@ const DEPENDENCY_FILES = [
   'capture-resilience.js',
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
+  'conversation-registration-tools.js',
   'companion-client-context-view.js',
   'companion-seller-information-view.js',
 ]
@@ -317,6 +318,28 @@ export function loadContentScript({
   for (const dependency of DEPENDENCY_FILES) {
     vm.runInContext(readSource(dependency), sandbox, { filename: dependency })
   }
+
+  // Cada dependência se registra via `(typeof globalThis !== 'undefined' ?
+  // globalThis : window)`, que nesta sandbox aponta para `sandbox` (o
+  // objeto global real do contexto `vm`) — não para `sandbox.window`
+  // (o `dom.window` do jsdom, um objeto DIFERENTE aqui, ao contrário de um
+  // navegador real onde `window === globalThis`). A maioria do
+  // content-script.js lê essas dependências por nome global "nu"
+  // (ex.: `YolenCompanionMessageMutations`), o que já resolve certo contra
+  // `sandbox`. Mas qualquer trecho que leia via `window.YolenCompanionX`
+  // (padrão usado por `conversation-registration-tools.js`) ficaria
+  // silenciosamente `undefined` só nesta sandbox de teste, sem nenhum
+  // paralelo real em produção. Espelhar aqui evita esse falso negativo sem
+  // fingir que `window === globalThis` de forma geral.
+  for (const key of Object.keys(sandbox)) {
+    if (
+      key.startsWith('YolenCompanion') &&
+      sandbox.window[key] === undefined
+    ) {
+      sandbox.window[key] = sandbox[key]
+    }
+  }
+
   vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
 
   return {
