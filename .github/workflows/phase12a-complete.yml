@@ -1,0 +1,1834 @@
+name: Phase 12A deep delivery hardening
+
+on:
+  push:
+    branches:
+      - feat/phase12a-deep-result-delivery
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/phase12a-deep-result-delivery
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply Phase 12A hardening patches
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text()
+
+          def write(path, text):
+              Path(path).write_text(text)
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+              return text.replace(old, new, 1)
+
+          def splice(text, start_marker, end_marker, replacement, label):
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f'{label}: start marker not found')
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f'{label}: end marker not found')
+              return text[:start] + replacement + text[end:]
+
+          # -----------------------------------------------------------------
+          # analyze-conversation: manual retry failed -> queued + safe publish
+          # -----------------------------------------------------------------
+          route_path = 'app/api/companion/analyze-conversation/route.ts'
+          route = read(route_path)
+          route = replace_once(
+              route,
+              '  message_snapshot_hash?: unknown\n}',
+              '  message_snapshot_hash?: unknown\n  retry_failed_analysis?: unknown\n}',
+              'route request contract',
+          )
+
+          start_marker = '''    if (\n      statefulActiveBackgroundRequested &&\n      conversationKey &&\n      deviceKey\n    ) {'''
+          end_marker = '    const responseData = {'
+          new_background_block = r'''    if (
+      statefulActiveBackgroundRequested &&
+      conversationKey &&
+      deviceKey
+    ) {
+      const backgroundJob =
+        buildStatefulCopilotBackgroundJobDescriptor({
+          company_id:
+            tokenPayload.company_id,
+
+          cycle_id:
+            cycleId,
+
+          conversation_key:
+            conversationKey,
+
+          message_watermark:
+            messageSnapshotHash ||
+            conversationHash,
+
+          requested_at:
+            analysisRequestedAt,
+        })
+
+      let backgroundJobForPublish =
+        backgroundJob
+
+      let shouldScheduleBackground =
+        false
+
+      let queueIdempotencyKey =
+        backgroundJob.analysis_job_id
+
+      let publishQueuedAtGuard =
+        analysisRequestedAt
+
+      const {
+        data:
+          insertedBackgroundJob,
+
+        error:
+          insertBackgroundJobError,
+      } =
+        await admin
+          .from(
+            'companion_background_analysis_jobs',
+          )
+          .insert({
+            analysis_job_id:
+              backgroundJob
+                .analysis_job_id,
+
+            company_id:
+              backgroundJob
+                .company_id,
+
+            cycle_id:
+              backgroundJob
+                .cycle_id,
+
+            conversation_key:
+              backgroundJob
+                .conversation_key,
+
+            message_watermark:
+              backgroundJob
+                .message_watermark,
+
+            status:
+              'queued',
+
+            requested_at:
+              backgroundJob
+                .requested_at,
+
+            updated_at:
+              analysisRequestedAt,
+
+            automatic_crm_write:
+              false,
+
+            automatic_agenda_write:
+              false,
+          })
+          .select(
+            'analysis_job_id, status, message_watermark, requested_at, updated_at',
+          )
+          .single()
+
+      if (
+        !insertBackgroundJobError &&
+        insertedBackgroundJob &&
+        isStatefulCopilotBackgroundJobStatus(
+          insertedBackgroundJob
+            .status,
+        )
+      ) {
+        shouldScheduleBackground =
+          true
+
+        deepAnalysis = {
+          analysis_job_id:
+            String(
+              insertedBackgroundJob
+                .analysis_job_id,
+            ),
+
+          status:
+            insertedBackgroundJob
+              .status,
+
+          message_watermark:
+            String(
+              insertedBackgroundJob
+                .message_watermark,
+            ),
+        }
+      } else if (
+        insertBackgroundJobError
+          ?.code ===
+          '23505'
+      ) {
+        const {
+          data:
+            existingBackgroundJob,
+
+          error:
+            existingBackgroundJobError,
+        } =
+          await admin
+            .from(
+              'companion_background_analysis_jobs',
+            )
+            .select(
+              'analysis_job_id, status, message_watermark, requested_at, updated_at',
+            )
+            .eq(
+              'analysis_job_id',
+              backgroundJob
+                .analysis_job_id,
+            )
+            .eq(
+              'company_id',
+              backgroundJob
+                .company_id,
+            )
+            .eq(
+              'cycle_id',
+              backgroundJob
+                .cycle_id,
+            )
+            .eq(
+              'conversation_key',
+              backgroundJob
+                .conversation_key,
+            )
+            .eq(
+              'message_watermark',
+              backgroundJob
+                .message_watermark,
+            )
+            .maybeSingle()
+
+        if (
+          !existingBackgroundJobError &&
+          existingBackgroundJob &&
+          isStatefulCopilotBackgroundJobStatus(
+            existingBackgroundJob
+              .status,
+          )
+        ) {
+          const canRetryFailedJob =
+            existingBackgroundJob.status ===
+              'failed' &&
+            body.retry_failed_analysis ===
+              true &&
+            typeof existingBackgroundJob.requested_at ===
+              'string' &&
+            typeof existingBackgroundJob.updated_at ===
+              'string'
+
+          if (canRetryFailedJob) {
+            const retryQueuedAt =
+              new Date()
+                .toISOString()
+
+            const {
+              data:
+                requeuedBackgroundJob,
+
+              error:
+                requeueBackgroundJobError,
+            } =
+              await admin
+                .from(
+                  'companion_background_analysis_jobs',
+                )
+                .update({
+                  status:
+                    'queued',
+
+                  started_at:
+                    null,
+
+                  completed_at:
+                    null,
+
+                  updated_at:
+                    retryQueuedAt,
+
+                  runtime_mode:
+                    null,
+
+                  response_source:
+                    null,
+
+                  candidate_state_version:
+                    null,
+
+                  failure_code:
+                    null,
+
+                  failure_path:
+                    null,
+
+                  failure_invariant:
+                    null,
+
+                  communication_attempts:
+                    null,
+
+                  attempt_count:
+                    0,
+
+                  automatic_crm_write:
+                    false,
+
+                  automatic_agenda_write:
+                    false,
+                })
+                .eq(
+                  'analysis_job_id',
+                  backgroundJob
+                    .analysis_job_id,
+                )
+                .eq(
+                  'company_id',
+                  backgroundJob
+                    .company_id,
+                )
+                .eq(
+                  'cycle_id',
+                  backgroundJob
+                    .cycle_id,
+                )
+                .eq(
+                  'conversation_key',
+                  backgroundJob
+                    .conversation_key,
+                )
+                .eq(
+                  'message_watermark',
+                  backgroundJob
+                    .message_watermark,
+                )
+                .eq(
+                  'status',
+                  'failed',
+                )
+                .eq(
+                  'updated_at',
+                  existingBackgroundJob
+                    .updated_at,
+                )
+                .select(
+                  'analysis_job_id, status, message_watermark, requested_at, updated_at',
+                )
+                .maybeSingle()
+
+            if (
+              !requeueBackgroundJobError &&
+              requeuedBackgroundJob &&
+              requeuedBackgroundJob.status ===
+                'queued'
+            ) {
+              backgroundJobForPublish =
+                buildStatefulCopilotBackgroundJobDescriptor({
+                  company_id:
+                    backgroundJob.company_id,
+
+                  cycle_id:
+                    backgroundJob.cycle_id,
+
+                  conversation_key:
+                    backgroundJob.conversation_key,
+
+                  message_watermark:
+                    backgroundJob.message_watermark,
+
+                  requested_at:
+                    existingBackgroundJob
+                      .requested_at,
+                })
+
+              publishQueuedAtGuard =
+                retryQueuedAt
+
+              queueIdempotencyKey =
+                `${backgroundJob.analysis_job_id}:retry:${retryQueuedAt}`
+
+              shouldScheduleBackground =
+                true
+
+              deepAnalysis = {
+                analysis_job_id:
+                  backgroundJob.analysis_job_id,
+
+                status:
+                  'queued',
+
+                message_watermark:
+                  backgroundJob.message_watermark,
+              }
+            } else if (
+              requeueBackgroundJobError
+            ) {
+              console.warn(
+                'YOLEN_COMPANION_BACKGROUND_JOB',
+                JSON.stringify({
+                  event:
+                    'background_job_manual_retry_failed',
+
+                  company_id:
+                    backgroundJob.company_id,
+
+                  cycle_id:
+                    backgroundJob.cycle_id,
+
+                  analysis_job_id:
+                    backgroundJob.analysis_job_id,
+                }),
+              )
+            }
+          }
+
+          if (!deepAnalysis) {
+            const {
+              data:
+                currentBackgroundJob,
+            } =
+              await admin
+                .from(
+                  'companion_background_analysis_jobs',
+                )
+                .select(
+                  'analysis_job_id, status, message_watermark',
+                )
+                .eq(
+                  'analysis_job_id',
+                  backgroundJob.analysis_job_id,
+                )
+                .eq(
+                  'company_id',
+                  backgroundJob.company_id,
+                )
+                .eq(
+                  'cycle_id',
+                  backgroundJob.cycle_id,
+                )
+                .eq(
+                  'conversation_key',
+                  backgroundJob.conversation_key,
+                )
+                .eq(
+                  'message_watermark',
+                  backgroundJob.message_watermark,
+                )
+                .maybeSingle()
+
+            const visibleBackgroundJob =
+              currentBackgroundJob ||
+              existingBackgroundJob
+
+            if (
+              visibleBackgroundJob &&
+              isStatefulCopilotBackgroundJobStatus(
+                visibleBackgroundJob.status,
+              )
+            ) {
+              deepAnalysis = {
+                analysis_job_id:
+                  String(
+                    visibleBackgroundJob.analysis_job_id,
+                  ),
+
+                status:
+                  visibleBackgroundJob.status,
+
+                message_watermark:
+                  String(
+                    visibleBackgroundJob.message_watermark,
+                  ),
+              }
+            }
+          }
+        }
+      } else if (
+        insertBackgroundJobError
+      ) {
+        console.warn(
+          'YOLEN_COMPANION_BACKGROUND_JOB',
+          JSON.stringify({
+            event:
+              'background_job_enqueue_failed',
+
+            company_id:
+              backgroundJob.company_id,
+
+            cycle_id:
+              backgroundJob.cycle_id,
+
+            analysis_job_id:
+              backgroundJob.analysis_job_id,
+
+            database_code:
+              insertBackgroundJobError.code ??
+              null,
+          }),
+        )
+      }
+
+      if (
+        shouldScheduleBackground
+      ) {
+        try {
+          await send(
+            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+
+            buildStatefulCopilotBackgroundJobMessage({
+              descriptor:
+                backgroundJobForPublish,
+
+              device_key:
+                deviceKey,
+            }),
+
+            {
+              idempotencyKey:
+                queueIdempotencyKey,
+
+              retentionSeconds:
+                24 * 60 * 60,
+            },
+          )
+
+          console.info(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_published',
+
+              company_id:
+                backgroundJobForPublish.company_id,
+
+              cycle_id:
+                backgroundJobForPublish.cycle_id,
+
+              analysis_job_id:
+                backgroundJobForPublish.analysis_job_id,
+
+              message_watermark:
+                backgroundJobForPublish.message_watermark,
+            }),
+          )
+        } catch {
+          const completedAt =
+            new Date()
+              .toISOString()
+
+          const {
+            error:
+              publishFailurePersistenceError,
+          } =
+            await admin
+              .from(
+                'companion_background_analysis_jobs',
+              )
+              .update({
+                status:
+                  'failed',
+
+                completed_at:
+                  completedAt,
+
+                updated_at:
+                  completedAt,
+
+                failure_code:
+                  'QUEUE_PUBLISH_FAILED',
+
+                automatic_crm_write:
+                  false,
+
+                automatic_agenda_write:
+                  false,
+              })
+              .eq(
+                'analysis_job_id',
+                backgroundJobForPublish.analysis_job_id,
+              )
+              .eq(
+                'company_id',
+                backgroundJobForPublish.company_id,
+              )
+              .eq(
+                'cycle_id',
+                backgroundJobForPublish.cycle_id,
+              )
+              .eq(
+                'conversation_key',
+                backgroundJobForPublish.conversation_key,
+              )
+              .eq(
+                'message_watermark',
+                backgroundJobForPublish.message_watermark,
+              )
+              .eq(
+                'status',
+                'queued',
+              )
+              .eq(
+                'updated_at',
+                publishQueuedAtGuard,
+              )
+
+          deepAnalysis = {
+            analysis_job_id:
+              backgroundJobForPublish.analysis_job_id,
+
+            status:
+              'failed',
+
+            message_watermark:
+              backgroundJobForPublish.message_watermark,
+          }
+
+          console.warn(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event:
+                'background_job_publish_failed',
+
+              company_id:
+                backgroundJobForPublish.company_id,
+
+              cycle_id:
+                backgroundJobForPublish.cycle_id,
+
+              analysis_job_id:
+                backgroundJobForPublish.analysis_job_id,
+
+              persistence_failed:
+                Boolean(
+                  publishFailurePersistenceError,
+                ),
+            }),
+          )
+        }
+      }
+    }
+
+'''
+          route = splice(
+              route,
+              start_marker,
+              end_marker,
+              new_background_block,
+              'deep background block',
+          )
+          write(route_path, route)
+
+          # -----------------------------------------------------------------
+          # content-script: exact freshness + promote deep DTO to seller state
+          # -----------------------------------------------------------------
+          content_path = 'app/extension/yolen-companion/src/content-script.js'
+          content = read(content_path)
+
+          status_start = '  function getDeepAnalysisStatusDetails() {'
+          status_end = '  function getDeepAnalysisStatusBlockHtml() {'
+          new_status = r'''  function getDeepAnalysisStatusDetails() {
+    if (state.deepAnalysisStatus === 'pending') {
+      return [
+        'Análise aprofundada em andamento',
+      ]
+    }
+
+    if (state.deepAnalysisStatus === 'failed') {
+      return [
+        'Falha na análise aprofundada — use Analisar agora para tentar novamente',
+      ]
+    }
+
+    if (state.deepAnalysisStatus === 'succeeded') {
+      if (!isDeepAnalysisCommerciallyActionable()) {
+        return [
+          'Análise aprofundada concluída — nenhuma intervenção comercial necessária',
+        ]
+      }
+
+      const details = [
+        'Análise atualizada com leitura aprofundada',
+      ]
+
+      const deepSummary =
+        state.deepAnalysisResult
+          ?.summary
+
+      if (deepSummary) {
+        details.push(
+          `Leitura aprofundada: ${deepSummary}`,
+        )
+      }
+
+      const deepMessage =
+        state.deepAnalysisResult
+          ?.suggested_message
+
+      if (deepMessage) {
+        details.push(
+          `Mensagem sugerida (aprofundada): ${deepMessage}`,
+        )
+      }
+
+      return details
+    }
+
+    return []
+  }
+
+'''
+          content = splice(
+              content,
+              status_start,
+              status_end,
+              new_status,
+              'deep status details',
+          )
+
+          poll_start = '  function startDeepAnalysisPolling({'
+          poll_end = '  async function analyzeCurrentConversation('
+          new_poll = r'''  function startDeepAnalysisPolling({
+    analysisJobId,
+    messageWatermark,
+    conversationFingerprintAtRequest,
+    mutationRevisionAtRequest,
+    isAnalysisResponseStillCurrent,
+  }) {
+    clearDeepAnalysisPollTimer()
+
+    const startedAtMs = Date.now()
+    let attempt = 0
+
+    const isDeepResultStillCurrent = () => (
+      isAnalysisResponseStillCurrent() &&
+      messageLedgerMutationRevision ===
+        mutationRevisionAtRequest &&
+      getCurrentConversationFingerprint() ===
+        conversationFingerprintAtRequest
+    )
+
+    const stopIfStale = () => {
+      if (isDeepResultStillCurrent()) {
+        return false
+      }
+
+      if (isAnalysisResponseStillCurrent()) {
+        state = {
+          ...state,
+          deepAnalysisStatus: null,
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+      }
+
+      return true
+    }
+
+    const scheduleNextTick = () => {
+      if (stopIfStale()) {
+        return
+      }
+
+      if (Date.now() - startedAtMs >= DEEP_ANALYSIS_POLL_TIMEOUT_MS) {
+        state = {
+          ...state,
+          deepAnalysisStatus: 'failed',
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      const delay =
+        DEEP_ANALYSIS_POLL_DELAYS_MS[
+          Math.min(
+            attempt,
+            DEEP_ANALYSIS_POLL_DELAYS_MS.length - 1,
+          )
+        ]
+
+      attempt += 1
+
+      deepAnalysisPollTimerId =
+        window.setTimeout(runTick, delay)
+    }
+
+    const runTick = async () => {
+      deepAnalysisPollTimerId = 0
+
+      if (stopIfStale()) {
+        return
+      }
+
+      let response = null
+
+      try {
+        response =
+          await window.YolenCompanionApi
+            .getAnalysisJobStatus({
+              analysis_job_id:
+                analysisJobId,
+            })
+      } catch {
+        response = null
+      }
+
+      if (stopIfStale()) {
+        return
+      }
+
+      const data =
+        response?.ok && response.payload?.ok
+          ? response.payload.data
+          : null
+
+      if (!data || typeof data.status !== 'string') {
+        scheduleNextTick()
+        return
+      }
+
+      if (
+        messageWatermark &&
+        data.message_watermark &&
+        data.message_watermark !==
+          messageWatermark
+      ) {
+        state = {
+          ...state,
+          deepAnalysisStatus: null,
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (data.status === 'queued' || data.status === 'running') {
+        scheduleNextTick()
+        return
+      }
+
+      if (data.status === 'succeeded') {
+        const deepResult =
+          data.result
+
+        if (
+          !deepResult ||
+          deepResult.contract_version !==
+            'phase12a-deep-seller-v1'
+        ) {
+          state = {
+            ...state,
+            deepAnalysisStatus: 'failed',
+            deepAnalysisResult: null,
+          }
+
+          renderPanel()
+          return
+        }
+
+        if (stopIfStale()) {
+          return
+        }
+
+        const previousAnalysis =
+          state.conversationAnalysis
+
+        const previousSuggestion =
+          previousAnalysis
+            ?.suggestion ||
+          {}
+
+        const previousCoaching =
+          previousAnalysis
+            ?.coaching ||
+          {}
+
+        const isCommercial =
+          deepResult
+            .commercial_relevance ===
+          'commercial'
+
+        const mergedAnalysis =
+          previousAnalysis
+            ? {
+                ...previousAnalysis,
+                engine_source:
+                  'stateful',
+                commercial_reading:
+                  deepResult
+                    .commercial_reading ||
+                  null,
+                suggestion: {
+                  ...previousSuggestion,
+                  summary:
+                    deepResult.summary ||
+                    previousSuggestion.summary ||
+                    '',
+                  next_action:
+                    isCommercial
+                      ? deepResult
+                          .recommended_next_approach ||
+                        previousSuggestion
+                          .next_action ||
+                        null
+                      : null,
+                  next_action_date:
+                    isCommercial
+                      ? previousSuggestion
+                          .next_action_date ||
+                        null
+                      : null,
+                },
+                coaching: {
+                  ...previousCoaching,
+                  recommended_next_approach:
+                    deepResult
+                      .recommended_next_approach ||
+                    null,
+                  suggested_message:
+                    isCommercial
+                      ? deepResult
+                          .suggested_message ||
+                        null
+                      : null,
+                },
+              }
+            : previousAnalysis
+
+        state = {
+          ...state,
+          conversationAnalysis:
+            mergedAnalysis,
+          deepAnalysisStatus:
+            'succeeded',
+          deepAnalysisResult:
+            deepResult,
+          analyzedConversationFingerprint:
+            conversationFingerprintAtRequest,
+        }
+
+        updatePreSendAssessmentFromDraft(
+          getComposerText(),
+          { render: false },
+        )
+
+        renderPanel()
+        return
+      }
+
+      if (data.status === 'superseded') {
+        state = {
+          ...state,
+          deepAnalysisStatus: null,
+          deepAnalysisResult: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        deepAnalysisStatus: 'failed',
+        deepAnalysisResult: null,
+      }
+
+      renderPanel()
+    }
+
+    scheduleNextTick()
+  }
+
+'''
+          content = splice(
+              content,
+              poll_start,
+              poll_end,
+              new_poll,
+              'deep poller',
+          )
+
+          content = replace_once(
+              content,
+              '''            force_reanalysis:\n              forceReanalysis,\n            message_snapshot_hash:\n              conversationFingerprint,''',
+              '''            force_reanalysis:\n              forceReanalysis,\n            retry_failed_analysis:\n              !isAutomatic,\n            message_snapshot_hash:\n              conversationFingerprint,''',
+              'manual retry flag',
+          )
+
+          content = replace_once(
+              content,
+              '''        startDeepAnalysisPolling({\n          analysisJobId:\n            deepAnalysisJob.analysis_job_id,\n          cycleId,\n          conversationKeyAtRequest,\n          isAnalysisResponseStillCurrent,\n        })''',
+              '''        startDeepAnalysisPolling({\n          analysisJobId:\n            deepAnalysisJob.analysis_job_id,\n          messageWatermark:\n            deepAnalysisJob.message_watermark ||\n            conversationFingerprint,\n          conversationFingerprintAtRequest:\n            conversationFingerprint,\n          mutationRevisionAtRequest,\n          isAnalysisResponseStillCurrent,\n        })''',
+              'poller invocation',
+          )
+
+          write(content_path, content)
+
+          # -----------------------------------------------------------------
+          # Backend route tests: exact V3 join / DTO / authorization 404
+          # -----------------------------------------------------------------
+          status_test_path = 'app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs'
+          status_test = r'''import assert from 'node:assert/strict'
+import { register } from 'node:module'
+import test, { mock } from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+register(
+  fileURLToPath(
+    new URL(
+      '../../../lib/companion/e2-test-support/route-alias-resolve-loader.mjs',
+      import.meta.url,
+    ),
+  ),
+  import.meta.url,
+)
+register(
+  fileURLToPath(
+    new URL(
+      '../../../../scripts/typescript-test-loader.mjs',
+      import.meta.url,
+    ),
+  ),
+  import.meta.url,
+)
+
+import {
+  bearerHeader,
+  buildToken,
+  installFakeSupabaseEnv,
+} from '../../../lib/companion/e2-test-support/fake-companion-token.mjs'
+
+installFakeSupabaseEnv()
+
+const adminBox = { admin: null }
+
+mock.module('@supabase/supabase-js', {
+  namedExports: {
+    createClient: () => adminBox.admin,
+  },
+})
+
+const { POST } = await import('./route.ts')
+
+const IDS = {
+  companyA: 'aaaaaaaa-0000-4000-8000-000000000001',
+  companyB: 'bbbbbbbb-0000-4000-8000-000000000001',
+  userA: 'aaaaaaaa-0000-4000-8000-0000000000a1',
+  userOther: 'aaaaaaaa-0000-4000-8000-0000000000a2',
+  cycleA: 'aaaaaaaa-0000-4000-8000-0000000000d1',
+  cycleA2: 'aaaaaaaa-0000-4000-8000-0000000000d2',
+}
+
+const CONVERSATION_KEY = 'whatsapp:+5547999990001'
+const JOB_A = 'a'.repeat(64)
+const JOB_B = 'b'.repeat(64)
+
+function matches(row, filters) {
+  return filters.every(({ column, value }) => row[column] === value)
+}
+
+function buildQueryClass(tables) {
+  return class Query {
+    constructor(table) {
+      this.table = table
+      this.filters = []
+      this.maxRows = null
+    }
+
+    select() { return this }
+    eq(column, value) {
+      this.filters.push({ column, value })
+      return this
+    }
+    limit(count) {
+      this.maxRows = count
+      return this
+    }
+    rows() {
+      const rows = (tables[this.table] ?? []).filter((row) => matches(row, this.filters))
+      return this.maxRows === null ? rows : rows.slice(0, this.maxRows)
+    }
+    maybeSingle() {
+      const rows = this.rows()
+      return Promise.resolve({
+        data: rows.length === 1 ? rows[0] : rows[0] ?? null,
+        error: null,
+      })
+    }
+    then(resolve, reject) {
+      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject)
+    }
+  }
+}
+
+function createFakeAdmin(fixtures) {
+  const Query = buildQueryClass({
+    company_memberships: fixtures.memberships,
+    sales_cycles: fixtures.cycles,
+    companion_background_analysis_jobs: fixtures.jobs,
+    companion_commercial_state_events: fixtures.events,
+  })
+
+  return {
+    from(table) {
+      return new Query(table)
+    },
+  }
+}
+
+function baseFixtures() {
+  return {
+    memberships: [{
+      company_id: IDS.companyA,
+      user_id: IDS.userA,
+      role: 'member',
+      is_active: true,
+    }],
+    cycles: [
+      { id: IDS.cycleA, company_id: IDS.companyA, owner_user_id: IDS.userA },
+      { id: IDS.cycleA2, company_id: IDS.companyA, owner_user_id: IDS.userOther },
+    ],
+    jobs: [],
+    events: [],
+  }
+}
+
+function jobRow({
+  analysisJobId = JOB_A,
+  companyId = IDS.companyA,
+  cycleId = IDS.cycleA,
+  conversationKey = CONVERSATION_KEY,
+  status,
+  candidateStateVersion = null,
+  failureCode = null,
+}) {
+  return {
+    analysis_job_id: analysisJobId,
+    company_id: companyId,
+    cycle_id: cycleId,
+    conversation_key: conversationKey,
+    message_watermark: 'watermark-1',
+    status,
+    candidate_state_version: candidateStateVersion,
+    failure_code: failureCode,
+  }
+}
+
+function commercialReading(overrides = {}) {
+  return {
+    contract_version: 'commercial-reading-v1',
+    commercial_role: 'buyer',
+    commercial_relevance: 'commercial',
+    ...overrides,
+  }
+}
+
+function normalizedOutput(overrides = {}) {
+  return {
+    contract_version: 'phase-5.2-stateful-copilot-v3',
+    commercial_role: 'buyer',
+    commercial_relevance: 'commercial',
+    interpretation: {
+      current_moment: {
+        summary: 'Cliente pediu desconto no plano anual.',
+      },
+    },
+    strategy: {
+      next_move: 'Aprofundar valor antes de negociar.',
+      recommended_question: 'Qual impacto isso gera hoje?',
+      suggested_message: 'Posso mostrar como isso reduz perda de follow-up.',
+    },
+    communication: {
+      contract_version: 'phase-5.2-communication-v5',
+      commercial_reading: commercialReading(),
+    },
+    state_patch: {
+      should_never_leave_api: true,
+    },
+    operational_suggestions: {
+      crm: { should_change_crm_stage: false },
+      agenda: { should_change_agenda: false },
+    },
+    ...overrides,
+  }
+}
+
+function eventRow({
+  candidateStateVersion = 1,
+  outputContractVersion = 'phase-5.2-stateful-copilot-v3',
+  output = normalizedOutput(),
+}) {
+  return {
+    company_id: IDS.companyA,
+    cycle_id: IDS.cycleA,
+    conversation_key: CONVERSATION_KEY,
+    candidate_state_version: candidateStateVersion,
+    output_contract_version: outputContractVersion,
+    generated_at: '2026-08-23T12:00:00.000Z',
+    normalized_output: output,
+  }
+}
+
+function request(token, body) {
+  return new Request('http://localhost/api/companion/analysis-job-status', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? bearerHeader(token) : {}),
+    },
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+async function call(fixtures, token, body) {
+  adminBox.admin = createFakeAdmin(fixtures)
+  const response = await POST(request(token, body))
+  return { status: response.status, body: await response.json() }
+}
+
+test('queued retorna somente metadata e não exige cycle/conversation do cliente', async () => {
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({ status: 'queued' }))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const { status, body } = await call(fixtures, token, { analysis_job_id: JOB_A })
+  assert.equal(status, 200)
+  assert.equal(body.data.status, 'queued')
+  assert.equal(body.data.result, null)
+})
+
+test('succeeded projeta seller DTO e não vaza normalized_output cru', async () => {
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({ status: 'succeeded', candidateStateVersion: 1 }))
+  fixtures.events.push(eventRow({}))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const { status, body } = await call(fixtures, token, {
+    analysis_job_id: JOB_A,
+    cycle_id: 'cliente-nao-controla',
+    conversation_key: 'cliente-nao-controla',
+  })
+  assert.equal(status, 200)
+  assert.equal(body.data.result.contract_version, 'phase12a-deep-seller-v1')
+  assert.equal(body.data.result.engine_source, 'stateful')
+  assert.equal(body.data.result.summary, 'Cliente pediu desconto no plano anual.')
+  assert.equal(body.data.result.commercial_reading.contract_version, 'commercial-reading-v1')
+  assert.equal(body.data.result.state_patch, undefined)
+  assert.equal(body.data.result.operational_suggestions, undefined)
+})
+
+test('failed e superseded nunca devolvem result', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  for (const statusValue of ['failed', 'superseded']) {
+    const fixtures = baseFixtures()
+    fixtures.jobs.push(jobRow({ status: statusValue, failureCode: 'X' }))
+    const { body } = await call(fixtures, token, { analysis_job_id: JOB_A })
+    assert.equal(body.data.status, statusValue)
+    assert.equal(body.data.result, null)
+  }
+})
+
+test('cross-tenant analysis_job_id real devolve 404 sem metadata', async () => {
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({
+    analysisJobId: JOB_B,
+    companyId: IDS.companyB,
+    cycleId: 'bbbbbbbb-0000-4000-8000-0000000000d1',
+    status: 'succeeded',
+    candidateStateVersion: 1,
+  }))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const { status, body } = await call(fixtures, token, { analysis_job_id: JOB_B })
+  assert.equal(status, 404)
+  assert.equal(body.data, undefined)
+})
+
+test('member fora da carteira e owner null recebem 404 uniforme', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const otherOwner = baseFixtures()
+  otherOwner.jobs.push(jobRow({ status: 'queued', cycleId: IDS.cycleA2 }))
+  let response = await call(otherOwner, token, { analysis_job_id: JOB_A })
+  assert.equal(response.status, 404)
+
+  const ownerNull = baseFixtures()
+  ownerNull.cycles[0].owner_user_id = null
+  ownerNull.jobs.push(jobRow({ status: 'queued' }))
+  response = await call(ownerNull, token, { analysis_job_id: JOB_A })
+  assert.equal(response.status, 404)
+})
+
+test('membership.role atual vence role antiga do token após downgrade', async () => {
+  const fixtures = baseFixtures()
+  fixtures.memberships[0].role = 'member'
+  fixtures.jobs.push(jobRow({ status: 'queued', cycleId: IDS.cycleA2 }))
+  const oldAdminToken = buildToken({
+    sub: IDS.userA,
+    companyId: IDS.companyA,
+    role: 'admin',
+  })
+  const { status } = await call(fixtures, oldAdminToken, { analysis_job_id: JOB_A })
+  assert.equal(status, 404)
+})
+
+test('manager atual pode ler qualquer ciclo da própria empresa', async () => {
+  const fixtures = baseFixtures()
+  fixtures.memberships[0].role = 'manager'
+  fixtures.jobs.push(jobRow({ status: 'queued', cycleId: IDS.cycleA2 }))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA, role: 'member' })
+  const { status, body } = await call(fixtures, token, { analysis_job_id: JOB_A })
+  assert.equal(status, 200)
+  assert.equal(body.data.status, 'queued')
+})
+
+test('0 eventos para job succeeded falha fechado com integrity error', async () => {
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({ status: 'succeeded', candidateStateVersion: 1 }))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const { status, body } = await call(fixtures, token, { analysis_job_id: JOB_A })
+  assert.equal(status, 500)
+  assert.equal(body.code, 'DEEP_RESULT_INTEGRITY_ERROR')
+})
+
+test('2 eventos correspondentes falham fechado; nunca escolhe o primeiro', async () => {
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({ status: 'succeeded', candidateStateVersion: 1 }))
+  fixtures.events.push(eventRow({}), eventRow({}))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const { status, body } = await call(fixtures, token, { analysis_job_id: JOB_A })
+  assert.equal(status, 500)
+  assert.equal(body.code, 'DEEP_RESULT_INTEGRITY_ERROR')
+})
+
+test('evento de outro output_contract_version não satisfaz join V3', async () => {
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({ status: 'succeeded', candidateStateVersion: 1 }))
+  fixtures.events.push(eventRow({ outputContractVersion: 'stateful-copilot-v2' }))
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const { status, body } = await call(fixtures, token, { analysis_job_id: JOB_A })
+  assert.equal(status, 500)
+  assert.equal(body.code, 'DEEP_RESULT_INTEGRITY_ERROR')
+})
+
+test('sem token = 401; id malformado = 400', async () => {
+  let response = await call(baseFixtures(), null, { analysis_job_id: JOB_A })
+  assert.equal(response.status, 401)
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  response = await call(baseFixtures(), token, { analysis_job_id: 'bad' })
+  assert.equal(response.status, 400)
+})
+'''
+          write(status_test_path, status_test)
+
+          # -----------------------------------------------------------------
+          # yolen-api semantic freshness tests: add/edit/delete/restore/audio
+          # -----------------------------------------------------------------
+          freshness_test_path = 'app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs'
+          freshness_test = r'''import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+import vm from 'node:vm'
+
+const SOURCE = await readFile(
+  new URL('../src/yolen-api.js', import.meta.url),
+  'utf8',
+)
+
+const JOB_ID = 'a'.repeat(64)
+const CONVERSATION_KEY = 'whatsapp:+5511999999999'
+
+function message(overrides = {}) {
+  return {
+    message_key: 'm1',
+    direction: 'incoming',
+    occurred_at: '2026-08-23T10:00:00.000Z',
+    observed_at: '2026-08-23T10:00:01.000Z',
+    base_version: null,
+    content_type: 'text',
+    text_content: 'Olá',
+    audio_transcription: null,
+    is_deleted: false,
+    ...overrides,
+  }
+}
+
+function capture(messages) {
+  return {
+    contract_version: 'pt4-c-v4',
+    cycle_id: 'aaaaaaaa-0000-4000-8000-0000000000d1',
+    conversation_key: CONVERSATION_KEY,
+    device_key: 'device-1',
+    observed_at: '2026-08-23T10:00:01.000Z',
+    messages,
+  }
+}
+
+function loadApi() {
+  const calls = []
+  const window = {}
+  const chrome = {
+    runtime: {
+      async sendMessage(request) {
+        calls.push(request)
+        if (request.action === 'ANALYZE_CONVERSATION') {
+          return {
+            ok: true,
+            payload: {
+              ok: true,
+              data: {
+                deep_analysis: {
+                  analysis_job_id: JOB_ID,
+                  status: 'queued',
+                  message_watermark: 'wm-1',
+                },
+              },
+            },
+          }
+        }
+        if (request.action === 'GET_ANALYSIS_JOB_STATUS') {
+          return {
+            ok: true,
+            payload: {
+              ok: true,
+              data: {
+                analysis_job_id: JOB_ID,
+                status: 'succeeded',
+                message_watermark: 'wm-1',
+                result: { contract_version: 'phase12a-deep-seller-v1' },
+              },
+            },
+          }
+        }
+        return { ok: true, payload: { ok: true } }
+      },
+    },
+  }
+
+  vm.runInNewContext(SOURCE, {
+    window,
+    chrome,
+    browser: undefined,
+    console,
+    Map,
+    JSON,
+    String,
+    Error,
+  })
+
+  return { api: window.YolenCompanionApi, calls }
+}
+
+async function establishJob(runtime) {
+  await runtime.api.ingestCapturedMessages(capture([message()]))
+  await runtime.api.analyzeConversation({
+    conversation_key: CONVERSATION_KEY,
+    message_snapshot_hash: 'wm-1',
+  })
+}
+
+for (const scenario of [
+  ['nova mensagem', [message(), message({ message_key: 'm2', text_content: 'Nova mensagem' })]],
+  ['edição', [message({ text_content: 'Olá editado' })]],
+  ['deleção', [message({ text_content: null, is_deleted: true })]],
+  ['transcrição de áudio', [message({ content_type: 'audio', text_content: null, audio_transcription: 'Áudio transcrito' })]],
+]) {
+  test(`deep result perde autoridade após ${scenario[0]}`, async () => {
+    const runtime = loadApi()
+    await establishJob(runtime)
+    const getCallsBefore = runtime.calls.filter((call) => call.action === 'GET_ANALYSIS_JOB_STATUS').length
+    await runtime.api.ingestCapturedMessages(capture(scenario[1]))
+    const response = await runtime.api.getAnalysisJobStatus({ analysis_job_id: JOB_ID })
+    assert.equal(response.payload.data.status, 'superseded')
+    assert.equal(
+      runtime.calls.filter((call) => call.action === 'GET_ANALYSIS_JOB_STATUS').length,
+      getCallsBefore,
+      'job stale deve ser barrado antes de consultar/aplicar succeeded',
+    )
+  })
+}
+
+test('restore também invalida o job anterior', async () => {
+  const runtime = loadApi()
+  await establishJob(runtime)
+  await runtime.api.ingestCapturedMessages(capture([
+    message({ text_content: null, is_deleted: true }),
+  ]))
+  await runtime.api.ingestCapturedMessages(capture([
+    message({ text_content: 'Mensagem restaurada', is_deleted: false }),
+  ]))
+  const response = await runtime.api.getAnalysisJobStatus({ analysis_job_id: JOB_ID })
+  assert.equal(response.payload.data.status, 'superseded')
+})
+
+test('poll fresco envia somente analysis_job_id ao background', async () => {
+  const runtime = loadApi()
+  await establishJob(runtime)
+  const response = await runtime.api.getAnalysisJobStatus({
+    analysis_job_id: JOB_ID,
+    cycle_id: 'não-deve-sair',
+    conversation_key: 'não-deve-sair',
+  })
+  assert.equal(response.payload.data.status, 'succeeded')
+  const call = runtime.calls.find((candidate) => candidate.action === 'GET_ANALYSIS_JOB_STATUS')
+  assert.deepEqual(Object.keys(call.payload), ['analysis_job_id'])
+})
+'''
+          write(freshness_test_path, freshness_test)
+
+          # -----------------------------------------------------------------
+          # Structural adversarial guard for retry + seller integration
+          # -----------------------------------------------------------------
+          structural_test_path = 'app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs'
+          structural_test = r'''import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+
+const route = await readFile(
+  new URL('../../api/companion/analyze-conversation/route.ts', import.meta.url),
+  'utf8',
+)
+const content = await readFile(
+  new URL('../../extension/yolen-companion/src/content-script.js', import.meta.url),
+  'utf8',
+)
+const reader = await readFile(
+  new URL('../server/companion-analysis-job-reader.ts', import.meta.url),
+  'utf8',
+)
+
+test('retry terminal é manual, CAS e preserva requested_at', () => {
+  assert.match(route, /retry_failed_analysis/)
+  assert.match(route, /\.eq\(\s*'status',\s*'failed'/)
+  assert.match(route, /\.eq\(\s*'updated_at',\s*existingBackgroundJob/)
+  assert.match(route, /requested_at:\s*existingBackgroundJob\s*\.requested_at/)
+  assert.match(route, /:retry:\$\{retryQueuedAt\}/)
+})
+
+test('falha de publish compensa somente a tentativa queued que perdeu', () => {
+  assert.match(route, /QUEUE_PUBLISH_FAILED/)
+  assert.match(route, /\.eq\(\s*'status',\s*'queued'/)
+  assert.match(route, /\.eq\(\s*'updated_at',\s*publishQueuedAtGuard/)
+})
+
+test('deep poll usa fingerprint + mutation revision + watermark', () => {
+  assert.match(content, /conversationFingerprintAtRequest/)
+  assert.match(content, /messageLedgerMutationRevision\s*===\s*mutationRevisionAtRequest/)
+  assert.match(content, /data\.message_watermark\s*!==\s*messageWatermark/)
+})
+
+test('deep seller DTO é promovido para commercial_reading real', () => {
+  assert.match(content, /commercial_reading:\s*deepResult\s*\.commercial_reading/)
+  assert.match(content, /engine_source:\s*'stateful'/)
+  assert.match(content, /phase12a-deep-seller-v1/)
+})
+
+test('reader exige V3 exato, cardinalidade 1 e não retorna raw output', () => {
+  assert.match(reader, /output_contract_version/)
+  assert.match(reader, /events\.length !== 1/)
+  assert.match(reader, /buildSellerResult/)
+  assert.doesNotMatch(reader, /result:\s*event\.normalized_output/)
+})
+'''
+          write(structural_test_path, structural_test)
+
+          # -----------------------------------------------------------------
+          # Deep DOM test: adapt mock result to DTO and add stale/rich proofs
+          # -----------------------------------------------------------------
+          deep_test_path = 'app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs'
+          deep_test = read(deep_test_path)
+
+          dto_start = 'function deepOutput(overrides = {}) {'
+          dto_end = 'function analysisResultWithDeepJob('
+          dto_fixture = r'''function evidence(summary) {
+  return {
+    summary,
+    evidence_message_ids: ['msg-a1'],
+    memory_ids: [],
+  }
+}
+
+function deepReading(relevance = 'commercial') {
+  const commercial = relevance === 'commercial'
+  return {
+    contract_version: 'commercial-reading-v1',
+    analysis_status: 'complete',
+    analysis_limitations: [],
+    commercial_role: commercial ? 'buyer' : 'unknown',
+    commercial_relevance: relevance,
+    conversation_summary: {
+      current_state: evidence(commercial ? 'Estado profundo comercial.' : 'Conversa sem evidência comercial.'),
+    },
+    customer: {
+      objectives: [], problems: [], impacts: [],
+      needs: commercial ? [evidence('Necessidade profunda do cliente.')] : [],
+      interests: [], decision_criteria: [], preferences: [], open_questions: [],
+      objections: [], uncertainties: [], discussed_products: [], primary_product_interest: null,
+      competitors: [], commitments: [], missing_discovery: [], resolved_information: [],
+      superseded_information: [], communication: { patterns: [], events: [] },
+    },
+    commercial_evolution: [],
+    method: {
+      configured: commercial,
+      name: commercial ? 'Método Deep' : null,
+      stages: [],
+      current_stage: null,
+      adherence: {
+        status: commercial ? 'on_method' : 'insufficient_evidence',
+        summary: commercial ? 'Aderência profunda confirmada.' : 'Sem evidência suficiente.',
+        deviation_stage_order: null,
+        what_happened: null,
+        missing_information: [],
+        why_it_matters: null,
+        evidence_message_ids: [],
+        memory_ids: [],
+      },
+      recovery_guidance: null,
+    },
+    seller_strengths: commercial ? [{
+      kind: 'good_discovery',
+      summary: 'Acerto profundo do vendedor.',
+      why_it_matters: 'Mantém o diagnóstico consistente.',
+      evidence_message_ids: ['msg-a1'],
+      memory_ids: [],
+    }] : [],
+    improvement_points: [],
+    risks: { customer_objections: [], service_risks: [] },
+    best_approach: {
+      decision: commercial ? 'deepen_discovery' : 'no_intervention',
+      reason: commercial ? 'Aprofundar antes de negociar.' : 'Nenhuma intervenção comercial necessária.',
+      channel: commercial ? 'text' : 'none',
+      evidence_message_ids: [],
+      memory_ids: [],
+    },
+    communication: {
+      intervention_needed: commercial,
+      recommended_question: commercial ? 'Qual impacto isso gera hoje?' : null,
+      recommended_message: commercial ? 'Mensagem profunda para o cliente.' : null,
+    },
+    operations: {
+      crm: { should_change_crm_stage: false, recommended_status: null, rationale: null, requires_human_confirmation: true },
+      agenda: { should_change_agenda: false, expected_next_action_at: null, rationale: null, requires_human_confirmation: true },
+    },
+    evidence_message_ids: [],
+    memory_ids: [],
+  }
+}
+
+function deepOutput(overrides = {}) {
+  const relevance = overrides.commercial_relevance ?? 'commercial'
+  const base = {
+    contract_version: 'phase12a-deep-seller-v1',
+    engine_source: 'stateful',
+    commercial_relevance: relevance,
+    commercial_role: relevance === 'commercial' ? 'buyer' : 'unknown',
+    summary: relevance === 'commercial'
+      ? 'Cliente pediu desconto no plano anual.'
+      : 'Conversa sem evidência comercial relevante.',
+    commercial_reading: deepReading(relevance),
+    recommended_next_approach: relevance === 'commercial'
+      ? 'Aprofundar valor antes de negociar.'
+      : 'Não realizar intervenção comercial.',
+    recommended_question: relevance === 'commercial' ? 'Qual impacto isso gera hoje?' : null,
+    suggested_message: relevance === 'commercial'
+      ? 'Consigo 10% no plano anual, fechamos hoje?'
+      : null,
+  }
+
+  return {
+    ...base,
+    ...overrides,
+    commercial_reading: overrides.commercial_reading ?? base.commercial_reading,
+  }
+}
+
+'''
+          deep_test = splice(
+              deep_test,
+              dto_start,
+              dto_end,
+              dto_fixture,
+              'deep test DTO fixture',
+          )
+          deep_test = deep_test.replace(
+              "deepOutput({ strategy: { suggested_message: 'MENSAGEM DO JOB ANTIGO' } })",
+              "deepOutput({ suggested_message: 'MENSAGEM DO JOB ANTIGO' })",
+          )
+          deep_test = deep_test.replace(
+              "deepOutput({ strategy: { suggested_message: 'MENSAGEM DO JOB NOVO' } })",
+              "deepOutput({ suggested_message: 'MENSAGEM DO JOB NOVO' })",
+          )
+          deep_test = deep_test.replace(
+              "commercial_relevance: 'non_commercial',\n          strategy: { suggested_message: 'MENSAGEM QUE NUNCA DEVE APARECER' },",
+              "commercial_relevance: 'non_commercial',\n          suggested_message: 'MENSAGEM QUE NUNCA DEVE APARECER',",
+          )
+
+          deep_test += r'''
+
+test('deep succeeded promove commercial_reading para ANÁLISE e CLIENTE, não só bloco textual', async () => {
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Quero entender melhor a solução e o impacto no follow-up.',
+    }),
+    resolutionsByPhone: { [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A) },
+    analysisResult: analysisResultWithDeepJob({
+      summary: 'RESUMO RAPIDO A',
+      analysisJobId: 'a'.repeat(64),
+    }),
+    analysisJobStatusResult: { ok: true, data: { status: 'succeeded', message_watermark: 'wm-1', result: deepOutput() } },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+  await waitFor(() => getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:'))
+
+  document.querySelector('[data-yolen-seller-area="analysis"]')?.click()
+  await waitFor(() => !document.querySelector('[data-yolen-seller-panel="analysis"]')?.hidden)
+  assert.match(document.querySelector('[data-yolen-seller-panel="analysis"]').textContent, /Método Deep/)
+  assert.match(document.querySelector('[data-yolen-seller-panel="analysis"]').textContent, /Acerto profundo/)
+
+  document.querySelector('[data-yolen-seller-area="client"]')?.click()
+  await waitFor(() => !document.querySelector('[data-yolen-seller-panel="client"]')?.hidden)
+  assert.match(document.querySelector('[data-yolen-seller-panel="client"]').textContent, /Necessidade profunda/)
+})
+
+test('edição durante polling invalida A1 antes do próximo debounce e nunca aplica deep stale', async () => {
+  let releaseStatus
+  const gate = new Promise((resolve) => { releaseStatus = resolve })
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Quero saber mais sobre o plano anual.',
+    }),
+    resolutionsByPhone: { [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A) },
+    analysisResult: analysisResultWithDeepJob({
+      summary: 'RESUMO RAPIDO A',
+      analysisJobId: 'a'.repeat(64),
+    }),
+    analysisJobStatusResult: async () => {
+      await gate
+      return { ok: true, data: { status: 'succeeded', message_watermark: 'wm-1', result: deepOutput({ suggested_message: 'STALE NÃO PODE APARECER' }) } }
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0)
+  const ingestBefore = ingestCalls(calls).length
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+  await waitFor(() => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento')
+
+  const textSpan = document.querySelector('[data-pre-plain-text] span > span')
+  textSpan.textContent = 'Mensagem editada enquanto A1 ainda estava em background.'
+  await waitFor(() => ingestCalls(calls).length > ingestBefore)
+
+  releaseStatus()
+  await new Promise((resolve) => setTimeout(resolve, 2000))
+
+  const panelHtml = getPanel(document)?.innerHTML ?? ''
+  assert.doesNotMatch(panelHtml, /STALE NÃO PODE APARECER/)
+})
+'''
+          write(deep_test_path, deep_test)
+          PY
+
+      - name: Static diff sanity
+        run: |
+          git diff --check
+          git status --short
+
+      - name: Main Companion suite
+        run: npm run test:companion
+
+      - name: Deep backend route tests
+        run: node --experimental-test-module-mocks --test app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs
+
+      - name: Deep freshness and adversarial tests
+        run: |
+          node --test app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs
+          node --test app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: ESLint changed production and tests
+        run: |
+          npx eslint \
+            app/api/companion/analyze-conversation/route.ts \
+            app/api/companion/analysis-job-status/route.ts \
+            app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs \
+            app/lib/server/companion-analysis-job-reader.ts \
+            app/extension/yolen-companion/src/content-script.js \
+            app/extension/yolen-companion/src/yolen-api.js \
+            app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs \
+            app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs \
+            app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Extension DOM suite on Node 22
+        run: npm run test:companion-extension-dom
+
+      - name: Build and extension RC
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          COMPANION_TOKEN_SECRET: placeholder-placeholder-placeholder
+        run: |
+          npm run build
+          node app/extension/yolen-companion/scripts/build-package.mjs
+
+      - name: Commit verified hardening and remove temporary workflow
+        run: |
+          git config user.name "ChatGPT Phase12A Integrator"
+          git config user.email "noreply@openai.com"
+          git rm .github/workflows/phase12a-complete.yml
+          git add \
+            app/api/companion/analyze-conversation/route.ts \
+            app/api/companion/analysis-job-status/analysis-job-status-route.test.mjs \
+            app/extension/yolen-companion/src/content-script.js \
+            app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs \
+            app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs \
+            app/lib/companion/phase12a-deep-delivery-adversarial.test.mjs
+          git commit -m "fix(companion): fecha gates adversariais do deep delivery"
+          git push origin HEAD:feat/phase12a-deep-result-delivery
