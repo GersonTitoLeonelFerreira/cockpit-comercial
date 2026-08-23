@@ -15,8 +15,16 @@ import {
 
 import {
   STATEFUL_COPILOT_CONTRACT_VERSION,
-  type StatefulCopilotOutput,
 } from '../companion/stateful-copilot-contract'
+
+import {
+  STATEFUL_COMMUNICATION_CONTRACT_VERSION,
+} from '../companion/stateful-communication-contract'
+
+import {
+  COMMERCIAL_READING_CONTRACT_VERSION,
+  type CommercialReading,
+} from '../companion/commercial-reading-contract'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -24,8 +32,40 @@ const UUID_PATTERN =
 const ANALYSIS_JOB_ID_PATTERN =
   /^[a-f0-9]{64}$/
 
+export const COMPANION_DEEP_SELLER_RESULT_CONTRACT_VERSION =
+  'phase12a-deep-seller-v1' as const
+
 type JsonRecord =
   Record<string, unknown>
+
+export type CompanionDeepSellerResult = {
+  contract_version:
+    typeof COMPANION_DEEP_SELLER_RESULT_CONTRACT_VERSION
+
+  engine_source:
+    'stateful'
+
+  commercial_relevance:
+    string
+
+  commercial_role:
+    string
+
+  summary:
+    string
+
+  commercial_reading:
+    CommercialReading
+
+  recommended_next_approach:
+    string
+
+  recommended_question:
+    string | null
+
+  suggested_message:
+    string | null
+}
 
 export class CompanionAnalysisJobReadError
   extends Error {
@@ -79,6 +119,32 @@ function fail({
   })
 }
 
+function failNotFound(): never {
+  fail({
+    code:
+      'ANALYSIS_JOB_NOT_FOUND',
+
+    message:
+      'A análise profunda não foi encontrada.',
+
+    status_code: 404,
+    retryable: false,
+  })
+}
+
+function failIntegrity(): never {
+  fail({
+    code:
+      'DEEP_RESULT_INTEGRITY_ERROR',
+
+    message:
+      'A análise profunda foi concluída, mas o resultado persistido está inconsistente.',
+
+    status_code: 500,
+    retryable: false,
+  })
+}
+
 function isRecord(
   value: unknown,
 ): value is JsonRecord {
@@ -116,46 +182,6 @@ function normalizeUuid(
     .toLowerCase()
 }
 
-function normalizeConversationKey(
-  value: unknown,
-): string {
-  if (
-    typeof value !== 'string'
-  ) {
-    fail({
-      code:
-        'INVALID_ANALYSIS_JOB_ARGUMENT',
-
-      message:
-        'conversation_key precisa ser um texto.',
-
-      status_code: 400,
-      retryable: false,
-    })
-  }
-
-  const normalized =
-    value.trim()
-
-  if (
-    !normalized ||
-    normalized.length > 500
-  ) {
-    fail({
-      code:
-        'INVALID_ANALYSIS_JOB_ARGUMENT',
-
-      message:
-        'conversation_key possui um valor inválido.',
-
-      status_code: 400,
-      retryable: false,
-    })
-  }
-
-  return normalized
-}
-
 function normalizeAnalysisJobId(
   value: unknown,
 ): string {
@@ -180,6 +206,34 @@ function normalizeAnalysisJobId(
   return value
     .trim()
     .toLowerCase()
+}
+
+function requiredString(
+  value: unknown,
+): string | null {
+  return (
+    typeof value === 'string' &&
+    value.trim()
+  )
+    ? value.trim()
+    : null
+}
+
+function nullableString(
+  value: unknown,
+): string | null | undefined {
+  if (value === null) {
+    return null
+  }
+
+  if (
+    typeof value === 'string' &&
+    value.trim()
+  ) {
+    return value.trim()
+  }
+
+  return undefined
 }
 
 async function validateMembership({
@@ -253,7 +307,7 @@ async function validateMembership({
   return data.role
 }
 
-async function loadCycle({
+async function loadCycleOwner({
   admin,
   companyId,
   cycleId,
@@ -261,12 +315,12 @@ async function loadCycle({
   admin: SupabaseClient
   companyId: string
   cycleId: string
-}): Promise<{
-  owner_user_id: string | null
-}> {
+}): Promise<string | null> {
   const { data, error } =
     await admin
-      .from('sales_cycles')
+      .from(
+        'sales_cycles',
+      )
       .select(
         'id, company_id, owner_user_id',
       )
@@ -293,41 +347,17 @@ async function loadCycle({
     })
   }
 
-  if (!isRecord(data)) {
-    fail({
-      code:
-        'ANALYSIS_JOB_CYCLE_NOT_FOUND',
-
-      message:
-        'O ciclo comercial não foi encontrado para a empresa informada.',
-
-      status_code: 404,
-      retryable: false,
-    })
-  }
-
   if (
+    !isRecord(data) ||
     data.id !== cycleId ||
     data.company_id !== companyId
   ) {
-    fail({
-      code:
-        'ANALYSIS_JOB_SCOPE_VIOLATION',
-
-      message:
-        'O ciclo retornado está fora do escopo solicitado.',
-
-      status_code: 500,
-      retryable: false,
-    })
+    failNotFound()
   }
 
-  return {
-    owner_user_id:
-      typeof data.owner_user_id === 'string'
-        ? data.owner_user_id
-        : null,
-  }
+  return typeof data.owner_user_id === 'string'
+    ? data.owner_user_id
+    : null
 }
 
 function validateCyclePermission({
@@ -339,24 +369,135 @@ function validateCyclePermission({
   ownerUserId: string | null
   userId: string
 }): void {
-  const hasManagerAccess =
+  if (
     role === 'admin' ||
     role === 'manager'
+  ) {
+    return
+  }
 
   if (
-    !hasManagerAccess &&
     ownerUserId !== userId
   ) {
-    fail({
-      code:
-        'ANALYSIS_JOB_PERMISSION_DENIED',
+    failNotFound()
+  }
+}
 
-      message:
-        'Este ciclo não pertence à carteira do usuário.',
+function buildSellerResult(
+  value: unknown,
+): CompanionDeepSellerResult {
+  if (
+    !isRecord(value) ||
+    value.contract_version !==
+      STATEFUL_COPILOT_CONTRACT_VERSION
+  ) {
+    failIntegrity()
+  }
 
-      status_code: 403,
-      retryable: false,
-    })
+  const interpretation =
+    isRecord(value.interpretation)
+      ? value.interpretation
+      : null
+
+  const currentMoment =
+    interpretation &&
+    isRecord(
+      interpretation.current_moment,
+    )
+      ? interpretation.current_moment
+      : null
+
+  const strategy =
+    isRecord(value.strategy)
+      ? value.strategy
+      : null
+
+  const communication =
+    isRecord(value.communication)
+      ? value.communication
+      : null
+
+  const commercialReading =
+    communication &&
+    isRecord(
+      communication.commercial_reading,
+    )
+      ? communication.commercial_reading
+      : null
+
+  const summary =
+    requiredString(
+      currentMoment?.summary,
+    )
+
+  const nextApproach =
+    requiredString(
+      strategy?.next_move,
+    )
+
+  const recommendedQuestion =
+    nullableString(
+      strategy?.recommended_question,
+    )
+
+  const suggestedMessage =
+    nullableString(
+      strategy?.suggested_message,
+    )
+
+  const commercialRelevance =
+    requiredString(
+      value.commercial_relevance,
+    )
+
+  const commercialRole =
+    requiredString(
+      value.commercial_role,
+    )
+
+  if (
+    !communication ||
+    communication.contract_version !==
+      STATEFUL_COMMUNICATION_CONTRACT_VERSION ||
+    !commercialReading ||
+    commercialReading.contract_version !==
+      COMMERCIAL_READING_CONTRACT_VERSION ||
+    !summary ||
+    !nextApproach ||
+    recommendedQuestion === undefined ||
+    suggestedMessage === undefined ||
+    !commercialRelevance ||
+    !commercialRole
+  ) {
+    failIntegrity()
+  }
+
+  return {
+    contract_version:
+      COMPANION_DEEP_SELLER_RESULT_CONTRACT_VERSION,
+
+    engine_source:
+      'stateful',
+
+    commercial_relevance:
+      commercialRelevance,
+
+    commercial_role:
+      commercialRole,
+
+    summary,
+
+    commercial_reading:
+      commercialReading as unknown as CommercialReading,
+
+    recommended_next_approach:
+      nextApproach,
+
+    recommended_question:
+      recommendedQuestion,
+
+    suggested_message:
+      suggestedMessage,
   }
 }
 
@@ -368,21 +509,17 @@ export type CompanionAnalysisJobStatusResult = {
   message_watermark: string
   candidate_state_version: number | null
   failure_code: string | null
-  result: StatefulCopilotOutput | null
+  result: CompanionDeepSellerResult | null
   result_generated_at: string | null
 }
 
 export async function loadCompanionAnalysisJobStatus({
   admin,
   token,
-  cycle_id,
-  conversation_key,
   analysis_job_id,
 }: {
   admin: SupabaseClient
   token: CompanionTokenPayload
-  cycle_id: unknown
-  conversation_key: unknown
   analysis_job_id: unknown
 }): Promise<CompanionAnalysisJobStatusResult> {
   const companyId =
@@ -397,17 +534,6 @@ export async function loadCompanionAnalysisJobStatus({
       'token.sub',
     )
 
-  const cycleId =
-    normalizeUuid(
-      cycle_id,
-      'cycle_id',
-    )
-
-  const conversationKey =
-    normalizeConversationKey(
-      conversation_key,
-    )
-
   const analysisJobId =
     normalizeAnalysisJobId(
       analysis_job_id,
@@ -420,30 +546,10 @@ export async function loadCompanionAnalysisJobStatus({
       userId,
     })
 
-  const cycle =
-    await loadCycle({
-      admin,
-      companyId,
-      cycleId,
-    })
-
-  validateCyclePermission({
-    role,
-
-    ownerUserId:
-      cycle.owner_user_id,
-
-    userId,
-  })
-
   /*
-   * O analysis_job_id sozinho nunca é aceito como chave de busca.
-   * A linha só é devolvida quando company_id, cycle_id e
-   * conversation_key (todos derivados de identidade autenticada e
-   * autorizada acima, nunca do valor bruto enviado pelo cliente)
-   * também batem — uma tentativa de Empresa A ler analysis_job_id de
-   * Empresa B (ou de outro ciclo/conversa da mesma empresa) sempre
-   * resulta em nenhuma linha encontrada.
+   * O único identificador aceito do cliente é analysis_job_id.
+   * company_id vem do token. cycle/conversation/version são sempre
+   * derivados server-side da linha autorizada do job.
    */
   const {
     data: job,
@@ -464,14 +570,6 @@ export async function loadCompanionAnalysisJobStatus({
         'company_id',
         companyId,
       )
-      .eq(
-        'cycle_id',
-        cycleId,
-      )
-      .eq(
-        'conversation_key',
-        conversationKey,
-      )
       .maybeSingle()
 
   if (jobError) {
@@ -487,40 +585,45 @@ export async function loadCompanionAnalysisJobStatus({
     })
   }
 
-  if (!isRecord(job)) {
-    fail({
-      code:
-        'ANALYSIS_JOB_NOT_FOUND',
-
-      message:
-        'A análise profunda não foi encontrada para o escopo informado.',
-
-      status_code: 404,
-      retryable: false,
-    })
-  }
-
   if (
+    !isRecord(job) ||
     job.analysis_job_id !== analysisJobId ||
     job.company_id !== companyId ||
-    job.cycle_id !== cycleId ||
-    job.conversation_key !== conversationKey ||
     !isStatefulCopilotBackgroundJobStatus(
       job.status,
     ) ||
     typeof job.message_watermark !== 'string'
   ) {
-    fail({
-      code:
-        'ANALYSIS_JOB_SCOPE_VIOLATION',
-
-      message:
-        'O job retornado está fora do escopo solicitado.',
-
-      status_code: 500,
-      retryable: false,
-    })
+    failNotFound()
   }
+
+  const cycleId =
+    normalizeUuid(
+      job.cycle_id,
+      'job.cycle_id',
+    )
+
+  const conversationKey =
+    requiredString(
+      job.conversation_key,
+    )
+
+  if (!conversationKey) {
+    failIntegrity()
+  }
+
+  const ownerUserId =
+    await loadCycleOwner({
+      admin,
+      companyId,
+      cycleId,
+    })
+
+  validateCyclePermission({
+    role,
+    ownerUserId,
+    userId,
+  })
 
   const candidateStateVersion =
     typeof job.candidate_state_version === 'number' &&
@@ -549,20 +652,11 @@ export async function loadCompanionAnalysisJobStatus({
   }
 
   if (candidateStateVersion === null) {
-    fail({
-      code:
-        'ANALYSIS_JOB_RESULT_MISSING',
-
-      message:
-        'A análise profunda foi concluída, mas o resultado persistido não foi localizado.',
-
-      status_code: 500,
-      retryable: false,
-    })
+    failIntegrity()
   }
 
   const {
-    data: event,
+    data: events,
     error: eventError,
   } =
     await admin
@@ -570,7 +664,7 @@ export async function loadCompanionAnalysisJobStatus({
         'companion_commercial_state_events',
       )
       .select(
-        'normalized_output, generated_at, company_id, cycle_id, conversation_key, candidate_state_version',
+        'normalized_output, generated_at, company_id, cycle_id, conversation_key, candidate_state_version, output_contract_version',
       )
       .eq(
         'company_id',
@@ -588,7 +682,11 @@ export async function loadCompanionAnalysisJobStatus({
         'candidate_state_version',
         candidateStateVersion,
       )
-      .maybeSingle()
+      .eq(
+        'output_contract_version',
+        STATEFUL_COPILOT_CONTRACT_VERSION,
+      )
+      .limit(2)
 
   if (eventError) {
     fail({
@@ -603,39 +701,27 @@ export async function loadCompanionAnalysisJobStatus({
     })
   }
 
-  if (!isRecord(event)) {
-    fail({
-      code:
-        'ANALYSIS_JOB_RESULT_MISSING',
-
-      message:
-        'A análise profunda foi concluída, mas o resultado persistido não foi localizado.',
-
-      status_code: 500,
-      retryable: false,
-    })
+  if (
+    !Array.isArray(events) ||
+    events.length !== 1
+  ) {
+    failIntegrity()
   }
 
+  const event =
+    events[0]
+
   if (
+    !isRecord(event) ||
     event.company_id !== companyId ||
     event.cycle_id !== cycleId ||
     event.conversation_key !== conversationKey ||
     event.candidate_state_version !== candidateStateVersion ||
-    !isRecord(event.normalized_output) ||
-    event.normalized_output.contract_version !==
+    event.output_contract_version !==
       STATEFUL_COPILOT_CONTRACT_VERSION ||
     typeof event.generated_at !== 'string'
   ) {
-    fail({
-      code:
-        'ANALYSIS_JOB_SCOPE_VIOLATION',
-
-      message:
-        'O resultado retornado está fora do escopo solicitado.',
-
-      status_code: 500,
-      retryable: false,
-    })
+    failIntegrity()
   }
 
   return {
@@ -647,7 +733,10 @@ export async function loadCompanionAnalysisJobStatus({
     candidate_state_version: candidateStateVersion,
     failure_code: failureCode,
     result:
-      event.normalized_output as unknown as StatefulCopilotOutput,
-    result_generated_at: event.generated_at,
+      buildSellerResult(
+        event.normalized_output,
+      ),
+    result_generated_at:
+      event.generated_at,
   }
 }
