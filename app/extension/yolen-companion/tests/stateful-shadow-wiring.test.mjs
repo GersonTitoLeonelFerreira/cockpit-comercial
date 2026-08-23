@@ -43,9 +43,20 @@ const queueRoute =
 test(
   'análise envia conversation key canônica',
   () => {
+    const functionStart =
+      contentScript.indexOf(
+        'async function analyzeCurrentConversation(',
+      )
+
+    assert.notEqual(
+      functionStart,
+      -1,
+    )
+
     const start =
       contentScript.indexOf(
         '.analyzeConversation({',
+        functionStart,
       )
 
     assert.notEqual(
@@ -53,15 +64,30 @@ test(
       -1,
     )
 
+    const functionBlock =
+      contentScript.slice(
+        functionStart,
+        start,
+      )
+
     const block =
       contentScript.slice(
         start,
         start + 900,
       )
 
+    // Capturada uma única vez (getCaptureConversationKey()) e reutilizada
+    // tanto na requisição de análise quanto no guard de identidade de
+    // contexto que descarta respostas que não pertencem mais à conversa
+    // atual.
+    assert.match(
+      functionBlock,
+      /conversationKeyAtRequest\s*=\s*\n?\s*getCaptureConversationKey\(\)/,
+    )
+
     assert.match(
       block,
-      /conversation_key:\s*getCaptureConversationKey\(\)/,
+      /conversation_key:\s*conversationKeyAtRequest/,
     )
   },
 )
