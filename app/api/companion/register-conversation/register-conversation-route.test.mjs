@@ -8,8 +8,17 @@
 // C) nova versão (novo watermark permitido); E) isolamento de tenant;
 // F) isolamento de ciclo; G) nenhuma mutação operacional (sales_cycles
 // nunca recebe update/insert/delete neste fluxo); J) retry sem duplicidade.
+//
+// E os 8 cenários do confirmation_token (auditoria externa — o cliente não
+// pode ser autoridade sobre o conteúdo que entra no histórico):
+// 1) token válido + resumo intacto -> PASS; 2) resumo alterado -> rejeitado;
+// 3) watermark alterado -> rejeitado; 4) cycle alterado -> rejeitado;
+// 5) conversation_key alterada -> rejeitado; 6) token expirado -> rejeitado;
+// 7) token inválido/tampered -> rejeitado; 8) replay com mesmo watermark ->
+// idempotência mantida.
 
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { register } from 'node:module'
 import test, { mock } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -61,6 +70,9 @@ globalThis.fetch = async () =>
 
 const { POST: previewPOST } = await import('./preview/route.ts')
 const { POST: confirmPOST } = await import('./confirm/route.ts')
+const { createConversationRegistrationConfirmationToken } = await import(
+  '../../../lib/server/companion-token.ts'
+)
 
 process.on('exit', () => {
   globalThis.fetch = originalFetch
@@ -77,12 +89,17 @@ const IDS = {
 }
 
 const CONVERSATION_KEY = 'whatsapp:+5547999990001'
+const OTHER_CONVERSATION_KEY = 'whatsapp:+5547999990002'
 
 const ACTIVE_MEMBERSHIP = {
   company_id: IDS.companyA,
   user_id: IDS.userA,
   role: 'member',
   is_active: true,
+}
+
+function hashSummaryText(summaryText) {
+  return createHash('sha256').update(summaryText.trim()).digest('hex')
 }
 
 function matchesFilters(row, filters) {
@@ -235,7 +252,7 @@ function textMessage({ id, cycleId, messageKey, direction = 'incoming', occurred
   }
 }
 
-function baseFixtures({ cycleId = IDS.cycleA, leadId = IDS.leadA, extraMessage } = {}) {
+function baseFixtures({ cycleId = IDS.cycleA, extraMessage } = {}) {
   const messages = [
     textMessage({
       id: 1,
@@ -295,24 +312,34 @@ function confirmRequest({ token, body }) {
   })
 }
 
-async function previewSnapshot(fixtures, token) {
+async function previewSnapshot(fixtures, token, overrideBody = {}) {
   adminBox.admin = createFakeAdmin(fixtures).admin
 
   const response = await previewPOST(
     previewRequest({
       token,
-      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY, ...overrideBody },
     }),
   )
 
   return response.json()
 }
 
+function confirmBodyFromPreview(preview, overrides = {}) {
+  return {
+    cycle_id: IDS.cycleA,
+    conversation_key: CONVERSATION_KEY,
+    confirmation_token: preview.data.confirmation_token,
+    summary_text: preview.data.summary_text,
+    ...overrides,
+  }
+}
+
 // ---------------------------------------------------------------------
 // A. Registro normal
 // ---------------------------------------------------------------------
 
-test('preview: gera o resumo e devolve watermark quando não há registro anterior', async () => {
+test('preview: gera o resumo, devolve watermark e um confirmation_token quando não há registro anterior', async () => {
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
   const body = await previewSnapshot(baseFixtures(), token)
 
@@ -321,6 +348,8 @@ test('preview: gera o resumo e devolve watermark quando não há registro anteri
   assert.equal(body.data.summary_text, 'Resumo gerado pelo fetch global de teste.')
   assert.equal(typeof body.data.watermark, 'string')
   assert.ok(body.data.watermark.length > 0)
+  assert.equal(typeof body.data.confirmation_token, 'string')
+  assert.ok(body.data.confirmation_token.includes('.'))
 })
 
 test('confirm: registra a conversa e não altera nenhuma linha de sales_cycles', async () => {
@@ -333,15 +362,7 @@ test('confirm: registra a conversa e não altera nenhuma linha de sales_cycles',
   adminBox.admin = admin
 
   const response = await confirmPOST(
-    confirmRequest({
-      token,
-      body: {
-        cycle_id: IDS.cycleA,
-        conversation_key: CONVERSATION_KEY,
-        watermark: preview.data.watermark,
-        summary_text: preview.data.summary_text,
-      },
-    }),
+    confirmRequest({ token, body: confirmBodyFromPreview(preview) }),
   )
 
   const body = await response.json()
@@ -368,9 +389,10 @@ test('confirm: registra a conversa e não altera nenhuma linha de sales_cycles',
 // ---------------------------------------------------------------------
 // B. Idempotência — mesmo watermark, dois cliques
 // J. Retry — repetir após uma resposta perdida não duplica
+// 8. Replay válido com mesmo watermark -> idempotência mantida
 // ---------------------------------------------------------------------
 
-test('confirm: dois cliques com o mesmo watermark persistem só um registro (idempotência / retry)', async () => {
+test('confirm: dois cliques com o mesmo confirmation_token persistem só um registro (idempotência / retry / replay)', async () => {
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
   const fixtures = baseFixtures()
   const preview = await previewSnapshot(fixtures, token)
@@ -378,12 +400,7 @@ test('confirm: dois cliques com o mesmo watermark persistem só um registro (ide
   const { admin, registrations, rpcCalls } = createFakeAdmin(fixtures)
   adminBox.admin = admin
 
-  const confirmBody = {
-    cycle_id: IDS.cycleA,
-    conversation_key: CONVERSATION_KEY,
-    watermark: preview.data.watermark,
-    summary_text: preview.data.summary_text,
-  }
+  const confirmBody = confirmBodyFromPreview(preview)
 
   const first = await (await confirmPOST(confirmRequest({ token, body: confirmBody }))).json()
   const second = await (await confirmPOST(confirmRequest({ token, body: confirmBody }))).json()
@@ -412,17 +429,7 @@ test('confirm: uma mensagem nova entre dois registros produz um segundo registro
   const { admin: adminShared, registrations } = createFakeAdmin(fixturesBefore)
   adminBox.admin = adminShared
 
-  await confirmPOST(
-    confirmRequest({
-      token,
-      body: {
-        cycle_id: IDS.cycleA,
-        conversation_key: CONVERSATION_KEY,
-        watermark: previewBefore.data.watermark,
-        summary_text: previewBefore.data.summary_text,
-      },
-    }),
-  )
+  await confirmPOST(confirmRequest({ token, body: confirmBodyFromPreview(previewBefore) }))
 
   const fixturesAfter = baseFixtures({
     extraMessage: {
@@ -431,13 +438,6 @@ test('confirm: uma mensagem nova entre dois registros produz um segundo registro
       text: 'E qual o valor do plano anual?',
     },
   })
-
-  // Reaproveita a MESMA tabela de registrations (mesmo "banco") para simular
-  // o segundo clique acontecendo depois que a conversa mudou.
-  adminBox.admin = {
-    from: adminShared.from,
-    rpc: adminShared.rpc,
-  }
 
   // Mas a query de mensagens/reconciliação precisa refletir o novo estado:
   // troca as tabelas de leitura mantendo o mesmo array de registrations.
@@ -468,15 +468,7 @@ test('confirm: uma mensagem nova entre dois registros produz um segundo registro
   }
 
   const secondConfirmResponse = await confirmPOST(
-    confirmRequest({
-      token,
-      body: {
-        cycle_id: IDS.cycleA,
-        conversation_key: CONVERSATION_KEY,
-        watermark: previewAfter.data.watermark,
-        summary_text: previewAfter.data.summary_text,
-      },
-    }),
+    confirmRequest({ token, body: confirmBodyFromPreview(previewAfter) }),
   )
 
   const secondConfirm = await secondConfirmResponse.json()
@@ -484,38 +476,6 @@ test('confirm: uma mensagem nova entre dois registros produz um segundo registro
   assert.equal(secondConfirm.ok, true)
   assert.equal(secondConfirm.data.already_registered, false)
   assert.equal(registrations.length, 2, 'a nova versão da conversa cria um segundo registro')
-})
-
-// ---------------------------------------------------------------------
-// watermark obsoleto (stale) — confirm recusa quando a conversa mudou
-// entre o preview e a confirmação
-// ---------------------------------------------------------------------
-
-test('confirm: recusa com 409 quando o watermark enviado não bate com o estado canônico atual', async () => {
-  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
-  const fixtures = baseFixtures()
-
-  const { admin, registrations } = createFakeAdmin(fixtures)
-  adminBox.admin = admin
-
-  const response = await confirmPOST(
-    confirmRequest({
-      token,
-      body: {
-        cycle_id: IDS.cycleA,
-        conversation_key: CONVERSATION_KEY,
-        watermark: 'watermark-que-nunca-existiu',
-        summary_text: 'Resumo qualquer.',
-      },
-    }),
-  )
-
-  const body = await response.json()
-
-  assert.equal(response.status, 409)
-  assert.equal(body.ok, false)
-  assert.equal(body.code, 'REGISTER_CONVERSATION_STALE_WATERMARK')
-  assert.equal(registrations.length, 0)
 })
 
 // ---------------------------------------------------------------------
@@ -543,13 +503,18 @@ test('preview: empresa B não consegue gerar resumo do ciclo da empresa A', asyn
   assert.equal(body.code, 'CONVERSATION_REGISTRATION_CYCLE_NOT_FOUND')
 })
 
-test('confirm: token ausente é rejeitado antes de tocar o banco', async () => {
+test('confirm: token de sessão ausente é rejeitado antes de tocar o banco', async () => {
   adminBox.admin = createFakeAdmin(baseFixtures()).admin
 
   const response = await confirmPOST(
     confirmRequest({
       token: null,
-      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY, watermark: 'x', summary_text: 'x' },
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+        confirmation_token: 'x',
+        summary_text: 'x',
+      },
     }),
   )
 
@@ -584,19 +549,225 @@ test('confirm: o registro do ciclo A nunca é associado ao lead do ciclo B', asy
   const { admin, registrations, rpcCalls } = createFakeAdmin(fixtures)
   adminBox.admin = admin
 
-  await confirmPOST(
-    confirmRequest({
-      token,
-      body: {
-        cycle_id: IDS.cycleA,
-        conversation_key: CONVERSATION_KEY,
-        watermark: preview.data.watermark,
-        summary_text: preview.data.summary_text,
-      },
-    }),
-  )
+  await confirmPOST(confirmRequest({ token, body: confirmBodyFromPreview(preview) }))
 
   assert.equal(rpcCalls[0].params.p_cycle_id, IDS.cycleA)
   assert.equal(rpcCalls[0].params.p_lead_id, IDS.leadA)
   assert.notEqual(registrations[0].lead_id, IDS.leadA2)
+})
+
+// =======================================================================
+// P1 — confirmation_token: o cliente não pode ser autoridade sobre o
+// conteúdo que entra no histórico canônico.
+// =======================================================================
+
+// 1. Token válido + resumo intacto -> PASS (idêntico ao "registro normal"
+// acima, mantido aqui por completude da numeração pedida na auditoria).
+test('1) confirmation_token válido com resumo intacto é aceito', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({ token, body: confirmBodyFromPreview(preview) }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(registrations.length, 1)
+})
+
+// 2. Resumo alterado entre preview e confirm -> rejeitado.
+test('2) summary_text alterado depois do preview é rejeitado (hash não bate com o token)', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({
+      token,
+      body: confirmBodyFromPreview(preview, {
+        summary_text: 'Cliente está certamente fechando a proposta hoje mesmo.',
+      }),
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_SUMMARY_MISMATCH')
+  assert.equal(registrations.length, 0)
+})
+
+// 3. Watermark alterado (conversa mudou entre preview e confirm) -> rejeitado.
+test('3) mensagens mudaram depois do preview: watermark recalculado diverge do token -> rejeitado', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixturesBefore = baseFixtures()
+  const preview = await previewSnapshot(fixturesBefore, token)
+
+  const fixturesAfter = baseFixtures({
+    extraMessage: {
+      messageKey: 'msg-3',
+      occurredAt: '2026-08-20T10:10:00.000Z',
+      text: 'Mais uma pergunta antes de decidir.',
+    },
+  })
+
+  const { admin, registrations } = createFakeAdmin(fixturesAfter)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({ token, body: confirmBodyFromPreview(preview) }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_STALE_WATERMARK')
+  assert.equal(registrations.length, 0)
+})
+
+// 4. Cycle alterado -> rejeitado.
+test('4) confirmation_token de um ciclo não pode ser usado para confirmar outro ciclo', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({
+      token,
+      body: confirmBodyFromPreview(preview, { cycle_id: IDS.cycleA2 }),
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_CYCLE_MISMATCH')
+  assert.equal(registrations.length, 0)
+})
+
+// 5. conversation_key alterada -> rejeitado.
+test('5) confirmation_token de uma conversa não pode ser usado para confirmar outra conversa', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({
+      token,
+      body: confirmBodyFromPreview(preview, { conversation_key: OTHER_CONVERSATION_KEY }),
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_CONVERSATION_KEY_MISMATCH')
+  assert.equal(registrations.length, 0)
+})
+
+// 6. Token expirado -> rejeitado.
+test('6) confirmation_token expirado é rejeitado', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const expiredConfirmationToken = createConversationRegistrationConfirmationToken({
+    sub: IDS.userA,
+    company_id: IDS.companyA,
+    cycle_id: IDS.cycleA,
+    conversation_key: CONVERSATION_KEY,
+    watermark: preview.data.watermark,
+    summary_hash: hashSummaryText(preview.data.summary_text),
+    exp: Math.floor(Date.now() / 1000) - 60,
+  })
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({
+      token,
+      body: confirmBodyFromPreview(preview, { confirmation_token: expiredConfirmationToken }),
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 401)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_INVALID_CONFIRMATION_TOKEN')
+  assert.equal(registrations.length, 0)
+})
+
+// 7. Token inválido/adulterado -> rejeitado.
+test('7) confirmation_token com assinatura adulterada é rejeitado', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const [payload, signature] = preview.data.confirmation_token.split('.')
+  const tamperedSignature = `${signature.slice(0, -1)}${signature.endsWith('a') ? 'b' : 'a'}`
+  const tamperedToken = `${payload}.${tamperedSignature}`
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({
+      token,
+      body: confirmBodyFromPreview(preview, { confirmation_token: tamperedToken }),
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 401)
+  assert.equal(body.ok, false)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_INVALID_CONFIRMATION_TOKEN')
+  assert.equal(registrations.length, 0)
+})
+
+// Token de outra empresa/vendedor não pode ser reaproveitado sob esta sessão.
+test('confirmation_token emitido para outra empresa é rejeitado mesmo com sessão válida', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  const preview = await previewSnapshot(fixtures, token)
+
+  const foreignConfirmationToken = createConversationRegistrationConfirmationToken({
+    sub: IDS.userA,
+    company_id: IDS.companyB,
+    cycle_id: IDS.cycleA,
+    conversation_key: CONVERSATION_KEY,
+    watermark: preview.data.watermark,
+    summary_hash: hashSummaryText(preview.data.summary_text),
+    exp: Math.floor(Date.now() / 1000) + 600,
+  })
+
+  const { admin, registrations } = createFakeAdmin(fixtures)
+  adminBox.admin = admin
+
+  const response = await confirmPOST(
+    confirmRequest({
+      token,
+      body: confirmBodyFromPreview(preview, { confirmation_token: foreignConfirmationToken }),
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 403)
+  assert.equal(body.code, 'REGISTER_CONVERSATION_CONFIRMATION_TOKEN_SCOPE_MISMATCH')
+  assert.equal(registrations.length, 0)
 })

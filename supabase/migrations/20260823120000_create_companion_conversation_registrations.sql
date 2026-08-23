@@ -286,9 +286,9 @@ begin
 
   if not v_inserted then
     select
-      id,
-      created_at,
-      summary_text
+      companion_conversation_registrations.id,
+      companion_conversation_registrations.created_at,
+      companion_conversation_registrations.summary_text
     into
       v_id,
       v_created_at,

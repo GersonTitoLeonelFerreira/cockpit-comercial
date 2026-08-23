@@ -1,4 +1,8 @@
 import {
+  createHash,
+} from 'crypto'
+
+import {
   createClient,
 } from '@supabase/supabase-js'
 
@@ -16,8 +20,14 @@ import {
 } from '../../../../lib/companion/register-conversation-summary'
 
 import {
+  CONVERSATION_REGISTRATION_CONFIRMATION_TOKEN_TTL_SECONDS,
+  createConversationRegistrationConfirmationToken,
   verifyCompanionRequestToken,
 } from '../../../../lib/server/companion-token'
+
+function hashSummaryText(summaryText: string) {
+  return createHash('sha256').update(summaryText.trim()).digest('hex')
+}
 
 type PreviewBody = {
   cycle_id?: unknown
@@ -172,6 +182,20 @@ export async function POST(request: Request) {
       )
     }
 
+    const summaryHash = hashSummaryText(summaryResult.summary)
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    const expiresAt = nowSeconds + CONVERSATION_REGISTRATION_CONFIRMATION_TOKEN_TTL_SECONDS
+
+    const confirmationToken = createConversationRegistrationConfirmationToken({
+      sub: token.sub,
+      company_id: snapshot.company_id,
+      cycle_id: snapshot.cycle_id,
+      conversation_key: snapshot.conversation_key,
+      watermark: snapshot.watermark,
+      summary_hash: summaryHash,
+      exp: expiresAt,
+    })
+
     return NextResponse.json(
       {
         ok: true,
@@ -181,6 +205,8 @@ export async function POST(request: Request) {
           watermark: snapshot.watermark,
           message_count: snapshot.message_count,
           occurred_at: null,
+          confirmation_token: confirmationToken,
+          confirmation_expires_at: new Date(expiresAt * 1000).toISOString(),
         },
       },
       {

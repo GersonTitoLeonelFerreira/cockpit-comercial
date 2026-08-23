@@ -4792,6 +4792,7 @@
         status: 'previewing',
         summary_text: null,
         watermark: null,
+        confirmation_token: null,
         message_count: null,
         occurred_at: null,
         error_message: null,
@@ -4847,6 +4848,7 @@
         status: alreadyRegistered ? 'success' : 'preview_ready',
         summary_text: data.summary_text || '',
         watermark: data.watermark || null,
+        confirmation_token: data.confirmation_token || null,
         message_count: data.message_count ?? null,
         occurred_at: data.occurred_at || null,
         already_registered: alreadyRegistered,
@@ -4857,7 +4859,7 @@
 
   function canConfirmConversationRegistration() {
     const entry = getCurrentConversationRegistrationEntry()
-    return Boolean(entry) && entry.status === 'preview_ready'
+    return Boolean(entry) && entry.status === 'preview_ready' && Boolean(entry.confirmation_token)
   }
 
   async function confirmCurrentConversationRegistration() {
@@ -4884,7 +4886,7 @@
 
     const entry = getCurrentConversationRegistrationEntry()
 
-    if (!entry || entry.status !== 'preview_ready') {
+    if (!entry || entry.status !== 'preview_ready' || !entry.confirmation_token) {
       return
     }
 
@@ -4904,7 +4906,7 @@
       confirmResult = await window.YolenCompanionApi.confirmConversationRegistration({
         cycle_id: cycleId,
         conversation_key: conversationKey,
-        watermark: entry.watermark,
+        confirmation_token: entry.confirmation_token,
         summary_text: entry.summary_text,
       })
     } catch (error) {
@@ -4925,7 +4927,14 @@
 
     if (!confirmResult?.ok || !confirmResult.payload?.ok || !confirmResult.payload?.data) {
       const code = confirmResult?.payload?.code
-      const isStale = code === 'REGISTER_CONVERSATION_STALE_WATERMARK'
+      const isStale = [
+        'REGISTER_CONVERSATION_STALE_WATERMARK',
+        'REGISTER_CONVERSATION_INVALID_CONFIRMATION_TOKEN',
+        'REGISTER_CONVERSATION_CONFIRMATION_TOKEN_SCOPE_MISMATCH',
+        'REGISTER_CONVERSATION_CYCLE_MISMATCH',
+        'REGISTER_CONVERSATION_CONVERSATION_KEY_MISMATCH',
+        'REGISTER_CONVERSATION_SUMMARY_MISMATCH',
+      ].includes(code)
 
       applyConversationRegistrationUpdate({
         key,
@@ -5032,7 +5041,10 @@
       if (status === 'stale') {
         return `
           <div class="yolen-card-description">
-            A conversa mudou desde a geração do resumo. Gere novamente.
+            ${escapeHtml(
+              entry?.error_message ||
+                'A conversa mudou desde a geração do resumo. Gere novamente.',
+            )}
           </div>
           <button class="yolen-secondary-button" type="button" data-yolen-action="register-conversation">
             Gerar novamente
