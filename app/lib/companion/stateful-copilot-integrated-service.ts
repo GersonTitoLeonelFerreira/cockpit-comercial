@@ -40,6 +40,9 @@ import type {
   StatefulCopilotStateReader,
 } from './stateful-copilot-supabase-reader'
 
+type JsonRecord =
+  Record<string, unknown>
+
 type StatefulCopilotEngineRunner =
   typeof runStatefulCopilotEngine
 
@@ -112,16 +115,21 @@ export class StatefulCopilotIntegratedServiceError
   readonly status_code: number
   readonly retryable: boolean
 
+  readonly details:
+    JsonRecord | null
+
   constructor({
     code,
     message,
     status_code,
     retryable,
+    details = null,
   }: {
     code: string
     message: string
     status_code: number
     retryable: boolean
+    details?: JsonRecord | null
   }) {
     super(message)
 
@@ -136,6 +144,9 @@ export class StatefulCopilotIntegratedServiceError
 
     this.retryable =
       retryable
+
+    this.details =
+      details
   }
 }
 
@@ -144,11 +155,13 @@ function fail({
   message,
   statusCode,
   retryable,
+  details = null,
 }: {
   code: string
   message: string
   statusCode: number
   retryable: boolean
+  details?: JsonRecord | null
 }): never {
   throw new StatefulCopilotIntegratedServiceError({
     code,
@@ -156,6 +169,7 @@ function fail({
     status_code:
       statusCode,
     retryable,
+    details,
   })
 }
 
@@ -555,6 +569,14 @@ function normalizeCandidateState({
 
         retryable:
           false,
+
+        details: {
+          state_failure_path:
+            error.path,
+
+          state_failure_invariant:
+            error.code,
+        },
       })
     }
 

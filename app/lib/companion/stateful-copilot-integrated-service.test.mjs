@@ -1497,3 +1497,123 @@ test(
     )
   },
 )
+
+
+test(
+  'INVALID_CANDIDATE_STATE preserva path e invariante seguros',
+  async () => {
+    let planCalls =
+      0
+
+    let persistenceCalls =
+      0
+
+    const invalidCandidate =
+      buildState({
+        version:
+          3,
+
+        updatedAt:
+          referenceTime,
+
+        evidenceMessageId:
+          'unknown-message',
+      })
+
+    let capturedError =
+      null
+
+    try {
+      await runStatefulCopilotIntegratedService({
+        diagnostic_input:
+          buildDiagnosticInput(),
+
+        known_message_ids: [
+          'm1',
+          'm2',
+        ],
+
+        generated_at:
+          generatedAt,
+
+        reader:
+          async () =>
+            buildFoundReadResult(),
+
+        writer:
+          async () => {
+            throw new Error(
+              'writer não deveria ser chamado',
+            )
+          },
+
+        provider,
+
+        create_memory_id:
+          createMemoryId,
+
+        dependencies: {
+          run_engine:
+            async () =>
+              buildModelEngineResult({
+                candidateState:
+                  invalidCandidate,
+              }),
+
+          build_persistence_plan:
+            () => {
+              planCalls += 1
+
+              throw new Error(
+                'plano não deveria ser criado',
+              )
+            },
+
+          execute_persistence:
+            async () => {
+              persistenceCalls += 1
+
+              throw new Error(
+                'persistência não deveria executar',
+              )
+            },
+        },
+      })
+    } catch (error) {
+      capturedError =
+        error
+    }
+
+    assert.equal(
+      capturedError instanceof
+        StatefulCopilotIntegratedServiceError,
+      true,
+    )
+
+    assert.equal(
+      capturedError.code,
+      'INVALID_CANDIDATE_STATE',
+    )
+
+    assert.deepEqual(
+      capturedError.details,
+      {
+        state_failure_path:
+          'state.last_analyzed_message_ids',
+
+        state_failure_invariant:
+          'UNKNOWN_EVIDENCE',
+      },
+    )
+
+    assert.equal(
+      planCalls,
+      0,
+    )
+
+    assert.equal(
+      persistenceCalls,
+      0,
+    )
+  },
+)

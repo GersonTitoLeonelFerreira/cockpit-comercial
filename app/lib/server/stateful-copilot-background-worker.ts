@@ -761,6 +761,8 @@ export async function processStatefulCopilotBackgroundMessage(
         ?.communication_failure_path ??
       failure
         ?.diagnostic_failure_path ??
+      failure
+        ?.state_failure_path ??
       null
 
     const failureInvariant =
@@ -768,6 +770,8 @@ export async function processStatefulCopilotBackgroundMessage(
         ?.communication_failure_invariant ??
       failure
         ?.diagnostic_failure_invariant ??
+      failure
+        ?.state_failure_invariant ??
       null
 
     const communicationAttempts =
