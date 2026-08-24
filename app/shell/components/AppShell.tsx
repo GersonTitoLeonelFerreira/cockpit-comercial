@@ -1044,7 +1044,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            zIndex: 5,
+            zIndex: 100,
           }}
         >
           <div style={{ flexShrink: 0, paddingLeft: 12, borderLeft: `2px solid ${C.activeItemBorder}` }}>
