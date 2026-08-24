@@ -258,7 +258,7 @@
         'data-yolen-client-intelligence-group',
       ) ||
       details.getAttribute(
-        'data-yolen-preserve-open',
+        'data-yolen-preserve-details',
       ) ||
       null
     )
@@ -9106,7 +9106,7 @@
     return `
       <details
         class="yolen-seller-secondary-details yolen-now-more-details"
-        data-yolen-preserve-open="now-more-details"
+        data-yolen-preserve-details="now-more-details"
         data-yolen-layer="context"
       >
         <summary>Ver mais contexto</summary>
