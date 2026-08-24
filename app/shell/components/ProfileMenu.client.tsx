@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { supabaseBrowser } from '../../lib/supabaseBrowser'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 
@@ -18,6 +18,8 @@ const TEXT_LABEL = '#b8c4d8'
 export default function ProfileMenu() {
   const supabase = React.useMemo(() => supabaseBrowser(), [])
   const router = useRouter()
+  const pathname = usePathname()
+  const menuRef = React.useRef<HTMLDivElement>(null)
 
   const [open, setOpen] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
@@ -67,12 +69,37 @@ export default function ProfileMenu() {
   }, [supabase])
 
   React.useEffect(() => {
+    setOpen(false)
+  }, [pathname])
+
+  React.useEffect(() => {
     if (!open) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+
+      if (!(target instanceof Node)) {
+        return
+      }
+
+      if (!menuRef.current?.contains(target)) {
+        setOpen(false)
+      }
     }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
   }, [open])
 
   async function logout() {
@@ -139,7 +166,7 @@ export default function ProfileMenu() {
   }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={menuRef} style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
