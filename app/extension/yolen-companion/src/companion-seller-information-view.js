@@ -647,7 +647,7 @@
     }
 
     return `
-      <details class="yolen-seller-secondary-details">
+      <details class="yolen-seller-secondary-details" data-yolen-preserve-open="commercial-evolution">
         <summary>Ver evolução comercial</summary>
         <div class="yolen-method-stages">
           ${items.map((item) => `
