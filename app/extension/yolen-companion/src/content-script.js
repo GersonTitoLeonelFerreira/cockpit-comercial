@@ -5176,6 +5176,41 @@
     )
   }
 
+  // TEMP-DIAG-FASE12A — instrumentação temporária, somente console,
+  // somente booleanos/enums/contagens. Remover após o diagnóstico.
+  function __fase12aDiagCustomerCounts(reading) {
+    const customer = reading?.customer
+
+    if (!customer) {
+      return null
+    }
+
+    return {
+      objectives: customer.objectives?.length ?? 0,
+      problems: customer.problems?.length ?? 0,
+      needs: customer.needs?.length ?? 0,
+      interests: customer.interests?.length ?? 0,
+      objections: customer.objections?.length ?? 0,
+      discussed_products: customer.discussed_products?.length ?? 0,
+    }
+  }
+
+  let __fase12aDiagLastSignature = null
+
+  function __fase12aDiag(label, data) {
+    const signature =
+      label + '|' + JSON.stringify(data)
+
+    if (signature === __fase12aDiagLastSignature) {
+      return
+    }
+
+    __fase12aDiagLastSignature = signature
+
+    console.log('[FASE12A-DIAG]', label, data)
+  }
+  // TEMP-DIAG-FASE12A — fim do helper
+
   function getActiveCommercialReading() {
     const analysis =
       state
@@ -9378,8 +9413,8 @@
     const commercialReading =
       getActiveCommercialReading()
 
-    if (
-      commercialReading &&
+    const richEligible =
+      Boolean(commercialReading) &&
       !state
         .conversationAnalysisLoading &&
       !state
@@ -9391,7 +9426,18 @@
       !state
         .suggestionApplyResult &&
       !isCurrentAnalysisOutdated()
-    ) {
+
+    // TEMP-DIAG-FASE12A
+    __fase12aDiag('AGORA', {
+      branch: richEligible ? 'rich' : 'legacy',
+      conversationAnalysis_engine_source:
+        state.conversationAnalysis?.engine_source ?? null,
+      has_commercial_reading: Boolean(commercialReading),
+      commercial_relevance: commercialReading?.commercial_relevance ?? null,
+      commercial_role: commercialReading?.commercial_role ?? null,
+    })
+
+    if (richEligible) {
       return (
         getRichCommercialReadingCardHtml(
           commercialReading,
@@ -9408,12 +9454,28 @@
     const commercialReading =
       getActiveCommercialReading()
 
-    if (
-      commercialReading &&
+    const richEligible =
+      Boolean(commercialReading) &&
       !state.conversationAnalysisLoading &&
       !state.conversationAnalysisError &&
       !isCurrentAnalysisOutdated()
-    ) {
+
+    // TEMP-DIAG-FASE12A
+    __fase12aDiag('ANALISE', {
+      branch: richEligible
+        ? 'rich'
+        : state.conversationAnalysisLoading
+          ? 'loading'
+          : state.conversationAnalysisError
+            ? 'error'
+            : isCurrentAnalysisOutdated()
+              ? 'outdated'
+              : 'empty-progressive',
+      has_commercial_reading: Boolean(commercialReading),
+      deep_analysis_status: state.deepAnalysisStatus ?? null,
+    })
+
+    if (richEligible) {
       return `
         <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
           ${getRichCommercialReadingExpandedHtml(
@@ -9498,6 +9560,15 @@
 
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
+
+    // TEMP-DIAG-FASE12A
+    __fase12aDiag('CLIENTE', {
+      has_commercial_reading: Boolean(commercialReading),
+      has_commercial_html: Boolean(commercialHtml),
+      has_relationship_html: Boolean(relationshipHtml),
+      customer_counts:
+        __fase12aDiagCustomerCounts(commercialReading),
+    })
 
     if (!commercialHtml && !relationshipHtml) {
       return `
@@ -12142,6 +12213,21 @@
       }
 
       if (data.status === 'succeeded') {
+        // TEMP-DIAG-FASE12A
+        __fase12aDiag('deep-succeeded', {
+          engine_source: data.result?.engine_source ?? null,
+          commercial_relevance:
+            data.result?.commercial_relevance ?? null,
+          commercial_role:
+            data.result?.commercial_role ?? null,
+          has_commercial_reading:
+            Boolean(data.result?.commercial_reading),
+          customer_counts:
+            __fase12aDiagCustomerCounts(
+              data.result?.commercial_reading,
+            ),
+        })
+
         state = {
           ...state,
           deepAnalysisStatus: 'succeeded',
@@ -12153,6 +12239,9 @@
       }
 
       if (data.status === 'superseded') {
+        // TEMP-DIAG-FASE12A
+        __fase12aDiag('deep-superseded', {})
+
         // Um job mais novo para a MESMA conversa já assumiu o lugar deste.
         // Este job nunca vira estado corrente — não é falha, é apenas
         // descartado.
@@ -12165,6 +12254,11 @@
         renderPanel()
         return
       }
+
+      // TEMP-DIAG-FASE12A
+      __fase12aDiag('deep-failed-or-unknown-status', {
+        status: data.status ?? null,
+      })
 
       state = {
         ...state,
@@ -12369,6 +12463,22 @@
       )
 
       renderPanel()
+
+      // TEMP-DIAG-FASE12A
+      __fase12aDiag('quick-response', {
+        engine_source:
+          result.payload.data.engine_source ?? null,
+        has_deep_analysis:
+          Boolean(result.payload.data.deep_analysis),
+        deep_analysis_status:
+          result.payload.data.deep_analysis?.status ?? null,
+        deep_analysis_job_id_prefix:
+          result.payload.data.deep_analysis?.analysis_job_id
+            ? String(
+                result.payload.data.deep_analysis.analysis_job_id,
+              ).slice(0, 8)
+            : null,
+      })
 
       const deepAnalysisJob =
         result.payload.data.deep_analysis

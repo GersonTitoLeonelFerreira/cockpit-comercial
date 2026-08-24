@@ -828,6 +828,36 @@
           freshness,
         )
 
+      // TEMP-DIAG-FASE12A — instrumentação temporária, somente console,
+      // somente booleanos/enums/contagens. Remover após o diagnóstico.
+      const __diagCustomer =
+        promoted?.commercial_reading?.customer
+
+      console.log(
+        '[FASE12A-DIAG]',
+        'promote-attempt',
+        {
+          promote_succeeded: Boolean(promoted),
+          engine_source_after_promotion:
+            freshness.analysisDataRef?.engine_source ?? null,
+          commercial_relevance: promoted?.commercial_relevance ?? null,
+          commercial_role: promoted?.commercial_role ?? null,
+          has_commercial_reading: Boolean(promoted?.commercial_reading),
+          customer_counts: __diagCustomer
+            ? {
+                objectives: __diagCustomer.objectives?.length ?? 0,
+                problems: __diagCustomer.problems?.length ?? 0,
+                needs: __diagCustomer.needs?.length ?? 0,
+                interests: __diagCustomer.interests?.length ?? 0,
+                objections: __diagCustomer.objections?.length ?? 0,
+                discussed_products:
+                  __diagCustomer.discussed_products?.length ?? 0,
+              }
+            : null,
+        },
+      )
+      // TEMP-DIAG-FASE12A — fim
+
       if (!promoted) {
         return {
           ok: false,
