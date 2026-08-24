@@ -52,7 +52,7 @@ test('B3.2 distribui Cliente e evolução em áreas progressivas separadas de AG
 
   assert.match(clientHtml, /O que ele quer/)
   assert.match(clientHtml, /Outros pontos em aberto/)
-  assert.match(analysisHtml, /<details class="yolen-seller-secondary-details">/)
+  assert.match(analysisHtml, /<details class="yolen-seller-secondary-details"[^>]*>/)
   assert.match(analysisHtml, /evolução comercial/i)
   assert.doesNotMatch(analysisHtml, /<details[^>]*open/)
 

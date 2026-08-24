@@ -464,7 +464,7 @@
       .join('')
 
     return (
-      '<details class="yolen-client-timeline" data-yolen-preserve-open="client-timeline">' +
+      '<details class="yolen-client-timeline" data-yolen-preserve-details="client-timeline">' +
       '<summary>Ver histórico</summary>' +
       `<ul class="yolen-client-timeline-list">${items}</ul>` +
       '</details>'
