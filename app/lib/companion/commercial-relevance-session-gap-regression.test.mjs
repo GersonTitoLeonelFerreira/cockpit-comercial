@@ -11,13 +11,15 @@
 // Yolen), gap de 6h, 15:10 resposta do cliente ("Faz sentido, deixa eu ver
 // aqui com o time.") sem palavra-chave comercial isolada.
 //
-// Este arquivo só documenta o comportamento ATUAL do
-// stateful-copilot-execution-plan.ts (nenhum código de produção foi
-// alterado). Um teste (marcado `todo`) expressa o comportamento ainda NÃO
-// implementado que o ajuste aprovado precisa satisfazer — ele falha hoje de
-// propósito e deve passar a satisfazer somente depois que a exceção de
-// continuidade for adicionada ao prompt, sem enfraquecer os testes normais
-// abaixo (que pinam os textos de fail-closed existentes).
+// Este arquivo documenta o comportamento de stateful-copilot-execution-plan.ts
+// depois da exceção estreita de continuidade aprovada: a janela de
+// mensagens (required_analyzed_message_ids/context_bridge_messages)
+// continua exatamente como antes — nada na janela temporal mudou —, mas o
+// prompt agora autoriza commercial_relevance=commercial quando a mensagem
+// atual for resposta direta e inequívoca a algo específico presente na
+// ponte. Os testes negativos abaixo, e assertFailClosedGuardrailsIntact,
+// pinam que essa exceção continua estreita: não vira licença para herdar
+// relevância de histórico genérico, assunto diferente ou resposta vaga.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -261,21 +263,25 @@ test(
 )
 
 test(
-  'AJUSTE APROVADO AINDA NÃO IMPLEMENTADO: o prompt deve autorizar commercial_relevance=commercial quando a mensagem atual responde diretamente a uma pergunta/oferta comercial presente na ponte',
-  { todo: 'aguardando aprovação da redação exata da exceção de continuidade em stateful-copilot-execution-plan.ts' },
+  'o prompt autoriza commercial_relevance=commercial quando a mensagem atual responde diretamente a uma pergunta/oferta comercial presente na ponte',
   () => {
     const { plan } =
       buildPlanPayload(continuidadeExplicitaMessages())
 
-    // Esta é a especificação do ajuste: uma frase que autorize
-    // explicitamente tratar a sessão atual como continuidade do mesmo
-    // assunto comercial quando a mensagem atual for resposta direta e
-    // semanticamente conectada a uma pergunta/oferta do
+    // Exceção estreita de continuidade: autoriza tratar a sessão atual como
+    // continuação do mesmo assunto comercial quando a mensagem atual for
+    // resposta direta e inequívoca a algo específico do
     // context_bridge_messages — sem tratar histórico genérico ou papel de
-    // buyer como prova automática (isso continua proibido).
+    // buyer como prova automática (isso continua proibido pelas linhas
+    // fixadas em assertFailClosedGuardrailsIntact).
     assert.match(
       plan.request.system_prompt,
       /resposta direta[\s\S]{0,80}context_bridge_messages|context_bridge_messages[\s\S]{0,80}resposta direta/i,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /Esta exceção não se aplica a uma retomada genérica, a um cumprimento sem conteúdo, a uma resposta vaga ou a um assunto diferente/,
     )
 
     assertFailClosedGuardrailsIntact(plan)
