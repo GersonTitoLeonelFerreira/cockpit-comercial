@@ -80,6 +80,7 @@
   let panelCollapsed = false
   let activeSellerArea = 'now'
   let lastAcknowledgedCollapsedAttentionKey = null
+  let lastRenderedDeepAnalysisResultKey = null
   let sessionRefreshTimerId = 0
   let companionClientContextTickTimerId = 0
   let companionClientContextRefreshTimerId = 0
@@ -244,6 +245,59 @@
     document.body.appendChild(panel)
 
     return panel
+  }
+
+  // renderPanel() substitui panel.innerHTML por completo a cada mudança de
+  // estado (sessão, ingestão, ticks periódicos...). Sem isto, qualquer
+  // <details> aberto pelo vendedor (grupos do CLIENTE, "ver mais contexto")
+  // fecharia sozinho e a posição de leitura dentro do painel voltaria ao
+  // topo a cada atualização em segundo plano.
+  function getDetailsPreservationKey(details) {
+    return (
+      details.getAttribute(
+        'data-yolen-client-intelligence-group',
+      ) ||
+      details.getAttribute(
+        'data-yolen-preserve-open',
+      ) ||
+      null
+    )
+  }
+
+  function getOpenDetailsPreservationKeys(
+    panel,
+  ) {
+    return new Set(
+      Array.from(
+        panel.querySelectorAll(
+          'details[open]',
+        ),
+      )
+        .map(getDetailsPreservationKey)
+        .filter(Boolean),
+    )
+  }
+
+  function restoreOpenDetails(
+    panel,
+    keys,
+  ) {
+    if (!keys || keys.size === 0) {
+      return
+    }
+
+    panel
+      .querySelectorAll('details')
+      .forEach((details) => {
+        const key =
+          getDetailsPreservationKey(
+            details,
+          )
+
+        if (key && keys.has(key)) {
+          details.open = true
+        }
+      })
   }
 
   function decodeBase64Url(value) {
@@ -6481,6 +6535,39 @@
     return []
   }
 
+  // Detecta a transição para um resultado novo (succeeded/failed) sem
+  // depender de nenhum campo de estado extra do backend: a chave combina o
+  // status com o job em voo (analysisJobId), então dois resultados
+  // diferentes do mesmo ciclo nunca colidem, e o mesmo resultado
+  // re-renderizado (tick periódico, troca de aba) não pulsa de novo.
+  function isDeepAnalysisResultFresh() {
+    if (
+      state.deepAnalysisStatus !==
+        'succeeded' &&
+      state.deepAnalysisStatus !==
+        'failed'
+    ) {
+      return false
+    }
+
+    const key = [
+      state.analysisJobId || '',
+      state.deepAnalysisStatus,
+    ].join(':')
+
+    if (
+      key ===
+      lastRenderedDeepAnalysisResultKey
+    ) {
+      return false
+    }
+
+    lastRenderedDeepAnalysisResultKey =
+      key
+
+    return true
+  }
+
   function getDeepAnalysisStatusBlockHtml() {
     const details =
       getDeepAnalysisStatusDetails()
@@ -6489,14 +6576,33 @@
       return ''
     }
 
+    const fresh =
+      isDeepAnalysisResultFresh()
+
     return `
-      <div class="yolen-decision-block yolen-deep-analysis-status">
+      <div
+        class="yolen-decision-block yolen-deep-analysis-status ${
+          fresh
+            ? 'yolen-deep-analysis-status--fresh'
+            : ''
+        }"
+        data-yolen-layer="context"
+      >
         <div class="yolen-decision-kicker">
           Análise aprofundada
+          ${
+            fresh
+              ? '<span class="yolen-deep-analysis-fresh-badge">Nova</span>'
+              : ''
+          }
         </div>
 
         <div class="yolen-decision-copy">
-          ${escapeHtml(details.join(' · '))}
+          ${
+            state.deepAnalysisStatus === 'pending'
+              ? getInlineSpinnerHtml()
+              : ''
+          }${escapeHtml(details.join(' · '))}
         </div>
       </div>
     `
@@ -7505,7 +7611,11 @@
           </div>
 
           <div class="yolen-card-title yolen-decision-title">
-            ${escapeHtml(
+            ${
+              state.conversationAnalysisLoading
+                ? getInlineSpinnerHtml()
+                : ''
+            }${escapeHtml(
               getCompanionMomentText(),
             )}
           </div>
@@ -8908,34 +9018,37 @@
           </div>
         </div>
 
-        ${
-          currentState
-            ? `
-              <div class="yolen-decision-block">
-                <div class="yolen-decision-kicker">
-                  Momento atual
+        <div class="yolen-decision-primary" data-yolen-layer="action">
+          ${
+            currentState
+              ? `
+                <div class="yolen-decision-block yolen-decision-block--context" data-yolen-layer="context">
+                  <div class="yolen-decision-kicker">
+                    Momento atual
+                  </div>
+
+                  <div class="yolen-card-title yolen-decision-title">
+                    ${escapeHtml(
+                      currentState,
+                    )}
+                  </div>
                 </div>
+              `
+              : ''
+          }
 
-                <div class="yolen-card-title yolen-decision-title">
-                  ${escapeHtml(
-                    currentState,
-                  )}
-                </div>
-              </div>
-            `
-            : ''
-        }
-
-        ${getDeepAnalysisStatusBlockHtml()}
-
-        ${getRichCommercialReadingLimitationsHtml(
-          commercialReading,
-        )}
-
-        ${sellerInformationViewTools
-          .renderNowMethodSnapshot(
+          ${getRichCommercialReadingApproachHtml(
             commercialReading,
           )}
+
+          ${getRichRecommendedQuestionHtml(
+            commercialReading,
+          )}
+
+          ${getSuggestedMessageHtml()}
+        </div>
+
+        ${getDeepAnalysisStatusBlockHtml()}
 
         ${sellerInformationViewTools
           .renderNowAttentionSnapshot(
@@ -8950,26 +9063,57 @@
             },
           )}
 
-        ${getRichCommercialReadingApproachHtml(
+        ${getNowMoreContextDetailsHtml(
           commercialReading,
         )}
-
-        ${getRichRecommendedQuestionHtml(
-          commercialReading,
-        )}
-
-        ${getRichOperationalSuggestionHtml(
-          commercialReading,
-        )}
-
-        ${getAudioTranscriptionHtml()}
-
-        ${getSuggestedMessageHtml()}
 
         <div class="yolen-inline-actions yolen-decision-actions">
           ${getAnalysisActionButton()}
         </div>
       </div>
+    `
+  }
+
+  // Tudo que já respondeu "o que aconteceu" / "o que fazer" / "por que"
+  // acima fica sempre visível. O resto (etapa do método, sugestão
+  // operacional de CRM/agenda, transcrição de áudio, limitações da
+  // leitura) é contexto de apoio: continua no DOM (nada é removido do
+  // contrato nem escondido de verdade — <details> fechado ainda expõe seu
+  // texto a leitores de tela e a asserções de teste) mas recolhido por
+  // padrão, para o primeiro nível do AGORA não virar uma lista de
+  // mini-relatórios com o mesmo peso visual da decisão.
+  function getNowMoreContextDetailsHtml(
+    commercialReading,
+  ) {
+    const sections = [
+      sellerInformationViewTools
+        .renderNowMethodSnapshot(
+          commercialReading,
+        ),
+      getRichCommercialReadingLimitationsHtml(
+        commercialReading,
+      ),
+      getRichOperationalSuggestionHtml(
+        commercialReading,
+      ),
+      getAudioTranscriptionHtml(),
+    ].filter(Boolean)
+
+    if (sections.length === 0) {
+      return ''
+    }
+
+    return `
+      <details
+        class="yolen-seller-secondary-details yolen-now-more-details"
+        data-yolen-preserve-open="now-more-details"
+        data-yolen-layer="context"
+      >
+        <summary>Ver mais contexto</summary>
+        <div class="yolen-now-more-details-content">
+          ${sections.join('')}
+        </div>
+      </details>
     `
   }
 
@@ -9284,6 +9428,7 @@
         <div class="yolen-card yolen-seller-area-card">
           <div class="yolen-section-label">Análise</div>
           <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
+            ${getInlineSpinnerHtml()}
             Analisando sua condução comercial…
           </div>
         </div>
@@ -10819,6 +10964,14 @@
   function renderPanel() {
     const panel = createPanel()
 
+    const previousPanelScrollTop =
+      panel.scrollTop
+
+    const previouslyOpenDetailsKeys =
+      getOpenDetailsPreservationKeys(
+        panel,
+      )
+
     const collapsed =
       panelCollapsed === true
 
@@ -10935,6 +11088,10 @@
           '<span class="yolen-connection-pill ' +
             getCompactConnectionClass() +
           '">',
+
+            state.loading
+              ? getInlineSpinnerHtml('yolen-spinner-inline')
+              : '',
 
             escapeHtml(
               getCompactConnectionLabel(),
@@ -11156,6 +11313,14 @@
     panel.querySelector('[data-yolen-action="cancel-conversation-registration"]')?.addEventListener('click', () => {
       cancelCurrentConversationRegistration()
     })
+
+    restoreOpenDetails(
+      panel,
+      previouslyOpenDetailsKeys,
+    )
+
+    panel.scrollTop =
+      previousPanelScrollTop
   }
 
   function escapeHtml(value) {
@@ -11165,6 +11330,20 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#039;')
+  }
+
+  // Indicador de progresso puramente visual (nenhum texto, nenhum
+  // conteúdo semântico) para acompanhar as frases de loading já
+  // existentes ("Conectando...", "Analisando...", "Análise aprofundada em
+  // andamento") sem alterar o texto que os testes verificam.
+  function getInlineSpinnerHtml(
+    extraClass = '',
+  ) {
+    return (
+      '<span class="yolen-spinner ' +
+      escapeHtml(extraClass) +
+      '" aria-hidden="true"></span>'
+    )
   }
 
   function getCurrentTimeLabel() {

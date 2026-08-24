@@ -1617,3 +1617,188 @@ html.yolen-companion-collapsed #app {
     align-items: flex-start;
   }
 }
+
+
+/* YOLEN COMPANION UX — DECISÃO ÚNICA, LOADING VIVO, MICROTRANSIÇÕES */
+
+/*
+ * O painel inteiro é reconstruído (innerHTML) a cada mudança de estado,
+ * inclusive em ticks periódicos sem nenhuma mudança visível para o
+ * vendedor. Por isso as transições abaixo são deliberadamente curtas e
+ * parciais (nunca partem de opacidade zero): suavizam o corte de repintura
+ * em vez de tentar simular uma transição "sob demanda" que a arquitetura
+ * atual não consegue distinguir de um refresh de rotina.
+ */
+@keyframes yolen-soft-repaint {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes yolen-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes yolen-pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.32);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0);
+  }
+}
+
+@keyframes yolen-badge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.yolen-decision-primary,
+.yolen-seller-panel:not([hidden]),
+.yolen-now-attention,
+.yolen-deep-analysis-status {
+  animation: yolen-soft-repaint 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yolen-decision-primary,
+  .yolen-seller-panel:not([hidden]),
+  .yolen-now-attention,
+  .yolen-deep-analysis-status,
+  .yolen-spinner,
+  .yolen-deep-analysis-status--fresh,
+  .yolen-deep-analysis-fresh-badge {
+    animation: none !important;
+  }
+}
+
+/* Camada 1 — AÇÃO: o único bloco que precisa saltar aos olhos em <5s. */
+.yolen-decision-primary {
+  margin-top: 14px;
+  padding: 14px 14px 4px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(15, 23, 42, 0.4));
+}
+
+.yolen-decision-primary > .yolen-decision-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.yolen-decision-primary .yolen-decision-block--context .yolen-decision-title {
+  font-size: 13px;
+  color: #cfe0f5;
+}
+
+.yolen-decision-primary .yolen-message-suggestion,
+.yolen-decision-primary .yolen-operational-suggestion {
+  margin-top: 14px;
+}
+
+/* Camada 2 — CONTEXTO: visível, mas com peso visual claramente menor que a ação. */
+.yolen-now-more-details {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(126, 153, 194, 0.12);
+}
+
+.yolen-now-more-details > summary {
+  cursor: pointer;
+  color: #8ea0b8;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  list-style: none;
+}
+
+.yolen-now-more-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.yolen-now-more-details > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 140ms ease-out;
+}
+
+.yolen-now-more-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.yolen-now-more-details-content {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  opacity: 0.92;
+}
+
+.yolen-now-more-details-content .yolen-decision-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Camada 3 — EVIDÊNCIA: citação/trecho da conversa, sempre a informação mais quieta da tela. */
+.yolen-seller-evidence::before {
+  content: "❝ ";
+  color: #4a6285;
+}
+
+/* "Nova inteligência disponível": só pulsa na primeira renderização de um
+   resultado novo (controlado em JS via isDeepAnalysisResultFresh()), nunca
+   em re-renders de rotina do mesmo resultado. */
+.yolen-deep-analysis-status--fresh {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(30, 64, 175, 0.14);
+  animation:
+    yolen-soft-repaint 140ms ease-out,
+    yolen-pulse-ring 1.1s ease-out 1;
+}
+
+.yolen-deep-analysis-fresh-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.28);
+  color: #dbeafe;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  animation: yolen-badge-pulse 1.1s ease-in-out 2;
+}
+
+/* Loading vivo: mesma frase de sempre, agora com um sinal real de movimento. */
+.yolen-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 7px;
+  vertical-align: -2px;
+  border: 2px solid rgba(148, 178, 219, 0.28);
+  border-top-color: #60a5fa;
+  border-radius: 50%;
+  animation: yolen-spin 700ms linear infinite;
+}
+
+.yolen-spinner-inline {
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border-width: 1.5px;
+}
