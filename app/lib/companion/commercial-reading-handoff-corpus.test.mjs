@@ -1277,3 +1277,550 @@ test(
     }
   },
 )
+
+// ---------------------------------------------------------------------------
+// Fase 12A — CLIENTE = memória comercial persistente; AGORA/ANÁLISE =
+// leitura do ciclo atual. Um ciclo non_commercial/uncertain neutraliza a
+// leitura do momento (conversation_summary.current_state, best_approach,
+// communication, operations), mas nunca pode apagar reading.customer —
+// ele já chega aqui derivado do estado persistido
+// (buildCommercialReadingCustomerFromState), não de uma reinterpretação do
+// ciclo atual.
+// ---------------------------------------------------------------------------
+
+const memoryContext = {
+  ...context,
+
+  available_memory_ids: [
+    ...context.available_memory_ids,
+    'mem-interest',
+    'mem-problem',
+    'mem-decision-criterion-old',
+    'mem-decision-criterion-new',
+  ],
+}
+
+test(
+  'Fase 12A — non_commercial preserva o need do CLIENTE e mantém AGORA neutro sem CTA inventada',
+  () => {
+    const reading =
+      buildBaseReading({
+        commercialRole:
+          'buyer',
+
+        commercialRelevance:
+          'non_commercial',
+
+        interventionNeeded:
+          false,
+      })
+
+    reading.customer.needs = [
+      evidence(
+        'Cliente busca reduzir leads sem retorno.',
+        [],
+        ['mem-need'],
+      ),
+    ]
+
+    const normalized =
+      normalizeCommercialReading(
+        reading,
+        memoryContext,
+      )
+
+    assert.equal(
+      normalized
+        .customer
+        .needs[0]
+        .summary,
+      'Cliente busca reduzir leads sem retorno.',
+    )
+
+    assert.equal(
+      normalized
+        .conversation_summary
+        .current_state
+        .summary,
+      'Conversa sem evidência comercial relevante para este ciclo.',
+    )
+
+    assert.equal(
+      normalized
+        .conversation_summary
+        .initial_context,
+      null,
+    )
+
+    assert.equal(
+      normalized
+        .best_approach
+        .decision,
+      'no_intervention',
+    )
+
+    assert.equal(
+      normalized
+        .communication
+        .intervention_needed,
+      false,
+    )
+
+    assert.equal(
+      normalized
+        .communication
+        .recommended_message,
+      null,
+    )
+
+    assert.equal(
+      normalized
+        .operations
+        .crm
+        .should_change_crm_stage,
+      false,
+    )
+
+    assert.equal(
+      normalized
+        .operations
+        .agenda
+        .should_change_agenda,
+      false,
+    )
+  },
+)
+
+test(
+  'Fase 12A — uncertain preserva dor, interesse e objeção do CLIENTE e neutraliza só o momento atual',
+  () => {
+    const reading =
+      buildBaseReading({
+        commercialRole:
+          'buyer',
+
+        commercialRelevance:
+          'uncertain',
+
+        interventionNeeded:
+          false,
+      })
+
+    reading.memory_ids = [
+      ...memoryContext
+        .available_memory_ids,
+    ]
+
+    reading.customer.needs = []
+
+    reading.customer.problems = [
+      evidence(
+        'Cliente relatou perder leads sem retorno da equipe.',
+        [],
+        ['mem-problem'],
+      ),
+    ]
+
+    reading.customer.interests = [
+      evidence(
+        'Cliente demonstrou interesse em automação de follow-up.',
+        [],
+        ['mem-interest'],
+      ),
+    ]
+
+    reading.customer.objections = [
+      evidence(
+        'Cliente considerou o valor mensal alto para o momento.',
+        [],
+        ['mem-objection'],
+      ),
+    ]
+
+    const normalized =
+      normalizeCommercialReading(
+        reading,
+        memoryContext,
+      )
+
+    assert.equal(
+      normalized
+        .customer
+        .problems[0]
+        .summary,
+      'Cliente relatou perder leads sem retorno da equipe.',
+    )
+
+    assert.equal(
+      normalized
+        .customer
+        .interests[0]
+        .summary,
+      'Cliente demonstrou interesse em automação de follow-up.',
+    )
+
+    assert.equal(
+      normalized
+        .customer
+        .objections[0]
+        .summary,
+      'Cliente considerou o valor mensal alto para o momento.',
+    )
+
+    assert.equal(
+      normalized
+        .conversation_summary
+        .current_state
+        .summary,
+      'Momento atual sem relevância comercial confirmada.',
+    )
+
+    assert.equal(
+      normalized
+        .best_approach
+        .decision,
+      'no_intervention',
+    )
+
+    assert.equal(
+      normalized
+        .communication
+        .recommended_question,
+      null,
+    )
+  },
+)
+
+test(
+  'Fase 12A — sem memória anterior, non_commercial mantém CLIENTE vazio sem inventar conteúdo',
+  () => {
+    const reading =
+      buildBaseReading({
+        commercialRole:
+          'unknown',
+
+        commercialRelevance:
+          'non_commercial',
+
+        interventionNeeded:
+          false,
+      })
+
+    reading.customer.needs = []
+
+    const normalized =
+      normalizeCommercialReading(
+        reading,
+        memoryContext,
+      )
+
+    const emptyCategories = [
+      'objectives',
+      'problems',
+      'impacts',
+      'needs',
+      'interests',
+      'decision_criteria',
+      'preferences',
+      'open_questions',
+      'objections',
+      'uncertainties',
+      'discussed_products',
+      'competitors',
+      'commitments',
+      'missing_discovery',
+      'resolved_information',
+      'superseded_information',
+    ]
+
+    for (
+      const category of
+      emptyCategories
+    ) {
+      assert.deepEqual(
+        normalized.customer[category],
+        [],
+        `customer.${category} deveria continuar vazio`,
+      )
+    }
+
+    assert.equal(
+      normalized
+        .customer
+        .primary_product_interest,
+      null,
+    )
+
+    assert.deepEqual(
+      normalized
+        .customer
+        .communication
+        .events,
+      [],
+    )
+
+    assert.deepEqual(
+      normalized
+        .customer
+        .communication
+        .patterns,
+      [],
+    )
+  },
+)
+
+test(
+  'Fase 12A — correção explícita do cliente atualiza CLIENTE sem perder o histórico substituído',
+  () => {
+    const reading =
+      buildBaseReading({
+        commercialRole:
+          'buyer',
+
+        commercialRelevance:
+          'commercial',
+      })
+
+    reading.memory_ids = [
+      ...memoryContext
+        .available_memory_ids,
+    ]
+
+    reading.customer.decision_criteria = [
+      evidence(
+        'Implantação assistida é o critério atual de decisão.',
+        [],
+        ['mem-decision-criterion-new'],
+      ),
+    ]
+
+    reading.customer.superseded_information = [
+      {
+        category:
+          'decision_criterion',
+
+        summary:
+          'Informação anterior substituída: preço era o critério principal.',
+
+        evidence_message_ids:
+          [],
+
+        memory_ids: [
+          'mem-decision-criterion-old',
+        ],
+      },
+    ]
+
+    const normalized =
+      normalizeCommercialReading(
+        reading,
+        memoryContext,
+      )
+
+    assert.equal(
+      normalized
+        .customer
+        .decision_criteria[0]
+        .summary,
+      'Implantação assistida é o critério atual de decisão.',
+    )
+
+    assert.equal(
+      normalized
+        .customer
+        .superseded_information[0]
+        .category,
+      'decision_criterion',
+    )
+
+    assert.match(
+      normalized
+        .customer
+        .superseded_information[0]
+        .summary,
+      /preço era o critério principal/,
+    )
+  },
+)
+
+test(
+  'Fase 12A — negociação encerrada mantém o histórico do CLIENTE mesmo com o ciclo atual neutro',
+  () => {
+    const reading =
+      buildBaseReading({
+        commercialRole:
+          'buyer',
+
+        commercialRelevance:
+          'non_commercial',
+
+        interventionNeeded:
+          false,
+      })
+
+    reading.customer.needs = [
+      evidence(
+        'Cliente buscava reduzir leads sem retorno.',
+        [],
+        ['mem-need'],
+      ),
+    ]
+
+    reading.customer.objections = [
+      evidence(
+        'Cliente considerou o valor mensal alto.',
+        [],
+        ['mem-objection'],
+      ),
+    ]
+
+    reading.customer.commitments = [
+      {
+        status:
+          'cancelled',
+
+        scheduled_at:
+          null,
+
+        proposed_at:
+          '2026-08-10T12:00:00-03:00',
+
+        summary:
+          'Reunião de fechamento proposta e depois cancelada pelo cliente.',
+
+        evidence_message_ids:
+          [],
+
+        memory_ids: [
+          'mem-commitment',
+        ],
+      },
+    ]
+
+    const normalized =
+      normalizeCommercialReading(
+        reading,
+        memoryContext,
+      )
+
+    assert.equal(
+      normalized
+        .customer
+        .needs[0]
+        .summary,
+      'Cliente buscava reduzir leads sem retorno.',
+    )
+
+    assert.equal(
+      normalized
+        .customer
+        .commitments[0]
+        .status,
+      'cancelled',
+    )
+
+    assert.equal(
+      normalized
+        .conversation_summary
+        .current_state
+        .summary,
+      'Conversa sem evidência comercial relevante para este ciclo.',
+    )
+
+    assert.equal(
+      normalized
+        .best_approach
+        .decision,
+      'no_intervention',
+    )
+  },
+)
+
+test(
+  'Fase 12A — CLIENTE de uma conversa nunca aparece na normalização de outra',
+  () => {
+    const readingA =
+      buildBaseReading({
+        commercialRole:
+          'buyer',
+
+        commercialRelevance:
+          'non_commercial',
+
+        interventionNeeded:
+          false,
+      })
+
+    readingA.customer.needs = [
+      evidence(
+        'Necessidade exclusiva da conversa A.',
+        [],
+        ['mem-need'],
+      ),
+    ]
+
+    const readingB =
+      buildBaseReading({
+        commercialRole:
+          'buyer',
+
+        commercialRelevance:
+          'non_commercial',
+
+        interventionNeeded:
+          false,
+      })
+
+    readingB.customer.needs = []
+
+    readingB.customer.objections = [
+      evidence(
+        'Objeção exclusiva da conversa B.',
+        [],
+        ['mem-objection'],
+      ),
+    ]
+
+    const normalizedA =
+      normalizeCommercialReading(
+        readingA,
+        memoryContext,
+      )
+
+    const normalizedB =
+      normalizeCommercialReading(
+        readingB,
+        memoryContext,
+      )
+
+    assert.equal(
+      normalizedA
+        .customer
+        .needs[0]
+        .summary,
+      'Necessidade exclusiva da conversa A.',
+    )
+
+    assert.deepEqual(
+      normalizedB
+        .customer
+        .needs,
+      [],
+    )
+
+    assert.deepEqual(
+      normalizedA
+        .customer
+        .objections,
+      [],
+    )
+
+    assert.equal(
+      normalizedB
+        .customer
+        .objections[0]
+        .summary,
+      'Objeção exclusiva da conversa B.',
+    )
+  },
+)
