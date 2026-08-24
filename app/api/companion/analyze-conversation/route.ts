@@ -60,6 +60,23 @@ type AnalyzeCompanionBody = {
 const runStatefulCopilotRuntime =
   createStatefulCopilotServerRuntimeOrchestrator()
 
+// Antes desta constante, as duas chamadas sequenciais ao provedor de IA no
+// caminho V1 (sugestão + coaching, em generateCompanionCoachingOrFallback)
+// não tinham nenhum teto de tempo — para uma conversa com histórico maior,
+// a soma das duas podia superar tranquilamente os 60s do watchdog
+// client-side (ANALYSIS_REQUEST_WATCHDOG_MS em content-script.js), mesmo
+// com o request seguindo normalmente no servidor. Reaproveita o mesmo
+// valor já estabelecido como orçamento razoável para uma etapa de troca
+// com o provedor (DEFAULT_STATEFUL_COPILOT_CYCLE_DEADLINE_MS = 25_000, em
+// stateful-copilot-cycle-deadline.ts) para as duas chamadas V1 — pior caso
+// agregado de ~50s, com margem sob o watchdog de 60s. Ambas as chamadas já
+// caem em um resultado fail-closed/fallback seguro quando abortadas (ver
+// callOpenAI() em sales-copilot.ts e o catch em
+// generateCompanionCoachingOrFallback), então o teto nunca produz erro não
+// tratado — só troca um hang sem limite por uma resposta degradada dentro
+// do prazo.
+const V1_COMPANION_AI_CALL_TIMEOUT_MS = 25_000
+
 type CompanionMessageDirection =
   | 'incoming'
   | 'outgoing'
@@ -826,16 +843,19 @@ async function generateCompanionCoachingOrFallback({
   context,
   analysisText,
   suggestion,
+  providerTimeoutMs,
 }: {
   context: AISalesContext
   analysisText: string
   suggestion: AISalesSuggestion
+  providerTimeoutMs?: number
 }): Promise<AICoaching> {
   try {
     return await generateSalesCoaching({
       context,
       conversationText: analysisText,
       suggestion,
+      providerTimeoutMs,
     })
   } catch {
     return buildCompanionCoaching({
@@ -1848,7 +1868,7 @@ export async function POST(request: Request) {
       providerTimeoutMs:
         statefulActiveBackgroundRequested
           ? 8_000
-          : undefined,
+          : V1_COMPANION_AI_CALL_TIMEOUT_MS,
     })
 
     const coaching =
@@ -1864,6 +1884,8 @@ export async function POST(request: Request) {
             analysisText,
             suggestion:
               result.suggestion,
+            providerTimeoutMs:
+              V1_COMPANION_AI_CALL_TIMEOUT_MS,
           })
 
     const yolenDecision =

@@ -1005,6 +1005,20 @@
       })
     }
 
+    const openCommitment = displayItems(customer.commitments)
+      .find((item) => (
+        displayText(item.summary) &&
+        item.status !== 'completed' &&
+        item.status !== 'cancelled'
+      ))
+
+    if (openCommitment) {
+      summaryItems.push({
+        label: 'Pendência',
+        value: displayText(openCommitment.summary),
+      })
+    }
+
     if (summaryItems.length === 0) {
       const fallbacks = [
         ['Necessidade', customer.needs],

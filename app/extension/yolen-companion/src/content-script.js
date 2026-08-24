@@ -7758,7 +7758,7 @@
 
         <div class="yolen-decision-block">
           <div class="yolen-decision-kicker">
-            Momento atual
+            Resumo
           </div>
 
           <div class="yolen-card-title yolen-decision-title">
@@ -8025,15 +8025,37 @@
       return ''
     }
 
+    // Ordem fixa RESUMO → LEITURA → PRÓXIMO PASSO: o bloco de contexto
+    // (Resumo) já renderiza antes desta função; aqui, o motivo (reason) é
+    // a interpretação comercial do resumo (Leitura da Yolen) e só depois
+    // vem a instrução do que fazer (Próximo passo, decision + canal).
+    // Antes, os dois ficavam juntos sob "Próximo movimento", misturando o
+    // "porquê" com o "o quê fazer" num único rótulo.
     return `
-      <div class="yolen-decision-block">
-        <div class="yolen-decision-kicker">
-          Próximo movimento
-        </div>
+      ${
+        reason
+          ? `
+            <div class="yolen-decision-block" data-yolen-layer="reading">
+              <div class="yolen-decision-kicker">
+                Leitura da Yolen
+              </div>
 
-        ${
-          decision
-            ? `
+              <div class="yolen-decision-copy">
+                ${escapeHtml(reason)}
+              </div>
+            </div>
+          `
+          : ''
+      }
+
+      ${
+        decision
+          ? `
+            <div class="yolen-decision-block" data-yolen-layer="next-step">
+              <div class="yolen-decision-kicker">
+                Próximo passo
+              </div>
+
               <div class="yolen-card-title yolen-decision-title">
                 ${escapeHtml(
                   getCommercialReadingDecisionLabel(
@@ -8041,34 +8063,24 @@
                   ),
                 )}
               </div>
-            `
-            : ''
-        }
 
-        ${
-          reason
-            ? `
-              <div class="yolen-decision-copy">
-                ${escapeHtml(reason)}
-              </div>
-            `
-            : ''
-        }
-
-        ${
-          channel
-            ? `
-              <div class="yolen-operational-note">
-                Canal: ${escapeHtml(
-                  getCommercialReadingChannelLabel(
-                    channel,
-                  ),
-                )}
-              </div>
-            `
-            : ''
-        }
-      </div>
+              ${
+                channel
+                  ? `
+                    <div class="yolen-operational-note">
+                      Canal: ${escapeHtml(
+                        getCommercialReadingChannelLabel(
+                          channel,
+                        ),
+                      )}
+                    </div>
+                  `
+                  : ''
+              }
+            </div>
+          `
+          : ''
+      }
     `
   }
 
@@ -9175,7 +9187,7 @@
               ? `
                 <div class="yolen-decision-block yolen-decision-block--context" data-yolen-layer="context">
                   <div class="yolen-decision-kicker">
-                    Momento atual
+                    Resumo
                   </div>
 
                   <div class="yolen-card-title yolen-decision-title">

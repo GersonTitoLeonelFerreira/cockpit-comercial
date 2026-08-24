@@ -333,12 +333,14 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   )
 
   const nowPanel = runtime.document.querySelector('[data-yolen-seller-panel="now"]')
-  assert.match(nowPanel.textContent, /Momento atual/i)
+  assert.match(nowPanel.textContent, /Resumo/i)
   assert.match(nowPanel.textContent, /Diagnóstico/)
   assert.match(nowPanel.textContent, /Risco alto na etapa CONTATO/)
   assert.doesNotMatch(nowPanel.textContent, /Fora do método/)
   assert.equal(nowPanel.querySelectorAll('[data-yolen-now-attention]').length, 1)
-  assert.match(nowPanel.textContent, /Próximo movimento/)
+  assert.match(nowPanel.textContent, /Leitura da Yolen/)
+  assert.match(nowPanel.textContent, /Próximo passo/)
+  assert.match(nowPanel.textContent, /Entender o impacto antes de continuar negociando\./)
   assert.match(nowPanel.textContent, /Mensagem sugerida/)
   assert.doesNotMatch(nowPanel.textContent, /Pergunta recomendada/)
 

@@ -40,6 +40,15 @@ const salesCopilotSource =
     'utf8',
   )
 
+const salesCoachingSource =
+  readFileSync(
+    new URL(
+      '../ai/sales-coaching.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test(
   'guardrail stateful padrão permanece em 25s',
   () => {
@@ -65,11 +74,26 @@ test(
   () => {
     assert.match(
       routeSource,
-      /providerTimeoutMs:\s*statefulActiveBackgroundRequested\s*\?\s*8_000\s*:\s*undefined/,
+      /providerTimeoutMs:\s*statefulActiveBackgroundRequested\s*\?\s*8_000\s*:\s*V1_COMPANION_AI_CALL_TIMEOUT_MS/,
     )
 
     assert.match(
       salesCopilotSource,
+      /AbortSignal\.timeout\(\s*providerTimeoutMs/,
+    )
+  },
+)
+
+test(
+  'V1 fora do modo active também tem teto — as duas chamadas de IA sequenciais não ficam sem limite',
+  () => {
+    assert.match(
+      routeSource,
+      /const V1_COMPANION_AI_CALL_TIMEOUT_MS\s*=\s*25_000/,
+    )
+
+    assert.match(
+      salesCoachingSource,
       /AbortSignal\.timeout\(\s*providerTimeoutMs/,
     )
   },
