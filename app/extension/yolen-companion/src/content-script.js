@@ -14,6 +14,36 @@
   const AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS = 500
   const AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES = 4
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
+  // Teto de recuperação para o ciclo curto/síncrono de analyze-conversation.
+  // Não existia nenhum timeout client-side para essa chamada. Reaproveita o
+  // mesmo valor já estabelecido no motor V2 stateful para uma única chamada
+  // de modelo (DEFAULT_STATEFUL_COPILOT_OPENAI_TIMEOUT_MS = 60_000, em
+  // app/lib/companion/stateful-copilot-openai-provider.ts) — o caminho V1
+  // síncrono pode encadear até duas chamadas de IA, mas se a resposta
+  // rápida não chegar nem no teto de uma única chamada, é sinal de
+  // travamento (promise perdida/nunca resolvida), não de lentidão normal, e
+  // a UI precisa de uma via de recuperação em vez de ficar presa para
+  // sempre em "Analisando".
+  const ANALYSIS_REQUEST_WATCHDOG_MS = 60000
+
+  // Override só para teste: permite exercitar o watchdog real (mesmo
+  // setTimeout, mesma lógica de ownership) sem esperar 60s reais por
+  // teste. Em produção, window.__yolenCompanionAnalysisWatchdogMsForTests
+  // nunca é definido, então o valor efetivo é sempre
+  // ANALYSIS_REQUEST_WATCHDOG_MS.
+  function getAnalysisWatchdogDelayMs() {
+    const override =
+      window.__yolenCompanionAnalysisWatchdogMsForTests
+
+    return (
+      typeof override === 'number' &&
+      Number.isFinite(override) &&
+      override >= 0
+    )
+      ? override
+      : ANALYSIS_REQUEST_WATCHDOG_MS
+  }
+
   const CAPTURE_INGESTION_DELAY_MS = 1200
   const CAPTURE_INGESTION_MAX_RETRY_MS = 30000
   // Depois que uma captura é persistida com sucesso para a conversa aberta,
@@ -121,6 +151,13 @@
   let deepAnalysisPollTimerId = 0
   const DEEP_ANALYSIS_POLL_DELAYS_MS = [1500, 2000, 3000, 4000, 5000]
   const DEEP_ANALYSIS_POLL_TIMEOUT_MS = 240000
+  // Timer do watchdog da resposta rápida de analyze-conversation. Igual ao
+  // padrão de deepAnalysisPollTimerId: cada novo ciclo de análise cancela o
+  // timer anterior antes de agendar um novo — nunca existem dois vivos ao
+  // mesmo tempo, e por isso o próprio início de um ciclo mais novo já
+  // invalida o watchdog do ciclo anterior sem precisar de nenhuma
+  // checagem extra.
+  let analysisWatchdogTimerId = 0
   let captureIngestionTimerId = 0
   let captureIngestionInFlight = false
   let captureIngestionQueued = false
@@ -4350,6 +4387,7 @@
     capturedAudioBlobEntries = []
     clearAutomaticAnalysisTimer()
     clearDeepAnalysisPollTimer()
+    clearAnalysisWatchdogTimer()
     clearCompanionClientContextRefreshTimer()
     activeSellerArea = 'now'
 
@@ -7223,11 +7261,32 @@
   }
 
   function getAnalysisActionButton() {
-    if (
-      !canAnalyzeCurrentConversation() ||
-      state.conversationAnalysisLoading
-    ) {
+    if (!canAnalyzeCurrentConversation()) {
       return ''
+    }
+
+    // O painel nunca pode ficar sem nenhum controle acionável durante o
+    // loading — mesmo que o watchdog exista, o vendedor precisa de uma
+    // via de recuperação imediata. Clicar aqui chama
+    // analyzeCurrentConversation() de novo, que já invalida a tentativa
+    // presa sozinho (incrementa conversationAnalysisRequestSequence, o
+    // mesmo mecanismo que isAnalysisResponseStillCurrent() usa) — não é
+    // necessário nenhum cancelamento explícito à parte.
+    if (state.conversationAnalysisLoading) {
+      return `
+        <div class="yolen-inline-loading-status" role="status" aria-live="polite">
+          ${getInlineSpinnerHtml()}
+          Analisando…
+        </div>
+
+        <button
+          class="yolen-secondary-button"
+          type="button"
+          data-yolen-action="analyze-conversation"
+        >
+          Tentar novamente
+        </button>
+      `
     }
 
     const totalAudioCount =
@@ -12115,6 +12174,13 @@
     }
   }
 
+  function clearAnalysisWatchdogTimer() {
+    if (analysisWatchdogTimerId) {
+      window.clearTimeout(analysisWatchdogTimerId)
+      analysisWatchdogTimerId = 0
+    }
+  }
+
   // Acompanha, sem bloquear a UI, um job de análise profunda já criado pela
   // resposta rápida do analyze-conversation. Reaproveita a MESMA identidade
   // imutável de contexto (cycleId/conversationKeyAtRequest/requestSequence)
@@ -12280,6 +12346,7 @@
 
     clearDeepAnalysisPollTimer()
     clearAutomaticAnalysisTimer()
+    clearAnalysisWatchdogTimer()
 
     if (!canAnalyzeCurrentConversation()) {
       if (isAutomatic) {
@@ -12395,6 +12462,34 @@
 
     renderPanel()
 
+    // Watchdog de recuperação: se esta mesma tentativa (dona do loading,
+    // verificado via isAnalysisResponseStillCurrent) não chegar a um
+    // estado terminal dentro do teto, a UI sai de "Analisando" sozinha em
+    // vez de ficar presa para sempre. Uma tentativa mais nova já cancela
+    // este timer no início da própria função (clearAnalysisWatchdogTimer),
+    // então não há necessidade de checar ownership além do que
+    // isAnalysisResponseStillCurrent() já garante.
+    analysisWatchdogTimerId =
+      window.setTimeout(() => {
+        analysisWatchdogTimerId = 0
+
+        if (!isAnalysisResponseStillCurrent()) {
+          return
+        }
+
+        state = {
+          ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysis: null,
+          conversationAnalysisError:
+            'A análise demorou mais que o esperado. Tente novamente.',
+          analyzedConversationFingerprint: null,
+          automaticAnalysisStatus: null,
+        }
+
+        renderPanel()
+      }, getAnalysisWatchdogDelayMs())
+
     try {
       const result =
         await window.YolenCompanionApi
@@ -12419,6 +12514,8 @@
       if (!isAnalysisResponseStillCurrent()) {
         return
       }
+
+      clearAnalysisWatchdogTimer()
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
         state = {
@@ -12545,6 +12642,8 @@
       if (!isAnalysisResponseStillCurrent()) {
         return
       }
+
+      clearAnalysisWatchdogTimer()
 
       state = {
         ...state,
