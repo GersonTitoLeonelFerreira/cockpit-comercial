@@ -892,6 +892,8 @@ function buildSystemPrompt(
 
     'required_analyzed_message_ids contém exatamente as mensagens novas ou alteradas desta atualização incremental. O conteúdo de context_bridge_messages pode ser usado para compreender referências, mas nunca pode ser tratado como evidência ocorrida agora nem aparecer em analyzed_message_ids ou evidence_message_ids.',
 
+    'Exceção estreita a esta regra: quando a mensagem mais recente em required_analyzed_message_ids for resposta direta e inequívoca a algo específico dentro de context_bridge_messages (uma pergunta, objeção, etapa de discovery ou oferta comercial ali presente), a sessão atual pode ser tratada como continuação do mesmo assunto comercial, e commercial_relevance pode ser commercial mesmo com o gap temporal. Isso nunca transforma o conteúdo da ponte em evidência por si só — a evidência continua sendo a mensagem atual, e a ponte só serve para você confirmar a que ela responde. Esta exceção não se aplica a uma retomada genérica, a um cumprimento sem conteúdo, a uma resposta vaga ou a um assunto diferente do que estava na ponte; qualquer dúvida sobre a ligação direta ou sobre mudança de assunto exige fail-closed (non_commercial ou uncertain).',
+
     'Trate previous_state como memória histórica. Nunca use memória anterior para substituir, reescrever ou dominar o que a sessão temporal atual demonstra.',
 
     'current_moment e strategy precisam usar pelo menos uma evidence_message_ids desta atualização incremental. memory_ids podem complementar, mas nunca substituir essa evidência atual.',
