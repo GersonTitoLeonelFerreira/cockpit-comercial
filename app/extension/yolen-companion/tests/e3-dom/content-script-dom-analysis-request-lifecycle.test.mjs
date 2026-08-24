@@ -120,6 +120,10 @@ function setWatchdogOverride(document, ms) {
   document.defaultView.__yolenCompanionAnalysisWatchdogMsForTests = ms
 }
 
+function setAutomaticAnalysisDelayOverride(document, ms) {
+  document.defaultView.__yolenCompanionAutomaticAnalysisMsForTests = ms
+}
+
 function analysisResultOk({ summary = 'RESUMO OK' } = {}) {
   return {
     ok: true,
@@ -447,4 +451,236 @@ test('A→B durante análise — loading de A não aparece em B e resposta tardi
   const panelText = getPanel(document)?.textContent ?? ''
   assert.match(panelText, /RESUMO DE B/)
   assert.doesNotMatch(panelText, /RESUMO DE A NÃO PODE APARECER EM B/)
+})
+
+// ---------------------------------------------------------------------------
+// Fase 12A — corrida entre a análise AUTOMÁTICA (debounce de 8s após nova
+// mensagem) e uma análise MANUAL em voo para a mesma conversa/ciclo. Antes
+// da correção, o timer automático que já estava contando quando a manual
+// começou disparava analyzeCurrentConversation({automatic:true}) direto,
+// incrementando a mesma sequência compartilhada e fazendo
+// isAnalysisResponseStillCurrent() descartar a resposta 200 válida da
+// manual como "obsoleta" — a UI ficava presa em loading/retry mesmo com a
+// rede mostrando sucesso. activeAnalysisAttempt +
+// isManualAnalysisInFlightForCurrentIdentity() fazem o timer automático se
+// reagendar em vez de competir.
+// ---------------------------------------------------------------------------
+
+test('análise automática já agendada não compete com uma manual em voo — reagenda em vez de invalidar', async () => {
+  let releaseManual
+  const manualGate = new Promise((resolve) => {
+    releaseManual = resolve
+  })
+
+  let callCount = 0
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: async () => {
+      callCount += 1
+
+      if (callCount === 1) {
+        await manualGate
+        return analysisResultOk({ summary: 'RESUMO MANUAL' })
+      }
+
+      return analysisResultOk({ summary: 'RESUMO AUTOMATICO INDEVIDO' })
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  setAutomaticAnalysisDelayOverride(document, 150)
+
+  const conversationBody = document.getElementById('conversation-body')
+  conversationBody.insertAdjacentHTML(
+    'beforeend',
+    buildMessageHtml({
+      id: 'msg-a2',
+      prePlainText: '[10:01, 21/08/2026] Cliente A: ',
+      text: 'Você tem desconto para pagamento anual?',
+    }),
+  )
+
+  // Debounce de mutação (600ms) até o timer automático (150ms) começar a
+  // contar — a manual começa ANTES do timer automático disparar, para
+  // reproduzir exatamente a corrida real: timer automático já agendado
+  // quando a manual entra em voo.
+  await new Promise((resolve) => setTimeout(resolve, 700))
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  // Passa do prazo do timer automático (150ms) com folga. Sem a correção,
+  // o timer automático dispararia aqui, invalidando a manual em voo.
+  await new Promise((resolve) => setTimeout(resolve, 400))
+
+  assert.equal(
+    analysisCalls(calls).filter((call) => call.payload?.cycle_id === CYCLE_A)
+      .length,
+    1,
+    'a análise automática não pode competir com uma manual em voo para a mesma conversa/ciclo',
+  )
+
+  releaseManual()
+
+  await waitFor(() =>
+    getPanel(document)?.textContent?.includes('RESUMO MANUAL'),
+  )
+
+  assert.doesNotMatch(
+    getPanel(document)?.textContent ?? '',
+    /RESUMO AUTOMATICO INDEVIDO/,
+  )
+})
+
+test('manual iniciada durante automática em voo tem prioridade — resposta automática antiga não sobrescreve', async () => {
+  let releaseAutomatic
+  const automaticGate = new Promise((resolve) => {
+    releaseAutomatic = resolve
+  })
+
+  let callCount = 0
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: async () => {
+      callCount += 1
+
+      if (callCount === 1) {
+        await automaticGate
+        return analysisResultOk({
+          summary: 'RESUMO AUTOMATICO ANTIGO NÃO PODE APARECER',
+        })
+      }
+
+      return analysisResultOk({ summary: 'RESUMO MANUAL' })
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  setAutomaticAnalysisDelayOverride(document, 50)
+
+  const conversationBody = document.getElementById('conversation-body')
+  conversationBody.insertAdjacentHTML(
+    'beforeend',
+    buildMessageHtml({
+      id: 'msg-a2',
+      prePlainText: '[10:01, 21/08/2026] Cliente A: ',
+      text: 'Você tem desconto para pagamento anual?',
+    }),
+  )
+
+  // Espera a análise automática realmente entrar em voo (fica presa em
+  // automaticGate).
+  await waitFor(
+    () =>
+      analysisCalls(calls).filter((call) => call.payload?.cycle_id === CYCLE_A)
+        .length > 0,
+    { timeoutMs: 3000 },
+  )
+
+  // Usuário clica manualmente enquanto a automática ainda está presa.
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await waitFor(() =>
+    getPanel(document)?.textContent?.includes('RESUMO MANUAL'),
+  )
+
+  releaseAutomatic()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  const panelText = getPanel(document)?.textContent ?? ''
+  assert.match(panelText, /RESUMO MANUAL/)
+  assert.doesNotMatch(
+    panelText,
+    /RESUMO AUTOMATICO ANTIGO NÃO PODE APARECER/,
+  )
+})
+
+test('depois do watchdog, o retry consegue completar normalmente e o resultado é aplicado', async () => {
+  let releaseFirst
+  const firstGate = new Promise((resolve) => {
+    releaseFirst = resolve
+  })
+
+  let callCount = 0
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: async () => {
+      callCount += 1
+
+      if (callCount === 1) {
+        // Nunca resolve dentro do teto do watchdog — força o timeout.
+        await firstGate
+        return analysisResultOk({
+          summary: 'RESUMO ANTIGO NUNCA DEVE APARECER',
+        })
+      }
+
+      return analysisResultOk({ summary: 'RESUMO DO RETRY APÓS WATCHDOG' })
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  setWatchdogOverride(document, 200)
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await waitFor(
+    () =>
+      getAnalysisErrorText(document)?.includes(
+        'demorou mais que o esperado',
+      ),
+    { timeoutMs: 3000 },
+  )
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await waitFor(() =>
+    getPanel(document)?.textContent?.includes(
+      'RESUMO DO RETRY APÓS WATCHDOG',
+    ),
+  )
+
+  assert.equal(getAnalysisErrorText(document), null)
+
+  releaseFirst()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  const panelText = getPanel(document)?.textContent ?? ''
+  assert.match(panelText, /RESUMO DO RETRY APÓS WATCHDOG/)
+  assert.doesNotMatch(panelText, /RESUMO ANTIGO NUNCA DEVE APARECER/)
 })

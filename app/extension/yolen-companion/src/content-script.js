@@ -14,6 +14,23 @@
   const AUTO_CONTACT_LOOKUP_PREPARE_RETRY_MS = 500
   const AUTO_CONTACT_LOOKUP_MAX_PREPARE_RETRIES = 4
   const AUTOMATIC_ANALYSIS_DELAY_MS = 8000
+  // Override só para teste: permite exercitar o debounce real da análise
+  // automática (mesmo setTimeout, mesma lógica de reagendamento contra uma
+  // análise manual em voo) sem esperar 8s reais por teste. Em produção,
+  // window.__yolenCompanionAutomaticAnalysisMsForTests nunca é definido,
+  // então o valor efetivo é sempre AUTOMATIC_ANALYSIS_DELAY_MS.
+  function getAutomaticAnalysisDelayMs() {
+    const override =
+      window.__yolenCompanionAutomaticAnalysisMsForTests
+
+    return (
+      typeof override === 'number' &&
+      Number.isFinite(override) &&
+      override >= 0
+    )
+      ? override
+      : AUTOMATIC_ANALYSIS_DELAY_MS
+  }
   // Teto de recuperação para o ciclo curto/síncrono de analyze-conversation.
   // Não existia nenhum timeout client-side para essa chamada. Reaproveita o
   // mesmo valor já estabelecido no motor V2 stateful para uma única chamada
@@ -144,6 +161,17 @@
   // sem isso, uma resposta antiga da MESMA conversa poderia vencer uma
   // resposta mais nova (ex.: duplo clique em "Analisar agora").
   let conversationAnalysisRequestSequence = 0
+  // Identidade explícita da tentativa que hoje é dona do loading —
+  // { requestSequence, cycleId, conversationKey, source: 'manual'|'automatic' }
+  // ou null quando não há nenhuma em voo. Preenchida no início de
+  // analyzeCurrentConversation() e zerada quando ESSA MESMA tentativa
+  // chega a um estado terminal (sucesso, erro ou watchdog) — nunca por
+  // uma tentativa mais antiga, porque o próprio início de uma tentativa
+  // nova já sobrescreve o valor. Existe para que
+  // scheduleAutomaticAnalysis() saiba, sem depender do closure privado de
+  // isAnalysisResponseStillCurrent(), se já existe uma análise MANUAL em
+  // voo para a mesma conversa/ciclo e não deva competir com ela.
+  let activeAnalysisAttempt = null
   // Timer do poller de análise profunda em curso (setTimeout id). Cada novo
   // ciclo de análise (analyzeCurrentConversation) cancela o timer anterior
   // antes de, no máximo, agendar um novo — nunca existem dois timers vivos
@@ -3818,6 +3846,19 @@
     return true
   }
 
+  function isManualAnalysisInFlightForCurrentIdentity() {
+    return Boolean(
+      activeAnalysisAttempt &&
+      activeAnalysisAttempt.source ===
+        'manual' &&
+      activeAnalysisAttempt.cycleId ===
+        state.leadResolution?.cycle?.id &&
+      activeAnalysisAttempt
+        .conversationKey ===
+        getCaptureConversationKey(),
+    )
+  }
+
   function scheduleAutomaticAnalysis(message) {
     const scheduledKey =
       getAutomaticAnalysisKey()
@@ -3880,12 +3921,27 @@
           return
         }
 
+        // Nunca compete com uma análise MANUAL em voo para a mesma
+        // conversa/ciclo — em vez de descartar o gatilho, adia pelo mesmo
+        // debounce e tenta de novo depois que a manual terminar.
+        if (
+          isManualAnalysisInFlightForCurrentIdentity()
+        ) {
+          automaticAnalysisScheduledKey = null
+
+          scheduleAutomaticAnalysis(
+            message,
+          )
+
+          return
+        }
+
         automaticAnalysisScheduledKey = null
 
         analyzeCurrentConversation({
           automatic: true,
         })
-      }, AUTOMATIC_ANALYSIS_DELAY_MS)
+      }, getAutomaticAnalysisDelayMs())
   }
 
   function handleConversationActivityForAutomaticAnalysis() {
@@ -4388,6 +4444,7 @@
     clearAutomaticAnalysisTimer()
     clearDeepAnalysisPollTimer()
     clearAnalysisWatchdogTimer()
+    activeAnalysisAttempt = null
     clearCompanionClientContextRefreshTimer()
     activeSellerArea = 'now'
 
@@ -12427,6 +12484,24 @@
     const requestSequence =
       ++conversationAnalysisRequestSequence
 
+    // Ownership explícito desta tentativa — usado por
+    // scheduleAutomaticAnalysis() para nunca competir com uma análise
+    // manual em voo para a mesma identidade (ver
+    // isManualAnalysisInFlightForCurrentIdentity). Sobrescreve qualquer
+    // tentativa anterior; só é zerado por ESTA tentativa quando ela chega
+    // a um estado terminal (sucesso, erro ou watchdog), ou pela troca de
+    // conversa.
+    activeAnalysisAttempt = {
+      requestSequence,
+      cycleId,
+      conversationKey:
+        conversationKeyAtRequest,
+      source:
+        isAutomatic
+          ? 'automatic'
+          : 'manual',
+    }
+
     const isAnalysisResponseStillCurrent = () =>
       requestSequence ===
         conversationAnalysisRequestSequence &&
@@ -12477,6 +12552,8 @@
           return
         }
 
+        activeAnalysisAttempt = null
+
         state = {
           ...state,
           conversationAnalysisLoading: false,
@@ -12516,6 +12593,7 @@
       }
 
       clearAnalysisWatchdogTimer()
+      activeAnalysisAttempt = null
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
         state = {
@@ -12644,6 +12722,7 @@
       }
 
       clearAnalysisWatchdogTimer()
+      activeAnalysisAttempt = null
 
       state = {
         ...state,
