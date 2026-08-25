@@ -44,15 +44,22 @@
     ].join('::')
   }
 
-  function buildErrorGuidance(message) {
+  function buildGuidanceBase(status) {
     return {
-      status: 'error',
+      status,
       method_name: null,
       method_config_version_id: null,
       stage_key: null,
       stage_name: null,
       stage_reason: null,
       next_step: null,
+      error: null,
+    }
+  }
+
+  function buildErrorGuidance(message) {
+    return {
+      ...buildGuidanceBase('error'),
       error:
         message ||
         'Não foi possível definir o próximo passo agora.',
@@ -103,16 +110,7 @@
     const key = buildKey(payload, workingSummary)
 
     if (!key) {
-      return {
-        status: 'no_summary',
-        method_name: null,
-        method_config_version_id: null,
-        stage_key: null,
-        stage_name: null,
-        stage_reason: null,
-        next_step: null,
-        error: null,
-      }
+      return buildGuidanceBase('no_summary')
     }
 
     if (guidanceCache.has(key)) {
@@ -149,6 +147,67 @@
     return request
   }
 
+  function applyGuidanceToVisibleSummary(
+    workingSummary,
+    guidance,
+  ) {
+    const summaryInput = document.querySelector?.(
+      '[data-yolen-textarea="lead-summary"]',
+    )
+
+    if (
+      !summaryInput ||
+      String(summaryInput.value || '').trim() !==
+        workingSummary
+    ) {
+      return
+    }
+
+    const slot = document.querySelector?.(
+      '[data-yolen-method-guidance-slot]',
+    )
+
+    const renderGuidance =
+      root.YolenCompanionLeadSummaryView
+        ?.renderMethodGuidance
+
+    if (
+      !slot ||
+      typeof renderGuidance !== 'function'
+    ) {
+      return
+    }
+
+    slot.innerHTML = renderGuidance(guidance)
+  }
+
+  function scheduleGuidance({
+    payload,
+    data,
+    workingSummary,
+    key,
+  }) {
+    data.method_guidance =
+      buildGuidanceBase('loading')
+
+    void loadGuidance(
+      payload,
+      workingSummary,
+    ).then((guidance) => {
+      // `data` é a mesma referência guardada pelo content-script em
+      // companionLeadSummary. Assim, qualquer rerender posterior já usa a
+      // orientação concluída, sem precisar recompor o resumo.
+      data.method_guidance = guidance
+
+      applyGuidanceToVisibleSummary(
+        workingSummary,
+        guidance,
+      )
+    })
+
+    return key
+  }
+
   api.loadLeadSummary = async function loadLeadSummaryWithMethod(payload) {
     const result = await originalLoadLeadSummary(payload)
     const data = result?.payload?.data
@@ -165,14 +224,28 @@
           ? data.summary.summary.trim()
           : ''
 
-    if (data.method_guidance && workingSummary) {
+    const key = buildKey(payload, workingSummary)
+
+    if (!key) {
+      data.method_guidance =
+        buildGuidanceBase('no_summary')
       return result
     }
 
-    data.method_guidance = await loadGuidance(
+    if (guidanceCache.has(key)) {
+      data.method_guidance =
+        guidanceCache.get(key)
+      return result
+    }
+
+    // O resumo aprovado é devolvido imediatamente. O próximo passo roda em
+    // paralelo e nunca segura a exibição do resumo por até 45s.
+    scheduleGuidance({
       payload,
+      data,
       workingSummary,
-    )
+      key,
+    })
 
     return result
   }
