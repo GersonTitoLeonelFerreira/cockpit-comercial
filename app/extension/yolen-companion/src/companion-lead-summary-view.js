@@ -1,13 +1,8 @@
 ;(function initCompanionLeadSummaryView(root) {
-  // Módulo puro (sem DOM) que traduz o estado do "Resumo persistente do
-  // lead" — Etapa 1 da reconstrução controlada do Companion — em HTML.
-  // Mesmo padrão de companion-client-context-view.js: toda a lógica de "o
-  // que mostrar" mora aqui; content-script.js só busca os dados (via
-  // yolen-api.js) e injeta o HTML retornado no DOM real.
-  //
-  // Este bloco NUNCA salva nada sozinho: o botão "Salvar resumo na Yolen"
-  // só existe para content-script.js poder disparar uma ação EXPLÍCITA do
-  // vendedor. Não há geração automática de resumo aqui.
+  // Etapa 1B — este módulo mostra o WORKING SUMMARY automático.
+  // O vendedor não escreve resumo manualmente. A única ação humana desta
+  // camada é confirmar quando o resumo atual deve virar memória persistida
+  // na Yolen.
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -37,22 +32,56 @@
     return `${day}/${month} ${hours}:${minutes}`
   }
 
+  function renderModeStyles() {
+    // Enquanto AGORA está sendo reconstruído, o seller-facing antigo fica
+    // fora da tela. O código antigo continua disponível para a etapa futura
+    // de ANÁLISE, mas não concorre visualmente com o novo resumo central.
+    return (
+      '<style>' +
+      '.yolen-lead-summary-card > .yolen-section-label{display:none!important;}' +
+      '.yolen-seller-panel[data-yolen-seller-panel="now"]{display:none!important;}' +
+      '</style>'
+    )
+  }
+
+  function getSourceLabel(source) {
+    const labels = {
+      canonical: 'Resumo salvo na Yolen',
+      canonical_plus_conversation: 'Resumo salvo + conversa atual',
+      legacy_history: 'Histórico já salvo na Yolen',
+      legacy_history_plus_conversation: 'Histórico da Yolen + conversa atual',
+      conversation_only: 'Conversa atual',
+      empty: 'Sem conteúdo disponível',
+    }
+
+    return labels[source] || 'Contexto atual'
+  }
+
   function renderLoadingState() {
     return (
+      renderModeStyles() +
+      '<div class="yolen-section-label">Resumo atual</div>' +
       '<div class="yolen-lead-summary yolen-lead-summary--loading">' +
-      'Carregando resumo salvo na Yolen…' +
+      'Atualizando resumo…' +
       '</div>'
     )
   }
 
   function renderErrorState(message) {
     const safeMessage = escapeHtml(
-      message || 'Não foi possível carregar o resumo salvo na Yolen.',
+      message || 'Não foi possível atualizar o resumo.',
     )
 
     return (
+      renderModeStyles() +
+      '<div class="yolen-section-label">Resumo atual</div>' +
       '<div class="yolen-lead-summary yolen-lead-summary--error">' +
       safeMessage +
+      '</div>' +
+      '<div class="yolen-inline-actions">' +
+      '<button type="button" class="yolen-secondary-button" data-yolen-action="refresh">' +
+      'Tentar novamente' +
+      '</button>' +
       '</div>'
     )
   }
@@ -63,20 +92,23 @@
     if (saveStatus === 'conflict') {
       return (
         '<div class="yolen-lead-summary-feedback yolen-lead-summary-feedback--conflict">' +
-        'O resumo foi atualizado por outra ação desde a última leitura. ' +
-        'Recarregue antes de salvar novamente.' +
+        'O resumo foi atualizado por outra ação. Atualize antes de salvar novamente.' +
         '</div>'
       )
     }
 
     if (saveStatus === 'error') {
-      const safeMessage = escapeHtml(
-        state?.saveError || 'Não foi possível salvar o resumo.',
-      )
-
       return (
         '<div class="yolen-lead-summary-feedback yolen-lead-summary-feedback--error">' +
-        safeMessage +
+        escapeHtml(state?.saveError || 'Não foi possível salvar o resumo.') +
+        '</div>'
+      )
+    }
+
+    if (saveStatus === 'saving') {
+      return (
+        '<div class="yolen-lead-summary-feedback">' +
+        'Salvando resumo…' +
         '</div>'
       )
     }
@@ -84,57 +116,76 @@
     return ''
   }
 
-  function renderEditor(state) {
-    const summary = state?.data?.summary || null
-    const draftValue = escapeHtml(
-      typeof state?.draftValue === 'string'
-        ? state.draftValue
-        : summary?.summary || '',
-    )
-    const saving = state?.saveStatus === 'saving'
-
-    return (
-      '<div class="yolen-lead-summary-editor">' +
-      '<textarea ' +
-      'class="yolen-lead-summary-textarea" ' +
-      'data-yolen-textarea="lead-summary" ' +
-      'placeholder="Escreva ou ajuste o resumo deste lead…" ' +
-      (saving ? 'disabled ' : '') +
-      `>${draftValue}</textarea>` +
-      renderSaveFeedback(state) +
-      '<button ' +
-      'type="button" ' +
-      'class="yolen-primary-button yolen-lead-summary-save-button" ' +
-      'data-yolen-action="save-lead-summary" ' +
-      (saving ? 'disabled' : '') +
-      '>' +
-      (saving ? 'Salvando…' : 'Salvar resumo na Yolen') +
-      '</button>' +
-      '</div>'
-    )
-  }
-
   function renderReadyState(state) {
-    const summary = state?.data?.summary || null
+    const data = state?.data || {}
+    const savedSummary = data.summary || null
+    const workingSummary =
+      typeof data.working_summary === 'string' && data.working_summary.trim()
+        ? data.working_summary.trim()
+        : savedSummary?.summary || null
 
-    const summaryBlock = summary
-      ? '<div class="yolen-lead-summary-text">' +
-        escapeHtml(summary.summary) +
+    const hasUnsavedChanges =
+      typeof data.has_unsaved_changes === 'boolean'
+        ? data.has_unsaved_changes
+        : Boolean(workingSummary && !savedSummary)
+
+    const saving = state?.saveStatus === 'saving'
+    const sourceLabel = getSourceLabel(data.working_summary_source)
+
+    if (!workingSummary) {
+      return (
+        renderModeStyles() +
+        '<div class="yolen-section-label">Resumo atual</div>' +
+        '<div class="yolen-lead-summary yolen-lead-summary--ready">' +
+        '<div class="yolen-seller-empty-state">' +
+        'Ainda não há mensagens ou histórico suficientes para formar o resumo deste lead.' +
         '</div>' +
-        '<div class="yolen-lead-summary-meta">' +
-        `Versão ${escapeHtml(summary.version)}` +
-        (formatAbsoluteDate(summary.updated_at)
-          ? ` · atualizado em ${formatAbsoluteDate(summary.updated_at)}`
-          : '') +
         '</div>'
-      : '<div class="yolen-seller-empty-state">' +
-        'Ainda não existe resumo salvo para este lead.' +
-        '</div>'
+      )
+    }
+
+    const savedMeta = savedSummary
+      ? (
+          `Versão ${escapeHtml(savedSummary.version)}` +
+          (formatAbsoluteDate(savedSummary.updated_at)
+            ? ` · salva em ${formatAbsoluteDate(savedSummary.updated_at)}`
+            : '')
+        )
+      : 'Ainda não consolidado na memória nova da Yolen'
 
     return (
+      renderModeStyles() +
+      '<div class="yolen-section-label">Resumo atual</div>' +
       '<div class="yolen-lead-summary yolen-lead-summary--ready">' +
-      summaryBlock +
-      renderEditor(state) +
+      '<div class="yolen-lead-summary-text">' +
+      escapeHtml(workingSummary) +
+      '</div>' +
+      '<div class="yolen-lead-summary-meta">' +
+      escapeHtml(sourceLabel) +
+      ' · ' +
+      escapeHtml(savedMeta) +
+      '</div>' +
+      // O content-script existente lê `.value` de data-yolen-textarea.
+      // Mantemos apenas um input hidden de compatibilidade; não há campo
+      // editável/manual na interface.
+      '<input type="hidden" data-yolen-textarea="lead-summary" value="' +
+      escapeHtml(workingSummary) +
+      '">' +
+      renderSaveFeedback(state) +
+      (hasUnsavedChanges
+        ? (
+            '<button ' +
+            'type="button" ' +
+            'class="yolen-primary-button yolen-lead-summary-save-button" ' +
+            'data-yolen-action="save-lead-summary" ' +
+            (saving ? 'disabled' : '') +
+            '>' +
+            (saving ? 'Salvando…' : 'Salvar resumo na Yolen') +
+            '</button>'
+          )
+        : (
+            '<div class="yolen-operational-note">Resumo salvo na Yolen.</div>'
+          )) +
       '</div>'
     )
   }
