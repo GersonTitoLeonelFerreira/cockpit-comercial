@@ -76,6 +76,15 @@ function getAnalyzeButton(document) {
   )
 }
 
+function getAnalysisErrorText(document) {
+  return (
+    getPanel(document)
+      ?.querySelector('[data-yolen-analysis-error]')
+      ?.textContent
+      ?.trim() ?? null
+  )
+}
+
 function getDeepAnalysisStatusText(document) {
   return (
     getPanel(document)
@@ -292,8 +301,13 @@ function deepOutput(overrides = {}) {
   }
 }
 
+// Fase 12A — V2 como único motor: a resposta rápida real para uma empresa
+// no modo 'active' nunca inclui suggestion/coaching (V1) junto com
+// deep_analysis — o servidor retorna direto para a chamada V1 quando o
+// job em segundo plano existe. `summary` é mantido como parâmetro só para
+// compatibilidade dos testes que ainda o passam; não aparece mais na
+// resposta rápida.
 function analysisResultWithDeepJob({
-  summary,
   analysisJobId,
   deepStatus = 'queued',
   watermark = 'wm-1',
@@ -301,13 +315,6 @@ function analysisResultWithDeepJob({
   return {
     ok: true,
     data: {
-      engine_source: 'v1',
-      suggestion: {
-        summary,
-        recommended_status: 'contato',
-        tags: [],
-      },
-      coaching: {},
       deep_analysis: {
         analysis_job_id: analysisJobId,
         status: deepStatus,
@@ -329,7 +336,7 @@ function succeededStatus(result, watermark = 'wm-1') {
   }
 }
 
-test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', async () => {
+test('queued → succeeded: sem V1, painel fica em loading até o V2 concluir e então aplica o resultado', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -341,7 +348,6 @@ test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', as
       [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
     },
     analysisResult: analysisResultWithDeepJob({
-      summary: 'RESUMO RAPIDO A',
       analysisJobId: 'a'.repeat(64),
     }),
     analysisJobStatusResult: succeededStatus(deepOutput()),
@@ -352,8 +358,16 @@ test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', as
   )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
+  // Fase 12A — V2 como único motor: a resposta rápida não trouxe nenhuma
+  // suggestion V1 (a fixture não tem esse campo) — o painel precisa
+  // continuar em "Analisando" até o job do V2 resolver.
   await waitFor(
     () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
+  )
+  assert.equal(getAnalysisErrorText(document), null)
+  assert.match(
+    getPanel(document)?.textContent ?? '',
+    /Analisando/,
   )
 
   await waitFor(
@@ -361,6 +375,15 @@ test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', as
       getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:') &&
       getDeepAnalysisStatusText(document)?.includes('Consigo 10% no plano anual'),
     { timeoutMs: 8000 },
+  )
+
+  // O sucesso do V2 é quem tira o painel do loading e aplica o resultado
+  // único — sem V1 concorrente, sem promoção de um resultado sobre outro.
+  assert.equal(getAnalysisErrorText(document), null)
+  assert.ok(getAnalyzeButton(document))
+  assert.doesNotMatch(
+    getAnalyzeButton(document)?.textContent ?? '',
+    /Tentar novamente/,
   )
 
   assert.ok(analysisJobStatusCalls(calls).length >= 1)
@@ -461,6 +484,20 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
   await waitFor(
     () => getDeepAnalysisStatusText(document)?.includes('Falha na análise aprofundada'),
     { timeoutMs: 8000 },
+  )
+
+  // Fase 12A — V2 como único motor: sem V1 por baixo, uma falha do V2 tem
+  // que virar erro explícito de primeiro nível com retry disponível — não
+  // pode ficar só como um indicador secundário na aba ANÁLISE enquanto o
+  // resto do painel finge que está tudo bem.
+  await waitFor(() => getAnalysisErrorText(document) !== null)
+  assert.match(
+    getAnalysisErrorText(document) ?? '',
+    /Não foi possível concluir a leitura comercial da Yolen\. Tente novamente\./,
+  )
+  assert.ok(
+    getAnalyzeButton(document),
+    'retry deveria estar disponível depois de uma falha do V2',
   )
 
   const panelHtml = getPanel(document)?.innerHTML ?? ''

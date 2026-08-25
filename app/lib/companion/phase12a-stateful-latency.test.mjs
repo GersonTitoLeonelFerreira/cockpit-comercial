@@ -70,11 +70,37 @@ test(
 )
 
 test(
-  'first value active limita V1 a 8s',
+  // Fase 12A — V2 como único motor: 'active' não chama mais V1 (nem com
+  // teto de 8s, nem de nenhuma outra forma) — o branch retorna antes de
+  // alcançar a chamada V1. O teto de 8s que existia só para o caminho
+  // rápido V1 dentro do modo active não existe mais.
+  'V1 nunca é chamado no branch active — retorna antes de alcançar analyzeConversationWithCopilotDetailed',
   () => {
-    assert.match(
+    const activeBranchStart =
+      routeSource.indexOf(
+        'if (statefulActiveBackgroundRequested) {',
+      )
+
+    const v1Call =
+      routeSource.indexOf(
+        'const result = await analyzeConversationWithCopilotDetailed({',
+      )
+
+    assert.ok(
+      activeBranchStart >= 0,
+    )
+
+    assert.ok(
+      v1Call >= 0,
+    )
+
+    assert.ok(
+      activeBranchStart < v1Call,
+    )
+
+    assert.doesNotMatch(
       routeSource,
-      /providerTimeoutMs:\s*statefulActiveBackgroundRequested\s*\?\s*8_000\s*:\s*V1_COMPANION_AI_CALL_TIMEOUT_MS/,
+      /providerTimeoutMs:\s*8_000/,
     )
 
     assert.match(
@@ -100,9 +126,13 @@ test(
 )
 
 test(
-  'first value active evita segunda IA de coaching',
+  // Antes, 'active' pulava a segunda chamada de IA (coaching) só para o
+  // caminho rápido V1. Agora 'active' não faz nenhuma chamada de IA
+  // síncrona — a pergunta não é mais "pula qual chamada", é "V1 sequer
+  // roda" (coberto pelo teste acima).
+  'branch active não referencia mais o desvio de coaching específico do V1 rápido',
   () => {
-    assert.match(
+    assert.doesNotMatch(
       routeSource,
       /statefulActiveBackgroundRequested\s*\?\s*buildCompanionCoaching/,
     )

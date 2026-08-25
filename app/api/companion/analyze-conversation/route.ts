@@ -31,6 +31,7 @@ import type {
   AISalesRecentEvent,
   AISalesSuggestion,
   AnalyzeConversationResponse,
+  CompanionStatefulOnlyAnalyzeResponse,
   ConversationSource,
 } from '@/app/types/ai-sales'
 import type { LeadStatus } from '@/app/types/sales_cycles'
@@ -1622,6 +1623,224 @@ export async function POST(request: Request) {
       recent_events: recentEvents,
     }
 
+    const statefulActiveBackgroundRequested =
+      statefulRouteMode === 'active'
+
+    // Fase 12A — V2 como único motor: quando a empresa está no modo
+    // 'active' (should_expose_stateful_result === true, ver
+    // stateful-copilot-activation-gate.ts), o Companion não chama mais o
+    // V1 (analyzeConversationWithCopilotDetailed + generateSalesCoaching)
+    // nem decide entre os dois — só existe o job em segundo plano do V2 e
+    // o cliente acompanha via polling (mesmo mecanismo já usado para o
+    // deep job antes desta mudança). V2 é durável (fila +
+    // companion_background_analysis_jobs), preserva freshness/stale/
+    // superseded via message_watermark e memória persistente via seu
+    // próprio estado — nada disso é recriado aqui. Se o job não puder nem
+    // ser criado, a resposta é um erro explícito: sem V1 para cair.
+    // Empresas em 'shadow'/'v1' (should_expose_stateful_result === false)
+    // continuam exatamente como antes — a gate de ativação já decide
+    // 'preserve_v1_response' para elas, e essa política de rollout não é
+    // alterada por esta tarefa.
+    if (statefulActiveBackgroundRequested) {
+      if (!conversationKey || !deviceKey) {
+        return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+          {
+            ok: false,
+            error:
+              'Identificação da conversa ausente para a leitura comercial da Yolen.',
+          },
+          {
+            status: 400,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      const statefulOnlyMessageWatermark =
+        messageSnapshotHash ||
+        buildConversationHash(
+          legacyConversationText ||
+            JSON.stringify(
+              structuredMessages.map((message) => message.id),
+            ),
+        )
+
+      const backgroundJob =
+        buildStatefulCopilotBackgroundJobDescriptor({
+          company_id: tokenPayload.company_id,
+          cycle_id: cycleId,
+          conversation_key: conversationKey,
+          message_watermark: statefulOnlyMessageWatermark,
+          requested_at: analysisRequestedAt,
+        })
+
+      let deepAnalysis:
+        NonNullable<CompanionStatefulOnlyAnalyzeResponse['data']>['deep_analysis'] |
+          undefined =
+          undefined
+
+      let shouldScheduleBackground = false
+
+      const {
+        data: insertedBackgroundJob,
+        error: insertBackgroundJobError,
+      } = await admin
+        .from('companion_background_analysis_jobs')
+        .insert({
+          analysis_job_id: backgroundJob.analysis_job_id,
+          company_id: backgroundJob.company_id,
+          cycle_id: backgroundJob.cycle_id,
+          conversation_key: backgroundJob.conversation_key,
+          message_watermark: backgroundJob.message_watermark,
+          status: 'queued',
+          requested_at: backgroundJob.requested_at,
+          automatic_crm_write: false,
+          automatic_agenda_write: false,
+        })
+        .select('analysis_job_id, status, message_watermark')
+        .single()
+
+      if (
+        !insertBackgroundJobError &&
+        insertedBackgroundJob &&
+        isStatefulCopilotBackgroundJobStatus(insertedBackgroundJob.status)
+      ) {
+        shouldScheduleBackground = true
+
+        deepAnalysis = {
+          analysis_job_id: String(insertedBackgroundJob.analysis_job_id),
+          status: insertedBackgroundJob.status,
+          message_watermark: String(insertedBackgroundJob.message_watermark),
+        }
+      } else if (insertBackgroundJobError?.code === '23505') {
+        const {
+          data: existingBackgroundJob,
+          error: existingBackgroundJobError,
+        } = await admin
+          .from('companion_background_analysis_jobs')
+          .select('analysis_job_id, status, message_watermark')
+          .eq('analysis_job_id', backgroundJob.analysis_job_id)
+          .eq('company_id', backgroundJob.company_id)
+          .eq('cycle_id', backgroundJob.cycle_id)
+          .eq('conversation_key', backgroundJob.conversation_key)
+          .eq('message_watermark', backgroundJob.message_watermark)
+          .maybeSingle()
+
+        if (
+          !existingBackgroundJobError &&
+          existingBackgroundJob &&
+          isStatefulCopilotBackgroundJobStatus(existingBackgroundJob.status)
+        ) {
+          deepAnalysis = {
+            analysis_job_id: String(existingBackgroundJob.analysis_job_id),
+            status: existingBackgroundJob.status,
+            message_watermark: String(existingBackgroundJob.message_watermark),
+          }
+        }
+      } else if (insertBackgroundJobError) {
+        console.warn(
+          'YOLEN_COMPANION_BACKGROUND_JOB',
+          JSON.stringify({
+            event: 'background_job_enqueue_failed',
+            company_id: backgroundJob.company_id,
+            cycle_id: backgroundJob.cycle_id,
+            analysis_job_id: backgroundJob.analysis_job_id,
+            database_code: insertBackgroundJobError.code ?? null,
+          }),
+        )
+      }
+
+      if (!deepAnalysis) {
+        return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+          {
+            ok: false,
+            error:
+              'Não foi possível iniciar a leitura comercial da Yolen. Tente novamente.',
+          },
+          {
+            status: 502,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      if (shouldScheduleBackground) {
+        try {
+          await send(
+            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+            buildStatefulCopilotBackgroundJobMessage({
+              descriptor: backgroundJob,
+              device_key: deviceKey,
+            }),
+            {
+              idempotencyKey: backgroundJob.analysis_job_id,
+              retentionSeconds: 24 * 60 * 60,
+            },
+          )
+
+          console.info(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event: 'background_job_published',
+              company_id: backgroundJob.company_id,
+              cycle_id: backgroundJob.cycle_id,
+              analysis_job_id: backgroundJob.analysis_job_id,
+              message_watermark: backgroundJob.message_watermark,
+            }),
+          )
+        } catch {
+          const completedAt = new Date().toISOString()
+
+          const { error: publishFailurePersistenceError } = await admin
+            .from('companion_background_analysis_jobs')
+            .update({
+              status: 'failed',
+              completed_at: completedAt,
+              updated_at: completedAt,
+              failure_code: 'QUEUE_PUBLISH_FAILED',
+              automatic_crm_write: false,
+              automatic_agenda_write: false,
+            })
+            .eq('analysis_job_id', backgroundJob.analysis_job_id)
+            .eq('company_id', backgroundJob.company_id)
+            .eq('cycle_id', backgroundJob.cycle_id)
+            .eq('conversation_key', backgroundJob.conversation_key)
+            .eq('message_watermark', backgroundJob.message_watermark)
+            .eq('status', 'queued')
+
+          deepAnalysis = {
+            analysis_job_id: backgroundJob.analysis_job_id,
+            status: 'failed',
+            message_watermark: backgroundJob.message_watermark,
+          }
+
+          console.warn(
+            'YOLEN_COMPANION_BACKGROUND_JOB',
+            JSON.stringify({
+              event: 'background_job_publish_failed',
+              company_id: backgroundJob.company_id,
+              cycle_id: backgroundJob.cycle_id,
+              analysis_job_id: backgroundJob.analysis_job_id,
+              persistence_failed: Boolean(publishFailurePersistenceError),
+            }),
+          )
+        }
+      }
+
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+        {
+          ok: true,
+          data: {
+            context,
+            deep_analysis: deepAnalysis,
+          },
+        },
+        {
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const companionReadAdmin =
     admin as unknown as CompanionReadClient
 
@@ -1857,36 +2076,23 @@ export async function POST(request: Request) {
     )
   }
 
-    const statefulActiveBackgroundRequested =
-      statefulRouteMode ===
-      'active'
-
     const result = await analyzeConversationWithCopilotDetailed({
       context,
       conversationText: analysisText,
       source,
       providerTimeoutMs:
-        statefulActiveBackgroundRequested
-          ? 8_000
-          : V1_COMPANION_AI_CALL_TIMEOUT_MS,
+        V1_COMPANION_AI_CALL_TIMEOUT_MS,
     })
 
     const coaching =
-      statefulActiveBackgroundRequested
-        ? buildCompanionCoaching({
-            conversationText:
-              analysisText,
-            suggestion:
-              result.suggestion,
-          })
-        : await generateCompanionCoachingOrFallback({
-            context,
-            analysisText,
-            suggestion:
-              result.suggestion,
-            providerTimeoutMs:
-              V1_COMPANION_AI_CALL_TIMEOUT_MS,
-          })
+      await generateCompanionCoachingOrFallback({
+        context,
+        analysisText,
+        suggestion:
+          result.suggestion,
+        providerTimeoutMs:
+          V1_COMPANION_AI_CALL_TIMEOUT_MS,
+      })
 
     const yolenDecision =
       buildYolenDecision({
@@ -1942,383 +2148,12 @@ export async function POST(request: Request) {
         ),
     }
 
-    let deepAnalysis:
-      NonNullable<
-        AnalyzeConversationResponse[
-          'data'
-        ]
-      >['deep_analysis'] =
-        undefined
-
-    if (
-      statefulActiveBackgroundRequested &&
-      conversationKey &&
-      deviceKey
-    ) {
-      const backgroundJob =
-        buildStatefulCopilotBackgroundJobDescriptor({
-          company_id:
-            tokenPayload.company_id,
-
-          cycle_id:
-            cycleId,
-
-          conversation_key:
-            conversationKey,
-
-          message_watermark:
-            messageSnapshotHash ||
-            conversationHash,
-
-          requested_at:
-            analysisRequestedAt,
-        })
-
-      let shouldScheduleBackground =
-        false
-
-      const {
-        data:
-          insertedBackgroundJob,
-
-        error:
-          insertBackgroundJobError,
-      } =
-        await admin
-          .from(
-            'companion_background_analysis_jobs',
-          )
-          .insert({
-            analysis_job_id:
-              backgroundJob
-                .analysis_job_id,
-
-            company_id:
-              backgroundJob
-                .company_id,
-
-            cycle_id:
-              backgroundJob
-                .cycle_id,
-
-            conversation_key:
-              backgroundJob
-                .conversation_key,
-
-            message_watermark:
-              backgroundJob
-                .message_watermark,
-
-            status:
-              'queued',
-
-            requested_at:
-              backgroundJob
-                .requested_at,
-
-            automatic_crm_write:
-              false,
-
-            automatic_agenda_write:
-              false,
-          })
-          .select(
-            'analysis_job_id, status, message_watermark',
-          )
-          .single()
-
-      if (
-        !insertBackgroundJobError &&
-        insertedBackgroundJob &&
-        isStatefulCopilotBackgroundJobStatus(
-          insertedBackgroundJob
-            .status,
-        )
-      ) {
-        shouldScheduleBackground =
-          true
-
-        deepAnalysis = {
-          analysis_job_id:
-            String(
-              insertedBackgroundJob
-                .analysis_job_id,
-            ),
-
-          status:
-            insertedBackgroundJob
-              .status,
-
-          message_watermark:
-            String(
-              insertedBackgroundJob
-                .message_watermark,
-            ),
-        }
-      } else if (
-        insertBackgroundJobError
-          ?.code ===
-          '23505'
-      ) {
-        const {
-          data:
-            existingBackgroundJob,
-
-          error:
-            existingBackgroundJobError,
-        } =
-          await admin
-            .from(
-              'companion_background_analysis_jobs',
-            )
-            .select(
-              'analysis_job_id, status, message_watermark',
-            )
-            .eq(
-              'analysis_job_id',
-              backgroundJob
-                .analysis_job_id,
-            )
-            .eq(
-              'company_id',
-              backgroundJob
-                .company_id,
-            )
-            .eq(
-              'cycle_id',
-              backgroundJob
-                .cycle_id,
-            )
-            .eq(
-              'conversation_key',
-              backgroundJob
-                .conversation_key,
-            )
-            .eq(
-              'message_watermark',
-              backgroundJob
-                .message_watermark,
-            )
-            .maybeSingle()
-
-        if (
-          !existingBackgroundJobError &&
-          existingBackgroundJob &&
-          isStatefulCopilotBackgroundJobStatus(
-            existingBackgroundJob
-              .status,
-          )
-        ) {
-          deepAnalysis = {
-            analysis_job_id:
-              String(
-                existingBackgroundJob
-                  .analysis_job_id,
-              ),
-
-            status:
-              existingBackgroundJob
-                .status,
-
-            message_watermark:
-              String(
-                existingBackgroundJob
-                  .message_watermark,
-              ),
-          }
-        }
-      } else if (
-        insertBackgroundJobError
-      ) {
-        console.warn(
-          'YOLEN_COMPANION_BACKGROUND_JOB',
-          JSON.stringify({
-            event:
-              'background_job_enqueue_failed',
-
-            company_id:
-              backgroundJob
-                .company_id,
-
-            cycle_id:
-              backgroundJob
-                .cycle_id,
-
-            analysis_job_id:
-              backgroundJob
-                .analysis_job_id,
-
-            database_code:
-              insertBackgroundJobError
-                .code ??
-              null,
-          }),
-        )
-      }
-
-      if (
-        shouldScheduleBackground
-      ) {
-        try {
-          await send(
-            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
-
-            buildStatefulCopilotBackgroundJobMessage({
-              descriptor:
-                backgroundJob,
-
-              device_key:
-                deviceKey,
-            }),
-
-            {
-              idempotencyKey:
-                backgroundJob
-                  .analysis_job_id,
-
-              retentionSeconds:
-                24 *
-                60 *
-                60,
-            },
-          )
-
-          console.info(
-            'YOLEN_COMPANION_BACKGROUND_JOB',
-            JSON.stringify({
-              event:
-                'background_job_published',
-
-              company_id:
-                backgroundJob
-                  .company_id,
-
-              cycle_id:
-                backgroundJob
-                  .cycle_id,
-
-              analysis_job_id:
-                backgroundJob
-                  .analysis_job_id,
-
-              message_watermark:
-                backgroundJob
-                  .message_watermark,
-            }),
-          )
-        } catch {
-          const completedAt =
-            new Date()
-              .toISOString()
-
-          const {
-            error:
-              publishFailurePersistenceError,
-          } =
-            await admin
-              .from(
-                'companion_background_analysis_jobs',
-              )
-              .update({
-                status:
-                  'failed',
-
-                completed_at:
-                  completedAt,
-
-                updated_at:
-                  completedAt,
-
-                failure_code:
-                  'QUEUE_PUBLISH_FAILED',
-
-                automatic_crm_write:
-                  false,
-
-                automatic_agenda_write:
-                  false,
-              })
-              .eq(
-                'analysis_job_id',
-                backgroundJob
-                  .analysis_job_id,
-              )
-              .eq(
-                'company_id',
-                backgroundJob
-                  .company_id,
-              )
-              .eq(
-                'cycle_id',
-                backgroundJob
-                  .cycle_id,
-              )
-              .eq(
-                'conversation_key',
-                backgroundJob
-                  .conversation_key,
-              )
-              .eq(
-                'message_watermark',
-                backgroundJob
-                  .message_watermark,
-              )
-              .eq(
-                'status',
-                'queued',
-              )
-
-          deepAnalysis = {
-            analysis_job_id:
-              backgroundJob
-                .analysis_job_id,
-
-            status:
-              'failed',
-
-            message_watermark:
-              backgroundJob
-                .message_watermark,
-          }
-
-          console.warn(
-            'YOLEN_COMPANION_BACKGROUND_JOB',
-            JSON.stringify({
-              event:
-                'background_job_publish_failed',
-
-              company_id:
-                backgroundJob
-                  .company_id,
-
-              cycle_id:
-                backgroundJob
-                  .cycle_id,
-
-              analysis_job_id:
-                backgroundJob
-                  .analysis_job_id,
-
-              persistence_failed:
-                Boolean(
-                  publishFailurePersistenceError,
-                ),
-            }),
-          )
-        }
-      }
-    }
-
-    const responseData = {
-      ...v1ResponseData,
-
-      ...(deepAnalysis
-        ? {
-            deep_analysis:
-              deepAnalysis,
-          }
-        : {}),
-    }
+    // Fase 12A — V2 como único motor: o job em segundo plano do V2 para
+    // este caminho (empresas em 'active') agora é criado ANTES desta
+    // função sequer chamar o V1, no branch de early return acima. Esta
+    // resposta (v1/shadow) nunca teve deep_analysis antes desta mudança —
+    // continua sem ter.
+    const responseData = v1ResponseData
 
     /*
      * Fase 5.3 — shadow:

@@ -12264,11 +12264,22 @@
   // (deepAnalysisPollTimerId): iniciar um novo poll sempre cancela o
   // anterior primeiro, então dois pollers "equivalentes" nunca aplicam
   // estado em duplicidade.
+  // Fase 12A — V2 como único motor: este polling só existe para o job em
+  // segundo plano do V2 (empresas em modo 'active'), que agora é o ÚNICO
+  // resultado seller-facing — não há mais V1 já aplicado por baixo. Por
+  // isso, ao chegar num estado terminal (succeeded/failed/superseded/
+  // timeout), esta função também é responsável por tirar
+  // conversationAnalysisLoading de true e, se necessário, mostrar
+  // conversationAnalysisError com retry — antes, esses campos já tinham
+  // sido resolvidos pela resposta rápida do V1 e este polling só atualizava
+  // um indicador secundário.
   function startDeepAnalysisPolling({
     analysisJobId,
     cycleId,
     conversationKeyAtRequest,
     isAnalysisResponseStillCurrent,
+    conversationFingerprint,
+    isAutomatic,
   }) {
     clearDeepAnalysisPollTimer()
 
@@ -12281,8 +12292,14 @@
       }
 
       if (Date.now() - startedAtMs >= DEEP_ANALYSIS_POLL_TIMEOUT_MS) {
+        activeAnalysisAttempt = null
+
         state = {
           ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysisError:
+            'A análise demorou mais que o esperado. Tente novamente.',
+          automaticAnalysisStatus: null,
           deepAnalysisStatus: 'failed',
           deepAnalysisResult: null,
         }
@@ -12363,8 +12380,18 @@
             ),
         })
 
+        activeAnalysisAttempt = null
+
         state = {
           ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysisError: null,
+          analyzedConversationFingerprint:
+            conversationFingerprint,
+          automaticAnalysisStatus:
+            isAutomatic
+              ? 'Análise automática concluída.'
+              : null,
           deepAnalysisStatus: 'succeeded',
           deepAnalysisResult: data.result || null,
         }
@@ -12377,11 +12404,18 @@
         // TEMP-DIAG-FASE12A
         __fase12aDiag('deep-superseded', {})
 
-        // Um job mais novo para a MESMA conversa já assumiu o lugar deste.
-        // Este job nunca vira estado corrente — não é falha, é apenas
-        // descartado.
+        // Um job mais novo para a MESMA conversa já assumiu o lugar deste
+        // job específico — mas, como o V2 é o único motor, não existe mais
+        // nenhum resultado já aplicado por baixo para sustentar a UI: sem
+        // erro explícito aqui, o loading ficaria preso sem via de escape.
+        activeAnalysisAttempt = null
+
         state = {
           ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysisError:
+            'A conversa mudou durante a análise. Tente novamente.',
+          automaticAnalysisStatus: null,
           deepAnalysisStatus: null,
           deepAnalysisResult: null,
         }
@@ -12395,8 +12429,14 @@
         status: data.status ?? null,
       })
 
+      activeAnalysisAttempt = null
+
       state = {
         ...state,
+        conversationAnalysisLoading: false,
+        conversationAnalysisError:
+          'Não foi possível concluir a leitura comercial da Yolen. Tente novamente.',
+        automaticAnalysisStatus: null,
         deepAnalysisStatus: 'failed',
         deepAnalysisResult: null,
       }
@@ -12605,9 +12645,10 @@
       }
 
       clearAnalysisWatchdogTimer()
-      activeAnalysisAttempt = null
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {
+        activeAnalysisAttempt = null
+
         state = {
           ...state,
           conversationAnalysisLoading: false,
@@ -12631,17 +12672,48 @@
           false
       }
 
-      state = {
-        ...state,
-        conversationAnalysisLoading: false,
-        conversationAnalysis: result.payload.data,
-        conversationAnalysisError: null,
-        analyzedConversationFingerprint:
-          conversationFingerprint,
-        automaticAnalysisStatus:
-          isAutomatic
-            ? 'Análise automática concluída.'
-            : null,
+      // Fase 12A — V2 como único motor: quando a resposta traz um job em
+      // segundo plano (deep_analysis), esta é uma empresa no modo 'active'
+      // e o V1 nunca foi chamado — não existe suggestion pronta aqui.
+      // conversationAnalysis já aponta para este mesmo objeto (é o que o
+      // polling abaixo vai mutar via promoteDeepSellerResult quando o job
+      // terminar), mas loading/ownership só se resolvem no estado terminal
+      // do polling. Quando NÃO há job (v1/shadow, não exposto ao V2), o
+      // comportamento é o de sempre: a resposta já é o resultado final.
+      if (result.payload.data.deep_analysis?.analysis_job_id) {
+        state = {
+          ...state,
+          conversationAnalysis: result.payload.data,
+        }
+      } else if (result.payload.data.suggestion) {
+        activeAnalysisAttempt = null
+
+        state = {
+          ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysis: result.payload.data,
+          conversationAnalysisError: null,
+          analyzedConversationFingerprint:
+            conversationFingerprint,
+          automaticAnalysisStatus:
+            isAutomatic
+              ? 'Análise automática concluída.'
+              : null,
+        }
+      } else {
+        activeAnalysisAttempt = null
+
+        state = {
+          ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysis: null,
+          conversationAnalysisError:
+            'Não foi possível iniciar a leitura comercial da Yolen. Tente novamente.',
+          automaticAnalysisStatus: null,
+        }
+
+        renderPanel()
+        return
       }
 
       updatePreSendAssessmentFromDraft(
@@ -12692,14 +12764,23 @@
           cycleId,
           conversationKeyAtRequest,
           isAnalysisResponseStillCurrent,
+          conversationFingerprint,
+          isAutomatic,
         })
       } else if (
         deepAnalysisJob?.analysis_job_id
       ) {
-        // status já veio 'failed' ou 'superseded' na própria resposta
-        // rápida — nada a acompanhar.
+        // Status já veio 'failed' ou 'superseded' na própria resposta
+        // rápida. Como o V2 é o único motor (sem V1 por baixo), isso é
+        // terminal — sem via de escape, o loading ficaria preso.
+        activeAnalysisAttempt = null
+
         state = {
           ...state,
+          conversationAnalysisLoading: false,
+          conversationAnalysisError:
+            'Não foi possível concluir a leitura comercial da Yolen. Tente novamente.',
+          automaticAnalysisStatus: null,
           deepAnalysisStatus:
             deepAnalysisJob.status === 'failed'
               ? 'failed'
@@ -12710,13 +12791,15 @@
         renderPanel()
       }
 
-      registerSuggestionShownTelemetry({
-        cycleId,
-        analysis:
-          result.payload.data,
-        conversationFingerprint,
-        isAutomatic,
-      })
+      if (result.payload.data.suggestion) {
+        registerSuggestionShownTelemetry({
+          cycleId,
+          analysis:
+            result.payload.data,
+          conversationFingerprint,
+          isAutomatic,
+        })
+      }
 
       if (
         messageLedgerMutationRevision !==

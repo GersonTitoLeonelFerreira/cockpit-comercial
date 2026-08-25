@@ -224,6 +224,33 @@ export interface AnalyzeConversationResponse {
   error?: string
 }
 
+// Fase 12A — V2 como único motor: quando a empresa está no modo 'active'
+// da gate stateful, /api/companion/analyze-conversation não calcula mais
+// nenhuma sugestão V1 na resposta rápida — só existe o job em segundo
+// plano (deep_analysis) que o cliente acompanha via polling. Forma
+// própria, menor que AnalyzeConversationResponse, para não tornar
+// `suggestion` opcional no contrato compartilhado com /api/ai/
+// analyze-conversation (que continua sempre retornando uma sugestão V1).
+export interface CompanionStatefulOnlyAnalyzeResponse {
+  ok: boolean
+  data?: {
+    context: AISalesContext
+    deep_analysis: {
+      analysis_job_id: string
+
+      status:
+        | 'queued'
+        | 'running'
+        | 'succeeded'
+        | 'failed'
+        | 'superseded'
+
+      message_watermark: string
+    }
+  }
+  error?: string
+}
+
 export interface ApplyAISuggestionRequest {
   cycle_id: string
   applied_status: LeadStatus
