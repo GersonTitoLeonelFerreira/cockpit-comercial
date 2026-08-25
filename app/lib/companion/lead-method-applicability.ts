@@ -23,15 +23,15 @@ export type LeadMethodApplicability =
     }
 
 const PROMPT_VERSION =
-  'lead-method-applicability-v1'
+  'lead-method-applicability-v2'
 const OUTPUT_CONTRACT_VERSION =
-  'lead-method-applicability-v1'
+  'lead-method-applicability-v2'
 
 const STRUCTURED_OUTPUT_FORMAT = {
   type: 'json_schema',
-  name: 'yolen_lead_method_applicability_v1',
+  name: 'yolen_lead_method_applicability_v2',
   description:
-    'Decide se existe uma ação comercial seller-facing que justifique aplicar o método publicado agora.',
+    'Decide se a interação atual contém sinal comercial suficiente para aplicar o método publicado agora.',
   strict: true,
   schema: {
     type: 'object',
@@ -44,12 +44,21 @@ const STRUCTURED_OUTPUT_FORMAT = {
           'no_commercial_action',
         ],
       },
+      current_signal: {
+        type: 'string',
+        enum: [
+          'commercial',
+          'direct_continuation',
+          'none',
+        ],
+      },
       reason: {
         type: 'string',
       },
     },
     required: [
       'decision',
+      'current_signal',
       'reason',
     ],
   },
@@ -88,21 +97,41 @@ function parseApplicability(
 
   const record = parsed as Record<string, unknown>
   const reason = text(record.reason)
+  const currentSignal = record.current_signal
 
   if (!reason) {
     return null
   }
 
-  if (record.decision === 'apply_method') {
-    return {
-      status: 'apply_method',
-      reason,
-    }
+  if (
+    currentSignal !== 'commercial' &&
+    currentSignal !== 'direct_continuation' &&
+    currentSignal !== 'none'
+  ) {
+    return null
   }
 
   if (record.decision === 'no_commercial_action') {
     return {
       status: 'no_commercial_action',
+      reason,
+    }
+  }
+
+  if (record.decision === 'apply_method') {
+    // Fail-closed: histórico comercial sozinho nunca pode reativar o método.
+    // Para aplicar o ATO, a própria interação atual precisa conter sinal de
+    // compra/venda ou ser continuação explícita de uma pendência comercial.
+    if (currentSignal === 'none') {
+      return {
+        status: 'no_commercial_action',
+        reason:
+          'A interação atual não contém sinal comercial nem continuação explícita de uma pendência comercial.',
+      }
+    }
+
+    return {
+      status: 'apply_method',
       reason,
     }
   }
@@ -130,6 +159,14 @@ export async function classifyLeadMethodApplicability({
     }
   }
 
+  if (currentInteraction.length === 0) {
+    return {
+      status: 'no_commercial_action',
+      reason:
+        'Não há interação atual suficiente para justificar a aplicação do método comercial.',
+    }
+  }
+
   try {
     const response = await provider({
       prompt_version: PROMPT_VERSION,
@@ -137,17 +174,21 @@ export async function classifyLeadMethodApplicability({
         OUTPUT_CONTRACT_VERSION,
       system_prompt: [
         'Você é o gate de aplicabilidade comercial do Yolen Companion.',
-        'Sua única função é decidir se existe uma ação comercial seller-facing real que justifique aplicar o método de vendas agora.',
+        'Sua única função é decidir se a INTERAÇÃO ATUAL contém evidência suficiente para aplicar o método de vendas agora.',
         'Separe rigorosamente MEMÓRIA DO RELACIONAMENTO de INTERAÇÃO ATUAL.',
-        'O working_summary preserva tudo que a Yolen sabe do relacionamento e não deve ser apagado por uma conversa neutra.',
-        'current_interaction representa o que está acontecendo agora e deve ter peso principal para decidir se o vendedor precisa de orientação comercial neste momento.',
-        'Escolha apply_method quando a interação atual é de compra, venda, prospecção, negociação, objeção, descoberta de necessidade, proposta, decisão, follow-up comercial ou quando há no resumo uma pendência comercial real e atual que faz sentido retomar agora.',
-        'Escolha no_commercial_action quando a interação atual é claramente pessoal/social, contratação ou emprego, assunto interno da equipe, suporte/administrativo, cobrança operacional sem venda, fornecedor/parceiro ou outro contexto que não peça uma ação de venda agora.',
-        'Uma pessoa existir como lead no CRM não prova que a conversa atual é uma oportunidade de venda.',
-        'Histórico comercial antigo pode coexistir com conversa pessoal atual. Não force o método apenas porque existe histórico.',
-        'Uma saudação neutra pode ainda justificar apply_method quando o resumo mostra uma pendência comercial explícita e atual que deve ser retomada com aquela pessoa.',
+        'O working_summary preserva tudo que a Yolen sabe do relacionamento. Ele serve como memória e contexto, mas NÃO autoriza sozinho uma ação comercial.',
+        'current_interaction representa o que está acontecendo agora e é a fonte obrigatória para decidir se o método deve ser aplicado.',
+        'Classifique current_signal como commercial quando a interação atual fala diretamente de compra, venda, prospecção, negociação, objeção, necessidade, proposta, preço, decisão, fechamento ou follow-up comercial.',
+        'Classifique current_signal como direct_continuation somente quando a interação atual referencia ou continua explicitamente uma pendência comercial existente no working_summary, mesmo sem repetir todos os detalhes.',
+        'Classifique current_signal como none quando a interação atual é pessoal/social, saudação neutra, contratação ou emprego, assunto interno da equipe, suporte/administrativo, cobrança operacional sem venda, fornecedor/parceiro ou outro contexto sem evidência atual de venda.',
+        'Uma saudação neutra como "bom dia", sozinha, é current_signal=none mesmo que exista proposta ou objeção antiga no working_summary.',
+        'Uma conversa sobre geladeira, assinatura de responsável, contratação, escala, cobrança administrativa ou assunto interno é current_signal=none quando não houver compra/venda com esse contato.',
+        'Uma pessoa existir como lead no CRM não prova que a conversa atual seja oportunidade de venda.',
+        'Histórico comercial antigo pode coexistir com conversa pessoal ou operacional atual. Não force o método apenas porque existe histórico.',
+        'Escolha apply_method somente quando current_signal for commercial ou direct_continuation.',
+        'Escolha no_commercial_action quando current_signal for none ou quando, mesmo havendo tema comercial, não exista ação seller-facing útil agora.',
         'Não invente intenção de compra, necessidade, objeção ou oportunidade.',
-        'Não gere próximo passo e não escolha etapa do método. Entregue somente decision e reason.',
+        'Não gere próximo passo e não escolha etapa do método. Entregue somente decision, current_signal e reason.',
       ].join('\n'),
       user_prompt: JSON.stringify({
         working_summary: summary,
