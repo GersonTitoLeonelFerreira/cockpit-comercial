@@ -114,22 +114,20 @@ export async function POST(request: Request) {
 
     const { data: publishedConfigRow, error: methodError } = await admin
       .from('company_commercial_config_versions')
-      .select(
-        [
-          'id',
-          'version_number',
-          'commercial_method_name',
-          'commercial_method_description',
-          'commercial_method_contract_version',
-          'commercial_method_definition',
-          'business_description',
-          'target_audience',
-          'value_proposition',
-          'communication_tone',
-          'required_behaviors',
-          'prohibited_behaviors',
-        ].join(', '),
-      )
+      .select(`
+        id,
+        version_number,
+        commercial_method_name,
+        commercial_method_description,
+        commercial_method_contract_version,
+        commercial_method_definition,
+        business_description,
+        target_audience,
+        value_proposition,
+        communication_tone,
+        required_behaviors,
+        prohibited_behaviors
+      `)
       .eq('company_id', identity.company_id)
       .eq('status', 'published')
       .order('version_number', { ascending: false })
@@ -155,16 +153,14 @@ export async function POST(request: Request) {
     if (publishedConfigRow?.id) {
       const { data: methodStepsData, error: methodStepsError } = await admin
         .from('company_commercial_method_steps')
-        .select(
-          [
-            'step_order',
-            'name',
-            'objective',
-            'completion_criteria',
-            'recommended_questions',
-            'is_required',
-          ].join(', '),
-        )
+        .select(`
+          step_order,
+          name,
+          objective,
+          completion_criteria,
+          recommended_questions,
+          is_required
+        `)
         .eq('company_id', identity.company_id)
         .eq('config_version_id', publishedConfigRow.id)
         .order('step_order', { ascending: true })
