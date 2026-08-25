@@ -69,37 +69,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeText(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null
-  }
-
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  return normalized || null
+function text(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  return value.replace(/\s+/g, ' ').trim() || null
 }
 
-function normalizeTextArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
+function texts(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
   return value
-    .map((item) => normalizeText(item))
+    .map(text)
     .filter((item): item is string => Boolean(item))
 }
 
-function normalizeKey(value: unknown, fallback: string): string {
-  const normalized = normalizeText(value)
-    ?.normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase('pt-BR')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-
-  return normalized || fallback
-}
-
-function normalizeComparableText(value: string): string {
+function comparable(value: string): string {
   return value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -109,24 +91,29 @@ function normalizeComparableText(value: string): string {
     .trim()
 }
 
-function extractDeclaredStageNames(value: unknown): string[] {
-  if (typeof value !== 'string') {
-    return []
-  }
+function key(value: unknown, fallback: string): string {
+  const normalized = text(value)
+    ?.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+  return normalized || fallback
+}
+
+function declaredStageNames(value: unknown): string[] {
+  if (typeof value !== 'string') return []
 
   const lines = value
     .replace(/\r/g, '')
     .split('\n')
     .map((line) =>
-      line
-        .replace(/^\s*[-*•\d.)]+\s*/, '')
-        .trim(),
+      line.replace(/^\s*[-*•\d.)]+\s*/, '').trim(),
     )
     .filter(Boolean)
 
-  if (lines.length < 3) {
-    return []
-  }
+  if (lines.length < 3) return []
 
   const candidates = lines
     .slice(1)
@@ -145,132 +132,25 @@ function extractDeclaredStageNames(value: unknown): string[] {
   }
 
   const unique = new Map<string, string>()
-
-  for (const candidate of candidates) {
-    const comparable = normalizeComparableText(candidate)
-
-    if (comparable && !unique.has(comparable)) {
-      unique.set(comparable, candidate)
+  candidates.forEach((candidate) => {
+    const normalized = comparable(candidate)
+    if (normalized && !unique.has(normalized)) {
+      unique.set(normalized, candidate)
     }
-  }
+  })
 
   return [...unique.values()]
 }
 
-function normalizeStructuredStages(
-  definition: unknown,
-): PublishedCommercialMethodStage[] {
-  if (!isRecord(definition) || !Array.isArray(definition.stages)) {
-    return []
-  }
-
-  return definition.stages
-    .map((rawStage, index) => {
-      if (!isRecord(rawStage)) {
-        return null
-      }
-
-      const name = normalizeText(rawStage.name)
-
-      if (!name) {
-        return null
-      }
-
-      return {
-        key: normalizeKey(rawStage.key, `stage_${index + 1}`),
-        name,
-        display_order:
-          typeof rawStage.display_order === 'number' &&
-          Number.isFinite(rawStage.display_order)
-            ? rawStage.display_order
-            : index + 1,
-        objective: normalizeText(rawStage.objective),
-        completion_criteria:
-          normalizeTextArray(rawStage.completion_criteria),
-        partial_completion_criteria:
-          normalizeTextArray(rawStage.partial_completion_criteria),
-        deepen_when:
-          normalizeTextArray(rawStage.deepen_when),
-        sufficient_when:
-          normalizeTextArray(rawStage.sufficient_when),
-        advance_when:
-          normalizeTextArray(rawStage.advance_when),
-        wait_when:
-          normalizeTextArray(rawStage.wait_when),
-        stop_asking_when:
-          normalizeTextArray(rawStage.stop_asking_when),
-        recommended_questions:
-          normalizeTextArray(rawStage.recommended_questions),
-        common_mistakes:
-          normalizeTextArray(rawStage.common_mistakes),
-      } satisfies PublishedCommercialMethodStage
-    })
-    .filter(
-      (stage): stage is PublishedCommercialMethodStage => Boolean(stage),
-    )
-    .sort((left, right) =>
-      left.display_order - right.display_order,
-    )
-}
-
-function normalizeLegacyStages(
-  value: unknown,
-): PublishedCommercialMethodStage[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .map((rawStage, index) => {
-      if (!isRecord(rawStage)) {
-        return null
-      }
-
-      const name = normalizeText(rawStage.name)
-
-      if (!name) {
-        return null
-      }
-
-      const displayOrder =
-        typeof rawStage.step_order === 'number' &&
-        Number.isFinite(rawStage.step_order)
-          ? rawStage.step_order
-          : index + 1
-
-      return {
-        key: normalizeKey(rawStage.key, `legacy_step_${displayOrder}`),
-        name,
-        display_order: displayOrder,
-        objective: normalizeText(rawStage.objective),
-        completion_criteria:
-          normalizeTextArray(rawStage.completion_criteria),
-        partial_completion_criteria: [],
-        deepen_when: [],
-        sufficient_when: [],
-        advance_when: [],
-        wait_when: [],
-        stop_asking_when: [],
-        recommended_questions:
-          normalizeTextArray(rawStage.recommended_questions),
-        common_mistakes: [],
-      } satisfies PublishedCommercialMethodStage
-    })
-    .filter(
-      (stage): stage is PublishedCommercialMethodStage => Boolean(stage),
-    )
-    .sort((left, right) =>
-      left.display_order - right.display_order,
-    )
-}
-
-function buildDeclaredStages(
-  names: string[],
-): PublishedCommercialMethodStage[] {
-  return names.map((name, index) => ({
-    key: normalizeKey(name, `declared_stage_${index + 1}`),
+function emptyStage(
+  name: string,
+  displayOrder: number,
+  stageKey: string,
+): PublishedCommercialMethodStage {
+  return {
+    key: stageKey,
     name,
-    display_order: index + 1,
+    display_order: displayOrder,
     objective: null,
     completion_criteria: [],
     partial_completion_criteria: [],
@@ -281,10 +161,151 @@ function buildDeclaredStages(
     stop_asking_when: [],
     recommended_questions: [],
     common_mistakes: [],
-  }))
+  }
 }
 
-function buildEmptyGuidance(
+function structuredStages(value: unknown): PublishedCommercialMethodStage[] {
+  if (!isRecord(value) || !Array.isArray(value.stages)) return []
+
+  const stages: PublishedCommercialMethodStage[] = []
+
+  value.stages.forEach((rawStage, index) => {
+    if (!isRecord(rawStage)) return
+    const name = text(rawStage.name)
+    if (!name) return
+
+    const stage = emptyStage(
+      name,
+      typeof rawStage.display_order === 'number' &&
+        Number.isFinite(rawStage.display_order)
+        ? rawStage.display_order
+        : index + 1,
+      key(rawStage.key, `stage_${index + 1}`),
+    )
+
+    stage.objective = text(rawStage.objective)
+    stage.completion_criteria = texts(rawStage.completion_criteria)
+    stage.partial_completion_criteria = texts(
+      rawStage.partial_completion_criteria,
+    )
+    stage.deepen_when = texts(rawStage.deepen_when)
+    stage.sufficient_when = texts(rawStage.sufficient_when)
+    stage.advance_when = texts(rawStage.advance_when)
+    stage.wait_when = texts(rawStage.wait_when)
+    stage.stop_asking_when = texts(rawStage.stop_asking_when)
+    stage.recommended_questions = texts(rawStage.recommended_questions)
+    stage.common_mistakes = texts(rawStage.common_mistakes)
+    stages.push(stage)
+  })
+
+  return stages.sort((left, right) =>
+    left.display_order - right.display_order,
+  )
+}
+
+function legacyStages(value: unknown): PublishedCommercialMethodStage[] {
+  if (!Array.isArray(value)) return []
+
+  const stages: PublishedCommercialMethodStage[] = []
+
+  value.forEach((rawStage, index) => {
+    if (!isRecord(rawStage)) return
+    const name = text(rawStage.name)
+    if (!name) return
+
+    const displayOrder =
+      typeof rawStage.step_order === 'number' &&
+      Number.isFinite(rawStage.step_order)
+        ? rawStage.step_order
+        : index + 1
+
+    const stage = emptyStage(
+      name,
+      displayOrder,
+      key(rawStage.key, `legacy_step_${displayOrder}`),
+    )
+
+    stage.objective = text(rawStage.objective)
+    stage.completion_criteria = texts(rawStage.completion_criteria)
+    stage.recommended_questions = texts(rawStage.recommended_questions)
+    stages.push(stage)
+  })
+
+  return stages.sort((left, right) =>
+    left.display_order - right.display_order,
+  )
+}
+
+export function normalizePublishedCommercialMethod(
+  value: unknown,
+  legacyStepsValue: unknown = [],
+): PublishedCommercialMethod | null {
+  if (!isRecord(value)) return null
+
+  const id = text(value.id)
+  const name = text(value.commercial_method_name)
+  const description = text(value.commercial_method_description)
+
+  if (!id || !name || !description) return null
+
+  const definition = value.commercial_method_definition
+  const fromDefinition = structuredStages(definition)
+  const fromDescription = declaredStageNames(
+    value.commercial_method_description,
+  )
+  const fromLegacy = legacyStages(legacyStepsValue)
+
+  let structureSource: PublishedCommercialMethod['structure_source'] =
+    'description_only'
+  let stages: PublishedCommercialMethodStage[] = []
+
+  if (fromDefinition.length > 0) {
+    structureSource = 'structured_definition'
+    stages = fromDefinition
+  } else if (fromDescription.length > 0) {
+    structureSource = 'declared_description'
+    stages = fromDescription.map((stageName, index) =>
+      emptyStage(
+        stageName,
+        index + 1,
+        key(stageName, `declared_stage_${index + 1}`),
+      ),
+    )
+  } else if (fromLegacy.length > 0) {
+    structureSource = 'legacy_steps'
+    stages = fromLegacy
+  }
+
+  return {
+    id,
+    version_number:
+      typeof value.version_number === 'number' &&
+      Number.isFinite(value.version_number)
+        ? value.version_number
+        : null,
+    source_contract_version:
+      text(value.commercial_method_contract_version),
+    name,
+    description,
+    structure_source: structureSource,
+    principles: isRecord(definition)
+      ? texts(definition.principles)
+      : [],
+    stages,
+    business_context: {
+      business_description: text(value.business_description),
+      target_audience: text(value.target_audience),
+      value_proposition: text(value.value_proposition),
+    },
+    seller_rules: {
+      communication_tone: text(value.communication_tone),
+      required_behaviors: texts(value.required_behaviors),
+      prohibited_behaviors: texts(value.prohibited_behaviors),
+    },
+  }
+}
+
+function emptyGuidance(
   status: LeadMethodGuidanceStatus,
   method?: PublishedCommercialMethod | null,
   error?: string | null,
@@ -301,98 +322,8 @@ function buildEmptyGuidance(
   }
 }
 
-export function normalizePublishedCommercialMethod(
-  value: unknown,
-  legacySteps: unknown = [],
-): PublishedCommercialMethod | null {
-  if (!isRecord(value)) {
-    return null
-  }
-
-  const id = normalizeText(value.id)
-  const name = normalizeText(value.commercial_method_name)
-  const description = normalizeText(
-    value.commercial_method_description,
-  )
-
-  if (!id || !name || !description) {
-    return null
-  }
-
-  const rawDefinition = value.commercial_method_definition
-  const structuredStages =
-    normalizeStructuredStages(rawDefinition)
-  const legacyNormalizedStages =
-    normalizeLegacyStages(legacySteps)
-  const declaredStageNames =
-    extractDeclaredStageNames(
-      value.commercial_method_description,
-    )
-
-  let stages: PublishedCommercialMethodStage[] = []
-  let structureSource:
-    PublishedCommercialMethod['structure_source'] =
-      'description_only'
-  let principles: string[] = []
-
-  if (structuredStages.length > 0) {
-    stages = structuredStages
-    structureSource = 'structured_definition'
-    principles = isRecord(rawDefinition)
-      ? normalizeTextArray(rawDefinition.principles)
-      : []
-  } else if (declaredStageNames.length > 0) {
-    /*
-     * Compatibilidade honesta com commercial-method-v1.
-     * Se a própria descrição publicada enumera as etapas, ela é a fonte
-     * canônica. Não misturamos automaticamente filhos legados com nomes
-     * diferentes, pois isso foi exatamente o que fazia "Metodo ATO" chegar
-     * ao Companion como outro método de quatro etapas.
-     */
-    stages = buildDeclaredStages(declaredStageNames)
-    structureSource = 'declared_description'
-  } else if (legacyNormalizedStages.length > 0) {
-    stages = legacyNormalizedStages
-    structureSource = 'legacy_steps'
-  }
-
-  return {
-    id,
-    version_number:
-      typeof value.version_number === 'number' &&
-      Number.isFinite(value.version_number)
-        ? value.version_number
-        : null,
-    source_contract_version:
-      normalizeText(value.commercial_method_contract_version),
-    name,
-    description,
-    structure_source: structureSource,
-    principles,
-    stages,
-    business_context: {
-      business_description:
-        normalizeText(value.business_description),
-      target_audience:
-        normalizeText(value.target_audience),
-      value_proposition:
-        normalizeText(value.value_proposition),
-    },
-    seller_rules: {
-      communication_tone:
-        normalizeText(value.communication_tone),
-      required_behaviors:
-        normalizeTextArray(value.required_behaviors),
-      prohibited_behaviors:
-        normalizeTextArray(value.prohibited_behaviors),
-    },
-  }
-}
-
-function looksGeneric(nextStep: string) {
-  const normalized = normalizeComparableText(nextStep)
-
-  const genericOnly = new Set([
+function looksGeneric(nextStep: string): boolean {
+  const generic = new Set([
     'retomar a negociacao',
     'acompanhar o lead',
     'fazer follow up',
@@ -402,15 +333,11 @@ function looksGeneric(nextStep: string) {
     'aguardar retorno',
   ])
 
-  return !normalized || genericOnly.has(normalized)
+  return generic.has(comparable(nextStep))
 }
 
-function buildStructuredOutputFormat(
-  method: PublishedCommercialMethod,
-) {
-  const allowedStageNames = method.stages
-    .map((stage) => stage.name)
-    .filter(Boolean)
+function structuredOutputFormat(method: PublishedCommercialMethod) {
+  const stageNames = method.stages.map((stage) => stage.name)
 
   return {
     type: 'json_schema',
@@ -423,28 +350,15 @@ function buildStructuredOutputFormat(
       additionalProperties: false,
       properties: {
         stage_name:
-          allowedStageNames.length > 0
-            ? {
-                type: 'string',
-                enum: allowedStageNames,
-              }
-            : {
-                type: 'string',
-              },
-        stage_reason: {
-          type: 'string',
-        },
-        next_step: {
-          type: 'string',
-        },
+          stageNames.length > 0
+            ? { type: 'string', enum: stageNames }
+            : { type: 'string' },
+        stage_reason: { type: 'string' },
+        next_step: { type: 'string' },
       },
-      required: [
-        'stage_name',
-        'stage_reason',
-        'next_step',
-      ],
+      required: ['stage_name', 'stage_reason', 'next_step'],
     },
-  } as const
+  }
 }
 
 type GuidanceAttempt = {
@@ -452,62 +366,36 @@ type GuidanceAttempt = {
   failure: string | null
 }
 
-function resolveMethodStage(
-  method: PublishedCommercialMethod,
-  stageName: string,
-): PublishedCommercialMethodStage | null {
-  const comparable = normalizeComparableText(stageName)
-
-  return method.stages.find(
-    (stage) =>
-      normalizeComparableText(stage.name) === comparable,
-  ) ?? null
-}
-
-function parseGuidanceResponse(
+function parseGuidance(
   content: unknown,
   method: PublishedCommercialMethod,
 ): GuidanceAttempt {
   if (typeof content !== 'string') {
-    return {
-      guidance: null,
-      failure: 'A IA não retornou orientação pelo método.',
-    }
+    return { guidance: null, failure: 'A IA não retornou orientação pelo método.' }
   }
 
   let parsed: unknown
-
   try {
     parsed = JSON.parse(content)
   } catch {
-    return {
-      guidance: null,
-      failure: 'A IA retornou orientação em formato inválido.',
-    }
+    return { guidance: null, failure: 'A IA retornou orientação em formato inválido.' }
   }
 
   if (!isRecord(parsed)) {
-    return {
-      guidance: null,
-      failure: 'A IA retornou orientação em formato inválido.',
-    }
+    return { guidance: null, failure: 'A IA retornou orientação em formato inválido.' }
   }
 
-  const stageName = normalizeText(parsed.stage_name)
-  const stageReason = normalizeText(parsed.stage_reason)
-  const nextStep = normalizeText(parsed.next_step)
+  const stageName = text(parsed.stage_name)
+  const stageReason = text(parsed.stage_reason)
+  const nextStep = text(parsed.next_step)
 
   if (!stageName || !stageReason || !nextStep) {
-    return {
-      guidance: null,
-      failure: 'A orientação veio incompleta.',
-    }
+    return { guidance: null, failure: 'A orientação veio incompleta.' }
   }
 
-  const matchedStage =
-    method.stages.length > 0
-      ? resolveMethodStage(method, stageName)
-      : null
+  const matchedStage = method.stages.find(
+    (stage) => comparable(stage.name) === comparable(stageName),
+  ) ?? null
 
   if (method.stages.length > 0 && !matchedStage) {
     return {
@@ -517,17 +405,11 @@ function parseGuidanceResponse(
   }
 
   if (nextStep.length > MAX_NEXT_STEP_LENGTH) {
-    return {
-      guidance: null,
-      failure: 'A orientação excedeu o tamanho permitido.',
-    }
+    return { guidance: null, failure: 'A orientação excedeu o tamanho permitido.' }
   }
 
   if (looksGeneric(nextStep)) {
-    return {
-      guidance: null,
-      failure: 'A orientação ficou genérica demais.',
-    }
+    return { guidance: null, failure: 'A orientação ficou genérica demais.' }
   }
 
   return {
@@ -545,7 +427,7 @@ function parseGuidanceResponse(
   }
 }
 
-async function runGuidanceAttempt({
+async function runAttempt({
   summary,
   method,
   provider,
@@ -556,13 +438,11 @@ async function runGuidanceAttempt({
   provider: StatefulCopilotProvider
   correctionReason?: string | null
 }): Promise<GuidanceAttempt> {
-  const correctiveInstructions = correctionReason
+  const correction = correctionReason
     ? [
-        'A tentativa anterior não passou pela validação seller-facing.',
-        `Motivo da correção: ${correctionReason}`,
-        'Corrija a saída sem relaxar o contrato.',
-        'O próximo passo deve mencionar pelo menos um fato, objeção, pendência, decisão ou informação concreta presente no resumo quando isso for necessário para tornar a ação específica.',
-        'Escolha somente uma ação executável para o vendedor e deixe claro o resultado ou confirmação que ele deve buscar.',
+        'A tentativa anterior não passou pela validação.',
+        `Motivo: ${correctionReason}`,
+        'Corrija sem relaxar o contrato.',
       ]
     : []
 
@@ -572,48 +452,37 @@ async function runGuidanceAttempt({
       output_contract_version: OUTPUT_CONTRACT_VERSION,
       system_prompt: [
         'Você é o motor V2 de orientação por método comercial do Yolen Companion.',
-        'Você recebe um contrato canônico da configuração comercial PUBLICADA e o resumo consolidado do lead.',
-        'O método publicado é a autoridade. Não invente outro funil e não use a etapa do CRM como substituto do método.',
-        'Quando o contrato trouxer stages, escolha exatamente uma das etapas fornecidas em stage_name.',
-        'Use objetivo, critérios e regras da etapa quando estiverem disponíveis. Campos vazios significam que a empresa ainda não detalhou aquela regra; não complete por suposição.',
-        'O resumo consolidado é a fonte de fatos sobre o cliente e a negociação.',
-        'O contexto da empresa e as regras do vendedor servem como limites para a orientação, nunca como fatos do cliente.',
-        'Identifique qual parte do método ainda precisa ser trabalhada e qual é o próximo movimento coerente.',
-        'O próximo passo precisa ser uma ação única, específica e executável: diga o que o vendedor deve fazer e qual informação, confirmação ou resultado deve obter.',
-        'Não responda apenas com expressões genéricas como retomar negociação, fazer follow-up, acompanhar o lead ou aguardar retorno.',
-        'Não invente fatos, datas, valores, compromissos, objeções ou regras que não existam nos dados recebidos.',
-        'Não escreva mensagem pronta para o cliente. Nesta etapa, entregue somente orientação de ação.',
-        `O campo next_step deve ter no máximo ${MAX_NEXT_STEP_LENGTH} caracteres.`,
-        ...correctiveInstructions,
+        'Receba o contrato canônico da configuração PUBLICADA e o resumo do lead.',
+        'O método publicado é a autoridade. Não invente outro funil e não use a etapa do CRM como substituto.',
+        'Quando existirem stages, escolha exatamente uma etapa fornecida.',
+        'Campos vazios significam que a empresa não detalhou aquela regra; não complete por suposição.',
+        'O resumo é a fonte de fatos do cliente. O contexto da empresa e regras do vendedor são limites, não fatos do cliente.',
+        'Defina uma única ação específica e executável e diga qual informação, confirmação ou resultado o vendedor deve obter.',
+        'Não responda apenas com retomar negociação, fazer follow-up, acompanhar ou aguardar retorno.',
+        'Não invente fatos, datas, valores, compromissos, objeções ou regras.',
+        'Não escreva mensagem pronta para o cliente.',
+        ...correction,
       ].join('\n'),
       user_prompt: JSON.stringify({
         working_summary: summary,
         published_commercial_context: {
           config_version_id: method.id,
-          source_contract_version:
-            method.source_contract_version,
-          business_context:
-            method.business_context,
+          source_contract_version: method.source_contract_version,
+          business_context: method.business_context,
           method: {
             name: method.name,
             description: method.description,
-            structure_source:
-              method.structure_source,
+            structure_source: method.structure_source,
             principles: method.principles,
             stages: method.stages,
           },
-          seller_rules:
-            method.seller_rules,
+          seller_rules: method.seller_rules,
         },
       }),
-      structured_output_format:
-        buildStructuredOutputFormat(method),
+      structured_output_format: structuredOutputFormat(method),
     })
 
-    return parseGuidanceResponse(
-      response.content,
-      method,
-    )
+    return parseGuidance(response.content, method)
   } catch {
     return {
       guidance: null,
@@ -631,44 +500,29 @@ export async function composeLeadMethodGuidance({
   method: PublishedCommercialMethod | null
   provider: StatefulCopilotProvider
 }): Promise<LeadMethodGuidance> {
-  const summary = normalizeText(workingSummary)
+  const summary = text(workingSummary)
 
-  if (!summary) {
-    return buildEmptyGuidance('no_summary', method)
-  }
+  if (!summary) return emptyGuidance('no_summary', method)
+  if (!method) return emptyGuidance('missing_method')
 
-  if (!method) {
-    return buildEmptyGuidance('missing_method')
-  }
+  const first = await runAttempt({ summary, method, provider })
+  if (first.guidance) return first.guidance
 
-  const firstAttempt = await runGuidanceAttempt({
-    summary,
-    method,
-    provider,
-  })
-
-  if (firstAttempt.guidance) {
-    return firstAttempt.guidance
-  }
-
-  const correctiveAttempt = await runGuidanceAttempt({
+  const corrected = await runAttempt({
     summary,
     method,
     provider,
     correctionReason:
-      firstAttempt.failure ||
-      'A primeira saída não passou pela validação.',
+      first.failure || 'A primeira saída não passou pela validação.',
   })
 
-  if (correctiveAttempt.guidance) {
-    return correctiveAttempt.guidance
-  }
+  if (corrected.guidance) return corrected.guidance
 
-  return buildEmptyGuidance(
+  return emptyGuidance(
     'error',
     method,
-    correctiveAttempt.failure ||
-      firstAttempt.failure ||
+    corrected.failure ||
+      first.failure ||
       'Não foi possível definir um próximo passo específico.',
   )
 }
