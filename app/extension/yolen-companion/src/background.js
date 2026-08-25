@@ -218,9 +218,19 @@ async function requestYolenWithToken(message, path, body) {
       ? cachedSession.origin
       : null
 
+  // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx. Durante a
+  // janela de teste, o preview desta branch tem prioridade sobre a origem
+  // em que o token foi capturado: sem isso, uma sessão já capturada em
+  // produção (o fluxo normal de login, que é onde o vendedor sempre entra)
+  // trava todo o tráfego do Companion em produção mesmo com
+  // TEMP_TEST_BASE_URL definido — o vendedor precisaria reconectar
+  // manualmente na URL de preview para o teste funcionar, o que este ponto
+  // evita. Remover esta prioridade junto com os outros pontos
+  // TEMP-TEST-ENV-FASE12A.
   const baseUrl =
     getAllowedBaseUrl(
-      sessionBaseUrl ||
+      TEMP_TEST_BASE_URL ||
+        sessionBaseUrl ||
         message.baseUrl ||
         DEFAULT_BASE_URL,
     )

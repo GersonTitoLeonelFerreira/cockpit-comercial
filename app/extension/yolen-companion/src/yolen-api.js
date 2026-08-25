@@ -72,8 +72,13 @@
     return null
   }
 
+  // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx e
+  // background.js. Mesma prioridade: o preview desta branch vence a
+  // origem em que a sessão foi capturada, para não depender de reconectar
+  // manualmente numa sessão já capturada em produção.
   function getBaseUrl() {
     return (
+      TEMP_TEST_BASE_URL ||
       sessionBaseUrl ||
       DEFAULT_BASE_URL
     )
