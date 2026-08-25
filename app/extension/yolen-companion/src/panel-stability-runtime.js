@@ -2,6 +2,7 @@
   const PANEL_ID = 'yolen-companion-panel'
   const INTENT_SELECTOR = '[data-yolen-seller-message-intent]'
   const BOTTOM_THRESHOLD_PX = 80
+  const RESUME_GUARD_MS = 2000
 
   const innerHtmlDescriptor =
     typeof Element !== 'undefined'
@@ -17,6 +18,9 @@
   let restoreSequence = 0
   let interactionLocked = false
   let pendingPanelHtml = null
+  let resumeGuardUntil = 0
+  let resumeGuardTimerId = 0
+  const cachedLeadResolutions = new Map()
   let scrollSnapshot = {
     top: 0,
     distanceFromBottom: 0,
@@ -35,6 +39,75 @@
     )
       .replace(/\s+/g, ' ')
       .trim()
+  }
+
+  function isResumeGuardActive() {
+    return Date.now() < resumeGuardUntil
+  }
+
+  function getLeadResolutionCacheKey(payload) {
+    const phone = String(
+      payload?.phone || '',
+    ).trim()
+    const displayName = String(
+      payload?.display_name || '',
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLocaleLowerCase('pt-BR')
+
+    if (!phone && !displayName) {
+      return null
+    }
+
+    return `${phone}::${displayName}`
+  }
+
+  function installResumeLeadResolutionCache() {
+    const api = root.YolenCompanionApi
+
+    if (
+      !api ||
+      typeof api.resolveLead !== 'function' ||
+      api.__resumeLeadResolutionCacheInstalled === true
+    ) {
+      return
+    }
+
+    const originalResolveLead =
+      api.resolveLead.bind(api)
+
+    api.resolveLead = async function resolveLeadWithResumeCache(payload) {
+      const key =
+        getLeadResolutionCacheKey(payload)
+
+      if (
+        isResumeGuardActive() &&
+        key &&
+        cachedLeadResolutions.has(key)
+      ) {
+        return cachedLeadResolutions.get(key)
+      }
+
+      const result =
+        await originalResolveLead(payload)
+
+      if (
+        key &&
+        result?.ok &&
+        result?.payload?.ok &&
+        result?.payload?.data
+      ) {
+        cachedLeadResolutions.set(
+          key,
+          result,
+        )
+      }
+
+      return result
+    }
+
+    api.__resumeLeadResolutionCacheInstalled = true
   }
 
   function captureScroll(targetPanel) {
@@ -93,6 +166,78 @@
     )
   }
 
+  function applyPendingPanelHtml() {
+    if (
+      interactionLocked ||
+      isResumeGuardActive()
+    ) {
+      return
+    }
+
+    const currentPanel = getPanel()
+    const pendingHtml = pendingPanelHtml
+
+    if (
+      !currentPanel ||
+      pendingHtml === null
+    ) {
+      return
+    }
+
+    pendingPanelHtml = null
+    const restoreTop =
+      getRestoreTop(currentPanel)
+
+    applyPanelHtml(
+      currentPanel,
+      pendingHtml,
+    )
+
+    bindPanel(currentPanel)
+    currentPanel.scrollTop = Math.min(
+      restoreTop,
+      Math.max(
+        0,
+        currentPanel.scrollHeight - currentPanel.clientHeight,
+      ),
+    )
+    captureScroll(currentPanel)
+  }
+
+  function finishResumeGuard() {
+    if (isResumeGuardActive()) {
+      return
+    }
+
+    resumeGuardUntil = 0
+    resumeGuardTimerId = 0
+    applyPendingPanelHtml()
+  }
+
+  function beginResumeGuard() {
+    const currentPanel = getPanel()
+
+    if (currentPanel) {
+      bindPanel(currentPanel)
+      captureScroll(currentPanel)
+    }
+
+    resumeGuardUntil =
+      Date.now() + RESUME_GUARD_MS
+
+    if (resumeGuardTimerId) {
+      root.clearTimeout(
+        resumeGuardTimerId,
+      )
+    }
+
+    resumeGuardTimerId =
+      root.setTimeout(
+        finishResumeGuard,
+        RESUME_GUARD_MS + 50,
+      )
+  }
+
   function patchPanelInnerHtml(targetPanel) {
     if (
       !targetPanel ||
@@ -115,10 +260,17 @@
           return innerHtmlDescriptor.get.call(this)
         },
         set(value) {
-          if (
-            interactionLocked &&
-            this.querySelector?.(INTENT_SELECTOR)
-          ) {
+          const mustPreserveCurrentDom =
+            (
+              interactionLocked &&
+              this.querySelector?.(INTENT_SELECTOR)
+            ) ||
+            (
+              isResumeGuardActive() &&
+              this.childElementCount > 0
+            )
+
+          if (mustPreserveCurrentDom) {
             pendingPanelHtml = String(value ?? '')
             return
           }
@@ -157,7 +309,11 @@
   }
 
   function restorePanelInteraction(targetPanel) {
-    if (!targetPanel || interactionLocked) {
+    if (
+      !targetPanel ||
+      interactionLocked ||
+      isResumeGuardActive()
+    ) {
       return
     }
 
@@ -220,33 +376,12 @@
       return
     }
 
-    const currentPanel = getPanel()
-    const pendingHtml = pendingPanelHtml
-
     interactionLocked = false
-    pendingPanelHtml = null
 
-    if (
-      applyPending &&
-      currentPanel &&
-      pendingHtml !== null
-    ) {
-      const restoreTop = getRestoreTop(currentPanel)
-
-      applyPanelHtml(
-        currentPanel,
-        pendingHtml,
-      )
-
-      bindPanel(currentPanel)
-      currentPanel.scrollTop = Math.min(
-        restoreTop,
-        Math.max(
-          0,
-          currentPanel.scrollHeight - currentPanel.clientHeight,
-        ),
-      )
-      captureScroll(currentPanel)
+    if (applyPending) {
+      applyPendingPanelHtml()
+    } else {
+      pendingPanelHtml = null
     }
   }
 
@@ -390,6 +525,34 @@
     true,
   )
 
+  root.addEventListener(
+    'focus',
+    () => {
+      beginResumeGuard()
+    },
+    true,
+  )
+
+  root.addEventListener(
+    'pageshow',
+    () => {
+      beginResumeGuard()
+    },
+    true,
+  )
+
+  document.addEventListener(
+    'visibilitychange',
+    () => {
+      if (
+        document.visibilityState === 'visible'
+      ) {
+        beginResumeGuard()
+      }
+    },
+    true,
+  )
+
   const observer = new MutationObserver((mutations) => {
     const currentPanel = getPanel()
 
@@ -427,6 +590,8 @@
     },
   )
 
+  installResumeLeadResolutionCache()
+
   panel = getPanel()
 
   if (panel) {
@@ -446,5 +611,6 @@
     isInteractionLocked() {
       return interactionLocked
     },
+    isResumeGuardActive,
   })
 })(typeof globalThis !== 'undefined' ? globalThis : window)
