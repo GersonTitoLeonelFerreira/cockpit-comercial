@@ -7,6 +7,10 @@ import {
   validateCommercialMethodDefinition,
 } from './commercial-method-contract'
 
+import type {
+  StatefulCopilotProvider,
+} from './stateful-copilot-executor'
+
 export type LeadMethodGuidanceStatus =
   | 'ready'
   | 'missing_method'
@@ -31,16 +35,6 @@ export type PublishedCommercialMethod = {
   name: string
   definition: CommercialMethodDefinition
 }
-
-type ModelProvider = (input: {
-  prompt_version: string
-  output_contract_version: string
-  system_prompt: string
-  user_prompt: string
-  structured_output_format: unknown
-}) => Promise<{
-  content?: string | null
-}>
 
 const PROMPT_VERSION = 'lead-method-guidance-v1'
 const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v1'
@@ -190,7 +184,7 @@ export async function composeLeadMethodGuidance({
 }: {
   workingSummary: string | null
   method: PublishedCommercialMethod | null
-  provider: ModelProvider
+  provider: StatefulCopilotProvider
 }): Promise<LeadMethodGuidance> {
   const summary = normalizeText(workingSummary)
 
