@@ -7,6 +7,11 @@
   const LOCAL_BASE_URL =
     'http://localhost:3000'
 
+  // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx. Remover
+  // junto com os outros pontos marcados TEMP-TEST-ENV-FASE12A.
+  const TEMP_TEST_BASE_URL =
+    'https://cockpit-comercial-vocn-git-claude-seller-facing-pe-7df065-yolen.vercel.app'
+
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
   let messageDomRevision = 0
@@ -37,7 +42,8 @@
   function getAllowedSessionBaseUrl(value) {
     if (
       value === DEFAULT_BASE_URL ||
-      value === LOCAL_BASE_URL
+      value === LOCAL_BASE_URL ||
+      value === TEMP_TEST_BASE_URL
     ) {
       return value
     }

@@ -4,6 +4,10 @@ const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
 const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
+// TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx. Remover
+// junto com os outros pontos marcados TEMP-TEST-ENV-FASE12A.
+const TEMP_TEST_BASE_URL =
+  'https://cockpit-comercial-vocn-git-claude-seller-facing-pe-7df065-yolen.vercel.app'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
 
@@ -26,6 +30,10 @@ function getAllowedBaseUrl(baseUrl) {
 
   if (baseUrl === DEFAULT_BASE_URL) {
     return DEFAULT_BASE_URL
+  }
+
+  if (baseUrl === TEMP_TEST_BASE_URL) {
+    return TEMP_TEST_BASE_URL
   }
 
   return DEFAULT_BASE_URL
@@ -204,7 +212,9 @@ async function requestYolenWithToken(message, path, body) {
     cachedSession.origin ===
       LOCAL_BASE_URL ||
     cachedSession.origin ===
-      DEFAULT_BASE_URL
+      DEFAULT_BASE_URL ||
+    cachedSession.origin ===
+      TEMP_TEST_BASE_URL
       ? cachedSession.origin
       : null
 

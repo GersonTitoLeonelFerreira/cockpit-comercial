@@ -46,6 +46,14 @@ const PRODUCTION_COMPANION_BASE_URL =
 const LOCAL_COMPANION_BASE_URL =
   'http://localhost:3000'
 
+// TEMP-TEST-ENV-FASE12A — autorizado pelo Controle Mestre só para permitir
+// testar a branch claude/seller-facing-persistent-memory-integrated (V2
+// como único motor) antes de qualquer merge. Alias estável de preview,
+// sempre aponta para o deploy mais recente desta branch. Remover assim
+// que o teste real terminar ou a branch for mergeada/descartada.
+const TEMP_TEST_COMPANION_BASE_URL =
+  'https://cockpit-comercial-vocn-git-claude-seller-facing-pe-7df065-yolen.vercel.app'
+
 async function getCompanionBaseUrl() {
   const headerStore =
     await headers()
@@ -88,7 +96,9 @@ async function getCompanionBaseUrl() {
     candidate ===
       LOCAL_COMPANION_BASE_URL ||
     candidate ===
-      PRODUCTION_COMPANION_BASE_URL
+      PRODUCTION_COMPANION_BASE_URL ||
+    candidate ===
+      TEMP_TEST_COMPANION_BASE_URL
   ) {
     return candidate
   }
