@@ -50,33 +50,42 @@ const PROMPT_VERSION = 'lead-method-guidance-v1'
 const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v1'
 const MAX_NEXT_STEP_LENGTH = 1400
 
-const STRUCTURED_OUTPUT_FORMAT = {
-  type: 'json_schema',
-  name: 'yolen_lead_method_guidance_v1',
-  description:
-    'Etapa atual do método comercial e próximo passo concreto para o vendedor.',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      stage_key: {
-        type: 'string',
+function buildStructuredOutputFormat(
+  method: PublishedCommercialMethod,
+) {
+  const stageKeys = method.definition.stages.map(
+    (stage) => stage.key,
+  )
+
+  return {
+    type: 'json_schema',
+    name: 'yolen_lead_method_guidance_v1',
+    description:
+      'Etapa atual do método comercial e próximo passo concreto para o vendedor.',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        stage_key: {
+          type: 'string',
+          enum: stageKeys,
+        },
+        stage_reason: {
+          type: 'string',
+        },
+        next_step: {
+          type: 'string',
+        },
       },
-      stage_reason: {
-        type: 'string',
-      },
-      next_step: {
-        type: 'string',
-      },
+      required: [
+        'stage_key',
+        'stage_reason',
+        'next_step',
+      ],
     },
-    required: [
-      'stage_key',
-      'stage_reason',
-      'next_step',
-    ],
-  },
-} as const
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -338,6 +347,7 @@ export async function composeLeadMethodGuidance({
       'Use o resumo consolidado como a única fonte de fatos sobre o cliente e a negociação.',
       'Use o método comercial publicado pela empresa como estrutura de raciocínio, nunca como checklist mecânico.',
       'Identifique a etapa que representa o trabalho comercial ainda necessário agora. Não copie automaticamente a etapa do CRM.',
+      'O campo stage_key deve usar exatamente uma das chaves de etapa fornecidas no método comercial.',
       'Se evidências do resumo já satisfazem uma etapa anterior, avance para a etapa coerente seguinte.',
       'Respeite completion_criteria, partial_completion_criteria, skip_conditions, sufficient_when, advance_when, wait_when e stop_asking_when.',
       'O próximo passo precisa ser uma ação única, específica e executável: diga o que o vendedor deve fazer e qual informação, confirmação ou resultado deve obter.',
@@ -351,7 +361,7 @@ export async function composeLeadMethodGuidance({
       working_summary: summary,
       commercial_method: method.definition,
     }),
-    structured_output_format: STRUCTURED_OUTPUT_FORMAT,
+    structured_output_format: buildStructuredOutputFormat(method),
   })
 
   if (typeof response.content !== 'string') {
