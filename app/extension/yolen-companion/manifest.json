@@ -42,6 +42,7 @@
         "src/companion-seller-information-view.js",
         "src/content-script.js",
         "src/panel-stability-runtime.js",
+        "src/editable-field-stability-runtime.js",
         "src/lead-automation.js"
       ],
       "css": [
