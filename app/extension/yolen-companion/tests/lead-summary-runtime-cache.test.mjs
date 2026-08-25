@@ -142,16 +142,24 @@ test('requisições simultâneas do mesmo snapshot compartilham a mesma composi�
   assert.equal(first.payload.data.working_summary, second.payload.data.working_summary)
 })
 
-test('salvar invalida o cache anterior da conversa', async () => {
+test('salvar substitui o cache pelo resumo confirmado sem recompor', async () => {
   const harness = createHarness()
 
   await harness.api.loadLeadSummary(payload)
-  await harness.api.saveLeadSummary({
+  const saved = await harness.api.saveLeadSummary({
     ...payload,
     summary: 'Resumo confirmado pelo vendedor',
   })
-  await harness.api.loadLeadSummary(payload)
+  const reopened = await harness.api.loadLeadSummary(payload)
 
   assert.equal(harness.saveCount, 1)
-  assert.equal(harness.loadCount, 2)
+  assert.equal(harness.loadCount, 1)
+  assert.equal(
+    saved.payload.data.summary.summary,
+    'Resumo confirmado pelo vendedor',
+  )
+  assert.equal(
+    reopened.payload.data.summary.summary,
+    'Resumo confirmado pelo vendedor',
+  )
 })
