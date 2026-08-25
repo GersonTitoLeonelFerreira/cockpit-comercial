@@ -4,8 +4,6 @@
   if (
     !api ||
     typeof api.loadLeadSummary !== 'function' ||
-    typeof api.getBaseUrl !== 'function' ||
-    typeof api.getMe !== 'function' ||
     api.__leadMethodGuidanceWrapped === true
   ) {
     return
@@ -20,6 +18,18 @@
   const readyGuidanceCache = new Map()
   const inFlight = new Map()
   let lastScheduledRequest = null
+
+  function getRuntime() {
+    if (root.browser?.runtime?.sendMessage) {
+      return root.browser.runtime
+    }
+
+    if (root.chrome?.runtime?.sendMessage) {
+      return root.chrome.runtime
+    }
+
+    return null
+  }
 
   function hashText(value) {
     const text = String(value || '')
@@ -100,68 +110,71 @@
   }
 
   async function fetchGuidance(payload, workingSummary) {
-    const session = await api.getMe()
-    const token = session?.payload?.companion_token
+    const runtime = getRuntime()
 
-    if (!session?.ok || !token) {
+    if (!runtime) {
       return buildErrorGuidance(
-        'Sessão da Yolen indisponível para definir o próximo passo.',
+        'Runtime da extensão indisponível para definir o próximo passo.',
         {
-          code: 'METHOD_GUIDANCE_SESSION_UNAVAILABLE',
-          statusCode: session?.statusCode ?? null,
-          retryable: true,
-        },
-      )
-    }
-
-    let response
-
-    try {
-      response = await fetch(
-        `${api.getBaseUrl()}/api/companion/method-guidance`,
-        {
-          method: 'POST',
-          credentials: 'omit',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            cycle_id: payload?.cycle_id ?? null,
-            conversation_key:
-              payload?.conversation_key ?? null,
-            working_summary: workingSummary,
-          }),
-        },
-      )
-    } catch (error) {
-      return buildErrorGuidance(
-        error instanceof Error && error.message
-          ? error.message
-          : 'Falha de rede ao definir o próximo passo.',
-        {
-          code: 'METHOD_GUIDANCE_NETWORK_ERROR',
+          code: 'METHOD_GUIDANCE_RUNTIME_UNAVAILABLE',
           statusCode: 0,
           retryable: true,
         },
       )
     }
 
-    const body = await response.json().catch(() => null)
+    let result
 
-    if (!response.ok || !body?.ok || !body?.data) {
+    try {
+      result = await runtime.sendMessage({
+        source: 'YOLEN_COMPANION',
+        action: 'LOAD_METHOD_GUIDANCE',
+        baseUrl:
+          typeof api.getBaseUrl === 'function'
+            ? api.getBaseUrl()
+            : null,
+        payload: {
+          cycle_id: payload?.cycle_id ?? null,
+          conversation_key:
+            payload?.conversation_key ?? null,
+          working_summary: workingSummary,
+        },
+      })
+    } catch (error) {
       return buildErrorGuidance(
-        body?.error ||
-          'Não foi possível definir o próximo passo agora.',
+        error instanceof Error && error.message
+          ? error.message
+          : 'Falha de comunicação ao definir o próximo passo.',
         {
-          code: body?.code ?? 'METHOD_GUIDANCE_REQUEST_FAILED',
-          statusCode: response.status,
-          retryable: body?.retryable ?? response.status >= 500,
+          code: 'METHOD_GUIDANCE_RUNTIME_ERROR',
+          statusCode: 0,
+          retryable: true,
         },
       )
     }
 
-    return body.data
+    if (
+      !result?.ok ||
+      !result?.payload?.ok ||
+      !result?.payload?.data
+    ) {
+      return buildErrorGuidance(
+        result?.payload?.error ||
+          'Não foi possível definir o próximo passo agora.',
+        {
+          code:
+            result?.payload?.code ??
+            'METHOD_GUIDANCE_REQUEST_FAILED',
+          statusCode:
+            result?.statusCode ?? 0,
+          retryable:
+            result?.payload?.retryable ??
+            (result?.statusCode ?? 0) >= 500,
+        },
+      )
+    }
+
+    return result.payload.data
   }
 
   async function loadGuidance(payload, workingSummary) {
@@ -355,7 +368,8 @@
     }
 
     // O resumo aprovado é devolvido imediatamente. O próximo passo roda em
-    // paralelo e nunca segura a exibição do resumo por até 45s.
+    // paralelo pelo background autenticado e nunca segura a exibição do
+    // resumo nem faz fetch direto do content-script para a aplicação.
     scheduleGuidance({
       payload,
       data,
