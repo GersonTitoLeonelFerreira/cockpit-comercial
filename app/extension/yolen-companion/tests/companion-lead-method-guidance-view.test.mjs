@@ -79,7 +79,7 @@ test('método ausente não quebra nem esconde o resumo', () => {
   assert.match(html, /Método comercial ainda não publicado/)
 })
 
-test('falha da orientação não transforma o resumo em erro', () => {
+test('falha da orientação preserva resumo, mostra causa e permite retry', () => {
   const html = view.renderLeadSummarySection(
     buildState({
       status: 'error',
@@ -89,11 +89,13 @@ test('falha da orientação não transforma o resumo em erro', () => {
       stage_name: null,
       stage_reason: null,
       next_step: null,
-      error: 'falha interna',
+      error: 'A orientação não ficou específica o suficiente para ser exibida.',
     }),
   )
 
   assert.match(html, /Larissa conhece a proposta da Yolen/)
   assert.match(html, /Não foi possível definir o próximo passo agora/)
-  assert.doesNotMatch(html, /falha interna/)
+  assert.match(html, /A orientação não ficou específica o suficiente/)
+  assert.match(html, /data-yolen-action="retry-method-guidance"/)
+  assert.match(html, /Tentar novamente/)
 })
