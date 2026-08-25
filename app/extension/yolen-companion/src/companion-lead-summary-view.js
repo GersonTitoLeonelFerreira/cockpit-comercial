@@ -135,6 +135,38 @@
     )
   }
 
+  function buildCompactPreview(summary) {
+    const normalized = summary.replace(/\s+/g, ' ').trim()
+
+    if (normalized.length <= COMPACT_SUMMARY_CHAR_THRESHOLD) {
+      return normalized
+    }
+
+    const candidate = normalized.slice(0, COMPACT_SUMMARY_CHAR_THRESHOLD + 1)
+    const minimumUsefulCut = Math.floor(COMPACT_SUMMARY_CHAR_THRESHOLD * 0.55)
+    let sentenceCut = -1
+
+    for (let index = minimumUsefulCut; index < candidate.length; index += 1) {
+      if (
+        (candidate[index] === '.' || candidate[index] === '!' || candidate[index] === '?') &&
+        (index === candidate.length - 1 || /\s/.test(candidate[index + 1]))
+      ) {
+        sentenceCut = index + 1
+      }
+    }
+
+    if (sentenceCut > 0) {
+      return candidate.slice(0, sentenceCut).trim()
+    }
+
+    const wordCut = candidate.lastIndexOf(' ', COMPACT_SUMMARY_CHAR_THRESHOLD)
+    const cutAt = wordCut >= minimumUsefulCut
+      ? wordCut
+      : COMPACT_SUMMARY_CHAR_THRESHOLD
+
+    return `${candidate.slice(0, cutAt).trim()}…`
+  }
+
   function renderWorkingSummary(summary) {
     const safeSummary = escapeHtml(summary)
 
@@ -146,6 +178,8 @@
       )
     }
 
+    const safePreview = escapeHtml(buildCompactPreview(summary))
+
     return (
       '<details ' +
       'class="yolen-lead-summary-details" ' +
@@ -153,7 +187,7 @@
       '>' +
       '<summary class="yolen-lead-summary-toggle">' +
       '<span class="yolen-lead-summary-preview">' +
-      safeSummary +
+      safePreview +
       '</span>' +
       '<span class="yolen-lead-summary-expand-label yolen-lead-summary-expand-label--closed">' +
       'Ver resumo completo' +
