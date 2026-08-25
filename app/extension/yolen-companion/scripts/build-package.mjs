@@ -79,6 +79,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/lead-automation.js',
   'src/lead-enrichment.js',
   'src/message-mutations.js',
+  'src/panel-stability-runtime.js',
   'src/seller-message-runtime.js',
   'src/styles.css',
   'src/whatsapp-audio-bridge.js',
