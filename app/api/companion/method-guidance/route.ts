@@ -2,6 +2,11 @@ import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
 import {
+  classifyLeadMethodApplicability,
+  type LeadMethodCurrentInteractionMessage,
+} from '../../../lib/companion/lead-method-applicability'
+
+import {
   composeLeadMethodGuidance,
   normalizePublishedCommercialMethod,
 } from '../../../lib/companion/lead-method-guidance'
@@ -9,6 +14,12 @@ import {
 import {
   createStatefulCopilotOpenAIProvider,
 } from '../../../lib/companion/stateful-copilot-openai-provider'
+
+import {
+  CompanionConversationRegistrationError,
+  loadCanonicalMessages,
+  type CanonicalConversationMessage,
+} from '../../../lib/server/companion-conversation-registration-loader'
 
 import {
   CompanionLeadSummaryError,
@@ -22,6 +33,10 @@ type MethodGuidanceBody = {
   conversation_key?: unknown
   working_summary?: unknown
 }
+
+const CURRENT_INTERACTION_GAP_MS =
+  4 * 60 * 60 * 1000
+const CURRENT_INTERACTION_LIMIT = 40
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -47,6 +62,56 @@ function getCorsHeaders(request: Request) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     Vary: 'Origin',
   }
+}
+
+function buildCurrentInteraction(
+  messages: readonly CanonicalConversationMessage[],
+): LeadMethodCurrentInteractionMessage[] {
+  const usable = messages
+    .filter(
+      (message) =>
+        !message.is_deleted &&
+        typeof message.text === 'string' &&
+        Boolean(message.text.trim()),
+    )
+    .map((message) => ({
+      direction: message.direction,
+      occurred_at: message.occurred_at,
+      text: message.text?.trim() || '',
+    }))
+
+  if (usable.length === 0) {
+    return []
+  }
+
+  let startIndex = usable.length - 1
+
+  while (startIndex > 0) {
+    const previousAt = Date.parse(
+      usable[startIndex - 1].occurred_at,
+    )
+    const currentAt = Date.parse(
+      usable[startIndex].occurred_at,
+    )
+
+    if (
+      Number.isFinite(previousAt) &&
+      Number.isFinite(currentAt) &&
+      currentAt - previousAt >
+        CURRENT_INTERACTION_GAP_MS
+    ) {
+      break
+    }
+
+    startIndex -= 1
+  }
+
+  return usable.slice(
+    Math.max(
+      startIndex,
+      usable.length - CURRENT_INTERACTION_LIMIT,
+    ),
+  )
 }
 
 export async function OPTIONS(request: Request) {
@@ -215,10 +280,96 @@ export async function POST(request: Request) {
       )
     }
 
+    if (!method) {
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            status: 'missing_method',
+            method_name: null,
+            method_config_version_id: null,
+            stage_key: null,
+            stage_name: null,
+            stage_reason: null,
+            next_step: null,
+            error: null,
+          },
+        },
+        {
+          status: 200,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const canonicalMessages = await loadCanonicalMessages({
+      admin,
+      companyId: identity.company_id,
+      cycleId: identity.cycle_id,
+      conversationKey: identity.conversation_key,
+    })
+
+    const currentInteraction =
+      buildCurrentInteraction(canonicalMessages)
+
     const provider = createStatefulCopilotOpenAIProvider({
       timeout_ms: 45_000,
       max_output_tokens: 900,
     })
+
+    const applicability =
+      await classifyLeadMethodApplicability({
+        workingSummary: workingSummary || null,
+        currentInteraction,
+        provider,
+      })
+
+    if (
+      applicability.status ===
+      'no_commercial_action'
+    ) {
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            status: 'not_applicable',
+            method_name: method.name,
+            method_config_version_id: method.id,
+            stage_key: null,
+            stage_name: null,
+            stage_reason: null,
+            next_step: null,
+            error: null,
+          },
+        },
+        {
+          status: 200,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (applicability.status === 'error') {
+      return NextResponse.json(
+        {
+          ok: true,
+          data: {
+            status: 'error',
+            method_name: method.name,
+            method_config_version_id: method.id,
+            stage_key: null,
+            stage_name: null,
+            stage_reason: null,
+            next_step: null,
+            error: applicability.reason,
+          },
+        },
+        {
+          status: 200,
+          headers: corsHeaders,
+        },
+      )
+    }
 
     const guidance = await composeLeadMethodGuidance({
       workingSummary: workingSummary || null,
@@ -243,6 +394,26 @@ export async function POST(request: Request) {
           ok: false,
           code: error.code,
           error: error.message,
+          retryable: error.retryable,
+        },
+        {
+          status: error.status_code,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (
+      error instanceof
+      CompanionConversationRegistrationError
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code:
+            'METHOD_GUIDANCE_CURRENT_INTERACTION_LOAD_FAILED',
+          error:
+            'Não foi possível carregar a conversa atual para definir o próximo passo.',
           retryable: error.retryable,
         },
         {
