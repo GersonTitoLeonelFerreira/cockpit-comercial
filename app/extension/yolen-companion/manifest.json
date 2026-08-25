@@ -25,6 +25,7 @@
       ],
       "js": [
         "src/yolen-api.js",
+        "src/lead-resolution-runtime-cache.js",
         "src/lead-summary-runtime-cache.js",
         "src/lead-summary-expand-state.js",
         "src/message-mutations.js",
