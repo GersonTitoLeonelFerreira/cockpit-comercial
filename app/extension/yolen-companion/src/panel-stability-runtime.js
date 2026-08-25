@@ -1,6 +1,13 @@
 ;(function initPanelStabilityRuntime(root) {
   const PANEL_ID = 'yolen-companion-panel'
   const INTENT_SELECTOR = '[data-yolen-seller-message-intent]'
+  const ACTION_SELECTOR = [
+    'button',
+    '[role="button"]',
+    'a[href]',
+    'input[type="button"]',
+    'input[type="submit"]',
+  ].join(',')
   const BOTTOM_THRESHOLD_PX = 80
   const RESUME_GUARD_MS = 2000
 
@@ -17,6 +24,7 @@
   let restoring = false
   let restoreSequence = 0
   let interactionLocked = false
+  let interactionMode = null
   let pendingPanelHtml = null
   let resumeGuardUntil = 0
   let resumeGuardTimerId = 0
@@ -261,10 +269,7 @@
         },
         set(value) {
           const mustPreserveCurrentDom =
-            (
-              interactionLocked &&
-              this.querySelector?.(INTENT_SELECTOR)
-            ) ||
+            interactionLocked ||
             (
               isResumeGuardActive() &&
               this.childElementCount > 0
@@ -352,21 +357,26 @@
     })
   }
 
-  function lockInteraction(input) {
+  function lockInteraction(target, mode) {
     const currentPanel = getPanel()
 
     if (
       !currentPanel ||
-      !input ||
-      !currentPanel.contains(input)
+      !target ||
+      !currentPanel.contains(target)
     ) {
       return
     }
 
     bindPanel(currentPanel)
     captureScroll(currentPanel)
+
+    if (!interactionLocked) {
+      pendingPanelHtml = null
+    }
+
     interactionLocked = true
-    pendingPanelHtml = null
+    interactionMode = mode
   }
 
   function unlockInteraction({
@@ -377,6 +387,7 @@
     }
 
     interactionLocked = false
+    interactionMode = null
 
     if (applyPending) {
       applyPendingPanelHtml()
@@ -391,6 +402,7 @@
     if (!currentPanel) {
       panel = null
       interactionLocked = false
+      interactionMode = null
       pendingPanelHtml = null
       return
     }
@@ -409,6 +421,7 @@
       nextConversationLabel !== conversationLabel
     ) {
       interactionLocked = false
+      interactionMode = null
       pendingPanelHtml = null
       conversationLabel = nextConversationLabel
       scrollSnapshot = {
@@ -432,16 +445,33 @@
   document.addEventListener(
     'pointerdown',
     (event) => {
-      const input = event.target?.closest?.(INTENT_SELECTOR)
+      const currentPanel = getPanel()
+      const target = event.target
 
-      if (input) {
-        lockInteraction(input)
+      if (!currentPanel || !target?.closest) {
+        return
+      }
+
+      const intent = target.closest(INTENT_SELECTOR)
+
+      if (intent && currentPanel.contains(intent)) {
+        lockInteraction(intent, 'intent')
+        return
+      }
+
+      const action = target.closest(ACTION_SELECTOR)
+
+      if (action && currentPanel.contains(action)) {
+        // Impede que um refresh assíncrono substitua o botão entre o
+        // pointerdown e o click, situação em que o usuário percebe que o
+        // botão "desclicou" sem executar a ação.
+        lockInteraction(action, 'action')
         return
       }
 
       if (
         interactionLocked &&
-        !event.target?.closest?.(`#${PANEL_ID}`)
+        !target.closest(`#${PANEL_ID}`)
       ) {
         unlockInteraction()
       }
@@ -464,7 +494,7 @@
         return
       }
 
-      lockInteraction(input)
+      lockInteraction(input, 'intent')
       const intendedTop = currentPanel.scrollTop
 
       event.preventDefault()
@@ -482,12 +512,38 @@
   )
 
   document.addEventListener(
+    'click',
+    (event) => {
+      const action = event.target?.closest?.(ACTION_SELECTOR)
+      const currentPanel = getPanel()
+
+      if (
+        interactionMode !== 'action' ||
+        !action ||
+        !currentPanel?.contains(action)
+      ) {
+        return
+      }
+
+      // Roda depois dos handlers de click do Companion. Qualquer render que
+      // eles tenham solicitado ficou retido em pendingPanelHtml e só é
+      // aplicado quando o clique já terminou.
+      queueMicrotask(() => {
+        if (interactionMode === 'action') {
+          unlockInteraction()
+        }
+      })
+    },
+    true,
+  )
+
+  document.addEventListener(
     'focusin',
     (event) => {
       const input = event.target?.closest?.(INTENT_SELECTOR)
 
       if (input) {
-        lockInteraction(input)
+        lockInteraction(input, 'intent')
       }
     },
     true,
@@ -501,6 +557,12 @@
       }
 
       queueMicrotask(() => {
+        // Clicar em um botão tira o foco do textarea antes do evento click.
+        // Nesse caso a trava precisa continuar até o click concluir.
+        if (interactionMode === 'action') {
+          return
+        }
+
         if (
           document.activeElement?.closest?.(INTENT_SELECTOR)
         ) {
@@ -519,11 +581,23 @@
       const input = event.target?.closest?.(INTENT_SELECTOR)
 
       if (input) {
-        lockInteraction(input)
+        lockInteraction(input, 'intent')
       }
     },
     true,
   )
+
+  for (const eventName of ['pointercancel', 'dragstart']) {
+    document.addEventListener(
+      eventName,
+      () => {
+        if (interactionMode === 'action') {
+          unlockInteraction()
+        }
+      },
+      true,
+    )
+  }
 
   root.addEventListener(
     'focus',
