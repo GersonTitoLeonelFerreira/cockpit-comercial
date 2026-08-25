@@ -220,6 +220,14 @@
       )
     }
 
+    if (guidance.status === 'not_applicable') {
+      return (
+        '<div class="yolen-method-guidance-note">' +
+        'Sem próximo passo comercial neste momento.' +
+        '</div>'
+      )
+    }
+
     if (
       guidance.status === 'ready' &&
       typeof guidance.next_step === 'string' &&
