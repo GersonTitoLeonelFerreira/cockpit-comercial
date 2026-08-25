@@ -9,7 +9,12 @@ import {
 import {
   composeLeadMethodGuidance,
   normalizePublishedCommercialMethod,
+  type LeadMethodGuidance,
 } from '../../../lib/companion/lead-method-guidance'
+
+import {
+  composeSellerMessage,
+} from '../../../lib/companion/lead-seller-message'
 
 import {
   createStatefulCopilotOpenAIProvider,
@@ -32,11 +37,17 @@ type MethodGuidanceBody = {
   cycle_id?: unknown
   conversation_key?: unknown
   working_summary?: unknown
+  operation?: unknown
+  seller_intent?: unknown
+  guidance_status?: unknown
+  guidance_stage_name?: unknown
+  guidance_next_step?: unknown
 }
 
 const CURRENT_INTERACTION_GAP_MS =
   4 * 60 * 60 * 1000
 const CURRENT_INTERACTION_LIMIT = 40
+const MAX_SELLER_INTENT_LENGTH = 1000
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -114,6 +125,58 @@ function buildCurrentInteraction(
   )
 }
 
+function buildClientGuidance(
+  body: MethodGuidanceBody,
+  methodName: string,
+  methodConfigVersionId: string,
+): LeadMethodGuidance | null {
+  const status =
+    typeof body.guidance_status === 'string'
+      ? body.guidance_status
+      : null
+
+  if (status === 'not_applicable') {
+    return {
+      status: 'not_applicable',
+      method_name: methodName,
+      method_config_version_id: methodConfigVersionId,
+      stage_key: null,
+      stage_name: null,
+      stage_reason: null,
+      next_step: null,
+      error: null,
+    }
+  }
+
+  if (status !== 'ready') {
+    return null
+  }
+
+  const stageName =
+    typeof body.guidance_stage_name === 'string'
+      ? body.guidance_stage_name.trim() || null
+      : null
+  const nextStep =
+    typeof body.guidance_next_step === 'string'
+      ? body.guidance_next_step.trim() || null
+      : null
+
+  if (!nextStep) {
+    return null
+  }
+
+  return {
+    status: 'ready',
+    method_name: methodName,
+    method_config_version_id: methodConfigVersionId,
+    stage_key: null,
+    stage_name: stageName,
+    stage_reason: null,
+    next_step: nextStep,
+    error: null,
+  }
+}
+
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
     status: 204,
@@ -144,6 +207,37 @@ export async function POST(request: Request) {
     typeof body.working_summary === 'string'
       ? body.working_summary.trim()
       : ''
+  const operation =
+    body.operation === 'generate_message'
+      ? 'generate_message'
+      : 'guidance'
+  const sellerIntent =
+    typeof body.seller_intent === 'string'
+      ? body.seller_intent.trim()
+      : ''
+
+  if (
+    operation === 'generate_message' &&
+    (
+      !sellerIntent ||
+      sellerIntent.length > MAX_SELLER_INTENT_LENGTH
+    )
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: 'INVALID_SELLER_INTENT',
+        error:
+          sellerIntent.length > MAX_SELLER_INTENT_LENGTH
+            ? 'A intenção do vendedor ficou longa demais.'
+            : 'Diga primeiro o que você quer fazer agora.',
+      },
+      {
+        status: 400,
+        headers: corsHeaders,
+      },
+    )
+  }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -302,6 +396,36 @@ export async function POST(request: Request) {
       )
     }
 
+    const provider = createStatefulCopilotOpenAIProvider({
+      timeout_ms: 45_000,
+      max_output_tokens: 900,
+    })
+
+    if (operation === 'generate_message') {
+      const generation = await composeSellerMessage({
+        workingSummary: workingSummary || null,
+        sellerIntent,
+        method,
+        guidance: buildClientGuidance(
+          body,
+          method.name,
+          method.id,
+        ),
+        provider,
+      })
+
+      return NextResponse.json(
+        {
+          ok: true,
+          data: generation,
+        },
+        {
+          status: 200,
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const canonicalMessages = await loadCanonicalMessages({
       admin,
       companyId: identity.company_id,
@@ -311,11 +435,6 @@ export async function POST(request: Request) {
 
     const currentInteraction =
       buildCurrentInteraction(canonicalMessages)
-
-    const provider = createStatefulCopilotOpenAIProvider({
-      timeout_ms: 45_000,
-      max_output_tokens: 900,
-    })
 
     const applicability =
       await classifyLeadMethodApplicability({
