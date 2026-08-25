@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     const { data: publishedConfigRow, error: methodError } = await admin
       .from('company_commercial_config_versions')
       .select(
-        'id, version_number, commercial_method_name, commercial_method_description, commercial_method_contract_version, commercial_method_definition',
+        'id, version_number, commercial_method_name, commercial_method_description',
       )
       .eq('company_id', identity.company_id)
       .eq('status', 'published')
@@ -137,38 +137,8 @@ export async function POST(request: Request) {
       )
     }
 
-    let legacyMethodSteps: unknown[] = []
-
-    if (publishedConfigRow?.id) {
-      const { data: legacyStepsData, error: legacyStepsError } = await admin
-        .from('company_commercial_method_steps')
-        .select(
-          'step_order, name, objective, completion_criteria, recommended_questions, is_required',
-        )
-        .eq('company_id', identity.company_id)
-        .eq('config_version_id', publishedConfigRow.id)
-        .order('step_order', { ascending: true })
-
-      if (legacyStepsError) {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: 'METHOD_GUIDANCE_CONFIG_LOAD_FAILED',
-            error: 'Não foi possível carregar as etapas do método comercial publicado.',
-          },
-          {
-            status: 500,
-            headers: corsHeaders,
-          },
-        )
-      }
-
-      legacyMethodSteps = legacyStepsData ?? []
-    }
-
     const method = normalizePublishedCommercialMethod(
       publishedConfigRow,
-      legacyMethodSteps,
     )
 
     if (publishedConfigRow && !method) {
@@ -189,7 +159,7 @@ export async function POST(request: Request) {
             stage_name: null,
             stage_reason: null,
             next_step: null,
-            error: 'O método comercial publicado está fora do contrato esperado.',
+            error: 'O método comercial publicado precisa ter nome e descrição.',
           },
         },
         {
