@@ -9,11 +9,11 @@ import {
 import {
   composeLeadMethodGuidance,
   normalizePublishedCommercialMethod,
-  type LeadMethodGuidance,
 } from '../../../lib/companion/lead-method-guidance'
 
 import {
   composeSellerMessage,
+  type SellerMessageGuidance,
 } from '../../../lib/companion/lead-seller-message'
 
 import {
@@ -128,8 +128,7 @@ function buildCurrentInteraction(
 function buildClientGuidance(
   body: MethodGuidanceBody,
   methodName: string,
-  methodConfigVersionId: string,
-): LeadMethodGuidance | null {
+): SellerMessageGuidance | null {
   const status =
     typeof body.guidance_status === 'string'
       ? body.guidance_status
@@ -139,12 +138,8 @@ function buildClientGuidance(
     return {
       status: 'not_applicable',
       method_name: methodName,
-      method_config_version_id: methodConfigVersionId,
-      stage_key: null,
       stage_name: null,
-      stage_reason: null,
       next_step: null,
-      error: null,
     }
   }
 
@@ -168,12 +163,8 @@ function buildClientGuidance(
   return {
     status: 'ready',
     method_name: methodName,
-    method_config_version_id: methodConfigVersionId,
-    stage_key: null,
     stage_name: stageName,
-    stage_reason: null,
     next_step: nextStep,
-    error: null,
   }
 }
 
@@ -409,7 +400,6 @@ export async function POST(request: Request) {
         guidance: buildClientGuidance(
           body,
           method.name,
-          method.id,
         ),
         provider,
       })
