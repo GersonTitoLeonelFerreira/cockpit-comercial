@@ -499,6 +499,17 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (
+    message.action ===
+    'LOAD_METHOD_GUIDANCE'
+  ) {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/method-guidance',
+      message.payload,
+    )
+  }
+
   if (message.action === 'REGISTER_MESSAGE_ACTION') {
     return requestYolenWithToken(
       message,
