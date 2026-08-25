@@ -1,9 +1,6 @@
-// Teste de DOM real (jsdom + node:vm) que prova que renderPanel() de
-// content-script.js de verdade monta o bloco "Resumo salvo na Yolen" na
-// tela principal — não apenas dentro de uma aba escondida. Mesmo harness
-// real já usado por content-script-dom-client-relationship.test.mjs:
-// carrega content-script.js sem modificá-lo e observa só o DOM resultante
-// e as chamadas a `chrome.runtime.sendMessage`.
+// Teste de DOM real (jsdom + node:vm) do resumo central da reconstrução
+// do Companion. O resumo é criado pela Yolen; o vendedor apenas decide
+// quando persistir o working summary atual.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -32,18 +29,30 @@ function initialPageHtml() {
   })
 }
 
-test('após vincular o lead, o card "Resumo salvo na Yolen" aparece na tela principal (não dentro de uma aba escondida)', async () => {
+function automaticSummaryResult({
+  workingSummary = 'Larissa já conhece a proposta da Yolen e apresentou objeção de investimento.',
+  source = 'legacy_history_plus_conversation',
+  savedSummary = null,
+  hasUnsavedChanges = true,
+} = {}) {
+  return defaultLeadSummary({
+    data: {
+      summary: savedSummary,
+      working_summary: workingSummary,
+      working_summary_source: source,
+      has_unsaved_changes: hasUnsavedChanges,
+      current_message_watermark: 'wm-current',
+      legacy_history_count: 10,
+      legacy_history_distinct_count: 8,
+      messages_used_count: 2,
+    },
+  })
+}
+
+test('após vincular o lead, o RESUMO ATUAL automático aparece na tela principal', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),
-    leadSummaryResult: defaultLeadSummary({
-      data: {
-        summary: {
-          summary: 'Larissa perde oportunidades por falta de follow-up.',
-          version: 2,
-          updated_at: '2026-08-25T12:00:00.000Z',
-        },
-      },
-    }),
+    leadSummaryResult: automaticSummaryResult(),
   })
 
   await waitFor(() => leadSummaryCalls(calls).length > 0)
@@ -54,37 +63,43 @@ test('após vincular o lead, o card "Resumo salvo na Yolen" aparece na tela prin
 
   await waitFor(() => {
     const card = document.querySelector('.yolen-lead-summary-card')
-    return Boolean(card && card.textContent.includes('Resumo salvo na Yolen'))
+    return Boolean(card && card.textContent.includes('Resumo atual'))
   })
 
   const card = document.querySelector('.yolen-lead-summary-card')
-  assert.ok(card, 'esperava o card do resumo persistente no DOM')
-  assert.match(card.textContent, /Larissa perde oportunidades por falta de follow-up\./)
-  assert.match(card.textContent, /Versão 2/)
+  assert.ok(card)
+  assert.match(card.textContent, /Larissa já conhece a proposta da Yolen/)
+  assert.match(card.textContent, /Histórico da Yolen \+ conversa atual/)
 
-  // Prova que o card NÃO está preso dentro de uma aba escondida (a árvore
-  // com abas marca painéis inativos com o atributo `hidden`) — ele fica
-  // sempre visível na tela principal, fora de [data-yolen-seller-panel].
+  // Continua fora de qualquer aba escondida e antes do workspace seller-facing.
   assert.equal(card.closest('[data-yolen-seller-panel]'), null)
   assert.equal(card.closest('[hidden]'), null)
 
-  // Também aparece antes da área de "inteligência antiga" (abas
-  // Agora/Análise/Cliente) no DOM.
   const workspace = document.querySelector('.yolen-seller-workspace')
   assert.ok(workspace)
 
   const DOCUMENT_POSITION_FOLLOWING = document.defaultView.Node.DOCUMENT_POSITION_FOLLOWING
+  assert.ok(card.compareDocumentPosition(workspace) & DOCUMENT_POSITION_FOLLOWING)
 
-  assert.ok(
-    card.compareDocumentPosition(workspace) & DOCUMENT_POSITION_FOLLOWING,
-    'esperava o card do resumo antes da área seller-facing antiga',
+  // Não existe editor manual. O input hidden serve apenas de ponte para o
+  // handler já existente que salva o working summary por clique explícito.
+  assert.equal(card.querySelector('textarea'), null)
+  const hiddenSummary = card.querySelector('input[type="hidden"][data-yolen-textarea="lead-summary"]')
+  assert.ok(hiddenSummary)
+  assert.equal(
+    hiddenSummary.value,
+    'Larissa já conhece a proposta da Yolen e apresentou objeção de investimento.',
   )
 
-  const textarea = card.querySelector('[data-yolen-textarea="lead-summary"]')
   const button = card.querySelector('[data-yolen-action="save-lead-summary"]')
-  assert.ok(textarea, 'esperava o campo manual temporário da Etapa 1')
-  assert.ok(button, 'esperava o botão "Salvar resumo na Yolen"')
+  assert.ok(button)
   assert.match(button.textContent, /Salvar resumo na Yolen/)
+
+  // AGORA antigo não concorre visualmente com o novo resumo.
+  const oldNowPanel = document.querySelector('[data-yolen-seller-panel="now"]')
+  assert.ok(oldNowPanel)
+  assert.match(oldNowPanel.getAttribute('style') ?? '', /^$/)
+  assert.match(card.innerHTML, /yolen-seller-panel\[data-yolen-seller-panel="now"\]/)
 })
 
 test('antes de resolver o lead, o card do resumo não aparece', async () => {
@@ -96,22 +111,26 @@ test('antes de resolver o lead, o card do resumo não aparece', async () => {
   assert.equal(card, null)
 })
 
-test('lead sem resumo salvo mostra o estado vazio correto, sem inventar nada', async () => {
+test('sem resumo canônico, histórico antigo pode gerar working summary automaticamente', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),
-    leadSummaryResult: defaultLeadSummary(),
+    leadSummaryResult: automaticSummaryResult({
+      workingSummary:
+        'O cliente já discutiu a solução anteriormente. A conversa atual não altera os pontos comerciais registrados.',
+      source: 'legacy_history',
+    }),
   })
 
   await waitFor(() => leadSummaryCalls(calls).length > 0)
-
   await waitFor(() => Boolean(document.querySelector('.yolen-lead-summary-card')))
 
   const card = document.querySelector('.yolen-lead-summary-card')
-  assert.match(card.textContent, /Ainda não existe resumo salvo para este lead\./)
-  assert.doesNotMatch(card.textContent, /sem evidência comercial/i)
+  assert.match(card.textContent, /já discutiu a solução anteriormente/)
+  assert.doesNotMatch(card.textContent, /Ainda não existe resumo salvo/i)
+  assert.doesNotMatch(card.textContent, /Escreva ou ajuste/i)
 })
 
-test('falha ao buscar o resumo mostra o estado de erro em vez de travar o painel', async () => {
+test('falha ao atualizar o resumo mostra erro e botão de nova tentativa', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),
     leadSummaryResult: { ok: false, error: 'Falha simulada de rede.' },
@@ -126,37 +145,32 @@ test('falha ao buscar o resumo mostra o estado de erro em vez de travar o painel
 
   const card = document.querySelector('.yolen-lead-summary-card')
   assert.match(card.textContent, /Falha simulada de rede\./)
-
-  // O restante do painel continua funcional mesmo com essa seção em erro.
+  assert.ok(card.querySelector('[data-yolen-action="refresh"]'))
   assert.ok(document.querySelector('.yolen-contact-card'))
 })
 
-test('clicar em "Salvar resumo na Yolen" dispara SAVE_LEAD_SUMMARY com o texto do campo manual, nunca automaticamente', async () => {
+test('salvar envia o working summary automático; nunca há SAVE sem clique', async () => {
+  const workingSummary =
+    'Resumo automático consolidado com histórico da Yolen e conversa atual.'
+
   const { document, calls } = loadContentScript({
     initialHtml: initialPageHtml(),
-    leadSummaryResult: defaultLeadSummary(),
+    leadSummaryResult: automaticSummaryResult({ workingSummary }),
   })
 
   await waitFor(() => leadSummaryCalls(calls).length > 0)
   await waitFor(() => Boolean(document.querySelector('[data-yolen-action="save-lead-summary"]')))
 
-  assert.equal(saveLeadSummaryCalls(calls).length, 0, 'nenhum SAVE deve ocorrer sem clique explícito')
-
-  const textarea = document.querySelector('[data-yolen-textarea="lead-summary"]')
-  textarea.value = 'Resumo digitado manualmente pelo vendedor para teste da Etapa 1.'
+  assert.equal(saveLeadSummaryCalls(calls).length, 0)
+  assert.equal(document.querySelector('.yolen-lead-summary-card textarea'), null)
 
   document.querySelector('[data-yolen-action="save-lead-summary"]').click()
 
   await waitFor(() => saveLeadSummaryCalls(calls).length > 0)
 
   const saveCall = saveLeadSummaryCalls(calls).at(0)
-  assert.equal(saveCall.payload.summary, 'Resumo digitado manualmente pelo vendedor para teste da Etapa 1.')
+  assert.equal(saveCall.payload.summary, workingSummary)
   assert.equal(saveCall.payload.cycle_id, 'cycle-1')
-
-  await waitFor(() => {
-    const card = document.querySelector('.yolen-lead-summary-card')
-    return Boolean(card && card.textContent.includes('Resumo digitado manualmente'))
-  })
 })
 
 const CONVERSATION_A_TITLE = '+55 11 98888-7777'
@@ -175,7 +189,7 @@ function leadResolutionFor(cycleId, phone) {
   })
 }
 
-test('ao trocar de conversa, uma falha na nova conversa NUNCA mantém em tela o resumo da conversa anterior', async () => {
+test('A→B nunca mantém working summary da conversa anterior', async () => {
   const phoneA = onlyDigits(CONVERSATION_A_TITLE)
   const phoneB = onlyDigits(CONVERSATION_B_TITLE)
 
@@ -194,27 +208,20 @@ test('ao trocar de conversa, uma falha na nova conversa NUNCA mantém em tela o 
     },
     leadSummaryResult: (_callNumber, requestPayload) => {
       if (requestPayload.cycle_id === CYCLE_A) {
-        return defaultLeadSummary({
-          data: {
-            summary: {
-              summary: 'Resumo salvo da Larissa (conversa A).',
-              version: 1,
-              updated_at: '2026-08-25T12:00:00.000Z',
-            },
-          },
+        return automaticSummaryResult({
+          workingSummary: 'Resumo automático da conversa A.',
+          source: 'legacy_history',
         })
       }
 
-      // Conversa B simula exatamente o FAIL real reportado: a busca falha.
       return { ok: false, error: 'Falha simulada na conversa B.' }
     },
   })
 
   await waitFor(() => leadSummaryCalls(calls).some((call) => call.payload.cycle_id === CYCLE_A))
-
   await waitFor(() => {
     const card = document.querySelector('.yolen-lead-summary-card')
-    return Boolean(card && card.textContent.includes('Resumo salvo da Larissa (conversa A).'))
+    return Boolean(card && card.textContent.includes('Resumo automático da conversa A.'))
   })
 
   const conversationBody = document.getElementById('conversation-body')
@@ -229,15 +236,12 @@ test('ao trocar de conversa, uma falha na nova conversa NUNCA mantém em tela o 
   })
 
   await waitFor(() => leadSummaryCalls(calls).some((call) => call.payload.cycle_id === CYCLE_B))
-
   await waitFor(() => {
     const card = document.querySelector('.yolen-lead-summary-card')
     return Boolean(card && card.querySelector('.yolen-lead-summary--error'))
   })
 
   const card = document.querySelector('.yolen-lead-summary-card')
-
-  // Nunca herda silenciosamente o resumo salvo da conversa anterior.
-  assert.doesNotMatch(card.textContent, /Resumo salvo da Larissa/)
+  assert.doesNotMatch(card.textContent, /Resumo automático da conversa A/)
   assert.match(card.textContent, /Falha simulada na conversa B\./)
 })
