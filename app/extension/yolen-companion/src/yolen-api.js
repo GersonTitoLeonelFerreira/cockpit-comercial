@@ -10,7 +10,7 @@
   // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx. Remover
   // junto com os outros pontos marcados TEMP-TEST-ENV-FASE12A.
   const TEMP_TEST_BASE_URL =
-    'https://cockpit-comercial-vocn-git-claude-seller-facing-pe-7df065-yolen.vercel.app'
+    'https://cockpit-comercial-vocn-git-claude-yolen-lead-persi-f5596b-yolen.vercel.app'
 
   let sessionBaseUrl = null
   let lastLeadLookupContext = null

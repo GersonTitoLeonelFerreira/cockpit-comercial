@@ -11,6 +11,7 @@ import test from 'node:test'
 import {
   buildMessageHtml,
   buildWhatsAppPageHtml,
+  defaultLeadResolution,
   defaultLeadSummary,
   leadSummaryCalls,
   loadContentScript,
@@ -156,4 +157,87 @@ test('clicar em "Salvar resumo na Yolen" dispara SAVE_LEAD_SUMMARY com o texto d
     const card = document.querySelector('.yolen-lead-summary-card')
     return Boolean(card && card.textContent.includes('Resumo digitado manualmente'))
   })
+})
+
+const CONVERSATION_A_TITLE = '+55 11 98888-7777'
+const CONVERSATION_B_TITLE = '+55 21 97777-6666'
+const CYCLE_A = 'cycle-a'
+const CYCLE_B = 'cycle-b'
+
+function onlyDigits(value) {
+  return String(value).replace(/\D/g, '')
+}
+
+function leadResolutionFor(cycleId, phone) {
+  return defaultLeadResolution({
+    phone,
+    cycle: { id: cycleId, status: 'contato', owner_user_id: 'user-1' },
+  })
+}
+
+test('ao trocar de conversa, uma falha na nova conversa NUNCA mantém em tela o resumo da conversa anterior', async () => {
+  const phoneA = onlyDigits(CONVERSATION_A_TITLE)
+  const phoneB = onlyDigits(CONVERSATION_B_TITLE)
+
+  const { document, calls } = loadContentScript({
+    initialHtml: buildWhatsAppPageHtml({
+      headerTitle: CONVERSATION_A_TITLE,
+      messagesHtml: buildMessageHtml({
+        id: 'msg-a1',
+        prePlainText: '[10:15, 21/08/2026] Cliente A: ',
+        text: 'Mensagem da conversa A',
+      }),
+    }),
+    resolutionsByPhone: {
+      [phoneA]: leadResolutionFor(CYCLE_A, phoneA),
+      [phoneB]: leadResolutionFor(CYCLE_B, phoneB),
+    },
+    leadSummaryResult: (_callNumber, requestPayload) => {
+      if (requestPayload.cycle_id === CYCLE_A) {
+        return defaultLeadSummary({
+          data: {
+            summary: {
+              summary: 'Resumo salvo da Larissa (conversa A).',
+              version: 1,
+              updated_at: '2026-08-25T12:00:00.000Z',
+            },
+          },
+        })
+      }
+
+      // Conversa B simula exatamente o FAIL real reportado: a busca falha.
+      return { ok: false, error: 'Falha simulada na conversa B.' }
+    },
+  })
+
+  await waitFor(() => leadSummaryCalls(calls).some((call) => call.payload.cycle_id === CYCLE_A))
+
+  await waitFor(() => {
+    const card = document.querySelector('.yolen-lead-summary-card')
+    return Boolean(card && card.textContent.includes('Resumo salvo da Larissa (conversa A).'))
+  })
+
+  const conversationBody = document.getElementById('conversation-body')
+  const headerTitleSpan = document.querySelector('header span[title]')
+
+  headerTitleSpan.setAttribute('title', CONVERSATION_B_TITLE)
+  headerTitleSpan.textContent = CONVERSATION_B_TITLE
+  conversationBody.innerHTML = buildMessageHtml({
+    id: 'msg-b1',
+    prePlainText: '[11:30, 21/08/2026] Cliente B: ',
+    text: 'Mensagem da conversa B',
+  })
+
+  await waitFor(() => leadSummaryCalls(calls).some((call) => call.payload.cycle_id === CYCLE_B))
+
+  await waitFor(() => {
+    const card = document.querySelector('.yolen-lead-summary-card')
+    return Boolean(card && card.querySelector('.yolen-lead-summary--error'))
+  })
+
+  const card = document.querySelector('.yolen-lead-summary-card')
+
+  // Nunca herda silenciosamente o resumo salvo da conversa anterior.
+  assert.doesNotMatch(card.textContent, /Resumo salvo da Larissa/)
+  assert.match(card.textContent, /Falha simulada na conversa B\./)
 })

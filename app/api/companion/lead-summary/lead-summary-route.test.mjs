@@ -76,7 +76,7 @@ function matchesFilters(row, filters) {
   return filters.every((filter) => row[filter.column] === filter.value)
 }
 
-function buildQueryClass(tables) {
+function buildQueryClass(tables, tableErrors = {}) {
   return class Query {
     constructor(table) {
       this.table = table
@@ -105,6 +105,12 @@ function buildQueryClass(tables) {
     }
 
     resolveRows() {
+      const injectedError = tableErrors[this.table]
+
+      if (injectedError) {
+        return { data: null, error: injectedError }
+      }
+
       const rows = (tables[this.table] ?? []).filter(
         (row) =>
           matchesFilters(row, this.filters) &&
@@ -118,6 +124,11 @@ function buildQueryClass(tables) {
 
     maybeSingle() {
       const result = this.resolveRows()
+
+      if (result.error) {
+        return Promise.resolve({ data: null, error: result.error })
+      }
+
       return Promise.resolve({ data: result.data[0] ?? null, error: null })
     }
 
@@ -127,7 +138,11 @@ function buildQueryClass(tables) {
   }
 }
 
-function createFakeAdmin({ memberships, cycles, summaries = [] }) {
+// `rpcError`, quando definido, simula uma tabela/RPC ainda não aplicada no
+// banco real (migration ausente no deploy) — reproduz exatamente o FAIL de
+// integração real reportado: um deploy cujo código já tem a rota, mas cujo
+// banco Postgres conectado ainda não recebeu a migration desta etapa.
+function createFakeAdmin({ memberships, cycles, summaries = [], tableErrors = {}, rpcError = null }) {
   const rpcCalls = []
   let nextId = 1
 
@@ -139,7 +154,7 @@ function createFakeAdmin({ memberships, cycles, summaries = [] }) {
     companion_lead_conversation_summaries: summaries,
   }
 
-  const Query = buildQueryClass(tables)
+  const Query = buildQueryClass(tables, tableErrors)
 
   const admin = {
     from(table) {
@@ -151,6 +166,10 @@ function createFakeAdmin({ memberships, cycles, summaries = [] }) {
 
       if (name !== 'rpc_save_companion_lead_conversation_summary') {
         return { data: null, error: { message: `RPC inesperada: ${name}` } }
+      }
+
+      if (rpcError) {
+        return { data: null, error: rpcError }
       }
 
       const existingIndex = summaries.findIndex(
@@ -266,16 +285,20 @@ function saveRequest({ token, body }) {
   })
 }
 
-test('sem token -> 401 em ambas as rotas', async () => {
+test('sem token -> 401 em ambas as rotas, com código distinguível (auth inválida != tenant inválido != schema ausente)', async () => {
   adminBox.admin = createFakeAdmin(fixtures()).admin
 
   const fetchResponse = await fetchPOST(fetchRequest({ body: { cycle_id: IDS.cycleA } }))
+  const fetchBody = await fetchResponse.json()
   assert.equal(fetchResponse.status, 401)
+  assert.equal(fetchBody.code, 'INVALID_COMPANION_SESSION')
 
   const saveResponse = await savePOST(
     saveRequest({ body: { cycle_id: IDS.cycleA, summary: 'x' } }),
   )
+  const saveBody = await saveResponse.json()
   assert.equal(saveResponse.status, 401)
+  assert.equal(saveBody.code, 'INVALID_COMPANION_SESSION')
 })
 
 test('1) lead sem resumo -> null', async () => {
@@ -403,7 +426,7 @@ test('6) A -> B: cycle_id de outro lead nunca retorna o resumo do primeiro', asy
   assert.equal(otherLeadBody.data.summary, null)
 })
 
-test('7) tenant isolation: usuário sem membership ativa é rejeitado', async () => {
+test('7) tenant isolation: usuário sem membership ativa é rejeitado, com código distinguível de auth inválida', async () => {
   adminBox.admin = createFakeAdmin(fixtures()).admin
 
   const token = buildToken({ sub: IDS.userB, companyId: IDS.companyA })
@@ -414,8 +437,68 @@ test('7) tenant isolation: usuário sem membership ativa é rejeitado', async ()
       body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
     }),
   )
+  const body = await response.json()
 
   assert.equal(response.status, 403)
+  assert.equal(body.code, 'LEAD_SUMMARY_MEMBERSHIP_REQUIRED')
+  assert.notEqual(body.code, 'INVALID_COMPANION_SESSION')
+})
+
+test('erro de schema ausente (migration não aplicada) na BUSCA é detectado explicitamente, nunca vira um 500 genérico indistinguível', async () => {
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    tableErrors: {
+      companion_lead_conversation_summaries: {
+        code: '42P01',
+        message: 'relation "public.companion_lead_conversation_summaries" does not exist',
+      },
+    },
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 503)
+  assert.equal(body.code, 'LEAD_SUMMARY_SCHEMA_NOT_READY_QUERY')
+  assert.notEqual(body.code, 'LEAD_SUMMARY_QUERY_FAILED')
+  assert.notEqual(body.code, 'LEAD_SUMMARY_UNEXPECTED_ERROR')
+})
+
+test('erro de schema ausente (migration não aplicada) no SAVE é detectado explicitamente, nunca vira um 500 genérico indistinguível', async () => {
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    rpcError: {
+      code: '42883',
+      message:
+        'function public.rpc_save_companion_lead_conversation_summary(uuid, uuid, uuid, text, text, integer, text) does not exist',
+    },
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await savePOST(
+    saveRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+        summary: 'Resumo de teste.',
+        expected_version: null,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 503)
+  assert.equal(body.code, 'LEAD_SUMMARY_SCHEMA_NOT_READY_PERSIST')
+  assert.notEqual(body.code, 'LEAD_SUMMARY_PERSIST_FAILED')
 })
 
 test('8) troca de conversa: outro cycle_id resolve identidade de outro lead', async () => {

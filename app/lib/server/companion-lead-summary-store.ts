@@ -117,6 +117,42 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+// Códigos Postgres para "a tabela/função ainda não existe neste banco"
+// (42P01 = undefined_table, 42883 = undefined_function/RPC). Distingue
+// explicitamente "a migration desta etapa não foi aplicada no banco que
+// este deploy usa" de uma falha genérica de banco — sem isso, os dois
+// casos chegavam ao mesmo LEAD_SUMMARY_QUERY_FAILED/PERSIST_FAILED
+// genérico, e diagnosticar exigia acesso direto ao banco ou aos logs do
+// servidor em vez de bastar olhar o code retornado pela própria API.
+const SCHEMA_NOT_READY_POSTGRES_CODES = new Set(['42P01', '42883'])
+
+function isSchemaNotReadyError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) {
+    return false
+  }
+
+  if (typeof error.code === 'string' && SCHEMA_NOT_READY_POSTGRES_CODES.has(error.code)) {
+    return true
+  }
+
+  const message = typeof error.message === 'string' ? error.message : ''
+
+  return (
+    /relation .*companion_lead_conversation_summaries.* does not exist/i.test(message) ||
+    /function .*rpc_save_companion_lead_conversation_summary.* does not exist/i.test(message)
+  )
+}
+
+function failSchemaNotReady(operation: 'QUERY' | 'PERSIST'): never {
+  fail({
+    code: `LEAD_SUMMARY_SCHEMA_NOT_READY_${operation}`,
+    message:
+      'O resumo persistente do lead ainda não está disponível neste ambiente (migration/RPC não aplicada no banco deste deploy).',
+    status_code: 503,
+    retryable: false,
+  })
+}
+
 // A resolução de identidade reaproveita a checagem de membership/posse de
 // ciclo de "Registrar conversa", que lança CompanionConversationRegistrationError.
 // Esta função adapta esses erros para o tipo próprio deste módulo, mantendo
@@ -238,6 +274,10 @@ export async function getCompanionLeadConversationSummary({
     .maybeSingle()
 
   if (error) {
+    if (isSchemaNotReadyError(error)) {
+      failSchemaNotReady('QUERY')
+    }
+
     fail({
       code: 'LEAD_SUMMARY_QUERY_FAILED',
       message: 'Não foi possível carregar o resumo persistente do lead.',
@@ -357,6 +397,10 @@ export async function saveCompanionLeadConversationSummary({
   )
 
   if (error) {
+    if (isSchemaNotReadyError(error)) {
+      failSchemaNotReady('PERSIST')
+    }
+
     fail({
       code: 'LEAD_SUMMARY_PERSIST_FAILED',
       message: error.message || 'Não foi possível salvar o resumo do lead.',

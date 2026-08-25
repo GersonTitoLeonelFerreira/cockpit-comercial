@@ -9529,6 +9529,15 @@
   // Mesmo formato de carregamento/estado de loadCompanionClientContextForCurrentCycle,
   // mas sem ticker/refresh por captura: o resumo só muda por ação explícita
   // do vendedor (ver handleSaveLeadSummaryClick).
+  // TEMP-DIAG-LEAD-SUMMARY — instrumentação temporária para diagnosticar
+  // falhas do resumo persistente do lead (Etapa 1) sem depender de
+  // DevTools do vendedor: registra só o estágio e o código/status interno
+  // da falha, nunca o texto do resumo, conteúdo da conversa ou token.
+  // Remover quando a Etapa 1 estiver validada em produção real.
+  function __leadSummaryDiag(stage, data) {
+    console.log('[LEAD-SUMMARY-DIAG]', stage, data)
+  }
+
   async function loadCompanionLeadSummaryForCurrentCycle() {
     const cycleId =
       state.leadResolution?.cycle?.id
@@ -9582,6 +9591,11 @@
       }
 
       if (!result?.ok || !result.payload?.ok) {
+        __leadSummaryDiag('FETCH_FAILED', {
+          status_code: result?.statusCode ?? null,
+          code: result?.payload?.code ?? null,
+        })
+
         state = {
           ...state,
           companionLeadSummary: {
@@ -9609,6 +9623,10 @@
       if (!isStillCurrentContext()) {
         return
       }
+
+      __leadSummaryDiag('FETCH_EXCEPTION', {
+        error_name: error instanceof Error ? error.name : 'unknown',
+      })
 
       state = {
         ...state,
@@ -9666,6 +9684,10 @@
       }
 
       if (result?.payload?.code === 'LEAD_SUMMARY_VERSION_CONFLICT') {
+        __leadSummaryDiag('SAVE_CONFLICT', {
+          status_code: result?.statusCode ?? null,
+        })
+
         state = {
           ...state,
           companionLeadSummarySaveStatus: 'conflict',
@@ -9677,6 +9699,11 @@
       }
 
       if (!result?.ok || !result.payload?.ok) {
+        __leadSummaryDiag('SAVE_FAILED', {
+          status_code: result?.statusCode ?? null,
+          code: result?.payload?.code ?? null,
+        })
+
         state = {
           ...state,
           companionLeadSummarySaveStatus: 'error',
@@ -9701,6 +9728,10 @@
 
       renderPanel()
     } catch (error) {
+      __leadSummaryDiag('SAVE_EXCEPTION', {
+        error_name: error instanceof Error ? error.name : 'unknown',
+      })
+
       state = {
         ...state,
         companionLeadSummarySaveStatus: 'error',

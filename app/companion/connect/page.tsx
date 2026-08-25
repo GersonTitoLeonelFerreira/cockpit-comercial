@@ -52,7 +52,7 @@ const LOCAL_COMPANION_BASE_URL =
 // sempre aponta para o deploy mais recente desta branch. Remover assim
 // que o teste real terminar ou a branch for mergeada/descartada.
 const TEMP_TEST_COMPANION_BASE_URL =
-  'https://cockpit-comercial-vocn-git-claude-seller-facing-pe-7df065-yolen.vercel.app'
+  'https://cockpit-comercial-vocn-git-claude-yolen-lead-persi-f5596b-yolen.vercel.app'
 
 async function getCompanionBaseUrl() {
   const headerStore =
