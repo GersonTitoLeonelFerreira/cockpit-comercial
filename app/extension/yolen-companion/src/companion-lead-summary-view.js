@@ -4,6 +4,8 @@
   // camada é confirmar quando o resumo atual deve virar memória persistida
   // na Yolen.
 
+  const COMPACT_SUMMARY_CHAR_THRESHOLD = 280
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -34,12 +36,22 @@
 
   function renderModeStyles() {
     // Enquanto AGORA está sendo reconstruído, o seller-facing antigo fica
-    // fora da tela. O código antigo continua disponível para a etapa futura
-    // de ANÁLISE, mas não concorre visualmente com o novo resumo central.
+    // fora da tela. O resumo completo continua disponível sob demanda, mas
+    // a leitura cotidiana fica limitada a aproximadamente cinco linhas.
     return (
       '<style>' +
       '.yolen-lead-summary-card > .yolen-section-label{display:none!important;}' +
       '.yolen-seller-panel[data-yolen-seller-panel="now"]{display:none!important;}' +
+      '.yolen-lead-summary-details{margin:0;}' +
+      '.yolen-lead-summary-toggle{display:block;list-style:none;cursor:pointer;outline:none;}' +
+      '.yolen-lead-summary-toggle::-webkit-details-marker{display:none;}' +
+      '.yolen-lead-summary-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden;color:#edf5ff;font-size:12px;font-weight:600;line-height:1.55;white-space:pre-wrap;}' +
+      '.yolen-lead-summary-expand-label{display:inline-block;margin-top:8px;color:#93c5fd;font-size:11px;font-weight:800;}' +
+      '.yolen-lead-summary-expand-label--open{display:none;}' +
+      '.yolen-lead-summary-details[open] .yolen-lead-summary-preview{display:none;}' +
+      '.yolen-lead-summary-details[open] .yolen-lead-summary-expand-label--closed{display:none;}' +
+      '.yolen-lead-summary-details[open] .yolen-lead-summary-expand-label--open{display:inline-block;margin-top:0;}' +
+      '.yolen-lead-summary-full-text{margin-top:9px;color:#edf5ff;font-size:12px;font-weight:600;line-height:1.55;white-space:pre-wrap;}' +
       '</style>'
     )
   }
@@ -116,6 +128,47 @@
     return ''
   }
 
+  function shouldCollapseSummary(summary) {
+    return (
+      summary.length > COMPACT_SUMMARY_CHAR_THRESHOLD ||
+      summary.split(/\r?\n/).length > 5
+    )
+  }
+
+  function renderWorkingSummary(summary) {
+    const safeSummary = escapeHtml(summary)
+
+    if (!shouldCollapseSummary(summary)) {
+      return (
+        '<div class="yolen-lead-summary-text">' +
+        safeSummary +
+        '</div>'
+      )
+    }
+
+    return (
+      '<details ' +
+      'class="yolen-lead-summary-details" ' +
+      'data-yolen-preserve-details="lead-summary-full"' +
+      '>' +
+      '<summary class="yolen-lead-summary-toggle">' +
+      '<span class="yolen-lead-summary-preview">' +
+      safeSummary +
+      '</span>' +
+      '<span class="yolen-lead-summary-expand-label yolen-lead-summary-expand-label--closed">' +
+      'Ver resumo completo' +
+      '</span>' +
+      '<span class="yolen-lead-summary-expand-label yolen-lead-summary-expand-label--open">' +
+      'Ocultar resumo' +
+      '</span>' +
+      '</summary>' +
+      '<div class="yolen-lead-summary-full-text">' +
+      safeSummary +
+      '</div>' +
+      '</details>'
+    )
+  }
+
   function renderReadyState(state) {
     const data = state?.data || {}
     const savedSummary = data.summary || null
@@ -157,9 +210,7 @@
       renderModeStyles() +
       '<div class="yolen-section-label">Resumo atual</div>' +
       '<div class="yolen-lead-summary yolen-lead-summary--ready">' +
-      '<div class="yolen-lead-summary-text">' +
-      escapeHtml(workingSummary) +
-      '</div>' +
+      renderWorkingSummary(workingSummary) +
       '<div class="yolen-lead-summary-meta">' +
       escapeHtml(sourceLabel) +
       ' · ' +
