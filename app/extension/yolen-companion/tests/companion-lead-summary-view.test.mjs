@@ -6,13 +6,15 @@ const require = createRequire(import.meta.url)
 
 const view = require('../src/companion-lead-summary-view.js')
 
-test('estado loading renderiza mensagem de carregamento', () => {
+test('estado loading mostra atualização automática do resumo', () => {
   const html = view.renderLeadSummarySection({ status: 'loading' })
 
-  assert.match(html, /Carregando resumo salvo na Yolen/)
+  assert.match(html, /Resumo atual/i)
+  assert.match(html, /Atualizando resumo/)
+  assert.doesNotMatch(html, /Escreva ou ajuste/i)
 })
 
-test('estado error renderiza a mensagem de erro escapada', () => {
+test('estado error renderiza a mensagem escapada e oferece nova tentativa', () => {
   const html = view.renderLeadSummarySection({
     status: 'error',
     error: '<script>alert(1)</script>',
@@ -20,66 +22,103 @@ test('estado error renderiza a mensagem de erro escapada', () => {
 
   assert.match(html, /yolen-lead-summary--error/)
   assert.doesNotMatch(html, /<script>/)
+  assert.match(html, /data-yolen-action="refresh"/)
 })
 
-test('estado ready sem resumo mostra o vazio correto, nunca copy de análise', () => {
-  const html = view.renderLeadSummarySection({
-    status: 'ready',
-    data: { summary: null },
-  })
-
-  assert.match(html, /Ainda não existe resumo salvo para este lead\./)
-  assert.doesNotMatch(html, /sem evidência comercial/i)
-})
-
-test('estado ready com resumo mostra texto, versão e botão de salvar', () => {
+test('working summary vindo do histórico antigo aparece mesmo sem resumo canônico', () => {
   const html = view.renderLeadSummarySection({
     status: 'ready',
     data: {
-      summary: {
-        summary: 'Larissa perde oportunidades por falta de follow-up.',
-        version: 2,
-        updated_at: '2026-08-25T12:00:00.000Z',
-      },
+      summary: null,
+      working_summary:
+        'Larissa já conhece a proposta da Yolen e apresentou objeção de investimento.',
+      working_summary_source: 'legacy_history',
+      has_unsaved_changes: true,
     },
   })
 
-  assert.match(html, /Larissa perde oportunidades por falta de follow-up\./)
-  assert.match(html, /Versão 2/)
-  assert.match(html, /data-yolen-action="save-lead-summary"/)
-  assert.match(html, /data-yolen-textarea="lead-summary"/)
+  assert.match(html, /Larissa já conhece a proposta da Yolen/)
+  assert.match(html, /Histórico já salvo na Yolen/)
+  assert.match(html, /Salvar resumo na Yolen/)
+  assert.doesNotMatch(html, /Ainda não existe resumo salvo/)
 })
 
-test('textarea escapa conteúdo do resumo (sem quebrar o HTML)', () => {
+test('não existe textarea ou campo manual visível; compatibilidade usa input hidden', () => {
+  const html = view.renderLeadSummarySection({
+    status: 'ready',
+    data: {
+      summary: null,
+      working_summary: 'Resumo criado automaticamente pela Yolen.',
+      working_summary_source: 'conversation_only',
+      has_unsaved_changes: true,
+    },
+  })
+
+  assert.doesNotMatch(html, /<textarea/i)
+  assert.doesNotMatch(html, /Escreva ou ajuste/i)
+  assert.match(html, /<input type="hidden" data-yolen-textarea="lead-summary"/)
+})
+
+test('resumo canônico sem mudanças mostra estado salvo e não oferece novo save', () => {
   const html = view.renderLeadSummarySection({
     status: 'ready',
     data: {
       summary: {
-        summary: '</textarea><img src=x onerror=alert(1)>',
-        version: 1,
-        updated_at: null,
+        summary: 'Resumo consolidado já salvo.',
+        version: 2,
+        updated_at: '2026-08-25T12:00:00.000Z',
       },
+      working_summary: 'Resumo consolidado já salvo.',
+      working_summary_source: 'canonical',
+      has_unsaved_changes: false,
+    },
+  })
+
+  assert.match(html, /Resumo consolidado já salvo\./)
+  assert.match(html, /Versão 2/)
+  assert.match(html, /Resumo salvo na Yolen\./)
+  assert.doesNotMatch(html, /data-yolen-action="save-lead-summary"/)
+})
+
+test('working summary com conteúdo HTML é escapado no texto e no input hidden', () => {
+  const html = view.renderLeadSummarySection({
+    status: 'ready',
+    data: {
+      summary: null,
+      working_summary: '</input><img src=x onerror=alert(1)>',
+      working_summary_source: 'conversation_only',
+      has_unsaved_changes: true,
     },
   })
 
   assert.doesNotMatch(html, /<img src=x/)
 })
 
-test('feedback de conflito de versão aparece quando saveStatus é conflict', () => {
+test('feedback de conflito continua visível', () => {
   const html = view.renderLeadSummarySection({
     status: 'ready',
-    data: { summary: null },
+    data: {
+      summary: null,
+      working_summary: 'Resumo automático.',
+      working_summary_source: 'conversation_only',
+      has_unsaved_changes: true,
+    },
     saveStatus: 'conflict',
   })
 
   assert.match(html, /yolen-lead-summary-feedback--conflict/)
-  assert.match(html, /Recarregue antes de salvar novamente/)
+  assert.match(html, /Atualize antes de salvar novamente/)
 })
 
 test('botão de salvar fica desabilitado enquanto saveStatus é saving', () => {
   const html = view.renderLeadSummarySection({
     status: 'ready',
-    data: { summary: null },
+    data: {
+      summary: null,
+      working_summary: 'Resumo automático.',
+      working_summary_source: 'conversation_only',
+      has_unsaved_changes: true,
+    },
     saveStatus: 'saving',
   })
 
