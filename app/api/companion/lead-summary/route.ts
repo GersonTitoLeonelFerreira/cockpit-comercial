@@ -18,12 +18,6 @@ import {
 import { verifyCompanionRequestToken } from '../../../lib/server/companion-token'
 
 import {
-  composeLeadMethodGuidance,
-  normalizePublishedCommercialMethod,
-  type LeadMethodGuidance,
-} from '../../../lib/companion/lead-method-guidance'
-
-import {
   createStatefulCopilotOpenAIProvider,
 } from '../../../lib/companion/stateful-copilot-openai-provider'
 
@@ -293,96 +287,6 @@ function resolveSource({
   return 'empty'
 }
 
-function emptyMethodGuidance(
-  status: LeadMethodGuidance['status'],
-  error: string | null = null,
-): LeadMethodGuidance {
-  return {
-    status,
-    method_name: null,
-    method_config_version_id: null,
-    stage_key: null,
-    stage_name: null,
-    stage_reason: null,
-    next_step: null,
-    error,
-  }
-}
-
-async function composeMethodGuidanceForSummary({
-  admin,
-  identity,
-  workingSummary,
-}: {
-  admin: SupabaseClient
-  identity: CompanionLeadIdentity
-  workingSummary: string | null
-}): Promise<LeadMethodGuidance> {
-  if (!workingSummary) {
-    return emptyMethodGuidance('no_summary')
-  }
-
-  const { data: publishedConfigRow, error: methodError } = await admin
-    .from('company_commercial_config_versions')
-    .select(
-      'id, version_number, commercial_method_name, commercial_method_description',
-    )
-    .eq('company_id', identity.company_id)
-    .eq('status', 'published')
-    .order('version_number', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (methodError) {
-    return emptyMethodGuidance(
-      'error',
-      'Não foi possível carregar o método comercial publicado.',
-    )
-  }
-
-  const method = normalizePublishedCommercialMethod(
-    publishedConfigRow,
-  )
-
-  if (publishedConfigRow && !method) {
-    return {
-      ...emptyMethodGuidance(
-        'invalid_method',
-        'O método comercial publicado precisa ter nome e descrição.',
-      ),
-      method_name:
-        typeof publishedConfigRow.commercial_method_name === 'string'
-          ? publishedConfigRow.commercial_method_name
-          : null,
-      method_config_version_id:
-        typeof publishedConfigRow.id === 'string'
-          ? publishedConfigRow.id
-          : null,
-    }
-  }
-
-  try {
-    return await composeLeadMethodGuidance({
-      workingSummary,
-      method,
-      provider: createStatefulCopilotOpenAIProvider({
-        timeout_ms: 45_000,
-        max_output_tokens: 900,
-      }),
-    })
-  } catch (error) {
-    console.error(
-      '[LEAD_SUMMARY_API] method guidance failed',
-      error instanceof Error ? error.name : 'unknown',
-    )
-
-    return emptyMethodGuidance(
-      'error',
-      'Não foi possível definir o próximo passo agora.',
-    )
-  }
-}
-
 async function composeWorkingSummary({
   savedSummary,
   legacyHistory,
@@ -600,12 +504,6 @@ export async function POST(request: Request) {
           workingSummary !== summary.summary),
     )
 
-    const methodGuidance = await composeMethodGuidanceForSummary({
-      admin,
-      identity,
-      workingSummary,
-    })
-
     return NextResponse.json(
       {
         ok: true,
@@ -619,7 +517,6 @@ export async function POST(request: Request) {
           legacy_history_count: legacyHistoryRaw.length,
           legacy_history_distinct_count: legacyHistory.length,
           messages_used_count: messagesForPrompt.length,
-          method_guidance: methodGuidance,
         },
       },
       {
