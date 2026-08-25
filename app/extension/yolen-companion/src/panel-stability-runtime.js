@@ -13,6 +13,7 @@
     nearBottom: false,
   }
   let intentFocusSnapshot = null
+  let pendingIntentPointerScrollTop = null
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
@@ -108,6 +109,46 @@
       scrollSnapshot.top,
       maxScroll,
     )
+  }
+
+  function restoreIntentPointerScroll(targetPanel) {
+    if (
+      !targetPanel ||
+      pendingIntentPointerScrollTop === null
+    ) {
+      return
+    }
+
+    const intendedTop = pendingIntentPointerScrollTop
+    pendingIntentPointerScrollTop = null
+
+    const restore = () => {
+      const currentPanel = getPanel()
+
+      if (!currentPanel) {
+        return
+      }
+
+      const maxScroll = Math.max(
+        0,
+        currentPanel.scrollHeight - currentPanel.clientHeight,
+      )
+
+      currentPanel.scrollTop = Math.min(
+        intendedTop,
+        maxScroll,
+      )
+
+      captureScroll(currentPanel)
+    }
+
+    queueMicrotask(() => {
+      restore()
+
+      root.requestAnimationFrame(() => {
+        restore()
+      })
+    })
   }
 
   function restoreIntentFocus() {
@@ -222,6 +263,7 @@
         nearBottom: false,
       }
       intentFocusSnapshot = null
+      pendingIntentPointerScrollTop = null
       restoreSequence += 1
       restoring = false
       currentPanel.scrollTop = 0
@@ -236,14 +278,57 @@
   }
 
   document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!event.target?.matches?.(INTENT_SELECTOR)) {
+        return
+      }
+
+      const currentPanel = getPanel()
+
+      if (!currentPanel) {
+        return
+      }
+
+      pendingIntentPointerScrollTop = currentPanel.scrollTop
+      captureScroll(currentPanel)
+    },
+    true,
+  )
+
+  document.addEventListener(
+    'mousedown',
+    (event) => {
+      if (!event.target?.matches?.(INTENT_SELECTOR)) {
+        return
+      }
+
+      const currentPanel = getPanel()
+
+      if (!currentPanel) {
+        return
+      }
+
+      if (pendingIntentPointerScrollTop === null) {
+        pendingIntentPointerScrollTop = currentPanel.scrollTop
+      }
+
+      captureScroll(currentPanel)
+    },
+    true,
+  )
+
+  document.addEventListener(
     'focusin',
     (event) => {
       if (event.target?.matches?.(INTENT_SELECTOR)) {
         captureIntentSelection(event.target)
+        restoreIntentPointerScroll(getPanel())
         return
       }
 
       intentFocusSnapshot = null
+      pendingIntentPointerScrollTop = null
     },
     true,
   )
