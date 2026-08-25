@@ -4,8 +4,14 @@ import type {
 
 import type {
   PublishedCommercialMethod,
-  LeadMethodGuidance,
 } from './lead-method-guidance'
+
+export type SellerMessageGuidance = {
+  status: string
+  method_name: string | null
+  stage_name: string | null
+  next_step: string | null
+}
 
 export type SellerMessageGenerationResult =
   | {
@@ -64,7 +70,7 @@ export async function composeSellerMessage({
   workingSummary: string | null
   sellerIntent: string | null
   method: PublishedCommercialMethod
-  guidance: LeadMethodGuidance | null
+  guidance: SellerMessageGuidance | null
   provider: StatefulCopilotProvider
 }): Promise<SellerMessageGenerationResult> {
   const summary = clean(workingSummary)
