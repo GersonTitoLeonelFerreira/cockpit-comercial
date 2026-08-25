@@ -501,6 +501,70 @@ test('erro de schema ausente (migration não aplicada) no SAVE é detectado expl
   assert.notEqual(body.code, 'LEAD_SUMMARY_PERSIST_FAILED')
 })
 
+// O supabase-js real fala com o banco através do PostgREST (REST API), não
+// de uma conexão SQL direta — por isso, para uma tabela/função ausente,
+// PostgREST devolve PGRST205/PGRST202 ("... in the schema cache"), não os
+// códigos brutos do Postgres (42P01/42883) usados nos dois testes acima.
+// Esse foi exatamente o gap que fez o teste real em produção/preview cair
+// no LEAD_SUMMARY_QUERY_FAILED genérico (500) em vez do
+// LEAD_SUMMARY_SCHEMA_NOT_READY_* explícito (503).
+test('erro de schema ausente no formato REAL do PostgREST (PGRST205) na BUSCA é detectado explicitamente', async () => {
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    tableErrors: {
+      companion_lead_conversation_summaries: {
+        code: 'PGRST205',
+        message:
+          "Could not find the table 'public.companion_lead_conversation_summaries' in the schema cache",
+      },
+    },
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 503)
+  assert.equal(body.code, 'LEAD_SUMMARY_SCHEMA_NOT_READY_QUERY')
+  assert.notEqual(body.code, 'LEAD_SUMMARY_QUERY_FAILED')
+})
+
+test('erro de schema ausente no formato REAL do PostgREST (PGRST202) no SAVE é detectado explicitamente', async () => {
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    rpcError: {
+      code: 'PGRST202',
+      message:
+        "Could not find the function public.rpc_save_companion_lead_conversation_summary(p_company_id, p_lead_id, p_actor_user_id, p_conversation_key, p_summary, p_expected_version, p_last_message_watermark) in the schema cache",
+    },
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await savePOST(
+    saveRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+        summary: 'Resumo de teste.',
+        expected_version: null,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 503)
+  assert.equal(body.code, 'LEAD_SUMMARY_SCHEMA_NOT_READY_PERSIST')
+  assert.notEqual(body.code, 'LEAD_SUMMARY_PERSIST_FAILED')
+})
+
 test('8) troca de conversa: outro cycle_id resolve identidade de outro lead', async () => {
   adminBox.admin = createFakeAdmin(fixtures()).admin
 

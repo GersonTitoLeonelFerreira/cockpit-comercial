@@ -117,21 +117,28 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-// Códigos Postgres para "a tabela/função ainda não existe neste banco"
-// (42P01 = undefined_table, 42883 = undefined_function/RPC). Distingue
-// explicitamente "a migration desta etapa não foi aplicada no banco que
-// este deploy usa" de uma falha genérica de banco — sem isso, os dois
-// casos chegavam ao mesmo LEAD_SUMMARY_QUERY_FAILED/PERSIST_FAILED
-// genérico, e diagnosticar exigia acesso direto ao banco ou aos logs do
-// servidor em vez de bastar olhar o code retornado pela própria API.
-const SCHEMA_NOT_READY_POSTGRES_CODES = new Set(['42P01', '42883'])
+// Códigos para "a tabela/função ainda não existe neste banco" — em dois
+// dialetos de erro diferentes, porque admin.from()/admin.rpc() do
+// supabase-js passam pelo PostgREST (REST API), não por uma conexão SQL
+// direta:
+// - Postgres bruto (usado pelos testes PGlite, que rodam contra um
+//   Postgres real, e por chamadas SQL diretas): 42P01 = undefined_table,
+//   42883 = undefined_function/RPC.
+// - PostgREST (o que o supabase-js real efetivamente recebe em produção):
+//   PGRST205 = "Could not find the table ... in the schema cache",
+//   PGRST202 = "Could not find the function ... in the schema cache".
+// Sem cobrir os dois dialetos, uma migration realmente ausente no banco
+// de produção/preview caía no LEAD_SUMMARY_QUERY_FAILED/PERSIST_FAILED
+// genérico (500) em vez do LEAD_SUMMARY_SCHEMA_NOT_READY_* explícito
+// (503) — foi exatamente o que aconteceu no teste real desta etapa.
+const SCHEMA_NOT_READY_ERROR_CODES = new Set(['42P01', '42883', 'PGRST205', 'PGRST202'])
 
 function isSchemaNotReadyError(error: { code?: string; message?: string } | null): boolean {
   if (!error) {
     return false
   }
 
-  if (typeof error.code === 'string' && SCHEMA_NOT_READY_POSTGRES_CODES.has(error.code)) {
+  if (typeof error.code === 'string' && SCHEMA_NOT_READY_ERROR_CODES.has(error.code)) {
     return true
   }
 
@@ -139,7 +146,13 @@ function isSchemaNotReadyError(error: { code?: string; message?: string } | null
 
   return (
     /relation .*companion_lead_conversation_summaries.* does not exist/i.test(message) ||
-    /function .*rpc_save_companion_lead_conversation_summary.* does not exist/i.test(message)
+    /function .*rpc_save_companion_lead_conversation_summary.* does not exist/i.test(message) ||
+    /could not find the table .*companion_lead_conversation_summaries.* in the schema cache/i.test(
+      message,
+    ) ||
+    /could not find the function .*rpc_save_companion_lead_conversation_summary.* in the schema cache/i.test(
+      message,
+    )
   )
 }
 

@@ -121,6 +121,14 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     if (error instanceof CompanionLeadSummaryError) {
+      // TEMP-DIAG-LEAD-SUMMARY — só código/status, nunca conteúdo do
+      // resumo, token ou dado pessoal. Remover quando a Etapa 1 estiver
+      // validada em produção real.
+      console.error('[LEAD_SUMMARY_API] fetch failed', {
+        code: error.code,
+        status_code: error.status_code,
+      })
+
       return NextResponse.json(
         {
           ok: false,
@@ -134,6 +142,11 @@ export async function POST(request: Request) {
         },
       )
     }
+
+    console.error(
+      '[LEAD_SUMMARY_API] fetch unexpected error',
+      error instanceof Error ? error.name : 'unknown',
+    )
 
     return NextResponse.json(
       {
