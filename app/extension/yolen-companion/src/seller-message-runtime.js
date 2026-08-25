@@ -691,7 +691,33 @@
   )
 
   const observer = new MutationObserver(() => {
-    queueRender()
+    if (!currentContext) {
+      return
+    }
+
+    const box = document.querySelector(
+      '[data-yolen-seller-message-box]',
+    )
+    const summaryInput = document.querySelector(
+      '[data-yolen-textarea="lead-summary"]',
+    )
+    const guidanceSlot = document.querySelector(
+      '[data-yolen-method-guidance-slot]',
+    )
+
+    // O WhatsApp altera o DOM o tempo todo (status, áudio, lista lateral,
+    // timestamps etc.). Essas mutações não podem reconstruir o formulário,
+    // porque trocar o textarea destrói foco, cursor e seleção do vendedor.
+    // Só remontamos quando o próprio renderPanel() do Companion recriou a
+    // estrutura que hospeda o resumo/orientação e, por isso, nosso bloco
+    // deixou de existir.
+    if (
+      !box &&
+      summaryInput &&
+      guidanceSlot
+    ) {
+      queueRender()
+    }
   })
 
   observer.observe(
