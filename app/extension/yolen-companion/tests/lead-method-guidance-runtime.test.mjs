@@ -20,20 +20,13 @@ function createHarness() {
   let summaryLoadCount = 0
   let guidanceFetchCount = 0
   let failGuidance = false
+  let lastGuidanceMessage = null
   const listeners = new Map()
 
   const api = {
     __leadMethodGuidanceWrapped: false,
     getBaseUrl() {
       return 'https://preview.example.com'
-    },
-    async getMe() {
-      return {
-        ok: true,
-        payload: {
-          companion_token: 'token-de-teste',
-        },
-      }
     },
     async loadLeadSummary() {
       summaryLoadCount += 1
@@ -56,6 +49,46 @@ function createHarness() {
         return '<div>guidance</div>'
       },
     },
+    browser: {
+      runtime: {
+        async sendMessage(message) {
+          guidanceFetchCount += 1
+          lastGuidanceMessage = message
+
+          if (failGuidance) {
+            return {
+              ok: false,
+              statusCode: 503,
+              payload: {
+                ok: false,
+                code: 'METHOD_GUIDANCE_TEMPORARY_FAILURE',
+                retryable: true,
+                error: 'Falha simulada',
+              },
+            }
+          }
+
+          return {
+            ok: true,
+            statusCode: 200,
+            payload: {
+              ok: true,
+              data: {
+                status: 'ready',
+                method_name: 'Metodo ATO',
+                method_config_version_id: 'config-1',
+                stage_key: 'tour',
+                stage_name: 'Tour',
+                stage_reason: 'Ainda falta confirmar o impacto.',
+                next_step:
+                  'Confirme com a cliente qual impacto a perda de follow-ups gera hoje e obtenha um exemplo concreto antes de voltar à proposta.',
+                error: null,
+              },
+            },
+          }
+        },
+      },
+    },
     document: {
       addEventListener(type, listener) {
         listeners.set(type, listener)
@@ -63,45 +96,6 @@ function createHarness() {
       querySelector() {
         return null
       },
-    },
-    async fetch() {
-      guidanceFetchCount += 1
-
-      if (failGuidance) {
-        return {
-          ok: false,
-          status: 503,
-          async json() {
-            return {
-              ok: false,
-              code: 'METHOD_GUIDANCE_TEMPORARY_FAILURE',
-              retryable: true,
-              error: 'Falha simulada',
-            }
-          },
-        }
-      }
-
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            ok: true,
-            data: {
-              status: 'ready',
-              method_name: 'Método Yolen',
-              method_config_version_id: 'config-1',
-              stage_key: 'diagnostico',
-              stage_name: 'Diagnóstico',
-              stage_reason: 'Ainda falta confirmar o impacto.',
-              next_step:
-                'Confirme com a cliente qual impacto a perda de follow-ups gera hoje e obtenha um exemplo concreto antes de voltar à proposta.',
-              error: null,
-            },
-          }
-        },
-      }
     },
     console,
     Map,
@@ -131,6 +125,9 @@ function createHarness() {
     get guidanceFetchCount() {
       return guidanceFetchCount
     },
+    get lastGuidanceMessage() {
+      return lastGuidanceMessage
+    },
   }
 }
 
@@ -155,6 +152,27 @@ test('resumo volta imediatamente enquanto o próximo passo é calculado em paral
 
   assert.equal(result.payload.data.method_guidance.status, 'ready')
   assert.equal(harness.guidanceFetchCount, 1)
+})
+
+test('orientação usa o background autenticado em vez de fetch direto do content-script', async () => {
+  const harness = createHarness()
+
+  await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(harness.lastGuidanceMessage)),
+    {
+      source: 'YOLEN_COMPANION',
+      action: 'LOAD_METHOD_GUIDANCE',
+      baseUrl: 'https://preview.example.com',
+      payload: {
+        cycle_id: 'cycle-1',
+        conversation_key: 'whatsapp:5511999999999',
+        working_summary: 'Resumo inicial do relacionamento comercial.',
+      },
+    },
+  )
 })
 
 test('mesmo resumo reutiliza somente orientação pronta sem nova chamada de IA', async () => {
