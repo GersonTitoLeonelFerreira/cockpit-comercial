@@ -9927,20 +9927,16 @@
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
 
-    const leadSummaryHtml =
-      getCompanionLeadSummaryCardHtml()
-
     // TEMP-DIAG-FASE12A
     __fase12aDiag('CLIENTE', {
       has_commercial_reading: Boolean(commercialReading),
       has_commercial_html: Boolean(commercialHtml),
       has_relationship_html: Boolean(relationshipHtml),
-      has_lead_summary_html: Boolean(leadSummaryHtml),
       customer_counts:
         __fase12aDiagCustomerCounts(commercialReading),
     })
 
-    if (!commercialHtml && !relationshipHtml && !leadSummaryHtml) {
+    if (!commercialHtml && !relationshipHtml) {
       return `
         <div class="yolen-card yolen-seller-area-card">
           <div class="yolen-section-label">Cliente</div>
@@ -9954,7 +9950,6 @@
     return `
       ${commercialHtml}
       ${relationshipHtml}
-      ${leadSummaryHtml}
     `
   }
 
@@ -11598,6 +11593,8 @@
       getLeadEnrichmentCandidatesHtml(),
 
       getPreSendAssessmentCardHtml(),
+
+      getCompanionLeadSummaryCardHtml(),
 
       getSellerInformationArchitectureHtml(),
 

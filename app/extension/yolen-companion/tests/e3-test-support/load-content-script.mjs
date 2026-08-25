@@ -34,6 +34,7 @@ const DEPENDENCY_FILES = [
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
   'companion-client-context-view.js',
+  'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
 ]
 
@@ -171,14 +172,34 @@ export function emptyClientContext(overrides = {}) {
   })
 }
 
+export function defaultLeadSummary(overrides = {}) {
+  return {
+    ok: true,
+    data: {
+      identity: {
+        company_id: 'company-1',
+        lead_id: 'lead-1',
+        cycle_id: 'cycle-1',
+        conversation_key: 'whatsapp:5511988887777',
+      },
+      summary: null,
+      ...(overrides.data ?? {}),
+    },
+    ...overrides,
+  }
+}
+
 function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   analysisResult,
   analysisJobStatusResult,
+  leadSummaryResult,
+  saveLeadSummaryResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
+  let loadLeadSummaryCallCount = 0
 
   const handlers = {
     GET_ME: async () => ({
@@ -248,6 +269,43 @@ function createFakeBackground({
         payload,
       }
     },
+    LOAD_LEAD_SUMMARY: async (requestPayload) => {
+      loadLeadSummaryCallCount += 1
+
+      const payload = await (
+        typeof leadSummaryResult === 'function'
+          ? leadSummaryResult(loadLeadSummaryCallCount, requestPayload)
+          : (leadSummaryResult ?? defaultLeadSummary())
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 500 : 200,
+        payload,
+      }
+    },
+    SAVE_LEAD_SUMMARY: async (requestPayload) => {
+      const payload = await (
+        typeof saveLeadSummaryResult === 'function'
+          ? saveLeadSummaryResult(requestPayload)
+          : (saveLeadSummaryResult ??
+              defaultLeadSummary({
+                data: {
+                  summary: {
+                    summary: requestPayload?.summary ?? '',
+                    version: 1,
+                    updated_at: '2026-08-25T12:00:00.000Z',
+                  },
+                },
+              }))
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -268,6 +326,8 @@ export function loadContentScript({
   clientContextResult,
   analysisResult,
   analysisJobStatusResult,
+  leadSummaryResult,
+  saveLeadSummaryResult,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   const background = createFakeBackground({
@@ -275,6 +335,8 @@ export function loadContentScript({
     clientContextResult,
     analysisResult,
     analysisJobStatusResult,
+    leadSummaryResult,
+    saveLeadSummaryResult,
   })
 
   const fakeChrome = {
@@ -336,6 +398,14 @@ export function resolveLeadCalls(calls) {
 
 export function clientContextCalls(calls) {
   return calls.filter((call) => call.action === 'LOAD_CLIENT_CONTEXT')
+}
+
+export function leadSummaryCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_LEAD_SUMMARY')
+}
+
+export function saveLeadSummaryCalls(calls) {
+  return calls.filter((call) => call.action === 'SAVE_LEAD_SUMMARY')
 }
 
 export function analysisCalls(calls) {
