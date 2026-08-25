@@ -12,9 +12,10 @@
   const originalLoadLeadSummary =
     api.loadLeadSummary.bind(api)
 
-  // Só orientação pronta entra em cache. Erro, método ausente/inválido e
-  // qualquer estado transitório precisam poder ser consultados novamente.
-  // Uma falha temporária nunca pode ficar congelada para o mesmo resumo.
+  // Somente resultados semânticos terminais entram em cache: orientação
+  // pronta ou decisão explícita de que não há ação comercial agora. Erros,
+  // método ausente/inválido e estados transitórios precisam poder ser
+  // consultados novamente.
   const readyGuidanceCache = new Map()
   const inFlight = new Map()
   let lastScheduledRequest = null
@@ -98,7 +99,10 @@
   function rememberIfReady(key, guidance) {
     if (
       key &&
-      guidance?.status === 'ready'
+      (
+        guidance?.status === 'ready' ||
+        guidance?.status === 'not_applicable'
+      )
     ) {
       readyGuidanceCache.set(key, guidance)
       return
