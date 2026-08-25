@@ -54,6 +54,8 @@
       '.yolen-method-guidance-next-step{color:#f5f9ff;font-size:13px;font-weight:700;line-height:1.55;}' +
       '.yolen-method-guidance-meta{margin-top:8px;color:#93a6bf;font-size:10px;font-weight:700;line-height:1.4;}' +
       '.yolen-method-guidance-note{margin-top:12px;padding-top:10px;border-top:1px solid rgba(126,153,194,.12);color:#9fb0c6;font-size:11px;line-height:1.45;}' +
+      '.yolen-method-guidance-error-detail{margin-top:6px;color:#7f91aa;font-size:10px;line-height:1.45;}' +
+      '.yolen-method-guidance-retry{margin-top:9px;}' +
       '</style>'
     )
   }
@@ -267,9 +269,22 @@
     }
 
     if (guidance.status === 'error') {
+      const technicalDetail =
+        typeof guidance.error === 'string' && guidance.error.trim()
+          ? guidance.error.trim()
+          : ''
+
       return (
         '<div class="yolen-method-guidance-note">' +
         'Não foi possível definir o próximo passo agora.' +
+        (technicalDetail
+          ? '<div class="yolen-method-guidance-error-detail">' +
+              escapeHtml(technicalDetail) +
+            '</div>'
+          : '') +
+        '<button type="button" class="yolen-secondary-button yolen-method-guidance-retry" data-yolen-action="retry-method-guidance">' +
+        'Tentar novamente' +
+        '</button>' +
         '</div>'
       )
     }
