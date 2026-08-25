@@ -70,9 +70,12 @@ function createHarness() {
       if (failGuidance) {
         return {
           ok: false,
+          status: 503,
           async json() {
             return {
               ok: false,
+              code: 'METHOD_GUIDANCE_TEMPORARY_FAILURE',
+              retryable: true,
               error: 'Falha simulada',
             }
           },
@@ -81,6 +84,7 @@ function createHarness() {
 
       return {
         ok: true,
+        status: 200,
         async json() {
           return {
             ok: true,
@@ -153,7 +157,7 @@ test('resumo volta imediatamente enquanto o próximo passo é calculado em paral
   assert.equal(harness.guidanceFetchCount, 1)
 })
 
-test('mesmo resumo reutiliza a orientação do método sem nova chamada de IA', async () => {
+test('mesmo resumo reutiliza somente orientação pronta sem nova chamada de IA', async () => {
   const harness = createHarness()
 
   const first = await harness.api.loadLeadSummary(payload)
@@ -181,25 +185,71 @@ test('resumo alterado gera nova orientação para o novo contexto', async () => 
   assert.equal(harness.guidanceFetchCount, 2)
 })
 
-test('falha no próximo passo não apaga nem transforma o resumo em erro', async () => {
+test('falha no próximo passo não apaga o resumo nem entra em cache', async () => {
+  const harness = createHarness()
+  harness.setFailGuidance(true)
+
+  const first = await harness.api.loadLeadSummary(payload)
+
+  assert.equal(first.ok, true)
+  assert.equal(
+    first.payload.data.working_summary,
+    'Resumo inicial do relacionamento comercial.',
+  )
+  assert.equal(first.payload.data.method_guidance.status, 'loading')
+
+  await flushAsyncWork()
+
+  assert.equal(first.payload.data.method_guidance.status, 'error')
+  assert.equal(
+    first.payload.data.method_guidance.error_code,
+    'METHOD_GUIDANCE_TEMPORARY_FAILURE',
+  )
+
+  harness.setFailGuidance(false)
+
+  const second = await harness.api.loadLeadSummary(payload)
+  assert.equal(second.payload.data.method_guidance.status, 'loading')
+
+  await flushAsyncWork()
+
+  assert.equal(second.payload.data.method_guidance.status, 'ready')
+  assert.equal(harness.guidanceFetchCount, 2)
+})
+
+test('botão de tentar novamente refaz uma orientação que falhou', async () => {
   const harness = createHarness()
   harness.setFailGuidance(true)
 
   const result = await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
 
-  assert.equal(result.ok, true)
-  assert.equal(
-    result.payload.data.working_summary,
-    'Resumo inicial do relacionamento comercial.',
-  )
+  assert.equal(result.payload.data.method_guidance.status, 'error')
+  assert.equal(harness.guidanceFetchCount, 1)
+
+  harness.setFailGuidance(false)
+
+  const clickListener = harness.listeners.get('click')
+  clickListener({
+    preventDefault() {},
+    target: {
+      closest(selector) {
+        return selector === '[data-yolen-action="retry-method-guidance"]'
+          ? {}
+          : null
+      },
+    },
+  })
+
   assert.equal(result.payload.data.method_guidance.status, 'loading')
 
   await flushAsyncWork()
 
-  assert.equal(result.payload.data.method_guidance.status, 'error')
+  assert.equal(result.payload.data.method_guidance.status, 'ready')
+  assert.equal(harness.guidanceFetchCount, 2)
 })
 
-test('refresh explícito invalida orientação cacheada', async () => {
+test('refresh explícito invalida orientação pronta cacheada', async () => {
   const harness = createHarness()
 
   await harness.api.loadLeadSummary(payload)
