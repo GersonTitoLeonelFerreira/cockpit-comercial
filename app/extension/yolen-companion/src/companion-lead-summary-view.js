@@ -210,6 +210,14 @@
       return ''
     }
 
+    if (guidance.status === 'loading') {
+      return (
+        '<div class="yolen-method-guidance-note">' +
+        'Definindo próximo passo pelo método…' +
+        '</div>'
+      )
+    }
+
     if (
       guidance.status === 'ready' &&
       typeof guidance.next_step === 'string' &&
@@ -316,7 +324,9 @@
       ' · ' +
       escapeHtml(savedMeta) +
       '</div>' +
+      '<div data-yolen-method-guidance-slot>' +
       renderMethodGuidance(data.method_guidance) +
+      '</div>' +
       '<input type="hidden" data-yolen-textarea="lead-summary" value="' +
       escapeHtml(workingSummary) +
       '">' +
