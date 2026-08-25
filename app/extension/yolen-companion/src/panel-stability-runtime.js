@@ -13,7 +13,6 @@
     nearBottom: false,
   }
   let intentFocusSnapshot = null
-  let pendingIntentPointerScrollTop = null
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
@@ -111,46 +110,6 @@
     )
   }
 
-  function restoreIntentPointerScroll(targetPanel) {
-    if (
-      !targetPanel ||
-      pendingIntentPointerScrollTop === null
-    ) {
-      return
-    }
-
-    const intendedTop = pendingIntentPointerScrollTop
-    pendingIntentPointerScrollTop = null
-
-    const restore = () => {
-      const currentPanel = getPanel()
-
-      if (!currentPanel) {
-        return
-      }
-
-      const maxScroll = Math.max(
-        0,
-        currentPanel.scrollHeight - currentPanel.clientHeight,
-      )
-
-      currentPanel.scrollTop = Math.min(
-        intendedTop,
-        maxScroll,
-      )
-
-      captureScroll(currentPanel)
-    }
-
-    queueMicrotask(() => {
-      restore()
-
-      root.requestAnimationFrame(() => {
-        restore()
-      })
-    })
-  }
-
   function restoreIntentFocus() {
     if (!intentFocusSnapshot?.focused) {
       return
@@ -189,7 +148,7 @@
           intentFocusSnapshot.direction,
         )
       } catch {
-        // O foco já foi restaurado; seleção é apenas melhoria de UX.
+        // Seleção é apenas melhoria de UX.
       }
     }
   }
@@ -263,7 +222,6 @@
         nearBottom: false,
       }
       intentFocusSnapshot = null
-      pendingIntentPointerScrollTop = null
       restoreSequence += 1
       restoring = false
       currentPanel.scrollTop = 0
@@ -277,43 +235,89 @@
     restorePanelInteraction(currentPanel)
   }
 
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      if (!event.target?.matches?.(INTENT_SELECTOR)) {
-        return
-      }
-
-      const currentPanel = getPanel()
-
-      if (!currentPanel) {
-        return
-      }
-
-      pendingIntentPointerScrollTop = currentPanel.scrollTop
-      captureScroll(currentPanel)
-    },
-    true,
-  )
-
+  // Firefox pode rolar o overflow ancestor quando aplica o foco nativo em
+  // um textarea dentro de um painel fixed. O default action do mousedown é
+  // bloqueado e o foco é aplicado manualmente com preventScroll antes que o
+  // navegador tenha oportunidade de reposicionar o Companion.
   document.addEventListener(
     'mousedown',
     (event) => {
-      if (!event.target?.matches?.(INTENT_SELECTOR)) {
+      const input = event.target?.closest?.(INTENT_SELECTOR)
+
+      if (!input) {
         return
       }
 
       const currentPanel = getPanel()
 
-      if (!currentPanel) {
+      if (!currentPanel || !currentPanel.contains(input)) {
         return
       }
 
-      if (pendingIntentPointerScrollTop === null) {
-        pendingIntentPointerScrollTop = currentPanel.scrollTop
+      const intendedTop = currentPanel.scrollTop
+      const wasFocused = document.activeElement === input
+      const selectionStart =
+        Number.isInteger(input.selectionStart)
+          ? input.selectionStart
+          : String(input.value || '').length
+      const selectionEnd =
+        Number.isInteger(input.selectionEnd)
+          ? input.selectionEnd
+          : selectionStart
+      const selectionDirection =
+        typeof input.selectionDirection === 'string'
+          ? input.selectionDirection
+          : 'none'
+
+      event.preventDefault()
+
+      try {
+        input.focus({ preventScroll: true })
+      } catch {
+        input.focus()
       }
 
+      if (typeof input.setSelectionRange === 'function') {
+        const valueLength = String(input.value || '').length
+        const fallbackCaret = valueLength
+        const start = wasFocused
+          ? Math.min(selectionStart, valueLength)
+          : fallbackCaret
+        const end = wasFocused
+          ? Math.min(selectionEnd, valueLength)
+          : fallbackCaret
+
+        try {
+          input.setSelectionRange(
+            start,
+            end,
+            selectionDirection,
+          )
+        } catch {
+          // O campo continua utilizável mesmo sem ajuste fino do cursor.
+        }
+      }
+
+      currentPanel.scrollTop = intendedTop
       captureScroll(currentPanel)
+      captureIntentSelection(input)
+
+      root.requestAnimationFrame(() => {
+        const latestPanel = getPanel()
+
+        if (!latestPanel) {
+          return
+        }
+
+        latestPanel.scrollTop = Math.min(
+          intendedTop,
+          Math.max(
+            0,
+            latestPanel.scrollHeight - latestPanel.clientHeight,
+          ),
+        )
+        captureScroll(latestPanel)
+      })
     },
     true,
   )
@@ -323,12 +327,10 @@
     (event) => {
       if (event.target?.matches?.(INTENT_SELECTOR)) {
         captureIntentSelection(event.target)
-        restoreIntentPointerScroll(getPanel())
         return
       }
 
       intentFocusSnapshot = null
-      pendingIntentPointerScrollTop = null
     },
     true,
   )
