@@ -157,6 +157,33 @@ test('orientação V2 aceita etapa do método convertido e exige próximo passo 
   assert.match(guidance.next_step, /impacto a perda de follow-ups/i)
 })
 
+test('orientação curta mas específica não é descartada por tamanho arbitrário', async () => {
+  const method = normalizePublishedCommercialMethod(
+    publishedV1,
+    legacySteps,
+  )
+
+  const provider = async () => ({
+    content: JSON.stringify({
+      stage_key: 'legacy_step_2',
+      stage_reason: 'Ainda falta confirmar o impacto financeiro.',
+      next_step: 'Confirme o valor exato em aberto na CDL.',
+    }),
+    provider: 'test',
+  })
+
+  const guidance = await composeLeadMethodGuidance({
+    workingSummary:
+      'A cliente questiona uma cobrança anterior e aguarda conferência junto à CDL.',
+    method,
+    provider,
+  })
+
+  assert.equal(guidance.status, 'ready')
+  assert.equal(guidance.stage_name, 'Diagnóstico da necessidade')
+  assert.equal(guidance.next_step, 'Confirme o valor exato em aberto na CDL.')
+})
+
 test('orientação genérica é rejeitada', async () => {
   const method = normalizePublishedCommercialMethod(
     publishedV1,
