@@ -4,6 +4,7 @@ import type {
 } from './commercial-method-contract'
 
 import {
+  COMMERCIAL_METHOD_CONTRACT_VERSION,
   validateCommercialMethodDefinition,
 } from './commercial-method-contract'
 
@@ -34,6 +35,15 @@ export type PublishedCommercialMethod = {
   version_number: number | null
   name: string
   definition: CommercialMethodDefinition
+}
+
+type LegacyCommercialMethodStep = {
+  step_order: number
+  name: string
+  objective: string
+  completion_criteria: string[]
+  recommended_questions: string[]
+  is_required: boolean
 }
 
 const PROMPT_VERSION = 'lead-method-guidance-v1'
@@ -81,6 +91,16 @@ function normalizeText(value: unknown): string | null {
   return normalized || null
 }
 
+function normalizeTextArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(normalizeText)
+    .filter((item): item is string => Boolean(item))
+}
+
 function buildEmptyGuidance(
   status: LeadMethodGuidanceStatus,
   method?: PublishedCommercialMethod | null,
@@ -98,8 +118,100 @@ function buildEmptyGuidance(
   }
 }
 
+function normalizeLegacyMethodSteps(value: unknown): LegacyCommercialMethodStep[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((rawStep) => {
+      if (!isRecord(rawStep)) {
+        return null
+      }
+
+      const stepOrder = rawStep.step_order
+      const name = normalizeText(rawStep.name)
+      const objective = normalizeText(rawStep.objective)
+      const completionCriteria = normalizeTextArray(
+        rawStep.completion_criteria,
+      )
+      const recommendedQuestions = normalizeTextArray(
+        rawStep.recommended_questions,
+      )
+
+      if (
+        !Number.isSafeInteger(stepOrder) ||
+        Number(stepOrder) <= 0 ||
+        !name ||
+        !objective ||
+        completionCriteria.length === 0
+      ) {
+        return null
+      }
+
+      return {
+        step_order: Number(stepOrder),
+        name,
+        objective,
+        completion_criteria: completionCriteria,
+        recommended_questions: recommendedQuestions,
+        is_required: rawStep.is_required !== false,
+      }
+    })
+    .filter((step): step is LegacyCommercialMethodStep => Boolean(step))
+    .sort((left, right) => left.step_order - right.step_order)
+}
+
+function buildMethodFromLegacySteps({
+  configuredName,
+  configuredDescription,
+  legacySteps,
+}: {
+  configuredName: string
+  configuredDescription: string | null
+  legacySteps: LegacyCommercialMethodStep[]
+}): CommercialMethodDefinition | null {
+  if (legacySteps.length === 0) {
+    return null
+  }
+
+  const definition: CommercialMethodDefinition = {
+    contract_version: COMMERCIAL_METHOD_CONTRACT_VERSION,
+    name: configuredName,
+    description:
+      configuredDescription ||
+      `Método comercial ${configuredName} configurado na Yolen.`,
+    principles: [
+      'O método orienta o raciocínio comercial sem transformar as etapas em um checklist mecânico.',
+      'Evidências já existentes no relacionamento podem satisfazer etapas sem exigir que o vendedor repita perguntas.',
+    ],
+    stages: legacySteps.map((step) => ({
+      key: `legacy_step_${step.step_order}`,
+      display_order: step.step_order,
+      name: step.name,
+      objective: step.objective,
+      requirement: step.is_required ? 'required' : 'optional',
+      completion_criteria: step.completion_criteria,
+      partial_completion_criteria: [],
+      skip_conditions: [],
+      recommended_questions: step.recommended_questions,
+      common_mistakes: [],
+      deepen_when: [],
+      sufficient_when: step.completion_criteria,
+      advance_when: step.completion_criteria,
+      wait_when: [],
+      stop_asking_when: step.completion_criteria,
+      dimensions: [],
+    })),
+  }
+
+  const validation = validateCommercialMethodDefinition(definition)
+  return validation.valid ? definition : null
+}
+
 export function normalizePublishedCommercialMethod(
   value: unknown,
+  legacyStepsValue: unknown = [],
 ): PublishedCommercialMethod | null {
   if (!isRecord(value)) {
     return null
@@ -107,27 +219,49 @@ export function normalizePublishedCommercialMethod(
 
   const id = normalizeText(value.id)
   const configuredName = normalizeText(value.commercial_method_name)
-  const definition = value.commercial_method_definition
+  const configuredDescription = normalizeText(
+    value.commercial_method_description,
+  )
+  const rawDefinition = value.commercial_method_definition
 
-  if (!id || !isRecord(definition)) {
+  if (!id || !configuredName) {
     return null
   }
 
-  let validation
+  if (isRecord(rawDefinition)) {
+    try {
+      const typedDefinition = rawDefinition as CommercialMethodDefinition
+      const validation = validateCommercialMethodDefinition(typedDefinition)
 
-  try {
-    validation = validateCommercialMethodDefinition(
-      definition as CommercialMethodDefinition,
-    )
-  } catch {
-    return null
+      if (validation.valid) {
+        return {
+          id,
+          version_number:
+            typeof value.version_number === 'number' &&
+            Number.isFinite(value.version_number)
+              ? value.version_number
+              : null,
+          name: configuredName || typedDefinition.name,
+          definition: typedDefinition,
+        }
+      }
+    } catch {
+      // Configurações publicadas em commercial-method-v1 podem não possuir
+      // a estrutura v2 embutida. Nesse caso, usamos os passos persistidos
+      // oficialmente em company_commercial_method_steps logo abaixo.
+    }
   }
 
-  if (!validation.valid) {
+  const legacySteps = normalizeLegacyMethodSteps(legacyStepsValue)
+  const legacyDefinition = buildMethodFromLegacySteps({
+    configuredName,
+    configuredDescription,
+    legacySteps,
+  })
+
+  if (!legacyDefinition) {
     return null
   }
-
-  const typedDefinition = definition as CommercialMethodDefinition
 
   return {
     id,
@@ -136,8 +270,8 @@ export function normalizePublishedCommercialMethod(
       Number.isFinite(value.version_number)
         ? value.version_number
         : null,
-    name: configuredName || typedDefinition.name,
-    definition: typedDefinition,
+    name: configuredName,
+    definition: legacyDefinition,
   }
 }
 
