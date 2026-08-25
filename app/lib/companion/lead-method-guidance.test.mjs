@@ -121,16 +121,28 @@ test('orientação V2 aceita etapa do método convertido e exige próximo passo 
     legacySteps,
   )
 
-  const provider = async () => ({
-    content: JSON.stringify({
-      stage_key: 'legacy_step_2',
-      stage_reason:
-        'O problema de follow-up já apareceu, mas o impacto e o resultado esperado ainda precisam ser confirmados.',
-      next_step:
-        'Confirme com a cliente qual impacto a perda de follow-ups gera hoje e obtenha um exemplo concreto de oportunidade perdida antes de voltar à proposta.',
-    }),
-    provider: 'test',
-  })
+  const provider = async (request) => {
+    assert.deepEqual(
+      request.structured_output_format.schema.properties.stage_key.enum,
+      [
+        'legacy_step_1',
+        'legacy_step_2',
+        'legacy_step_3',
+        'legacy_step_4',
+      ],
+    )
+
+    return {
+      content: JSON.stringify({
+        stage_key: 'legacy_step_2',
+        stage_reason:
+          'O problema de follow-up já apareceu, mas o impacto e o resultado esperado ainda precisam ser confirmados.',
+        next_step:
+          'Confirme com a cliente qual impacto a perda de follow-ups gera hoje e obtenha um exemplo concreto de oportunidade perdida antes de voltar à proposta.',
+      }),
+      provider: 'test',
+    }
+  }
 
   const guidance = await composeLeadMethodGuidance({
     workingSummary:
