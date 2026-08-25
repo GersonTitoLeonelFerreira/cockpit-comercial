@@ -230,7 +230,10 @@
       '.yolen-method-guidance-label',
     )
 
-    if (guidanceLabel) {
+    if (
+      guidanceLabel &&
+      guidanceLabel.textContent !== 'Orientação da Yolen'
+    ) {
       guidanceLabel.textContent = 'Orientação da Yolen'
     }
 
@@ -281,7 +284,7 @@
       ? `<div class="yolen-seller-message-note">${escapeHtml(state.feedback)}</div>`
       : ''
 
-    box.innerHTML = [
+    const html = [
       '<div class="yolen-seller-message-box">',
       '<div class="yolen-seller-message-title">O que você quer fazer agora?</div>',
       '<div class="yolen-seller-message-help">A orientação acima é uma recomendação. Diga o que você quer comunicar e a Yolen prepara a mensagem.</div>',
@@ -304,6 +307,21 @@
       feedbackHtml,
       '</div>',
     ].join('')
+
+    const renderKey = hashText(html)
+
+    if (
+      box.getAttribute('data-yolen-render-key') ===
+      renderKey
+    ) {
+      return
+    }
+
+    box.setAttribute(
+      'data-yolen-render-key',
+      renderKey,
+    )
+    box.innerHTML = html
   }
 
   function queueRender() {
