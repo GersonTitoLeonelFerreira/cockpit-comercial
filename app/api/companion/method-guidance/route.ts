@@ -115,7 +115,20 @@ export async function POST(request: Request) {
     const { data: publishedConfigRow, error: methodError } = await admin
       .from('company_commercial_config_versions')
       .select(
-        'id, version_number, commercial_method_name, commercial_method_description',
+        [
+          'id',
+          'version_number',
+          'commercial_method_name',
+          'commercial_method_description',
+          'commercial_method_contract_version',
+          'commercial_method_definition',
+          'business_description',
+          'target_audience',
+          'value_proposition',
+          'communication_tone',
+          'required_behaviors',
+          'prohibited_behaviors',
+        ].join(', '),
       )
       .eq('company_id', identity.company_id)
       .eq('status', 'published')
@@ -137,8 +150,45 @@ export async function POST(request: Request) {
       )
     }
 
+    let legacyMethodSteps: unknown[] = []
+
+    if (publishedConfigRow?.id) {
+      const { data: methodStepsData, error: methodStepsError } = await admin
+        .from('company_commercial_method_steps')
+        .select(
+          [
+            'step_order',
+            'name',
+            'objective',
+            'completion_criteria',
+            'recommended_questions',
+            'is_required',
+          ].join(', '),
+        )
+        .eq('company_id', identity.company_id)
+        .eq('config_version_id', publishedConfigRow.id)
+        .order('step_order', { ascending: true })
+
+      if (methodStepsError) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: 'METHOD_GUIDANCE_CONFIG_LOAD_FAILED',
+            error: 'Não foi possível carregar a estrutura do método comercial publicado.',
+          },
+          {
+            status: 500,
+            headers: corsHeaders,
+          },
+        )
+      }
+
+      legacyMethodSteps = methodStepsData ?? []
+    }
+
     const method = normalizePublishedCommercialMethod(
       publishedConfigRow,
+      legacyMethodSteps,
     )
 
     if (publishedConfigRow && !method) {
