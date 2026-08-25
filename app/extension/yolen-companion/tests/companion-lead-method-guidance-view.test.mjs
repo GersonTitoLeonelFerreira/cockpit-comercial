@@ -19,6 +19,25 @@ function buildState(methodGuidance) {
   }
 }
 
+test('resumo aparece enquanto o próximo passo ainda está sendo definido', () => {
+  const html = view.renderLeadSummarySection(
+    buildState({
+      status: 'loading',
+      method_name: null,
+      method_config_version_id: null,
+      stage_key: null,
+      stage_name: null,
+      stage_reason: null,
+      next_step: null,
+      error: null,
+    }),
+  )
+
+  assert.match(html, /Larissa conhece a proposta da Yolen/)
+  assert.match(html, /Definindo próximo passo pelo método/)
+  assert.match(html, /data-yolen-method-guidance-slot/)
+})
+
 test('mostra próximo passo específico com método e etapa', () => {
   const html = view.renderLeadSummarySection(
     buildState({
