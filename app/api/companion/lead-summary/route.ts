@@ -1,18 +1,71 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+
+import {
+  computeConversationWatermark,
+  loadCanonicalMessages,
+  type CanonicalConversationMessage,
+} from '../../../lib/server/companion-conversation-registration-loader'
 
 import {
   CompanionLeadSummaryError,
   getCompanionLeadConversationSummary,
   resolveCompanionLeadIdentity,
+  type CompanionLeadConversationSummary,
+  type CompanionLeadIdentity,
 } from '../../../lib/server/companion-lead-summary-store'
 
 import { verifyCompanionRequestToken } from '../../../lib/server/companion-token'
+
+import {
+  createStatefulCopilotOpenAIProvider,
+} from '../../../lib/companion/stateful-copilot-openai-provider'
 
 type LeadSummaryBody = {
   cycle_id?: unknown
   conversation_key?: unknown
 }
+
+type JsonRecord = Record<string, unknown>
+
+type LegacyHistoryEntry = {
+  created_at: string
+  conversation_summary: string
+  customer_interests: string[]
+  objections: string[]
+}
+
+type SummarySource =
+  | 'canonical'
+  | 'canonical_plus_conversation'
+  | 'legacy_history'
+  | 'legacy_history_plus_conversation'
+  | 'conversation_only'
+  | 'empty'
+
+const LEAD_SUMMARY_PROMPT_VERSION = 'lead-summary-v1'
+const LEAD_SUMMARY_CONTRACT_VERSION = 'lead-summary-v1'
+const MAX_WORKING_SUMMARY_LENGTH = 8000
+
+const LEAD_SUMMARY_STRUCTURED_OUTPUT_FORMAT = {
+  type: 'json_schema',
+  name: 'yolen_lead_working_summary_v1',
+  description:
+    'Resumo factual consolidado do relacionamento comercial de um lead.',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      working_summary: {
+        type: 'string',
+        description:
+          'Resumo factual consolidado, sem recomendação, coaching ou mensagem sugerida.',
+      },
+    },
+    required: ['working_summary'],
+  },
+} as const
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -38,6 +91,278 @@ function getCorsHeaders(request: Request) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     Vary: 'Origin',
   }
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim()
+  return normalized || null
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map(normalizeString)
+    .filter((item): item is string => Boolean(item))
+}
+
+function normalizeLegacyHistoryRows(data: unknown): LegacyHistoryEntry[] {
+  if (!Array.isArray(data)) {
+    return []
+  }
+
+  const entries: LegacyHistoryEntry[] = []
+
+  for (const row of data) {
+    if (!isRecord(row) || typeof row.created_at !== 'string' || !isRecord(row.coaching)) {
+      continue
+    }
+
+    const conversationSummary = normalizeString(row.coaching.conversation_summary)
+
+    if (!conversationSummary) {
+      continue
+    }
+
+    entries.push({
+      created_at: row.created_at,
+      conversation_summary: conversationSummary,
+      customer_interests: normalizeStringArray(row.coaching.customer_interests),
+      objections: normalizeStringArray(row.coaching.objections),
+    })
+  }
+
+  entries.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+
+  return entries
+}
+
+function dedupeLegacyHistory(entries: LegacyHistoryEntry[]): LegacyHistoryEntry[] {
+  const seen = new Set<string>()
+  const result: LegacyHistoryEntry[] = []
+
+  for (const entry of entries) {
+    const key = JSON.stringify({
+      conversation_summary: entry.conversation_summary,
+      customer_interests: entry.customer_interests,
+      objections: entry.objections,
+    })
+
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    result.push(entry)
+  }
+
+  return result
+}
+
+async function loadLegacyHistory({
+  admin,
+  identity,
+}: {
+  admin: SupabaseClient
+  identity: CompanionLeadIdentity
+}): Promise<LegacyHistoryEntry[]> {
+  const { data, error } = await admin
+    .from('ai_coaching_notes')
+    .select('created_at, coaching')
+    .eq('company_id', identity.company_id)
+    .eq('cycle_id', identity.cycle_id)
+
+  if (error) {
+    throw new CompanionLeadSummaryError({
+      code: 'LEAD_SUMMARY_HISTORY_FAILED',
+      message: 'Não foi possível carregar o histórico comercial já salvo deste lead.',
+      status_code: 500,
+      retryable: true,
+    })
+  }
+
+  return normalizeLegacyHistoryRows(data)
+}
+
+async function loadMessagesForSummary({
+  admin,
+  identity,
+}: {
+  admin: SupabaseClient
+  identity: CompanionLeadIdentity
+}): Promise<CanonicalConversationMessage[]> {
+  try {
+    return await loadCanonicalMessages({
+      admin,
+      companyId: identity.company_id,
+      cycleId: identity.cycle_id,
+      conversationKey: identity.conversation_key,
+    })
+  } catch {
+    throw new CompanionLeadSummaryError({
+      code: 'LEAD_SUMMARY_MESSAGES_FAILED',
+      message: 'Não foi possível carregar as mensagens atuais desta conversa.',
+      status_code: 500,
+      retryable: true,
+    })
+  }
+}
+
+function getUsableMessages(messages: CanonicalConversationMessage[]) {
+  return messages.filter(
+    (message) => !message.is_deleted && typeof message.text === 'string' && message.text.trim(),
+  )
+}
+
+function getMessagesAfter(
+  messages: CanonicalConversationMessage[],
+  isoTimestamp: string | null,
+) {
+  if (!isoTimestamp) {
+    return messages
+  }
+
+  const threshold = Date.parse(isoTimestamp)
+
+  if (!Number.isFinite(threshold)) {
+    return messages
+  }
+
+  return messages.filter((message) => Date.parse(message.occurred_at) > threshold)
+}
+
+function formatHistoryForPrompt(entries: LegacyHistoryEntry[]) {
+  return entries.map((entry) => ({
+    created_at: entry.created_at,
+    conversation_summary: entry.conversation_summary,
+    customer_interests: entry.customer_interests,
+    objections: entry.objections,
+  }))
+}
+
+function formatMessagesForPrompt(messages: CanonicalConversationMessage[]) {
+  return messages.map((message) => ({
+    occurred_at: message.occurred_at,
+    speaker: message.direction === 'incoming' ? 'cliente' : 'vendedor',
+    kind: message.content_type,
+    text: message.text,
+  }))
+}
+
+function resolveSource({
+  savedSummary,
+  legacyHistory,
+  messagesForPrompt,
+  needsComposition,
+}: {
+  savedSummary: CompanionLeadConversationSummary | null
+  legacyHistory: LegacyHistoryEntry[]
+  messagesForPrompt: CanonicalConversationMessage[]
+  needsComposition: boolean
+}): SummarySource {
+  if (savedSummary) {
+    return needsComposition ? 'canonical_plus_conversation' : 'canonical'
+  }
+
+  if (legacyHistory.length > 0) {
+    return messagesForPrompt.length > 0
+      ? 'legacy_history_plus_conversation'
+      : 'legacy_history'
+  }
+
+  if (messagesForPrompt.length > 0) {
+    return 'conversation_only'
+  }
+
+  return 'empty'
+}
+
+async function composeWorkingSummary({
+  savedSummary,
+  legacyHistory,
+  messages,
+}: {
+  savedSummary: CompanionLeadConversationSummary | null
+  legacyHistory: LegacyHistoryEntry[]
+  messages: CanonicalConversationMessage[]
+}): Promise<string | null> {
+  if (!savedSummary && legacyHistory.length === 0 && messages.length === 0) {
+    return null
+  }
+
+  const provider = createStatefulCopilotOpenAIProvider({
+    timeout_ms: 45_000,
+    max_output_tokens: 1800,
+  })
+
+  const response = await provider({
+    prompt_version: LEAD_SUMMARY_PROMPT_VERSION,
+    output_contract_version: LEAD_SUMMARY_CONTRACT_VERSION,
+    system_prompt: [
+      'Você é o motor V2 de resumo factual do Yolen Companion.',
+      'Produza um único resumo consolidado em português do Brasil.',
+      'O resumo deve registrar fatos do relacionamento: necessidades, dores, interesses, produtos/serviços/propostas discutidos, valores quando explicitamente registrados, objeções, dúvidas, critérios de decisão, compromissos, pendências e acontecimentos comerciais relevantes.',
+      'Preserve fatos históricos ainda relevantes mesmo quando a conversa mais recente for pessoal, neutra ou operacional.',
+      'Não transforme silêncio ou conversa pessoal em perda de interesse.',
+      'Não invente fatos e não repita a mesma informação em frases diferentes.',
+      'Quando houver informação nova que contradiga uma antiga, prefira a informação explícita mais recente e descreva a mudança quando isso for importante.',
+      'Não inclua coaching do vendedor, avaliação de condução, próximo passo, recomendação, estratégia ou mensagem sugerida.',
+      'Se houver apenas conversa pessoal e nenhum histórico comercial, descreva isso factualmente.',
+      `O texto final deve ter no máximo ${MAX_WORKING_SUMMARY_LENGTH} caracteres.`,
+    ].join('\n'),
+    user_prompt: JSON.stringify({
+      saved_summary: savedSummary?.summary ?? null,
+      legacy_yolen_history: formatHistoryForPrompt(legacyHistory),
+      current_or_new_messages: formatMessagesForPrompt(messages),
+    }),
+    structured_output_format: LEAD_SUMMARY_STRUCTURED_OUTPUT_FORMAT,
+  })
+
+  if (typeof response.content !== 'string') {
+    throw new CompanionLeadSummaryError({
+      code: 'LEAD_SUMMARY_COMPOSE_INVALID_OUTPUT',
+      message: 'A IA não retornou um resumo utilizável.',
+      status_code: 502,
+      retryable: true,
+    })
+  }
+
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(response.content)
+  } catch {
+    throw new CompanionLeadSummaryError({
+      code: 'LEAD_SUMMARY_COMPOSE_INVALID_JSON',
+      message: 'A IA retornou um formato inválido para o resumo.',
+      status_code: 502,
+      retryable: true,
+    })
+  }
+
+  const workingSummary =
+    isRecord(parsed) ? normalizeString(parsed.working_summary) : null
+
+  if (!workingSummary || workingSummary.length > MAX_WORKING_SUMMARY_LENGTH) {
+    throw new CompanionLeadSummaryError({
+      code: 'LEAD_SUMMARY_COMPOSE_INVALID_SUMMARY',
+      message: 'A IA retornou um resumo fora do contrato esperado.',
+      status_code: 502,
+      retryable: true,
+    })
+  }
+
+  return workingSummary
 }
 
 export async function OPTIONS(request: Request) {
@@ -100,11 +425,84 @@ export async function POST(request: Request) {
       conversation_key: body.conversation_key,
     })
 
-    const summary = await getCompanionLeadConversationSummary({
-      admin,
-      companyId: identity.company_id,
-      leadId: identity.lead_id,
+    const [summary, legacyHistoryRaw, canonicalMessages] = await Promise.all([
+      getCompanionLeadConversationSummary({
+        admin,
+        companyId: identity.company_id,
+        leadId: identity.lead_id,
+      }),
+      loadLegacyHistory({
+        admin,
+        identity,
+      }),
+      loadMessagesForSummary({
+        admin,
+        identity,
+      }),
+    ])
+
+    const legacyHistory = dedupeLegacyHistory(legacyHistoryRaw)
+    const usableMessages = getUsableMessages(canonicalMessages)
+    const currentWatermark = computeConversationWatermark(canonicalMessages)
+
+    let messagesForPrompt: CanonicalConversationMessage[] = []
+    let workingSummary: string | null = null
+    let needsComposition = false
+
+    if (summary) {
+      const watermarkChanged = summary.last_message_watermark !== currentWatermark
+
+      if (!watermarkChanged || usableMessages.length === 0) {
+        workingSummary = summary.summary
+      } else {
+        messagesForPrompt = getMessagesAfter(usableMessages, summary.updated_at)
+
+        // Uma edição/restauração antiga também muda o watermark. Se nada ficou
+        // cronologicamente "depois" do resumo, mande o snapshot canônico atual
+        // inteiro para que a IA consiga reconciliar a mudança sem perder fatos.
+        if (messagesForPrompt.length === 0) {
+          messagesForPrompt = usableMessages
+        }
+
+        needsComposition = true
+        workingSummary = await composeWorkingSummary({
+          savedSummary: summary,
+          legacyHistory: [],
+          messages: messagesForPrompt,
+        })
+      }
+    } else if (legacyHistory.length > 0) {
+      const latestHistoryAt = legacyHistory.at(-1)?.created_at ?? null
+      messagesForPrompt = getMessagesAfter(usableMessages, latestHistoryAt)
+      needsComposition = true
+      workingSummary = await composeWorkingSummary({
+        savedSummary: null,
+        legacyHistory,
+        messages: messagesForPrompt,
+      })
+    } else if (usableMessages.length > 0) {
+      messagesForPrompt = usableMessages
+      needsComposition = true
+      workingSummary = await composeWorkingSummary({
+        savedSummary: null,
+        legacyHistory: [],
+        messages: messagesForPrompt,
+      })
+    }
+
+    const source = resolveSource({
+      savedSummary: summary,
+      legacyHistory,
+      messagesForPrompt,
+      needsComposition,
     })
+
+    const hasUnsavedChanges = Boolean(
+      workingSummary &&
+        (!summary ||
+          summary.last_message_watermark !== currentWatermark ||
+          workingSummary !== summary.summary),
+    )
 
     return NextResponse.json(
       {
@@ -112,6 +510,13 @@ export async function POST(request: Request) {
         data: {
           identity,
           summary,
+          working_summary: workingSummary,
+          working_summary_source: source,
+          has_unsaved_changes: hasUnsavedChanges,
+          current_message_watermark: currentWatermark,
+          legacy_history_count: legacyHistoryRaw.length,
+          legacy_history_distinct_count: legacyHistory.length,
+          messages_used_count: messagesForPrompt.length,
         },
       },
       {
@@ -121,9 +526,6 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     if (error instanceof CompanionLeadSummaryError) {
-      // TEMP-DIAG-LEAD-SUMMARY — só código/status, nunca conteúdo do
-      // resumo, token ou dado pessoal. Remover quando a Etapa 1 estiver
-      // validada em produção real.
       console.error('[LEAD_SUMMARY_API] fetch failed', {
         code: error.code,
         status_code: error.status_code,
@@ -151,11 +553,12 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: false,
-        code: 'LEAD_SUMMARY_UNEXPECTED_ERROR',
-        error: 'Não foi possível carregar o resumo persistente do lead.',
+        code: 'LEAD_SUMMARY_COMPOSE_FAILED',
+        error: 'Não foi possível atualizar o resumo deste lead.',
+        retryable: true,
       },
       {
-        status: 500,
+        status: 502,
         headers: corsHeaders,
       },
     )
