@@ -41,16 +41,20 @@ const migrationSource =
   )
 
 test(
-  'snapshot é capturado antes do V1 seller-facing',
+  // Fase 12A — V2 como único motor: não existe mais chamada V1 nesta
+  // rota. O snapshot de tempo (analysisRequestedAt) é capturado logo no
+  // início do handler, antes de qualquer lookup, e usado como
+  // requested_at do job em segundo plano do V2.
+  'snapshot de tempo é capturado no início do handler, antes do job do V2',
   () => {
     const requestTime =
       routeSource.indexOf(
         'const analysisRequestedAt =',
       )
 
-    const v1 =
+    const jobDescriptor =
       routeSource.indexOf(
-        'const result = await analyzeConversationWithCopilotDetailed({',
+        'buildStatefulCopilotBackgroundJobDescriptor({',
       )
 
     assert.ok(
@@ -58,12 +62,21 @@ test(
     )
 
     assert.ok(
-      requestTime < v1,
+      jobDescriptor >= 0,
+    )
+
+    assert.ok(
+      requestTime < jobDescriptor,
     )
 
     assert.match(
       routeSource,
       /requested_at:\s*analysisRequestedAt/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /analyzeConversationWithCopilotDetailed/,
     )
   },
 )
