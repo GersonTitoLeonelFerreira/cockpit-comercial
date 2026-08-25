@@ -940,6 +940,14 @@
     )
   }
 
+  async function loadLeadSummary(payload) {
+    return sendToBackground('LOAD_LEAD_SUMMARY', payload)
+  }
+
+  async function saveLeadSummary(payload) {
+    return sendToBackground('SAVE_LEAD_SUMMARY', payload)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -960,5 +968,7 @@
     ingestCapturedMessages,
     previewConversationRegistration,
     confirmConversationRegistration,
+    loadLeadSummary,
+    saveLeadSummary,
   }
 })()

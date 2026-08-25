@@ -71,6 +71,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/capture-resilience.js',
   'src/capture-transport.js',
   'src/companion-client-context-view.js',
+  'src/companion-lead-summary-view.js',
   'src/companion-seller-information-view.js',
   'src/content-script.js',
   'src/conversation-registration-tools.js',

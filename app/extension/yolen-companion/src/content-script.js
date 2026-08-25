@@ -100,6 +100,10 @@
     globalThis
       .YolenCompanionSellerInformationView
 
+  const leadSummaryViewTools =
+    globalThis
+      .YolenCompanionLeadSummaryView
+
   if (!messageMutationTools) {
     throw new Error(
       'Módulo de integridade das mensagens do Companion não carregado.',
@@ -121,6 +125,12 @@
   if (!sellerInformationViewTools) {
     throw new Error(
       'Módulo de arquitetura seller-facing do Companion não carregado.',
+    )
+  }
+
+  if (!leadSummaryViewTools) {
+    throw new Error(
+      'Módulo do resumo persistente do lead não carregado.',
     )
   }
 
@@ -237,6 +247,14 @@
     },
     companionClientContextCycleId: null,
     companionClientContextConversationKey: null,
+    companionLeadSummary: {
+      status: 'idle',
+    },
+    companionLeadSummaryCycleId: null,
+    companionLeadSummaryConversationKey: null,
+    companionLeadSummarySaveStatus: null,
+    companionLeadSummarySaveError: null,
+    companionLeadSummaryDraftValue: null,
     autoLookupStatus: null,
     conversationAnalysisLoading: false,
     conversationAnalysis: null,
@@ -4461,6 +4479,14 @@
       },
       companionClientContextCycleId: null,
       companionClientContextConversationKey: null,
+      companionLeadSummary: {
+        status: 'idle',
+      },
+      companionLeadSummaryCycleId: null,
+      companionLeadSummaryConversationKey: null,
+      companionLeadSummarySaveStatus: null,
+      companionLeadSummarySaveError: null,
+      companionLeadSummaryDraftValue: null,
       autoLookupStatus: null,
       conversationAnalysisLoading: false,
       conversationAnalysis: null,
@@ -9497,6 +9523,197 @@
     }
   }
 
+  // Etapa 1 da reconstrução controlada do Companion: busca o resumo
+  // persistente do lead (public.companion_lead_conversation_summaries),
+  // nunca gera nem salva nada automaticamente — só busca o que já existe.
+  // Mesmo formato de carregamento/estado de loadCompanionClientContextForCurrentCycle,
+  // mas sem ticker/refresh por captura: o resumo só muda por ação explícita
+  // do vendedor (ver handleSaveLeadSummaryClick).
+  async function loadCompanionLeadSummaryForCurrentCycle() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'idle',
+        },
+        companionLeadSummaryCycleId: null,
+        companionLeadSummaryConversationKey: null,
+        companionLeadSummarySaveStatus: null,
+        companionLeadSummarySaveError: null,
+        companionLeadSummaryDraftValue: null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    state = {
+      ...state,
+      companionLeadSummary: {
+        status: 'loading',
+      },
+      companionLeadSummaryCycleId: cycleId,
+      companionLeadSummaryConversationKey: conversationKey,
+      companionLeadSummarySaveStatus: null,
+      companionLeadSummarySaveError: null,
+      companionLeadSummaryDraftValue: null,
+    }
+
+    renderPanel()
+
+    const isStillCurrentContext = () =>
+      state.companionLeadSummaryCycleId === cycleId &&
+      state.companionLeadSummaryConversationKey === conversationKey
+
+    try {
+      const result = await window.YolenCompanionApi.loadLeadSummary({
+        cycle_id: cycleId,
+        conversation_key: conversationKey,
+      })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        state = {
+          ...state,
+          companionLeadSummary: {
+            status: 'error',
+            error:
+              result?.payload?.error ||
+              'Não foi possível carregar o resumo salvo na Yolen.',
+          },
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch (error) {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'error',
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : 'Não foi possível carregar o resumo salvo na Yolen.',
+        },
+      }
+
+      renderPanel()
+    }
+  }
+
+  // Salva o resumo por ação EXPLÍCITA do vendedor (clique no botão) — nunca
+  // automaticamente. compare-and-set: envia expected_version = versão atual
+  // conhecida (ou null se ainda não existe nenhuma); um 409 significa que
+  // outra ação salvou uma versão mais nova nesse meio-tempo, e o cartão
+  // mostra o aviso de conflito em vez de sobrescrever.
+  async function handleSaveLeadSummaryClick(summaryText) {
+    const cycleId = state.leadResolution?.cycle?.id
+    const conversationKey = getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return
+    }
+
+    const expectedVersion =
+      state.companionLeadSummary?.data?.summary?.version ?? null
+
+    state = {
+      ...state,
+      companionLeadSummarySaveStatus: 'saving',
+      companionLeadSummarySaveError: null,
+      companionLeadSummaryDraftValue: summaryText,
+    }
+
+    renderPanel()
+
+    try {
+      const result = await window.YolenCompanionApi.saveLeadSummary({
+        cycle_id: cycleId,
+        conversation_key: conversationKey,
+        summary: summaryText,
+        expected_version: expectedVersion,
+      })
+
+      if (
+        state.leadResolution?.cycle?.id !== cycleId ||
+        getCaptureConversationKey() !== conversationKey
+      ) {
+        return
+      }
+
+      if (result?.payload?.code === 'LEAD_SUMMARY_VERSION_CONFLICT') {
+        state = {
+          ...state,
+          companionLeadSummarySaveStatus: 'conflict',
+          companionLeadSummarySaveError: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        state = {
+          ...state,
+          companionLeadSummarySaveStatus: 'error',
+          companionLeadSummarySaveError:
+            result?.payload?.error || 'Não foi possível salvar o resumo.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+        companionLeadSummarySaveStatus: null,
+        companionLeadSummarySaveError: null,
+        companionLeadSummaryDraftValue: null,
+      }
+
+      renderPanel()
+    } catch (error) {
+      state = {
+        ...state,
+        companionLeadSummarySaveStatus: 'error',
+        companionLeadSummarySaveError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Não foi possível salvar o resumo.',
+      }
+
+      renderPanel()
+    }
+  }
+
   function getCompanionClientRelationshipCardHtml() {
     if (
       state.companionClientContext
@@ -9515,6 +9732,27 @@
           state.companionClientContext,
           Date.now(),
         )}
+      </div>
+    `
+  }
+
+  function getCompanionLeadSummaryCardHtml() {
+    if (state.companionLeadSummary?.status === 'idle') {
+      return ''
+    }
+
+    return `
+      <div class="yolen-card yolen-lead-summary-card">
+        <div class="yolen-section-label">
+          Resumo salvo na Yolen
+        </div>
+
+        ${leadSummaryViewTools.renderLeadSummarySection({
+          ...state.companionLeadSummary,
+          saveStatus: state.companionLeadSummarySaveStatus,
+          saveError: state.companionLeadSummarySaveError,
+          draftValue: state.companionLeadSummaryDraftValue,
+        })}
       </div>
     `
   }
@@ -9689,16 +9927,20 @@
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
 
+    const leadSummaryHtml =
+      getCompanionLeadSummaryCardHtml()
+
     // TEMP-DIAG-FASE12A
     __fase12aDiag('CLIENTE', {
       has_commercial_reading: Boolean(commercialReading),
       has_commercial_html: Boolean(commercialHtml),
       has_relationship_html: Boolean(relationshipHtml),
+      has_lead_summary_html: Boolean(leadSummaryHtml),
       customer_counts:
         __fase12aDiagCustomerCounts(commercialReading),
     })
 
-    if (!commercialHtml && !relationshipHtml) {
+    if (!commercialHtml && !relationshipHtml && !leadSummaryHtml) {
       return `
         <div class="yolen-card yolen-seller-area-card">
           <div class="yolen-section-label">Cliente</div>
@@ -9712,6 +9954,7 @@
     return `
       ${commercialHtml}
       ${relationshipHtml}
+      ${leadSummaryHtml}
     `
   }
 
@@ -11513,6 +11756,13 @@
       cancelCurrentConversationRegistration()
     })
 
+    panel.querySelector('[data-yolen-action="save-lead-summary"]')?.addEventListener('click', () => {
+      const textarea = panel.querySelector('[data-yolen-textarea="lead-summary"]')
+      const summaryText = textarea ? textarea.value : ''
+
+      void handleSaveLeadSummaryClick(summaryText)
+    })
+
     restoreOpenDetails(
       panel,
       previouslyOpenDetailsKeys,
@@ -11931,6 +12181,7 @@
           // Independente da análise semântica: dado operacional puro, não
           // precisa esperar o debounce da análise automática.
           void loadCompanionClientContextForCurrentCycle()
+          void loadCompanionLeadSummaryForCurrentCycle()
         })
     } catch (error) {
       retainedPreResolutionCaptures.delete(

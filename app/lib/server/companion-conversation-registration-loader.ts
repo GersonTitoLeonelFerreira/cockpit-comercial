@@ -104,7 +104,7 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeUuid(value: unknown, path: string): string {
+export function normalizeUuid(value: unknown, path: string): string {
   if (typeof value !== 'string' || !UUID_PATTERN.test(value.trim())) {
     fail({
       code: 'INVALID_CONVERSATION_REGISTRATION_ARGUMENT',
@@ -117,7 +117,7 @@ function normalizeUuid(value: unknown, path: string): string {
   return value.trim().toLowerCase()
 }
 
-function normalizeConversationKey(value: unknown): string {
+export function normalizeConversationKey(value: unknown): string {
   if (typeof value !== 'string') {
     fail({
       code: 'INVALID_CONVERSATION_REGISTRATION_ARGUMENT',
@@ -167,7 +167,7 @@ function getRows(result: QueryResult, table: string): JsonRecord[] {
   return result.data.filter(isRecord)
 }
 
-async function validateMembership({
+export async function validateMembership({
   admin,
   companyId,
   userId,
@@ -210,7 +210,7 @@ async function validateMembership({
   return data.role
 }
 
-async function loadCycle({
+export async function loadCycle({
   admin,
   companyId,
   cycleId,
@@ -268,7 +268,7 @@ async function loadCycle({
   }
 }
 
-function validateCyclePermission({
+export function validateCyclePermission({
   role,
   ownerUserId,
   userId,
@@ -289,7 +289,7 @@ function validateCyclePermission({
   }
 }
 
-async function loadCanonicalMessages({
+export async function loadCanonicalMessages({
   admin,
   companyId,
   cycleId,

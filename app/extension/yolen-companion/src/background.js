@@ -543,6 +543,22 @@ async function handleCompanionMessage(message) {
     )
   }
 
+  if (message.action === 'LOAD_LEAD_SUMMARY') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/lead-summary',
+      message.payload,
+    )
+  }
+
+  if (message.action === 'SAVE_LEAD_SUMMARY') {
+    return requestYolenWithToken(
+      message,
+      '/api/companion/lead-summary/save',
+      message.payload,
+    )
+  }
+
   return {
     ok: false,
     statusCode: 400,

@@ -32,6 +32,7 @@
         "src/capture-resilience-null-base.js",
         "src/lead-enrichment.js",
         "src/companion-client-context-view.js",
+        "src/companion-lead-summary-view.js",
         "src/companion-seller-information-view.js",
         "src/content-script.js",
         "src/lead-automation.js"
