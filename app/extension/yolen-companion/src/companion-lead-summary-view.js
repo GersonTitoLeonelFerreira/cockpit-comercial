@@ -1,8 +1,8 @@
 ;(function initCompanionLeadSummaryView(root) {
-  // Etapa 1B — este módulo mostra o WORKING SUMMARY automático.
-  // O vendedor não escreve resumo manualmente. A única ação humana desta
-  // camada é confirmar quando o resumo atual deve virar memória persistida
-  // na Yolen.
+  // O Companion gira em torno do WORKING SUMMARY automático. O vendedor não
+  // escreve resumo manualmente. A orientação do método lê esse mesmo resumo
+  // e entrega somente o próximo passo; mensagem sugerida continua fora desta
+  // etapa da reconstrução.
 
   const COMPACT_SUMMARY_CHAR_THRESHOLD = 280
 
@@ -35,9 +35,6 @@
   }
 
   function renderModeStyles() {
-    // Enquanto AGORA está sendo reconstruído, o seller-facing antigo fica
-    // fora da tela. O resumo completo continua disponível sob demanda, mas
-    // a leitura cotidiana fica limitada a aproximadamente cinco linhas.
     return (
       '<style>' +
       '.yolen-lead-summary-card > .yolen-section-label{display:none!important;}' +
@@ -52,6 +49,11 @@
       '.yolen-lead-summary-details[open] .yolen-lead-summary-expand-label--closed{display:none;}' +
       '.yolen-lead-summary-details[open] .yolen-lead-summary-expand-label--open{display:inline-block;margin-top:0;}' +
       '.yolen-lead-summary-full-text{margin-top:9px;color:#edf5ff;font-size:12px;font-weight:600;line-height:1.55;white-space:pre-wrap;}' +
+      '.yolen-method-guidance{margin-top:13px;padding-top:13px;border-top:1px solid rgba(126,153,194,.16);}' +
+      '.yolen-method-guidance-label{color:#8ea0b8;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px;}' +
+      '.yolen-method-guidance-next-step{color:#f5f9ff;font-size:13px;font-weight:700;line-height:1.55;}' +
+      '.yolen-method-guidance-meta{margin-top:8px;color:#93a6bf;font-size:10px;font-weight:700;line-height:1.4;}' +
+      '.yolen-method-guidance-note{margin-top:12px;padding-top:10px;border-top:1px solid rgba(126,153,194,.12);color:#9fb0c6;font-size:11px;line-height:1.45;}' +
       '</style>'
     )
   }
@@ -203,6 +205,70 @@
     )
   }
 
+  function renderMethodGuidance(guidance) {
+    if (!guidance || guidance.status === 'no_summary') {
+      return ''
+    }
+
+    if (
+      guidance.status === 'ready' &&
+      typeof guidance.next_step === 'string' &&
+      guidance.next_step.trim()
+    ) {
+      const methodName =
+        typeof guidance.method_name === 'string'
+          ? guidance.method_name.trim()
+          : ''
+      const stageName =
+        typeof guidance.stage_name === 'string'
+          ? guidance.stage_name.trim()
+          : ''
+
+      const meta = [
+        methodName ? `Método: ${methodName}` : null,
+        stageName ? `Etapa: ${stageName}` : null,
+      ].filter(Boolean).join(' · ')
+
+      return (
+        '<div class="yolen-method-guidance">' +
+        '<div class="yolen-method-guidance-label">Próximo passo</div>' +
+        '<div class="yolen-method-guidance-next-step">' +
+        escapeHtml(guidance.next_step) +
+        '</div>' +
+        (meta
+          ? '<div class="yolen-method-guidance-meta">' + escapeHtml(meta) + '</div>'
+          : '') +
+        '</div>'
+      )
+    }
+
+    if (guidance.status === 'missing_method') {
+      return (
+        '<div class="yolen-method-guidance-note">' +
+        'Método comercial ainda não publicado na Yolen.' +
+        '</div>'
+      )
+    }
+
+    if (guidance.status === 'invalid_method') {
+      return (
+        '<div class="yolen-method-guidance-note">' +
+        'O método comercial publicado precisa ser revisado antes de orientar o próximo passo.' +
+        '</div>'
+      )
+    }
+
+    if (guidance.status === 'error') {
+      return (
+        '<div class="yolen-method-guidance-note">' +
+        'Não foi possível definir o próximo passo agora.' +
+        '</div>'
+      )
+    }
+
+    return ''
+  }
+
   function renderReadyState(state) {
     const data = state?.data || {}
     const savedSummary = data.summary || null
@@ -250,9 +316,7 @@
       ' · ' +
       escapeHtml(savedMeta) +
       '</div>' +
-      // O content-script existente lê `.value` de data-yolen-textarea.
-      // Mantemos apenas um input hidden de compatibilidade; não há campo
-      // editável/manual na interface.
+      renderMethodGuidance(data.method_guidance) +
       '<input type="hidden" data-yolen-textarea="lead-summary" value="' +
       escapeHtml(workingSummary) +
       '">' +
@@ -295,6 +359,7 @@
 
   const api = Object.freeze({
     renderLeadSummarySection,
+    renderMethodGuidance,
     escapeHtml,
     formatAbsoluteDate,
   })
