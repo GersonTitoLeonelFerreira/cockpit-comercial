@@ -304,7 +304,7 @@ function looksGeneric(nextStep: string) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  const genericOnly = [
+  const genericOnly = new Set([
     'retomar a negociacao',
     'acompanhar o lead',
     'fazer follow up',
@@ -312,12 +312,17 @@ function looksGeneric(nextStep: string) {
     'avancar a negociacao',
     'entrar em contato com o cliente',
     'aguardar retorno',
-  ]
+  ])
 
-  return (
-    normalized.length < 45 ||
-    genericOnly.includes(normalized)
-  )
+  if (!normalized) {
+    return true
+  }
+
+  if (genericOnly.has(normalized)) {
+    return true
+  }
+
+  return normalized.length < 18
 }
 
 export async function composeLeadMethodGuidance({
