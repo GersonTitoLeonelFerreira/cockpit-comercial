@@ -3,16 +3,25 @@
   const INTENT_SELECTOR = '[data-yolen-seller-message-intent]'
   const BOTTOM_THRESHOLD_PX = 80
 
+  const innerHtmlDescriptor =
+    typeof Element !== 'undefined'
+      ? Object.getOwnPropertyDescriptor(
+          Element.prototype,
+          'innerHTML',
+        )
+      : null
+
   let panel = null
   let conversationLabel = null
   let restoring = false
   let restoreSequence = 0
+  let interactionLocked = false
+  let pendingPanelHtml = null
   let scrollSnapshot = {
     top: 0,
     distanceFromBottom: 0,
     nearBottom: false,
   }
-  let intentFocusSnapshot = null
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
@@ -51,46 +60,6 @@
     }
   }
 
-  function captureIntentSelection(target) {
-    if (!target?.matches?.(INTENT_SELECTOR)) {
-      return
-    }
-
-    intentFocusSnapshot = {
-      focused: true,
-      start:
-        Number.isInteger(target.selectionStart)
-          ? target.selectionStart
-          : null,
-      end:
-        Number.isInteger(target.selectionEnd)
-          ? target.selectionEnd
-          : null,
-      direction:
-        typeof target.selectionDirection === 'string'
-          ? target.selectionDirection
-          : 'none',
-    }
-  }
-
-  function bindPanel(targetPanel) {
-    if (!targetPanel || targetPanel.__yolenStabilityBound === true) {
-      return
-    }
-
-    targetPanel.__yolenStabilityBound = true
-
-    targetPanel.addEventListener(
-      'scroll',
-      () => {
-        captureScroll(targetPanel)
-      },
-      { passive: true },
-    )
-
-    captureScroll(targetPanel)
-  }
-
   function getRestoreTop(targetPanel) {
     const maxScroll = Math.max(
       0,
@@ -110,51 +79,85 @@
     )
   }
 
-  function restoreIntentFocus() {
-    if (!intentFocusSnapshot?.focused) {
-      return
-    }
-
-    const input = document.querySelector(INTENT_SELECTOR)
-
-    if (!input) {
-      return
-    }
-
-    try {
-      input.focus({ preventScroll: true })
-    } catch {
-      input.focus()
-    }
-
+  function applyPanelHtml(targetPanel, html) {
     if (
-      intentFocusSnapshot.start !== null &&
-      typeof input.setSelectionRange === 'function'
+      !targetPanel ||
+      !innerHtmlDescriptor?.set
     ) {
-      const maxLength = String(input.value || '').length
-      const start = Math.min(
-        intentFocusSnapshot.start,
-        maxLength,
-      )
-      const end = Math.min(
-        intentFocusSnapshot.end ?? start,
-        maxLength,
-      )
-
-      try {
-        input.setSelectionRange(
-          start,
-          end,
-          intentFocusSnapshot.direction,
-        )
-      } catch {
-        // Seleção é apenas melhoria de UX.
-      }
+      return
     }
+
+    innerHtmlDescriptor.set.call(
+      targetPanel,
+      html,
+    )
+  }
+
+  function patchPanelInnerHtml(targetPanel) {
+    if (
+      !targetPanel ||
+      targetPanel.__yolenInnerHtmlGuardInstalled === true ||
+      !innerHtmlDescriptor?.get ||
+      !innerHtmlDescriptor?.set
+    ) {
+      return
+    }
+
+    targetPanel.__yolenInnerHtmlGuardInstalled = true
+
+    Object.defineProperty(
+      targetPanel,
+      'innerHTML',
+      {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return innerHtmlDescriptor.get.call(this)
+        },
+        set(value) {
+          if (
+            interactionLocked &&
+            this.querySelector?.(INTENT_SELECTOR)
+          ) {
+            pendingPanelHtml = String(value ?? '')
+            return
+          }
+
+          innerHtmlDescriptor.set.call(
+            this,
+            value,
+          )
+        },
+      },
+    )
+  }
+
+  function bindPanel(targetPanel) {
+    if (!targetPanel) {
+      return
+    }
+
+    patchPanelInnerHtml(targetPanel)
+
+    if (targetPanel.__yolenStabilityBound === true) {
+      return
+    }
+
+    targetPanel.__yolenStabilityBound = true
+
+    targetPanel.addEventListener(
+      'scroll',
+      () => {
+        captureScroll(targetPanel)
+      },
+      { passive: true },
+    )
+
+    captureScroll(targetPanel)
   }
 
   function restorePanelInteraction(targetPanel) {
-    if (!targetPanel) {
+    if (!targetPanel || interactionLocked) {
       return
     }
 
@@ -187,11 +190,64 @@
           }
 
           restore()
-          restoreIntentFocus()
           restoring = false
         })
       })
     })
+  }
+
+  function lockInteraction(input) {
+    const currentPanel = getPanel()
+
+    if (
+      !currentPanel ||
+      !input ||
+      !currentPanel.contains(input)
+    ) {
+      return
+    }
+
+    bindPanel(currentPanel)
+    captureScroll(currentPanel)
+    interactionLocked = true
+    pendingPanelHtml = null
+  }
+
+  function unlockInteraction({
+    applyPending = true,
+  } = {}) {
+    if (!interactionLocked) {
+      return
+    }
+
+    const currentPanel = getPanel()
+    const pendingHtml = pendingPanelHtml
+
+    interactionLocked = false
+    pendingPanelHtml = null
+
+    if (
+      applyPending &&
+      currentPanel &&
+      pendingHtml !== null
+    ) {
+      const restoreTop = getRestoreTop(currentPanel)
+
+      applyPanelHtml(
+        currentPanel,
+        pendingHtml,
+      )
+
+      bindPanel(currentPanel)
+      currentPanel.scrollTop = Math.min(
+        restoreTop,
+        Math.max(
+          0,
+          currentPanel.scrollHeight - currentPanel.clientHeight,
+        ),
+      )
+      captureScroll(currentPanel)
+    }
   }
 
   function handlePanelMutation() {
@@ -199,6 +255,8 @@
 
     if (!currentPanel) {
       panel = null
+      interactionLocked = false
+      pendingPanelHtml = null
       return
     }
 
@@ -215,13 +273,14 @@
       nextConversationLabel &&
       nextConversationLabel !== conversationLabel
     ) {
+      interactionLocked = false
+      pendingPanelHtml = null
       conversationLabel = nextConversationLabel
       scrollSnapshot = {
         top: 0,
         distanceFromBottom: 0,
         nearBottom: false,
       }
-      intentFocusSnapshot = null
       restoreSequence += 1
       restoring = false
       currentPanel.scrollTop = 0
@@ -235,10 +294,26 @@
     restorePanelInteraction(currentPanel)
   }
 
-  // Firefox pode rolar o overflow ancestor quando aplica o foco nativo em
-  // um textarea dentro de um painel fixed. O default action do mousedown é
-  // bloqueado e o foco é aplicado manualmente com preventScroll antes que o
-  // navegador tenha oportunidade de reposicionar o Companion.
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      const input = event.target?.closest?.(INTENT_SELECTOR)
+
+      if (input) {
+        lockInteraction(input)
+        return
+      }
+
+      if (
+        interactionLocked &&
+        !event.target?.closest?.(`#${PANEL_ID}`)
+      ) {
+        unlockInteraction()
+      }
+    },
+    true,
+  )
+
   document.addEventListener(
     'mousedown',
     (event) => {
@@ -250,24 +325,12 @@
 
       const currentPanel = getPanel()
 
-      if (!currentPanel || !currentPanel.contains(input)) {
+      if (!currentPanel) {
         return
       }
 
+      lockInteraction(input)
       const intendedTop = currentPanel.scrollTop
-      const wasFocused = document.activeElement === input
-      const selectionStart =
-        Number.isInteger(input.selectionStart)
-          ? input.selectionStart
-          : String(input.value || '').length
-      const selectionEnd =
-        Number.isInteger(input.selectionEnd)
-          ? input.selectionEnd
-          : selectionStart
-      const selectionDirection =
-        typeof input.selectionDirection === 'string'
-          ? input.selectionDirection
-          : 'none'
 
       event.preventDefault()
 
@@ -277,47 +340,8 @@
         input.focus()
       }
 
-      if (typeof input.setSelectionRange === 'function') {
-        const valueLength = String(input.value || '').length
-        const fallbackCaret = valueLength
-        const start = wasFocused
-          ? Math.min(selectionStart, valueLength)
-          : fallbackCaret
-        const end = wasFocused
-          ? Math.min(selectionEnd, valueLength)
-          : fallbackCaret
-
-        try {
-          input.setSelectionRange(
-            start,
-            end,
-            selectionDirection,
-          )
-        } catch {
-          // O campo continua utilizável mesmo sem ajuste fino do cursor.
-        }
-      }
-
       currentPanel.scrollTop = intendedTop
       captureScroll(currentPanel)
-      captureIntentSelection(input)
-
-      root.requestAnimationFrame(() => {
-        const latestPanel = getPanel()
-
-        if (!latestPanel) {
-          return
-        }
-
-        latestPanel.scrollTop = Math.min(
-          intendedTop,
-          Math.max(
-            0,
-            latestPanel.scrollHeight - latestPanel.clientHeight,
-          ),
-        )
-        captureScroll(latestPanel)
-      })
     },
     true,
   )
@@ -325,25 +349,46 @@
   document.addEventListener(
     'focusin',
     (event) => {
-      if (event.target?.matches?.(INTENT_SELECTOR)) {
-        captureIntentSelection(event.target)
-        return
-      }
+      const input = event.target?.closest?.(INTENT_SELECTOR)
 
-      intentFocusSnapshot = null
+      if (input) {
+        lockInteraction(input)
+      }
     },
     true,
   )
 
-  for (const eventName of ['input', 'select', 'keyup', 'mouseup']) {
-    document.addEventListener(
-      eventName,
-      (event) => {
-        captureIntentSelection(event.target)
-      },
-      true,
-    )
-  }
+  document.addEventListener(
+    'focusout',
+    (event) => {
+      if (!event.target?.closest?.(INTENT_SELECTOR)) {
+        return
+      }
+
+      queueMicrotask(() => {
+        if (
+          document.activeElement?.closest?.(INTENT_SELECTOR)
+        ) {
+          return
+        }
+
+        unlockInteraction()
+      })
+    },
+    true,
+  )
+
+  document.addEventListener(
+    'input',
+    (event) => {
+      const input = event.target?.closest?.(INTENT_SELECTOR)
+
+      if (input) {
+        lockInteraction(input)
+      }
+    },
+    true,
+  )
 
   const observer = new MutationObserver((mutations) => {
     const currentPanel = getPanel()
@@ -397,6 +442,9 @@
     },
     restore() {
       restorePanelInteraction(getPanel())
+    },
+    isInteractionLocked() {
+      return interactionLocked
     },
   })
 })(typeof globalThis !== 'undefined' ? globalThis : window)
