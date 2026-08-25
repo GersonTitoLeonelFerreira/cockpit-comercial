@@ -1,14 +1,4 @@
 import type {
-  CommercialMethodDefinition,
-  CommercialMethodStageDefinition,
-} from './commercial-method-contract'
-
-import {
-  COMMERCIAL_METHOD_CONTRACT_VERSION,
-  validateCommercialMethodDefinition,
-} from './commercial-method-contract'
-
-import type {
   StatefulCopilotProvider,
 } from './stateful-copilot-executor'
 
@@ -34,58 +24,40 @@ export type PublishedCommercialMethod = {
   id: string
   version_number: number | null
   name: string
-  definition: CommercialMethodDefinition
+  description: string
 }
 
-type LegacyCommercialMethodStep = {
-  step_order: number
-  name: string
-  objective: string
-  completion_criteria: string[]
-  recommended_questions: string[]
-  is_required: boolean
-}
-
-const PROMPT_VERSION = 'lead-method-guidance-v1'
-const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v1'
+const PROMPT_VERSION = 'lead-method-guidance-v2'
+const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v2'
 const MAX_NEXT_STEP_LENGTH = 1400
 
-function buildStructuredOutputFormat(
-  method: PublishedCommercialMethod,
-) {
-  const stageKeys = method.definition.stages.map(
-    (stage) => stage.key,
-  )
-
-  return {
-    type: 'json_schema',
-    name: 'yolen_lead_method_guidance_v1',
-    description:
-      'Etapa atual do método comercial e próximo passo concreto para o vendedor.',
-    strict: true,
-    schema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        stage_key: {
-          type: 'string',
-          enum: stageKeys,
-        },
-        stage_reason: {
-          type: 'string',
-        },
-        next_step: {
-          type: 'string',
-        },
+const STRUCTURED_OUTPUT_FORMAT = {
+  type: 'json_schema',
+  name: 'yolen_lead_method_guidance_v2',
+  description:
+    'Leitura do método comercial publicado aplicada ao resumo atual do lead.',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      stage_name: {
+        type: 'string',
       },
-      required: [
-        'stage_key',
-        'stage_reason',
-        'next_step',
-      ],
+      stage_reason: {
+        type: 'string',
+      },
+      next_step: {
+        type: 'string',
+      },
     },
-  }
-}
+    required: [
+      'stage_name',
+      'stage_reason',
+      'next_step',
+    ],
+  },
+} as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -98,16 +70,6 @@ function normalizeText(value: unknown): string | null {
 
   const normalized = value.replace(/\s+/g, ' ').trim()
   return normalized || null
-}
-
-function normalizeTextArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .map(normalizeText)
-    .filter((item): item is string => Boolean(item))
 }
 
 function buildEmptyGuidance(
@@ -127,148 +89,20 @@ function buildEmptyGuidance(
   }
 }
 
-function normalizeLegacyMethodSteps(value: unknown): LegacyCommercialMethodStep[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value
-    .map((rawStep) => {
-      if (!isRecord(rawStep)) {
-        return null
-      }
-
-      const stepOrder = rawStep.step_order
-      const name = normalizeText(rawStep.name)
-      const objective = normalizeText(rawStep.objective)
-      const completionCriteria = normalizeTextArray(
-        rawStep.completion_criteria,
-      )
-      const recommendedQuestions = normalizeTextArray(
-        rawStep.recommended_questions,
-      )
-
-      if (
-        !Number.isSafeInteger(stepOrder) ||
-        Number(stepOrder) <= 0 ||
-        !name ||
-        !objective ||
-        completionCriteria.length === 0
-      ) {
-        return null
-      }
-
-      return {
-        step_order: Number(stepOrder),
-        name,
-        objective,
-        completion_criteria: completionCriteria,
-        recommended_questions: recommendedQuestions,
-        is_required: rawStep.is_required !== false,
-      }
-    })
-    .filter((step): step is LegacyCommercialMethodStep => Boolean(step))
-    .sort((left, right) => left.step_order - right.step_order)
-}
-
-function buildMethodFromLegacySteps({
-  configuredName,
-  configuredDescription,
-  legacySteps,
-}: {
-  configuredName: string
-  configuredDescription: string | null
-  legacySteps: LegacyCommercialMethodStep[]
-}): CommercialMethodDefinition | null {
-  if (legacySteps.length === 0) {
-    return null
-  }
-
-  const definition: CommercialMethodDefinition = {
-    contract_version: COMMERCIAL_METHOD_CONTRACT_VERSION,
-    name: configuredName,
-    description:
-      configuredDescription ||
-      `Método comercial ${configuredName} configurado na Yolen.`,
-    principles: [
-      'O método orienta o raciocínio comercial sem transformar as etapas em um checklist mecânico.',
-      'Evidências já existentes no relacionamento podem satisfazer etapas sem exigir que o vendedor repita perguntas.',
-    ],
-    stages: legacySteps.map((step) => ({
-      key: `legacy_step_${step.step_order}`,
-      display_order: step.step_order,
-      name: step.name,
-      objective: step.objective,
-      requirement: step.is_required ? 'required' : 'optional',
-      completion_criteria: step.completion_criteria,
-      partial_completion_criteria: [],
-      skip_conditions: [],
-      recommended_questions: step.recommended_questions,
-      common_mistakes: [],
-      deepen_when: [],
-      sufficient_when: step.completion_criteria,
-      advance_when: step.completion_criteria,
-      wait_when: [],
-      stop_asking_when: step.completion_criteria,
-      dimensions: [],
-    })),
-  }
-
-  const validation = validateCommercialMethodDefinition(definition)
-  return validation.valid ? definition : null
-}
-
 export function normalizePublishedCommercialMethod(
   value: unknown,
-  legacyStepsValue: unknown = [],
 ): PublishedCommercialMethod | null {
   if (!isRecord(value)) {
     return null
   }
 
   const id = normalizeText(value.id)
-  const configuredName = normalizeText(value.commercial_method_name)
-  const configuredDescription = normalizeText(
+  const name = normalizeText(value.commercial_method_name)
+  const description = normalizeText(
     value.commercial_method_description,
   )
-  const rawDefinition = value.commercial_method_definition
 
-  if (!id || !configuredName) {
-    return null
-  }
-
-  if (isRecord(rawDefinition)) {
-    try {
-      const typedDefinition = rawDefinition as CommercialMethodDefinition
-      const validation = validateCommercialMethodDefinition(typedDefinition)
-
-      if (validation.valid) {
-        return {
-          id,
-          version_number:
-            typeof value.version_number === 'number' &&
-            Number.isFinite(value.version_number)
-              ? value.version_number
-              : null,
-          name: configuredName || typedDefinition.name,
-          definition: typedDefinition,
-        }
-      }
-    } catch {
-      // Configurações publicadas em commercial-method-v1 podem não possuir
-      // a estrutura v2 embutida. Nesse caso, usamos os passos persistidos
-      // oficialmente em company_commercial_method_steps logo abaixo.
-    }
-  }
-
-  const legacySteps = normalizeLegacyMethodSteps(legacyStepsValue)
-  const legacyDefinition = buildMethodFromLegacySteps({
-    configuredName,
-    configuredDescription,
-    legacySteps,
-  })
-
-  if (!legacyDefinition) {
+  if (!id || !name || !description) {
     return null
   }
 
@@ -279,20 +113,9 @@ export function normalizePublishedCommercialMethod(
       Number.isFinite(value.version_number)
         ? value.version_number
         : null,
-    name: configuredName,
-    definition: legacyDefinition,
+    name,
+    description,
   }
-}
-
-function findStage(
-  method: PublishedCommercialMethod,
-  key: string,
-): CommercialMethodStageDefinition | null {
-  return (
-    method.definition.stages.find(
-      (stage) => stage.key === key,
-    ) ?? null
-  )
 }
 
 function looksGeneric(nextStep: string) {
@@ -314,15 +137,7 @@ function looksGeneric(nextStep: string) {
     'aguardar retorno',
   ])
 
-  if (!normalized) {
-    return true
-  }
-
-  if (genericOnly.has(normalized)) {
-    return true
-  }
-
-  return normalized.length < 18
+  return !normalized || genericOnly.has(normalized)
 }
 
 export async function composeLeadMethodGuidance({
@@ -349,24 +164,25 @@ export async function composeLeadMethodGuidance({
     output_contract_version: OUTPUT_CONTRACT_VERSION,
     system_prompt: [
       'Você é o motor V2 de orientação por método comercial do Yolen Companion.',
-      'Use o resumo consolidado como a única fonte de fatos sobre o cliente e a negociação.',
-      'Use o método comercial publicado pela empresa como estrutura de raciocínio, nunca como checklist mecânico.',
-      'Identifique a etapa que representa o trabalho comercial ainda necessário agora. Não copie automaticamente a etapa do CRM.',
-      'O campo stage_key deve usar exatamente uma das chaves de etapa fornecidas no método comercial.',
-      'Se evidências do resumo já satisfazem uma etapa anterior, avance para a etapa coerente seguinte.',
-      'Respeite completion_criteria, partial_completion_criteria, skip_conditions, sufficient_when, advance_when, wait_when e stop_asking_when.',
+      'Leia exatamente o método comercial publicado pela empresa e aplique esse texto ao resumo consolidado do lead.',
+      'Não converta o método para um funil genérico, não invente etapas técnicas e não use a etapa do CRM como substituto do método.',
+      'Se o texto publicado nomear passos ou etapas, use esses mesmos nomes no campo stage_name.',
+      'O resumo consolidado é a única fonte de fatos sobre o cliente e a negociação.',
+      'Identifique em qual parte do método publicado a conversa está e qual é o próximo movimento coerente dentro desse método.',
       'O próximo passo precisa ser uma ação única, específica e executável: diga o que o vendedor deve fazer e qual informação, confirmação ou resultado deve obter.',
       'Não responda apenas com expressões genéricas como retomar negociação, fazer follow-up, acompanhar o lead ou aguardar retorno.',
-      'Se esperar for a decisão correta segundo o método, explique concretamente o que deve ser aguardado e qual sinal deve disparar a retomada.',
-      'Não invente fatos, datas, valores, compromissos ou objeções que não estejam no resumo.',
+      'Não invente fatos, datas, valores, compromissos, objeções ou regras do método que não estejam nos textos recebidos.',
       'Não escreva mensagem pronta para o cliente. Nesta etapa, entregue somente orientação de ação.',
       `O campo next_step deve ter no máximo ${MAX_NEXT_STEP_LENGTH} caracteres.`,
     ].join('\n'),
     user_prompt: JSON.stringify({
       working_summary: summary,
-      commercial_method: method.definition,
+      published_method: {
+        name: method.name,
+        description: method.description,
+      },
     }),
-    structured_output_format: buildStructuredOutputFormat(method),
+    structured_output_format: STRUCTURED_OUTPUT_FORMAT,
   })
 
   if (typeof response.content !== 'string') {
@@ -397,13 +213,12 @@ export async function composeLeadMethodGuidance({
     )
   }
 
-  const stageKey = normalizeText(parsed.stage_key)
+  const stageName = normalizeText(parsed.stage_name)
   const stageReason = normalizeText(parsed.stage_reason)
   const nextStep = normalizeText(parsed.next_step)
-  const stage = stageKey ? findStage(method, stageKey) : null
 
   if (
-    !stage ||
+    !stageName ||
     !stageReason ||
     !nextStep ||
     nextStep.length > MAX_NEXT_STEP_LENGTH ||
@@ -420,8 +235,8 @@ export async function composeLeadMethodGuidance({
     status: 'ready',
     method_name: method.name,
     method_config_version_id: method.id,
-    stage_key: stage.key,
-    stage_name: stage.name,
+    stage_key: null,
+    stage_name: stageName,
     stage_reason: stageReason,
     next_step: nextStep,
     error: null,
