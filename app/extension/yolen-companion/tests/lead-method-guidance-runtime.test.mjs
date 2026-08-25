@@ -11,6 +11,10 @@ const source = readFileSync(
   'utf8',
 )
 
+function flushAsyncWork() {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 function createHarness() {
   let summaryText = 'Resumo inicial do relacionamento comercial.'
   let summaryLoadCount = 0
@@ -47,9 +51,17 @@ function createHarness() {
 
   const sandbox = {
     YolenCompanionApi: api,
+    YolenCompanionLeadSummaryView: {
+      renderMethodGuidance() {
+        return '<div>guidance</div>'
+      },
+    },
     document: {
       addEventListener(type, listener) {
         listeners.set(type, listener)
+      },
+      querySelector() {
+        return null
       },
     },
     async fetch() {
@@ -123,24 +135,48 @@ const payload = {
   conversation_key: 'whatsapp:5511999999999',
 }
 
+test('resumo volta imediatamente enquanto o próximo passo é calculado em paralelo', async () => {
+  const harness = createHarness()
+
+  const result = await harness.api.loadLeadSummary(payload)
+
+  assert.equal(result.ok, true)
+  assert.equal(
+    result.payload.data.working_summary,
+    'Resumo inicial do relacionamento comercial.',
+  )
+  assert.equal(result.payload.data.method_guidance.status, 'loading')
+
+  await flushAsyncWork()
+
+  assert.equal(result.payload.data.method_guidance.status, 'ready')
+  assert.equal(harness.guidanceFetchCount, 1)
+})
+
 test('mesmo resumo reutiliza a orientação do método sem nova chamada de IA', async () => {
   const harness = createHarness()
 
   const first = await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
   const second = await harness.api.loadLeadSummary(payload)
 
   assert.equal(harness.summaryLoadCount, 2)
   assert.equal(harness.guidanceFetchCount, 1)
   assert.equal(first.payload.data.method_guidance.status, 'ready')
-  assert.equal(second.payload.data.method_guidance.next_step, first.payload.data.method_guidance.next_step)
+  assert.equal(
+    second.payload.data.method_guidance.next_step,
+    first.payload.data.method_guidance.next_step,
+  )
 })
 
 test('resumo alterado gera nova orientação para o novo contexto', async () => {
   const harness = createHarness()
 
   await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
   harness.setSummary('Resumo atualizado com nova objeção de investimento.')
   await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
 
   assert.equal(harness.guidanceFetchCount, 2)
 })
@@ -152,7 +188,14 @@ test('falha no próximo passo não apaga nem transforma o resumo em erro', async
   const result = await harness.api.loadLeadSummary(payload)
 
   assert.equal(result.ok, true)
-  assert.equal(result.payload.data.working_summary, 'Resumo inicial do relacionamento comercial.')
+  assert.equal(
+    result.payload.data.working_summary,
+    'Resumo inicial do relacionamento comercial.',
+  )
+  assert.equal(result.payload.data.method_guidance.status, 'loading')
+
+  await flushAsyncWork()
+
   assert.equal(result.payload.data.method_guidance.status, 'error')
 })
 
@@ -160,6 +203,7 @@ test('refresh explícito invalida orientação cacheada', async () => {
   const harness = createHarness()
 
   await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
   const clickListener = harness.listeners.get('click')
 
   clickListener({
@@ -171,6 +215,7 @@ test('refresh explícito invalida orientação cacheada', async () => {
   })
 
   await harness.api.loadLeadSummary(payload)
+  await flushAsyncWork()
 
   assert.equal(harness.guidanceFetchCount, 2)
 })
