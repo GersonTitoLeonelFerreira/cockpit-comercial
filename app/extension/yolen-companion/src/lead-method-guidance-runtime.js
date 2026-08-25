@@ -14,8 +14,12 @@
   const originalLoadLeadSummary =
     api.loadLeadSummary.bind(api)
 
-  const guidanceCache = new Map()
+  // Só orientação pronta entra em cache. Erro, método ausente/inválido e
+  // qualquer estado transitório precisam poder ser consultados novamente.
+  // Uma falha temporária nunca pode ficar congelada para o mesmo resumo.
+  const readyGuidanceCache = new Map()
   const inFlight = new Map()
+  let lastScheduledRequest = null
 
   function hashText(value) {
     const text = String(value || '')
@@ -54,15 +58,44 @@
       stage_reason: null,
       next_step: null,
       error: null,
+      error_code: null,
+      status_code: null,
+      retryable: null,
     }
   }
 
-  function buildErrorGuidance(message) {
+  function buildErrorGuidance(message, details = {}) {
     return {
       ...buildGuidanceBase('error'),
       error:
         message ||
         'Não foi possível definir o próximo passo agora.',
+      error_code:
+        typeof details.code === 'string'
+          ? details.code
+          : null,
+      status_code:
+        Number.isFinite(details.statusCode)
+          ? details.statusCode
+          : null,
+      retryable:
+        typeof details.retryable === 'boolean'
+          ? details.retryable
+          : null,
+    }
+  }
+
+  function rememberIfReady(key, guidance) {
+    if (
+      key &&
+      guidance?.status === 'ready'
+    ) {
+      readyGuidanceCache.set(key, guidance)
+      return
+    }
+
+    if (key) {
+      readyGuidanceCache.delete(key)
     }
   }
 
@@ -73,26 +106,46 @@
     if (!session?.ok || !token) {
       return buildErrorGuidance(
         'Sessão da Yolen indisponível para definir o próximo passo.',
+        {
+          code: 'METHOD_GUIDANCE_SESSION_UNAVAILABLE',
+          statusCode: session?.statusCode ?? null,
+          retryable: true,
+        },
       )
     }
 
-    const response = await fetch(
-      `${api.getBaseUrl()}/api/companion/method-guidance`,
-      {
-        method: 'POST',
-        credentials: 'omit',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+    let response
+
+    try {
+      response = await fetch(
+        `${api.getBaseUrl()}/api/companion/method-guidance`,
+        {
+          method: 'POST',
+          credentials: 'omit',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            cycle_id: payload?.cycle_id ?? null,
+            conversation_key:
+              payload?.conversation_key ?? null,
+            working_summary: workingSummary,
+          }),
         },
-        body: JSON.stringify({
-          cycle_id: payload?.cycle_id ?? null,
-          conversation_key:
-            payload?.conversation_key ?? null,
-          working_summary: workingSummary,
-        }),
-      },
-    )
+      )
+    } catch (error) {
+      return buildErrorGuidance(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Falha de rede ao definir o próximo passo.',
+        {
+          code: 'METHOD_GUIDANCE_NETWORK_ERROR',
+          statusCode: 0,
+          retryable: true,
+        },
+      )
+    }
 
     const body = await response.json().catch(() => null)
 
@@ -100,6 +153,11 @@
       return buildErrorGuidance(
         body?.error ||
           'Não foi possível definir o próximo passo agora.',
+        {
+          code: body?.code ?? 'METHOD_GUIDANCE_REQUEST_FAILED',
+          statusCode: response.status,
+          retryable: body?.retryable ?? response.status >= 500,
+        },
       )
     }
 
@@ -113,8 +171,8 @@
       return buildGuidanceBase('no_summary')
     }
 
-    if (guidanceCache.has(key)) {
-      return guidanceCache.get(key)
+    if (readyGuidanceCache.has(key)) {
+      return readyGuidanceCache.get(key)
     }
 
     if (inFlight.has(key)) {
@@ -126,17 +184,46 @@
       workingSummary,
     )
       .then((guidance) => {
-        guidanceCache.set(key, guidance)
+        rememberIfReady(key, guidance)
+
+        if (guidance?.status === 'error') {
+          console.warn(
+            '[METHOD-GUIDANCE-DIAG]',
+            {
+              code: guidance.error_code ?? null,
+              status_code: guidance.status_code ?? null,
+              retryable: guidance.retryable ?? null,
+              error: guidance.error ?? null,
+            },
+          )
+        }
+
         return guidance
       })
       .catch((error) => {
+        readyGuidanceCache.delete(key)
+
         const guidance = buildErrorGuidance(
           error instanceof Error && error.message
             ? error.message
             : null,
+          {
+            code: 'METHOD_GUIDANCE_RUNTIME_ERROR',
+            statusCode: 0,
+            retryable: true,
+          },
         )
 
-        guidanceCache.set(key, guidance)
+        console.warn(
+          '[METHOD-GUIDANCE-DIAG]',
+          {
+            code: guidance.error_code,
+            status_code: guidance.status_code,
+            retryable: guidance.retryable,
+            error: guidance.error,
+          },
+        )
+
         return guidance
       })
       .finally(() => {
@@ -187,8 +274,23 @@
     workingSummary,
     key,
   }) {
-    data.method_guidance =
+    const loadingGuidance =
       buildGuidanceBase('loading')
+
+    data.method_guidance =
+      loadingGuidance
+
+    lastScheduledRequest = {
+      payload,
+      data,
+      workingSummary,
+      key,
+    }
+
+    applyGuidanceToVisibleSummary(
+      workingSummary,
+      loadingGuidance,
+    )
 
     void loadGuidance(
       payload,
@@ -196,7 +298,7 @@
     ).then((guidance) => {
       // `data` é a mesma referência guardada pelo content-script em
       // companionLeadSummary. Assim, qualquer rerender posterior já usa a
-      // orientação concluída, sem precisar recompor o resumo.
+      // orientação concluída, sem recompor o resumo.
       data.method_guidance = guidance
 
       applyGuidanceToVisibleSummary(
@@ -206,6 +308,20 @@
     })
 
     return key
+  }
+
+  function retryLastVisibleGuidance() {
+    const request = lastScheduledRequest
+
+    if (!request?.key) {
+      return false
+    }
+
+    readyGuidanceCache.delete(request.key)
+    inFlight.delete(request.key)
+
+    scheduleGuidance(request)
+    return true
   }
 
   api.loadLeadSummary = async function loadLeadSummaryWithMethod(payload) {
@@ -232,9 +348,9 @@
       return result
     }
 
-    if (guidanceCache.has(key)) {
+    if (readyGuidanceCache.has(key)) {
       data.method_guidance =
-        guidanceCache.get(key)
+        readyGuidanceCache.get(key)
       return result
     }
 
@@ -257,13 +373,33 @@
     (event) => {
       if (
         event.target?.closest?.(
+          '[data-yolen-action="retry-method-guidance"]',
+        )
+      ) {
+        event.preventDefault?.()
+        retryLastVisibleGuidance()
+        return
+      }
+
+      if (
+        event.target?.closest?.(
           '[data-yolen-action="refresh"]',
         )
       ) {
-        guidanceCache.clear()
+        readyGuidanceCache.clear()
         inFlight.clear()
+        lastScheduledRequest = null
       }
     },
     true,
   )
+
+  root.YolenCompanionLeadMethodGuidanceRuntime = Object.freeze({
+    retryLastVisibleGuidance,
+    clear() {
+      readyGuidanceCache.clear()
+      inFlight.clear()
+      lastScheduledRequest = null
+    },
+  })
 })(typeof globalThis !== 'undefined' ? globalThis : window)
