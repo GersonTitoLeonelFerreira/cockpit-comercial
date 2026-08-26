@@ -19,6 +19,8 @@
   let mode = null
   let pendingHtml = null
   let baseInnerHtmlDescriptor = null
+  let lockedScrollTop = null
+  let restoreSequence = 0
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
@@ -46,6 +48,45 @@
       targetPanel,
       value,
     )
+  }
+
+  function restoreLockedScroll(targetPanel) {
+    if (
+      !targetPanel ||
+      lockedScrollTop === null
+    ) {
+      return
+    }
+
+    const sequence = ++restoreSequence
+    const intendedTop = lockedScrollTop
+
+    const restore = () => {
+      if (sequence !== restoreSequence) {
+        return
+      }
+
+      const currentPanel = getPanel()
+
+      if (!currentPanel) {
+        return
+      }
+
+      currentPanel.scrollTop = Math.min(
+        intendedTop,
+        Math.max(
+          0,
+          currentPanel.scrollHeight - currentPanel.clientHeight,
+        ),
+      )
+    }
+
+    restore()
+    queueMicrotask(restore)
+    root.requestAnimationFrame(() => {
+      restore()
+      root.requestAnimationFrame(restore)
+    })
   }
 
   function flushPending() {
@@ -124,6 +165,7 @@
       locked = false
       mode = null
       pendingHtml = null
+      lockedScrollTop = null
       return null
     }
 
@@ -137,7 +179,7 @@
     return currentPanel
   }
 
-  function lock(target, nextMode) {
+  function lock(target, nextMode, { preserveCurrentScroll = false } = {}) {
     const currentPanel = bindPanel()
 
     if (
@@ -148,8 +190,20 @@
       return
     }
 
+    if (
+      preserveCurrentScroll ||
+      !locked ||
+      lockedScrollTop === null
+    ) {
+      lockedScrollTop = currentPanel.scrollTop
+    }
+
     locked = true
     mode = nextMode
+
+    if (nextMode === 'editable') {
+      restoreLockedScroll(currentPanel)
+    }
   }
 
   function unlock({ flush = true } = {}) {
@@ -159,6 +213,8 @@
 
     locked = false
     mode = null
+    lockedScrollTop = null
+    restoreSequence += 1
 
     if (flush) {
       flushPending()
@@ -191,7 +247,11 @@
         editable &&
         currentPanel.contains(editable)
       ) {
-        lock(editable, 'editable')
+        lock(
+          editable,
+          'editable',
+          { preserveCurrentScroll: true },
+        )
         return
       }
 
@@ -201,10 +261,11 @@
         action &&
         currentPanel.contains(action)
       ) {
-        // Se o vendedor estava preenchendo um formulário, a trava continua
-        // até depois do click/default submit. Assim o formulário não é
-        // substituído entre pointerdown, click e submit.
-        lock(action, 'action')
+        lock(
+          action,
+          'action',
+          { preserveCurrentScroll: true },
+        )
         return
       }
 
@@ -229,6 +290,7 @@
         currentPanel?.contains(editable)
       ) {
         lock(editable, 'editable')
+        restoreLockedScroll(currentPanel)
       }
     },
     true,
@@ -245,6 +307,7 @@
         currentPanel?.contains(editable)
       ) {
         lock(editable, 'editable')
+        restoreLockedScroll(currentPanel)
       }
     },
     true,
@@ -272,8 +335,11 @@
           activeEditable &&
           currentPanel?.contains(activeEditable)
         ) {
-          // Tab ou clique para outro campo do mesmo formulário: mantém o DOM.
-          lock(activeEditable, 'editable')
+          lock(
+            activeEditable,
+            'editable',
+            { preserveCurrentScroll: true },
+          )
           return
         }
 
@@ -297,8 +363,6 @@
         return
       }
 
-      // setTimeout, e não queueMicrotask: o submit nativo do formulário deve
-      // acontecer antes que qualquer HTML pendente seja aplicado.
       root.setTimeout(() => {
         if (mode === 'action') {
           unlock()
@@ -328,6 +392,7 @@
       locked = false
       mode = null
       pendingHtml = null
+      lockedScrollTop = null
       return
     }
 
