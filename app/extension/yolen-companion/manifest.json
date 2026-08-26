@@ -41,6 +41,7 @@
         "src/companion-lead-summary-view.js",
         "src/companion-seller-information-view.js",
         "src/content-script.js",
+        "src/conversation-isolation-runtime.js",
         "src/panel-stability-runtime.js",
         "src/editable-field-stability-runtime.js",
         "src/lead-automation.js"
