@@ -27,12 +27,19 @@ async function source(url) {
   return readFile(url, 'utf8')
 }
 
-test('15) editor avançado existente continua acessível', async () => {
+test('15) editor avançado existente continua acessível, mas não é mais oferecido como caminho de criação do método', async () => {
   const content = await source(EXPERIENCE_URL)
 
   assert.match(content, /CommercialConfigClient/)
-  assert.match(content, /Já sei como quero estruturar/)
   assert.match(content, /setMode\('advanced'\)/)
+
+  // Onda 8 / Frente 1: a Guided Commercial Method Journey passou a ser o
+  // único caminho oficial de criação/reconstrução do método. O editor
+  // avançado continua existindo apenas para produtos, fatos, objeções e
+  // diretrizes — a entrada não pode mais se apresentar como uma forma
+  // alternativa de "estruturar" o método manualmente.
+  assert.doesNotMatch(content, /Já sei como quero estruturar/)
+  assert.match(content, /Editar produtos, fatos e objeções/)
 })
 
 test('16) fluxo assistido não publica configuração automaticamente', async () => {

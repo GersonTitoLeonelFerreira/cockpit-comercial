@@ -23,6 +23,8 @@ import {
 } from '@/app/lib/commercial-config/buyer-decision-architecture'
 import GuidedBuyerDecisionJourney from './guided-journey/GuidedBuyerDecisionJourney'
 import GuidedStageJourney from './guided-journey/GuidedStageJourney'
+import MethodPublicationPanel from './MethodPublicationPanel'
+import type { PublishedMethodInfo } from './MethodPublicationPanel'
 import type {
   CommercialMethodBuilderData,
 } from '@/app/types/commercial-method-builder'
@@ -292,6 +294,44 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   const [error, setError] = React.useState<string | null>(null)
   const [serverIssues, setServerIssues] = React.useState<string[]>([])
 
+  // Método atualmente publicado (fonte de verdade do banco — seção 14).
+  // Carregado uma vez e recarregado após cada publicação bem-sucedida, para
+  // decidir os rótulos "ainda não está em uso" / "alterações não
+  // publicadas" / "publicado" em vez de confiar apenas no estado local.
+  const [publishedInfo, setPublishedInfo] = React.useState<PublishedMethodInfo | null>(null)
+  const [publishedInfoLoading, setPublishedInfoLoading] = React.useState(true)
+
+  const loadPublishedInfo = React.useCallback(async () => {
+    setPublishedInfoLoading(true)
+    try {
+      const response = await fetch('/api/admin/commercial-config', { cache: 'no-store' })
+      const json = await response.json() as
+        | { ok: true; workspace: { published: { version: Record<string, unknown> } | null } }
+        | { ok: false; error: string }
+      if (!response.ok || !json.ok) throw new Error('Erro ao carregar o método publicado atualmente.')
+      const version = json.workspace.published?.version ?? null
+      setPublishedInfo(
+        version
+          ? {
+              method_name: version.commercial_method_name as string,
+              version_number: version.version_number as number,
+              published_at: version.published_at as string | null,
+              contract_version: version.commercial_method_contract_version as string,
+              definition: version.commercial_method_definition as PublishedMethodInfo['definition'],
+            }
+          : null,
+      )
+    } catch {
+      // Uma falha ao carregar o status de publicação não deve travar a
+      // construção do método; o painel de publicação mostra "Verificando..."
+      // enquanto isso e o usuário pode tentar novamente ao reabrir a tela.
+    } finally {
+      setPublishedInfoLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => { void loadPublishedInfo() }, [loadPublishedInfo])
+
   // Guarda de revisão (seção 3.2 / 23): "latest local edit wins". Cada
   // `updateDraft` incrementa a revisão local; um save cuja resposta chega
   // depois de novas edições locais é descartado em vez de sobrescrever o
@@ -486,12 +526,23 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     return list.includes(item) ? list : [...list, item]
   }
 
+  const hasUnpublishedChangesWhileEditing =
+    status === 'editing' && !publishedInfoLoading && publishedInfo !== null
+
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' }}>
         <button type="button" onClick={onBack} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>← Voltar às opções</button>
         <div style={{ color: DS.textMuted, fontSize: 10 }}>{saving ? 'Salvando...' : dirty ? 'Alterações serão salvas automaticamente' : 'Rascunho salvo'}</div>
       </div>
+      {hasUnpublishedChangesWhileEditing && (
+        <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(252,211,77,0.25)', borderRadius: DS.radiusContainer, padding: 13 }}>
+          <strong style={{ color: DS.yellowSoft, fontSize: 11 }}>Alterações não publicadas</strong>
+          <div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5, marginTop: 4 }}>
+            Existe uma versão publicada (“{publishedInfo?.method_name}”), mas você possui alterações ainda não publicadas. Ela continua ativa até você concluir a revisão e publicar novamente.
+          </div>
+        </div>
+      )}
       <StepBar step={draft.construction_step} />
       {error && <div style={{ ...cardStyle(), borderColor: 'rgba(239,68,68,0.3)', color: DS.redSoft, fontSize: 11, padding: 14 }}>{error}</div>}
       {serverIssues.length > 0 && <div style={{ ...cardStyle(), borderColor: 'rgba(245,158,11,0.3)', padding: 14 }}><strong style={{ color: DS.yellowSoft, fontSize: 11 }}>Ainda falta ajustar:</strong><ul style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55 }}>{serverIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
@@ -598,7 +649,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
 
       {draft.construction_step === 'principles' && <div style={{ ...cardStyle(), display: 'grid', gap: 16, padding: 18 }}><div><h3 style={{ color: DS.textPrimary, margin: 0 }}>Princípios globais do método</h3><p style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.6 }}>A Yolen sugeriu princípios a partir da complexidade da decisão. Revise, remova ou reescreva. Eles não são nomes de metodologias e só devem permanecer se fizerem sentido para sua operação.</p></div><Field label="Como você quer chamar este método?" help="Pode ser um nome interno simples. Você pode mudar depois."><input value={draft.method_name} onChange={(event) => updateDraft((current) => ({ ...current, method_name: event.target.value }))} style={inputStyle} /></Field><Field label="Como você explicaria este método em uma frase?"><textarea rows={3} value={draft.method_description} onChange={(event) => updateDraft((current) => ({ ...current, method_description: event.target.value }))} style={{ ...inputStyle, resize: 'vertical' }} /></Field><ListEditor label="Princípios do método" help="Princípios orientam o raciocínio de todas as etapas. Não copie regras de preço, contrato ou desconto para cá." example="Avanço real exige evidência do comprador, não apenas uma atividade concluída pelo vendedor." value={draft.principles} onChange={(value) => updateDraft((current) => ({ ...current, principles: value }))} />{(diagnosis.commercial_rules.restrictions.forbidden_promises.length > 0 || diagnosis.commercial_rules.discounts.policy) && <div style={{ background: DS.surfaceBg, border: `1px solid ${DS.border}`, borderRadius: DS.radius, color: DS.textMuted, fontSize: 10, lineHeight: 1.55, padding: 12 }}>Sua Base Comercial possui restrições e/ou regras de desconto. Elas continuam na Base Comercial. Se alguma delas representa um comportamento transversal da equipe, você pode expressar esse comportamento como princípio sem copiar condições e valores para dentro do método.</div>}<div style={{ display: 'flex', gap: 8 }}><button type="button" onClick={() => updateDraft((current) => ({ ...current, construction_step: 'stages' }))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>Voltar às etapas</button><button type="button" onClick={() => updateDraft((current) => ({ ...current, construction_step: 'review' }))} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 850, padding: '10px 14px' }}>Revisar método</button></div></div>}
 
-      {draft.construction_step === 'review' && <div style={{ display: 'grid', gap: 12 }}>{status === 'review_ready' && <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(134,239,172,0.2)', borderRadius: DS.radius, padding: 15 }}><strong style={{ color: DS.greenSoft, fontSize: 12 }}>Método preparado para revisão final</strong><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5, marginTop: 5 }}>O contrato commercial-method-v2 foi materializado como rascunho validado. Nenhuma publicação ocorreu.</div></div>}<div style={{ ...cardStyle(), padding: 18 }}><h3 style={{ color: DS.textPrimary, marginTop: 0 }}>Diagnóstico de qualidade</h3><div style={{ display: 'grid', gap: 7 }}>{quality.map((item, index) => <div key={`${item.message}-${index}`} style={{ color: item.level === 'pass' ? DS.greenSoft : DS.yellowSoft, fontSize: 11, lineHeight: 1.5 }}>{item.level === 'pass' ? '✓' : '⚠'} {item.message}</div>)}</div></div><div style={{ ...cardStyle(), padding: 18 }}><div style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>Seu método</div><h2 style={{ color: DS.textPrimary, fontSize: 20, marginBottom: 5 }}>{draft.method_name || 'Método ainda sem nome'}</h2><p style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.6 }}>{draft.method_description || 'Descrição ainda não preenchida.'}</p><div style={{ display: 'grid', gap: 10, marginTop: 14 }}>{draft.stages.map((stage, index) => <div key={stage.id} style={{ background: DS.surfaceBg, border: `1px solid ${DS.border}`, borderRadius: DS.radius, padding: 13 }}><div style={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', gap: 10 }}><strong style={{ color: DS.textPrimary, fontSize: 12 }}>Etapa {index + 1} — {stage.name || 'Sem nome'}</strong><button type="button" onClick={() => updateDraft((current) => ({ ...current, construction_step: 'stages', active_stage_id: stage.id }))} style={{ background: 'transparent', border: 0, color: DS.blueSoft, cursor: 'pointer', fontSize: 10 }}>Editar</button></div><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55, marginTop: 7 }}><b>Objetivo:</b> {stage.objective || 'Não informado'}</div><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55, marginTop: 4 }}><b>Critérios:</b> {stage.completion_criteria.join(' · ') || 'Não informados'}</div><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55, marginTop: 4 }}><b>Quando avançar:</b> {stage.advance_when.join(' · ') || 'Não informado'}</div></div>)}</div></div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><button type="button" onClick={() => updateDraft((current) => ({ ...current, construction_step: 'principles' }))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>Editar princípios</button><button type="button" disabled={saving} onClick={() => void save(draft, 'review_ready')} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: saving ? 'wait' : 'pointer', fontSize: 11, fontWeight: 850, padding: '10px 14px' }}>{saving ? 'Validando...' : 'Preparar para revisão final'}</button></div></div>}
+      {draft.construction_step === 'review' && <div style={{ display: 'grid', gap: 12 }}>{status === 'review_ready' && workspace?.method_definition && <MethodPublicationPanel methodName={draft.method_name} methodDefinition={workspace.method_definition} published={publishedInfo} publishedLoading={publishedInfoLoading} onPublished={() => void loadPublishedInfo()} />}<div style={{ ...cardStyle(), padding: 18 }}><h3 style={{ color: DS.textPrimary, marginTop: 0 }}>Diagnóstico de qualidade</h3><div style={{ display: 'grid', gap: 7 }}>{quality.map((item, index) => <div key={`${item.message}-${index}`} style={{ color: item.level === 'pass' ? DS.greenSoft : DS.yellowSoft, fontSize: 11, lineHeight: 1.5 }}>{item.level === 'pass' ? '✓' : '⚠'} {item.message}</div>)}</div></div><div style={{ ...cardStyle(), padding: 18 }}><div style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>Seu método</div><h2 style={{ color: DS.textPrimary, fontSize: 20, marginBottom: 5 }}>{draft.method_name || 'Método ainda sem nome'}</h2><p style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.6 }}>{draft.method_description || 'Descrição ainda não preenchida.'}</p><div style={{ display: 'grid', gap: 10, marginTop: 14 }}>{draft.stages.map((stage, index) => <div key={stage.id} style={{ background: DS.surfaceBg, border: `1px solid ${DS.border}`, borderRadius: DS.radius, padding: 13 }}><div style={{ alignItems: 'center', display: 'flex', justifyContent: 'space-between', gap: 10 }}><strong style={{ color: DS.textPrimary, fontSize: 12 }}>Etapa {index + 1} — {stage.name || 'Sem nome'}</strong><button type="button" onClick={() => updateDraft((current) => ({ ...current, construction_step: 'stages', active_stage_id: stage.id }))} style={{ background: 'transparent', border: 0, color: DS.blueSoft, cursor: 'pointer', fontSize: 10 }}>Editar</button></div><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55, marginTop: 7 }}><b>Objetivo:</b> {stage.objective || 'Não informado'}</div><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55, marginTop: 4 }}><b>Critérios:</b> {stage.completion_criteria.join(' · ') || 'Não informados'}</div><div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.55, marginTop: 4 }}><b>Quando avançar:</b> {stage.advance_when.join(' · ') || 'Não informado'}</div></div>)}</div></div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}><button type="button" onClick={() => updateDraft((current) => ({ ...current, construction_step: 'principles' }))} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>Editar princípios</button><button type="button" disabled={saving} onClick={() => void save(draft, 'review_ready')} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: saving ? 'wait' : 'pointer', fontSize: 11, fontWeight: 850, padding: '10px 14px' }}>{saving ? 'Validando...' : 'Preparar para revisão final'}</button></div></div>}
     </div>
   )
 }
