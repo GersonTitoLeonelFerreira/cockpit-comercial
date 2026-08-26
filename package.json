@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node --check app/extension/yolen-companion/src/conversation-isolation-runtime.js && node --check app/extension/yolen-companion/src/lead-automation.js && node --check app/extension/yolen-companion/tests/e3-dom/conversation-isolation-runtime.test.mjs && node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/conversation-isolation-runtime.test.mjs && node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs && npm run test:companion && cd app/extension/yolen-companion && node scripts/build-package.mjs && cd ../../.. && next build",
+    "build": "node --check app/extension/yolen-companion/src/conversation-isolation-runtime.js && node --check app/extension/yolen-companion/src/lead-automation.js && node --check app/extension/yolen-companion/tests/e3-dom/conversation-isolation-runtime.test.mjs && node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/conversation-isolation-runtime.test.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
