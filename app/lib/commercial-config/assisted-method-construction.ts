@@ -8,6 +8,7 @@ import type {
   CommercialMethodValidationResult,
 } from '@/app/lib/companion/commercial-method-contract'
 import type {
+  CommercialBuilderSalesEventDetail,
   CommercialMethodBuilderData,
 } from '@/app/types/commercial-method-builder'
 import {
@@ -141,6 +142,24 @@ function hasEvent(events: string[], expected: string): boolean {
   return events.some((event) => normalize(event).includes(expected))
 }
 
+// Atividade não é etapa por padrão (ONDA 8 / FRENTE B). Uma empresa que
+// marcou tour/demo/teste/orçamento como parte do processo não deve ganhar
+// uma etapa obrigatória para cada uma quando o diagnóstico já indica que
+// aquele momento não é uma mudança comercial relevante e recorrente.
+function eventFrequency(
+  data: CommercialMethodBuilderData,
+  canonicalEventName: string,
+): CommercialBuilderSalesEventDetail['frequency'] | null {
+  const detail = data.current_sales_process.sales_events_detail ?? []
+  const target = normalize(canonicalEventName)
+
+  const match = detail.find(
+    (item) => normalize(canonicalPresentationName(item.event)) === target,
+  )
+
+  return match?.frequency || null
+}
+
 export function buildMethodConstructionSynthesis(
   data: CommercialMethodBuilderData,
 ): string[] {
@@ -227,11 +246,30 @@ export function suggestInitialMethodConstruction(
   const hasTour = hasEvent(canonicalEvents, 'tour')
 
   if (complexSale) {
-    for (const event of canonicalEvents) {
+    const meaningfulEvents = canonicalEvents.filter(
+      (event) => eventFrequency(data, event) !== 'optional',
+    )
+    const optionalEvents = canonicalEvents.filter(
+      (event) => eventFrequency(data, event) === 'optional',
+    )
+
+    for (const event of meaningfulEvents) {
       stages.push(
         createSuggestedStage({
           name: event,
           basis: [`Você informou que ${event} faz parte do processo atual.`],
+        }),
+      )
+    }
+
+    if (optionalEvents.length > 0) {
+      stages.push(
+        createSuggestedStage({
+          name: 'Apresentação',
+          basis: [
+            `Você informou que ${optionalEvents.join(', ')} pode acontecer, mas não em toda venda. A Yolen agrupou isso em uma única etapa opcional em vez de criar uma etapa obrigatória para cada atividade.`,
+          ],
+          requirement: 'conditional',
         }),
       )
     }

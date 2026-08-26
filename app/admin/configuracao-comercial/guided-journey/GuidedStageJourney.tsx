@@ -33,11 +33,112 @@ const ASSIST_FIELD_MAP: Record<string, keyof CommercialMethodStageAssistiveSugge
   E13: 'common_mistakes',
 }
 
+type StageSummaryRow = {
+  label: string
+  items: string[]
+}
+
+function buildStageSummaryRows(stage: CommercialMethodConstructionStageDraft): StageSummaryRow[] {
+  const rows: StageSummaryRow[] = [
+    { label: 'Por que existe', items: stage.purpose ? [stage.purpose] : [] },
+    { label: 'Objetivo', items: stage.objective ? [stage.objective] : [] },
+    { label: 'O que prova conclusão', items: stage.completion_criteria },
+    { label: 'Quando aprofundar', items: stage.deepen_when },
+    { label: 'Quando já sabe o suficiente', items: stage.sufficient_when },
+    { label: 'Quando avançar', items: stage.advance_when },
+    { label: 'Quando esperar', items: stage.wait_when },
+    { label: 'Quando parar de perguntar', items: stage.stop_asking_when },
+    { label: 'Perguntas sugeridas', items: stage.recommended_questions },
+    { label: 'Erros comuns', items: stage.common_mistakes },
+  ]
+
+  if (stage.requirement !== 'required') {
+    rows.push({ label: 'Quando pular esta etapa', items: stage.skip_conditions })
+  }
+
+  return rows.filter((row) => row.items.length > 0)
+}
+
+// Uma etapa só entra em modo de revisão quando a síntese determinística já
+// trouxe conteúdo suficiente para o gestor confirmar. Uma etapa
+// praticamente em branco (ex.: adicionada manualmente) vai direto para as
+// perguntas — não há nada real para revisar.
+function hasEnoughToReview(stage: CommercialMethodConstructionStageDraft): boolean {
+  const hasCore = Boolean(stage.objective) || stage.completion_criteria.length > 0
+  const filledFieldCount = buildStageSummaryRows(stage).length
+  return hasCore && filledFieldCount >= 2
+}
+
 export default function GuidedStageJourney({ stage, onChange, assist, onDone }: Props) {
   const [viewingQuestionId, setViewingQuestionId] = React.useState<string | null>(null)
+  const [reviewing, setReviewing] = React.useState(() => hasEnoughToReview(stage))
+
+  React.useEffect(() => {
+    setViewingQuestionId(null)
+    setReviewing(hasEnoughToReview(stage))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage.id])
 
   const visible = getVisibleQuestions(STAGE_QUESTIONS, stage)
   const nextQuestion = getNextQuestion(STAGE_QUESTIONS, stage)
+
+  if (reviewing) {
+    const rows = buildStageSummaryRows(stage)
+
+    return (
+      <div
+        style={{
+          background: 'rgba(59,130,246,0.06)',
+          border: '1px solid rgba(96,165,250,0.2)',
+          borderRadius: GJ_DS.radius,
+          padding: 18,
+        }}
+      >
+        <strong style={{ color: GJ_DS.blueSoft, fontSize: 13 }}>{stage.name || 'Etapa sem nome'}</strong>
+        <p style={{ color: GJ_DS.textSecondary, fontSize: 11, lineHeight: 1.6, marginTop: 6 }}>
+          Com base no que você já contou, a Yolen montou esta etapa.
+        </p>
+        <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+          {rows.map((row) => (
+            <div key={row.label}>
+              <span style={{ color: GJ_DS.textMuted, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>
+                {row.label}
+              </span>
+              {row.items.length === 1 ? (
+                <p style={{ color: GJ_DS.textPrimary, fontSize: 12, lineHeight: 1.55, margin: '4px 0 0' }}>
+                  {row.items[0]}
+                </p>
+              ) : (
+                <ul style={{ color: GJ_DS.textPrimary, fontSize: 12, lineHeight: 1.55, margin: '4px 0 0', paddingLeft: 18 }}>
+                  {row.items.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={onDone}
+            style={{ background: GJ_DS.blue, border: 0, borderRadius: GJ_DS.radius, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 850, padding: '10px 16px' }}
+          >
+            Está correto
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setReviewing(false)
+              setViewingQuestionId(visible[0]?.id ?? null)
+            }}
+            style={{ background: 'transparent', border: 0, color: GJ_DS.textSecondary, cursor: 'pointer', fontSize: 11 }}
+          >
+            Quero ajustar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const activeQuestion = viewingQuestionId
     ? getQuestionById(STAGE_QUESTIONS, viewingQuestionId)
     : nextQuestion
