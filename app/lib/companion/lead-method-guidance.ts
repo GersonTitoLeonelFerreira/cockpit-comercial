@@ -545,6 +545,7 @@ async function runAttempt({
         'Defina uma única ação específica e executável e diga qual informação, confirmação ou resultado o vendedor deve obter.',
         'Não responda apenas com retomar negociação, fazer follow-up, acompanhar ou aguardar retorno.',
         'Não invente fatos, datas, valores, compromissos, objeções ou regras.',
+        'Se o resumo mencionar um áudio ainda sem transcrição, não infira nem presuma o que foi dito nele; se isso for a pendência mais imediata, oriente o vendedor a obter ou aguardar a transcrição antes de avançar.',
         'Não escreva mensagem pronta para o cliente.',
         ...correction,
       ].join('\n'),

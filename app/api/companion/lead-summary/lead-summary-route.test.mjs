@@ -683,6 +683,29 @@ function canonicalConversationFixtures({
   }
 }
 
+function audioMessageRow({
+  id = 'message-audio-1',
+  messageKey = 'whatsapp-audio-1',
+  direction = 'incoming',
+  occurredAt = '2026-08-25T14:05:00.000Z',
+  transcription = null,
+} = {}) {
+  return {
+    id,
+    company_id: IDS.companyA,
+    cycle_id: IDS.cycleA,
+    conversation_key: CONVERSATION_KEY,
+    message_key: messageKey,
+    version: 1,
+    direction,
+    occurred_at: occurredAt,
+    content_type: 'audio',
+    text_content: null,
+    audio_transcription: transcription,
+    is_deleted: false,
+  }
+}
+
 function registeredHistoryRow(overrides = {}) {
   return {
     company_id: IDS.companyA,
@@ -946,4 +969,400 @@ test('dado canônico novo vence resumo persistente stale', async () => {
     prompt.current_or_new_messages[0].text,
     /follow-up/i,
   )
+})
+
+// ---------------------------------------------------------------------
+// Áudio como conteúdo real da conversa (Onda 7 / Frente 2)
+// ---------------------------------------------------------------------
+
+test('conversa somente texto: pipeline funciona normalmente sem nenhum campo de áudio envolvido', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary =
+    'A cliente precisa organizar o follow-up da equipe.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    ...canonicalConversationFixtures(),
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.pending_audio_transcription_count, 0)
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  assert.equal(prompt.current_or_new_messages.every((message) => message.kind === 'text'), true)
+})
+
+test('texto + áudio transcrito do cliente: a transcrição entra no resumo como fala do cliente (speaker=cliente, kind=audio)', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary = 'A cliente prefere pagar no boleto.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-1',
+      },
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-1',
+      },
+    ],
+    messages: [
+      canonicalConversationFixtures().messages[0],
+      audioMessageRow({
+        direction: 'incoming',
+        occurredAt: '2026-08-25T14:05:00.000Z',
+        transcription: 'Prefiro pagar no boleto.',
+      }),
+    ],
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.pending_audio_transcription_count, 0)
+  assert.equal(body.data.messages_used_count, 2)
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  const audioEntry = prompt.current_or_new_messages.find(
+    (message) => message.kind === 'audio',
+  )
+
+  assert.ok(audioEntry, 'esperava encontrar a mensagem de áudio no prompt')
+  assert.equal(audioEntry.speaker, 'cliente')
+  assert.equal(audioEntry.text, 'Prefiro pagar no boleto.')
+})
+
+test('áudio transcrito do vendedor entra corretamente como fala do vendedor (speaker=vendedor)', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary = 'O vendedor confirmou o prazo de entrega.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-seller',
+      },
+    ],
+    messages: [
+      audioMessageRow({
+        id: 'message-audio-seller',
+        messageKey: 'whatsapp-audio-seller',
+        direction: 'outgoing',
+        occurredAt: '2026-08-25T14:10:00.000Z',
+        transcription: 'Confirmo que o prazo é de dez dias úteis.',
+      }),
+    ],
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+
+  assert.equal(response.status, 200)
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  assert.equal(prompt.current_or_new_messages.length, 1)
+  assert.equal(prompt.current_or_new_messages[0].speaker, 'vendedor')
+  assert.equal(prompt.current_or_new_messages[0].kind, 'audio')
+  assert.equal(
+    prompt.current_or_new_messages[0].text,
+    'Confirmo que o prazo é de dez dias úteis.',
+  )
+})
+
+test('áudio sem transcrição não inventa conteúdo, mas também não vira um buraco silencioso: entra como marcador técnico', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary = 'Existe um áudio da cliente pendente de transcrição.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-1',
+      },
+    ],
+    messages: [
+      audioMessageRow({ transcription: null }),
+    ],
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.pending_audio_transcription_count, 1)
+  // O resumo é composto (não fica vazio/"empty") mesmo só com o áudio pendente.
+  assert.equal(body.data.working_summary_source, 'conversation_only')
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  assert.equal(prompt.current_or_new_messages.length, 1)
+  assert.equal(prompt.current_or_new_messages[0].kind, 'audio')
+  assert.match(
+    prompt.current_or_new_messages[0].text,
+    /ainda sem transcrição/i,
+  )
+  // Nunca inventa palavras específicas de conteúdo comercial no marcador.
+  assert.doesNotMatch(
+    prompt.current_or_new_messages[0].text,
+    /cancelar|comprar|proposta|pagamento|boleto/i,
+  )
+})
+
+test('mesmo áudio não duplica fatos: apenas uma entrada aparece no prompt mesmo com múltiplas versões físicas da mensagem', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary = 'A cliente quer cancelar.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    // Duas versões físicas do mesmo message_key: a primeira sem
+    // transcrição, a segunda (vigente) já transcrita. O ponteiro de
+    // reconciliação aponta só para a versão vigente.
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-v2',
+      },
+    ],
+    messages: [
+      {
+        ...audioMessageRow({
+          id: 'message-audio-v1',
+          transcription: null,
+        }),
+        version: 1,
+      },
+      {
+        ...audioMessageRow({
+          id: 'message-audio-v2',
+          transcription: 'Quero cancelar o plano.',
+        }),
+        version: 2,
+      },
+    ],
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.messages_used_count, 1)
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  assert.equal(prompt.current_or_new_messages.length, 1)
+  assert.equal(prompt.current_or_new_messages[0].text, 'Quero cancelar o plano.')
+})
+
+test('cliente diz apenas por áudio "quero cancelar": o fato chega inteiro ao resumo (não é descartado por não ter texto)', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary = 'A cliente pediu para cancelar o plano.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-cancel',
+      },
+    ],
+    messages: [
+      audioMessageRow({
+        id: 'message-audio-cancel',
+        messageKey: 'whatsapp-audio-cancel',
+        transcription: 'Quero cancelar.',
+      }),
+    ],
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.data.working_summary, providerBox.workingSummary)
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  assert.equal(prompt.current_or_new_messages.length, 1)
+  assert.equal(prompt.current_or_new_messages[0].speaker, 'cliente')
+  assert.equal(prompt.current_or_new_messages[0].text, 'Quero cancelar.')
+})
+
+test('transcrição posterior invalida o resumo antigo: o watermark muda e a nova leitura passa a considerar a transcrição', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary = 'A cliente confirmou que quer cancelar via áudio.'
+
+  const pendingFixtures = {
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-cancel',
+      },
+    ],
+    messages: [
+      audioMessageRow({
+        id: 'message-audio-cancel',
+        messageKey: 'whatsapp-audio-cancel',
+        transcription: null,
+      }),
+    ],
+  }
+
+  // 1) Primeira leitura: áudio ainda não transcrito. O resumo persistido
+  // guarda o watermark desse estado (sem a transcrição).
+  const { admin, summaries } = createFakeAdmin({
+    ...fixtures(),
+    ...pendingFixtures,
+  })
+  adminBox.admin = admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const firstRead = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const firstBody = await firstRead.json()
+  const watermarkBeforeTranscription = firstBody.data.current_message_watermark
+
+  await savePOST(
+    saveRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+        summary: firstBody.data.working_summary,
+        expected_version: null,
+      },
+    }),
+  )
+
+  assert.equal(summaries[0].last_message_watermark, watermarkBeforeTranscription)
+
+  // 2) A transcrição chega depois (mesma message_key, nova versão da
+  // mensagem canônica).
+  providerBox.calls = []
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    summaries,
+    reconciliation: pendingFixtures.reconciliation,
+    messages: [
+      {
+        ...audioMessageRow({
+          id: 'message-audio-cancel',
+          messageKey: 'whatsapp-audio-cancel',
+          transcription: 'Quero cancelar.',
+        }),
+        version: 2,
+      },
+    ],
+  }).admin
+
+  const secondRead = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const secondBody = await secondRead.json()
+
+  assert.notEqual(secondBody.data.current_message_watermark, watermarkBeforeTranscription)
+  assert.equal(secondBody.data.has_unsaved_changes, true)
+  assert.equal(secondBody.data.working_summary, providerBox.workingSummary)
+
+  const prompt = JSON.parse(providerBox.calls[0].user_prompt)
+  assert.equal(prompt.current_or_new_messages[0].text, 'Quero cancelar.')
+})
+
+test('troca de conversa não mistura transcrição de áudio entre conversas diferentes', async () => {
+  providerBox.calls = []
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-audio-1',
+      },
+    ],
+    messages: [
+      audioMessageRow({ transcription: 'Áudio da conversa 1.' }),
+    ],
+  }).admin
+
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const firstConversation = await fetchPOST(
+    fetchRequest({
+      token,
+      body: { cycle_id: IDS.cycleA, conversation_key: CONVERSATION_KEY },
+    }),
+  )
+  const firstConversationBody = await firstConversation.json()
+
+  const secondConversation = await fetchPOST(
+    fetchRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA2,
+        conversation_key: CONVERSATION_KEY_2,
+      },
+    }),
+  )
+  const secondConversationBody = await secondConversation.json()
+
+  assert.equal(firstConversationBody.data.pending_audio_transcription_count, 0)
+  assert.equal(secondConversationBody.data.pending_audio_transcription_count, 0)
+  assert.equal(secondConversationBody.data.working_summary, null)
+  assert.equal(secondConversationBody.data.messages_used_count, 0)
 })

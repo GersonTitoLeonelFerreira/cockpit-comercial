@@ -168,6 +168,7 @@ export async function composeSellerMessage({
         'Use o método comercial publicado e as regras do vendedor como limites de condução.',
         'Se não houver orientação comercial ativa, não transforme automaticamente uma conversa pessoal, administrativa ou operacional em venda.',
         'Não invente preço, desconto, prazo, compromisso, disponibilidade, objeção, necessidade, nome de produto, condição comercial ou qualquer fato que não esteja no resumo.',
+        'Uma entrada da interação marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido: nunca invente ou presuma o que foi dito nele.',
         'Não prometa que algo será feito se isso não estiver sustentado no contexto.',
         'Escreva como mensagem real de WhatsApp: natural, clara, humana e pronta para revisão do vendedor.',
         'Evite linguagem de robô, jargão de CRM, explicações sobre o método, listas longas e texto excessivamente formal.',

@@ -23,6 +23,7 @@ import {
 import {
   CompanionConversationRegistrationError,
   loadCanonicalMessages,
+  toCanonicalMessagePromptText,
   type CanonicalConversationMessage,
 } from '../../../lib/server/companion-conversation-registration-loader'
 
@@ -79,16 +80,24 @@ function buildCurrentInteraction(
   messages: readonly CanonicalConversationMessage[],
 ): LeadMethodCurrentInteractionMessage[] {
   const usable = messages
-    .filter(
-      (message) =>
-        !message.is_deleted &&
-        typeof message.text === 'string' &&
-        Boolean(message.text.trim()),
-    )
+    .filter((message) => {
+      if (message.is_deleted) {
+        return false
+      }
+
+      // Um áudio ainda sem transcrição continua sendo um turno real da
+      // interação atual: representá-lo com um marcador técnico (nunca com
+      // conteúdo inventado) evita um buraco silencioso na sequência.
+      if (message.content_type === 'audio') {
+        return true
+      }
+
+      return typeof message.text === 'string' && Boolean(message.text.trim())
+    })
     .map((message) => ({
       direction: message.direction,
       occurred_at: message.occurred_at,
-      text: message.text?.trim() || '',
+      text: toCanonicalMessagePromptText(message) || '',
     }))
 
   if (usable.length === 0) {

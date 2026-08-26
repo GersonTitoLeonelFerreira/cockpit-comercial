@@ -4,7 +4,10 @@ import test from 'node:test'
 import {
   CompanionConversationRegistrationError,
   computeConversationWatermark,
+  isPendingAudioTranscription,
   loadCanonicalConversationForRegistration,
+  PENDING_AUDIO_TRANSCRIPTION_PLACEHOLDER,
+  toCanonicalMessagePromptText,
 } from './companion-conversation-registration-loader.ts'
 
 const COMPANY_A = '10000000-0000-4000-8000-000000000001'
@@ -401,6 +404,145 @@ test('mensagem de áudio sem transcrição não inventa texto', async () => {
 
   const audioMessage = snapshot.messages.find((message) => message.message_key === 'msg-audio-2')
   assert.equal(audioMessage.text, null)
+})
+
+// ---------------------------------------------------------------------
+// D2. Representação para a camada semântica (speaker/kind/text)
+// ---------------------------------------------------------------------
+
+test('toCanonicalMessagePromptText: texto normal é devolvido como está (trim)', () => {
+  assert.equal(
+    toCanonicalMessagePromptText({
+      content_type: 'text',
+      text: '  Quero saber o preço  ',
+    }),
+    'Quero saber o preço',
+  )
+})
+
+test('toCanonicalMessagePromptText: áudio transcrito devolve a transcrição, nunca um silo separado', () => {
+  assert.equal(
+    toCanonicalMessagePromptText({
+      content_type: 'audio',
+      text: 'Quero cancelar o plano.',
+    }),
+    'Quero cancelar o plano.',
+  )
+})
+
+test('toCanonicalMessagePromptText: áudio sem transcrição expõe estado técnico discreto, nunca inventa conteúdo', () => {
+  const placeholder = toCanonicalMessagePromptText({
+    content_type: 'audio',
+    text: null,
+  })
+
+  assert.equal(placeholder, PENDING_AUDIO_TRANSCRIPTION_PLACEHOLDER)
+  assert.doesNotMatch(placeholder, /cancelar|comprar|proposta|pagamento/i)
+})
+
+test('toCanonicalMessagePromptText: texto vazio (sem áudio) não inventa marcador nenhum', () => {
+  assert.equal(
+    toCanonicalMessagePromptText({
+      content_type: 'text',
+      text: null,
+    }),
+    null,
+  )
+})
+
+test('isPendingAudioTranscription: verdadeiro somente para áudio ativo sem transcrição', () => {
+  assert.equal(
+    isPendingAudioTranscription({
+      content_type: 'audio',
+      text: null,
+      is_deleted: false,
+    }),
+    true,
+  )
+
+  assert.equal(
+    isPendingAudioTranscription({
+      content_type: 'audio',
+      text: 'Já transcrito.',
+      is_deleted: false,
+    }),
+    false,
+  )
+
+  assert.equal(
+    isPendingAudioTranscription({
+      content_type: 'text',
+      text: null,
+      is_deleted: false,
+    }),
+    false,
+  )
+
+  assert.equal(
+    isPendingAudioTranscription({
+      content_type: 'audio',
+      text: null,
+      is_deleted: true,
+    }),
+    false,
+  )
+})
+
+test('mesmo áudio nunca produz duas mensagens canônicas: o ponteiro de reconciliação garante uma única versão vigente por message_key', async () => {
+  const fixtures = baseFixtures()
+
+  // Duas versões físicas do mesmo message_key (transcrição chegou depois),
+  // mas o ponteiro de reconciliação aponta só para a versão vigente (id 9).
+  fixtures.reconciliation.push({
+    company_id: COMPANY_A,
+    conversation_key: CONVERSATION_KEY,
+    current_message_id: 9,
+  })
+  fixtures.messages.push(
+    {
+      id: 8,
+      company_id: COMPANY_A,
+      cycle_id: CYCLE_A,
+      conversation_key: CONVERSATION_KEY,
+      message_key: 'msg-audio-3',
+      version: 1,
+      direction: 'incoming',
+      occurred_at: '2026-08-20T10:09:00.000Z',
+      content_type: 'audio',
+      text_content: null,
+      audio_transcription: null,
+      is_deleted: false,
+    },
+    {
+      id: 9,
+      company_id: COMPANY_A,
+      cycle_id: CYCLE_A,
+      conversation_key: CONVERSATION_KEY,
+      message_key: 'msg-audio-3',
+      version: 2,
+      direction: 'incoming',
+      occurred_at: '2026-08-20T10:09:00.000Z',
+      content_type: 'audio',
+      text_content: null,
+      audio_transcription: 'Quero cancelar.',
+      is_deleted: false,
+    },
+  )
+
+  const snapshot = await loadCanonicalConversationForRegistration({
+    admin: createFakeAdmin(fixtures),
+    token: buildToken(),
+    cycle_id: CYCLE_A,
+    conversation_key: CONVERSATION_KEY,
+  })
+
+  const audioMessages = snapshot.messages.filter(
+    (message) => message.message_key === 'msg-audio-3',
+  )
+
+  assert.equal(audioMessages.length, 1)
+  assert.equal(audioMessages[0].version, 2)
+  assert.equal(audioMessages[0].text, 'Quero cancelar.')
 })
 
 // ---------------------------------------------------------------------
