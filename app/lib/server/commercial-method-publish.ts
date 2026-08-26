@@ -6,41 +6,36 @@ import type {
   CommercialMethodDefinition,
   CommercialMethodValidationIssue,
 } from '@/app/lib/companion/commercial-method-contract'
-import {
-  cloneCommercialConfigVersion,
-  getCommercialConfigWorkspace,
-  publishCommercialConfigDraft,
-  saveCommercialConfigDraft,
-} from '@/app/lib/server/commercial-config'
+import { getCommercialConfigWorkspace } from '@/app/lib/server/commercial-config'
 import { getCommercialMethodConstruction } from '@/app/lib/server/commercial-method-construction'
-import { createEmptyCommercialConfigDraft } from '@/app/types/commercial-config'
-import type {
-  CommercialConfigBundle,
-  CommercialConfigDraftInput,
-} from '@/app/types/commercial-config'
 
 type CommercialMethodPublishSupabase = Awaited<
   ReturnType<typeof getAuthedSupabase>
 >['supabase']
 
 // ============================================================================
-// Publica, de forma explícita, o método comercial produzido pela Guided
-// Commercial Method Journey.
+// Publica, de forma explícita e isolada, o método comercial produzido pela
+// Guided Commercial Method Journey.
 //
 // A construção assistida (company_commercial_method_builder_drafts) só
 // materializa method_definition quando review_ready; ela nunca publica
 // company_commercial_config_versions sozinha. Esta função é a ponte
-// explícita entre as duas tabelas: reaproveita o mecanismo de
-// save/clone/publish já existente (RPCs V6), preservando produtos, fatos,
-// objeções, tom e comportamentos da configuração comercial atual, e troca
-// apenas os campos do método pelo commercial-method-v2 compilado pela
-// jornada guiada.
+// explícita entre as duas tabelas.
+//
+// ONDA 8 / FRENTE A (isolamento) + correção: a ponte NUNCA reaproveita o
+// rascunho comercial geral da empresa, e a RPC — não o TypeScript — é a
+// fonte de verdade de "o que publicar" e de idempotência. Este código só
+// valida cedo (para uma mensagem de erro rápida e amigável) e passa
+// method_updated_at como valor esperado, para que o banco rejeite uma
+// publicação baseada em builder desatualizado. O cliente não pode mais
+// injetar uma definição arbitrária: a RPC lê o builder ela mesma.
 // ============================================================================
 
 export type CommercialMethodPublishErrorCode =
   | 'NOT_REVIEW_READY'
   | 'INVALID_DEFINITION'
-  | 'SAVE_FAILED'
+  | 'STALE_METHOD_BUILDER'
+  | 'NO_BASE_COMMERCIAL_CONFIG'
   | 'PUBLISH_FAILED'
   | 'VERIFICATION_FAILED'
 
@@ -71,13 +66,28 @@ export interface PublishBuilderCommercialMethodResult {
   already_published: boolean
 }
 
+function extractErrorMessage(error: unknown): string | null {
+  if (error instanceof Error) return error.message
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+  return null
+}
+
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
+  return extractErrorMessage(error) ?? fallback
 }
 
 // Comparação estrutural, insensível à ordem de chaves de objeto (jsonb do
 // Postgres não garante preservar a ordem de inserção), mas sensível à ordem
-// de listas (a ordem das etapas e dos princípios importa).
+// de listas (a ordem das etapas e dos princípios importa). Usada aqui só
+// para a verificação pós-publicação — a idempotência em si é decidida no
+// banco (comparação jsonb `=`, com a mesma semântica).
 function deepEqualJson(a: unknown, b: unknown): boolean {
   if (a === b) return true
 
@@ -109,92 +119,40 @@ function deepEqualJson(a: unknown, b: unknown): boolean {
   return false
 }
 
-// Constrói o payload completo de rascunho a partir da versão comercial
-// atual (draft ou publicada), preservando tudo o que não é o método, e
-// substituindo apenas nome, descrição e definição do método.
-function bundleToDraftInput(
-  bundle: CommercialConfigBundle | null,
-  methodDefinition: CommercialMethodDefinition,
-): CommercialConfigDraftInput {
-  const methodFields = {
-    commercial_method_name: methodDefinition.name,
-    commercial_method_description: methodDefinition.description,
-    commercial_method_definition: methodDefinition,
+type PublishRpcRow = {
+  company_id: string
+  config_version_id: string
+  version_number: number
+  status: string
+  published_at: string | null
+  already_published: boolean
+}
+
+function classifyPublishRpcError(
+  error: unknown,
+): CommercialMethodPublishErrorCode {
+  const message = extractErrorMessage(error) ?? ''
+
+  if (message.includes('desde que a página foi carregada')) {
+    return 'STALE_METHOD_BUILDER'
   }
 
-  if (!bundle) {
-    return {
-      ...createEmptyCommercialConfigDraft(),
-      ...methodFields,
-    }
+  if (message.includes('Ainda não existe uma configuração comercial publicada')) {
+    return 'NO_BASE_COMMERCIAL_CONFIG'
   }
 
-  return {
-    config_version_id: bundle.version.id,
-
-    business_description: bundle.version.business_description,
-    target_audience: bundle.version.target_audience,
-    value_proposition: bundle.version.value_proposition,
-
-    ...methodFields,
-
-    communication_tone: bundle.version.communication_tone,
-
-    required_behaviors: bundle.version.required_behaviors,
-    prohibited_behaviors: bundle.version.prohibited_behaviors,
-
-    method_steps: bundle.method_steps.map((step) => ({
-      id: step.id,
-      step_order: step.step_order,
-      name: step.name,
-      objective: step.objective,
-      completion_criteria: step.completion_criteria,
-      recommended_questions: step.recommended_questions,
-      is_required: step.is_required,
-    })),
-
-    product_profiles: bundle.product_profiles.map((profile) => ({
-      id: profile.id,
-      product_id: profile.product_id,
-      commercial_product_contract_version:
-        profile.commercial_product_contract_version,
-      commercial_product_definition: profile.commercial_product_definition,
-      indicated_audiences: profile.indicated_audiences,
-      needs_addressed: profile.needs_addressed,
-      benefits: profile.benefits,
-      verified_differentiators: profile.verified_differentiators,
-      limitations: profile.limitations,
-      contract_conditions: profile.contract_conditions,
-      payment_conditions: profile.payment_conditions,
-      allowed_claims: profile.allowed_claims,
-      forbidden_claims: profile.forbidden_claims,
-    })),
-
-    facts: bundle.facts.map((fact) => ({
-      id: fact.id,
-      commercial_fact_contract_version: fact.commercial_fact_contract_version,
-      commercial_fact_definition: fact.commercial_fact_definition,
-      category: fact.category,
-      fact_key: fact.fact_key,
-      fact_value: fact.fact_value,
-      source_note: fact.source_note,
-      is_active: fact.is_active,
-    })),
-
-    objection_guides: bundle.objection_guides.map((guide) => ({
-      id: guide.id,
-      commercial_objection_contract_version:
-        guide.commercial_objection_contract_version,
-      commercial_objection_definition: guide.commercial_objection_definition,
-      sort_order: guide.sort_order,
-      objection: guide.objection,
-      signals: guide.signals,
-      discovery_questions: guide.discovery_questions,
-      recommended_approach: guide.recommended_approach,
-      response_limits: guide.response_limits,
-      is_active: guide.is_active,
-    })),
+  if (
+    message.includes('pronto para revisão final') ||
+    message.includes('construção do método ainda não foi iniciada')
+  ) {
+    return 'NOT_REVIEW_READY'
   }
+
+  if (message.includes('não está no contrato commercial-method-v2')) {
+    return 'INVALID_DEFINITION'
+  }
+
+  return 'PUBLISH_FAILED'
 }
 
 export async function publishBuilderCommercialMethod(
@@ -228,107 +186,59 @@ export async function publishBuilderCommercialMethod(
     )
   }
 
-  let workspace = await getCommercialConfigWorkspace(supabase, companyId)
+  const workspaceBefore = await getCommercialConfigWorkspace(
+    supabase,
+    companyId,
+  )
   const previousPublishedVersionNumber =
-    workspace.published?.version.version_number ?? null
+    workspaceBefore.published?.version.version_number ?? null
 
-  // Idempotência: se a versão publicada já reflete exatamente este método,
-  // não há nada a fazer. Cobre retry, clique duplo e refresh depois de uma
-  // publicação que já havia sido concluída.
-  if (
-    workspace.published &&
-    workspace.published.version.commercial_method_contract_version ===
-      'commercial-method-v2' &&
-    deepEqualJson(
-      workspace.published.version.commercial_method_definition,
-      methodDefinition,
-    )
-  ) {
-    return {
-      company_id: companyId,
-      config_version_id: workspace.published.version.id,
-      version_number: workspace.published.version.version_number,
-      published_at:
-        workspace.published.version.published_at ??
-        new Date().toISOString(),
-      method_name: workspace.published.version.commercial_method_name,
-      method_definition: methodDefinition,
-      previous_published_version_number: previousPublishedVersionNumber,
-      already_published: true,
-    }
-  }
+  // A RPC é a fonte de verdade: ela relê o builder ela mesma (o cliente
+  // não envia mais a definição do método) e decide idempotência dentro do
+  // advisory lock. method_updated_at aqui é só o valor esperado, para que
+  // o banco rejeite uma publicação baseada em estado desatualizado.
+  const { data, error } = await supabase.rpc(
+    'rpc_publish_builder_commercial_method',
+    {
+      p_company_id: companyId,
+      p_expected_method_updated_at: construction.method_updated_at,
+    },
+  )
 
-  if (!workspace.draft && workspace.published) {
-    // Não existe rascunho em andamento: clona a versão publicada atual para
-    // preservar produtos, fatos, objeções, tom e comportamentos antes de
-    // trocar apenas o método.
-    try {
-      await cloneCommercialConfigVersion(
-        supabase,
-        companyId,
-        workspace.published.version.id,
-      )
-    } catch (cloneError: unknown) {
-      throw new CommercialMethodPublishError(
-        'SAVE_FAILED',
-        errorMessage(
-          cloneError,
-          'Erro ao preparar a nova versão comercial a partir da versão publicada.',
-        ),
-      )
-    }
-
-    workspace = await getCommercialConfigWorkspace(supabase, companyId)
-  }
-
-  const payload = bundleToDraftInput(workspace.draft, methodDefinition)
-
-  let saveResult
-  try {
-    saveResult = await saveCommercialConfigDraft(
-      supabase,
-      companyId,
-      payload,
-    )
-  } catch (saveError: unknown) {
+  if (error) {
     throw new CommercialMethodPublishError(
-      'SAVE_FAILED',
+      classifyPublishRpcError(error),
       errorMessage(
-        saveError,
-        'Erro ao preparar o método para publicação.',
-      ),
-    )
-  }
-
-  let publishResult
-  try {
-    publishResult = await publishCommercialConfigDraft(
-      supabase,
-      companyId,
-      saveResult.config_version_id,
-    )
-  } catch (publishError: unknown) {
-    throw new CommercialMethodPublishError(
-      'PUBLISH_FAILED',
-      errorMessage(
-        publishError,
+        error,
         'Erro ao publicar o método. O método anterior continua ativo.',
       ),
     )
   }
 
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | PublishRpcRow
+    | undefined
+
+  if (!row) {
+    throw new CommercialMethodPublishError(
+      'PUBLISH_FAILED',
+      'A publicação do método não retornou o resultado esperado.',
+    )
+  }
+
   // Fonte de verdade é o banco: relê a versão publicada e comprova que ela
-  // contém exatamente o método compilado pela jornada guiada antes de
-  // reportar sucesso.
-  const verifyWorkspace = await getCommercialConfigWorkspace(
+  // contém exatamente o método construído na jornada guiada — e que o
+  // rascunho comercial geral, se existir, permanece intacto e ainda
+  // rascunho — antes de reportar sucesso.
+  const workspaceAfter = await getCommercialConfigWorkspace(
     supabase,
     companyId,
   )
-  const published = verifyWorkspace.published
+  const published = workspaceAfter.published
 
   if (
     !published ||
-    published.version.id !== publishResult.config_version_id ||
+    published.version.id !== row.config_version_id ||
     published.version.status !== 'published' ||
     published.version.commercial_method_contract_version !==
       'commercial-method-v2' ||
@@ -351,6 +261,6 @@ export async function publishBuilderCommercialMethod(
     method_name: published.version.commercial_method_name,
     method_definition: methodDefinition,
     previous_published_version_number: previousPublishedVersionNumber,
-    already_published: false,
+    already_published: row.already_published,
   }
 }
