@@ -7,9 +7,12 @@ import {
 } from '../../../lib/companion/lead-method-applicability'
 
 import {
-  composeLeadMethodGuidance,
   normalizePublishedCommercialMethod,
 } from '../../../lib/companion/lead-method-guidance'
+
+import {
+  composeSellerFacingGuidance,
+} from '../../../lib/companion/lead-seller-guidance'
 
 import {
   composeSellerMessage,
@@ -133,13 +136,17 @@ function buildClientGuidance(
     typeof body.guidance_status === 'string'
       ? body.guidance_status
       : null
+  const nextStep =
+    typeof body.guidance_next_step === 'string'
+      ? body.guidance_next_step.trim() || null
+      : null
 
   if (status === 'not_applicable') {
     return {
       status: 'not_applicable',
       method_name: methodName,
       stage_name: null,
-      next_step: null,
+      next_step: nextStep,
     }
   }
 
@@ -150,10 +157,6 @@ function buildClientGuidance(
   const stageName =
     typeof body.guidance_stage_name === 'string'
       ? body.guidance_stage_name.trim() || null
-      : null
-  const nextStep =
-    typeof body.guidance_next_step === 'string'
-      ? body.guidance_next_step.trim() || null
       : null
 
   if (!nextStep) {
@@ -355,6 +358,7 @@ export async function POST(request: Request) {
             stage_name: null,
             stage_reason: null,
             next_step: null,
+            seller_intents: [],
             error: 'O método comercial publicado precisa ter nome e descrição.',
           },
         },
@@ -377,6 +381,7 @@ export async function POST(request: Request) {
             stage_name: null,
             stage_reason: null,
             next_step: null,
+            seller_intents: [],
             error: null,
           },
         },
@@ -446,31 +451,6 @@ export async function POST(request: Request) {
         provider,
       })
 
-    if (
-      applicability.status ===
-      'no_commercial_action'
-    ) {
-      return NextResponse.json(
-        {
-          ok: true,
-          data: {
-            status: 'not_applicable',
-            method_name: method.name,
-            method_config_version_id: method.id,
-            stage_key: null,
-            stage_name: null,
-            stage_reason: null,
-            next_step: null,
-            error: null,
-          },
-        },
-        {
-          status: 200,
-          headers: corsHeaders,
-        },
-      )
-    }
-
     if (applicability.status === 'error') {
       return NextResponse.json(
         {
@@ -483,6 +463,7 @@ export async function POST(request: Request) {
             stage_name: null,
             stage_reason: null,
             next_step: null,
+            seller_intents: [],
             error: applicability.reason,
           },
         },
@@ -493,8 +474,13 @@ export async function POST(request: Request) {
       )
     }
 
-    const guidance = await composeLeadMethodGuidance({
+    const guidance = await composeSellerFacingGuidance({
+      mode:
+        applicability.status === 'no_commercial_action'
+          ? 'operational'
+          : 'commercial',
       workingSummary: workingSummary || null,
+      currentInteraction,
       method,
       provider,
     })
