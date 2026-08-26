@@ -306,32 +306,87 @@ function replaceChildren(table, versionId, newRows) {
   table.push(...kept, ...newRows)
 }
 
-// Espelha fielmente rpc_publish_builder_commercial_method (ONDA 8 / FRENTE
-// A): nova versão nasce só da PUBLICADA, filhos copiados só da PUBLICADA,
-// nunca lê nem escreve o rascunho comercial geral da empresa.
-function publishBuilderMethodRpc(db, args) {
-  const { p_company_id: companyId, p_method_definition: methodDefinition } = args
-
-  if (!methodDefinition || typeof methodDefinition !== 'object') {
-    return { data: null, error: { message: 'A definição do método precisa ser um objeto.' } }
+function jsonEqual(a, b) {
+  if (a === b) return true
+  if (a === null || b === null || a === undefined || b === undefined) return a === b
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, index) => jsonEqual(item, b[index]))
   }
-  if (methodDefinition.contract_version !== 'commercial-method-v2') {
-    return { data: null, error: { message: 'A definição do método precisa declarar commercial-method-v2.' } }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const aKeys = Object.keys(a)
+    const bKeys = Object.keys(b)
+    if (aKeys.length !== bKeys.length) return false
+    return aKeys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && jsonEqual(a[key], b[key]))
+  }
+  return false
+}
+
+// Espelha fielmente rpc_publish_builder_commercial_method (ONDA 8 / FRENTE
+// A, com a correção do Controle Mestre): lê
+// company_commercial_method_builder_drafts ela mesma — o cliente não
+// envia mais a definição do método —, decide idempotência dentro do
+// "lock" simulado, rejeita builder desatualizado, bloqueia a primeira
+// publicação sem versão publicada anterior, e deriva method_steps das
+// stages do método NOVO, nunca do método anterior.
+function publishBuilderMethodRpc(db, args) {
+  const { p_company_id: companyId, p_expected_method_updated_at: expectedUpdatedAt } = args
+
+  const builder = db.builderDrafts.find((row) => row.company_id === companyId)
+  if (!builder) {
+    return { data: null, error: { message: 'A construção do método ainda não foi iniciada para esta empresa.' } }
+  }
+
+  if (builder.method_construction_status !== 'review_ready' || !builder.method_definition) {
+    return { data: null, error: { message: 'O método precisa estar pronto para revisão final antes de ser publicado.' } }
+  }
+
+  if (builder.method_updated_at !== expectedUpdatedAt) {
+    return { data: null, error: { message: 'O método foi alterado desde que a página foi carregada. Atualize a página e tente novamente.' } }
+  }
+
+  const methodDefinition = builder.method_definition
+  if (!methodDefinition || typeof methodDefinition !== 'object' || methodDefinition.contract_version !== 'commercial-method-v2') {
+    return { data: null, error: { message: 'O método construído não está no contrato commercial-method-v2.' } }
   }
 
   if (db.forcePublishFailure) {
     return { data: null, error: { message: 'Falha simulada de publicação isolada.' } }
   }
 
-  const concurrentMethodPublishDraft = db.configVersions.find(
-    (row) => row.company_id === companyId && row.status === 'draft' && row.draft_purpose === 'method_publish',
-  )
-  if (concurrentMethodPublishDraft) {
-    return { data: null, error: { message: 'duplicate key value violates unique constraint "company_commercial_config_one_method_publish_draft_uidx"' } }
+  const currentPublished = db.configVersions.find((row) => row.company_id === companyId && row.status === 'published')
+
+  if (
+    currentPublished &&
+    currentPublished.commercial_method_contract_version === 'commercial-method-v2' &&
+    jsonEqual(currentPublished.commercial_method_definition, methodDefinition)
+  ) {
+    return {
+      data: [
+        {
+          company_id: currentPublished.company_id,
+          config_version_id: currentPublished.id,
+          version_number: currentPublished.version_number,
+          status: currentPublished.status,
+          published_at: currentPublished.published_at,
+          already_published: true,
+        },
+      ],
+      error: null,
+    }
   }
 
-  const source = db.configVersions.find((row) => row.company_id === companyId && row.status === 'published')
+  if (!currentPublished) {
+    return {
+      data: null,
+      error: {
+        message:
+          'Ainda não existe uma configuração comercial publicada para esta empresa. Publique a configuração comercial base (contexto, tom e comportamentos) antes de publicar o método.',
+      },
+    }
+  }
 
+  const source = currentPublished
   const numbers = db.configVersions.filter((row) => row.company_id === companyId).map((row) => row.version_number)
   const newVersion = {
     id: nextId(db, 'config'),
@@ -340,16 +395,16 @@ function publishBuilderMethodRpc(db, args) {
     contract_version: 'phase-2-v1',
     status: 'draft',
     draft_purpose: 'method_publish',
-    business_description: source?.business_description ?? '',
-    target_audience: source?.target_audience ?? '',
-    value_proposition: source?.value_proposition ?? '',
+    business_description: source.business_description,
+    target_audience: source.target_audience,
+    value_proposition: source.value_proposition,
     commercial_method_name: methodDefinition.name,
     commercial_method_description: methodDefinition.description,
     commercial_method_contract_version: 'commercial-method-v2',
     commercial_method_definition: methodDefinition,
-    communication_tone: source?.communication_tone ?? '',
-    required_behaviors: source?.required_behaviors ?? [],
-    prohibited_behaviors: source?.prohibited_behaviors ?? [],
+    communication_tone: source.communication_tone,
+    required_behaviors: source.required_behaviors,
+    prohibited_behaviors: source.prohibited_behaviors,
     created_by: 'user',
     published_by: null,
     archived_by: null,
@@ -360,16 +415,30 @@ function publishBuilderMethodRpc(db, args) {
   }
   db.configVersions.push(newVersion)
 
-  if (source) {
-    for (const table of [db.methodSteps, db.productProfiles, db.facts, db.objectionGuides]) {
-      replaceChildren(
-        table,
-        newVersion.id,
-        table
-          .filter((row) => row.config_version_id === source.id)
-          .map((row) => ({ ...row, id: nextId(db, 'copy'), company_id: companyId, config_version_id: newVersion.id })),
-      )
-    }
+  replaceChildren(
+    db.methodSteps,
+    newVersion.id,
+    methodDefinition.stages.map((stage) => ({
+      id: nextId(db, 'step'),
+      company_id: companyId,
+      config_version_id: newVersion.id,
+      step_order: stage.display_order,
+      name: stage.name,
+      objective: stage.objective,
+      completion_criteria: stage.completion_criteria,
+      recommended_questions: stage.recommended_questions,
+      is_required: stage.requirement === 'required',
+    })),
+  )
+
+  for (const table of [db.productProfiles, db.facts, db.objectionGuides]) {
+    replaceChildren(
+      table,
+      newVersion.id,
+      table
+        .filter((row) => row.config_version_id === source.id)
+        .map((row) => ({ ...row, id: nextId(db, 'copy'), company_id: companyId, config_version_id: newVersion.id })),
+    )
   }
 
   const previouslyPublished = db.configVersions.find(
@@ -393,6 +462,7 @@ function publishBuilderMethodRpc(db, args) {
         version_number: newVersion.version_number,
         status: newVersion.status,
         published_at: newVersion.published_at,
+        already_published: false,
       },
     ],
     error: null,

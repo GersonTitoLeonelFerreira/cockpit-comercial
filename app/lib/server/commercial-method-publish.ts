@@ -22,18 +22,20 @@ type CommercialMethodPublishSupabase = Awaited<
 // company_commercial_config_versions sozinha. Esta função é a ponte
 // explícita entre as duas tabelas.
 //
-// ONDA 8 / FRENTE A: a ponte NUNCA reaproveita o rascunho comercial geral
-// da empresa (produtos/fatos/objeções/tom em edição pelo gestor). Ela chama
-// rpc_publish_builder_commercial_method, que constrói a nova versão
-// publicada exclusivamente a partir da versão PUBLICADA atual — o
-// rascunho geral, se existir, nunca é lido nem alterado. "Publicar
-// método" nunca publica silenciosamente uma alteração comercial paralela
-// não relacionada ao método.
+// ONDA 8 / FRENTE A (isolamento) + correção: a ponte NUNCA reaproveita o
+// rascunho comercial geral da empresa, e a RPC — não o TypeScript — é a
+// fonte de verdade de "o que publicar" e de idempotência. Este código só
+// valida cedo (para uma mensagem de erro rápida e amigável) e passa
+// method_updated_at como valor esperado, para que o banco rejeite uma
+// publicação baseada em builder desatualizado. O cliente não pode mais
+// injetar uma definição arbitrária: a RPC lê o builder ela mesma.
 // ============================================================================
 
 export type CommercialMethodPublishErrorCode =
   | 'NOT_REVIEW_READY'
   | 'INVALID_DEFINITION'
+  | 'STALE_METHOD_BUILDER'
+  | 'NO_BASE_COMMERCIAL_CONFIG'
   | 'PUBLISH_FAILED'
   | 'VERIFICATION_FAILED'
 
@@ -64,13 +66,28 @@ export interface PublishBuilderCommercialMethodResult {
   already_published: boolean
 }
 
+function extractErrorMessage(error: unknown): string | null {
+  if (error instanceof Error) return error.message
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+  return null
+}
+
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
+  return extractErrorMessage(error) ?? fallback
 }
 
 // Comparação estrutural, insensível à ordem de chaves de objeto (jsonb do
 // Postgres não garante preservar a ordem de inserção), mas sensível à ordem
-// de listas (a ordem das etapas e dos princípios importa).
+// de listas (a ordem das etapas e dos princípios importa). Usada aqui só
+// para a verificação pós-publicação — a idempotência em si é decidida no
+// banco (comparação jsonb `=`, com a mesma semântica).
 function deepEqualJson(a: unknown, b: unknown): boolean {
   if (a === b) return true
 
@@ -108,6 +125,34 @@ type PublishRpcRow = {
   version_number: number
   status: string
   published_at: string | null
+  already_published: boolean
+}
+
+function classifyPublishRpcError(
+  error: unknown,
+): CommercialMethodPublishErrorCode {
+  const message = extractErrorMessage(error) ?? ''
+
+  if (message.includes('desde que a página foi carregada')) {
+    return 'STALE_METHOD_BUILDER'
+  }
+
+  if (message.includes('Ainda não existe uma configuração comercial publicada')) {
+    return 'NO_BASE_COMMERCIAL_CONFIG'
+  }
+
+  if (
+    message.includes('pronto para revisão final') ||
+    message.includes('construção do método ainda não foi iniciada')
+  ) {
+    return 'NOT_REVIEW_READY'
+  }
+
+  if (message.includes('não está no contrato commercial-method-v2')) {
+    return 'INVALID_DEFINITION'
+  }
+
+  return 'PUBLISH_FAILED'
 }
 
 export async function publishBuilderCommercialMethod(
@@ -148,43 +193,21 @@ export async function publishBuilderCommercialMethod(
   const previousPublishedVersionNumber =
     workspaceBefore.published?.version.version_number ?? null
 
-  // Idempotência: se a versão publicada já reflete exatamente este método,
-  // não há nada a fazer. Cobre retry, clique duplo e refresh depois de uma
-  // publicação que já havia sido concluída.
-  if (
-    workspaceBefore.published &&
-    workspaceBefore.published.version.commercial_method_contract_version ===
-      'commercial-method-v2' &&
-    deepEqualJson(
-      workspaceBefore.published.version.commercial_method_definition,
-      methodDefinition,
-    )
-  ) {
-    return {
-      company_id: companyId,
-      config_version_id: workspaceBefore.published.version.id,
-      version_number: workspaceBefore.published.version.version_number,
-      published_at:
-        workspaceBefore.published.version.published_at ??
-        new Date().toISOString(),
-      method_name: workspaceBefore.published.version.commercial_method_name,
-      method_definition: methodDefinition,
-      previous_published_version_number: previousPublishedVersionNumber,
-      already_published: true,
-    }
-  }
-
+  // A RPC é a fonte de verdade: ela relê o builder ela mesma (o cliente
+  // não envia mais a definição do método) e decide idempotência dentro do
+  // advisory lock. method_updated_at aqui é só o valor esperado, para que
+  // o banco rejeite uma publicação baseada em estado desatualizado.
   const { data, error } = await supabase.rpc(
     'rpc_publish_builder_commercial_method',
     {
       p_company_id: companyId,
-      p_method_definition: methodDefinition,
+      p_expected_method_updated_at: construction.method_updated_at,
     },
   )
 
   if (error) {
     throw new CommercialMethodPublishError(
-      'PUBLISH_FAILED',
+      classifyPublishRpcError(error),
       errorMessage(
         error,
         'Erro ao publicar o método. O método anterior continua ativo.',
@@ -204,7 +227,7 @@ export async function publishBuilderCommercialMethod(
   }
 
   // Fonte de verdade é o banco: relê a versão publicada e comprova que ela
-  // contém exatamente o método compilado pela jornada guiada — e que o
+  // contém exatamente o método construído na jornada guiada — e que o
   // rascunho comercial geral, se existir, permanece intacto e ainda
   // rascunho — antes de reportar sucesso.
   const workspaceAfter = await getCommercialConfigWorkspace(
@@ -238,6 +261,6 @@ export async function publishBuilderCommercialMethod(
     method_name: published.version.commercial_method_name,
     method_definition: methodDefinition,
     previous_published_version_number: previousPublishedVersionNumber,
-    already_published: false,
+    already_published: row.already_published,
   }
 }

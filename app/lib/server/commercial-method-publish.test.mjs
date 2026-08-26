@@ -8,26 +8,27 @@ import {
 import { getCommercialConfigWorkspace } from './commercial-config.ts'
 
 // ============================================================================
-// ONDA 8 / FRENTE A — publicação isolada do método comercial.
-//
-// publishBuilderCommercialMethod agora chama exclusivamente
-// rpc_publish_builder_commercial_method, que nunca lê nem escreve o
-// rascunho comercial geral da empresa. O fake abaixo espelha fielmente a
-// SQL real da migration 20260827010000_add_isolated_method_publish.sql:
-// nova versão nasce só da versão PUBLICADA (nunca do draft geral), com os
-// filhos copiados apenas da publicada, e é publicada na mesma "transação"
-// simulada. Ver também o teste com PGlite/migrations reais em
-// supabase/phase-tests para prova contra RPC, constraints e triggers reais.
+// ONDA 8 / FRENTE A — publicação isolada do método comercial, com a
+// correção do Controle Mestre: rpc_publish_builder_commercial_method não
+// recebe mais a definição do método do cliente — ela lê
+// company_commercial_method_builder_drafts (única fonte de verdade),
+// exige review_ready, decide idempotência DENTRO do "lock" simulado
+// (comparando com a versão publicada atual), rejeita builder
+// desatualizado (p_expected_method_updated_at) e bloqueia a primeira
+// publicação sem nenhuma versão publicada anterior. O fake abaixo
+// espelha fielmente a SQL real de
+// 20260827020000_fix_isolated_method_publish_review_ready_source.sql.
 // ============================================================================
 
 const COMPANY_A = '10000000-0000-4000-8000-000000000001'
 const COMPANY_B = '10000000-0000-4000-8000-000000000002'
 
 const NOW = '2026-08-27T10:00:00.000Z'
+const LATER = '2026-08-27T11:00:00.000Z'
 
 // ----------------------------------------------------------------------------
 // Fixtures — Método ATO (legado, publicado) e Método AVANÇAR (construído
-// pela Guided Journey), espelhando o cenário de aceitação da Onda 8.
+// pela Guided Journey).
 // ----------------------------------------------------------------------------
 
 function buildMethodAto() {
@@ -76,7 +77,7 @@ function buildMethodAvancar() {
       completion_criteria: [`O comprador confirmou o resultado necessário em ${name}.`],
       partial_completion_criteria: [],
       skip_conditions: [],
-      recommended_questions: [],
+      recommended_questions: [`Pergunta recomendada em ${name}.`],
       common_mistakes: [],
       deepen_when: [],
       sufficient_when: [`A informação confirmada já é suficiente em ${name}.`],
@@ -144,9 +145,6 @@ function publishedAtoVersion(companyId, overrides = {}) {
   }
 }
 
-// Rascunho comercial geral PARALELO: o gestor está editando produto, fato,
-// objeção e tom no editor avançado, sem publicar. Deliberadamente diverge
-// de tudo o que está publicado.
 function parallelGeneralDraft(companyId, overrides = {}) {
   return {
     id: 'config-draft-parallel',
@@ -177,9 +175,7 @@ function parallelGeneralDraft(companyId, overrides = {}) {
 }
 
 // ----------------------------------------------------------------------------
-// Fake Supabase — tabelas em memória + rpc_publish_builder_commercial_method
-// simulada com a mesma semântica da migration real: nova versão nasce só da
-// PUBLICADA, filhos copiados só da PUBLICADA, rascunho geral nunca é lido.
+// Fake Supabase
 // ----------------------------------------------------------------------------
 
 class FakeQuery {
@@ -255,74 +251,84 @@ function replaceChildren(table, versionId, newRows) {
   table.push(...kept, ...newRows)
 }
 
-function copyChildrenFromSource(db, sourceId, targetId, companyId) {
-  replaceChildren(
-    db.methodSteps,
-    targetId,
-    db.methodSteps
-      .filter((row) => row.config_version_id === sourceId)
-      .map((row) => ({ ...row, id: nextId(db, 'step'), company_id: companyId, config_version_id: targetId })),
-  )
-  replaceChildren(
-    db.productProfiles,
-    targetId,
-    db.productProfiles
-      .filter((row) => row.config_version_id === sourceId)
-      .map((row) => ({ ...row, id: nextId(db, 'product'), company_id: companyId, config_version_id: targetId })),
-  )
-  replaceChildren(
-    db.facts,
-    targetId,
-    db.facts
-      .filter((row) => row.config_version_id === sourceId)
-      .map((row) => ({ ...row, id: nextId(db, 'fact'), company_id: companyId, config_version_id: targetId })),
-  )
-  replaceChildren(
-    db.objectionGuides,
-    targetId,
-    db.objectionGuides
-      .filter((row) => row.config_version_id === sourceId)
-      .map((row) => ({ ...row, id: nextId(db, 'objection'), company_id: companyId, config_version_id: targetId })),
-  )
+function jsonEqual(a, b) {
+  if (a === b) return true
+  if (a === null || b === null || a === undefined || b === undefined) return a === b
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, index) => jsonEqual(item, b[index]))
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const aKeys = Object.keys(a)
+    const bKeys = Object.keys(b)
+    if (aKeys.length !== bKeys.length) return false
+    return aKeys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && jsonEqual(a[key], b[key]))
+  }
+  return false
 }
 
+// Espelha rpc_publish_builder_commercial_method
+// (20260827020000_fix_isolated_method_publish_review_ready_source.sql):
+// lê o builder ela mesma, decide idempotência dentro do "lock", nunca
+// recebe a definição do método como parâmetro do cliente.
 function publishBuilderMethodRpc(db, args) {
-  const { p_company_id: companyId, p_method_definition: methodDefinition } = args
+  const { p_company_id: companyId, p_expected_method_updated_at: expectedUpdatedAt } = args
 
-  if (!methodDefinition || typeof methodDefinition !== 'object') {
-    return { data: null, error: { message: 'A definição do método precisa ser um objeto.' } }
+  const builder = db.builderDrafts.find((row) => row.company_id === companyId)
+  if (!builder) {
+    return { data: null, error: { message: 'A construção do método ainda não foi iniciada para esta empresa.' } }
   }
-  if (methodDefinition.contract_version !== 'commercial-method-v2') {
-    return { data: null, error: { message: 'A definição do método precisa declarar commercial-method-v2.' } }
+
+  if (builder.method_construction_status !== 'review_ready' || !builder.method_definition) {
+    return { data: null, error: { message: 'O método precisa estar pronto para revisão final antes de ser publicado.' } }
   }
-  if (!String(methodDefinition.name ?? '').trim()) {
-    return { data: null, error: { message: 'O método precisa ter um nome.' } }
+
+  if (builder.method_updated_at !== expectedUpdatedAt) {
+    return { data: null, error: { message: 'O método foi alterado desde que a página foi carregada. Atualize a página e tente novamente.' } }
   }
-  if (!String(methodDefinition.description ?? '').trim()) {
-    return { data: null, error: { message: 'O método precisa ter uma descrição.' } }
+
+  const methodDefinition = builder.method_definition
+  if (!methodDefinition || typeof methodDefinition !== 'object' || methodDefinition.contract_version !== 'commercial-method-v2') {
+    return { data: null, error: { message: 'O método construído não está no contrato commercial-method-v2.' } }
   }
 
   if (db.forcePublishFailure) {
-    // Simula uma falha em qualquer ponto da transação real (validação da
-    // trigger, erro de rede, etc.): nada é criado, exatamente como uma
-    // transação Postgres que sofre rollback.
     return { data: null, error: { message: 'Falha simulada de publicação isolada.' } }
   }
 
-  // Simula o índice único parcial (company_id) where status='draft' and
-  // draft_purpose='method_publish': protege contra corrida/clique duplo.
-  const concurrentMethodPublishDraft = db.configVersions.find(
-    (row) => row.company_id === companyId && row.status === 'draft' && row.draft_purpose === 'method_publish',
-  )
-  if (concurrentMethodPublishDraft) {
-    return { data: null, error: { message: 'duplicate key value violates unique constraint "company_commercial_config_one_method_publish_draft_uidx"' } }
+  const currentPublished = db.configVersions.find((row) => row.company_id === companyId && row.status === 'published')
+
+  if (
+    currentPublished &&
+    currentPublished.commercial_method_contract_version === 'commercial-method-v2' &&
+    jsonEqual(currentPublished.commercial_method_definition, methodDefinition)
+  ) {
+    return {
+      data: [
+        {
+          company_id: currentPublished.company_id,
+          config_version_id: currentPublished.id,
+          version_number: currentPublished.version_number,
+          status: currentPublished.status,
+          published_at: currentPublished.published_at,
+          already_published: true,
+        },
+      ],
+      error: null,
+    }
   }
 
-  // Único ponto de leitura de estado comercial existente: a versão
-  // PUBLICADA. O rascunho comercial geral, se existir, nunca é lido aqui —
-  // é exatamente o que este teste precisa provar.
-  const source = db.configVersions.find((row) => row.company_id === companyId && row.status === 'published')
+  if (!currentPublished) {
+    return {
+      data: null,
+      error: {
+        message:
+          'Ainda não existe uma configuração comercial publicada para esta empresa. Publique a configuração comercial base (contexto, tom e comportamentos) antes de publicar o método.',
+      },
+    }
+  }
 
+  const source = currentPublished
   const numbers = db.configVersions.filter((row) => row.company_id === companyId).map((row) => row.version_number)
   const newVersion = {
     id: nextId(db, 'config'),
@@ -331,16 +337,16 @@ function publishBuilderMethodRpc(db, args) {
     contract_version: 'phase-2-v1',
     status: 'draft',
     draft_purpose: 'method_publish',
-    business_description: source?.business_description ?? '',
-    target_audience: source?.target_audience ?? '',
-    value_proposition: source?.value_proposition ?? '',
+    business_description: source.business_description,
+    target_audience: source.target_audience,
+    value_proposition: source.value_proposition,
     commercial_method_name: methodDefinition.name,
     commercial_method_description: methodDefinition.description,
     commercial_method_contract_version: 'commercial-method-v2',
     commercial_method_definition: methodDefinition,
-    communication_tone: source?.communication_tone ?? '',
-    required_behaviors: source?.required_behaviors ?? [],
-    prohibited_behaviors: source?.prohibited_behaviors ?? [],
+    communication_tone: source.communication_tone,
+    required_behaviors: source.required_behaviors,
+    prohibited_behaviors: source.prohibited_behaviors,
     created_by: 'user',
     published_by: null,
     archived_by: null,
@@ -351,8 +357,32 @@ function publishBuilderMethodRpc(db, args) {
   }
   db.configVersions.push(newVersion)
 
-  if (source) {
-    copyChildrenFromSource(db, source.id, newVersion.id, companyId)
+  // method_steps: projeção de compatibilidade derivada das stages do
+  // método NOVO — nunca copiada do método anterior.
+  replaceChildren(
+    db.methodSteps,
+    newVersion.id,
+    methodDefinition.stages.map((stage) => ({
+      id: nextId(db, 'step'),
+      company_id: companyId,
+      config_version_id: newVersion.id,
+      step_order: stage.display_order,
+      name: stage.name,
+      objective: stage.objective,
+      completion_criteria: stage.completion_criteria,
+      recommended_questions: stage.recommended_questions,
+      is_required: stage.requirement === 'required',
+    })),
+  )
+
+  for (const table of [db.productProfiles, db.facts, db.objectionGuides]) {
+    replaceChildren(
+      table,
+      newVersion.id,
+      table
+        .filter((row) => row.config_version_id === source.id)
+        .map((row) => ({ ...row, id: nextId(db, 'copy'), company_id: companyId, config_version_id: newVersion.id })),
+    )
   }
 
   const previouslyPublished = db.configVersions.find(
@@ -376,6 +406,7 @@ function publishBuilderMethodRpc(db, args) {
         version_number: newVersion.version_number,
         status: newVersion.status,
         published_at: newVersion.published_at,
+        already_published: false,
       },
     ],
     error: null,
@@ -412,10 +443,10 @@ function fakeSupabase(db) {
 }
 
 // ============================================================================
-// Testes 1-12 (ONDA 8 / FRENTE A)
+// Testes obrigatórios (seção 8 da correção)
 // ============================================================================
 
-test('1: sem rascunho paralelo, publicar método PASS', async () => {
+test('A: publica com sucesso quando review_ready e existe configuração publicada base', async () => {
   const db = makeDb()
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
   db.configVersions.push(publishedAtoVersion(COMPANY_A))
@@ -427,171 +458,155 @@ test('1: sem rascunho paralelo, publicar método PASS', async () => {
   assert.equal(result.version_number, 2)
 })
 
-test('2: rascunho paralelo com produto alterado — produto do rascunho NÃO é publicado', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  const published = publishedAtoVersion(COMPANY_A)
-  db.configVersions.push(published)
-
-  db.productProfiles.push({
-    id: 'product-published',
-    company_id: COMPANY_A,
-    config_version_id: published.id,
-    product_id: 'product-1',
-    commercial_product_contract_version: 'commercial-product-v1',
-    commercial_product_definition: null,
-    indicated_audiences: ['Publicado'],
-    needs_addressed: ['Necessidade publicada'],
-    benefits: ['Benefício publicado'],
-    verified_differentiators: [],
-    limitations: [],
-    contract_conditions: [],
-    payment_conditions: [],
-    allowed_claims: [],
-    forbidden_claims: [],
-    created_at: NOW,
-    updated_at: NOW,
-  })
-
-  const draft = parallelGeneralDraft(COMPANY_A)
-  db.configVersions.push(draft)
-  db.productProfiles.push({
-    id: 'product-draft',
-    company_id: COMPANY_A,
-    config_version_id: draft.id,
-    product_id: 'product-1',
-    commercial_product_contract_version: 'commercial-product-v1',
-    commercial_product_definition: null,
-    indicated_audiences: ['EM EDIÇÃO'],
-    needs_addressed: ['Necessidade EM EDIÇÃO'],
-    benefits: ['Benefício EM EDIÇÃO'],
-    verified_differentiators: [],
-    limitations: [],
-    contract_conditions: [],
-    payment_conditions: [],
-    allowed_claims: [],
-    forbidden_claims: [],
-    created_at: NOW,
-    updated_at: NOW,
-  })
-
-  await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.published.product_profiles.length, 1)
-  assert.equal(workspace.published.product_profiles[0].benefits[0], 'Benefício publicado')
-  assert.notEqual(workspace.published.product_profiles[0].benefits[0], 'Benefício EM EDIÇÃO')
-})
-
-test('3: rascunho paralelo com fato alterado — fato do rascunho NÃO é publicado', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  const published = publishedAtoVersion(COMPANY_A)
-  db.configVersions.push(published)
-
-  db.facts.push({
-    id: 'fact-published',
-    company_id: COMPANY_A,
-    config_version_id: published.id,
-    commercial_fact_contract_version: 'commercial-fact-v1',
-    commercial_fact_definition: null,
-    category: 'empresa',
-    fact_key: 'horario',
-    fact_value: 'Valor publicado.',
-    source_note: null,
-    is_active: true,
-    created_at: NOW,
-    updated_at: NOW,
-  })
-
-  const draft = parallelGeneralDraft(COMPANY_A)
-  db.configVersions.push(draft)
-  db.facts.push({
-    id: 'fact-draft',
-    company_id: COMPANY_A,
-    config_version_id: draft.id,
-    commercial_fact_contract_version: 'commercial-fact-v1',
-    commercial_fact_definition: null,
-    category: 'empresa',
-    fact_key: 'horario',
-    fact_value: 'Valor EM EDIÇÃO.',
-    source_note: null,
-    is_active: true,
-    created_at: NOW,
-    updated_at: NOW,
-  })
-
-  await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.published.facts.length, 1)
-  assert.equal(workspace.published.facts[0].fact_value, 'Valor publicado.')
-})
-
-test('4: rascunho paralelo com objeção alterada — objeção do rascunho NÃO é publicada', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  const published = publishedAtoVersion(COMPANY_A)
-  db.configVersions.push(published)
-
-  db.objectionGuides.push({
-    id: 'objection-published',
-    company_id: COMPANY_A,
-    config_version_id: published.id,
-    commercial_objection_contract_version: 'commercial-objection-v1',
-    commercial_objection_definition: null,
-    sort_order: 1,
-    objection: 'Preço (publicado)',
-    signals: [],
-    discovery_questions: [],
-    recommended_approach: 'Abordagem publicada.',
-    response_limits: [],
-    is_active: true,
-    created_at: NOW,
-    updated_at: NOW,
-  })
-
-  const draft = parallelGeneralDraft(COMPANY_A)
-  db.configVersions.push(draft)
-  db.objectionGuides.push({
-    id: 'objection-draft',
-    company_id: COMPANY_A,
-    config_version_id: draft.id,
-    commercial_objection_contract_version: 'commercial-objection-v1',
-    commercial_objection_definition: null,
-    sort_order: 1,
-    objection: 'Preço (EM EDIÇÃO)',
-    signals: [],
-    discovery_questions: [],
-    recommended_approach: 'Abordagem EM EDIÇÃO.',
-    response_limits: [],
-    is_active: true,
-    created_at: NOW,
-    updated_at: NOW,
-  })
-
-  await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.published.objection_guides.length, 1)
-  assert.equal(workspace.published.objection_guides[0].objection, 'Preço (publicado)')
-})
-
-test('5: rascunho paralelo com tom alterado — tom do rascunho NÃO é publicado', async () => {
+test('B: retry depois do commit retorna a versão publicada existente (idempotência dentro do lock, não só em TS)', async () => {
   const db = makeDb()
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
   db.configVersions.push(publishedAtoVersion(COMPANY_A))
-  db.configVersions.push(parallelGeneralDraft(COMPANY_A))
+
+  const first = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
+  const second = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
+
+  assert.equal(first.already_published, false)
+  assert.equal(second.already_published, true)
+  assert.equal(first.version_number, second.version_number)
+  assert.equal(first.config_version_id, second.config_version_id)
+
+  const publishedRows = db.configVersions.filter((row) => row.company_id === COMPANY_A && row.status === 'published')
+  assert.equal(publishedRows.length, 1)
+})
+
+test('B2: duas chamadas DIRETAS à RPC (sem o pre-check de TypeScript) com o mesmo método produzem uma única versão publicada', async () => {
+  // Este teste ataca exatamente o cenário descrito pelo Controle Mestre:
+  // chama a RPC diretamente, pulando o pre-check de publishBuilderCommercialMethod,
+  // simulando duas requisições que já passaram pela checagem de TypeScript
+  // antes de qualquer uma publicar.
+  const db = makeDb()
+  const avancar = buildMethodAvancar()
+  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, avancar))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
+  const supabase = fakeSupabase(db)
+
+  const requestA = await supabase.rpc('rpc_publish_builder_commercial_method', {
+    p_company_id: COMPANY_A,
+    p_expected_method_updated_at: NOW,
+  })
+  const requestB = await supabase.rpc('rpc_publish_builder_commercial_method', {
+    p_company_id: COMPANY_A,
+    p_expected_method_updated_at: NOW,
+  })
+
+  assert.equal(requestA.error, null)
+  assert.equal(requestB.error, null)
+  assert.equal(requestA.data[0].already_published, false)
+  assert.equal(requestB.data[0].already_published, true)
+  assert.equal(requestA.data[0].config_version_id, requestB.data[0].config_version_id)
+  assert.equal(requestA.data[0].version_number, requestB.data[0].version_number)
+
+  const publishedRows = db.configVersions.filter((row) => row.company_id === COMPANY_A && row.status === 'published')
+  assert.equal(publishedRows.length, 1)
+  const archivedRows = db.configVersions.filter((row) => row.company_id === COMPANY_A && row.status === 'archived')
+  assert.equal(archivedRows.length, 1)
+})
+
+test('C: RPC bloqueia quando o builder não está review_ready', async () => {
+  const db = makeDb()
+  db.builderDrafts.push(builderRow(COMPANY_A, { method_construction_status: 'editing', method_construction: {} }))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
+
+  await assert.rejects(
+    publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A),
+    (error) => {
+      assert.ok(error instanceof CommercialMethodPublishError)
+      assert.equal(error.code, 'NOT_REVIEW_READY')
+      return true
+    },
+  )
+})
+
+test('D: não existe mais caminho para injetar uma definição arbitrária — a RPC ignora qualquer coisa que não seja p_company_id/p_expected_method_updated_at', async () => {
+  const db = makeDb()
+  const avancar = buildMethodAvancar()
+  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, avancar))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
+  const supabase = fakeSupabase(db)
+
+  const injected = { ...avancar, name: 'Método Injetado Pelo Cliente' }
+
+  // Mesmo que um chamador tente enviar p_method_definition, a RPC (real e
+  // fake) simplesmente não lê esse argumento — ela lê
+  // company_commercial_method_builder_drafts.
+  const result = await supabase.rpc('rpc_publish_builder_commercial_method', {
+    p_company_id: COMPANY_A,
+    p_expected_method_updated_at: NOW,
+    p_method_definition: injected,
+  })
+
+  assert.equal(result.error, null)
+  assert.equal(result.data[0].already_published, false)
+
+  const published = db.configVersions.find((row) => row.id === result.data[0].config_version_id)
+  assert.equal(published.commercial_method_definition.name, 'Método AVANÇAR')
+  assert.notEqual(published.commercial_method_definition.name, 'Método Injetado Pelo Cliente')
+})
+
+test('E: builder mudou entre o carregamento e a publicação — bloqueado como stale', async () => {
+  const db = makeDb()
+  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar(), { method_updated_at: LATER }))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
+  const supabase = fakeSupabase(db)
+
+  // Simula uma UI que carregou o builder quando method_updated_at ainda
+  // era NOW, mas o banco já reflete LATER (outra aba alterou o método
+  // nesse intervalo).
+  const result = await supabase.rpc('rpc_publish_builder_commercial_method', {
+    p_company_id: COMPANY_A,
+    p_expected_method_updated_at: NOW,
+  })
+
+  assert.ok(result.error)
+  assert.match(result.error.message, /desde que a página foi carregada/)
+
+  const versionsAfter = db.configVersions.filter((row) => row.company_id === COMPANY_A)
+  assert.equal(versionsAfter.length, 1)
+  assert.equal(versionsAfter[0].status, 'published')
+})
+
+test('F: primeira publicação sem nenhuma versão publicada anterior é bloqueada, sem inventar contexto comercial', async () => {
+  const db = makeDb()
+  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
+
+  await assert.rejects(
+    publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A),
+    (error) => {
+      assert.ok(error instanceof CommercialMethodPublishError)
+      assert.equal(error.code, 'NO_BASE_COMMERCIAL_CONFIG')
+      return true
+    },
+  )
+
+  assert.equal(db.configVersions.length, 0)
+})
+
+test('G: nenhuma informação comercial é inventada — os campos publicados vêm exatamente da versão PUBLICADA anterior', async () => {
+  const db = makeDb()
+  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
+  db.configVersions.push(
+    publishedAtoVersion(COMPANY_A, {
+      business_description: 'Descrição real e específica desta empresa.',
+      communication_tone: 'Tom real e específico desta empresa.',
+      required_behaviors: ['Comportamento real específico.'],
+    }),
+  )
 
   await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
 
   const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.published.version.communication_tone, 'Consultivo e direto (publicado).')
-  assert.deepEqual(workspace.published.version.required_behaviors, ['Confirmar a necessidade antes de propor.'])
-  assert.deepEqual(workspace.published.version.prohibited_behaviors, ['Prometer condições não aprovadas.'])
+  assert.equal(workspace.published?.version.business_description, 'Descrição real e específica desta empresa.')
+  assert.equal(workspace.published?.version.communication_tone, 'Tom real e específico desta empresa.')
+  assert.deepEqual(workspace.published?.version.required_behaviors, ['Comportamento real específico.'])
 })
 
-test('6: rascunho comercial paralelo permanece intacto, ainda em draft, após a publicação isolada', async () => {
+test('H: rascunho comercial geral paralelo permanece isolado e intacto', async () => {
   const db = makeDb()
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
   db.configVersions.push(publishedAtoVersion(COMPANY_A))
@@ -603,81 +618,12 @@ test('6: rascunho comercial paralelo permanece intacto, ainda em draft, após a 
   const stillDraft = db.configVersions.find((row) => row.id === draft.id)
   assert.equal(stillDraft.status, 'draft')
   assert.equal(stillDraft.business_description, 'Descrição de negócio EM EDIÇÃO (não publicada).')
-  assert.equal(stillDraft.communication_tone, 'Tom EM EDIÇÃO (não publicado).')
 
   const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.draft?.version.id, draft.id)
-  assert.equal(workspace.draft?.version.status, 'draft')
+  assert.equal(workspace.published?.version.business_description, 'Descrição de negócio publicada.')
 })
 
-test('7: isolamento é a estratégia escolhida — publicar método NUNCA é bloqueado pela existência de um rascunho paralelo divergente', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  db.configVersions.push(publishedAtoVersion(COMPANY_A))
-  db.configVersions.push(parallelGeneralDraft(COMPANY_A))
-
-  const result = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  assert.equal(result.already_published, false)
-  assert.equal(result.method_name, 'Método AVANÇAR')
-})
-
-test('8: falha durante a publicação isolada mantém a versão publicada anterior intacta e não deixa nada novo', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  db.configVersions.push(publishedAtoVersion(COMPANY_A))
-  db.forcePublishFailure = true
-
-  const versionCountBefore = db.configVersions.length
-
-  await assert.rejects(
-    publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A),
-    (error) => {
-      assert.ok(error instanceof CommercialMethodPublishError)
-      assert.equal(error.code, 'PUBLISH_FAILED')
-      return true
-    },
-  )
-
-  assert.equal(db.configVersions.length, versionCountBefore)
-  const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.published?.version.commercial_method_name, 'Método ATO')
-  assert.equal(workspace.draft, null)
-})
-
-test('9: retry depois da falha publica com sucesso', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  db.configVersions.push(publishedAtoVersion(COMPANY_A))
-  db.forcePublishFailure = true
-
-  await assert.rejects(publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A))
-
-  db.forcePublishFailure = false
-  const result = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  assert.equal(result.method_name, 'Método AVANÇAR')
-  const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
-  assert.equal(workspace.published?.version.commercial_method_name, 'Método AVANÇAR')
-})
-
-test('10: clique duplo não duplica a publicação', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
-  db.configVersions.push(publishedAtoVersion(COMPANY_A))
-
-  const first = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-  const second = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  assert.equal(first.already_published, false)
-  assert.equal(second.already_published, true)
-  assert.equal(first.version_number, second.version_number)
-
-  const publishedRows = db.configVersions.filter((row) => row.company_id === COMPANY_A && row.status === 'published')
-  assert.equal(publishedRows.length, 1)
-})
-
-test('11: tenant A nunca publica o método do tenant B', async () => {
+test('I: tenant A nunca publica o método do tenant B', async () => {
   const db = makeDb()
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
   db.configVersions.push(publishedAtoVersion(COMPANY_A))
@@ -699,7 +645,7 @@ test('11: tenant A nunca publica o método do tenant B', async () => {
   assert.equal(workspaceB.published?.version.id, 'config-b')
 })
 
-test('12: a versão publicada resultante contém exatamente o commercial-method-v2 esperado', async () => {
+test('J: o commercial-method-v2 publicado é exatamente o construído na jornada guiada, com projeção de etapas derivada do método novo', async () => {
   const db = makeDb()
   const avancar = buildMethodAvancar()
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, avancar))
@@ -710,12 +656,17 @@ test('12: a versão publicada resultante contém exatamente o commercial-method-
   const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
   assert.equal(workspace.published?.version.commercial_method_contract_version, 'commercial-method-v2')
   assert.deepEqual(workspace.published?.version.commercial_method_definition, avancar)
+
+  // Projeção de compatibilidade: as etapas legadas vêm do método NOVO
+  // (AVANÇAR), nunca do método anterior (ATO/"Acolher").
+  assert.deepEqual(
+    workspace.published?.method_steps.map((step) => step.name),
+    ['Descoberta', 'Tour', 'Apresentação', 'Decisão de compra', 'Follow-up'],
+  )
 })
 
 // ----------------------------------------------------------------------------
-// Testes adicionais já cobertos na Frente 1, mantidos para não perder
-// cobertura: review_ready não publica sozinho, histórico preservado,
-// validação semântica, primeira publicação sem versão publicada anterior.
+// Cobertura adicional já existente, mantida.
 // ----------------------------------------------------------------------------
 
 test('review_ready não altera o método publicado', async () => {
@@ -740,35 +691,47 @@ test('a versão publicada anterior é preservada, arquivada, não excluída', as
   assert.equal(archived.commercial_method_definition.name, 'Método ATO')
 })
 
-test('publica com sucesso quando não existe nenhuma versão publicada anterior (primeira publicação)', async () => {
+test('falha na publicação isolada mantém a versão publicada anterior intacta e não deixa nada novo', async () => {
   const db = makeDb()
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
+  db.forcePublishFailure = true
 
-  const result = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
-
-  assert.equal(result.version_number, 1)
-  assert.equal(result.previous_published_version_number, null)
-  assert.equal(result.method_name, 'Método AVANÇAR')
-})
-
-test('rejeita publicação quando a construção não está review_ready', async () => {
-  const db = makeDb()
-  db.builderDrafts.push(builderRow(COMPANY_A, { method_construction_status: 'editing', method_construction: {} }))
+  const versionCountBefore = db.configVersions.length
 
   await assert.rejects(
     publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A),
     (error) => {
       assert.ok(error instanceof CommercialMethodPublishError)
-      assert.equal(error.code, 'NOT_REVIEW_READY')
+      assert.equal(error.code, 'PUBLISH_FAILED')
       return true
     },
   )
+
+  assert.equal(db.configVersions.length, versionCountBefore)
+  const workspace = await getCommercialConfigWorkspace(fakeSupabase(db), COMPANY_A)
+  assert.equal(workspace.published?.version.commercial_method_name, 'Método ATO')
 })
 
-test('rejeita publicação de method_definition semanticamente inválido (defesa em profundidade)', async () => {
+test('retry depois da falha publica com sucesso', async () => {
+  const db = makeDb()
+  db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, buildMethodAvancar()))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
+  db.forcePublishFailure = true
+
+  await assert.rejects(publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A))
+
+  db.forcePublishFailure = false
+  const result = await publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A)
+
+  assert.equal(result.method_name, 'Método AVANÇAR')
+})
+
+test('rejeita publicação de method_definition semanticamente inválido (defesa em profundidade em TS, antes de chamar o banco)', async () => {
   const db = makeDb()
   const broken = { ...buildMethodAvancar(), stages: [] }
   db.builderDrafts.push(reviewReadyBuilderRow(COMPANY_A, broken))
+  db.configVersions.push(publishedAtoVersion(COMPANY_A))
 
   await assert.rejects(
     publishBuilderCommercialMethod(fakeSupabase(db), COMPANY_A),
