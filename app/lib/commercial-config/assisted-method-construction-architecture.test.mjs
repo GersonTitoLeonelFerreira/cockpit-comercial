@@ -15,11 +15,14 @@ test('12) Fase 2 não chama publicação automática', async () => {
   assert.doesNotMatch(server, /publishCommercialConfigDraft|rpc_publish_company_commercial_config/i)
 })
 
-test('15) editor avançado continua acessível pela experiência', async () => {
+test('15) editor avançado continua acessível pela experiência, sem se apresentar como criação de método', async () => {
   const experience = await read('../../admin/configuracao-comercial/CommercialConfigExperience.tsx')
   assert.match(experience, /import CommercialConfigClient/)
-  assert.match(experience, /Já sei como quero estruturar/)
   assert.match(experience, /<CommercialConfigClient\s*\/\>/)
+
+  // Onda 8 / Frente 1: a Guided Commercial Method Journey é o único caminho
+  // oficial de criação/reconstrução do método comercial.
+  assert.doesNotMatch(experience, /Já sei como quero estruturar/)
 })
 
 test('contrato consumidor commercial-method-v2 não é redefinido pela Fase 2', async () => {

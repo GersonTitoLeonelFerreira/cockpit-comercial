@@ -220,8 +220,8 @@ export default function CommercialConfigExperience() {
         )}
 
         <ChoiceCard
-          title="Já sei como quero estruturar"
-          description="Abra o editor avançado existente para editar diretamente método, produtos, fatos, objeções e diretrizes comerciais."
+          title="Editar produtos, fatos e objeções"
+          description="Abra o editor avançado para ajustar diretamente produtos, fatos oficiais, objeções e diretrizes comerciais. O método comercial em si é criado e revisado apenas pela Jornada Guiada."
           onClick={() => setMode('advanced')}
         />
       </div>
