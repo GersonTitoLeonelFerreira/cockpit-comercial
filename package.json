@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "bash -lc 'set +e; LOG=public/frente1b-validation.txt; : > \"$LOG\"; run(){ label=\"$1\"; shift; echo \"=== $label ===\" | tee -a \"$LOG\"; \"$@\" >>\"$LOG\" 2>&1; code=$?; echo \"EXIT=$code\" | tee -a \"$LOG\"; return 0; }; run SYNTAX_ISOLATION node --check app/extension/yolen-companion/src/conversation-isolation-runtime.js; run SYNTAX_LEAD_AUTOMATION node --check app/extension/yolen-companion/src/lead-automation.js; run SYNTAX_DIRECTED_TEST node --check app/extension/yolen-companion/tests/e3-dom/conversation-isolation-runtime.test.mjs; run DIRECTED node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/conversation-isolation-runtime.test.mjs; run E3_DOM node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs; run TEST_COMPANION npm run test:companion; echo \"=== PACKAGE ===\" | tee -a \"$LOG\"; (cd app/extension/yolen-companion && node scripts/build-package.mjs) >>\"$LOG\" 2>&1; code=$?; echo \"EXIT=$code\" | tee -a \"$LOG\"; echo \"=== NEXT_BUILD ===\" | tee -a \"$LOG\"; next build'",
     "start": "next start",
     "lint": "eslint",
     "test:companion": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/companion/*.test.mjs app/extension/yolen-companion/tests/*.test.mjs",
