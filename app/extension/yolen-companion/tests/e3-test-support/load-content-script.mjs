@@ -196,6 +196,7 @@ function createFakeBackground({
   analysisJobStatusResult,
   leadSummaryResult,
   saveLeadSummaryResult,
+  createLeadResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
@@ -306,6 +307,22 @@ function createFakeBackground({
         payload,
       }
     },
+    CREATE_LEAD: async (requestPayload) => {
+      const payload = await (
+        typeof createLeadResult === 'function'
+          ? createLeadResult(requestPayload)
+          : (createLeadResult ?? {
+              ok: true,
+              lead: { id: 'lead-new-1', name: requestPayload?.name, phone: requestPayload?.phone },
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -320,6 +337,15 @@ function createFakeBackground({
   return { sendMessage, calls }
 }
 
+// Carregados só quando `withStabilityRuntimes: true` — os dois runtimes de
+// estabilidade (Onda 6) e lead-automation.js (Onda 7), na mesma ordem em
+// que o manifest.json real os injeta DEPOIS de content-script.js.
+const STABILITY_RUNTIME_FILES = [
+  'panel-stability-runtime.js',
+  'editable-field-stability-runtime.js',
+  'lead-automation.js',
+]
+
 export function loadContentScript({
   initialHtml,
   resolutionsByPhone,
@@ -328,6 +354,8 @@ export function loadContentScript({
   analysisJobStatusResult,
   leadSummaryResult,
   saveLeadSummaryResult,
+  createLeadResult,
+  withStabilityRuntimes = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   const background = createFakeBackground({
@@ -337,6 +365,7 @@ export function loadContentScript({
     analysisJobStatusResult,
     leadSummaryResult,
     saveLeadSummaryResult,
+    createLeadResult,
   })
 
   const fakeChrome = {
@@ -372,8 +401,23 @@ export function loadContentScript({
     clearInterval,
     Promise,
     crypto: globalThis.crypto,
+    // content-script.js usa queueMicrotask() para adiar a liberação da
+    // trava de região (pointerdown -> click) até depois do handler de
+    // click real do vendedor já ter rodado — presente em qualquer browser
+    // real, mas precisa ser exposto explicitamente aqui porque o contexto
+    // do vm é isolado.
+    queueMicrotask,
   }
   sandbox.globalThis = sandbox
+
+  if (withStabilityRuntimes) {
+    sandbox.requestAnimationFrame = (callback) => dom.window.requestAnimationFrame(callback)
+    sandbox.cancelAnimationFrame = (handle) => dom.window.cancelAnimationFrame(handle)
+    sandbox.addEventListener = (...args) => dom.window.addEventListener(...args)
+    sandbox.removeEventListener = (...args) => dom.window.removeEventListener(...args)
+    sandbox.dispatchEvent = (...args) => dom.window.dispatchEvent(...args)
+  }
+
   vm.createContext(sandbox)
 
   for (const dependency of DEPENDENCY_FILES) {
@@ -381,9 +425,16 @@ export function loadContentScript({
   }
   vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
 
+  if (withStabilityRuntimes) {
+    for (const runtimeFile of STABILITY_RUNTIME_FILES) {
+      vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+    }
+  }
+
   return {
     dom,
     document: sandbox.document,
+    window: sandbox.window,
     calls: background.calls,
   }
 }
@@ -394,6 +445,10 @@ export function ingestCalls(calls) {
 
 export function resolveLeadCalls(calls) {
   return calls.filter((call) => call.action === 'RESOLVE_LEAD')
+}
+
+export function createLeadCalls(calls) {
+  return calls.filter((call) => call.action === 'CREATE_LEAD')
 }
 
 export function clientContextCalls(calls) {

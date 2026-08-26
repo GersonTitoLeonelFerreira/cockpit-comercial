@@ -23,9 +23,14 @@ const styles =
   )
 
 function getRenderPanelBlock() {
+  // O bloco de "render do painel" agora começa em getPanelHeaderHtml() —
+  // renderPanel() passou a delegar a montagem de cada card/região (header,
+  // card de contato, wiring de interações...) para funções extraídas logo
+  // acima dela, em vez de montar tudo inline dentro de um único
+  // panel.innerHTML.
   const start =
     contentScript.indexOf(
-      'function renderPanel()',
+      'function getPanelHeaderHtml()',
     )
 
   const end =

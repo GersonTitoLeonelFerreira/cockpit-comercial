@@ -24,6 +24,11 @@ const leadAutomation = readFileSync(
   'utf8',
 )
 
+const contentScript = readFileSync(
+  new URL('../src/content-script.js', import.meta.url),
+  'utf8',
+)
+
 const createLeadRoute = readFileSync(
   new URL(
     '../../../api/companion/create-lead/route.ts',
@@ -70,7 +75,20 @@ test('B1 usa o contexto já resolvido pelo Companion e cria sem abrir a Yolen', 
   assert.match(background, /message\.action === 'CREATE_LEAD'/)
   assert.match(background, /\/api\/companion\/create-lead/)
 
-  assert.match(leadAutomation, /create-lead-yolen/)
+  // O formulário de criação é montado por content-script.js na mesma
+  // passada que decide o resto do card "Conversa" (getLeadActionButton()),
+  // chamando de volta as funções puras que lead-automation.js expõe em
+  // window.YolenCompanionLeadAutomation — não há mais um MutationObserver
+  // em lead-automation.js substituindo o botão "create-lead-yolen" por
+  // conta própria.
+  assert.match(contentScript, /data-yolen-action="create-lead-yolen"/)
+  assert.match(
+    contentScript,
+    /window\.YolenCompanionLeadAutomation\s*\n?\s*\?\.buildCreateLeadFormHtml/,
+  )
+  assert.match(leadAutomation, /window\.YolenCompanionLeadAutomation = \{/)
+  assert.match(leadAutomation, /buildCreateLeadFormHtml/)
+  assert.match(leadAutomation, /bindCreateLeadForm/)
   assert.match(leadAutomation, /Novo contato/)
   assert.match(leadAutomation, /Nenhum lead encontrado/)
   assert.match(leadAutomation, /name="yolen-lead-name"/)
@@ -239,9 +257,13 @@ test('B2 atualiza formulário já montado quando enriquecimento termina depois',
     /!cleanText\(emailInput\.value\)/,
   )
 
+  // bindCreateLeadForm() é chamado a cada renderPanel() (via
+  // wirePanelInteractions()) e resincroniza as sugestões no formulário que
+  // já está no DOM — equivalente ao "existingForm" da versão anterior,
+  // que era acionado pelo MutationObserver próprio deste arquivo.
   assert.match(
     leadAutomation,
-    /syncLeadCreationFormSuggestions\([\s\S]*existingForm[\s\S]*context/,
+    /function bindCreateLeadForm\([\s\S]*syncLeadCreationFormSuggestions\(\s*\n?\s*form,\s*\n?\s*getLookupContext\(\)/,
   )
 
   assert.match(
