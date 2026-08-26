@@ -18,13 +18,48 @@ const {
   normalizePublishedCommercialMethod,
 } = await import('./lead-method-guidance.ts')
 
-const method = normalizePublishedCommercialMethod({
+function buildStage(overrides = {}) {
+  return {
+    key: 'acolher',
+    display_order: 1,
+    name: 'Acolher',
+    objective: 'Criar abertura e compreender o contexto inicial.',
+    requirement: 'required',
+    completion_criteria: ['Contexto inicial compreendido'],
+    partial_completion_criteria: [],
+    skip_conditions: [],
+    recommended_questions: ['O que trouxe você até aqui?'],
+    common_mistakes: [],
+    deepen_when: [],
+    sufficient_when: ['O motivo do contato estiver claro'],
+    advance_when: [],
+    wait_when: [],
+    stop_asking_when: ['A motivação já estiver clara'],
+    dimensions: [],
+    ...overrides,
+  }
+}
+
+const methodResult = normalizePublishedCommercialMethod({
   id: 'ef09c47e-83c5-401d-867c-bdf1f909e838',
   version_number: 1,
-  commercial_method_name: 'Metodo ATO',
-  commercial_method_description: 'Metodo ato são 3 passos:\nAcolher\nTour\nObter',
-  commercial_method_contract_version: 'commercial-method-v1',
-  commercial_method_definition: null,
+  // Colunas legadas mantidas por histórico; propositalmente divergem da
+  // definição V2 para provar que não são mais lidas.
+  commercial_method_name: 'Metodo legado (não deve ser usado)',
+  commercial_method_description:
+    'Metodo ato são 3 passos:\nAcolher\nTour\nObter (texto legado, não deve ser parseado)',
+  commercial_method_contract_version: 'commercial-method-v2',
+  commercial_method_definition: {
+    contract_version: 'commercial-method-v2',
+    name: 'Metodo ATO',
+    description: 'Acolher, compreender no Tour e Obter o desfecho adequado.',
+    principles: ['Não transformar descoberta em interrogatório.'],
+    stages: [
+      buildStage(),
+      buildStage({ key: 'tour', display_order: 2, name: 'Tour', objective: 'Compreender a necessidade relevante.' }),
+      buildStage({ key: 'obter', display_order: 3, name: 'Obter', objective: 'Conduzir ao desfecho comercial adequado.' }),
+    ],
+  },
   business_description: 'Academia com atendimento comercial.',
   target_audience: 'Clientes da academia.',
   value_proposition: 'Planos e serviços da academia.',
@@ -32,6 +67,9 @@ const method = normalizePublishedCommercialMethod({
   required_behaviors: [],
   prohibited_behaviors: [],
 })
+
+assert.equal(methodResult.status, 'active')
+const method = methodResult.method
 
 test('rejeita pagamento e compra quando o resumo trata apenas de verificação contratual', async () => {
   assert.ok(method)

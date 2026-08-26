@@ -2,6 +2,11 @@ import type {
   StatefulCopilotProvider,
 } from './stateful-copilot-executor'
 
+import {
+  validateCommercialMethodDefinition,
+  type CommercialMethodDefinition,
+} from './commercial-method-contract'
+
 export type LeadMethodGuidanceStatus =
   | 'ready'
   | 'missing_method'
@@ -20,13 +25,22 @@ export type LeadMethodGuidance = {
   error: string | null
 }
 
+export type PublishedCommercialMethodDimension = {
+  key: string
+  name: string
+  objective: string | null
+  evidence_criteria: string[]
+}
+
 export type PublishedCommercialMethodStage = {
   key: string
   name: string
   display_order: number
   objective: string | null
+  requirement: string | null
   completion_criteria: string[]
   partial_completion_criteria: string[]
+  skip_conditions: string[]
   deepen_when: string[]
   sufficient_when: string[]
   advance_when: string[]
@@ -34,6 +48,7 @@ export type PublishedCommercialMethodStage = {
   stop_asking_when: string[]
   recommended_questions: string[]
   common_mistakes: string[]
+  dimensions: PublishedCommercialMethodDimension[]
 }
 
 export type PublishedCommercialMethod = {
@@ -42,11 +57,7 @@ export type PublishedCommercialMethod = {
   source_contract_version: string | null
   name: string
   description: string
-  structure_source:
-    | 'structured_definition'
-    | 'declared_description'
-    | 'legacy_steps'
-    | 'description_only'
+  structure_source: 'structured_definition'
   principles: string[]
   stages: PublishedCommercialMethodStage[]
   business_context: {
@@ -60,6 +71,11 @@ export type PublishedCommercialMethod = {
     prohibited_behaviors: string[]
   }
 }
+
+export type NormalizePublishedCommercialMethodResult =
+  | { status: 'active'; method: PublishedCommercialMethod }
+  | { status: 'not_configured' }
+  | { status: 'invalid'; reason: string }
 
 const PROMPT_VERSION = 'lead-method-guidance-v4-grounded'
 const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v4-grounded'
@@ -91,216 +107,128 @@ function comparable(value: string): string {
     .trim()
 }
 
-function key(value: unknown, fallback: string): string {
-  const normalized = text(value)
-    ?.normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase('pt-BR')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-
-  return normalized || fallback
-}
-
-function declaredStageNames(value: unknown): string[] {
-  if (typeof value !== 'string') return []
-
-  const lines = value
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) =>
-      line.replace(/^\s*[-*•\d.)]+\s*/, '').trim(),
-    )
-    .filter(Boolean)
-
-  if (lines.length < 3) return []
-
-  const candidates = lines
-    .slice(1)
-    .filter((line) =>
-      line.length <= 60 &&
-      !line.includes(':') &&
-      !/[.!?;]$/.test(line),
-    )
-
-  if (
-    candidates.length < 2 ||
-    candidates.length > 10 ||
-    candidates.length !== lines.length - 1
-  ) {
-    return []
-  }
-
-  const unique = new Map<string, string>()
-  candidates.forEach((candidate) => {
-    const normalized = comparable(candidate)
-    if (normalized && !unique.has(normalized)) {
-      unique.set(normalized, candidate)
-    }
-  })
-
-  return [...unique.values()]
-}
-
-function emptyStage(
-  name: string,
-  displayOrder: number,
-  stageKey: string,
+// O único caminho operacional é uma versão publicada declarando
+// commercial-method-v2 com commercial_method_definition válido pelo
+// contrato semântico (commercial-method-contract.ts). Não existe mais
+// parsing de commercial_method_description nem uso de
+// company_commercial_method_steps como estrutura do método: ambos
+// deixaram de ser fonte ativa. Ver ONDA 8 / FRENTE 2.
+function toPublishedStage(
+  stage: CommercialMethodDefinition['stages'][number],
 ): PublishedCommercialMethodStage {
   return {
-    key: stageKey,
-    name,
-    display_order: displayOrder,
-    objective: null,
-    completion_criteria: [],
-    partial_completion_criteria: [],
-    deepen_when: [],
-    sufficient_when: [],
-    advance_when: [],
-    wait_when: [],
-    stop_asking_when: [],
-    recommended_questions: [],
-    common_mistakes: [],
+    key: stage.key,
+    name: stage.name,
+    display_order: stage.display_order,
+    objective: text(stage.objective),
+    requirement: stage.requirement,
+    completion_criteria: texts(stage.completion_criteria),
+    partial_completion_criteria: texts(stage.partial_completion_criteria),
+    skip_conditions: texts(stage.skip_conditions),
+    deepen_when: texts(stage.deepen_when),
+    sufficient_when: texts(stage.sufficient_when),
+    advance_when: texts(stage.advance_when),
+    wait_when: texts(stage.wait_when),
+    stop_asking_when: texts(stage.stop_asking_when),
+    recommended_questions: texts(stage.recommended_questions),
+    common_mistakes: texts(stage.common_mistakes),
+    dimensions: stage.dimensions.map((dimension) => ({
+      key: dimension.key,
+      name: dimension.name,
+      objective: text(dimension.objective),
+      evidence_criteria: texts(dimension.evidence_criteria),
+    })),
   }
-}
-
-function structuredStages(value: unknown): PublishedCommercialMethodStage[] {
-  if (!isRecord(value) || !Array.isArray(value.stages)) return []
-
-  const stages: PublishedCommercialMethodStage[] = []
-
-  value.stages.forEach((rawStage, index) => {
-    if (!isRecord(rawStage)) return
-    const name = text(rawStage.name)
-    if (!name) return
-
-    const stage = emptyStage(
-      name,
-      typeof rawStage.display_order === 'number' &&
-        Number.isFinite(rawStage.display_order)
-        ? rawStage.display_order
-        : index + 1,
-      key(rawStage.key, `stage_${index + 1}`),
-    )
-
-    stage.objective = text(rawStage.objective)
-    stage.completion_criteria = texts(rawStage.completion_criteria)
-    stage.partial_completion_criteria = texts(
-      rawStage.partial_completion_criteria,
-    )
-    stage.deepen_when = texts(rawStage.deepen_when)
-    stage.sufficient_when = texts(rawStage.sufficient_when)
-    stage.advance_when = texts(rawStage.advance_when)
-    stage.wait_when = texts(rawStage.wait_when)
-    stage.stop_asking_when = texts(rawStage.stop_asking_when)
-    stage.recommended_questions = texts(rawStage.recommended_questions)
-    stage.common_mistakes = texts(rawStage.common_mistakes)
-    stages.push(stage)
-  })
-
-  return stages.sort((left, right) =>
-    left.display_order - right.display_order,
-  )
-}
-
-function legacyStages(value: unknown): PublishedCommercialMethodStage[] {
-  if (!Array.isArray(value)) return []
-
-  const stages: PublishedCommercialMethodStage[] = []
-
-  value.forEach((rawStage, index) => {
-    if (!isRecord(rawStage)) return
-    const name = text(rawStage.name)
-    if (!name) return
-
-    const displayOrder =
-      typeof rawStage.step_order === 'number' &&
-      Number.isFinite(rawStage.step_order)
-        ? rawStage.step_order
-        : index + 1
-
-    const stage = emptyStage(
-      name,
-      displayOrder,
-      key(rawStage.key, `legacy_step_${displayOrder}`),
-    )
-
-    stage.objective = text(rawStage.objective)
-    stage.completion_criteria = texts(rawStage.completion_criteria)
-    stage.recommended_questions = texts(rawStage.recommended_questions)
-    stages.push(stage)
-  })
-
-  return stages.sort((left, right) =>
-    left.display_order - right.display_order,
-  )
 }
 
 export function normalizePublishedCommercialMethod(
   value: unknown,
-  legacyStepsValue: unknown = [],
-): PublishedCommercialMethod | null {
-  if (!isRecord(value)) return null
+): NormalizePublishedCommercialMethodResult {
+  if (!isRecord(value)) return { status: 'not_configured' }
 
-  const id = text(value.id)
-  const name = text(value.commercial_method_name)
-  const description = text(value.commercial_method_description)
-
-  if (!id || !name || !description) return null
-
-  const definition = value.commercial_method_definition
-  const fromDefinition = structuredStages(definition)
-  const fromDescription = declaredStageNames(
-    value.commercial_method_description,
+  const contractVersion = text(
+    value.commercial_method_contract_version,
   )
-  const fromLegacy = legacyStages(legacyStepsValue)
 
-  let structureSource: PublishedCommercialMethod['structure_source'] =
-    'description_only'
-  let stages: PublishedCommercialMethodStage[] = []
-
-  if (fromDefinition.length > 0) {
-    structureSource = 'structured_definition'
-    stages = fromDefinition
-  } else if (fromDescription.length > 0) {
-    structureSource = 'declared_description'
-    stages = fromDescription.map((stageName, index) =>
-      emptyStage(
-        stageName,
-        index + 1,
-        key(stageName, `declared_stage_${index + 1}`),
-      ),
-    )
-  } else if (fromLegacy.length > 0) {
-    structureSource = 'legacy_steps'
-    stages = fromLegacy
+  if (contractVersion !== 'commercial-method-v2') {
+    return { status: 'not_configured' }
   }
 
+  const id = text(value.id)
+
+  if (!id) {
+    return {
+      status: 'invalid',
+      reason:
+        'A configuração comercial publicada não possui identificador.',
+    }
+  }
+
+  const definitionValue = value.commercial_method_definition
+
+  if (!isRecord(definitionValue)) {
+    return {
+      status: 'invalid',
+      reason:
+        'O método V2 publicado precisa possuir uma definição semântica.',
+    }
+  }
+
+  const definition =
+    definitionValue as unknown as CommercialMethodDefinition
+
+  let validation
+
+  try {
+    validation = validateCommercialMethodDefinition(definition)
+  } catch {
+    return {
+      status: 'invalid',
+      reason:
+        'A definição semântica publicada do método comercial é inválida.',
+    }
+  }
+
+  if (!validation.valid) {
+    return {
+      status: 'invalid',
+      reason:
+        'A definição semântica publicada do método comercial não respeita o contrato V2: ' +
+        validation.issues
+          .map((issue) => `${issue.path} (${issue.code})`)
+          .join('; '),
+    }
+  }
+
+  const stages = [...definition.stages]
+    .sort((left, right) => left.display_order - right.display_order)
+    .map(toPublishedStage)
+
   return {
-    id,
-    version_number:
-      typeof value.version_number === 'number' &&
-      Number.isFinite(value.version_number)
-        ? value.version_number
-        : null,
-    source_contract_version:
-      text(value.commercial_method_contract_version),
-    name,
-    description,
-    structure_source: structureSource,
-    principles: isRecord(definition)
-      ? texts(definition.principles)
-      : [],
-    stages,
-    business_context: {
-      business_description: text(value.business_description),
-      target_audience: text(value.target_audience),
-      value_proposition: text(value.value_proposition),
-    },
-    seller_rules: {
-      communication_tone: text(value.communication_tone),
-      required_behaviors: texts(value.required_behaviors),
-      prohibited_behaviors: texts(value.prohibited_behaviors),
+    status: 'active',
+    method: {
+      id,
+      version_number:
+        typeof value.version_number === 'number' &&
+        Number.isFinite(value.version_number)
+          ? value.version_number
+          : null,
+      source_contract_version: contractVersion,
+      name: definition.name,
+      description: definition.description,
+      structure_source: 'structured_definition',
+      principles: texts(definition.principles),
+      stages,
+      business_context: {
+        business_description: text(value.business_description),
+        target_audience: text(value.target_audience),
+        value_proposition: text(value.value_proposition),
+      },
+      seller_rules: {
+        communication_tone: text(value.communication_tone),
+        required_behaviors: texts(value.required_behaviors),
+        prohibited_behaviors: texts(value.prohibited_behaviors),
+      },
     },
   }
 }
@@ -542,6 +470,8 @@ async function runAttempt({
         'Não presuma intenção de compra a partir de uma dúvida operacional ou de atendimento.',
         'Não transforme atendimento contratual, suporte ou verificação cadastral em fechamento de venda.',
         'Quando a estrutura do método trouxer somente nomes de etapas e campos semânticos vazios, não invente o significado detalhado da etapa; use o método apenas como enquadramento e mantenha a ação ancorada no resumo.',
+        'stages[].skip_conditions descreve quando uma etapa condicional pode ser pulada; nunca use para pular uma etapa obrigatória.',
+        'stages[].dimensions são lentes internas para compreender uma etapa, não uma sequência obrigatória de perguntas; cada dimension.evidence_criteria indica que evidência é relevante, não uma pergunta a ser feita.',
         'Defina uma única ação específica e executável e diga qual informação, confirmação ou resultado o vendedor deve obter.',
         'Não responda apenas com retomar negociação, fazer follow-up, acompanhar ou aguardar retorno.',
         'Não invente fatos, datas, valores, compromissos, objeções ou regras.',
