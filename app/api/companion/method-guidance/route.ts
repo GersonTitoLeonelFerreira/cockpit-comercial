@@ -298,64 +298,46 @@ export async function POST(request: Request) {
       )
     }
 
-    let legacyMethodSteps: unknown[] = []
-
-    if (publishedConfigRow?.id) {
-      const { data: methodStepsData, error: methodStepsError } = await admin
-        .from('company_commercial_method_steps')
-        .select(`
-          step_order,
-          name,
-          objective,
-          completion_criteria,
-          recommended_questions,
-          is_required
-        `)
-        .eq('company_id', identity.company_id)
-        .eq('config_version_id', publishedConfigRow.id)
-        .order('step_order', { ascending: true })
-
-      if (methodStepsError) {
-        return NextResponse.json(
-          {
-            ok: false,
-            code: 'METHOD_GUIDANCE_CONFIG_LOAD_FAILED',
-            error: 'Não foi possível carregar a estrutura do método comercial publicado.',
-          },
-          {
-            status: 500,
-            headers: corsHeaders,
-          },
-        )
-      }
-
-      legacyMethodSteps = methodStepsData ?? []
-    }
-
-    const method = normalizePublishedCommercialMethod(
+    // O Companion só pode tratar commercial-method-v2 publicado e válido
+    // como método operacional. company_commercial_method_steps e
+    // commercial_method_description deixaram de ser fonte ativa: uma
+    // configuração publicada sem V2 válido não usa mais nenhuma delas
+    // como rede de segurança (ver ONDA 8 / FRENTE 2).
+    const methodResult = normalizePublishedCommercialMethod(
       publishedConfigRow,
-      legacyMethodSteps,
     )
 
-    if (publishedConfigRow && !method) {
+    if (methodResult.status === 'invalid') {
+      console.error(
+        '[METHOD_GUIDANCE_API] commercial method invalid',
+        {
+          company_id: identity.company_id,
+          config_version_id:
+            typeof publishedConfigRow?.id === 'string'
+              ? publishedConfigRow.id
+              : null,
+          reason: methodResult.reason,
+        },
+      )
+
       return NextResponse.json(
         {
           ok: true,
           data: {
             status: 'invalid_method',
             method_name:
-              typeof publishedConfigRow.commercial_method_name === 'string'
+              typeof publishedConfigRow?.commercial_method_name === 'string'
                 ? publishedConfigRow.commercial_method_name
                 : null,
             method_config_version_id:
-              typeof publishedConfigRow.id === 'string'
+              typeof publishedConfigRow?.id === 'string'
                 ? publishedConfigRow.id
                 : null,
             stage_key: null,
             stage_name: null,
             stage_reason: null,
             next_step: null,
-            error: 'O método comercial publicado precisa ter nome e descrição.',
+            error: 'O método comercial publicado está inválido e não pode orientar a conversa agora.',
           },
         },
         {
@@ -365,7 +347,7 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!method) {
+    if (methodResult.status === 'not_configured') {
       return NextResponse.json(
         {
           ok: true,
@@ -386,6 +368,8 @@ export async function POST(request: Request) {
         },
       )
     }
+
+    const method = methodResult.method
 
     const provider = createStatefulCopilotOpenAIProvider({
       timeout_ms: 45_000,

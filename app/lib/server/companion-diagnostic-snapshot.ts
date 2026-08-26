@@ -1237,6 +1237,26 @@ export async function loadCompanionDiagnosticSnapshot({
       products,
     })
 
+  if (
+    input.analysis_precondition
+      .limitations.includes(
+        'commercial_method_invalid',
+      )
+  ) {
+    console.error(
+      '[COMPANION_DIAGNOSTIC_SNAPSHOT] commercial method invalid, falling back to no method guidance',
+      {
+        company_id: companyId,
+        config_version_id:
+          bundle?.version.id ?? null,
+        config_contract_version:
+          bundle?.version
+            .commercial_method_contract_version ??
+          null,
+      },
+    )
+  }
+
   return {
     input,
 

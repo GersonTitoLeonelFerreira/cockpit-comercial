@@ -689,17 +689,21 @@ function buildCommercialConfig(
       value_proposition:
         'Acompanhamento e estrutura para treinar.',
 
+      // commercial_method_name/commercial_method_description são colunas
+      // legadas mantidas apenas por histórico. Propositalmente divergem
+      // do commercial_method_definition abaixo: o Companion precisa
+      // ignorá-las e usar somente o contrato semântico V2 publicado.
       commercial_method_name:
-        'Método Consultivo',
+        'Método Consultivo (legado, não deve ser usado)',
 
       commercial_method_description:
-        'Entender antes de apresentar.',
+        'Entender antes de apresentar. (legado, não deve ser usado)',
 
       commercial_method_contract_version:
-        'commercial-method-v1',
+        'commercial-method-v2',
 
       commercial_method_definition:
-        null,
+        buildCommercialMethodV2(),
 
       communication_tone:
         'Direto, acolhedor e claro.',
@@ -1005,6 +1009,26 @@ test(
       result.commercial_context
         .sales_method.configured,
       true,
+    )
+
+    assert.equal(
+      result.commercial_context
+        .sales_method.contract_version,
+      'commercial-method-v2',
+    )
+
+    assert.equal(
+      result.commercial_context
+        .sales_method.name,
+      'Método ATO',
+    )
+
+    assert.deepEqual(
+      result.commercial_context
+        .sales_method.steps.map(
+          (step) => step.name,
+        ),
+      ['Tour'],
     )
 
     assert.equal(
@@ -1463,6 +1487,168 @@ test(
   },
 )
 
+test(
+  'commercial-method-v2 publicado porém inválido falha fechado e NÃO cai para method_steps nem para commercial_method_description (cenário C)',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const invalidDefinition = {
+      ...buildCommercialMethodV2(),
+
+      stages: [
+        {
+          ...buildCommercialMethodV2()
+            .stages[0],
+
+          requirement:
+            'required',
+
+          skip_conditions: [
+            'Isso nunca é permitido em etapa obrigatória.',
+          ],
+        },
+      ],
+    }
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              version: {
+                ...legacyConfig.version,
+
+                commercial_method_contract_version:
+                  'commercial-method-v2',
+
+                commercial_method_definition:
+                  invalidDefinition,
+              },
+            }),
+        }),
+      )
+
+    const method =
+      result.commercial_context
+        .sales_method
+
+    assert.equal(
+      method.configured,
+      false,
+    )
+
+    assert.equal(
+      method.contract_version,
+      null,
+    )
+
+    assert.equal(
+      method.definition,
+      null,
+    )
+
+    assert.deepEqual(
+      method.steps,
+      [],
+    )
+
+    assert.ok(
+      result.analysis_precondition
+        .limitations.includes(
+          'commercial_method_invalid',
+        ),
+    )
+
+    assert.equal(
+      result.analysis_precondition
+        .limitations.includes(
+          'method_not_configured',
+        ),
+      false,
+    )
+
+    // O resto do Companion continua disponível quando seguro: produto,
+    // fatos e objeções não são derrubados por um método inválido.
+    assert.equal(
+      result.commercial_context
+        .products[0].name,
+      'Plano Open',
+    )
+  },
+)
+
+test(
+  'sem commercial-method-v2 publicado (legado ou ausente), Companion não afirma aderência a método algum (cenário D)',
+  () => {
+    const legacyConfig =
+      buildCommercialConfig()
+
+    const result =
+      buildCompanionDiagnosticInput(
+        buildInput({
+          commercial_config:
+            buildCommercialConfig({
+              version: {
+                ...legacyConfig.version,
+
+                commercial_method_contract_version:
+                  'commercial-method-v1',
+
+                commercial_method_definition:
+                  null,
+              },
+            }),
+        }),
+      )
+
+    const method =
+      result.commercial_context
+        .sales_method
+
+    assert.equal(
+      method.configured,
+      false,
+    )
+
+    assert.equal(
+      method.contract_version,
+      null,
+    )
+
+    assert.equal(
+      method.name,
+      null,
+    )
+
+    assert.equal(
+      method.description,
+      null,
+    )
+
+    assert.deepEqual(
+      method.principles,
+      [],
+    )
+
+    assert.equal(
+      method.definition,
+      null,
+    )
+
+    assert.deepEqual(
+      method.steps,
+      [],
+    )
+
+    assert.ok(
+      result.analysis_precondition
+        .limitations.includes(
+          'method_not_configured',
+        ),
+    )
+  },
+)
 
 test(
   'propaga o produto V2 completo sem reinterpretar o base_price mutável do catálogo',

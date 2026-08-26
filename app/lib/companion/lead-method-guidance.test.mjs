@@ -18,13 +18,64 @@ const {
   normalizePublishedCommercialMethod,
 } = await import('./lead-method-guidance.ts')
 
+function buildStage(overrides = {}) {
+  return {
+    key: 'acolher',
+    display_order: 1,
+    name: 'Acolher',
+    objective: 'Criar abertura e compreender o contexto inicial.',
+    requirement: 'required',
+    completion_criteria: ['Contexto inicial compreendido'],
+    partial_completion_criteria: [],
+    skip_conditions: [],
+    recommended_questions: ['O que trouxe você até aqui?'],
+    common_mistakes: ['Pressionar cedo demais'],
+    deepen_when: ['A intenção ainda estiver vaga'],
+    sufficient_when: ['O motivo do contato estiver claro'],
+    advance_when: ['Existe contexto para aprofundar'],
+    wait_when: [],
+    stop_asking_when: ['A motivação já estiver clara'],
+    dimensions: [],
+    ...overrides,
+  }
+}
+
+function buildMethodDefinition(overrides = {}) {
+  return {
+    contract_version: 'commercial-method-v2',
+    name: 'Metodo ATO',
+    description: 'Acolher, compreender no Tour e Obter o desfecho adequado.',
+    principles: ['Não transformar descoberta em interrogatório.'],
+    stages: [
+      buildStage(),
+      buildStage({
+        key: 'tour',
+        display_order: 2,
+        name: 'Tour',
+        objective: 'Compreender a necessidade relevante.',
+      }),
+      buildStage({
+        key: 'obter',
+        display_order: 3,
+        name: 'Obter',
+        objective: 'Conduzir ao desfecho comercial adequado.',
+      }),
+    ],
+    ...overrides,
+  }
+}
+
+// commercial_method_name/commercial_method_description são colunas legadas
+// mantidas por histórico e propositalmente divergem da definição V2: o
+// Companion não pode mais lê-las como fonte de método operacional.
 const publishedMethod = {
   id: 'ef09c47e-83c5-401d-867c-bdf1f909e838',
   version_number: 1,
-  commercial_method_name: 'Metodo ATO',
-  commercial_method_description: 'Metodo ato são 3 passos:\nAcolher\nTour\nObter',
-  commercial_method_contract_version: 'commercial-method-v1',
-  commercial_method_definition: null,
+  commercial_method_name: 'Metodo legado (não deve ser usado)',
+  commercial_method_description:
+    'Metodo ato são 3 passos:\nAcolher\nTour\nObter (texto legado, não deve ser parseado)',
+  commercial_method_contract_version: 'commercial-method-v2',
+  commercial_method_definition: buildMethodDefinition(),
   business_description: 'A Yolen organiza a execução comercial de equipes de vendas.',
   target_audience: 'Empresas com equipes comerciais.',
   value_proposition: 'Reduzir perdas e orientar o próximo movimento comercial.',
@@ -38,79 +89,80 @@ const publishedMethod = {
   ],
 }
 
-const conflictingLegacySteps = [
-  {
-    step_order: 1,
-    name: 'Compreensão do contexto',
-    objective: 'Entender a situação atual.',
-    completion_criteria: ['Contexto identificado'],
-    recommended_questions: [],
-    is_required: true,
-  },
-  {
-    step_order: 2,
-    name: 'Diagnóstico da necessidade',
-    objective: 'Entender a necessidade.',
-    completion_criteria: ['Necessidade identificada'],
-    recommended_questions: [],
-    is_required: true,
-  },
-]
+function activeMethod(rawConfigRow) {
+  const result = normalizePublishedCommercialMethod(rawConfigRow)
+  assert.equal(result.status, 'active')
+  return result.method
+}
 
-test('commercial-method-v1 com etapas declaradas no texto vira contrato canônico ATO', () => {
-  const method = normalizePublishedCommercialMethod(
-    publishedMethod,
-    conflictingLegacySteps,
-  )
+test('sem contract_version=commercial-method-v2 publicado, método não fica ativo (v1/legado nunca vira método operacional)', () => {
+  const result = normalizePublishedCommercialMethod({
+    ...publishedMethod,
+    commercial_method_contract_version: 'commercial-method-v1',
+    commercial_method_definition: null,
+  })
 
-  assert.ok(method)
-  assert.equal(method.name, 'Metodo ATO')
-  assert.equal(method.structure_source, 'declared_description')
-  assert.deepEqual(
-    method.stages.map((stage) => stage.name),
-    ['Acolher', 'Tour', 'Obter'],
+  assert.equal(result.status, 'not_configured')
+})
+
+test('ausência total de configuração publicada não fica ativa', () => {
+  assert.equal(
+    normalizePublishedCommercialMethod(null).status,
+    'not_configured',
   )
   assert.equal(
-    method.stages.some(
-      (stage) => stage.name === 'Compreensão do contexto',
-    ),
-    false,
+    normalizePublishedCommercialMethod(undefined).status,
+    'not_configured',
   )
 })
 
-test('commercial-method-v2 estruturado tem prioridade e preserva critérios da etapa', () => {
-  const method = normalizePublishedCommercialMethod({
+test('commercial-method-v2 declarado com definição inválida falha fechado (não cai para descrição nem para etapas legadas)', () => {
+  const result = normalizePublishedCommercialMethod({
     ...publishedMethod,
-    commercial_method_contract_version: 'commercial-method-v2',
-    commercial_method_definition: {
-      contract_version: 'commercial-method-v2',
-      name: 'Metodo ATO',
-      description: 'Método estruturado',
-      principles: ['Não transformar descoberta em interrogatório.'],
+    commercial_method_definition: buildMethodDefinition({
       stages: [
-        {
-          key: 'acolher',
-          display_order: 1,
-          name: 'Acolher',
-          objective: 'Criar abertura e compreender o contexto inicial.',
+        buildStage({
           requirement: 'required',
-          completion_criteria: ['Contexto inicial compreendido'],
-          partial_completion_criteria: [],
-          skip_conditions: [],
-          recommended_questions: ['O que trouxe você até aqui?'],
-          common_mistakes: ['Pressionar cedo demais'],
-          deepen_when: ['A intenção ainda estiver vaga'],
-          sufficient_when: ['O motivo do contato estiver claro'],
-          advance_when: ['Existe contexto para aprofundar'],
-          wait_when: [],
-          stop_asking_when: ['A motivação já estiver clara'],
-          dimensions: [],
-        },
+          skip_conditions: ['Isso nunca é permitido em etapa obrigatória.'],
+        }),
       ],
-    },
+    }),
   })
 
-  assert.ok(method)
+  assert.equal(result.status, 'invalid')
+  assert.ok(typeof result.reason === 'string' && result.reason.length > 0)
+})
+
+test('commercial-method-v2 declarado sem commercial_method_definition falha fechado', () => {
+  const result = normalizePublishedCommercialMethod({
+    ...publishedMethod,
+    commercial_method_definition: null,
+  })
+
+  assert.equal(result.status, 'invalid')
+})
+
+test('commercial-method-v2 estruturado preserva critérios completos da etapa, incluindo skip_conditions e dimensions', () => {
+  const method = activeMethod({
+    ...publishedMethod,
+    commercial_method_definition: buildMethodDefinition({
+      stages: [
+        buildStage({
+          requirement: 'conditional',
+          skip_conditions: ['O cliente já chega com decisão tomada.'],
+          dimensions: [
+            {
+              key: 'necessidade',
+              name: 'Necessidade',
+              objective: 'Compreender o resultado buscado.',
+              evidence_criteria: ['A necessidade relevante foi identificada.'],
+            },
+          ],
+        }),
+      ],
+    }),
+  })
+
   assert.equal(method.structure_source, 'structured_definition')
   assert.deepEqual(method.principles, [
     'Não transformar descoberta em interrogatório.',
@@ -124,13 +176,19 @@ test('commercial-method-v2 estruturado tem prioridade e preserva critérios da e
     method.stages[0].advance_when,
     ['Existe contexto para aprofundar'],
   )
+  assert.deepEqual(
+    method.stages[0].skip_conditions,
+    ['O cliente já chega com decisão tomada.'],
+  )
+  assert.equal(method.stages[0].dimensions[0].key, 'necessidade')
+  assert.deepEqual(
+    method.stages[0].dimensions[0].evidence_criteria,
+    ['A necessidade relevante foi identificada.'],
+  )
 })
 
 test('orientação V2 recebe configuração publicada em formato canônico e limita etapa ao método', async () => {
-  const method = normalizePublishedCommercialMethod(
-    publishedMethod,
-    conflictingLegacySteps,
-  )
+  const method = activeMethod(publishedMethod)
 
   const provider = async (request) => {
     const prompt = JSON.parse(request.user_prompt)
@@ -141,7 +199,7 @@ test('orientação V2 recebe configuração publicada em formato canônico e lim
     )
     assert.equal(
       prompt.published_commercial_context.method.structure_source,
-      'declared_description',
+      'structured_definition',
     )
     assert.deepEqual(
       prompt.published_commercial_context.method.stages.map(
@@ -185,16 +243,13 @@ test('orientação V2 recebe configuração publicada em formato canônico e lim
 })
 
 test('orientação curta mas específica continua válida', async () => {
-  const method = normalizePublishedCommercialMethod(
-    publishedMethod,
-    conflictingLegacySteps,
-  )
+  const method = activeMethod(publishedMethod)
 
   const provider = async () => ({
     content: JSON.stringify({
       stage_name: 'Acolher',
       stage_reason: 'A cliente trouxe uma dúvida operacional específica.',
-      next_step: 'Confirme o valor exato em aberto na CDL.',
+      next_step: 'Confirme o status exato da cobrança em aberto na CDL.',
     }),
     provider: 'test',
   })
@@ -208,14 +263,14 @@ test('orientação curta mas específica continua válida', async () => {
 
   assert.equal(guidance.status, 'ready')
   assert.equal(guidance.stage_name, 'Acolher')
-  assert.equal(guidance.next_step, 'Confirme o valor exato em aberto na CDL.')
+  assert.equal(
+    guidance.next_step,
+    'Confirme o status exato da cobrança em aberto na CDL.',
+  )
 })
 
 test('orientação genérica é rejeitada', async () => {
-  const method = normalizePublishedCommercialMethod(
-    publishedMethod,
-    conflictingLegacySteps,
-  )
+  const method = activeMethod(publishedMethod)
 
   const provider = async () => ({
     content: JSON.stringify({
