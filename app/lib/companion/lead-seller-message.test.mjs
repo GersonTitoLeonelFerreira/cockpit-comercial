@@ -141,3 +141,100 @@ test('sem orientação comercial ativa ainda permite resposta pedida pelo vended
   assert.equal(userPrompt.yolen_guidance.status, 'not_applicable')
   assert.match(request.system_prompt, /não transforme automaticamente/i)
 })
+
+test('interação canônica atual entra como contexto factual da mensagem', async () => {
+  let request = null
+
+  const result = await composeSellerMessage({
+    workingSummary:
+      'A cliente demonstrou interesse em continuar a conversa.',
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at: '2026-08-25T14:00:00.000Z',
+        text: 'Amanhã às 15h funciona para mim.',
+      },
+    ],
+    sellerIntent:
+      'Quero confirmar o horário que a cliente acabou de informar.',
+    method,
+    guidance: null,
+    provider: async (payload) => {
+      request = payload
+      return {
+        content: JSON.stringify({
+          message:
+            'Perfeito, então combinamos amanhã às 15h.',
+        }),
+        provider: 'test',
+      }
+    },
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.match(result.message, /15h/)
+
+  const userPrompt = JSON.parse(request.user_prompt)
+  assert.equal(
+    userPrompt.current_interaction[0].text,
+    'Amanhã às 15h funciona para mim.',
+  )
+})
+
+test('intenção do vendedor pode contrariar a orientação sem ser bloqueada', async () => {
+  let request = null
+
+  const result = await composeSellerMessage({
+    workingSummary:
+      'A cliente ainda não detalhou a necessidade e aceitou continuar o contato.',
+    sellerIntent:
+      'Quero marcar uma ligação amanhã.',
+    method,
+    guidance: {
+      status: 'ready',
+      method_name: 'Metodo ATO',
+      stage_name: 'Tour',
+      next_step:
+        'Descobrir a necessidade antes de apresentar proposta.',
+    },
+    provider: async (payload) => {
+      request = payload
+      return {
+        content: JSON.stringify({
+          message:
+            'Podemos marcar uma ligação amanhã para conversarmos?',
+        }),
+        provider: 'test',
+      }
+    },
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.match(result.message, /ligação amanhã/i)
+  assert.match(
+    request.system_prompt,
+    /intenção do vendedor é a ação principal/i,
+  )
+})
+
+test('rejeita valor numérico inventado fora do resumo, interação e intenção', async () => {
+  const result = await composeSellerMessage({
+    workingSummary:
+      'A cliente pediu mais informações sobre a solução.',
+    sellerIntent:
+      'Quero responder que vou explicar os detalhes.',
+    method,
+    guidance: null,
+    provider: async () => ({
+      content: JSON.stringify({
+        message:
+          'Claro! O investimento é de R$ 499,00 e vou explicar os detalhes.',
+      }),
+      provider: 'test',
+    }),
+  })
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.message, null)
+  assert.match(result.error, /sem base no contexto/i)
+})
