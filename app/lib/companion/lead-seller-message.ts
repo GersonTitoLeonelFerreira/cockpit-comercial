@@ -32,16 +32,16 @@ export type SellerMessageGenerationResult =
     }
 
 const PROMPT_VERSION =
-  'lead-seller-message-v1'
+  'lead-seller-message-v2-context-quality'
 const OUTPUT_CONTRACT_VERSION =
-  'lead-seller-message-v1'
+  'lead-seller-message-v2-context-quality'
 const MAX_MESSAGE_LENGTH = 1200
 
 const STRUCTURED_OUTPUT_FORMAT = {
   type: 'json_schema',
-  name: 'yolen_lead_seller_message_v1',
+  name: 'yolen_lead_seller_message_v2_context_quality',
   description:
-    'Mensagem de WhatsApp criada somente após intenção explícita do vendedor.',
+    'Mensagem de WhatsApp contextual criada somente após intenção explícita do vendedor.',
   strict: true,
   schema: {
     type: 'object',
@@ -54,6 +54,110 @@ const STRUCTURED_OUTPUT_FORMAT = {
     required: ['message'],
   },
 } as const
+
+const CONTEXT_STOPWORDS = new Set([
+  'agora',
+  'ainda',
+  'atendimento',
+  'atual',
+  'cliente',
+  'com',
+  'como',
+  'contexto',
+  'conversa',
+  'depois',
+  'duvida',
+  'entender',
+  'fazer',
+  'informacao',
+  'informacoes',
+  'melhor',
+  'momento',
+  'para',
+  'pessoa',
+  'precisa',
+  'precisou',
+  'pergunta',
+  'perguntou',
+  'questao',
+  'responder',
+  'retorno',
+  'situacao',
+  'sobre',
+  'vendedor',
+  'verificar',
+])
+
+const SHORT_CONTEXT_ANCHORS = new Set([
+  'app',
+  'cpf',
+  'cnpj',
+  'pix',
+])
+
+type GroundedConcept = {
+  label: string
+  output: RegExp
+  evidence: RegExp
+}
+
+const GROUNDED_CONCEPTS: GroundedConcept[] = [
+  {
+    label: 'matrícula/inscrição',
+    output: /\b(matricul|inscri)\w*/,
+    evidence: /\b(matricul|inscri)\w*/,
+  },
+  {
+    label: 'cadastro',
+    output: /\bcadastr\w*/,
+    evidence: /\bcadastr\w*/,
+  },
+  {
+    label: 'contrato',
+    output: /\bcontrat\w*/,
+    evidence: /\bcontrat\w*/,
+  },
+  {
+    label: 'documento/CPF/CNPJ',
+    output: /\b(document\w*|cpf|cnpj)\b/,
+    evidence: /\b(document\w*|cpf|cnpj)\b/,
+  },
+  {
+    label: 'Gympass/Wellhub/check-in/aplicativo',
+    output: /\b(gympass|wellhub|check\s*in|aplicativo|app)\b/,
+    evidence: /\b(gympass|wellhub|check\s*in|aplicativo|app)\b/,
+  },
+  {
+    label: 'proposta/orçamento',
+    output: /\b(proposta|orcamento)\w*/,
+    evidence: /\b(proposta|orcamento)\w*/,
+  },
+  {
+    label: 'pagamento/parcelamento',
+    output: /\b(pagament|pagar|parcela|parcelament|cartao|pix|boleto|finance)\w*/,
+    evidence: /\b(pagament|pagar|parcela|parcelament|cartao|pix|boleto|finance)\w*/,
+  },
+  {
+    label: 'compra/fechamento',
+    output: /\b(compra|comprar|adquir|fechar|fechamento|efetivar)\w*/,
+    evidence: /\b(compra|comprar|adquir|fechar|fechamento|efetivar)\w*/,
+  },
+  {
+    label: 'preço/investimento/desconto',
+    output: /\b(preco|valor|investimento|desconto)\w*/,
+    evidence: /\b(preco|valor|investimento|desconto)\w*/,
+  },
+  {
+    label: 'objeção',
+    output: /\b(objecao|resistencia)\w*/,
+    evidence: /\b(objecao|resistencia)\w*/,
+  },
+  {
+    label: 'cancelamento',
+    output: /\b(cancelar|cancelamento|cancelado)\w*/,
+    evidence: /\b(cancelar|cancelamento|cancelado)\w*/,
+  },
+]
 
 function clean(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -91,6 +195,56 @@ function normalizeForGrounding(value: string) {
     .toLocaleLowerCase('pt-BR')
 }
 
+function comparable(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getSpecificAnchors(value: string): string[] {
+  const unique = new Set<string>()
+
+  comparable(value)
+    .split(' ')
+    .filter(Boolean)
+    .forEach((token) => {
+      if (
+        (token.length >= 4 || SHORT_CONTEXT_ANCHORS.has(token)) &&
+        !CONTEXT_STOPWORDS.has(token) &&
+        !/^\d+$/.test(token)
+      ) {
+        unique.add(token)
+      }
+    })
+
+  return [...unique]
+}
+
+function mentionsAnyAnchor(
+  value: string,
+  anchors: readonly string[],
+) {
+  if (anchors.length === 0) {
+    return false
+  }
+
+  const tokens = new Set(
+    comparable(value).split(' ').filter(Boolean),
+  )
+
+  return anchors.some((anchor) => tokens.has(anchor))
+}
+
+function sellerIntentAllowsContextLightMessage(intent: string) {
+  return /\b(agradec|obrigad|desped|encerr|disposicao|cumpriment|paraben|pedir desculp|desculp)\w*/.test(
+    comparable(intent),
+  )
+}
+
 function getProtectedFacts(value: string) {
   return value.match(
     /R\$\s*\d[\d.,]*|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b\d{1,2}h(?:\d{2})?\b/giu,
@@ -113,6 +267,243 @@ function hasUnsupportedProtectedFact({
         normalizeForGrounding(fact),
       ),
   )
+}
+
+function findUnsupportedGroundedConcept(
+  output: string,
+  allowedContext: string,
+): string | null {
+  const normalizedOutput = comparable(output)
+  const normalizedContext = comparable(allowedContext)
+
+  for (const concept of GROUNDED_CONCEPTS) {
+    if (
+      concept.output.test(normalizedOutput) &&
+      !concept.evidence.test(normalizedContext)
+    ) {
+      return concept.label
+    }
+  }
+
+  return null
+}
+
+type MessageAttempt = {
+  message: string | null
+  failure: string | null
+}
+
+function validateMessage({
+  message,
+  summary,
+  interaction,
+  intent,
+}: {
+  message: string
+  summary: string
+  interaction: readonly SellerMessageCurrentInteraction[]
+  intent: string
+}): string | null {
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return 'A mensagem excedeu o tamanho permitido.'
+  }
+
+  const interactionText = interaction
+    .map((entry) => entry.text)
+    .join('\n')
+  const factualContext = [summary, interactionText]
+    .filter(Boolean)
+    .join('\n')
+  const allowedContext = [
+    factualContext,
+    intent,
+  ].filter(Boolean).join('\n')
+
+  if (
+    hasUnsupportedProtectedFact({
+      message,
+      allowedContext,
+    })
+  ) {
+    return 'A mensagem trouxe valor, percentual, data ou horário sem base no contexto.'
+  }
+
+  const unsupportedConcept =
+    findUnsupportedGroundedConcept(
+      message,
+      allowedContext,
+    )
+
+  if (unsupportedConcept) {
+    return `A mensagem introduziu ${unsupportedConcept} sem base no contexto ou na intenção explícita do vendedor.`
+  }
+
+  const contextAnchors =
+    getSpecificAnchors(factualContext)
+  const intentAnchors =
+    getSpecificAnchors(intent)
+  const richContext =
+    contextAnchors.length >= 2
+
+  if (
+    richContext &&
+    !sellerIntentAllowsContextLightMessage(intent) &&
+    !mentionsAnyAnchor(message, contextAnchors) &&
+    !mentionsAnyAnchor(message, intentAnchors)
+  ) {
+    return (
+      'O contexto contém fatos específicos, mas a mensagem ficou intercambiável entre clientes. ' +
+      `Use naturalmente ao menos um elemento concreto pertinente, como: ${contextAnchors.slice(0, 5).join(', ')}.`
+    )
+  }
+
+  return null
+}
+
+async function runAttempt({
+  summary,
+  interaction,
+  intent,
+  method,
+  guidance,
+  provider,
+  correctionReason,
+}: {
+  summary: string
+  interaction: readonly SellerMessageCurrentInteraction[]
+  intent: string
+  method: PublishedCommercialMethod
+  guidance: SellerMessageGuidance | null
+  provider: StatefulCopilotProvider
+  correctionReason?: string | null
+}): Promise<MessageAttempt> {
+  const factualContext = [
+    summary,
+    ...interaction.map((entry) => entry.text),
+  ].join('\n')
+  const contextAnchors =
+    getSpecificAnchors(factualContext)
+  const correction = correctionReason
+    ? [
+        'A tentativa anterior não passou pela validação seller-facing.',
+        `Motivo: ${correctionReason}`,
+        'Gere novamente sem inventar fatos e sem relaxar o contrato.',
+      ]
+    : []
+
+  try {
+    const response = await provider({
+      prompt_version: PROMPT_VERSION,
+      output_contract_version:
+        OUTPUT_CONTRACT_VERSION,
+      system_prompt: [
+        'Você escreve uma mensagem de WhatsApp para o vendedor da Yolen, mas somente porque o vendedor informou explicitamente o que quer fazer agora.',
+        'A intenção explícita do vendedor é soberana sobre a orientação da Yolen. Use a orientação como recomendação e contexto, não como ordem.',
+        'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
+        'A intenção do vendedor autoriza a ação pedida e os detalhes operacionais que ele escreveu, mas não prova fatos anteriores sobre o cliente.',
+        'Uma pergunta ou hipótese escrita pelo cliente não prova que a resposta sugerida dentro dela seja verdadeira. Não confirme a hipótese como fato sem apoio declarativo no contexto.',
+        'Use o método comercial publicado e as regras do vendedor como limites de condução, nunca como evidência de fatos do cliente.',
+        'Se não houver orientação comercial ativa, não transforme conversa pessoal, administrativa, contratual, de suporte ou operacional em venda.',
+        'Não invente preço, desconto, prazo, compromisso, disponibilidade, objeção, necessidade, nome de produto, matrícula, cadastro, documento pendente, condição de contrato ou qualquer outro fato não sustentado.',
+        'Não prometa que algo será feito se isso não estiver sustentado no contexto ou explicitamente solicitado pelo vendedor como sua própria ação.',
+        'Quando o contexto trouxer fatos concretos e a intenção não for apenas agradecer, despedir ou encerrar, a mensagem deve usar naturalmente pelo menos um elemento concreto pertinente. Não devolva um texto que serviria para dezenas de clientes.',
+        'Escreva como mensagem real de WhatsApp: natural, clara, humana e pronta para revisão do vendedor.',
+        'Evite linguagem de robô, jargão de CRM, abstrações comerciais, listas longas e texto excessivamente formal.',
+        'Entregue somente a mensagem, sem comentário adicional.',
+        ...correction,
+      ].join('\n'),
+      user_prompt: JSON.stringify({
+        seller_intent: intent,
+        working_summary: summary,
+        current_interaction: interaction,
+        context_specificity_anchors:
+          contextAnchors.slice(0, 12),
+        yolen_guidance:
+          guidance
+            ? {
+                status: guidance.status,
+                method_name:
+                  guidance.method_name,
+                stage_name:
+                  guidance.stage_name,
+                next_step:
+                  guidance.next_step,
+              }
+            : null,
+        published_method: {
+          name: method.name,
+          description: method.description,
+          stages: method.stages,
+          business_context:
+            method.business_context,
+          seller_rules:
+            method.seller_rules,
+        },
+      }),
+      structured_output_format:
+        STRUCTURED_OUTPUT_FORMAT,
+    })
+
+    if (typeof response.content !== 'string') {
+      return {
+        message: null,
+        failure:
+          'A IA não retornou mensagem estruturada.',
+      }
+    }
+
+    let parsed: unknown
+
+    try {
+      parsed = JSON.parse(response.content)
+    } catch {
+      return {
+        message: null,
+        failure:
+          'A IA retornou mensagem em formato inválido.',
+      }
+    }
+
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed)
+    ) {
+      return {
+        message: null,
+        failure:
+          'A IA retornou mensagem em formato inválido.',
+      }
+    }
+
+    const message = clean(
+      (parsed as Record<string, unknown>).message,
+    )
+
+    if (!message) {
+      return {
+        message: null,
+        failure: 'A mensagem veio vazia.',
+      }
+    }
+
+    const failure = validateMessage({
+      message,
+      summary,
+      interaction,
+      intent,
+    })
+
+    return failure
+      ? { message: null, failure }
+      : { message, failure: null }
+  } catch {
+    return {
+      message: null,
+      failure:
+        'Falha transitória ao gerar a mensagem.',
+    }
+  }
 }
 
 export async function composeSellerMessage({
@@ -155,110 +546,49 @@ export async function composeSellerMessage({
     }
   }
 
-  try {
-    const response = await provider({
-      prompt_version: PROMPT_VERSION,
-      output_contract_version:
-        OUTPUT_CONTRACT_VERSION,
-      system_prompt: [
-        'Você escreve uma mensagem de WhatsApp para o vendedor da Yolen, mas somente porque o vendedor informou explicitamente o que quer fazer agora.',
-        'A intenção do vendedor é a ação principal a executar. A orientação da Yolen é recomendação e contexto, não uma ordem que bloqueia o vendedor.',
-        'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
-        'A intenção do vendedor autoriza a ação pedida e os detalhes operacionais que ele escreveu, mas não prova fatos anteriores sobre o cliente.',
-        'Use o método comercial publicado e as regras do vendedor como limites de condução.',
-        'Se não houver orientação comercial ativa, não transforme automaticamente uma conversa pessoal, administrativa ou operacional em venda.',
-        'Não invente preço, desconto, prazo, compromisso, disponibilidade, objeção, necessidade, nome de produto, condição comercial ou qualquer fato que não esteja no resumo.',
-        'Não prometa que algo será feito se isso não estiver sustentado no contexto.',
-        'Escreva como mensagem real de WhatsApp: natural, clara, humana e pronta para revisão do vendedor.',
-        'Evite linguagem de robô, jargão de CRM, explicações sobre o método, listas longas e texto excessivamente formal.',
-        'Entregue somente a mensagem, sem comentário adicional.',
-      ].join('\n'),
-      user_prompt: JSON.stringify({
-        seller_intent: intent,
-        working_summary: summary,
-        current_interaction: interaction,
-        yolen_guidance:
-          guidance
-            ? {
-                status: guidance.status,
-                method_name:
-                  guidance.method_name,
-                stage_name:
-                  guidance.stage_name,
-                next_step:
-                  guidance.next_step,
-              }
-            : null,
-        published_method: {
-          name: method.name,
-          description: method.description,
-          stages: method.stages,
-          business_context:
-            method.business_context,
-          seller_rules:
-            method.seller_rules,
-        },
-      }),
-      structured_output_format:
-        STRUCTURED_OUTPUT_FORMAT,
-    })
+  const first = await runAttempt({
+    summary,
+    interaction,
+    intent,
+    method,
+    guidance,
+    provider,
+  })
 
-    if (typeof response.content !== 'string') {
-      throw new Error('invalid_output')
-    }
-
-    const parsed = JSON.parse(response.content) as {
-      message?: unknown
-    }
-
-    const message = clean(parsed.message)
-
-    if (!message) {
-      throw new Error('empty_message')
-    }
-
-    if (message.length > MAX_MESSAGE_LENGTH) {
-      return {
-        status: 'error',
-        message: null,
-        error:
-          'A mensagem ficou longa demais. Ajuste sua intenção e tente novamente.',
-      }
-    }
-
-    const allowedContext = [
-      summary,
-      intent,
-      ...interaction.map(
-        (entry) => entry.text,
-      ),
-    ].join('\n')
-
-    if (
-      hasUnsupportedProtectedFact({
-        message,
-        allowedContext,
-      })
-    ) {
-      return {
-        status: 'error',
-        message: null,
-        error:
-          'A mensagem trouxe um valor, percentual, data ou horário sem base no contexto. Ajuste sua intenção e tente novamente.',
-      }
-    }
-
+  if (first.message) {
     return {
       status: 'ready',
-      message,
+      message: first.message,
       error: null,
     }
-  } catch {
+  }
+
+  const corrected = await runAttempt({
+    summary,
+    interaction,
+    intent,
+    method,
+    guidance,
+    provider,
+    correctionReason:
+      first.failure ||
+      'A primeira saída não passou pela validação.',
+  })
+
+  if (corrected.message) {
     return {
-      status: 'error',
-      message: null,
-      error:
-        'Não foi possível gerar a mensagem agora. Tente novamente.',
+      status: 'ready',
+      message: corrected.message,
+      error: null,
     }
+  }
+
+  return {
+    status: 'error',
+    message: null,
+    error:
+      corrected.failure ||
+      first.failure ||
+      'Não foi possível gerar uma mensagem específica e segura agora.',
   }
 }
