@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import AssistedMethodConstruction from './AssistedMethodConstruction'
 import CommercialConfigClient from './CommercialConfigClient'
-import CommercialMethodBuilder from './CommercialMethodBuilder'
+import GuidedMethodJourney from './guided-journey/GuidedMethodJourney'
 import type {
   CommercialMethodBuilderDraftRecord,
 } from '@/app/types/commercial-method-builder'
@@ -158,11 +158,15 @@ export default function CommercialConfigExperience() {
 
   if (mode === 'assisted') {
     return (
-      <CommercialMethodBuilder
+      <GuidedMethodJourney
         onBack={() => {
           setForceDiagnosticReview(false)
           setMode('choose')
           void refreshReadiness()
+        }}
+        onReadyForConstruction={() => {
+          setForceDiagnosticReview(false)
+          setMode('construction')
         }}
       />
     )

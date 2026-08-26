@@ -41,6 +41,12 @@ export interface CommercialMethodConstructionStageDraft {
 
   key: string
   name: string
+  /**
+   * Opcional — "por que essa etapa existe" (E02 da Jornada Guiada). Campo
+   * puramente pedagógico: não é usado na materialização do
+   * commercial-method-v2 (ver `normalizeStageForContract`).
+   */
+  purpose?: string
   objective: string
   requirement: CommercialMethodStageRequirement
 

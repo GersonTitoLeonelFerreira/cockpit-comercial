@@ -21,6 +21,8 @@ import {
   getSellerActivityOnlyGuidance,
   mergeStageAssistiveSuggestions,
 } from '@/app/lib/commercial-config/buyer-decision-architecture'
+import GuidedBuyerDecisionJourney from './guided-journey/GuidedBuyerDecisionJourney'
+import GuidedStageJourney from './guided-journey/GuidedStageJourney'
 import type {
   CommercialMethodBuilderData,
 } from '@/app/types/commercial-method-builder'
@@ -290,6 +292,18 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   const [error, setError] = React.useState<string | null>(null)
   const [serverIssues, setServerIssues] = React.useState<string[]>([])
 
+  // Guarda de revisão (seção 3.2 / 23): "latest local edit wins". Cada
+  // `updateDraft` incrementa a revisão local; um save cuja resposta chega
+  // depois de novas edições locais é descartado em vez de sobrescrever o
+  // estado mais novo. Ver app/lib/commercial-config/guided-journey/revision-guard.ts.
+  const revisionRef = React.useRef(0)
+
+  // Capítulo 4/5 da Jornada Guiada (seção 15/18): o caminho guiado é o
+  // padrão; "Ver todos os campos" preserva o editor completo existente
+  // como alternativa avançada, sem removê-lo.
+  const [buyerDecisionMode, setBuyerDecisionMode] = React.useState<'guided' | 'advanced'>('guided')
+  const [stageMode, setStageMode] = React.useState<'guided' | 'advanced'>('guided')
+
   const diagnosis: CommercialMethodBuilderData | null = workspace?.diagnosis ?? null
 
   const load = React.useCallback(async () => {
@@ -315,6 +329,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     nextDraft: CommercialMethodConstructionDraft,
     nextStatus: 'editing' | 'review_ready' = 'editing',
   ) => {
+    const sentRevision = revisionRef.current
     setSaving(true)
     setError(null)
     setServerIssues([])
@@ -329,10 +344,18 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
         if (!json.ok && json.issues) setServerIssues(json.issues.map((issue) => `${issue.path}: ${issue.message}`))
         throw new Error(json.ok ? 'Erro ao salvar o método.' : json.error)
       }
-      setWorkspace(json.construction)
-      setDraft(json.construction?.construction ?? nextDraft)
-      setStatus(json.construction?.status ?? nextStatus)
-      setDirty(false)
+
+      if (revisionRef.current === sentRevision) {
+        // Nenhuma edição local aconteceu enquanto o save estava em voo —
+        // seguro reconciliar com o snapshot do servidor.
+        setWorkspace(json.construction)
+        setDraft(json.construction?.construction ?? nextDraft)
+        setStatus(json.construction?.status ?? nextStatus)
+        setDirty(false)
+      }
+      // Caso contrário, o usuário continuou editando durante o request: o
+      // estado local (mais novo) é preservado e `dirty` permanece true, o
+      // que agenda automaticamente um novo save com os dados atuais.
       return true
     } catch (saveError: unknown) {
       setError(saveError instanceof Error ? saveError.message : 'Erro ao salvar o método.')
@@ -349,6 +372,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   }, [dirty, draft, save, saving, status])
 
   function updateDraft(updater: (current: CommercialMethodConstructionDraft) => CommercialMethodConstructionDraft) {
+    revisionRef.current += 1
     setDraft((current) => current ? updater(current) : current)
     setStatus('editing')
     setDirty(true)
@@ -417,12 +441,28 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
           <div style={{ color: DS.textMuted, fontSize: 10 }}>{saving ? 'Salvando...' : dirty ? 'Alterações serão salvas automaticamente' : 'Rascunho salvo'}</div>
         </div>
         {error && <div style={{ ...cardStyle(), borderColor: 'rgba(239,68,68,0.3)', color: DS.redSoft, fontSize: 11, padding: 14 }}>{error}</div>}
-        <BuyerDecisionArchitecture
-          diagnosis={diagnosis}
-          value={buyerDecision}
-          onChange={(next) => updateDraft((current) => ({ ...current, buyer_decision: next }))}
-          onConfirm={(next) => updateDraft((current) => applyBuyerDecisionArchitecture(current, diagnosis, next))}
-        />
+        <button
+          type="button"
+          onClick={() => setBuyerDecisionMode((mode) => (mode === 'guided' ? 'advanced' : 'guided'))}
+          style={{ background: 'transparent', border: 0, color: DS.blueSoft, cursor: 'pointer', fontSize: 11, justifySelf: 'start' }}
+        >
+          {buyerDecisionMode === 'guided' ? 'Já sei como quero estruturar — ver todos os campos' : '← Voltar para uma pergunta por vez'}
+        </button>
+        {buyerDecisionMode === 'guided' ? (
+          <GuidedBuyerDecisionJourney
+            diagnosis={diagnosis}
+            value={buyerDecision}
+            onChange={(next) => updateDraft((current) => ({ ...current, buyer_decision: next }))}
+            onConfirm={(next) => updateDraft((current) => applyBuyerDecisionArchitecture(current, diagnosis, next))}
+          />
+        ) : (
+          <BuyerDecisionArchitecture
+            diagnosis={diagnosis}
+            value={buyerDecision}
+            onChange={(next) => updateDraft((current) => ({ ...current, buyer_decision: next }))}
+            onConfirm={(next) => updateDraft((current) => applyBuyerDecisionArchitecture(current, diagnosis, next))}
+          />
+        )}
       </div>
     )
   }
@@ -501,8 +541,39 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
             {draft.stages.map((stage, index) => <button key={stage.id} type="button" onClick={() => updateDraft((current) => ({ ...current, active_stage_id: stage.id }))} style={{ background: activeStage?.id === stage.id ? 'rgba(59,130,246,0.13)' : DS.surfaceBg, border: `1px solid ${activeStage?.id === stage.id ? 'rgba(96,165,250,0.32)' : DS.border}`, borderRadius: DS.radius, color: activeStage?.id === stage.id ? DS.blueSoft : DS.textSecondary, cursor: 'pointer', fontSize: 11, padding: 10, textAlign: 'left' }}>{index + 1}. {stage.name || 'Etapa sem nome'}</button>)}
             <button type="button" onClick={() => updateDraft((current) => appendConstructionStage(current))} style={{ ...inputStyle, color: DS.blueSoft, cursor: 'pointer' }}>+ Etapa</button>
           </aside>
-          {activeStage ? (
+          {activeStage && stageMode === 'guided' ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => setStageMode('advanced')}
+                style={{ background: 'transparent', border: 0, color: DS.blueSoft, cursor: 'pointer', fontSize: 11, justifySelf: 'start' }}
+              >
+                Já sei como quero estruturar — ver todos os campos
+              </button>
+              <GuidedStageJourney
+                stage={activeStage}
+                onChange={(next) => setStage(next)}
+                assist={assist}
+                onDone={() => {
+                  const index = draft.stages.findIndex((item) => item.id === activeStage.id)
+                  const nextStage = draft.stages[index + 1]
+                  if (nextStage) {
+                    updateDraft((current) => ({ ...current, active_stage_id: nextStage.id }))
+                  } else {
+                    updateDraft((current) => ({ ...current, construction_step: 'principles' }))
+                  }
+                }}
+              />
+            </div>
+          ) : activeStage ? (
             <div style={{ ...cardStyle(), display: 'grid', gap: 18, padding: 18 }}>
+              <button
+                type="button"
+                onClick={() => setStageMode('guided')}
+                style={{ background: 'transparent', border: 0, color: DS.blueSoft, cursor: 'pointer', fontSize: 11, justifySelf: 'start' }}
+              >
+                ← Voltar para uma pergunta por vez
+              </button>
               <div><div style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>Construção da etapa</div><h3 style={{ color: DS.textPrimary, margin: '6px 0 0' }}>{activeStage.name || 'Etapa sem nome'}</h3></div>
               <Field label="Como sua equipe chama esse momento da venda?"><input value={activeStage.name} onChange={(event) => setStage({ ...activeStage, name: event.target.value, key: slugifyCommercialMethodKey(event.target.value) })} style={inputStyle} /></Field>
               <Field label="Essa etapa é obrigatória, condicional ou opcional?"><select value={activeStage.requirement} onChange={(event) => setStage({ ...activeStage, requirement: event.target.value as CommercialMethodConstructionStageDraft['requirement'] })} style={inputStyle}><option value="required">Obrigatória</option><option value="conditional">Condicional</option><option value="optional">Opcional</option></select><RequirementHelp value={activeStage.requirement} /></Field>

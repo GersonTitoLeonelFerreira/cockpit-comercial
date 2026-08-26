@@ -42,6 +42,124 @@ export type DiscountPolicy =
 
 export type YesNoUnknown = boolean | null
 
+export type YesSometimesNo = '' | 'yes' | 'sometimes' | 'no'
+
+export type NeverSometimesOften = '' | 'rarely' | 'sometimes' | 'often'
+
+export type CustomizationDepth = '' | 'standard' | 'some_adjustments' | 'highly_customized'
+
+export type WorkloadPattern = '' | 'high_volume_short' | 'balanced' | 'few_complex'
+
+export type InitiatorType = '' | 'customer' | 'seller' | 'both'
+
+export type PricingTiming =
+  | ''
+  | 'early'
+  | 'after_understanding'
+  | 'after_demo'
+  | 'in_proposal'
+  | 'varies'
+
+export type PricingFlowModel = '' | 'fixed' | 'ranges' | 'personalized'
+
+export type SellerPriceControl = '' | 'no' | 'with_limit' | 'with_approval'
+
+export type SameAsFirstSale = '' | 'same' | 'similar' | 'different'
+
+export type SalesEventFrequency = '' | 'always' | 'sometimes' | 'optional'
+
+export interface CommercialBuilderSalesEventDetail {
+  event: string
+  frequency: SalesEventFrequency
+  success_definition: string
+  depends_on_customer_knowledge: YesSometimesNo
+}
+
+/**
+ * Camada adicional de granularidade usada pela Jornada Guiada (Onda 8 / Fase 2B).
+ * Sempre opcional na leitura de rascunhos antigos: use
+ * `normalizeCommercialMethodBuilderData` para preencher valores padrão antes
+ * de renderizar ou rotear perguntas. Nunca torne obrigatória em validação de
+ * rascunhos existentes — isso quebraria drafts criados pelo formulário
+ * anterior (Fase 1/2).
+ */
+export interface CommercialBuilderBuyerBehavior {
+  has_multiple_customer_types: YesNoUnknown
+  types_need_different_approach: NeverSometimesOften
+  contact_is_decision_maker: YesSometimesNo
+  closes_on_first_contact: YesNoUnknown
+  workload_pattern: WorkloadPattern
+  needs_multiple_conversations: NeverSometimesOften
+  initiator: InitiatorType
+  arrives_knowing_specific_offer: YesSometimesNo
+  arrives_knowing_problem: YesSometimesNo
+}
+
+export interface CommercialBuilderProblemContext {
+  objective_matters: YesNoUnknown
+  problem_matters: YesNoUnknown
+  problem_importance_matters: YesNoUnknown
+  consequence_influences_decision: YesNoUnknown
+  needs_future_vision: YesNoUnknown
+}
+
+export interface CommercialBuilderDiscoveryDepth {
+  needs_understanding_before_recommending: YesNoUnknown
+  what_to_understand: string[]
+  changes_recommendation: string[]
+  has_nice_to_have_info: YesNoUnknown
+  nice_to_have_info: string[]
+  too_many_questions_hurts: YesSometimesNo
+  stop_asking_when: string
+}
+
+export interface CommercialBuilderPresentationDepth {
+  style: CustomizationDepth
+  must_be_clear_before: string[]
+  must_be_clear_to_customer: string[]
+  presented_too_early: string[]
+  over_explained: string[]
+}
+
+export interface CommercialBuilderPricingFlow {
+  timing: PricingTiming
+  model: PricingFlowModel
+  needed_before_pricing: string[]
+  early_price_hurts: YesSometimesNo
+  seller_can_change_price: SellerPriceControl
+  change_rule: string
+}
+
+export interface CommercialBuilderObjections {
+  common_doubts: string[]
+  blocking_objections: string[]
+  needs_understanding_before_response: YesSometimesNo
+  disqualifying_objections: string[]
+  stop_convincing_when: string
+}
+
+export interface CommercialBuilderDecisionEvidence {
+  real_decision_fact: string
+  assumed_commitment: YesNoUnknown
+  commitment_description: string
+  team_advances_without_commitment: YesNoUnknown
+}
+
+export interface CommercialBuilderFormalization {
+  steps: string[]
+  can_reverse: YesNoUnknown
+  operational_approval_after_decision: YesNoUnknown
+  sale_completed_when: string
+}
+
+export interface CommercialBuilderRenewal {
+  has_explicit_renewal: YesNoUnknown
+  when_starts: string
+  can_expand: YesNoUnknown
+  expansion_signal: string
+  same_as_first_sale: SameAsFirstSale
+}
+
 export interface CommercialBuilderOfferItem {
   id: string
   name: string
@@ -52,12 +170,17 @@ export interface CommercialBuilderOfferItem {
   limitations: string[]
 }
 
+export type PurchaseFrequency = '' | 'one_time' | 'recurring' | 'both'
+
 export interface CommercialBuilderCompanyProfile {
   offer: {
     type: OfferType
     main_offerings: string[]
     has_recurring_revenue: YesNoUnknown
     has_plans_or_packages: YesNoUnknown
+    customization_depth?: CustomizationDepth
+    purchase_frequency?: PurchaseFrequency
+    plan_variation_dimensions?: string[]
   }
   customer: {
     buyer_type: BuyerType
@@ -71,6 +194,8 @@ export interface CommercialBuilderCompanyProfile {
   }
   channels: string[]
   other_channels: string[]
+  /** Opcional — ver CommercialBuilderBuyerBehavior. Backfill via normalizer. */
+  buyer_behavior?: CommercialBuilderBuyerBehavior
 }
 
 export interface CommercialBuilderCommercialRules {
@@ -152,6 +277,17 @@ export interface CommercialBuilderCurrentSalesProcess {
     cadence: string
   }
   losses: string[]
+  /** Campos opcionais adicionados pela Jornada Guiada. Ver normalizer. */
+  problem_context?: CommercialBuilderProblemContext
+  discovery_depth?: CommercialBuilderDiscoveryDepth
+  sales_events_detail?: CommercialBuilderSalesEventDetail[]
+  presentation_depth?: CommercialBuilderPresentationDepth
+  pricing_flow?: CommercialBuilderPricingFlow
+  objections?: CommercialBuilderObjections
+  decision_evidence?: CommercialBuilderDecisionEvidence
+  formalization?: CommercialBuilderFormalization
+  renewal?: CommercialBuilderRenewal
+  disqualification_signals?: string[]
 }
 
 export interface CommercialMethodBuilderData {
@@ -198,6 +334,9 @@ export function createEmptyCommercialMethodBuilderData(): CommercialMethodBuilde
         main_offerings: [],
         has_recurring_revenue: null,
         has_plans_or_packages: null,
+        customization_depth: '',
+        purchase_frequency: '',
+        plan_variation_dimensions: [],
       },
       customer: {
         buyer_type: '',
@@ -211,6 +350,7 @@ export function createEmptyCommercialMethodBuilderData(): CommercialMethodBuilde
       },
       channels: [],
       other_channels: [],
+      buyer_behavior: createEmptyBuyerBehavior(),
     },
     commercial_rules: {
       offers: [createOfferItem()],
@@ -290,7 +430,112 @@ export function createEmptyCommercialMethodBuilderData(): CommercialMethodBuilde
         cadence: '',
       },
       losses: [],
+      problem_context: createEmptyProblemContext(),
+      discovery_depth: createEmptyDiscoveryDepth(),
+      sales_events_detail: [],
+      presentation_depth: createEmptyPresentationDepth(),
+      pricing_flow: createEmptyPricingFlow(),
+      objections: createEmptyObjections(),
+      decision_evidence: createEmptyDecisionEvidence(),
+      formalization: createEmptyFormalization(),
+      renewal: createEmptyRenewal(),
+      disqualification_signals: [],
     },
+  }
+}
+
+export function createEmptyBuyerBehavior(): CommercialBuilderBuyerBehavior {
+  return {
+    has_multiple_customer_types: null,
+    types_need_different_approach: '',
+    contact_is_decision_maker: '',
+    closes_on_first_contact: null,
+    workload_pattern: '',
+    needs_multiple_conversations: '',
+    initiator: '',
+    arrives_knowing_specific_offer: '',
+    arrives_knowing_problem: '',
+  }
+}
+
+export function createEmptyProblemContext(): CommercialBuilderProblemContext {
+  return {
+    objective_matters: null,
+    problem_matters: null,
+    problem_importance_matters: null,
+    consequence_influences_decision: null,
+    needs_future_vision: null,
+  }
+}
+
+export function createEmptyDiscoveryDepth(): CommercialBuilderDiscoveryDepth {
+  return {
+    needs_understanding_before_recommending: null,
+    what_to_understand: [],
+    changes_recommendation: [],
+    has_nice_to_have_info: null,
+    nice_to_have_info: [],
+    too_many_questions_hurts: '',
+    stop_asking_when: '',
+  }
+}
+
+export function createEmptyPresentationDepth(): CommercialBuilderPresentationDepth {
+  return {
+    style: '',
+    must_be_clear_before: [],
+    must_be_clear_to_customer: [],
+    presented_too_early: [],
+    over_explained: [],
+  }
+}
+
+export function createEmptyPricingFlow(): CommercialBuilderPricingFlow {
+  return {
+    timing: '',
+    model: '',
+    needed_before_pricing: [],
+    early_price_hurts: '',
+    seller_can_change_price: '',
+    change_rule: '',
+  }
+}
+
+export function createEmptyObjections(): CommercialBuilderObjections {
+  return {
+    common_doubts: [],
+    blocking_objections: [],
+    needs_understanding_before_response: '',
+    disqualifying_objections: [],
+    stop_convincing_when: '',
+  }
+}
+
+export function createEmptyDecisionEvidence(): CommercialBuilderDecisionEvidence {
+  return {
+    real_decision_fact: '',
+    assumed_commitment: null,
+    commitment_description: '',
+    team_advances_without_commitment: null,
+  }
+}
+
+export function createEmptyFormalization(): CommercialBuilderFormalization {
+  return {
+    steps: [],
+    can_reverse: null,
+    operational_approval_after_decision: null,
+    sale_completed_when: '',
+  }
+}
+
+export function createEmptyRenewal(): CommercialBuilderRenewal {
+  return {
+    has_explicit_renewal: null,
+    when_starts: '',
+    can_expand: null,
+    expansion_signal: '',
+    same_as_first_sale: '',
   }
 }
 
