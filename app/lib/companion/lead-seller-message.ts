@@ -251,6 +251,40 @@ function sellerIntentAllowsContextLightMessage(intent: string) {
   )
 }
 
+function isQuestionLikeHypothesis(value: string) {
+  const normalized = comparable(value)
+
+  return (
+    value.includes('?') ||
+    /\b(perguntou|pergunta|quer saber|duvida)\s+(se|como)\b/.test(
+      normalized,
+    )
+  )
+}
+
+function looksLikeQuestionAffirmation(value: string) {
+  const normalized = comparable(value)
+
+  return (
+    /^(sim|isso mesmo|exatamente|correto|correta|certo|certa)\b/.test(
+      normalized,
+    ) ||
+    /\b(e so|basta)\b/.test(normalized)
+  )
+}
+
+function sellerIntentExplicitlyProvidesAnswer(intent: string) {
+  return /\b(confirmar que|dizer que|informar que|responder que|explicar que)\b/.test(
+    comparable(intent),
+  )
+}
+
+function summaryHasDeclarativeSupport(summary: string) {
+  return /\b(confirmad|regra|funciona|deve|e feito|e necessario|orientacao oficial|foi informado)\b/.test(
+    comparable(summary),
+  )
+}
+
 function getProtectedFacts(value: string) {
   return value.match(
     /R\$\s*\d[\d.,]*|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b\d{1,2}h(?:\d{2})?\b/giu,
@@ -342,6 +376,28 @@ function validateMessage({
 
   if (unsupportedConcept) {
     return `A mensagem introduziu ${unsupportedConcept} sem base no contexto ou na intenção explícita do vendedor.`
+  }
+
+  const lastInteraction =
+    interaction[interaction.length - 1] ?? null
+  const questionSource =
+    lastInteraction?.direction === 'incoming'
+      ? lastInteraction.text
+      : interaction.length === 0
+        ? summary
+        : ''
+
+  if (
+    questionSource &&
+    isQuestionLikeHypothesis(questionSource) &&
+    looksLikeQuestionAffirmation(message) &&
+    !sellerIntentExplicitlyProvidesAnswer(intent) &&
+    !summaryHasDeclarativeSupport(summary)
+  ) {
+    return (
+      'A mensagem confirmou como fato uma hipótese que aparece apenas como pergunta do cliente. ' +
+      'Responda sem validar a hipótese, a menos que exista apoio declarativo no contexto ou na intenção explícita do vendedor.'
+    )
   }
 
   const contextAnchors =
