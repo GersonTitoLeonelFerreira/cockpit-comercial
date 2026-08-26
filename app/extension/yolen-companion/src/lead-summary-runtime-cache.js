@@ -10,6 +10,10 @@
     typeof api.saveLeadSummary === 'function'
       ? api.saveLeadSummary.bind(api)
       : null
+  const originalConfirmConversationRegistration =
+    typeof api.confirmConversationRegistration === 'function'
+      ? api.confirmConversationRegistration.bind(api)
+      : null
 
   const readyCache = new Map()
   const inFlightCache = new Map()
@@ -101,6 +105,23 @@
     }
   }
 
+  function hasUsableSummary(result) {
+    if (!result?.ok || !result?.payload?.ok) {
+      return false
+    }
+
+    const data = result.payload.data
+
+    if (!data || typeof data !== 'object') {
+      return false
+    }
+
+    const workingSummary = normalize(data.working_summary)
+    const savedSummary = normalize(data.summary?.summary)
+
+    return Boolean(workingSummary || savedSummary)
+  }
+
   api.loadLeadSummary = function loadLeadSummaryWithRuntimeCache(payload) {
     const cacheKey = buildCacheKey(payload)
 
@@ -120,8 +141,15 @@
       originalLoadLeadSummary(payload),
     )
       .then((result) => {
-        if (result?.ok && result?.payload?.ok) {
+        // Um retorno vazio não é um estado definitivo. Ele pode acontecer
+        // nos poucos instantes entre criar o lead, vincular a conversa e a
+        // captura canônica chegar ao ciclo. Se for cacheado como "ready",
+        // o Companion continua dizendo que não existe histórico mesmo
+        // depois de as mensagens já estarem no banco.
+        if (hasUsableSummary(result)) {
           readyCache.set(cacheKey, result)
+        } else {
+          readyCache.delete(cacheKey)
         }
 
         return result
@@ -146,13 +174,27 @@
 
         const cacheKey = buildCacheKey(payload)
 
-        if (cacheKey) {
+        if (cacheKey && hasUsableSummary(result)) {
           readyCache.set(cacheKey, result)
         }
       }
 
       return result
     }
+  }
+
+  if (originalConfirmConversationRegistration) {
+    api.confirmConversationRegistration =
+      async function confirmConversationRegistrationAndInvalidateSummary(payload) {
+        const result =
+          await originalConfirmConversationRegistration(payload)
+
+        if (result?.ok && result?.payload?.ok) {
+          clearConversationEntries(payload)
+        }
+
+        return result
+      }
   }
 
   root.YolenCompanionLeadSummaryRuntimeCache = {
