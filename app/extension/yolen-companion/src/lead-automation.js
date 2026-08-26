@@ -4,6 +4,7 @@
   const REFRESH_ACTION = 'refresh'
 
   let panelObserver = null
+  const leadDraftsByPhone = new Map()
 
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
@@ -91,6 +92,86 @@
     }
   }
 
+  function getDefaultDraft(context) {
+    return {
+      name: context.suggestedName || '',
+      phone: context.phone || '',
+      email: context.suggestedEmail || '',
+      document: context.suggestedDocument || '',
+      dirty: false,
+    }
+  }
+
+  function getLeadDraft(context) {
+    if (!context?.phone) {
+      return getDefaultDraft(context || {})
+    }
+
+    const existing =
+      leadDraftsByPhone.get(context.phone)
+
+    if (existing) {
+      if (!existing.dirty) {
+        if (!existing.name && context.suggestedName) {
+          existing.name = context.suggestedName
+        }
+
+        if (!existing.email && context.suggestedEmail) {
+          existing.email = context.suggestedEmail
+        }
+
+        if (!existing.document && context.suggestedDocument) {
+          existing.document = context.suggestedDocument
+        }
+      }
+
+      return existing
+    }
+
+    const draft = getDefaultDraft(context)
+    leadDraftsByPhone.set(context.phone, draft)
+    return draft
+  }
+
+  function captureLeadDraft(form) {
+    if (!form) {
+      return null
+    }
+
+    const phone = onlyDigits(
+      form.querySelector('[name="yolen-lead-phone"]')?.value,
+    )
+
+    if (!phone) {
+      return null
+    }
+
+    const draft = {
+      name: String(
+        form.querySelector('[name="yolen-lead-name"]')?.value || '',
+      ),
+      phone,
+      email: String(
+        form.querySelector('[name="yolen-lead-email"]')?.value || '',
+      ),
+      document: String(
+        form.querySelector('[name="yolen-lead-document"]')?.value || '',
+      ),
+      dirty: true,
+    }
+
+    leadDraftsByPhone.set(phone, draft)
+    return draft
+  }
+
+  function clearLeadDraft(phone) {
+    const normalizedPhone = onlyDigits(phone)
+
+    if (normalizedPhone) {
+      leadDraftsByPhone.delete(normalizedPhone)
+    }
+  }
+
   function getStatusElement(form) {
     return form.querySelector('[data-yolen-lead-create-status]')
   }
@@ -126,6 +207,8 @@
     const emailInput = form.querySelector('[name="yolen-lead-email"]')
     const documentInput = form.querySelector('[name="yolen-lead-document"]')
     const submitButton = form.querySelector('button[type="submit"]')
+
+    captureLeadDraft(form)
 
     const name = cleanText(nameInput?.value)
     const phone = onlyDigits(phoneInput?.value)
@@ -183,6 +266,7 @@
         const code = result?.payload?.code || result?.payload?.status
 
         if (code === 'active_lead_conflict' || code === 'concurrent_create_conflict') {
+          clearLeadDraft(phone)
           setFormStatus(
             form,
             'Contato já localizado. Atualizando o vínculo...',
@@ -197,6 +281,8 @@
             'Não foi possível criar o lead.',
         )
       }
+
+      clearLeadDraft(phone)
 
       setFormStatus(
         form,
@@ -223,6 +309,7 @@
   }
 
   function buildFormHtml(context) {
+    const draft = getLeadDraft(context)
     const hasConversationData =
       Boolean(
         context.suggestedEmail ||
@@ -249,7 +336,7 @@
             ' name="yolen-lead-name"',
             ' autocomplete="off"',
             ' maxlength="160"',
-            ' value="' + escapeHtml(context.suggestedName) + '"',
+            ' value="' + escapeHtml(draft.name) + '"',
             ' placeholder="Nome do contato"',
           '>',
         '</label>',
@@ -259,7 +346,7 @@
           '<input',
             ' type="text"',
             ' name="yolen-lead-phone"',
-            ' value="' + escapeHtml(context.phone) + '"',
+            ' value="' + escapeHtml(draft.phone || context.phone) + '"',
             ' readonly',
           '>',
         '</label>',
@@ -271,7 +358,7 @@
             ' name="yolen-lead-email"',
             ' autocomplete="email"',
             ' maxlength="254"',
-            ' value="' + escapeHtml(context.suggestedEmail) + '"',
+            ' value="' + escapeHtml(draft.email) + '"',
             ' placeholder="email@exemplo.com"',
           '>',
         '</label>',
@@ -284,7 +371,7 @@
             ' name="yolen-lead-document"',
             ' autocomplete="off"',
             ' maxlength="18"',
-            ' value="' + escapeHtml(context.suggestedDocument) + '"',
+            ' value="' + escapeHtml(draft.document) + '"',
             ' placeholder="CPF ou CNPJ"',
           '>',
         '</label>',
@@ -306,51 +393,56 @@
       return
     }
 
+    const draft = getLeadDraft(context)
+    const nameInput =
+      form.querySelector(
+        '[name="yolen-lead-name"]',
+      )
     const emailInput =
       form.querySelector(
         '[name="yolen-lead-email"]',
       )
-
     const documentInput =
       form.querySelector(
         '[name="yolen-lead-document"]',
       )
-
     const subtitle =
       form.querySelector(
         '.yolen-lead-create-subtitle',
       )
 
-    let suggestionApplied = false
+    if (!draft.dirty) {
+      if (
+        nameInput &&
+        !cleanText(nameInput.value) &&
+        context.suggestedName
+      ) {
+        nameInput.value = context.suggestedName
+        draft.name = context.suggestedName
+      }
 
-    if (
-      emailInput &&
-      !cleanText(emailInput.value) &&
-      context.suggestedEmail
-    ) {
-      emailInput.value =
+      if (
+        emailInput &&
+        !cleanText(emailInput.value) &&
         context.suggestedEmail
+      ) {
+        emailInput.value = context.suggestedEmail
+        draft.email = context.suggestedEmail
+      }
 
-      suggestionApplied = true
-    }
-
-    if (
-      documentInput &&
-      !onlyDigits(
-        documentInput.value,
-      ) &&
-      context.suggestedDocument
-    ) {
-      documentInput.value =
+      if (
+        documentInput &&
+        !onlyDigits(documentInput.value) &&
         context.suggestedDocument
-
-      suggestionApplied = true
+      ) {
+        documentInput.value = context.suggestedDocument
+        draft.document = context.suggestedDocument
+      }
     }
 
     if (
       subtitle &&
       (
-        suggestionApplied ||
         context.suggestedEmail ||
         context.suggestedDocument
       )
@@ -358,6 +450,28 @@
       subtitle.textContent =
         'Dados encontrados na conversa já preenchidos'
     }
+  }
+
+  function bindLeadCreationForm(form) {
+    if (!form || form.dataset.yolenDraftBound === 'true') {
+      return
+    }
+
+    form.dataset.yolenDraftBound = 'true'
+
+    form.addEventListener('input', () => {
+      captureLeadDraft(form)
+    })
+
+    form.addEventListener('change', () => {
+      captureLeadDraft(form)
+    })
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault()
+      captureLeadDraft(form)
+      void submitLeadCreation(form)
+    })
   }
 
   function mountLeadCreationForm() {
@@ -401,7 +515,7 @@
         existingForm,
         context,
       )
-
+      bindLeadCreationForm(existingForm)
       return
     }
 
@@ -410,10 +524,7 @@
     const form =
       actionsContainer.querySelector('[data-yolen-lead-create-form]')
 
-    form?.addEventListener('submit', (event) => {
-      event.preventDefault()
-      void submitLeadCreation(form)
-    })
+    bindLeadCreationForm(form)
   }
 
   function observePanel(panel) {
