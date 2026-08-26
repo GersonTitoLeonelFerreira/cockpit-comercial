@@ -3,6 +3,9 @@ import {
   buildCommercialMethodDefinitionFromConstruction,
   suggestInitialMethodConstruction,
 } from '@/app/lib/commercial-config/assisted-method-construction'
+import {
+  getBuyerDecisionBlockingIssues,
+} from '@/app/lib/commercial-config/buyer-decision-architecture'
 import type {
   CommercialMethodBuilderData,
 } from '@/app/types/commercial-method-builder'
@@ -144,6 +147,14 @@ export async function saveCommercialMethodConstruction(
   let definition: CommercialMethodDefinition | null = null
 
   if (input.status === 'review_ready') {
+    const decisionIssues = getBuyerDecisionBlockingIssues(
+      input.construction,
+      current.diagnosis,
+    )
+    if (decisionIssues.length > 0) {
+      throw new CommercialMethodConstructionValidationError(decisionIssues)
+    }
+
     const compiled = buildCommercialMethodDefinitionFromConstruction(input.construction)
     if (!compiled.validation.valid) {
       throw new CommercialMethodConstructionValidationError(compiled.validation.issues)
