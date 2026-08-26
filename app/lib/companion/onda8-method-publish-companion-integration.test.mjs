@@ -306,166 +306,51 @@ function replaceChildren(table, versionId, newRows) {
   table.push(...kept, ...newRows)
 }
 
-function saveDraftRpc(db, args) {
-  const { p_company_id: companyId, p_config_version_id: configVersionId, p_payload: payload } = args
-  let version
+// Espelha fielmente rpc_publish_builder_commercial_method (ONDA 8 / FRENTE
+// A): nova versão nasce só da PUBLICADA, filhos copiados só da PUBLICADA,
+// nunca lê nem escreve o rascunho comercial geral da empresa.
+function publishBuilderMethodRpc(db, args) {
+  const { p_company_id: companyId, p_method_definition: methodDefinition } = args
 
-  if (configVersionId) {
-    version = db.configVersions.find((row) => row.id === configVersionId && row.company_id === companyId)
-    if (!version) return { data: null, error: { message: 'Rascunho não encontrado.' } }
-    if (version.status !== 'draft') return { data: null, error: { message: 'A versão não está em rascunho.' } }
-  } else {
-    const existingDraft = db.configVersions.find((row) => row.company_id === companyId && row.status === 'draft')
-    if (existingDraft) return { data: null, error: { message: 'Já existe um rascunho em andamento.' } }
-    const numbers = db.configVersions.filter((row) => row.company_id === companyId).map((row) => row.version_number)
-    version = {
-      id: nextId(db, 'config'),
-      company_id: companyId,
-      version_number: numbers.length ? Math.max(...numbers) + 1 : 1,
-      contract_version: 'phase-2-v1',
-      status: 'draft',
-      created_by: 'user',
-      published_by: null,
-      archived_by: null,
-      created_at: NOW,
-      published_at: null,
-      archived_at: null,
-    }
-    db.configVersions.push(version)
+  if (!methodDefinition || typeof methodDefinition !== 'object') {
+    return { data: null, error: { message: 'A definição do método precisa ser um objeto.' } }
+  }
+  if (methodDefinition.contract_version !== 'commercial-method-v2') {
+    return { data: null, error: { message: 'A definição do método precisa declarar commercial-method-v2.' } }
   }
 
-  version.business_description = payload.business_description
-  version.target_audience = payload.target_audience
-  version.value_proposition = payload.value_proposition
-  version.commercial_method_name = payload.commercial_method_name
-  version.commercial_method_description = payload.commercial_method_description
-  version.communication_tone = payload.communication_tone
-  version.required_behaviors = payload.required_behaviors
-  version.prohibited_behaviors = payload.prohibited_behaviors
-  version.updated_at = NOW
-
-  const definition = payload.commercial_method_definition
-  if (definition && typeof definition === 'object') {
-    version.commercial_method_contract_version = 'commercial-method-v2'
-    version.commercial_method_definition = definition
-  } else {
-    version.commercial_method_contract_version = 'commercial-method-v1'
-    version.commercial_method_definition = null
+  if (db.forcePublishFailure) {
+    return { data: null, error: { message: 'Falha simulada de publicação isolada.' } }
   }
 
-  replaceChildren(
-    db.methodSteps,
-    version.id,
-    payload.method_steps.map((step) => ({
-      id: nextId(db, 'step'),
-      company_id: companyId,
-      config_version_id: version.id,
-      step_order: step.step_order,
-      name: step.name,
-      objective: step.objective,
-      completion_criteria: step.completion_criteria,
-      recommended_questions: step.recommended_questions,
-      is_required: step.is_required,
-      created_at: NOW,
-      updated_at: NOW,
-    })),
+  const concurrentMethodPublishDraft = db.configVersions.find(
+    (row) => row.company_id === companyId && row.status === 'draft' && row.draft_purpose === 'method_publish',
   )
-
-  replaceChildren(
-    db.productProfiles,
-    version.id,
-    payload.product_profiles.map((profile) => ({
-      id: nextId(db, 'product'),
-      company_id: companyId,
-      config_version_id: version.id,
-      product_id: profile.product_id,
-      commercial_product_contract_version: profile.commercial_product_definition
-        ? 'commercial-product-v2'
-        : 'commercial-product-v1',
-      commercial_product_definition: profile.commercial_product_definition,
-      indicated_audiences: profile.indicated_audiences,
-      needs_addressed: profile.needs_addressed,
-      benefits: profile.benefits,
-      verified_differentiators: profile.verified_differentiators,
-      limitations: profile.limitations,
-      contract_conditions: profile.contract_conditions,
-      payment_conditions: profile.payment_conditions,
-      allowed_claims: profile.allowed_claims,
-      forbidden_claims: profile.forbidden_claims,
-      created_at: NOW,
-      updated_at: NOW,
-    })),
-  )
-
-  replaceChildren(
-    db.facts,
-    version.id,
-    payload.facts.map((fact) => ({
-      id: nextId(db, 'fact'),
-      company_id: companyId,
-      config_version_id: version.id,
-      commercial_fact_contract_version: fact.commercial_fact_definition ? 'commercial-fact-v2' : 'commercial-fact-v1',
-      commercial_fact_definition: fact.commercial_fact_definition,
-      category: fact.category,
-      fact_key: fact.fact_key,
-      fact_value: fact.fact_value,
-      source_note: fact.source_note,
-      is_active: fact.is_active,
-      created_at: NOW,
-      updated_at: NOW,
-    })),
-  )
-
-  replaceChildren(
-    db.objectionGuides,
-    version.id,
-    payload.objection_guides.map((guide) => ({
-      id: nextId(db, 'objection'),
-      company_id: companyId,
-      config_version_id: version.id,
-      commercial_objection_contract_version: guide.commercial_objection_definition
-        ? 'commercial-objection-v2'
-        : 'commercial-objection-v1',
-      commercial_objection_definition: guide.commercial_objection_definition,
-      sort_order: guide.sort_order,
-      objection: guide.objection,
-      signals: guide.signals,
-      discovery_questions: guide.discovery_questions,
-      recommended_approach: guide.recommended_approach,
-      response_limits: guide.response_limits,
-      is_active: guide.is_active,
-      created_at: NOW,
-      updated_at: NOW,
-    })),
-  )
-
-  return {
-    data: [
-      {
-        company_id: version.company_id,
-        config_version_id: version.id,
-        version_number: version.version_number,
-        status: version.status,
-      },
-    ],
-    error: null,
+  if (concurrentMethodPublishDraft) {
+    return { data: null, error: { message: 'duplicate key value violates unique constraint "company_commercial_config_one_method_publish_draft_uidx"' } }
   }
-}
 
-function cloneRpc(db, args) {
-  const { p_company_id: companyId, p_source_config_version_id: sourceId } = args
-  const source = db.configVersions.find((row) => row.id === sourceId && row.company_id === companyId)
-  if (!source) return { data: null, error: { message: 'Versão de origem não encontrada.' } }
-
-  const existingDraft = db.configVersions.find((row) => row.company_id === companyId && row.status === 'draft')
-  if (existingDraft) return { data: null, error: { message: 'Já existe um rascunho em andamento.' } }
+  const source = db.configVersions.find((row) => row.company_id === companyId && row.status === 'published')
 
   const numbers = db.configVersions.filter((row) => row.company_id === companyId).map((row) => row.version_number)
-  const clone = {
-    ...source,
+  const newVersion = {
     id: nextId(db, 'config'),
+    company_id: companyId,
     version_number: numbers.length ? Math.max(...numbers) + 1 : 1,
+    contract_version: 'phase-2-v1',
     status: 'draft',
+    draft_purpose: 'method_publish',
+    business_description: source?.business_description ?? '',
+    target_audience: source?.target_audience ?? '',
+    value_proposition: source?.value_proposition ?? '',
+    commercial_method_name: methodDefinition.name,
+    commercial_method_description: methodDefinition.description,
+    commercial_method_contract_version: 'commercial-method-v2',
+    commercial_method_definition: methodDefinition,
+    communication_tone: source?.communication_tone ?? '',
+    required_behaviors: source?.required_behaviors ?? [],
+    prohibited_behaviors: source?.prohibited_behaviors ?? [],
+    created_by: 'user',
     published_by: null,
     archived_by: null,
     created_at: NOW,
@@ -473,56 +358,42 @@ function cloneRpc(db, args) {
     published_at: null,
     archived_at: null,
   }
-  db.configVersions.push(clone)
+  db.configVersions.push(newVersion)
 
-  for (const [table] of [
-    [db.methodSteps],
-    [db.productProfiles],
-    [db.facts],
-    [db.objectionGuides],
-  ]) {
-    replaceChildren(
-      table,
-      clone.id,
-      table
-        .filter((row) => row.config_version_id === source.id)
-        .map((row) => ({ ...row, id: nextId(db, 'clone'), config_version_id: clone.id })),
-    )
+  if (source) {
+    for (const table of [db.methodSteps, db.productProfiles, db.facts, db.objectionGuides]) {
+      replaceChildren(
+        table,
+        newVersion.id,
+        table
+          .filter((row) => row.config_version_id === source.id)
+          .map((row) => ({ ...row, id: nextId(db, 'copy'), company_id: companyId, config_version_id: newVersion.id })),
+      )
+    }
   }
 
-  return {
-    data: [
-      { company_id: clone.company_id, config_version_id: clone.id, version_number: clone.version_number, status: clone.status },
-    ],
-    error: null,
-  }
-}
-
-function publishRpc(db, args) {
-  if (db.forcePublishFailure) {
-    return { data: null, error: { message: 'Falha simulada de publicação.' } }
-  }
-
-  const { p_company_id: companyId, p_config_version_id: configVersionId } = args
-  const version = db.configVersions.find((row) => row.id === configVersionId && row.company_id === companyId)
-  if (!version || version.status !== 'draft') {
-    return { data: null, error: { message: 'A versão não está em rascunho.' } }
-  }
-
-  const previouslyPublished = db.configVersions.find((row) => row.company_id === companyId && row.status === 'published')
+  const previouslyPublished = db.configVersions.find(
+    (row) => row.company_id === companyId && row.status === 'published',
+  )
   if (previouslyPublished) {
     previouslyPublished.status = 'archived'
     previouslyPublished.archived_at = NOW
     previouslyPublished.archived_by = 'user'
   }
 
-  version.status = 'published'
-  version.published_at = NOW
-  version.published_by = 'user'
+  newVersion.status = 'published'
+  newVersion.published_at = NOW
+  newVersion.published_by = 'user'
 
   return {
     data: [
-      { company_id: version.company_id, config_version_id: version.id, version_number: version.version_number, status: version.status, published_at: version.published_at },
+      {
+        company_id: newVersion.company_id,
+        config_version_id: newVersion.id,
+        version_number: newVersion.version_number,
+        status: newVersion.status,
+        published_at: newVersion.published_at,
+      },
     ],
     error: null,
   }
@@ -547,9 +418,7 @@ function fakeSupabase(db) {
     },
 
     async rpc(name, args) {
-      if (name === 'rpc_save_company_commercial_config_draft_v6') return saveDraftRpc(db, args)
-      if (name === 'rpc_clone_company_commercial_config_v6') return cloneRpc(db, args)
-      if (name === 'rpc_publish_company_commercial_config') return publishRpc(db, args)
+      if (name === 'rpc_publish_builder_commercial_method') return publishBuilderMethodRpc(db, args)
       throw new Error(`RPC não simulada nos testes: ${name}`)
     },
   }
@@ -712,17 +581,11 @@ test('falha na publicação: Método A continua published e é o que o Companion
     ['Tour'],
   )
 
-  // Método B (AVANÇAR) ficou como draft — nunca chega a ser lido pelo
-  // Companion porque buildCompanionDiagnosticInput exige status published.
-  assert.equal(workspace.draft?.version.commercial_method_definition.name, 'Método AVANÇAR')
-  assert.throws(
-    () => buildCompanionDiagnosticInput(diagnosticInputArgs(workspace.draft)),
-    (error) => {
-      assert.ok(error instanceof CompanionDiagnosticInputError)
-      assert.equal(error.code, 'UNPUBLISHED_COMMERCIAL_CONFIG')
-      return true
-    },
-  )
+  // ONDA 8 / FRENTE A: a publicação isolada é atômica de ponta a ponta —
+  // uma falha não deixa nem sequer um rascunho novo para trás. Método B
+  // (AVANÇAR) nunca chega a existir em nenhum estado, muito menos a ser
+  // lido pelo Companion.
+  assert.equal(workspace.draft, null)
 })
 
 // ----------------------------------------------------------------------------
