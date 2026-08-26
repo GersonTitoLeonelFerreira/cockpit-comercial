@@ -7,6 +7,14 @@
     '#pane-side [data-selected="true"]',
     '[data-testid="chat-list"] [aria-selected="true"]',
   ].join(',')
+  const CONVERSATION_REGION_KEYS = new Set([
+    'contact-card',
+    'registration-card',
+    'lead-enrichment',
+    'pre-send-assessment',
+    'lead-summary-card',
+    'seller-information-architecture',
+  ])
 
   let conversationEpoch = 0
   let currentConversationKey = null
@@ -45,11 +53,7 @@
       return ''
     }
 
-    const titledNodes = Array.from(
-      header.querySelectorAll('[title]'),
-    )
-
-    for (const node of titledNodes) {
+    for (const node of header.querySelectorAll('[title]')) {
       const title = cleanText(
         node.getAttribute('title'),
       )
@@ -141,17 +145,14 @@
     const strongIdentity =
       getSelectedChatStrongIdentity()
 
-    // Quando o WhatsApp oferece data-id/JID (ou, como segunda opção,
-    // avatar da linha selecionada), essa identidade estrutural é
-    // authoritative. Não concatenamos o nome visível: mudanças cosméticas
-    // do header/sidebar não podem criar um falso boundary e contatos
-    // homônimos continuam separados pelo identificador forte.
+    // data-id/JID (ou avatar da linha selecionada como segunda opção) é
+    // authoritative. O nome visível não entra nessa chave: sidebar, mídia
+    // e mudanças cosméticas do header não podem criar falso boundary, e
+    // contatos homônimos continuam separados pelo identificador forte.
     if (strongIdentity) {
       return `selected:${strongIdentity}`
     }
 
-    // Número não salvo é uma identidade melhor que texto arbitrário do
-    // header e não depende da formatação visual do WhatsApp.
     if (looksLikePhone(title)) {
       return `phone:${onlyDigits(title)}`
     }
@@ -159,9 +160,9 @@
     const selectedTitle =
       getSelectedChatTitle()
 
-    // Fallback deliberado para versões do WhatsApp que não exponham
-    // data-id/avatar. Não promovemos data-testid/aria-label genéricos a
-    // identidade porque esses atributos podem ser iguais em várias linhas.
+    // Fallback para versões do WhatsApp sem data-id/avatar. Atributos
+    // genéricos como data-testid/aria-label não são promovidos a identidade
+    // porque podem ser iguais em várias linhas.
     return selectedTitle
       ? `title:${selectedTitle}::header:${title}`
       : `header:${title}`
@@ -207,6 +208,27 @@
     return `${key}::${normalizedPhone}`
   }
 
+  function dispatchOutsidePanelPointerDown() {
+    const target =
+      document.body ||
+      document.documentElement
+
+    if (!target) {
+      return
+    }
+
+    try {
+      target.dispatchEvent(
+        new Event('pointerdown', {
+          bubbles: true,
+          cancelable: false,
+        }),
+      )
+    } catch {
+      // Compatibilidade defensiva com engines antigas.
+    }
+  }
+
   function releasePanelInteractionLocks(panel) {
     const active = document.activeElement
 
@@ -226,8 +248,14 @@
         }),
       )
     } catch {
-      // Browsers antigos podem não aceitar Event no mesmo formato.
+      // Compatibilidade defensiva com engines antigas.
     }
+
+    // panel-stability-runtime libera qualquer lock (inclusive campo com
+    // foco, não apenas action lock) quando existe pointerdown fora do
+    // Companion. No boundary isso precisa ser síncrono: preservar a
+    // interação de A nunca pode impedir a montagem de B.
+    dispatchOutsidePanelPointerDown()
 
     panel
       ?.querySelectorAll(REGION_SELECTOR)
@@ -237,7 +265,30 @@
       })
   }
 
-  function clearSellerFacingRegions(panel) {
+  function preparePanelForConversationBoundary(panel) {
+    if (!panel) {
+      return
+    }
+
+    panel.scrollTop = 0
+
+    // O content-script mantém caches privados por região. Limpar apenas o
+    // DOM aqui faria o cache acreditar que o HTML antigo continua aplicado.
+    // Ao marcar o layout como boundary, o próximo renderPanel() entra no
+    // caminho já existente de reconstrução estrutural: zera o shell,
+    // limpa panelRegionHtmlCache/pending e imediatamente monta a conversa
+    // nova. O full reset ocorre SOMENTE numa troca real de identidade; os
+    // renders normais continuam 100% regionais.
+    if (
+      panel.dataset.yolenPanelLayout ===
+      'regions'
+    ) {
+      panel.dataset.yolenPanelLayout =
+        'conversation-boundary'
+    }
+  }
+
+  function clearConversationRegionsFallback(panel) {
     if (!panel) {
       return
     }
@@ -245,16 +296,19 @@
     panel
       .querySelectorAll(REGION_SELECTOR)
       .forEach((region) => {
-        region.replaceChildren()
-        region.dataset
-          .yolenConversationEpoch =
-          String(conversationEpoch)
-        region.dataset
-          .yolenConversationKey =
-          currentConversationKey || ''
-      })
+        const regionKey =
+          region.getAttribute(
+            'data-yolen-region',
+          )
 
-    panel.scrollTop = 0
+        if (
+          CONVERSATION_REGION_KEYS.has(
+            regionKey,
+          )
+        ) {
+          region.replaceChildren()
+        }
+      })
   }
 
   function clickRefreshButton(button) {
@@ -316,16 +370,22 @@
     const refreshButton =
       panel?.querySelector(REFRESH_SELECTOR)
 
-    // Boundary forte: a interação do contato anterior deixa de ter
-    // prioridade assim que a identidade real do header muda. Primeiro
-    // libera locks, depois remove o DOM seller-facing antigo e só então
-    // força o content-script a recalcular a nova conversa.
+    // Boundary forte: primeiro invalida a autoridade da interação/cache de
+    // A; depois o refresh síncrono do content-script monta B. O botão só é
+    // consultado antes do reset, então continua utilizável para A→B→A e
+    // trocas rápidas A→B→C.
     releasePanelInteractionLocks(panel)
-    clearSellerFacingRegions(panel)
+    preparePanelForConversationBoundary(panel)
 
-    if (!clickRefreshButton(refreshButton)) {
-      requestContentScriptRefresh()
+    if (clickRefreshButton(refreshButton)) {
+      return
     }
+
+    // Fallback raro (painel expandido sem botão de refresh): não deixa
+    // nenhum dado seller-facing do contato anterior visível enquanto o
+    // mecanismo normal tenta se recompor.
+    clearConversationRegionsFallback(panel)
+    requestContentScriptRefresh()
   }
 
   function refreshIdentityFromDom() {
@@ -370,9 +430,9 @@
     getConversationKeyFromDom()
 
   const observer = new MutationObserver(() => {
-    // Não depende do observer do content-script. Portanto uma leitura
-    // automática de "Dados do contato" pode continuar em voo sem impedir
-    // que uma mudança REAL A→B seja reconhecida como boundary.
+    // Independente do observer do content-script: uma leitura automática
+    // de "Dados do contato" pode continuar em voo sem impedir que uma
+    // mudança REAL A→B seja reconhecida como boundary.
     refreshIdentityFromDom()
   })
 
