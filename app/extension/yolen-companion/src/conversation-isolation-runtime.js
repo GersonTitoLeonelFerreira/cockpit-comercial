@@ -26,6 +26,11 @@
       .trim()
   }
 
+  function normalizeIdentityLabel(value) {
+    return cleanText(value)
+      .toLocaleLowerCase('pt-BR')
+  }
+
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
   }
@@ -42,18 +47,48 @@
     )
   }
 
+  function identityLabelsEquivalent(left, right) {
+    const leftText = cleanText(left)
+    const rightText = cleanText(right)
+
+    if (!leftText || !rightText) {
+      return false
+    }
+
+    if (
+      looksLikePhone(leftText) &&
+      looksLikePhone(rightText)
+    ) {
+      return (
+        onlyDigits(leftText) ===
+        onlyDigits(rightText)
+      )
+    }
+
+    return (
+      normalizeIdentityLabel(leftText) ===
+      normalizeIdentityLabel(rightText)
+    )
+  }
+
   function getMainHeader() {
     return document.querySelector('#main > header')
   }
 
-  function getMainHeaderTitle() {
-    const header = getMainHeader()
+  function getSelectedChatElement() {
+    return document.querySelector(
+      CHAT_ROW_SELECTOR,
+    )
+  }
 
-    if (!header) {
+  function getSelectedChatTitle() {
+    const selected = getSelectedChatElement()
+
+    if (!selected) {
       return ''
     }
 
-    for (const node of header.querySelectorAll('[title]')) {
+    for (const node of selected.querySelectorAll('[title]')) {
       const title = cleanText(
         node.getAttribute('title'),
       )
@@ -63,12 +98,84 @@
       }
     }
 
-    return cleanText(header.textContent)
+    for (const node of selected.querySelectorAll('[dir="auto"]')) {
+      const text = cleanText(node.textContent)
+
+      if (text) {
+        return text
+      }
+    }
+
+    return ''
   }
 
-  function getSelectedChatElement() {
-    return document.querySelector(
-      CHAT_ROW_SELECTOR,
+  function getMainHeaderTitle(selectedTitle = '') {
+    const header = getMainHeader()
+
+    if (!header) {
+      return ''
+    }
+
+    const titleCandidates =
+      Array.from(
+        header.querySelectorAll('[title]'),
+      )
+        .map((node) =>
+          cleanText(
+            node.getAttribute('title'),
+          ),
+        )
+        .filter(Boolean)
+
+    if (selectedTitle) {
+      const matchingSelectedTitle =
+        titleCandidates.find((candidate) =>
+          identityLabelsEquivalent(
+            candidate,
+            selectedTitle,
+          ),
+        )
+
+      if (matchingSelectedTitle) {
+        return matchingSelectedTitle
+      }
+    }
+
+    const phoneCandidate =
+      titleCandidates.find(
+        looksLikePhone,
+      )
+
+    if (phoneCandidate) {
+      return phoneCandidate
+    }
+
+    const textLines = cleanText(
+      header.innerText ||
+      header.textContent,
+    )
+      .split('\n')
+      .map(cleanText)
+      .filter(Boolean)
+
+    if (selectedTitle) {
+      const matchingLine =
+        textLines.find((line) =>
+          identityLabelsEquivalent(
+            line,
+            selectedTitle,
+          ),
+        )
+
+      if (matchingLine) {
+        return matchingLine
+      }
+    }
+
+    return (
+      textLines[0] ||
+      titleCandidates[0] ||
+      ''
     )
   }
 
@@ -107,36 +214,13 @@
     return ''
   }
 
-  function getSelectedChatTitle() {
-    const selected = getSelectedChatElement()
-
-    if (!selected) {
-      return ''
-    }
-
-    for (const node of selected.querySelectorAll('[title]')) {
-      const title = cleanText(
-        node.getAttribute('title'),
-      )
-
-      if (title) {
-        return title
-      }
-    }
-
-    for (const node of selected.querySelectorAll('[dir="auto"]')) {
-      const text = cleanText(node.textContent)
-
-      if (text) {
-        return text
-      }
-    }
-
-    return ''
-  }
-
   function getConversationKeyFromDom() {
-    const title = getMainHeaderTitle()
+    const selectedTitle =
+      getSelectedChatTitle()
+    const title =
+      getMainHeaderTitle(
+        selectedTitle,
+      )
 
     if (!title) {
       return null
@@ -145,10 +229,24 @@
     const strongIdentity =
       getSelectedChatStrongIdentity()
 
+    // WhatsApp pode atualizar a linha selecionada e o header em microtasks
+    // diferentes durante A→B. Só aceitamos o boundary quando os dois lados
+    // já descrevem a mesma conversa; assim uma seleção B com header ainda A
+    // nunca dispara um refresh prematuro que remontaria A como se fosse B.
+    if (
+      strongIdentity &&
+      selectedTitle &&
+      !identityLabelsEquivalent(
+        title,
+        selectedTitle,
+      )
+    ) {
+      return null
+    }
+
     // data-id/JID (ou avatar da linha selecionada como segunda opção) é
-    // authoritative. O nome visível não entra nessa chave: sidebar, mídia
-    // e mudanças cosméticas do header não podem criar falso boundary, e
-    // contatos homônimos continuam separados pelo identificador forte.
+    // authoritative. O nome visível não entra na chave; ele serve apenas
+    // para validar que selected-row e header já convergiram.
     if (strongIdentity) {
       return `selected:${strongIdentity}`
     }
@@ -156,9 +254,6 @@
     if (looksLikePhone(title)) {
       return `phone:${onlyDigits(title)}`
     }
-
-    const selectedTitle =
-      getSelectedChatTitle()
 
     // Fallback para versões do WhatsApp sem data-id/avatar. Atributos
     // genéricos como data-testid/aria-label não são promovidos a identidade
@@ -253,8 +348,7 @@
 
     // panel-stability-runtime libera qualquer lock (inclusive campo com
     // foco, não apenas action lock) quando existe pointerdown fora do
-    // Companion. No boundary isso precisa ser síncrono: preservar a
-    // interação de A nunca pode impedir a montagem de B.
+    // Companion. No boundary isso precisa ser síncrono.
     dispatchOutsidePanelPointerDown()
 
     panel
@@ -272,13 +366,12 @@
 
     panel.scrollTop = 0
 
-    // O content-script mantém caches privados por região. Limpar apenas o
-    // DOM aqui faria o cache acreditar que o HTML antigo continua aplicado.
-    // Ao marcar o layout como boundary, o próximo renderPanel() entra no
-    // caminho já existente de reconstrução estrutural: zera o shell,
-    // limpa panelRegionHtmlCache/pending e imediatamente monta a conversa
-    // nova. O full reset ocorre SOMENTE numa troca real de identidade; os
-    // renders normais continuam 100% regionais.
+    // O content-script mantém caches privados por região. Limpar só o DOM
+    // aqui faria o cache acreditar que o HTML antigo continua aplicado. Ao
+    // marcar o layout como boundary, o próximo renderPanel() usa o caminho
+    // estrutural já existente: zera o shell, limpa cache/pending e monta B.
+    // Isso acontece SOMENTE em troca real de identidade; renders normais
+    // continuam regionais.
     if (
       panel.dataset.yolenPanelLayout ===
       'regions'
@@ -370,10 +463,6 @@
     const refreshButton =
       panel?.querySelector(REFRESH_SELECTOR)
 
-    // Boundary forte: primeiro invalida a autoridade da interação/cache de
-    // A; depois o refresh síncrono do content-script monta B. O botão só é
-    // consultado antes do reset, então continua utilizável para A→B→A e
-    // trocas rápidas A→B→C.
     releasePanelInteractionLocks(panel)
     preparePanelForConversationBoundary(panel)
 
@@ -381,9 +470,9 @@
       return
     }
 
-    // Fallback raro (painel expandido sem botão de refresh): não deixa
-    // nenhum dado seller-facing do contato anterior visível enquanto o
-    // mecanismo normal tenta se recompor.
+    // Fallback raro (painel expandido sem botão de refresh): nenhum dado
+    // seller-facing do contato anterior fica visível enquanto o mecanismo
+    // normal tenta se recompor.
     clearConversationRegionsFallback(panel)
     requestContentScriptRefresh()
   }
