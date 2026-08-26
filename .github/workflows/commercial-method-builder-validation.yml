@@ -1,0 +1,97 @@
+name: Commercial Method Builder Validation
+
+on:
+  push:
+    paths:
+      - 'app/admin/configuracao-comercial/**'
+      - 'app/api/admin/commercial-method-builder/**'
+      - 'app/lib/commercial-config/**'
+      - 'app/lib/server/commercial-method-builder*'
+      - 'app/lib/server/commercial-method-construction*'
+      - 'app/types/commercial-method-*'
+      - 'scripts/typescript-test-loader.mjs'
+      - 'supabase/migrations/*commercial_method*'
+      - 'supabase/phase-tests/phase-8-*.test.mjs'
+      - '.github/workflows/commercial-method-builder-validation.yml'
+  pull_request:
+    paths:
+      - 'app/admin/configuracao-comercial/**'
+      - 'app/api/admin/commercial-method-builder/**'
+      - 'app/lib/commercial-config/**'
+      - 'app/lib/server/commercial-method-builder*'
+      - 'app/lib/server/commercial-method-construction*'
+      - 'app/types/commercial-method-*'
+      - 'scripts/typescript-test-loader.mjs'
+      - 'supabase/migrations/*commercial_method*'
+      - 'supabase/phase-tests/phase-8-*.test.mjs'
+      - '.github/workflows/commercial-method-builder-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: |
+          npx eslint \
+            app/admin/configuracao-comercial/AssistedMethodConstruction.tsx \
+            app/admin/configuracao-comercial/BuyerDecisionArchitecture.tsx \
+            app/admin/configuracao-comercial/CommercialConfigExperience.tsx \
+            app/api/admin/commercial-method-builder/method/route.ts \
+            app/lib/commercial-config/assisted-method-construction.ts \
+            app/lib/commercial-config/buyer-decision-architecture.ts \
+            app/lib/server/commercial-method-construction.ts \
+            app/types/commercial-method-construction.ts \
+            app/types/commercial-method-buyer-decision.ts \
+            scripts/typescript-test-loader.mjs \
+            app/lib/commercial-config/assisted-method-construction.test.mjs \
+            app/lib/commercial-config/assisted-method-construction-architecture.test.mjs \
+            app/lib/commercial-config/buyer-decision-architecture.test.mjs \
+            app/lib/server/commercial-method-construction.test.mjs \
+            supabase/phase-tests/phase-8-assisted-method-construction.test.mjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Fase 2 functional and server persistence
+        run: |
+          node --conditions=react-server \
+            --import ./scripts/register-typescript-test-loader.mjs \
+            --test \
+            app/lib/commercial-config/assisted-method-construction.test.mjs \
+            app/lib/commercial-config/assisted-method-construction-architecture.test.mjs \
+            app/lib/commercial-config/buyer-decision-architecture.test.mjs \
+            app/lib/server/commercial-method-construction.test.mjs \
+            app/lib/server/commercial-method-builder.test.mjs
+
+      - name: PGlite RLS and tenant isolation
+        run: |
+          node --test \
+            supabase/phase-tests/phase-8-commercial-method-builder.test.mjs \
+            supabase/phase-tests/phase-8-assisted-method-construction.test.mjs
+
+      - name: commercial-method-v2 regression
+        run: npm run test:companion-commercial-method-v2-validation
+
+      - name: commercial-config admin regression
+        run: npm run test:companion-commercial-config-admin
+
+      - name: Next build
+        run: npm run build
