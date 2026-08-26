@@ -1,7 +1,11 @@
 import type {
   CommercialMethodValidationIssue,
 } from '@/app/lib/companion/commercial-method-contract'
+import {
+  buildStageAssistiveSuggestions,
+} from '@/app/lib/commercial-config/assisted-method-construction'
 import type {
+  CommercialBuilderSalesEventDetail,
   CommercialMethodBuilderData,
 } from '@/app/types/commercial-method-builder'
 import type {
@@ -515,6 +519,8 @@ export function applyBuyerDecisionArchitecture(
   if (oldConclusion >= 0) {
     const previous = stages[oldConclusion]
     stages[oldConclusion] = {
+      // Um valor já preenchido (pelo gestor ou por uma síntese anterior)
+      // nunca é apagado só porque a etapa foi renomeada.
       ...previous,
       name: 'Decisão de compra',
       key: 'decisao_de_compra',
@@ -524,9 +530,6 @@ export function applyBuyerDecisionArchitecture(
           (item) => `Você informou como sinal de decisão: ${item}.`,
         ),
       ],
-      completion_criteria: [],
-      partial_completion_criteria: [],
-      advance_when: [],
     }
   }
 
@@ -599,7 +602,19 @@ export function applyBuyerDecisionArchitecture(
     )
   }
 
-  if (profile.formal_buying_process !== 'not_required') {
+  const formalizationDiagnosis = data.current_sales_process.formalization
+  const hasFormalizationWork =
+    profile.formal_buying_process !== 'not_required' ||
+    (formalizationDiagnosis?.steps.length ?? 0) > 0 ||
+    formalizationDiagnosis?.operational_approval_after_decision === true
+
+  if (hasFormalizationWork) {
+    const requirement =
+      decision.formal_process === 'yes' ||
+      formalizationDiagnosis?.operational_approval_after_decision === true
+        ? 'required'
+        : 'conditional'
+
     const formalization = createSuggestedStage(
       'Formalização',
       [
@@ -608,9 +623,10 @@ export function applyBuyerDecisionArchitecture(
           ...decision.formal_process_steps,
           ...decision.other_formal_process_steps,
           ...decision.formalization_steps,
+          ...(formalizationDiagnosis?.steps ?? []),
         ]).map((item) => `Item informado para formalização: ${item}.`),
       ],
-      decision.formal_process === 'yes' ? 'required' : 'conditional',
+      requirement,
     )
     stages = insertAfter(
       stages,
@@ -623,14 +639,404 @@ export function applyBuyerDecisionArchitecture(
     all.findIndex((candidate) => normalize(candidate.name) === normalize(stage.name)) === index,
   )
 
+  const synthesizedStages = uniqueStages.map((stage) =>
+    synthesizeStageFields(stage, data, decision),
+  )
+
   return {
     ...draft,
     buyer_decision: decision,
     principles: deriveBuyerDecisionPrinciples(data, decision),
-    stages: uniqueStages,
-    active_stage_id: uniqueStages[0]?.id ?? null,
+    stages: synthesizedStages,
+    active_stage_id: synthesizedStages[0]?.id ?? null,
     construction_step: 'structure',
   }
+}
+
+// ============================================================================
+// Pré-construção determinística (ONDA 8 / FRENTE B)
+//
+// A Yolen já sabe, a partir do diagnóstico e da arquitetura de decisão
+// confirmada, a maior parte do que perguntaria de novo em E01-E15. Esta
+// camada escreve essas respostas diretamente nos campos da etapa — nunca
+// como texto genérico, sempre rastreável a uma resposta real — para que o
+// gestor comece pela revisão em vez de responder tudo de novo. Nenhum campo
+// já preenchido pelo gestor é sobrescrito.
+// ============================================================================
+
+function findSalesEventDetail(
+  data: CommercialMethodBuilderData,
+  canonicalStageName: string,
+): CommercialBuilderSalesEventDetail | null {
+  const detail = data.current_sales_process.sales_events_detail ?? []
+  const target = normalize(canonicalStageName)
+
+  return (
+    detail.find((item) => normalize(canonicalEventName(item.event)) === target) ??
+    null
+  )
+}
+
+function requirementFromEventFrequency(
+  detail: CommercialBuilderSalesEventDetail | null,
+): CommercialMethodConstructionStageDraft['requirement'] | null {
+  if (!detail) return null
+  if (detail.frequency === 'always') return 'required'
+  if (detail.frequency === 'sometimes' || detail.frequency === 'optional') return 'conditional'
+  return null
+}
+
+function applyEventFrequencySynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+): CommercialMethodConstructionStageDraft {
+  const detail = findSalesEventDetail(data, stage.name)
+  if (!detail) return stage
+
+  const inferredRequirement = requirementFromEventFrequency(detail)
+  const next: CommercialMethodConstructionStageDraft = {
+    ...stage,
+    requirement:
+      stage.source === 'yolen_suggestion' && inferredRequirement
+        ? inferredRequirement
+        : stage.requirement,
+  }
+
+  if (!cleanText(next.objective) && cleanText(detail.success_definition)) {
+    next.objective = cleanText(detail.success_definition)
+  }
+
+  if (
+    next.completion_criteria.length === 0 &&
+    cleanText(detail.success_definition)
+  ) {
+    next.completion_criteria = [
+      `Está confirmado que: ${cleanText(detail.success_definition)}.`,
+    ]
+  }
+
+  if (
+    next.requirement !== 'required' &&
+    next.skip_conditions.length === 0
+  ) {
+    next.skip_conditions = [
+      `Você informou que “${stage.name}” não acontece em toda venda (frequência: ${
+        detail.frequency === 'optional' ? 'opcional' : 'às vezes'
+      }).`,
+    ]
+  }
+
+  if (next.sufficient_when.length === 0 && cleanText(detail.success_definition)) {
+    next.sufficient_when = [
+      `Já é possível confirmar que: ${cleanText(detail.success_definition)}.`,
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0 && cleanText(detail.success_definition)) {
+    next.stop_asking_when = [
+      'Novas perguntas não mudariam se esse resultado já foi alcançado.',
+    ]
+  }
+
+  return next
+}
+
+function applyDecisionStageSynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  decision: CommercialBuyerDecisionDraft,
+): CommercialMethodConstructionStageDraft {
+  const signals = cleanList(decision.buyer_commitment_signals)
+  if (signals.length === 0) return stage
+
+  const next = { ...stage }
+
+  if (!cleanText(next.objective)) {
+    next.objective =
+      'Confirmar que o cliente decidiu comprar, com evidência real do comprador, sem depender apenas de atividade do vendedor.'
+  }
+
+  if (next.completion_criteria.length === 0) {
+    next.completion_criteria = signals.map(
+      (signal) => `O cliente confirmou: ${signal}.`,
+    )
+  }
+
+  if (next.advance_when.length === 0) {
+    next.advance_when = signals.map(
+      (signal) => `O cliente confirmou: ${signal}.`,
+    )
+  }
+
+  if (next.sufficient_when.length === 0) {
+    next.sufficient_when = [
+      'A evidência de decisão já apareceu de forma explícita e não depende de mais perguntas.',
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0) {
+    next.stop_asking_when = [
+      'Novas perguntas não mudariam se o cliente decidiu ou não.',
+    ]
+  }
+
+  return next
+}
+
+function applyFormalizationStageSynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft,
+): CommercialMethodConstructionStageDraft {
+  const formalization = data.current_sales_process.formalization
+  const steps = cleanList([
+    ...decision.formal_process_steps,
+    ...decision.other_formal_process_steps,
+    ...decision.formalization_steps,
+    ...(formalization?.steps ?? []),
+  ])
+
+  const next = { ...stage }
+
+  if (!cleanText(next.objective)) {
+    next.objective =
+      steps.length > 0
+        ? `Acompanhar as ações que faltam depois da decisão para concluir a contratação: ${steps.join(', ')}.`
+        : 'Acompanhar as ações necessárias para transformar a decisão em contratação concluída, sem tratar a decisão como o fim da venda.'
+  }
+
+  if (
+    next.completion_criteria.length === 0 &&
+    cleanText(formalization?.sale_completed_when ?? '')
+  ) {
+    next.completion_criteria = [
+      `A venda está concluída quando: ${cleanText(formalization!.sale_completed_when)}.`,
+    ]
+  }
+
+  if (next.requirement !== 'required' && next.skip_conditions.length === 0) {
+    next.skip_conditions = [
+      'Não existe aprovação, área ou procedimento interno relevante depois da decisão.',
+    ]
+  }
+
+  if (next.sufficient_when.length === 0) {
+    next.sufficient_when = [
+      'Está claro o que ainda falta para concluir a contratação depois da decisão.',
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0) {
+    next.stop_asking_when = [
+      'Novas perguntas não mudam quais etapas de formalização ainda faltam.',
+    ]
+  }
+
+  return next
+}
+
+function applyAlignmentStageSynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  decision: CommercialBuyerDecisionDraft,
+): CommercialMethodConstructionStageDraft {
+  const participants = cleanList([
+    ...decision.participant_roles,
+    ...decision.other_participant_roles,
+  ])
+  const criteria = cleanList([
+    ...decision.decision_criteria,
+    ...decision.other_decision_criteria,
+  ])
+
+  const next = { ...stage }
+
+  if (!cleanText(next.objective)) {
+    next.objective =
+      participants.length > 0
+        ? `Confirmar critérios de decisão e alinhar com quem participa, aprova ou pode bloquear: ${participants.join(', ')}.`
+        : 'Confirmar critérios de decisão e alinhar com quem participa, aprova ou pode bloquear a contratação.'
+  }
+
+  if (next.completion_criteria.length === 0) {
+    const criteriaCriteria = criteria.map(
+      (criterion) => `O cliente confirmou que “${criterion}” pesa na escolha.`,
+    )
+    const participantCriteria =
+      participants.length > 0
+        ? [`Está confirmado quem participa, aprova ou pode bloquear: ${participants.join(', ')}.`]
+        : []
+    next.completion_criteria = cleanList([...participantCriteria, ...criteriaCriteria])
+  }
+
+  if (next.requirement !== 'required' && next.skip_conditions.length === 0) {
+    next.skip_conditions = [
+      'A compra não depende de aprovação de outra pessoa além do contato principal.',
+    ]
+  }
+
+  if (next.sufficient_when.length === 0) {
+    next.sufficient_when = [
+      'Já está claro quem participa, aprova ou pode bloquear, e o que pesa na escolha.',
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0) {
+    next.stop_asking_when = [
+      'Novas perguntas não mudariam quem aprova ou o que pesa na decisão.',
+    ]
+  }
+
+  return next
+}
+
+function applyFollowUpStageSynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft,
+): CommercialMethodConstructionStageDraft {
+  const next = { ...stage }
+  const reasons = cleanList(data.current_sales_process.follow_up.reasons)
+
+  if (!cleanText(next.objective)) {
+    next.objective =
+      'Retomar o contato quando o motivo do adiamento deixar de existir, sem tratar a decisão pendente como perdida.'
+  }
+
+  if (next.skip_conditions.length === 0) {
+    const signals = cleanList(decision.buyer_commitment_signals)
+    next.skip_conditions = cleanList([
+      'O cliente já confirmou a decisão de compra nesta interação.',
+      'A oportunidade foi encerrada (perdida, cancelada ou descartada).',
+      ...signals.map(
+        (signal) => `O cliente já demonstrou: ${signal}.`,
+      ),
+    ])
+  }
+
+  if (next.completion_criteria.length === 0) {
+    next.completion_criteria =
+      reasons.length > 0
+        ? reasons.map(
+            (reason) => `O cliente retomou o contato depois de: ${reason}.`,
+          )
+        : ['O cliente retomou o contato e voltou a interagir com o vendedor.']
+  }
+
+  if (next.wait_when.length === 0 && reasons.length > 0) {
+    next.wait_when = reasons.map(
+      (reason) => `O cliente pediu tempo por: ${reason}.`,
+    )
+  }
+
+  if (next.advance_when.length === 0 && reasons.length > 0) {
+    next.advance_when = reasons.map(
+      (reason) => `O motivo do adiamento (${reason}) deixou de existir e o cliente está pronto para retomar.`,
+    )
+  }
+
+  if (next.sufficient_when.length === 0) {
+    next.sufficient_when = [
+      'Já está claro por que o cliente ainda não decidiu e o que se espera que mude isso.',
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0) {
+    next.stop_asking_when = [
+      'Perguntar de novo antes do prazo ou motivo combinado não mudaria a resposta.',
+    ]
+  }
+
+  return next
+}
+
+function applyDiscoveryStageSynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+): CommercialMethodConstructionStageDraft {
+  const process = data.current_sales_process
+  const needs = cleanList([
+    ...process.discovery.needs_to_discover,
+    ...process.discovery.indispensable_information,
+  ])
+
+  if (needs.length === 0) return stage
+
+  const next = { ...stage }
+
+  if (!cleanText(next.objective)) {
+    next.objective = `Entender ${needs.join(', ')} antes de recomendar ou avançar.`
+  }
+
+  if (next.deepen_when.length === 0) {
+    next.deepen_when = needs.map(
+      (item) => `Ainda falta compreender: ${item}.`,
+    )
+  }
+
+  if (next.sufficient_when.length === 0) {
+    next.sufficient_when = [
+      'O que já foi confirmado é suficiente para recomendar com segurança, mesmo sem esgotar todos os detalhes possíveis.',
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0) {
+    next.stop_asking_when = [
+      'Novas perguntas não mudariam a recomendação.',
+    ]
+  }
+
+  return next
+}
+
+function synthesizeStageFields(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft,
+): CommercialMethodConstructionStageDraft {
+  const baseAssist = buildStageAssistiveSuggestions(stage, data)
+  const decisionAssist = buildBuyerDecisionStageAssist(stage, data, decision)
+  const merged = mergeStageAssistiveSuggestions(baseAssist, decisionAssist)
+
+  let next: CommercialMethodConstructionStageDraft = { ...stage }
+
+  if (!next.purpose && merged.context_notes.length > 0) {
+    next.purpose = merged.context_notes.join(' ')
+  }
+
+  if (next.completion_criteria.length === 0 && merged.completion_criteria.length > 0) {
+    next.completion_criteria = merged.completion_criteria
+  }
+
+  if (next.recommended_questions.length === 0 && merged.recommended_questions.length > 0) {
+    next.recommended_questions = merged.recommended_questions
+  }
+
+  if (next.common_mistakes.length === 0 && merged.common_mistakes.length > 0) {
+    next.common_mistakes = merged.common_mistakes
+  }
+
+  next = applyEventFrequencySynthesis(next, data)
+
+  if (stageLooksLike(next, ['decisão de compra', 'compromisso de compra'])) {
+    next = applyDecisionStageSynthesis(next, decision)
+  }
+
+  if (stageLooksLike(next, ['formalização'])) {
+    next = applyFormalizationStageSynthesis(next, data, decision)
+  }
+
+  if (stageLooksLike(next, ['alinhamento da decisão'])) {
+    next = applyAlignmentStageSynthesis(next, decision)
+  }
+
+  if (stageLooksLike(next, ['follow'])) {
+    next = applyFollowUpStageSynthesis(next, data, decision)
+  }
+
+  if (stageLooksLike(next, ['descoberta', 'diagnóstico', 'entender', 'acolher'])) {
+    next = applyDiscoveryStageSynthesis(next, data)
+  }
+
+  return next
 }
 
 function emptyAssist(): CommercialMethodStageAssistiveSuggestions {
