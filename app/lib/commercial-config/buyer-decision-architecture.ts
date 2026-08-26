@@ -1,0 +1,914 @@
+import type {
+  CommercialMethodValidationIssue,
+} from '@/app/lib/companion/commercial-method-contract'
+import type {
+  CommercialMethodBuilderData,
+} from '@/app/types/commercial-method-builder'
+import type {
+  CommercialBuyerDecisionDraft,
+  CommercialBuyerDecisionProfile,
+  CommercialBuyerDecisionVisibility,
+} from '@/app/types/commercial-method-buyer-decision'
+import type {
+  CommercialMethodConstructionDraft,
+  CommercialMethodConstructionQualityItem,
+  CommercialMethodConstructionStageDraft,
+  CommercialMethodStageAssistiveSuggestions,
+} from '@/app/types/commercial-method-construction'
+
+function cleanText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function cleanList(values: string[]): string[] {
+  return Array.from(new Set(values.map(cleanText).filter(Boolean)))
+}
+
+function normalize(value: string): string {
+  return cleanText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function slugify(value: string): string {
+  return normalize(value)
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'etapa'
+}
+
+function stableId(prefix: string, seed: string): string {
+  return `${prefix}-${slugify(seed).slice(0, 36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function canonicalEventName(value: string): string {
+  const item = normalize(value)
+
+  if (item.includes('demonstr')) return 'Demonstração'
+  if (item.includes('tour')) return 'Tour'
+  if (item.includes('teste')) return 'Teste'
+  if (item.includes('diagnost')) return 'Diagnóstico'
+  if (item.includes('reuniao')) return 'Reunião'
+  if (item.includes('proposta')) return 'Proposta'
+  if (item.includes('orcamento')) return 'Orçamento'
+  if (item.includes('apresent')) return 'Apresentação'
+
+  return cleanText(value)
+}
+
+export function buyerDecisionEvents(data: CommercialMethodBuilderData): string[] {
+  return cleanList([
+    ...data.company_profile.complexity.sales_events,
+    ...data.current_sales_process.presentation.touchpoints,
+  ].map(canonicalEventName))
+}
+
+function isBusinessSale(data: CommercialMethodBuilderData): boolean {
+  const buyer = data.company_profile.customer.buyer_type
+  return buyer === 'company' || buyer === 'both'
+}
+
+function isLongCycle(data: CommercialMethodBuilderData): boolean {
+  return ['weeks', 'months', 'varies'].includes(
+    data.company_profile.complexity.typical_timing,
+  )
+}
+
+function needsConsultativeDiscovery(data: CommercialMethodBuilderData): boolean {
+  const process = data.current_sales_process
+  return (
+    process.lead_entry.seller_discovery_needed === true ||
+    process.discovery.asks_before_presenting === true ||
+    process.discovery.needs_to_discover.length > 0 ||
+    process.discovery.indispensable_information.length > 0
+  )
+}
+
+export function getBuyerDecisionVisibility(
+  data: CommercialMethodBuilderData,
+): CommercialBuyerDecisionVisibility {
+  const business = isBusinessSale(data)
+  const longCycle = isLongCycle(data)
+  const multiplePeople = data.company_profile.complexity.multiple_decision_makers === true
+  const events = buyerDecisionEvents(data)
+  const consultative = needsConsultativeDiscovery(data)
+  const usesContract = data.commercial_rules.contracts.uses_contract === true
+  const variablePricing = ['variable', 'mixed'].includes(data.commercial_rules.pricing.model)
+
+  return {
+    show_approval_and_blockers: business || multiplePeople,
+    show_decision_criteria: business || longCycle || consultative,
+    show_formal_process: business && (longCycle || multiplePeople || usesContract),
+    show_investment_justification:
+      business && (longCycle || multiplePeople || variablePricing),
+    show_real_urgency:
+      business || longCycle || data.current_sales_process.follow_up.happens === true,
+    show_event_purpose: events.length > 0,
+    show_customization: true,
+    show_operation_intensity: true,
+    show_decision_vs_formalization: true,
+  }
+}
+
+export function createBuyerDecisionDraft(
+  data: CommercialMethodBuilderData,
+): CommercialBuyerDecisionDraft {
+  return {
+    confirmed: false,
+    approval_or_blocker: '',
+    participant_roles: [],
+    other_participant_roles: [],
+    decision_criteria: [],
+    other_decision_criteria: [],
+    formal_process: '',
+    formal_process_steps: [],
+    other_formal_process_steps: [],
+    investment_justification: '',
+    investment_justification_notes: '',
+    real_urgency: '',
+    urgency_drivers: [],
+    other_urgency_drivers: [],
+    event_success_criteria: buyerDecisionEvents(data).map((event) => ({
+      event,
+      criteria: [],
+    })),
+    solution_customization: '',
+    operation_intensity: '',
+    buyer_commitment_signals: [],
+    formalization_steps: [],
+  }
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function isCommercialBuyerDecisionDraft(
+  value: unknown,
+): value is CommercialBuyerDecisionDraft {
+  if (!isRecord(value)) return false
+
+  const answers = new Set(['', 'no', 'sometimes', 'yes'])
+  const customizations = new Set([
+    '',
+    'standard',
+    'some_adjustments',
+    'highly_customized',
+  ])
+  const intensities = new Set([
+    '',
+    'high_volume_short',
+    'balanced',
+    'few_complex',
+  ])
+
+  return (
+    typeof value.confirmed === 'boolean' &&
+    answers.has(String(value.approval_or_blocker)) &&
+    isStringArray(value.participant_roles) &&
+    isStringArray(value.other_participant_roles) &&
+    isStringArray(value.decision_criteria) &&
+    isStringArray(value.other_decision_criteria) &&
+    answers.has(String(value.formal_process)) &&
+    isStringArray(value.formal_process_steps) &&
+    isStringArray(value.other_formal_process_steps) &&
+    answers.has(String(value.investment_justification)) &&
+    typeof value.investment_justification_notes === 'string' &&
+    answers.has(String(value.real_urgency)) &&
+    isStringArray(value.urgency_drivers) &&
+    isStringArray(value.other_urgency_drivers) &&
+    Array.isArray(value.event_success_criteria) &&
+    value.event_success_criteria.every((item) =>
+      isRecord(item) &&
+      typeof item.event === 'string' &&
+      isStringArray(item.criteria),
+    ) &&
+    customizations.has(String(value.solution_customization)) &&
+    intensities.has(String(value.operation_intensity)) &&
+    isStringArray(value.buyer_commitment_signals) &&
+    isStringArray(value.formalization_steps)
+  )
+}
+
+export function validateBuyerDecisionDraft(
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft,
+): string[] {
+  const visibility = getBuyerDecisionVisibility(data)
+  const issues: string[] = []
+
+  if (visibility.show_approval_and_blockers && !decision.approval_or_blocker) {
+    issues.push('Informe se outra pessoa pode aprovar ou impedir a contratação.')
+  }
+
+  if (
+    visibility.show_approval_and_blockers &&
+    ['yes', 'sometimes'].includes(decision.approval_or_blocker) &&
+    cleanList([...decision.participant_roles, ...decision.other_participant_roles]).length === 0
+  ) {
+    issues.push('Informe quem normalmente participa da aprovação ou pode bloquear.')
+  }
+
+  if (
+    visibility.show_decision_criteria &&
+    cleanList([...decision.decision_criteria, ...decision.other_decision_criteria]).length === 0
+  ) {
+    issues.push('Informe pelo menos um fator que costuma pesar na escolha do cliente.')
+  }
+
+  if (visibility.show_formal_process && !decision.formal_process) {
+    issues.push('Informe se existe área ou processo interno antes da contratação.')
+  }
+
+  if (
+    visibility.show_formal_process &&
+    ['yes', 'sometimes'].includes(decision.formal_process) &&
+    cleanList([
+      ...decision.formal_process_steps,
+      ...decision.other_formal_process_steps,
+    ]).length === 0
+  ) {
+    issues.push('Informe ao menos uma área ou processo interno que costuma participar.')
+  }
+
+  if (visibility.show_investment_justification && !decision.investment_justification) {
+    issues.push('Informe se o investimento precisa ser justificado internamente.')
+  }
+
+  if (visibility.show_real_urgency && !decision.real_urgency) {
+    issues.push('Informe se costuma existir uma data, evento ou consequência real para decidir.')
+  }
+
+  if (
+    visibility.show_real_urgency &&
+    ['yes', 'sometimes'].includes(decision.real_urgency) &&
+    cleanList([...decision.urgency_drivers, ...decision.other_urgency_drivers]).length === 0
+  ) {
+    issues.push('Informe o que normalmente cria essa urgência real.')
+  }
+
+  if (visibility.show_event_purpose) {
+    for (const item of decision.event_success_criteria) {
+      if (cleanList(item.criteria).length === 0) {
+        issues.push(`Explique o que precisa acontecer em “${item.event}” para a venda poder avançar.`)
+      }
+    }
+  }
+
+  if (!decision.solution_customization) {
+    issues.push('Informe quanto a solução costuma mudar conforme cada cliente.')
+  }
+
+  if (!decision.operation_intensity) {
+    issues.push('Informe se a equipe trabalha com muitas vendas curtas ou poucas oportunidades mais acompanhadas.')
+  }
+
+  if (cleanList(decision.buyer_commitment_signals).length === 0) {
+    issues.push('Informe qual fato mostra que o cliente realmente decidiu comprar.')
+  }
+
+  return issues
+}
+
+export function getBuyerDecisionProfile(
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft,
+): CommercialBuyerDecisionProfile {
+  const business = isBusinessSale(data)
+  const longCycle = isLongCycle(data)
+  const events = buyerDecisionEvents(data)
+  let score = 0
+
+  if (business) score += 1
+  if (longCycle) score += 2
+  if (data.company_profile.complexity.multiple_decision_makers === true) score += 2
+
+  if (decision.approval_or_blocker === 'yes') score += 2
+  if (decision.approval_or_blocker === 'sometimes') score += 1
+
+  const participants = cleanList([
+    ...decision.participant_roles,
+    ...decision.other_participant_roles,
+  ])
+  if (participants.length >= 2) score += 2
+  else if (participants.length === 1) score += 1
+
+  if (decision.formal_process === 'yes') score += 2
+  if (decision.formal_process === 'sometimes') score += 1
+  if (decision.investment_justification === 'yes') score += 1
+  if (decision.investment_justification === 'sometimes') score += 0.5
+  if (decision.real_urgency === 'yes') score += 0.5
+
+  if (decision.solution_customization === 'highly_customized') score += 2
+  if (decision.solution_customization === 'some_adjustments') score += 1
+
+  if (decision.operation_intensity === 'few_complex') score += 2
+  if (decision.operation_intensity === 'balanced') score += 1
+  if (decision.operation_intensity === 'high_volume_short') score -= 2
+
+  if (events.length >= 2) score += 1
+
+  let depth: CommercialBuyerDecisionProfile['depth'] =
+    score >= 7 ? 'deep' : score >= 3 ? 'moderate' : 'light'
+
+  if (business && depth === 'light') depth = 'moderate'
+
+  const discoveryDepth: CommercialBuyerDecisionProfile['discovery_depth'] =
+    depth === 'deep' ||
+    decision.solution_customization === 'highly_customized' ||
+    decision.investment_justification === 'yes'
+      ? 'deep'
+      : depth === 'moderate' || needsConsultativeDiscovery(data)
+        ? 'moderate'
+        : 'light'
+
+  const decisionProcess =
+    decision.approval_or_blocker === 'yes' ||
+    decision.formal_process === 'yes' ||
+    depth === 'deep'
+      ? 'required'
+      : business || decision.approval_or_blocker === 'sometimes'
+        ? 'recommended'
+        : 'not_required'
+
+  const criteria = cleanList([
+    ...decision.decision_criteria,
+    ...decision.other_decision_criteria,
+  ])
+
+  return {
+    depth,
+    discovery_depth: discoveryDepth,
+    decision_process: decisionProcess,
+    decision_criteria:
+      depth === 'deep' && criteria.length > 0
+        ? 'required'
+        : criteria.length > 0 || depth === 'moderate'
+          ? 'recommended'
+          : 'not_required',
+    approval_mapping:
+      decision.approval_or_blocker === 'yes'
+        ? 'required'
+        : decision.approval_or_blocker === 'sometimes'
+          ? 'recommended'
+          : 'not_required',
+    formal_buying_process:
+      decision.formal_process === 'yes'
+        ? 'required'
+        : decision.formal_process === 'sometimes'
+          ? 'recommended'
+          : 'not_required',
+    critical_event:
+      decision.real_urgency === 'yes'
+        ? 'required'
+        : decision.real_urgency === 'sometimes'
+          ? 'recommended'
+          : 'not_required',
+    presentation_evidence:
+      events.length === 0
+        ? 'not_required'
+        : depth === 'deep'
+          ? 'required'
+          : 'recommended',
+  }
+}
+
+export function deriveBuyerDecisionPrinciples(
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft,
+): string[] {
+  const profile = getBuyerDecisionProfile(data, decision)
+  const principles = [
+    'A profundidade da conversa deve ser proporcional à complexidade real da decisão.',
+    'Avanço real exige evidência do comprador; atividade do vendedor, sozinha, não prova progresso.',
+    'A decisão de compra deve ser tratada separadamente das ações usadas para formalizar a contratação.',
+  ]
+
+  if (
+    cleanList([
+      ...decision.decision_criteria,
+      ...decision.other_decision_criteria,
+    ]).length > 0
+  ) {
+    principles.push('Os fatores que pesam na escolha precisam estar claros antes de uma oportunidade complexa avançar.')
+  }
+
+  if (profile.approval_mapping !== 'not_required') {
+    principles.push('Quando houver outras pessoas na decisão, a equipe precisa saber quem participa, aprova ou pode impedir o avanço.')
+  }
+
+  if (profile.formal_buying_process !== 'not_required') {
+    principles.push('Processos internos do cliente devem ser acompanhados sem transformar cada área envolvida em uma etapa automática do método.')
+  }
+
+  if (profile.critical_event !== 'not_required') {
+    principles.push('Urgência só deve ser considerada quando houver data, evento ou consequência real confirmada pelo cliente.')
+  }
+
+  if (profile.presentation_evidence !== 'not_required') {
+    principles.push('Demonstração, tour, teste ou reunião devem ter um resultado esperado; realizar a atividade não é suficiente para avançar.')
+  }
+
+  if (decision.solution_customization === 'highly_customized') {
+    principles.push('A personalização da solução precisa ser sustentada por informações confirmadas na descoberta.')
+  }
+
+  return cleanList(principles)
+}
+
+function createSuggestedStage(
+  name: string,
+  basis: string[],
+  requirement: CommercialMethodConstructionStageDraft['requirement'] = 'required',
+): CommercialMethodConstructionStageDraft {
+  return {
+    id: stableId('stage', name),
+    source: 'yolen_suggestion',
+    suggestion_basis: cleanList(basis),
+    key: slugify(name),
+    name,
+    objective: '',
+    requirement,
+    completion_criteria: [],
+    partial_completion_criteria: [],
+    skip_conditions: [],
+    recommended_questions: [],
+    common_mistakes: [],
+    deepen_when: [],
+    sufficient_when: [],
+    advance_when: [],
+    wait_when: [],
+    stop_asking_when: [],
+    dimensions: [],
+  }
+}
+
+function stageLooksLike(
+  stage: CommercialMethodConstructionStageDraft,
+  terms: string[],
+): boolean {
+  const searchable = normalize(`${stage.name} ${stage.key}`)
+  return terms.some((term) => searchable.includes(normalize(term)))
+}
+
+function insertBefore(
+  stages: CommercialMethodConstructionStageDraft[],
+  stage: CommercialMethodConstructionStageDraft,
+  matcher: (candidate: CommercialMethodConstructionStageDraft) => boolean,
+): CommercialMethodConstructionStageDraft[] {
+  const index = stages.findIndex(matcher)
+  if (index < 0) return [...stages, stage]
+  return [...stages.slice(0, index), stage, ...stages.slice(index)]
+}
+
+function insertAfter(
+  stages: CommercialMethodConstructionStageDraft[],
+  stage: CommercialMethodConstructionStageDraft,
+  matcher: (candidate: CommercialMethodConstructionStageDraft) => boolean,
+): CommercialMethodConstructionStageDraft[] {
+  const index = stages.findIndex(matcher)
+  if (index < 0) return [...stages, stage]
+  return [...stages.slice(0, index + 1), stage, ...stages.slice(index + 1)]
+}
+
+export function applyBuyerDecisionArchitecture(
+  draft: CommercialMethodConstructionDraft,
+  data: CommercialMethodBuilderData,
+  input: CommercialBuyerDecisionDraft,
+): CommercialMethodConstructionDraft {
+  const decision: CommercialBuyerDecisionDraft = {
+    ...input,
+    confirmed: true,
+    participant_roles: cleanList(input.participant_roles),
+    other_participant_roles: cleanList(input.other_participant_roles),
+    decision_criteria: cleanList(input.decision_criteria),
+    other_decision_criteria: cleanList(input.other_decision_criteria),
+    formal_process_steps: cleanList(input.formal_process_steps),
+    other_formal_process_steps: cleanList(input.other_formal_process_steps),
+    urgency_drivers: cleanList(input.urgency_drivers),
+    other_urgency_drivers: cleanList(input.other_urgency_drivers),
+    event_success_criteria: input.event_success_criteria.map((item) => ({
+      event: cleanText(item.event),
+      criteria: cleanList(item.criteria),
+    })),
+    buyer_commitment_signals: cleanList(input.buyer_commitment_signals),
+    formalization_steps: cleanList(input.formalization_steps),
+  }
+  const profile = getBuyerDecisionProfile(data, decision)
+
+  let stages = draft.stages.filter((stage) =>
+    !(
+      stage.source === 'yolen_suggestion' &&
+      stageLooksLike(stage, ['alinhamento da decisão', 'formalização'])
+    ),
+  )
+
+  const oldConclusion = stages.findIndex((stage) =>
+    stage.source === 'yolen_suggestion' &&
+    stageLooksLike(stage, ['conclusão da venda', 'fechamento']),
+  )
+
+  if (oldConclusion >= 0) {
+    const previous = stages[oldConclusion]
+    stages[oldConclusion] = {
+      ...previous,
+      name: 'Decisão de compra',
+      key: 'decisao_de_compra',
+      suggestion_basis: [
+        'A Yolen separa o compromisso real do cliente das ações posteriores de formalização.',
+        ...decision.buyer_commitment_signals.map(
+          (item) => `Você informou como sinal de decisão: ${item}.`,
+        ),
+      ],
+      completion_criteria: [],
+      partial_completion_criteria: [],
+      advance_when: [],
+    }
+  }
+
+  let decisionStage = stages.find((stage) =>
+    stageLooksLike(stage, ['decisão de compra', 'compromisso de compra']),
+  )
+
+  if (!decisionStage) {
+    decisionStage = createSuggestedStage(
+      'Decisão de compra',
+      [
+        'A estrutura precisa de uma evidência do comprador que mostre decisão real, sem confundir isso com pagamento, cadastro ou envio de proposta.',
+        ...decision.buyer_commitment_signals.map(
+          (item) => `Você informou como sinal de decisão: ${item}.`,
+        ),
+      ],
+    )
+    stages = insertBefore(
+      stages,
+      decisionStage,
+      (stage) => stageLooksLike(stage, ['follow']),
+    )
+  }
+
+  const hasDiscovery = stages.some((stage) =>
+    stageLooksLike(stage, ['descoberta', 'diagnóstico', 'entender', 'acolher']),
+  )
+
+  if (profile.discovery_depth === 'deep' && !hasDiscovery) {
+    stages = [
+      createSuggestedStage(
+        'Descoberta',
+        [
+          'A arquitetura da decisão indica que a solução, aprovação ou justificativa interna exige compreensão mais profunda antes de avançar.',
+        ],
+      ),
+      ...stages,
+    ]
+  }
+
+  if (
+    profile.decision_process === 'required' ||
+    profile.approval_mapping !== 'not_required'
+  ) {
+    const alignmentRequirement =
+      decision.approval_or_blocker === 'yes' ? 'required' : 'conditional'
+    const alignment = createSuggestedStage(
+      'Alinhamento da decisão',
+      [
+        'Esta etapa consolida critérios, pessoas e aprovações relevantes sem transformar cada área do cliente em uma etapa separada.',
+        ...cleanList([
+          ...decision.participant_roles,
+          ...decision.other_participant_roles,
+        ]).map((item) => `Participação informada: ${item}.`),
+      ],
+      alignmentRequirement,
+    )
+    stages = insertBefore(
+      stages,
+      alignment,
+      (stage) =>
+        stageLooksLike(stage, [
+          'demonstração',
+          'tour',
+          'teste',
+          'proposta',
+          'apresentação',
+          'decisão de compra',
+        ]),
+    )
+  }
+
+  if (profile.formal_buying_process !== 'not_required') {
+    const formalization = createSuggestedStage(
+      'Formalização',
+      [
+        'Você informou que, depois da decisão comercial, ainda existem aprovações, áreas ou procedimentos internos relevantes.',
+        ...cleanList([
+          ...decision.formal_process_steps,
+          ...decision.other_formal_process_steps,
+          ...decision.formalization_steps,
+        ]).map((item) => `Item informado para formalização: ${item}.`),
+      ],
+      decision.formal_process === 'yes' ? 'required' : 'conditional',
+    )
+    stages = insertAfter(
+      stages,
+      formalization,
+      (stage) => stageLooksLike(stage, ['decisão de compra']),
+    )
+  }
+
+  const uniqueStages = stages.filter((stage, index, all) =>
+    all.findIndex((candidate) => normalize(candidate.name) === normalize(stage.name)) === index,
+  )
+
+  return {
+    ...draft,
+    buyer_decision: decision,
+    principles: deriveBuyerDecisionPrinciples(data, decision),
+    stages: uniqueStages,
+    active_stage_id: uniqueStages[0]?.id ?? null,
+    construction_step: 'structure',
+  }
+}
+
+function emptyAssist(): CommercialMethodStageAssistiveSuggestions {
+  return {
+    context_notes: [],
+    completion_criteria: [],
+    recommended_questions: [],
+    common_mistakes: [],
+  }
+}
+
+export function buildBuyerDecisionStageAssist(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+  decision: CommercialBuyerDecisionDraft | undefined,
+): CommercialMethodStageAssistiveSuggestions {
+  if (!decision?.confirmed) return emptyAssist()
+
+  const profile = getBuyerDecisionProfile(data, decision)
+  const result = emptyAssist()
+
+  if (stageLooksLike(stage, ['descoberta', 'diagnóstico', 'entender', 'acolher'])) {
+    result.context_notes.push(
+      profile.discovery_depth === 'deep'
+        ? 'A arquitetura desta venda pede descoberta mais profunda, mas apenas sobre informações que realmente mudam recomendação, decisão ou justificativa.'
+        : profile.discovery_depth === 'moderate'
+          ? 'A descoberta deve esclarecer o suficiente para recomendar e avançar sem transformar a conversa em interrogatório.'
+          : 'A venda indica descoberta leve: confirme somente o que muda a recomendação ou evita indicar a solução errada.',
+    )
+
+    if (decision.investment_justification === 'yes') {
+      result.recommended_questions.push(
+        'O que precisa ficar claro internamente para esse investimento fazer sentido?',
+      )
+    }
+  }
+
+  const event = decision.event_success_criteria.find((item) =>
+    stageLooksLike(stage, [item.event]),
+  )
+  if (event) {
+    result.context_notes.push(
+      `Você definiu o que “${event.event}” precisa provar. Realizar essa atividade, por si só, não conclui a etapa.`,
+    )
+    result.completion_criteria.push(
+      ...event.criteria.map(
+        (criterion) => `Há evidência do comprador de que: ${criterion}.`,
+      ),
+    )
+    result.common_mistakes.push(
+      `Considerar “${event.event} realizado” como avanço sem validar o resultado esperado com o comprador.`,
+    )
+  }
+
+  if (stageLooksLike(stage, ['alinhamento da decisão'])) {
+    const participants = cleanList([
+      ...decision.participant_roles,
+      ...decision.other_participant_roles,
+    ])
+    const criteria = cleanList([
+      ...decision.decision_criteria,
+      ...decision.other_decision_criteria,
+    ])
+
+    if (participants.length > 0) {
+      result.completion_criteria.push(
+        `Está confirmado quem participa, aprova ou pode bloquear: ${participants.join(', ')}.`,
+      )
+    }
+    result.completion_criteria.push(
+      ...criteria.map(
+        (criterion) => `O cliente confirmou que “${criterion}” pesa na escolha.`,
+      ),
+    )
+    result.common_mistakes.push(
+      'Tratar apenas o contato atual como responsável por toda a decisão sem confirmar como a compra é aprovada.',
+    )
+  }
+
+  if (stageLooksLike(stage, ['decisão de compra', 'compromisso de compra'])) {
+    result.completion_criteria.push(
+      ...decision.buyer_commitment_signals.map(
+        (signal) => `O cliente confirmou: ${signal}.`,
+      ),
+    )
+    result.common_mistakes.push(
+      'Considerar proposta enviada, demonstração realizada, ligação feita ou mensagem enviada como prova de que o cliente decidiu comprar.',
+    )
+  }
+
+  if (stageLooksLike(stage, ['formalização'])) {
+    const formalization = cleanList([
+      ...decision.formal_process_steps,
+      ...decision.other_formal_process_steps,
+      ...decision.formalization_steps,
+    ])
+    result.context_notes.push(
+      'Esta etapa acontece depois da decisão comercial. Ela não deve ser usada para fingir que o cliente já decidiu antes de existir evidência de compromisso.',
+    )
+    result.completion_criteria.push(
+      ...formalization.map((item) => `Foi concluído o requisito de formalização: ${item}.`),
+    )
+  }
+
+  if (
+    decision.real_urgency === 'yes' &&
+    cleanList([...decision.urgency_drivers, ...decision.other_urgency_drivers]).length > 0
+  ) {
+    result.context_notes.push(
+      `Existe urgência informada na operação: ${cleanList([
+        ...decision.urgency_drivers,
+        ...decision.other_urgency_drivers,
+      ]).join(', ')}. A Yolen não deve criar uma data ou consequência que o cliente não confirmou.`,
+    )
+  }
+
+  return {
+    context_notes: cleanList(result.context_notes),
+    completion_criteria: cleanList(result.completion_criteria),
+    recommended_questions: cleanList(result.recommended_questions),
+    common_mistakes: cleanList(result.common_mistakes),
+  }
+}
+
+export function mergeStageAssistiveSuggestions(
+  primary: CommercialMethodStageAssistiveSuggestions,
+  secondary: CommercialMethodStageAssistiveSuggestions,
+): CommercialMethodStageAssistiveSuggestions {
+  return {
+    context_notes: cleanList([...primary.context_notes, ...secondary.context_notes]),
+    completion_criteria: cleanList([
+      ...primary.completion_criteria,
+      ...secondary.completion_criteria,
+    ]),
+    recommended_questions: cleanList([
+      ...primary.recommended_questions,
+      ...secondary.recommended_questions,
+    ]),
+    common_mistakes: cleanList([
+      ...primary.common_mistakes,
+      ...secondary.common_mistakes,
+    ]),
+  }
+}
+
+const SELLER_ACTIVITY_PATTERNS = [
+  /^enviei\b/,
+  /^enviamos\b/,
+  /^proposta (foi )?enviada\b/,
+  /^orcamento (foi )?enviado\b/,
+  /^fiz (a )?(demo|demonstracao|tour|ligacao)\b/,
+  /^realizei (a )?(demo|demonstracao|tour|ligacao)\b/,
+  /^(demo|demonstracao|tour) (foi )?(realizada|realizado|feito|feita)\b/,
+  /^liguei\b/,
+  /^mandei (mensagem|whatsapp)\b/,
+  /^contato (foi )?(feito|realizado)\b/,
+  /^apresentei\b/,
+]
+
+const BUYER_EVIDENCE_PATTERN =
+  /\b(cliente|comprador|decisor|responsavel)\b.*\b(confirm|valid|aceit|concord|aprov|agend|reconhec)/
+
+export function getSellerActivityOnlyGuidance(value: string): string | null {
+  const text = normalize(value)
+  if (!text) return null
+  if (BUYER_EVIDENCE_PATTERN.test(text)) return null
+
+  if (SELLER_ACTIVITY_PATTERNS.some((pattern) => pattern.test(text))) {
+    return 'Atividade do vendedor não prova avanço. Registre o que o comprador confirmou, validou, aceitou ou combinou como consequência dessa atividade.'
+  }
+
+  return null
+}
+
+export function auditBuyerDecisionConstruction(
+  draft: CommercialMethodConstructionDraft,
+  data: CommercialMethodBuilderData,
+): CommercialMethodConstructionQualityItem[] {
+  const items: CommercialMethodConstructionQualityItem[] = []
+  const decision = draft.buyer_decision
+
+  if (!decision?.confirmed) {
+    items.push({
+      level: 'warning',
+      message: 'A arquitetura da decisão do comprador ainda não foi confirmada.',
+    })
+    return items
+  }
+
+  const profile = getBuyerDecisionProfile(data, decision)
+  const depthLabel = {
+    light: 'leve',
+    moderate: 'moderada',
+    deep: 'profunda',
+  }[profile.depth]
+
+  items.push({
+    level: 'pass',
+    message: `A profundidade sugerida foi calibrada como ${depthLabel} a partir da forma como o cliente decide e da intensidade da operação.`,
+  })
+
+  items.push({
+    level: 'pass',
+    message: 'Decisão de compra e formalização estão registradas como conceitos distintos no diagnóstico da Fase 2.',
+  })
+
+  let activityIssue = false
+  for (const stage of draft.stages) {
+    const values = [...stage.completion_criteria, ...stage.advance_when]
+    const invalid = values.find((value) => getSellerActivityOnlyGuidance(value))
+    if (invalid) {
+      activityIssue = true
+      items.push({
+        level: 'warning',
+        stage_id: stage.id,
+        message: `A etapa “${stage.name}” usa atividade do vendedor como evidência de avanço: “${invalid}”.`,
+      })
+    }
+  }
+
+  if (!activityIssue) {
+    items.push({
+      level: 'pass',
+      message: 'Nenhum critério de conclusão ou avanço depende somente de atividade do vendedor.',
+    })
+  }
+
+  if (
+    profile.formal_buying_process === 'required' &&
+    !draft.stages.some((stage) => stageLooksLike(stage, ['formalização']))
+  ) {
+    items.push({
+      level: 'warning',
+      message: 'O cliente possui processo formal confirmado, mas a estrutura atual não explica como acompanhar a formalização.',
+    })
+  }
+
+  return items
+}
+
+export function getBuyerDecisionBlockingIssues(
+  draft: CommercialMethodConstructionDraft,
+  data: CommercialMethodBuilderData,
+): CommercialMethodValidationIssue[] {
+  const issues: CommercialMethodValidationIssue[] = []
+  const decision = draft.buyer_decision
+
+  if (!decision || !isCommercialBuyerDecisionDraft(decision) || !decision.confirmed) {
+    issues.push({
+      path: 'buyer_decision',
+      code: 'INVALID_VALUE',
+      message: 'Confirme primeiro como seus clientes decidem antes de preparar o método para revisão final.',
+    })
+    return issues
+  }
+
+  for (const message of validateBuyerDecisionDraft(data, decision)) {
+    issues.push({
+      path: 'buyer_decision',
+      code: 'INVALID_VALUE',
+      message,
+    })
+  }
+
+  draft.stages.forEach((stage, stageIndex) => {
+    ;(['completion_criteria', 'advance_when'] as const).forEach((key) => {
+      stage[key].forEach((value, itemIndex) => {
+        const guidance = getSellerActivityOnlyGuidance(value)
+        if (guidance) {
+          issues.push({
+            path: `stages[${stageIndex}].${key}[${itemIndex}]`,
+            code: 'INVALID_VALUE',
+            message: guidance,
+          })
+        }
+      })
+    })
+  })
+
+  return issues
+}
