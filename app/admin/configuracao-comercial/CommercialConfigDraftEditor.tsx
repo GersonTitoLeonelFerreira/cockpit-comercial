@@ -400,6 +400,7 @@ export default function CommercialConfigDraftEditor({
       CommercialConfigDraftInput,
       | 'commercial_method_name'
       | 'commercial_method_description'
+      | 'commercial_method_definition'
       | 'method_steps'
     >,
   ) => {
@@ -886,6 +887,8 @@ export default function CommercialConfigDraftEditor({
               draft.commercial_method_name,
             commercial_method_description:
               draft.commercial_method_description,
+            commercial_method_definition:
+              draft.commercial_method_definition,
             method_steps: draft.method_steps,
           }}
           onChange={updateMethodSection}
