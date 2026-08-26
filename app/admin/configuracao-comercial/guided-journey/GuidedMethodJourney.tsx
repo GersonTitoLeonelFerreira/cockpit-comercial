@@ -176,12 +176,19 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
   // migração de draft antigo (seção 21): se o formulário anterior já
   // respondeu tudo, o primeiro capítulo completo aparece aqui como resumo
   // em vez de repetir perguntas já respondidas.
+  // Só entra em jogo quando não há navegação explícita em andamento
+  // (viewingQuestionId null): se o usuário clicou em "Editar respostas" ou
+  // "Voltar" para revisar uma pergunta de um capítulo já completo, essa
+  // navegação explícita tem prioridade sobre o gate do resumo — caso
+  // contrário "Editar respostas" cairia de volta no próprio resumo.
   let pendingSummaryChapter: string | null = null
-  for (const chapterId of CHAPTER_FLOW) {
-    const progress = getChapterProgress(DIAGNOSIS_QUESTIONS, chapterId, journeyData)
-    if (progress.total > 0 && progress.complete && !confirmedChapters.has(chapterId)) {
-      pendingSummaryChapter = chapterId
-      break
+  if (!viewingQuestionId) {
+    for (const chapterId of CHAPTER_FLOW) {
+      const progress = getChapterProgress(DIAGNOSIS_QUESTIONS, chapterId, journeyData)
+      if (progress.total > 0 && progress.complete && !confirmedChapters.has(chapterId)) {
+        pendingSummaryChapter = chapterId
+        break
+      }
     }
   }
 
