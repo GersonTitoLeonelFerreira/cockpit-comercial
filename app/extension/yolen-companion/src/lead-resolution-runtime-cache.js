@@ -43,7 +43,6 @@
       result?.payload &&
       typeof result.payload === 'object' &&
       result.payload.status &&
-      result.payload.status !== 'NOT_FOUND' &&
       result.payload.status !== 'NO_PHONE_DETECTED',
     )
   }
