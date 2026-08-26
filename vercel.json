@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test --test-name-pattern='^A\\)' app/lib/commercial-config/buyer-decision-architecture.test.mjs && npm run build",
+  "buildCommand": "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test --test-name-pattern='^A' app/lib/commercial-config/buyer-decision-architecture.test.mjs && npm run build",
   "functions": {
     "app/api/queues/companion-deep-analysis/route.ts": {
       "maxDuration": 180,
