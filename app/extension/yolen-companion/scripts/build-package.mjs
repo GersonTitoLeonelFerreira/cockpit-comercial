@@ -74,6 +74,7 @@ export const SHARED_RUNTIME_FILES = [
   'src/companion-lead-summary-view.js',
   'src/companion-seller-information-view.js',
   'src/content-script.js',
+  'src/conversation-isolation-runtime.js',
   'src/conversation-registration-tools.js',
   'src/editable-field-stability-runtime.js',
   'src/lead-automation.css',
