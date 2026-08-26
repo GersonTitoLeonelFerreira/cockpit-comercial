@@ -61,8 +61,8 @@ export type PublishedCommercialMethod = {
   }
 }
 
-const PROMPT_VERSION = 'lead-method-guidance-v3'
-const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v3'
+const PROMPT_VERSION = 'lead-method-guidance-v4-grounded'
+const OUTPUT_CONTRACT_VERSION = 'lead-method-guidance-v4-grounded'
 const MAX_NEXT_STEP_LENGTH = 1400
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -336,14 +336,77 @@ function looksGeneric(nextStep: string): boolean {
   return generic.has(comparable(nextStep))
 }
 
+type GroundedConcept = {
+  label: string
+  output: RegExp
+  evidence: RegExp
+}
+
+const GROUNDED_CONCEPTS: GroundedConcept[] = [
+  {
+    label: 'proposta/orçamento',
+    output: /\b(proposta|orcamento)\w*/,
+    evidence: /\b(proposta|orcamento)\w*/,
+  },
+  {
+    label: 'pagamento/parcelamento',
+    output: /\b(pagament|pagar|parcela|parcelament|cartao|pix|boleto|finance)\w*/,
+    evidence: /\b(pagament|pagar|parcela|parcelament|cartao|pix|boleto|finance)\w*/,
+  },
+  {
+    label: 'compra/fechamento',
+    output: /\b(compra|comprar|adquir|fechar|fechamento|efetivar)\w*/,
+    evidence: /\b(compra|comprar|adquir|fechar|fechamento|efetivar)\w*/,
+  },
+  {
+    label: 'preço/investimento/desconto',
+    output: /\b(preco|valor|investimento|desconto)\w*/,
+    evidence: /\b(preco|valor|investimento|desconto)\w*/,
+  },
+  {
+    label: 'objeção',
+    output: /\b(objecao|resistencia)\w*/,
+    evidence: /\b(objecao|resistencia)\w*/,
+  },
+  {
+    label: 'cancelamento',
+    output: /\b(cancelar|cancelamento|cancelado)\w*/,
+    evidence: /\b(cancelar|cancelamento|cancelado)\w*/,
+  },
+  {
+    label: 'agendamento/reunião/ligação',
+    output: /\b(agendar|marcar|reuniao|ligacao|telefonar)\w*/,
+    evidence: /\b(agendar|marcar|reuniao|ligacao|telefonar)\w*/,
+  },
+]
+
+function findUnsupportedGroundedConcept(
+  output: string,
+  summary: string,
+): string | null {
+  const normalizedOutput = comparable(output)
+  const normalizedSummary = comparable(summary)
+
+  for (const concept of GROUNDED_CONCEPTS) {
+    if (
+      concept.output.test(normalizedOutput) &&
+      !concept.evidence.test(normalizedSummary)
+    ) {
+      return concept.label
+    }
+  }
+
+  return null
+}
+
 function structuredOutputFormat(method: PublishedCommercialMethod) {
   const stageNames = method.stages.map((stage) => stage.name)
 
   return {
     type: 'json_schema',
-    name: 'yolen_lead_method_guidance_v3',
+    name: 'yolen_lead_method_guidance_v4_grounded',
     description:
-      'Aplicação do método comercial publicado ao resumo atual do lead.',
+      'Aplicação estritamente ancorada do método comercial publicado ao resumo atual do lead.',
     strict: true,
     schema: {
       type: 'object',
@@ -369,6 +432,7 @@ type GuidanceAttempt = {
 function parseGuidance(
   content: unknown,
   method: PublishedCommercialMethod,
+  summary: string,
 ): GuidanceAttempt {
   if (typeof content !== 'string') {
     return { guidance: null, failure: 'A IA não retornou orientação pelo método.' }
@@ -410,6 +474,20 @@ function parseGuidance(
 
   if (looksGeneric(nextStep)) {
     return { guidance: null, failure: 'A orientação ficou genérica demais.' }
+  }
+
+  const unsupportedConcept = findUnsupportedGroundedConcept(
+    `${stageReason} ${nextStep}`,
+    summary,
+  )
+
+  if (unsupportedConcept) {
+    return {
+      guidance: null,
+      failure:
+        `A orientação introduziu ${unsupportedConcept} sem evidência no resumo. ` +
+        'Permaneça no problema, pendência ou confirmação realmente descritos.',
+    }
   }
 
   return {
@@ -456,7 +534,14 @@ async function runAttempt({
         'O método publicado é a autoridade. Não invente outro funil e não use a etapa do CRM como substituto.',
         'Quando existirem stages, escolha exatamente uma etapa fornecida.',
         'Campos vazios significam que a empresa não detalhou aquela regra; não complete por suposição.',
-        'O resumo é a fonte de fatos do cliente. O contexto da empresa e regras do vendedor são limites, não fatos do cliente.',
+        'O working_summary é a ÚNICA fonte autorizada de fatos sobre este cliente e esta situação.',
+        'O contexto da empresa e regras do vendedor são limites operacionais, nunca evidência de que algo aconteceu com o cliente.',
+        'A orientação deve resolver ou avançar a pendência factual mais imediata descrita no resumo antes de sugerir um passo comercial posterior.',
+        'Se o resumo diz que falta verificar contrato, cadastro, documento, condição operacional ou outra informação, oriente primeiro essa verificação e o retorno ao cliente.',
+        'NUNCA introduza proposta, orçamento, pagamento, parcelamento, preço, desconto, compra, fechamento, objeção, cancelamento, reunião ou ligação se esse conceito não estiver explicitamente sustentado no working_summary.',
+        'Não presuma intenção de compra a partir de uma dúvida operacional ou de atendimento.',
+        'Não transforme atendimento contratual, suporte ou verificação cadastral em fechamento de venda.',
+        'Quando a estrutura do método trouxer somente nomes de etapas e campos semânticos vazios, não invente o significado detalhado da etapa; use o método apenas como enquadramento e mantenha a ação ancorada no resumo.',
         'Defina uma única ação específica e executável e diga qual informação, confirmação ou resultado o vendedor deve obter.',
         'Não responda apenas com retomar negociação, fazer follow-up, acompanhar ou aguardar retorno.',
         'Não invente fatos, datas, valores, compromissos, objeções ou regras.',
@@ -482,7 +567,7 @@ async function runAttempt({
       structured_output_format: structuredOutputFormat(method),
     })
 
-    return parseGuidance(response.content, method)
+    return parseGuidance(response.content, method, summary)
   } catch {
     return {
       guidance: null,
