@@ -11,13 +11,28 @@
   const BOTTOM_THRESHOLD_PX = 80
   const RESUME_GUARD_MS = 2000
 
-  const innerHtmlDescriptor =
+  const elementInnerHtmlDescriptor =
     typeof Element !== 'undefined'
       ? Object.getOwnPropertyDescriptor(
           Element.prototype,
           'innerHTML',
         )
       : null
+
+  // Outro runtime (editable-field-stability-runtime.js) também substitui
+  // `innerHTML` no mesmo painel. Não importa qual dos dois roda primeiro:
+  // aqui sempre resolvemos o descriptor já instalado na instância (se
+  // algum outro runtime já rodou) antes de cair para o nativo do
+  // Element.prototype, para nunca sobrescrever/descartar uma proteção que
+  // já esteja ativa nesse nó específico.
+  function resolveBaseInnerHtmlDescriptor(targetPanel) {
+    return (
+      Object.getOwnPropertyDescriptor(
+        targetPanel,
+        'innerHTML',
+      ) || elementInnerHtmlDescriptor
+    )
+  }
 
   let panel = null
   let conversationLabel = null
@@ -161,14 +176,14 @@
   }
 
   function applyPanelHtml(targetPanel, html) {
-    if (
-      !targetPanel ||
-      !innerHtmlDescriptor?.set
-    ) {
+    const baseDescriptor =
+      targetPanel?.__yolenPanelStabilityBaseDescriptor
+
+    if (!targetPanel || !baseDescriptor?.set) {
       return
     }
 
-    innerHtmlDescriptor.set.call(
+    baseDescriptor.set.call(
       targetPanel,
       html,
     )
@@ -249,14 +264,21 @@
   function patchPanelInnerHtml(targetPanel) {
     if (
       !targetPanel ||
-      targetPanel.__yolenInnerHtmlGuardInstalled === true ||
-      !innerHtmlDescriptor?.get ||
-      !innerHtmlDescriptor?.set
+      targetPanel.__yolenInnerHtmlGuardInstalled === true
     ) {
       return
     }
 
+    const baseDescriptor =
+      resolveBaseInnerHtmlDescriptor(targetPanel)
+
+    if (!baseDescriptor?.get || !baseDescriptor?.set) {
+      return
+    }
+
     targetPanel.__yolenInnerHtmlGuardInstalled = true
+    targetPanel.__yolenPanelStabilityBaseDescriptor =
+      baseDescriptor
 
     Object.defineProperty(
       targetPanel,
@@ -265,7 +287,7 @@
         configurable: true,
         enumerable: false,
         get() {
-          return innerHtmlDescriptor.get.call(this)
+          return baseDescriptor.get.call(this)
         },
         set(value) {
           const mustPreserveCurrentDom =
@@ -280,7 +302,7 @@
             return
           }
 
-          innerHtmlDescriptor.set.call(
+          baseDescriptor.set.call(
             this,
             value,
           )
@@ -599,12 +621,17 @@
     )
   }
 
+  // Sem `useCapture`: 'focus' não é borbulhante, então um listener na fase
+  // de captura em `root` (window) dispararia para QUALQUER elemento da
+  // página que ganhasse foco (inclusive um campo do próprio painel), não só
+  // quando a aba/janela volta a ficar ativa. Sem capture, só o `focus` cujo
+  // alvo é a própria window chega até aqui — exatamente o sinal de "voltou
+  // pra aba" que o resume guard precisa.
   root.addEventListener(
     'focus',
     () => {
       beginResumeGuard()
     },
-    true,
   )
 
   root.addEventListener(
