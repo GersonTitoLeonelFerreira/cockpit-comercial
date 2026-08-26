@@ -9,6 +9,9 @@ import {
 import {
   parseCommercialMethodConstructionDraft,
 } from '@/app/lib/commercial-config/assisted-method-construction'
+import {
+  isCommercialBuyerDecisionDraft,
+} from '@/app/lib/commercial-config/buyer-decision-architecture'
 import { requireCommercialConfigAdmin } from '@/app/lib/server/require-commercial-config-admin'
 
 export const dynamic = 'force-dynamic'
@@ -103,6 +106,16 @@ export async function PUT(request: Request) {
   if (!construction) {
     return NextResponse.json(
       { ok: false, error: 'O rascunho estruturado do método é inválido.' },
+      { status: 400 },
+    )
+  }
+
+  if (
+    construction.buyer_decision !== undefined &&
+    !isCommercialBuyerDecisionDraft(construction.buyer_decision)
+  ) {
+    return NextResponse.json(
+      { ok: false, error: 'A arquitetura da decisão do comprador é inválida.' },
       { status: 400 },
     )
   }
