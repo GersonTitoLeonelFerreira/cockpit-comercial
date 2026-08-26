@@ -1,0 +1,73 @@
+name: Onda 7 Frente 1B executor
+
+on:
+  push:
+    branches:
+      - claude/onda7-frente1b-conversation-isolation
+
+permissions:
+  contents: write
+
+jobs:
+  execute:
+    if: github.event.head_commit.message != 'Corrige isolamento de conversa no Companion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply scoped patch
+        run: node scripts/onda7-frente1b-apply.mjs
+
+      - name: Syntax checks
+        run: |
+          node --check app/extension/yolen-companion/src/content-script.js
+          node --check app/extension/yolen-companion/src/lead-automation.js
+          node --check app/extension/yolen-companion/tests/e3-test-support/load-content-script.mjs
+          node --check app/extension/yolen-companion/tests/e3-dom/content-script-dom-conversation-isolation.test.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Directed conversation isolation tests
+        run: node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/content-script-dom-conversation-isolation.test.mjs
+
+      - name: Full E3 DOM suite
+        run: node --test --test-force-exit app/extension/yolen-companion/tests/e3-dom/*.test.mjs
+
+      - name: Companion suite
+        run: npm run test:companion
+
+      - name: Chrome and Firefox package build
+        run: node app/extension/yolen-companion/scripts/build-package.mjs
+
+      - name: Verify scoped diff
+        run: |
+          git status --short
+          git diff --check
+          git diff --name-only | sort
+
+      - name: Commit validated implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/onda7-frente1b-executor.yml
+          git rm scripts/onda7-frente1b-apply.mjs
+          git add app/extension/yolen-companion/src/content-script.js
+          git add app/extension/yolen-companion/src/lead-automation.js
+          git add app/extension/yolen-companion/tests/e3-test-support/load-content-script.mjs
+          git add app/extension/yolen-companion/tests/e3-dom/content-script-dom-conversation-isolation.test.mjs
+          git status --short
+          git commit -m "Corrige isolamento de conversa no Companion"
+          git push origin HEAD:${{ github.ref_name }}
