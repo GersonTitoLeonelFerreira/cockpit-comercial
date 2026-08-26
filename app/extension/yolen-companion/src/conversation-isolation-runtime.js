@@ -22,6 +22,18 @@
     return String(value || '').replace(/\D/g, '')
   }
 
+  function looksLikePhone(value) {
+    const text = cleanText(value)
+    const digits = onlyDigits(text)
+
+    return Boolean(
+      text &&
+      digits.length >= 10 &&
+      digits.length <= 13 &&
+      text.replace(/[\d\s()+.-]/g, '').length === 0,
+    )
+  }
+
   function getMainHeader() {
     return document.querySelector('#main > header')
   }
@@ -50,43 +62,73 @@
     return cleanText(header.textContent)
   }
 
-  function getSelectedChatStableId() {
-    const selected = document.querySelector(
+  function getSelectedChatElement() {
+    return document.querySelector(
       CHAT_ROW_SELECTOR,
     )
+  }
+
+  function getSelectedChatStrongIdentity() {
+    const selected = getSelectedChatElement()
 
     if (!selected) {
       return ''
     }
 
-    const directCandidates = [
+    const directDataId = cleanText(
       selected.getAttribute('data-id'),
-      selected.getAttribute('data-testid'),
-      selected.getAttribute('id'),
-      selected.getAttribute('aria-label'),
-    ]
+    )
+    const nestedDataId = cleanText(
+      selected
+        .querySelector('[data-id]')
+        ?.getAttribute('data-id'),
+    )
+    const dataId =
+      directDataId || nestedDataId
 
-    for (const value of directCandidates) {
-      const normalized = cleanText(value)
-
-      if (normalized) {
-        return normalized
-      }
+    if (dataId) {
+      return `data:${dataId}`
     }
 
-    const nested = selected.querySelector(
-      '[data-id], [title], [aria-label]',
+    const avatarSource = cleanText(
+      selected
+        .querySelector('img[src]')
+        ?.getAttribute('src'),
     )
 
-    if (!nested) {
+    if (avatarSource) {
+      return `avatar:${avatarSource}`
+    }
+
+    return ''
+  }
+
+  function getSelectedChatTitle() {
+    const selected = getSelectedChatElement()
+
+    if (!selected) {
       return ''
     }
 
-    return cleanText(
-      nested.getAttribute('data-id') ||
-      nested.getAttribute('title') ||
-      nested.getAttribute('aria-label'),
-    )
+    for (const node of selected.querySelectorAll('[title]')) {
+      const title = cleanText(
+        node.getAttribute('title'),
+      )
+
+      if (title) {
+        return title
+      }
+    }
+
+    for (const node of selected.querySelectorAll('[dir="auto"]')) {
+      const text = cleanText(node.textContent)
+
+      if (text) {
+        return text
+      }
+    }
+
+    return ''
   }
 
   function getConversationKeyFromDom() {
@@ -96,11 +138,32 @@
       return null
     }
 
-    const selectedId =
-      getSelectedChatStableId()
+    const strongIdentity =
+      getSelectedChatStrongIdentity()
 
-    return selectedId
-      ? `selected:${selectedId}::header:${title}`
+    // Quando o WhatsApp oferece data-id/JID (ou, como segunda opção,
+    // avatar da linha selecionada), essa identidade estrutural é
+    // authoritative. Não concatenamos o nome visível: mudanças cosméticas
+    // do header/sidebar não podem criar um falso boundary e contatos
+    // homônimos continuam separados pelo identificador forte.
+    if (strongIdentity) {
+      return `selected:${strongIdentity}`
+    }
+
+    // Número não salvo é uma identidade melhor que texto arbitrário do
+    // header e não depende da formatação visual do WhatsApp.
+    if (looksLikePhone(title)) {
+      return `phone:${onlyDigits(title)}`
+    }
+
+    const selectedTitle =
+      getSelectedChatTitle()
+
+    // Fallback deliberado para versões do WhatsApp que não exponham
+    // data-id/avatar. Não promovemos data-testid/aria-label genéricos a
+    // identidade porque esses atributos podem ser iguais em várias linhas.
+    return selectedTitle
+      ? `title:${selectedTitle}::header:${title}`
       : `header:${title}`
   }
 
@@ -337,6 +400,7 @@
         'aria-selected',
         'data-selected',
         'data-id',
+        'src',
       ],
     })
 
