@@ -13,6 +13,12 @@ export type SellerMessageGuidance = {
   next_step: string | null
 }
 
+export type SellerMessageCurrentInteraction = {
+  direction: 'incoming' | 'outgoing'
+  occurred_at: string | null
+  text: string
+}
+
 export type SellerMessageGenerationResult =
   | {
       status: 'ready'
@@ -60,14 +66,65 @@ function clean(value: unknown): string | null {
   return normalized || null
 }
 
+function normalizeCurrentInteraction(
+  value: readonly SellerMessageCurrentInteraction[],
+) {
+  return value
+    .map((message) => ({
+      direction: message.direction,
+      occurred_at: message.occurred_at,
+      text: clean(message.text),
+    }))
+    .filter(
+      (
+        message,
+      ): message is SellerMessageCurrentInteraction =>
+        Boolean(message.text),
+    )
+}
+
+function normalizeForGrounding(value: string) {
+  return value
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+}
+
+function getProtectedFacts(value: string) {
+  return value.match(
+    /R\$\s*\d[\d.,]*|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b\d{1,2}h(?:\d{2})?\b/giu,
+  ) ?? []
+}
+
+function hasUnsupportedProtectedFact({
+  message,
+  allowedContext,
+}: {
+  message: string
+  allowedContext: string
+}) {
+  const normalizedContext =
+    normalizeForGrounding(allowedContext)
+
+  return getProtectedFacts(message).some(
+    (fact) =>
+      !normalizedContext.includes(
+        normalizeForGrounding(fact),
+      ),
+  )
+}
+
 export async function composeSellerMessage({
   workingSummary,
+  currentInteraction = [],
   sellerIntent,
   method,
   guidance,
   provider,
 }: {
   workingSummary: string | null
+  currentInteraction?: readonly SellerMessageCurrentInteraction[]
   sellerIntent: string | null
   method: PublishedCommercialMethod
   guidance: SellerMessageGuidance | null
@@ -75,6 +132,10 @@ export async function composeSellerMessage({
 }): Promise<SellerMessageGenerationResult> {
   const summary = clean(workingSummary)
   const intent = clean(sellerIntent)
+  const interaction =
+    normalizeCurrentInteraction(
+      currentInteraction,
+    )
 
   if (!summary) {
     return {
@@ -102,7 +163,8 @@ export async function composeSellerMessage({
       system_prompt: [
         'Você escreve uma mensagem de WhatsApp para o vendedor da Yolen, mas somente porque o vendedor informou explicitamente o que quer fazer agora.',
         'A intenção do vendedor é a ação principal a executar. A orientação da Yolen é recomendação e contexto, não uma ordem que bloqueia o vendedor.',
-        'Use o resumo como única fonte de fatos sobre o relacionamento e o cliente.',
+        'Use o resumo e a interação canônica atual como únicas fontes de fatos sobre o relacionamento e o cliente.',
+        'A intenção do vendedor autoriza a ação pedida e os detalhes operacionais que ele escreveu, mas não prova fatos anteriores sobre o cliente.',
         'Use o método comercial publicado e as regras do vendedor como limites de condução.',
         'Se não houver orientação comercial ativa, não transforme automaticamente uma conversa pessoal, administrativa ou operacional em venda.',
         'Não invente preço, desconto, prazo, compromisso, disponibilidade, objeção, necessidade, nome de produto, condição comercial ou qualquer fato que não esteja no resumo.',
@@ -114,6 +176,7 @@ export async function composeSellerMessage({
       user_prompt: JSON.stringify({
         seller_intent: intent,
         working_summary: summary,
+        current_interaction: interaction,
         yolen_guidance:
           guidance
             ? {
@@ -160,6 +223,28 @@ export async function composeSellerMessage({
         message: null,
         error:
           'A mensagem ficou longa demais. Ajuste sua intenção e tente novamente.',
+      }
+    }
+
+    const allowedContext = [
+      summary,
+      intent,
+      ...interaction.map(
+        (entry) => entry.text,
+      ),
+    ].join('\n')
+
+    if (
+      hasUnsupportedProtectedFact({
+        message,
+        allowedContext,
+      })
+    ) {
+      return {
+        status: 'error',
+        message: null,
+        error:
+          'A mensagem trouxe um valor, percentual, data ou horário sem base no contexto. Ajuste sua intenção e tente novamente.',
       }
     }
 

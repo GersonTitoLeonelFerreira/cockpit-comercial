@@ -5048,6 +5048,10 @@
         error_message: null,
       },
     })
+
+    if (alreadyRegistered) {
+      await loadCompanionLeadSummaryForCurrentCycle()
+    }
   }
 
   function canConfirmConversationRegistration() {
@@ -5157,6 +5161,12 @@
         error_message: null,
       },
     })
+
+    // O registro confirmado passa a ser uma fonte histórica do working
+    // summary. O wrapper de cache já invalidou o snapshot anterior; esta
+    // nova leitura faz a UI refletir o marco salvo imediatamente, inclusive
+    // quando antes ela exibia o estado vazio.
+    await loadCompanionLeadSummaryForCurrentCycle()
   }
 
   function cancelCurrentConversationRegistration() {
@@ -9369,6 +9379,11 @@
             force: true,
           },
         )
+
+        // A captura canônica confirmada pode alterar o working summary.
+        // O cache é invalidado no wrapper de ingestão e este refresh
+        // debounced evita manter na tela um resumo anterior ao novo lote.
+        void loadCompanionLeadSummaryForCurrentCycle()
       }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
   }
 
@@ -9523,12 +9538,10 @@
     }
   }
 
-  // Etapa 1 da reconstrução controlada do Companion: busca o resumo
-  // persistente do lead (public.companion_lead_conversation_summaries),
-  // nunca gera nem salva nada automaticamente — só busca o que já existe.
-  // Mesmo formato de carregamento/estado de loadCompanionClientContextForCurrentCycle,
-  // mas sem ticker/refresh por captura: o resumo só muda por ação explícita
-  // do vendedor (ver handleSaveLeadSummaryClick).
+  // Carrega o working summary factual do lead. A rota combina memória
+  // persistente, registros históricos confirmados e mensagens canônicas;
+  // somente o salvamento da memória consolidada continua dependendo de ação
+  // explícita do vendedor (ver handleSaveLeadSummaryClick).
   // TEMP-DIAG-LEAD-SUMMARY — instrumentação temporária para diagnosticar
   // falhas do resumo persistente do lead (Etapa 1) sem depender de
   // DevTools do vendedor: registra só o estágio e o código/status interno
@@ -9715,11 +9728,31 @@
         return
       }
 
+      const previousSummaryData =
+        state.companionLeadSummary?.data || {}
+      const persistedSummary =
+        result.payload.data.summary || null
+
       state = {
         ...state,
         companionLeadSummary: {
           status: 'ready',
-          data: result.payload.data,
+          data: {
+            ...previousSummaryData,
+            ...result.payload.data,
+            working_summary:
+              persistedSummary?.summary ||
+              previousSummaryData.working_summary ||
+              null,
+            working_summary_source: 'canonical',
+            has_unsaved_changes: false,
+            current_message_watermark:
+              persistedSummary
+                ?.last_message_watermark ??
+              previousSummaryData
+                .current_message_watermark ??
+              null,
+          },
         },
         companionLeadSummarySaveStatus: null,
         companionLeadSummarySaveError: null,

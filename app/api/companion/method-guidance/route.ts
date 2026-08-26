@@ -393,8 +393,21 @@ export async function POST(request: Request) {
     })
 
     if (operation === 'generate_message') {
+      const canonicalMessages =
+        await loadCanonicalMessages({
+          admin,
+          companyId: identity.company_id,
+          cycleId: identity.cycle_id,
+          conversationKey:
+            identity.conversation_key,
+        })
+
       const generation = await composeSellerMessage({
         workingSummary: workingSummary || null,
+        currentInteraction:
+          buildCurrentInteraction(
+            canonicalMessages,
+          ),
         sellerIntent,
         method,
         guidance: buildClientGuidance(

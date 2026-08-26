@@ -15,6 +15,10 @@ function createHarness() {
   let visibleText = 'Mensagem inicial'
   let loadCount = 0
   let saveCount = 0
+  let confirmCount = 0
+  let captureCount = 0
+  let methodClearCount = 0
+  let sellerClearCount = 0
 
   const messageNode = {
     textContent: visibleText,
@@ -67,10 +71,52 @@ function createHarness() {
         },
       }
     },
+    async previewConversationRegistration() {
+      return {
+        ok: true,
+        payload: {
+          ok: true,
+          data: {
+            already_registered: true,
+          },
+        },
+      }
+    },
+    async confirmConversationRegistration() {
+      confirmCount += 1
+      return {
+        ok: true,
+        payload: {
+          ok: true,
+          data: {
+            registration_id: 'registration-1',
+          },
+        },
+      }
+    },
+    async ingestCapturedMessages() {
+      captureCount += 1
+      return {
+        ok: true,
+        payload: {
+          ok: true,
+        },
+      }
+    },
   }
 
   const sandbox = {
     YolenCompanionApi: api,
+    YolenCompanionLeadMethodGuidanceRuntime: {
+      clear() {
+        methodClearCount += 1
+      },
+    },
+    YolenCompanionSellerMessageRuntime: {
+      clear() {
+        sellerClearCount += 1
+      },
+    },
     document: {
       querySelector(selector) {
         return selector === '#main' ? main : null
@@ -99,6 +145,18 @@ function createHarness() {
     },
     get saveCount() {
       return saveCount
+    },
+    get confirmCount() {
+      return confirmCount
+    },
+    get captureCount() {
+      return captureCount
+    },
+    get methodClearCount() {
+      return methodClearCount
+    },
+    get sellerClearCount() {
+      return sellerClearCount
     },
   }
 }
@@ -162,4 +220,52 @@ test('salvar substitui o cache pelo resumo confirmado sem recompor', async () =>
     reopened.payload.data.summary.summary,
     'Resumo confirmado pelo vendedor',
   )
+  assert.equal(harness.methodClearCount, 1)
+  assert.equal(harness.sellerClearCount, 0)
+})
+
+test('registro confirmado invalida resumo e caches derivados', async () => {
+  const harness = createHarness()
+
+  await harness.api.loadLeadSummary(payload)
+  await harness.api.confirmConversationRegistration(payload)
+  const refreshed = await harness.api.loadLeadSummary(payload)
+
+  assert.equal(harness.confirmCount, 1)
+  assert.equal(harness.loadCount, 2)
+  assert.equal(
+    refreshed.payload.data.working_summary,
+    'Resumo 2',
+  )
+  assert.equal(harness.methodClearCount, 1)
+  assert.equal(harness.sellerClearCount, 1)
+})
+
+test('registro já existente recuperado no preview também invalida cache', async () => {
+  const harness = createHarness()
+
+  await harness.api.loadLeadSummary(payload)
+  await harness.api.previewConversationRegistration(payload)
+  await harness.api.loadLeadSummary(payload)
+
+  assert.equal(harness.loadCount, 2)
+  assert.equal(harness.methodClearCount, 1)
+  assert.equal(harness.sellerClearCount, 1)
+})
+
+test('captura confirmada invalida resumo stale mesmo sem mudança no DOM', async () => {
+  const harness = createHarness()
+
+  await harness.api.loadLeadSummary(payload)
+  await harness.api.ingestCapturedMessages(payload)
+  const refreshed = await harness.api.loadLeadSummary(payload)
+
+  assert.equal(harness.captureCount, 1)
+  assert.equal(harness.loadCount, 2)
+  assert.equal(
+    refreshed.payload.data.working_summary,
+    'Resumo 2',
+  )
+  assert.equal(harness.methodClearCount, 1)
+  assert.equal(harness.sellerClearCount, 1)
 })
