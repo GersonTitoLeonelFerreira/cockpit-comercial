@@ -136,6 +136,17 @@
 
   let panelCollapsed = false
   let activeSellerArea = 'now'
+
+  // Rendering por região: renderPanel() costumava fazer panel.innerHTML =
+  // <painel inteiro> a cada mudança de estado (ver histórico em
+  // renderPanelRegion() abaixo). panelRegionHtmlCache guarda o último HTML
+  // efetivamente aplicado em cada região (chave = nome da região); só
+  // regravamos o DOM de uma região quando o HTML calculado agora é
+  // diferente do que já está lá. panelRegionPendingHtml guarda, por
+  // região, um HTML que já mudou mas ainda não pôde ser aplicado porque o
+  // vendedor está interagindo com aquela região especificamente.
+  const panelRegionHtmlCache = new Map()
+  const panelRegionPendingHtml = new Map()
   let lastAcknowledgedCollapsedAttentionKey = null
   let lastRenderedDeepAnalysisResultKey = null
   let sessionRefreshTimerId = 0
@@ -330,11 +341,12 @@
     return panel
   }
 
-  // renderPanel() substitui panel.innerHTML por completo a cada mudança de
-  // estado (sessão, ingestão, ticks periódicos...). Sem isto, qualquer
-  // <details> aberto pelo vendedor (grupos do CLIENTE, "ver mais contexto")
-  // fecharia sozinho e a posição de leitura dentro do painel voltaria ao
-  // topo a cada atualização em segundo plano.
+  // renderPanel() troca o innerHTML de uma região específica (ver
+  // renderPanelRegion() logo abaixo) sempre que precisa recalcular seu
+  // conteúdo. getOpenDetailsPreservationKeys()/restoreOpenDetails() rodam
+  // ao redor dessa troca pontual para que um <details> aberto pelo
+  // vendedor (grupos do CLIENTE, "ver mais contexto") dentro da região
+  // trocada não feche sozinho.
   function getDetailsPreservationKey(details) {
     return (
       details.getAttribute(
@@ -382,6 +394,283 @@
         }
       })
   }
+
+  const EDITABLE_FIELD_SELECTOR = [
+    'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([readonly]):not([disabled])',
+    'textarea:not([readonly]):not([disabled])',
+    'select:not([disabled])',
+    '[contenteditable="true"]',
+  ].join(',')
+
+  const REGION_ACTION_SELECTOR = [
+    'button',
+    '[role="button"]',
+    'a[href]',
+    'input[type="button"]',
+    'input[type="submit"]',
+  ].join(',')
+
+  function isRegionInteractionActive(container) {
+    if (!container) {
+      return false
+    }
+
+    if (
+      container.dataset
+        .yolenRegionActionLock === 'true'
+    ) {
+      return true
+    }
+
+    const active = document.activeElement
+
+    return Boolean(
+      active &&
+      container.contains(active) &&
+      active.closest?.(
+        EDITABLE_FIELD_SELECTOR,
+      ),
+    )
+  }
+
+  function getPanelRegionContainer(
+    panel,
+    regionKey,
+  ) {
+    let container = panel.querySelector(
+      `[data-yolen-region="${regionKey}"]`,
+    )
+
+    if (!container) {
+      container =
+        document.createElement('div')
+      container.className =
+        `yolen-region yolen-region-${regionKey}`
+      container.setAttribute(
+        'data-yolen-region',
+        regionKey,
+      )
+      panel.appendChild(container)
+    }
+
+    return container
+  }
+
+  function applyPanelRegionHtml(
+    container,
+    regionKey,
+    html,
+  ) {
+    panelRegionHtmlCache.set(
+      regionKey,
+      html,
+    )
+    panelRegionPendingHtml.delete(
+      regionKey,
+    )
+
+    const openDetailsKeys =
+      getOpenDetailsPreservationKeys(
+        container,
+      )
+
+    container.innerHTML = html
+
+    restoreOpenDetails(
+      container,
+      openDetailsKeys,
+    )
+  }
+
+  // Núcleo da estabilidade visual do painel (Onda 7): cada card/região do
+  // Companion (Conversa/Cliente, cadastro de lead, resumo, abas
+  // Agora/Análise/Cliente, rodapé...) é um container que existe uma única
+  // vez; renderPanel() só troca o innerHTML de UMA região quando o HTML
+  // calculado para ela realmente mudou — nunca o painel inteiro. Uma
+  // atualização em segundo plano que só afeta uma região (ex.: chegou um
+  // resumo novo) não toca em nenhum outro card, então nenhuma trava
+  // protege as regiões que não mudaram — elas simplesmente não são
+  // tocadas. Quando a própria região que mudou está sendo usada pelo
+  // vendedor agora (campo com foco, botão entre pointerdown e click), a
+  // troca fica retida em panelRegionPendingHtml e só é aplicada quando a
+  // interação termina (flushPendingPanelRegions()).
+  function renderPanelRegion(
+    panel,
+    regionKey,
+    html,
+  ) {
+    const container =
+      getPanelRegionContainer(
+        panel,
+        regionKey,
+      )
+
+    if (
+      panelRegionHtmlCache.get(
+        regionKey,
+      ) === html
+    ) {
+      panelRegionPendingHtml.delete(
+        regionKey,
+      )
+      return container
+    }
+
+    if (
+      isRegionInteractionActive(
+        container,
+      )
+    ) {
+      panelRegionPendingHtml.set(
+        regionKey,
+        html,
+      )
+      return container
+    }
+
+    applyPanelRegionHtml(
+      container,
+      regionKey,
+      html,
+    )
+
+    return container
+  }
+
+  function flushPendingPanelRegions() {
+    if (
+      panelRegionPendingHtml.size === 0
+    ) {
+      return
+    }
+
+    const panel =
+      document.getElementById(PANEL_ID)
+
+    if (!panel) {
+      return
+    }
+
+    for (const [
+      regionKey,
+      html,
+    ] of panelRegionPendingHtml) {
+      const container =
+        panel.querySelector(
+          `[data-yolen-region="${regionKey}"]`,
+        )
+
+      if (
+        !container ||
+        isRegionInteractionActive(
+          container,
+        )
+      ) {
+        continue
+      }
+
+      applyPanelRegionHtml(
+        container,
+        regionKey,
+        html,
+      )
+    }
+
+    wirePanelInteractions(panel)
+  }
+
+  // Trava mínima contra o botão "desclicar" — a versão por região do
+  // mecanismo já usado em panel-stability-runtime.js/
+  // editable-field-stability-runtime.js para o painel inteiro. Aqui só
+  // precisa proteger a própria região entre pointerdown e click: se uma
+  // atualização em segundo plano tentar substituir o conteúdo dessa
+  // região nesse intervalo, renderPanelRegion() vê o lock e adia.
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      const region =
+        event.target?.closest?.(
+          '[data-yolen-region]',
+        )
+      const action =
+        event.target?.closest?.(
+          REGION_ACTION_SELECTOR,
+        )
+
+      if (
+        region &&
+        action &&
+        region.contains(action)
+      ) {
+        region.dataset.yolenRegionActionLock =
+          'true'
+      }
+    },
+    true,
+  )
+
+  document.addEventListener(
+    'click',
+    (event) => {
+      const region =
+        event.target?.closest?.(
+          '[data-yolen-region]',
+        )
+
+      if (
+        !region ||
+        region.dataset
+          .yolenRegionActionLock !==
+          'true'
+      ) {
+        return
+      }
+
+      // Roda depois do handler de click real do botão (já disparado nesse
+      // mesmo evento): qualquer render pendente ficou retido em
+      // panelRegionPendingHtml e só é aplicado agora que o clique já
+      // concluiu.
+      queueMicrotask(() => {
+        delete region.dataset
+          .yolenRegionActionLock
+        flushPendingPanelRegions()
+      })
+    },
+    true,
+  )
+
+  for (const eventName of [
+    'pointercancel',
+    'dragstart',
+  ]) {
+    document.addEventListener(
+      eventName,
+      () => {
+        document
+          .querySelectorAll(
+            '[data-yolen-region-action-lock="true"]',
+          )
+          .forEach((region) => {
+            delete region.dataset
+              .yolenRegionActionLock
+          })
+
+        flushPendingPanelRegions()
+      },
+      true,
+    )
+  }
+
+  document.addEventListener(
+    'focusout',
+    () => {
+      window.setTimeout(
+        flushPendingPanelRegions,
+        0,
+      )
+    },
+    true,
+  )
 
   function decodeBase64Url(value) {
     const base64 = value.replaceAll('-', '+').replaceAll('_', '/')
@@ -4466,6 +4755,23 @@
     clearCompanionClientContextRefreshTimer()
     activeSellerArea = 'now'
 
+    // Mudança REAL de conversa: diferente de uma atualização de estado em
+    // segundo plano (que só troca o conteúdo interno de uma região), aqui
+    // o vendedor trocou de contato de verdade — nenhum rascunho ou
+    // posição de leitura do lead anterior pode vazar para o novo. Limpa o
+    // cache de regiões (força todas a recalcular no próximo renderPanel())
+    // e qualquer render que tivesse ficado retido esperando uma interação
+    // do lead anterior, e volta o scroll ao topo.
+    panelRegionHtmlCache.clear()
+    panelRegionPendingHtml.clear()
+
+    const panel =
+      document.getElementById(PANEL_ID)
+
+    if (panel) {
+      panel.scrollTop = 0
+    }
+
     lastSelectedChatActivitySnapshot =
       getSelectedChatActivitySnapshot()
 
@@ -4852,6 +5158,25 @@
     }
 
     if (resolution.status === 'NOT_FOUND') {
+      // O formulário de criação de lead (Nome/WhatsApp/E-mail/CPF-CNPJ)
+      // é montado aqui, na MESMA passada de renderPanel() que decide o
+      // resto da região "Conversa" — não por um MutationObserver
+      // separado substituindo esse trecho depois. Antes, lead-automation.js
+      // observava o painel e trocava este botão por um formulário assim
+      // que ele aparecia no DOM; quando uma atualização em segundo plano
+      // (mais frequente com "Dados do contato" aberto) chegava nesse
+      // meio-tempo, o botão simples podia reaparecer entre o pointerdown e
+      // o click do vendedor, e o primeiro clique se perdia. Com uma única
+      // fonte de verdade por região, isso não pode mais acontecer.
+      const formHtml =
+        window.YolenCompanionLeadAutomation
+          ?.buildCreateLeadFormHtml
+          ?.()
+
+      if (formHtml) {
+        return formHtml
+      }
+
       return `
         <button class="yolen-secondary-button" type="button" data-yolen-action="create-lead-yolen">
           Criar lead na Yolen
@@ -11462,95 +11787,8 @@
     renderPanel()
   }
 
-  function renderPanel() {
-    const panel = createPanel()
-
-    const previousPanelScrollTop =
-      panel.scrollTop
-
-    const previouslyOpenDetailsKeys =
-      getOpenDetailsPreservationKeys(
-        panel,
-      )
-
-    const collapsed =
-      panelCollapsed === true
-
-    document
-      .documentElement
-      .classList
-      .toggle(
-        'yolen-companion-collapsed',
-        collapsed,
-      )
-
-    panel.classList.toggle(
-      'yolen-panel-collapsed',
-      collapsed,
-    )
-
-    if (collapsed) {
-      const attention =
-        getUnacknowledgedCollapsedAttention()
-
-      const attentionLevel =
-        attention?.level || 'normal'
-
-      const collapsedLabel =
-        attention
-          ? `Abrir Yolen Companion — ${attention.label}`
-          : 'Abrir Yolen Companion'
-
-      panel.innerHTML = [
-        '<div class="yolen-collapsed-shell">',
-
-          '<button',
-            ' class="yolen-collapsed-logo-button ' +
-              `yolen-collapsed-attention-${attentionLevel}"`,
-            ' type="button"',
-            ' data-yolen-action="expand-companion"',
-            ' data-yolen-attention-level="' +
-              escapeHtml(attentionLevel) +
-            '"',
-            ' title="' +
-              escapeHtml(collapsedLabel) +
-            '"',
-            ' aria-label="' +
-              escapeHtml(collapsedLabel) +
-            '"',
-          '>',
-
-            getYolenMarkHtml(),
-
-            attention
-              ? [
-                  '<span',
-                    ' class="yolen-collapsed-attention-dot"',
-                    ' aria-hidden="true"',
-                  '></span>',
-                ].join('')
-              : '',
-
-          '</button>',
-
-        '</div>',
-      ].join('')
-
-      panel
-        .querySelector(
-          '[data-yolen-action="expand-companion"]',
-        )
-        ?.addEventListener(
-          'click',
-          () => {
-            setPanelCollapsed(false)
-          },
-        )
-
-      return
-    }
-
-    panel.innerHTML = [
+  function getPanelHeaderHtml() {
+    return [
       '<div class="yolen-panel-header yolen-panel-header-final">',
 
         '<div class="yolen-brand">',
@@ -11623,7 +11861,11 @@
         '</div>',
 
       '</div>',
+    ].join('')
+  }
 
+  function getContactCardHtml() {
+    return [
       '<div class="yolen-card yolen-contact-card ' +
         getLeadStatusClass() +
       '">',
@@ -11651,83 +11893,108 @@
         '</div>',
 
       '</div>',
-
-      getConversationRegistrationCardHtml(),
-
-      getLeadEnrichmentCandidatesHtml(),
-
-      getPreSendAssessmentCardHtml(),
-
-      getCompanionLeadSummaryCardHtml(),
-
-      getSellerInformationArchitectureHtml(),
-
-      getCompactFooterHtml(),
-
     ].join('')
+  }
 
+  // wireOnce() é o que torna seguro rodar wirePanelInteractions() depois
+  // de toda renderPanel(), mesmo quando a maioria das regiões não mudou
+  // (e portanto os mesmos nodes de botão sobrevivem de uma chamada para a
+  // outra): sem a marca de "já ligado", reanexar um listener idêntico a
+  // um node que persiste faria o handler disparar mais de uma vez por
+  // clique.
+  function wireOnce(
+    element,
+    eventType,
+    handler,
+  ) {
+    if (!element) {
+      return
+    }
+
+    element.__yolenWiredEvents =
+      element.__yolenWiredEvents ||
+      new Set()
+
+    if (
+      element.__yolenWiredEvents.has(
+        eventType,
+      )
+    ) {
+      return
+    }
+
+    element.__yolenWiredEvents.add(
+      eventType,
+    )
+
+    element.addEventListener(
+      eventType,
+      handler,
+    )
+  }
+
+  function wirePanelInteractions(panel) {
     panel
       .querySelectorAll(
         '[data-yolen-seller-area]',
       )
       .forEach((button) => {
-        button.addEventListener(
-          'click',
-          () => {
-            setActiveSellerArea(
-              button.getAttribute(
-                'data-yolen-seller-area',
-              ),
-              { focus: true },
-            )
-          },
-        )
+        wireOnce(button, 'click', () => {
+          setActiveSellerArea(
+            button.getAttribute(
+              'data-yolen-seller-area',
+            ),
+            { focus: true },
+          )
+        })
 
-        button.addEventListener(
+        wireOnce(
+          button,
           'keydown',
           handleSellerAreaKeyboard,
         )
       })
 
-    panel.querySelectorAll('[data-yolen-action="refresh"]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const currentKey = state.conversationKey
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="refresh"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          const currentKey = state.conversationKey
 
-        if (currentKey) {
-          autoLookupAttemptedKeys.delete(currentKey)
-          cachedPhonesByConversationKey.delete(currentKey)
-        }
+          if (currentKey) {
+            autoLookupAttemptedKeys.delete(currentKey)
+            cachedPhonesByConversationKey.delete(currentKey)
+          }
 
-        lastResolvedConversationKey = null
-        refreshConversationSnapshot()
-        loadYolenSession({ showLoading: true })
+          lastResolvedConversationKey = null
+          refreshConversationSnapshot()
+          loadYolenSession({ showLoading: true })
 
-        if (!state.isSelfConversation) {
-          resolveCurrentLead()
-        }
+          if (!state.isSelfConversation) {
+            resolveCurrentLead()
+          }
+        })
       })
-    })
 
     panel
       .querySelectorAll(
         '[data-yolen-action="confirm-lead-enrichment"]',
       )
       .forEach((button) => {
-        button.addEventListener(
-          'click',
-          () => {
-            const candidateKey =
-              button.getAttribute(
-                'data-yolen-enrichment-key',
-              )
+        wireOnce(button, 'click', () => {
+          const candidateKey =
+            button.getAttribute(
+              'data-yolen-enrichment-key',
+            )
 
-            if (candidateKey) {
-              void applyLeadEnrichmentCandidate(
-                candidateKey,
-              )
-            }
-          },
-        )
+          if (candidateKey) {
+            void applyLeadEnrichmentCandidate(
+              candidateKey,
+            )
+          }
+        })
       })
 
     panel
@@ -11735,102 +12002,316 @@
         '[data-yolen-action="ignore-lead-enrichment"]',
       )
       .forEach((button) => {
-        button.addEventListener(
-          'click',
-          () => {
-            const candidateKey =
-              button.getAttribute(
-                'data-yolen-enrichment-key',
-              )
+        wireOnce(button, 'click', () => {
+          const candidateKey =
+            button.getAttribute(
+              'data-yolen-enrichment-key',
+            )
 
-            if (candidateKey) {
-              ignoreLeadEnrichmentCandidate(
-                candidateKey,
-              )
-            }
-          },
-        )
-      })
-
-    panel.querySelectorAll('[data-yolen-action="collapse-companion"]').forEach((button) => {
-      button.addEventListener('click', () => {
-        setPanelCollapsed(true)
-      })
-    })
-
-    panel.querySelector('[data-yolen-action="open-yolen"]')?.addEventListener('click', () => {
-      openYolen('/leads')
-    })
-
-    panel.querySelector('[data-yolen-action="connect-yolen"]')?.addEventListener('click', () => {
-      openYolen('/companion/connect')
-    })
-
-    panel.querySelector('[data-yolen-action="create-lead-yolen"]')?.addEventListener('click', () => {
-      const url = state.leadResolution?.actions?.create_lead_url || '/leads'
-      openYolen(url)
-    })
-
-    panel.querySelector('[data-yolen-action="open-pool"]')?.addEventListener('click', () => {
-      const url = state.leadResolution?.actions?.pool_url || '/pool'
-      openYolen(url)
-    })
-
-    panel.querySelector('[data-yolen-action="open-cycle-yolen"]')?.addEventListener('click', () => {
-      const url = state.leadResolution?.actions?.open_yolen_url || '/leads'
-      openYolen(url)
-    })
-
-    panel.querySelectorAll('[data-yolen-action="analyze-conversation"]').forEach((button) => {
-      button.addEventListener('click', () => {
-        analyzeCurrentConversation({
-          automatic: false,
+          if (candidateKey) {
+            ignoreLeadEnrichmentCandidate(
+              candidateKey,
+            )
+          }
         })
       })
-    })
 
-    panel.querySelector('[data-yolen-action="apply-suggestion"]')?.addEventListener('click', () => {
-      applyCurrentSuggestion()
-    })
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="collapse-companion"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          setPanelCollapsed(true)
+        })
+      })
 
-    panel.querySelector('[data-yolen-action="copy-suggested-message"]')?.addEventListener('click', () => {
-      copySuggestedMessage()
-    })
-
-    panel.querySelector('[data-yolen-action="insert-suggested-message"]')?.addEventListener('click', () => {
-      insertSuggestedMessageInWhatsApp()
-    })
-
-    panel.querySelector('[data-yolen-action="transcribe-audio"]')?.addEventListener('click', () => {
-      transcribeNextVisibleAudio()
-    })
-
-    panel.querySelector('[data-yolen-action="register-conversation"]')?.addEventListener('click', () => {
-      registerCurrentConversation()
-    })
-
-    panel.querySelector('[data-yolen-action="confirm-conversation-registration"]')?.addEventListener('click', () => {
-      confirmCurrentConversationRegistration()
-    })
-
-    panel.querySelector('[data-yolen-action="cancel-conversation-registration"]')?.addEventListener('click', () => {
-      cancelCurrentConversationRegistration()
-    })
-
-    panel.querySelector('[data-yolen-action="save-lead-summary"]')?.addEventListener('click', () => {
-      const textarea = panel.querySelector('[data-yolen-textarea="lead-summary"]')
-      const summaryText = textarea ? textarea.value : ''
-
-      void handleSaveLeadSummaryClick(summaryText)
-    })
-
-    restoreOpenDetails(
-      panel,
-      previouslyOpenDetailsKeys,
+    wireOnce(
+      panel.querySelector('[data-yolen-action="open-yolen"]'),
+      'click',
+      () => {
+        openYolen('/leads')
+      },
     )
 
-    panel.scrollTop =
-      previousPanelScrollTop
+    wireOnce(
+      panel.querySelector('[data-yolen-action="connect-yolen"]'),
+      'click',
+      () => {
+        openYolen('/companion/connect')
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="create-lead-yolen"]'),
+      'click',
+      () => {
+        const url = state.leadResolution?.actions?.create_lead_url || '/leads'
+        openYolen(url)
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="open-pool"]'),
+      'click',
+      () => {
+        const url = state.leadResolution?.actions?.pool_url || '/pool'
+        openYolen(url)
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="open-cycle-yolen"]'),
+      'click',
+      () => {
+        const url = state.leadResolution?.actions?.open_yolen_url || '/leads'
+        openYolen(url)
+      },
+    )
+
+    panel
+      .querySelectorAll(
+        '[data-yolen-action="analyze-conversation"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          analyzeCurrentConversation({
+            automatic: false,
+          })
+        })
+      })
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="apply-suggestion"]'),
+      'click',
+      () => {
+        applyCurrentSuggestion()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="copy-suggested-message"]'),
+      'click',
+      () => {
+        copySuggestedMessage()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="insert-suggested-message"]'),
+      'click',
+      () => {
+        insertSuggestedMessageInWhatsApp()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="transcribe-audio"]'),
+      'click',
+      () => {
+        transcribeNextVisibleAudio()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="register-conversation"]'),
+      'click',
+      () => {
+        registerCurrentConversation()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="confirm-conversation-registration"]'),
+      'click',
+      () => {
+        confirmCurrentConversationRegistration()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="cancel-conversation-registration"]'),
+      'click',
+      () => {
+        cancelCurrentConversationRegistration()
+      },
+    )
+
+    wireOnce(
+      panel.querySelector('[data-yolen-action="save-lead-summary"]'),
+      'click',
+      () => {
+        const textarea = panel.querySelector('[data-yolen-textarea="lead-summary"]')
+        const summaryText = textarea ? textarea.value : ''
+
+        void handleSaveLeadSummaryClick(summaryText)
+      },
+    )
+
+    if (
+      window.YolenCompanionLeadAutomation
+        ?.bindCreateLeadForm
+    ) {
+      window.YolenCompanionLeadAutomation.bindCreateLeadForm(
+        panel,
+      )
+    }
+  }
+
+  function renderPanel() {
+    const panel = createPanel()
+
+    const collapsed =
+      panelCollapsed === true
+
+    document
+      .documentElement
+      .classList
+      .toggle(
+        'yolen-companion-collapsed',
+        collapsed,
+      )
+
+    panel.classList.toggle(
+      'yolen-panel-collapsed',
+      collapsed,
+    )
+
+    if (collapsed) {
+      const attention =
+        getUnacknowledgedCollapsedAttention()
+
+      const attentionLevel =
+        attention?.level || 'normal'
+
+      const collapsedLabel =
+        attention
+          ? `Abrir Yolen Companion — ${attention.label}`
+          : 'Abrir Yolen Companion'
+
+      // O modo colapsado é uma casca minúscula e completamente diferente
+      // do layout expandido por região — continua trocando
+      // panel.innerHTML inteiro (é uma transição rara e deliberada do
+      // vendedor, não uma atualização de fundo). Zera o layout de regiões
+      // para que, ao expandir de novo, todas as regiões sejam recriadas
+      // do zero em vez de reaproveitar containers que não existem mais.
+      panel.dataset.yolenPanelLayout = 'collapsed'
+      panelRegionHtmlCache.clear()
+      panelRegionPendingHtml.clear()
+
+      panel.innerHTML = [
+        '<div class="yolen-collapsed-shell">',
+
+          '<button',
+            ' class="yolen-collapsed-logo-button ' +
+              `yolen-collapsed-attention-${attentionLevel}"`,
+            ' type="button"',
+            ' data-yolen-action="expand-companion"',
+            ' data-yolen-attention-level="' +
+              escapeHtml(attentionLevel) +
+            '"',
+            ' title="' +
+              escapeHtml(collapsedLabel) +
+            '"',
+            ' aria-label="' +
+              escapeHtml(collapsedLabel) +
+            '"',
+          '>',
+
+            getYolenMarkHtml(),
+
+            attention
+              ? [
+                  '<span',
+                    ' class="yolen-collapsed-attention-dot"',
+                    ' aria-hidden="true"',
+                  '></span>',
+                ].join('')
+              : '',
+
+          '</button>',
+
+        '</div>',
+      ].join('')
+
+      panel
+        .querySelector(
+          '[data-yolen-action="expand-companion"]',
+        )
+        ?.addEventListener(
+          'click',
+          () => {
+            setPanelCollapsed(false)
+          },
+        )
+
+      return
+    }
+
+    // Ver renderPanelRegion(): cada card abaixo só troca de DOM quando seu
+    // próprio HTML muda. Se o painel estava colapsado (ou é a primeira
+    // vez), ele não tem nenhum container de região ainda — limpa o que
+    // sobrou da casca colapsada antes de criá-los pela primeira vez.
+    if (
+      panel.dataset.yolenPanelLayout !==
+      'regions'
+    ) {
+      panel.innerHTML = ''
+      panel.dataset.yolenPanelLayout =
+        'regions'
+      panelRegionHtmlCache.clear()
+      panelRegionPendingHtml.clear()
+    }
+
+    renderPanelRegion(
+      panel,
+      'header',
+      getPanelHeaderHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'contact-card',
+      getContactCardHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'registration-card',
+      getConversationRegistrationCardHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'lead-enrichment',
+      getLeadEnrichmentCandidatesHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'pre-send-assessment',
+      getPreSendAssessmentCardHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'lead-summary-card',
+      getCompanionLeadSummaryCardHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'seller-information-architecture',
+      getSellerInformationArchitectureHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
+      'footer',
+      getCompactFooterHtml(),
+    )
+
+    wirePanelInteractions(panel)
   }
 
   function escapeHtml(value) {

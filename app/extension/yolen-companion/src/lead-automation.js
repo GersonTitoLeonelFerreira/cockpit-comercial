@@ -1,9 +1,7 @@
 ;(function initYolenCompanionLeadAutomation() {
   const PANEL_ID = 'yolen-companion-panel'
-  const CREATE_ACTION = 'create-lead-yolen'
   const REFRESH_ACTION = 'refresh'
 
-  let panelObserver = null
   const leadDraftsByPhone = new Map()
 
   function onlyDigits(value) {
@@ -474,98 +472,49 @@
     })
   }
 
-  function mountLeadCreationForm() {
-    const panel = document.getElementById(PANEL_ID)
-
-    if (!panel) {
-      return
-    }
-
-    const createButton =
-      panel.querySelector(
-        `[data-yolen-action="${CREATE_ACTION}"]`,
-      )
-
-    if (!createButton) {
-      return
-    }
-
-    const actionsContainer =
-      createButton.closest('.yolen-contact-actions') ||
-      createButton.parentElement
-
-    if (!actionsContainer) {
-      return
-    }
-
-    const context =
-      getLookupContext()
+  // buildCreateLeadFormHtml()/bindCreateLeadForm() são a única porta de
+  // entrada deste arquivo no DOM do painel. Antes, este arquivo observava
+  // o painel com seu próprio MutationObserver e substituía o botão
+  // "Criar lead na Yolen" por este formulário de forma assíncrona e
+  // independente de renderPanel() (content-script.js) — dois renders
+  // competindo pelo mesmo pedaço do DOM, sem nenhuma trava entre eles.
+  // Quando uma atualização de fundo do Companion chegava nesse meio-tempo
+  // (mais frequente com "Dados do contato" do WhatsApp aberto), o botão
+  // simples podia reaparecer bem na hora do clique do vendedor, e o
+  // primeiro clique em "Criar lead" se perdia. Agora content-script.js
+  // chama buildCreateLeadFormHtml() dentro da MESMA passada de render que
+  // decide o resto do card "Conversa" (getLeadActionButton()), e
+  // bindCreateLeadForm() só liga os handlers do formulário que já está no
+  // DOM — nenhum dos dois mexe em DOM por conta própria.
+  function buildCreateLeadFormHtml() {
+    const context = getLookupContext()
 
     if (!context.phone) {
-      return
+      return ''
     }
 
-    const existingForm =
-      actionsContainer.querySelector(
+    return buildFormHtml(context)
+  }
+
+  function bindCreateLeadForm(panel) {
+    const form =
+      panel?.querySelector(
         '[data-yolen-lead-create-form]',
       )
 
-    if (existingForm) {
-      syncLeadCreationFormSuggestions(
-        existingForm,
-        context,
-      )
-      bindLeadCreationForm(existingForm)
+    if (!form) {
       return
     }
 
-    actionsContainer.innerHTML = buildFormHtml(context)
-
-    const form =
-      actionsContainer.querySelector('[data-yolen-lead-create-form]')
-
+    syncLeadCreationFormSuggestions(
+      form,
+      getLookupContext(),
+    )
     bindLeadCreationForm(form)
   }
 
-  function observePanel(panel) {
-    panelObserver?.disconnect()
-
-    panelObserver = new MutationObserver(() => {
-      mountLeadCreationForm()
-    })
-
-    panelObserver.observe(panel, {
-      childList: true,
-      subtree: true,
-    })
-
-    mountLeadCreationForm()
+  window.YolenCompanionLeadAutomation = {
+    buildCreateLeadFormHtml,
+    bindCreateLeadForm,
   }
-
-  function start() {
-    const existingPanel = document.getElementById(PANEL_ID)
-
-    if (existingPanel) {
-      observePanel(existingPanel)
-      return
-    }
-
-    const rootObserver = new MutationObserver(() => {
-      const panel = document.getElementById(PANEL_ID)
-
-      if (!panel) {
-        return
-      }
-
-      rootObserver.disconnect()
-      observePanel(panel)
-    })
-
-    rootObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    })
-  }
-
-  start()
 })()
