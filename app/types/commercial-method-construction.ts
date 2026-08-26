@@ -7,6 +7,9 @@ import type {
 import type {
   CommercialMethodBuilderData,
 } from '@/app/types/commercial-method-builder'
+import type {
+  CommercialBuyerDecisionDraft,
+} from '@/app/types/commercial-method-buyer-decision'
 
 export const COMMERCIAL_METHOD_CONSTRUCTION_VERSION =
   'assisted-method-construction-v1' as const
@@ -64,6 +67,16 @@ export interface CommercialMethodConstructionDraft {
   principles: string[]
   active_stage_id: string | null
   stages: CommercialMethodConstructionStageDraft[]
+
+  /**
+   * Camada adaptativa da Fase 2. Ela descreve como o comprador decide para
+   * calibrar a construção do método. Não faz parte do commercial-method-v2 e
+   * não é consumida pelo Companion.
+   *
+   * Optional para manter compatibilidade com rascunhos da Fase 2 criados antes
+   * desta evolução. A UI cria/preenche a camada antes de exibir a estrutura.
+   */
+  buyer_decision?: CommercialBuyerDecisionDraft
 }
 
 export interface CommercialMethodConstructionRecord {
