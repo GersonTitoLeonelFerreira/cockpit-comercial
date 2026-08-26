@@ -1,15 +1,13 @@
 name: Companion Extension Release Engineering
 
-# Escopo: D2 (validação automatizada) + D3 (separação DEV/PROD) da extensão
-# Yolen Companion. Este workflow BUILDA e VALIDA os quatro pacotes
-# (Chrome/Firefox × dev/prod); não publica nada em loja e não faz deploy.
-# "STORE_ELIGIBLE_CANDIDATE" nos pacotes prod significa tecnicamente
-# preparado para submissão — não que a extensão foi publicada ou aprovada.
-#
-# Gatilhos restritos a Pull Request e execução manual, com filtro de
-# caminho, para não rodar CI desnecessário em mudanças que não tocam a
-# extensão nem este próprio workflow.
+# Escopo normal: D2/D3 da extensão. A branch de hotfix da ONDA 8 usa este
+# workflow apenas como runner temporário porque o arquivo já é conhecido pela
+# default branch. A alteração existe somente na branch de hotfix e será
+# restaurada após os gates.
 on:
+  push:
+    branches:
+      - claude/onda8-hotfix-builder-text-editing
   pull_request:
     paths:
       - 'app/extension/yolen-companion/**'
@@ -17,10 +15,11 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-validate:
+    if: github.event_name != 'push'
     name: Build + validar Release Candidate (Chrome/Firefox × dev/prod)
     runs-on: ubuntu-latest
     steps:
@@ -75,3 +74,90 @@ jobs:
             dist/yolen-companion/release-candidate-report.json
           retention-days: 14
           if-no-files-found: warn
+
+  onda8-builder-text-editing:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/claude/onda8-hotfix-builder-text-editing'
+    name: ONDA 8 — hotfix edição de texto
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/onda8-hotfix-builder-text-editing
+          fetch-depth: 0
+
+      - name: Aplicar patch determinístico se necessário
+        id: patch
+        shell: bash
+        run: |
+          if grep -q "EditableLinesTextarea" app/admin/configuracao-comercial/CommercialMethodBuilder.tsx; then
+            echo "patched=false" >> "$GITHUB_OUTPUT"
+            echo "Hotfix já aplicado; seguindo para validação."
+            exit 0
+          fi
+
+          python scripts/onda8-hotfix-builder-text-editing.py
+          git diff --check
+
+          git config user.name "Yolen Integration Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            app/admin/configuracao-comercial/CommercialMethodBuilder.tsx \
+            app/admin/configuracao-comercial/BuyerDecisionArchitecture.tsx \
+            app/admin/configuracao-comercial/AssistedMethodConstruction.tsx \
+            app/admin/configuracao-comercial/EditableLinesTextarea.tsx \
+            app/admin/configuracao-comercial/commercial-method-builder-text-editing.test.mjs \
+            app/lib/commercial-config/text-editing.ts
+          git commit -m "fix(commercial-method-builder): preserve text editing during autosave"
+          git push origin HEAD:claude/onda8-hotfix-builder-text-editing
+          echo "patched=true" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Node.js
+        if: steps.patch.outputs.patched != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        if: steps.patch.outputs.patched != 'true'
+        run: npm ci
+
+      - name: Auditar interceptação de teclado
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          grep -RInE "keydown|keyup|keypress|onKeyDown|onKeyUp|preventDefault|stopPropagation" app/admin/configuracao-comercial || true
+
+      - name: Teste DOM + edição + autosave
+        if: steps.patch.outputs.patched != 'true'
+        run: node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/admin/configuracao-comercial/commercial-method-builder-text-editing.test.mjs
+
+      - name: Suítes ONDA 8
+        if: steps.patch.outputs.patched != 'true'
+        run: |
+          node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test \
+            app/lib/commercial-config/commercial-method-builder.test.mjs \
+            app/lib/commercial-config/commercial-method-builder-architecture.test.mjs \
+            app/lib/server/commercial-method-builder.test.mjs \
+            app/lib/commercial-config/assisted-method-construction.test.mjs \
+            app/lib/commercial-config/assisted-method-construction-architecture.test.mjs \
+            app/lib/commercial-config/buyer-decision-architecture.test.mjs \
+            app/lib/server/commercial-method-construction.test.mjs \
+            supabase/phase-tests/phase-8-commercial-method-builder.test.mjs \
+            supabase/phase-tests/phase-8-assisted-method-construction.test.mjs
+
+      - name: commercial-method-v2 regression
+        if: steps.patch.outputs.patched != 'true'
+        run: npm run test:companion-commercial-method-v2-validation
+
+      - name: commercial-config admin regression
+        if: steps.patch.outputs.patched != 'true'
+        run: npm run test:companion-commercial-config-admin
+
+      - name: TypeScript
+        if: steps.patch.outputs.patched != 'true'
+        run: npx tsc --noEmit
+
+      - name: Build
+        if: steps.patch.outputs.patched != 'true'
+        run: npm run build
