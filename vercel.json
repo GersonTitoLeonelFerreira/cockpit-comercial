@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "bash scripts/onda8-hotfix-vercel-gate.sh",
   "functions": {
     "app/api/queues/companion-deep-analysis/route.ts": {
       "maxDuration": 180,
