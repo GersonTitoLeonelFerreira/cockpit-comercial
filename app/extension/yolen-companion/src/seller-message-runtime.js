@@ -158,53 +158,40 @@
   }
 
   function getPresets(guidance) {
-    if (guidance?.status === 'ready') {
-      const stage = String(guidance.stage_name || '')
-        .trim()
-        .toLocaleLowerCase('pt-BR')
+    const contextual = Array.isArray(
+      guidance?.seller_intents,
+    )
+      ? guidance.seller_intents
+          .filter(
+            (value) =>
+              typeof value === 'string' &&
+              value.trim(),
+          )
+          .map((value) => value.trim())
+          .slice(0, 3)
+      : []
 
-      if (stage.includes('acolher')) {
-        return [
-          'Quero entender melhor o contexto e o que essa pessoa precisa.',
-          'Quero fazer uma pergunta objetiva para conhecer melhor a necessidade.',
-          'Quero marcar uma conversa para entender melhor a situação.',
-        ]
-      }
+    if (contextual.length > 0) {
+      return contextual
+    }
 
-      if (stage.includes('tour')) {
-        return [
-          'Quero aprofundar as necessidades antes de falar de proposta.',
-          'Quero entender a principal dúvida ou objeção antes de avançar.',
-          'Quero marcar uma conversa para aprofundar o atendimento.',
-        ]
-      }
-
-      if (stage.includes('obter')) {
-        return [
-          'Quero avançar para uma proposta com base no que já foi entendido.',
-          'Quero confirmar o que ainda falta para a pessoa tomar uma decisão.',
-          'Quero combinar um próximo compromisso concreto.',
-        ]
-      }
-
+    if (
+      typeof guidance?.next_step === 'string' &&
+      guidance.next_step.trim()
+    ) {
       return [
-        'Quero seguir a orientação da Yolen nesta conversa.',
-        'Quero fazer uma pergunta para avançar com clareza.',
-        'Quero marcar uma conversa.',
+        `Quero seguir este próximo passo: ${guidance.next_step.trim()}`,
       ]
     }
 
     if (guidance?.status === 'not_applicable') {
       return [
-        'Quero responder de forma natural ao assunto atual.',
-        'Quero fazer uma pergunta sobre o assunto atual.',
-        'Quero marcar uma conversa sem transformar isso em uma abordagem comercial.',
+        'Quero responder somente ao assunto atual, sem transformar isso em venda.',
       ]
     }
 
     return [
-      'Quero responder de forma natural ao contexto atual.',
-      'Quero marcar uma conversa.',
+      'Quero responder ao ponto principal desta conversa.',
     ]
   }
 
@@ -346,7 +333,7 @@
         `<button type="button" class="yolen-seller-message-preset" data-yolen-seller-message-preset="${index}">${escapeHtml(shortPresetLabel(preset))}</button>`
       )).join(''),
       '</div>',
-      '<textarea class="yolen-seller-message-intent" data-yolen-seller-message-intent maxlength="1000" placeholder="Ex.: Quero entender melhor a necessidade antes de falar de preço.">',
+      '<textarea class="yolen-seller-message-intent" data-yolen-seller-message-intent maxlength="1000" placeholder="Ex.: Quero responder ao ponto específico que o cliente trouxe.">',
       escapeHtml(state.intent),
       '</textarea>',
       '<button type="button" class="yolen-primary-button yolen-seller-message-generate" data-yolen-seller-message-action="generate"',
