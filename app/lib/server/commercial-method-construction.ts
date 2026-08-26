@@ -33,6 +33,7 @@ const FIELDS = `
   method_definition,
   method_started_at,
   method_updated_at,
+  method_synthesis_version,
   updated_at
 `
 
@@ -45,6 +46,7 @@ type ConstructionRow = {
   method_definition: CommercialMethodDefinition | null
   method_started_at: string | null
   method_updated_at: string | null
+  method_synthesis_version: string | null
   updated_at: string
 }
 
@@ -58,6 +60,7 @@ function mapRow(row: ConstructionRow): CommercialMethodConstructionRecord {
     method_definition: row.method_definition,
     method_started_at: row.method_started_at,
     method_updated_at: row.method_updated_at,
+    method_synthesis_version: row.method_synthesis_version,
     updated_at: row.updated_at,
   }
 }
@@ -119,6 +122,7 @@ export async function startCommercialMethodConstruction(
       method_definition: null,
       method_started_at: current.method_started_at ?? now,
       method_updated_at: now,
+      method_synthesis_version: construction.synthesis_version ?? null,
       updated_by: userId,
     })
     .eq('company_id', companyId)
@@ -171,6 +175,7 @@ export async function saveCommercialMethodConstruction(
       method_definition: definition,
       method_started_at: current.method_started_at ?? now,
       method_updated_at: now,
+      method_synthesis_version: input.construction.synthesis_version ?? null,
       updated_by: userId,
     })
     .eq('company_id', companyId)

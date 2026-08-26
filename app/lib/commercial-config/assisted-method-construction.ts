@@ -13,7 +13,11 @@ import type {
 } from '@/app/types/commercial-method-builder'
 import {
   COMMERCIAL_METHOD_CONSTRUCTION_VERSION,
+  CURRENT_METHOD_SYNTHESIS_VERSION,
 } from '@/app/types/commercial-method-construction'
+import {
+  sanitizeMethodPrinciples,
+} from '@/app/lib/commercial-config/method-principles'
 import type {
   CommercialMethodConstructionDraft,
   CommercialMethodConstructionDimensionDraft,
@@ -352,6 +356,7 @@ export function suggestInitialMethodConstruction(
 
   return {
     construction_version: COMMERCIAL_METHOD_CONSTRUCTION_VERSION,
+    synthesis_version: CURRENT_METHOD_SYNTHESIS_VERSION,
     construction_step: 'structure',
     method_name: '',
     method_description: '',
@@ -542,7 +547,7 @@ export function buildCommercialMethodDefinitionFromConstruction(
     contract_version: COMMERCIAL_METHOD_CONTRACT_VERSION,
     name: cleanText(draft.method_name),
     description: cleanText(draft.method_description),
-    principles: cleanList(draft.principles),
+    principles: sanitizeMethodPrinciples(cleanList(draft.principles)),
     stages: draft.stages.map((stage, index) =>
       normalizeStageForContract(stage, index + 1),
     ),

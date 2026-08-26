@@ -14,6 +14,19 @@ import type {
 export const COMMERCIAL_METHOD_CONSTRUCTION_VERSION =
   'assisted-method-construction-v1' as const
 
+/**
+ * Versão do ALGORITMO de síntese (não do schema do rascunho, ver
+ * COMMERCIAL_METHOD_CONSTRUCTION_VERSION acima). Carimbada por
+ * suggestInitialMethodConstruction e applyBuyerDecisionArchitecture sempre
+ * que produzem a estrutura de etapas a partir do diagnóstico. Um
+ * method_construction sem este valor, ou com um valor mais antigo, foi
+ * materializado por uma versão anterior da síntese — as respostas do
+ * diagnóstico continuam válidas, mas a estrutura pode estar desatualizada
+ * (ver ONDA 8 / HOTFIX — recompilação segura).
+ */
+export const CURRENT_METHOD_SYNTHESIS_VERSION =
+  'guided-method-synthesis-v2' as const
+
 export type CommercialMethodConstructionStatus =
   | 'not_started'
   | 'editing'
@@ -67,6 +80,13 @@ export interface CommercialMethodConstructionDraft {
   construction_version:
     typeof COMMERCIAL_METHOD_CONSTRUCTION_VERSION
 
+  /**
+   * Opcional para manter compatibilidade com rascunhos anteriores a este
+   * rastreamento. Ausente ou diferente de CURRENT_METHOD_SYNTHESIS_VERSION
+   * significa "estrutura possivelmente desatualizada" — nunca um erro.
+   */
+  synthesis_version?: string
+
   construction_step: CommercialMethodConstructionStep
   method_name: string
   method_description: string
@@ -94,6 +114,12 @@ export interface CommercialMethodConstructionRecord {
   method_definition: CommercialMethodDefinition | null
   method_started_at: string | null
   method_updated_at: string | null
+  /**
+   * Espelho, em coluna própria, de construction.synthesis_version — mantido
+   * apenas para consulta direta no banco. A leitura de "há atualização
+   * disponível" usa construction.synthesis_version.
+   */
+  method_synthesis_version: string | null
   updated_at: string
 }
 

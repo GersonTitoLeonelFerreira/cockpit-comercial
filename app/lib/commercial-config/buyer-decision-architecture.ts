@@ -13,6 +13,21 @@ import type {
   CommercialBuyerDecisionProfile,
   CommercialBuyerDecisionVisibility,
 } from '@/app/types/commercial-method-buyer-decision'
+import {
+  CURRENT_METHOD_SYNTHESIS_VERSION,
+} from '@/app/types/commercial-method-construction'
+import {
+  METHOD_PRINCIPLE_APPROVAL_MAPPING,
+  METHOD_PRINCIPLE_BUYER_EVIDENCE,
+  METHOD_PRINCIPLE_CUSTOMIZATION_EVIDENCE,
+  METHOD_PRINCIPLE_DECISION_CRITERIA,
+  METHOD_PRINCIPLE_DECISION_VS_FORMALIZATION,
+  METHOD_PRINCIPLE_FORMAL_PROCESS,
+  METHOD_PRINCIPLE_PRESENTATION_EVIDENCE,
+  METHOD_PRINCIPLE_PROPORTIONAL_DEPTH,
+  METHOD_PRINCIPLE_REAL_URGENCY,
+  sanitizeMethodPrinciples,
+} from '@/app/lib/commercial-config/method-principles'
 import type {
   CommercialMethodConstructionDraft,
   CommercialMethodConstructionQualityItem,
@@ -136,9 +151,17 @@ export function createBuyerDecisionDraft(
       event,
       criteria: [],
     })),
-    solution_customization: '',
-    operation_intensity: '',
+    // O diagnóstico (capítulos 1-3) já pode ter perguntado exatamente isso
+    // (mesma escala de resposta). Reaproveita em vez de perguntar de novo —
+    // ONDA 8 / HOTFIX, seção 16 (redundância de perguntas).
+    solution_customization: data.company_profile.offer.customization_depth || '',
+    operation_intensity: data.company_profile.buyer_behavior?.workload_pattern || '',
     buyer_commitment_signals: [],
+    // formalization_steps NÃO é pré-preenchido a partir do diagnóstico:
+    // isso mudaria qual texto vence na síntese da etapa Formalização (ver
+    // synthesizeStageFields/applyFormalizationStageSynthesis) e alteraria
+    // comportamento hoje coberto por teste. Auditado (ONDA 8 / HOTFIX,
+    // seção 16) — mantido como pergunta própria de propósito.
     formalization_steps: [],
   }
 }
@@ -387,9 +410,9 @@ export function deriveBuyerDecisionPrinciples(
 ): string[] {
   const profile = getBuyerDecisionProfile(data, decision)
   const principles = [
-    'A profundidade da conversa deve ser proporcional à complexidade real da decisão.',
-    'Avanço real exige evidência do comprador; atividade do vendedor, sozinha, não prova progresso.',
-    'A decisão de compra deve ser tratada separadamente das ações usadas para formalizar a contratação.',
+    METHOD_PRINCIPLE_PROPORTIONAL_DEPTH,
+    METHOD_PRINCIPLE_BUYER_EVIDENCE,
+    METHOD_PRINCIPLE_DECISION_VS_FORMALIZATION,
   ]
 
   if (
@@ -398,30 +421,30 @@ export function deriveBuyerDecisionPrinciples(
       ...decision.other_decision_criteria,
     ]).length > 0
   ) {
-    principles.push('Os fatores que pesam na escolha precisam estar claros antes de uma oportunidade complexa avançar.')
+    principles.push(METHOD_PRINCIPLE_DECISION_CRITERIA)
   }
 
   if (profile.approval_mapping !== 'not_required') {
-    principles.push('Quando houver outras pessoas na decisão, a equipe precisa saber quem participa, aprova ou pode impedir o avanço.')
+    principles.push(METHOD_PRINCIPLE_APPROVAL_MAPPING)
   }
 
   if (profile.formal_buying_process !== 'not_required') {
-    principles.push('Processos internos do cliente devem ser acompanhados sem transformar cada área envolvida em uma etapa automática do método.')
+    principles.push(METHOD_PRINCIPLE_FORMAL_PROCESS)
   }
 
   if (profile.critical_event !== 'not_required') {
-    principles.push('Urgência só deve ser considerada quando houver data, evento ou consequência real confirmada pelo cliente.')
+    principles.push(METHOD_PRINCIPLE_REAL_URGENCY)
   }
 
   if (profile.presentation_evidence !== 'not_required') {
-    principles.push('Demonstração, tour, teste ou reunião devem ter um resultado esperado; realizar a atividade não é suficiente para avançar.')
+    principles.push(METHOD_PRINCIPLE_PRESENTATION_EVIDENCE)
   }
 
   if (decision.solution_customization === 'highly_customized') {
-    principles.push('A personalização da solução precisa ser sustentada por informações confirmadas na descoberta.')
+    principles.push(METHOD_PRINCIPLE_CUSTOMIZATION_EVIDENCE)
   }
 
-  return cleanList(principles)
+  return sanitizeMethodPrinciples(cleanList(principles))
 }
 
 function createSuggestedStage(
@@ -645,6 +668,7 @@ export function applyBuyerDecisionArchitecture(
 
   return {
     ...draft,
+    synthesis_version: CURRENT_METHOD_SYNTHESIS_VERSION,
     buyer_decision: decision,
     principles: deriveBuyerDecisionPrinciples(data, decision),
     stages: synthesizedStages,
