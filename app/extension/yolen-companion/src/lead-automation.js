@@ -2,7 +2,8 @@
   const PANEL_ID = 'yolen-companion-panel'
   const REFRESH_ACTION = 'refresh'
 
-  const leadDraftsByPhone = new Map()
+  const leadDraftsByIdentity = new Map()
+  const leadCreationInFlightKeys = new Set()
 
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
@@ -32,6 +33,50 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#039;')
+  }
+
+  function getConversationRuntime() {
+    return globalThis
+      .YolenCompanionConversationRuntime ||
+      null
+  }
+
+  function captureConversationIdentity() {
+    return getConversationRuntime()
+      ?.captureIdentity?.() || null
+  }
+
+  function isConversationIdentityCurrent(identity) {
+    const runtime = getConversationRuntime()
+
+    if (!runtime?.isIdentityCurrent) {
+      return true
+    }
+
+    return runtime.isIdentityCurrent(identity)
+  }
+
+  function getDraftIdentityKey(phone, identity = null) {
+    const normalizedPhone = onlyDigits(phone)
+
+    if (!normalizedPhone) {
+      return null
+    }
+
+    const runtimeKey = getConversationRuntime()
+      ?.getDraftIdentityKey?.(normalizedPhone)
+
+    if (runtimeKey) {
+      return runtimeKey
+    }
+
+    const conversationKey = cleanText(
+      identity?.conversationKey,
+    )
+
+    return conversationKey
+      ? `${conversationKey}::${normalizedPhone}`
+      : normalizedPhone
   }
 
   function getLookupContext() {
@@ -105,8 +150,12 @@
       return getDefaultDraft(context || {})
     }
 
-    const existing =
-      leadDraftsByPhone.get(context.phone)
+    const draftKey = getDraftIdentityKey(
+      context.phone,
+    )
+    const existing = draftKey
+      ? leadDraftsByIdentity.get(draftKey)
+      : null
 
     if (existing) {
       if (!existing.dirty) {
@@ -127,11 +176,18 @@
     }
 
     const draft = getDefaultDraft(context)
-    leadDraftsByPhone.set(context.phone, draft)
+
+    if (draftKey) {
+      leadDraftsByIdentity.set(
+        draftKey,
+        draft,
+      )
+    }
+
     return draft
   }
 
-  function captureLeadDraft(form) {
+  function captureLeadDraft(form, identity = null) {
     if (!form) {
       return null
     }
@@ -158,15 +214,27 @@
       dirty: true,
     }
 
-    leadDraftsByPhone.set(phone, draft)
-    return draft
+    const draftKey = getDraftIdentityKey(
+      phone,
+      identity,
+    )
+
+    if (draftKey) {
+      leadDraftsByIdentity.set(
+        draftKey,
+        draft,
+      )
+    }
+
+    return {
+      draft,
+      draftKey,
+    }
   }
 
-  function clearLeadDraft(phone) {
-    const normalizedPhone = onlyDigits(phone)
-
-    if (normalizedPhone) {
-      leadDraftsByPhone.delete(normalizedPhone)
+  function clearLeadDraftByKey(draftKey) {
+    if (draftKey) {
+      leadDraftsByIdentity.delete(draftKey)
     }
   }
 
@@ -185,7 +253,19 @@
     status.dataset.tone = tone
   }
 
-  function refreshLeadResolution() {
+  async function refreshLeadResolution(identity) {
+    const runtime = getConversationRuntime()
+
+    if (runtime?.refreshLeadResolution) {
+      return runtime.refreshLeadResolution(
+        identity,
+      )
+    }
+
+    if (!isConversationIdentityCurrent(identity)) {
+      return false
+    }
+
     const panel = document.getElementById(PANEL_ID)
     const refreshButton =
       panel?.querySelector(
@@ -193,10 +273,18 @@
       )
 
     refreshButton?.click()
+    return Boolean(refreshButton)
   }
 
   async function submitLeadCreation(form) {
     if (form.dataset.submitting === 'true') {
+      return
+    }
+
+    const identityAtSubmit =
+      captureConversationIdentity()
+
+    if (!isConversationIdentityCurrent(identityAtSubmit)) {
       return
     }
 
@@ -206,7 +294,10 @@
     const documentInput = form.querySelector('[name="yolen-lead-document"]')
     const submitButton = form.querySelector('button[type="submit"]')
 
-    captureLeadDraft(form)
+    const capturedDraft = captureLeadDraft(
+      form,
+      identityAtSubmit,
+    )
 
     const name = cleanText(nameInput?.value)
     const phone = onlyDigits(phoneInput?.value)
@@ -214,6 +305,12 @@
       .toLowerCase()
     const document = onlyDigits(documentInput?.value)
     const currentContext = getLookupContext()
+    const draftKey =
+      capturedDraft?.draftKey ||
+      getDraftIdentityKey(
+        phone,
+        identityAtSubmit,
+      )
 
     if (!name || looksLikePhone(name)) {
       setFormStatus(
@@ -243,6 +340,13 @@
       return
     }
 
+    const requestKey = draftKey || phone
+
+    if (leadCreationInFlightKeys.has(requestKey)) {
+      return
+    }
+
+    leadCreationInFlightKeys.add(requestKey)
     form.dataset.submitting = 'true'
 
     if (submitButton) {
@@ -260,36 +364,53 @@
           cpf_cnpj: document || null,
         })
 
-      if (!result?.ok || !result.payload?.ok) {
-        const code = result?.payload?.code || result?.payload?.status
+      const code =
+        result?.payload?.code ||
+        result?.payload?.status
+      const foundByConflict =
+        code === 'active_lead_conflict' ||
+        code === 'concurrent_create_conflict'
+      const created =
+        Boolean(result?.ok && result.payload?.ok)
 
-        if (code === 'active_lead_conflict' || code === 'concurrent_create_conflict') {
-          clearLeadDraft(phone)
-          setFormStatus(
-            form,
-            'Contato já localizado. Atualizando o vínculo...',
-            'success',
-          )
-          window.setTimeout(refreshLeadResolution, 250)
-          return
-        }
-
+      if (!created && !foundByConflict) {
         throw new Error(
           result?.payload?.error ||
             'Não foi possível criar o lead.',
         )
       }
 
-      clearLeadDraft(phone)
+      // O request continua pertencendo à identidade de A mesmo que o
+      // vendedor já esteja em B. O draft correto pode ser encerrado, mas
+      // nenhum feedback/refresh de A é autorizado a escrever em B.
+      clearLeadDraftByKey(draftKey)
+
+      if (!isConversationIdentityCurrent(identityAtSubmit)) {
+        return
+      }
 
       setFormStatus(
         form,
-        'Lead criado. Atualizando o vínculo...',
+        foundByConflict
+          ? 'Contato já localizado. Atualizando o vínculo...'
+          : 'Lead criado. Atualizando o vínculo...',
         'success',
       )
 
-      window.setTimeout(refreshLeadResolution, 150)
+      // A criação/vínculo confirmado torna o form state não-authoritative.
+      // Removemos a superfície antiga imediatamente; o refresh abaixo
+      // monta o estado vinculado sem permitir que o formulário sobreviva
+      // por memoização regional.
+      form.remove()
+
+      await refreshLeadResolution(
+        identityAtSubmit,
+      )
     } catch (error) {
+      if (!isConversationIdentityCurrent(identityAtSubmit)) {
+        return
+      }
+
       form.dataset.submitting = 'false'
 
       if (submitButton) {
@@ -303,6 +424,8 @@
           : 'Erro ao criar lead na Yolen.',
         'error',
       )
+    } finally {
+      leadCreationInFlightKeys.delete(requestKey)
     }
   }
 
@@ -450,42 +573,73 @@
     }
   }
 
-  function bindLeadCreationForm(form) {
-    if (!form || form.dataset.yolenDraftBound === 'true') {
+  function getLeadCreationFormFromEvent(panel, event) {
+    const form = event?.target?.closest?.(
+      '[data-yolen-lead-create-form]',
+    )
+
+    return form && panel?.contains(form)
+      ? form
+      : null
+  }
+
+  function bindLeadCreationPanel(panel) {
+    if (
+      !panel ||
+      panel.dataset.yolenLeadAutomationBound === 'true'
+    ) {
       return
     }
 
-    form.dataset.yolenDraftBound = 'true'
+    panel.dataset.yolenLeadAutomationBound = 'true'
 
-    form.addEventListener('input', () => {
-      captureLeadDraft(form)
-    })
+    const captureFromEvent = (event) => {
+      const form = getLeadCreationFormFromEvent(
+        panel,
+        event,
+      )
 
-    form.addEventListener('change', () => {
-      captureLeadDraft(form)
-    })
+      if (form) {
+        captureLeadDraft(form)
+      }
+    }
 
-    form.addEventListener('submit', (event) => {
-      event.preventDefault()
-      captureLeadDraft(form)
-      void submitLeadCreation(form)
-    })
+    panel.addEventListener(
+      'input',
+      captureFromEvent,
+      true,
+    )
+
+    panel.addEventListener(
+      'change',
+      captureFromEvent,
+      true,
+    )
+
+    panel.addEventListener(
+      'submit',
+      (event) => {
+        const form = getLeadCreationFormFromEvent(
+          panel,
+          event,
+        )
+
+        if (!form) {
+          return
+        }
+
+        event.preventDefault()
+        void submitLeadCreation(form)
+      },
+      true,
+    )
   }
 
-  // buildCreateLeadFormHtml()/bindCreateLeadForm() são a única porta de
-  // entrada deste arquivo no DOM do painel. Antes, este arquivo observava
-  // o painel com seu próprio MutationObserver e substituía o botão
-  // "Criar lead na Yolen" por este formulário de forma assíncrona e
-  // independente de renderPanel() (content-script.js) — dois renders
-  // competindo pelo mesmo pedaço do DOM, sem nenhuma trava entre eles.
-  // Quando uma atualização de fundo do Companion chegava nesse meio-tempo
-  // (mais frequente com "Dados do contato" do WhatsApp aberto), o botão
-  // simples podia reaparecer bem na hora do clique do vendedor, e o
-  // primeiro clique em "Criar lead" se perdia. Agora content-script.js
-  // chama buildCreateLeadFormHtml() dentro da MESMA passada de render que
-  // decide o resto do card "Conversa" (getLeadActionButton()), e
-  // bindCreateLeadForm() só liga os handlers do formulário que já está no
-  // DOM — nenhum dos dois mexe em DOM por conta própria.
+  // buildCreateLeadFormHtml()/bindCreateLeadForm() continuam sendo a única
+  // porta de entrada deste arquivo no DOM do painel. A diferença é que os
+  // listeners agora pertencem ao painel estável, não ao nó transitório do
+  // formulário. Assim um rerender regional entre pointerdown/click não
+  // perde a submissão nem cria um segundo handler no novo nó.
   function buildCreateLeadFormHtml() {
     const context = getLookupContext()
 
@@ -497,6 +651,8 @@
   }
 
   function bindCreateLeadForm(panel) {
+    bindLeadCreationPanel(panel)
+
     const form =
       panel?.querySelector(
         '[data-yolen-lead-create-form]',
@@ -510,7 +666,6 @@
       form,
       getLookupContext(),
     )
-    bindLeadCreationForm(form)
   }
 
   window.YolenCompanionLeadAutomation = {
