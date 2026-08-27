@@ -25,7 +25,7 @@ export const COMMERCIAL_METHOD_CONSTRUCTION_VERSION =
  * (ver ONDA 8 / HOTFIX — recompilação segura).
  */
 export const CURRENT_METHOD_SYNTHESIS_VERSION =
-  'guided-method-synthesis-v3' as const
+  'guided-method-synthesis-v4' as const
 
 export type CommercialMethodConstructionStatus =
   | 'not_started'
