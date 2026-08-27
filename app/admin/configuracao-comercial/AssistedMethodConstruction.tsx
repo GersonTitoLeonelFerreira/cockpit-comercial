@@ -639,13 +639,13 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
             A Yolen evoluiu como transforma suas respostas em etapas. Suas respostas continuam as mesmas — você pode gerar uma proposta atualizada e decidir se aplica. Nada muda até você aplicar.
           </div>
           <button type="button" onClick={startRecompilePreview} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 850, marginTop: 10, padding: '9px 13px' }}>
-            Atualizar método com a versão mais recente da Yolen
+            Ver proposta de atualização
           </button>
         </div>
       )}
       {recompileCandidate && recompileDiff && (
         <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: DS.radiusContainer, padding: 13 }}>
-          <strong style={{ color: DS.blueSoft, fontSize: 11 }}>Atualizações encontradas</strong>
+          <strong style={{ color: DS.blueSoft, fontSize: 11 }}>Versão atual → proposta nova</strong>
           {!recompileDiff.has_changes && (
             <div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5, marginTop: 6 }}>
               A estrutura atual já reflete a síntese mais recente. Nenhuma mudança estrutural encontrada.
@@ -676,7 +676,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             <button type="button" onClick={keepCurrentMethod} disabled={recompiling} style={{ ...inputStyle, cursor: recompiling ? 'wait' : 'pointer', width: 'auto' }}>Manter método atual</button>
             <button type="button" onClick={() => void applyRecompileCandidate()} disabled={recompiling || !recompileDiff.has_changes} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: recompiling ? 'wait' : 'pointer', fontSize: 11, fontWeight: 850, padding: '9px 13px' }}>
-              {recompiling ? 'Aplicando...' : 'Aplicar atualização'}
+              {recompiling ? 'Aplicando...' : 'Aplicar ao rascunho'}
             </button>
           </div>
         </div>
