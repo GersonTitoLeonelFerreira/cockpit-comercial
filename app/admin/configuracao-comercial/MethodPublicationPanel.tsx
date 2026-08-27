@@ -112,6 +112,19 @@ export default function MethodPublicationPanel({
 
   const upToDate = isMethodPublishedUpToDate(published, methodDefinition)
 
+  React.useEffect(() => {
+    if (!confirmOpen) return
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !publishing) {
+        setConfirmOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [confirmOpen, publishing])
+
   async function confirmPublish() {
     setPublishing(true)
     setPublishError(null)
