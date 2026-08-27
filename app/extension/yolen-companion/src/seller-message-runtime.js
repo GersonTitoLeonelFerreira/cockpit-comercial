@@ -611,6 +611,22 @@
     queueRender()
   }
 
+  function syncContext(payload, data) {
+    const context = buildContext(payload, data)
+
+    if (!context) {
+      currentContext = null
+      removeVisibleComposer()
+      return false
+    }
+
+    currentContext = context
+    latestRequestedContextKey =
+      buildRequestContextKey(payload)
+    queueRender()
+    return true
+  }
+
   api.loadLeadSummary = async function loadLeadSummaryWithSellerMessage(payload) {
     const requestContextKey =
       buildRequestContextKey(payload)
@@ -637,9 +653,7 @@
       result?.payload?.ok &&
       data
     ) {
-      currentContext =
-        buildContext(payload, data)
-      queueRender()
+      syncContext(payload, data)
     } else {
       currentContext = null
       removeVisibleComposer()
@@ -789,6 +803,7 @@
 
   root.YolenCompanionSellerMessageRuntime = Object.freeze({
     render: queueRender,
+    syncContext,
     clear(payload) {
       clearContext(payload)
     },
