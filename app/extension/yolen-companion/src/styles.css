@@ -2236,3 +2236,39 @@ html.yolen-companion-collapsed #app {
   font-size: 10px;
 }
 
+
+
+/* AGORA — leitura interpretativa sem duplicar a orientação executável. */
+.yolen-now-reading {
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(96, 165, 250, 0.10);
+  border-radius: 10px;
+  background: rgba(30, 64, 175, 0.06);
+}
+
+.yolen-now-reading-title {
+  color: #7f93ad;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yolen-now-reading-copy {
+  margin-top: 5px;
+  color: #c7d5e7;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.yolen-now-hero--neutral {
+  border-color: rgba(126, 153, 194, 0.10);
+  background: rgba(9, 15, 24, 0.62);
+}
+
+.yolen-now-hero--neutral .yolen-now-eyebrow,
+.yolen-now-hero--neutral .yolen-now-status-pill {
+  color: #94a3b8;
+}
+

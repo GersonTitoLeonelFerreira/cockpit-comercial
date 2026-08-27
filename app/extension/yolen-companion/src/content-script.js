@@ -10433,15 +10433,55 @@
     const commercialReading =
       getActiveCommercialReading()
 
+    const neutralSession =
+      Boolean(
+        commercialReading &&
+        sellerInformationViewTools
+          .isNeutralCommercialSession(
+            commercialReading,
+          ),
+      )
+
+    const neutralCopy =
+      neutralSession
+        ? sellerInformationViewTools
+            .getNeutralSessionCopy(
+              commercialReading,
+            )
+        : null
+
+    const readingIsCurrent =
+      Boolean(
+        commercialReading &&
+        !state.conversationAnalysisLoading &&
+        !state.conversationAnalysisError &&
+        !isCurrentAnalysisOutdated(),
+      )
+
     const currentState =
+      neutralCopy?.description ||
+      (
+        typeof commercialReading
+          ?.conversation_summary
+          ?.current_state
+          ?.summary === 'string'
+          ? commercialReading
+              .conversation_summary
+              .current_state
+              .summary
+              .trim()
+          : ''
+      )
+
+    const readingReason =
+      !neutralSession &&
+      readingIsCurrent &&
       typeof commercialReading
-        ?.conversation_summary
-        ?.current_state
-        ?.summary === 'string'
+        ?.best_approach
+        ?.reason === 'string'
         ? commercialReading
-            .conversation_summary
-            .current_state
-            .summary
+            .best_approach
+            .reason
             .trim()
         : ''
 
@@ -10477,7 +10517,8 @@
               )
 
     const attentionHtml =
-      commercialReading
+      readingIsCurrent &&
+      !neutralSession
         ? sellerInformationViewTools
             .renderNowAttentionSnapshot(
               commercialReading,
@@ -10503,30 +10544,52 @@
       )
 
     const moreContext =
-      commercialReading &&
-      !state.conversationAnalysisError &&
-      !isCurrentAnalysisOutdated()
+      readingIsCurrent &&
+      !neutralSession
         ? getNowMoreContextDetailsHtml(
             commercialReading,
           )
         : ''
 
+    const analysisActions =
+      state.conversationAnalysisLoading
+        ? ''
+        : getAnalysisActionButton()
+
     return `
       <div class="yolen-now-shell" data-yolen-now-shell>
-        <section class="yolen-now-hero">
+        <section
+          class="yolen-now-hero ${
+            neutralSession
+              ? 'yolen-now-hero--neutral'
+              : ''
+          }"
+          ${
+            neutralSession
+              ? 'data-yolen-now-neutral'
+              : ''
+          }
+        >
           <div class="yolen-now-hero-header">
             <div>
               <div class="yolen-now-eyebrow">Agora</div>
-              <div class="yolen-now-heading">O que importa nesta conversa</div>
+              <div class="yolen-now-heading">
+                ${escapeHtml(
+                  neutralCopy?.title ||
+                  'O que importa nesta conversa',
+                )}
+              </div>
             </div>
             ${
               commercialReading
                 ? `
                   <span class="yolen-now-status-pill">
                     ${escapeHtml(
-                      getRichCommercialReadingBadge(
-                        commercialReading,
-                      ),
+                      neutralSession
+                        ? 'Neutro'
+                        : getRichCommercialReadingBadge(
+                            commercialReading,
+                          ),
                     )}
                   </span>
                 `
@@ -10560,6 +10623,19 @@
           }
 
           ${attentionHtml}
+
+          ${
+            readingReason
+              ? `
+                <div class="yolen-now-reading" data-yolen-layer="reading">
+                  <div class="yolen-now-reading-title">Leitura da Yolen</div>
+                  <div class="yolen-now-reading-copy">
+                    ${escapeHtml(readingReason)}
+                  </div>
+                </div>
+              `
+              : ''
+          }
 
           ${
             guidanceHtml
@@ -10600,9 +10676,15 @@
               : ''
           }
 
-          <div class="yolen-now-actions">
-            ${getAnalysisActionButton()}
-          </div>
+          ${
+            analysisActions
+              ? `
+                <div class="yolen-now-actions">
+                  ${analysisActions}
+                </div>
+              `
+              : ''
+          }
         </section>
 
         ${moreContext}
@@ -10733,6 +10815,24 @@
     const preSendHtml =
       getPreSendAssessmentCardHtml()
 
+    const activeContent =
+      getActiveSellerAreaContentHtml()
+
+    const panels = [
+      'now',
+      'analysis',
+      'client',
+    ]
+      .map((area) =>
+        getSellerAreaPanelHtml(
+          area,
+          area === activeSellerArea
+            ? activeContent
+            : '',
+        ),
+      )
+      .join('')
+
     return `
       <div class="yolen-seller-workspace">
         <div
@@ -10755,10 +10855,7 @@
             : ''
         }
 
-        ${getSellerAreaPanelHtml(
-          activeSellerArea,
-          getActiveSellerAreaContentHtml(),
-        )}
+        ${panels}
       </div>
     `
   }
@@ -12231,7 +12328,7 @@
     return [
       '<div class="yolen-context-bar ' +
         getLeadStatusClass() +
-      '">',
+        '" aria-label="Conversa">',
         '<div class="yolen-context-bar-main">',
           '<div class="yolen-context-bar-name">',
             escapeHtml(
