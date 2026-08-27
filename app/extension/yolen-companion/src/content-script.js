@@ -5634,41 +5634,6 @@
     )
   }
 
-  // TEMP-DIAG-FASE12A — instrumentação temporária, somente console,
-  // somente booleanos/enums/contagens. Remover após o diagnóstico.
-  function __fase12aDiagCustomerCounts(reading) {
-    const customer = reading?.customer
-
-    if (!customer) {
-      return null
-    }
-
-    return {
-      objectives: customer.objectives?.length ?? 0,
-      problems: customer.problems?.length ?? 0,
-      needs: customer.needs?.length ?? 0,
-      interests: customer.interests?.length ?? 0,
-      objections: customer.objections?.length ?? 0,
-      discussed_products: customer.discussed_products?.length ?? 0,
-    }
-  }
-
-  let __fase12aDiagLastSignature = null
-
-  function __fase12aDiag(label, data) {
-    const signature =
-      label + '|' + JSON.stringify(data)
-
-    if (signature === __fase12aDiagLastSignature) {
-      return
-    }
-
-    __fase12aDiagLastSignature = signature
-
-    console.log('[FASE12A-DIAG]', label, data)
-  }
-  // TEMP-DIAG-FASE12A — fim do helper
-
   function getActiveCommercialReading() {
     const analysis =
       state
@@ -9869,15 +9834,6 @@
   // persistente, registros históricos confirmados e mensagens canônicas;
   // somente o salvamento da memória consolidada continua dependendo de ação
   // explícita do vendedor (ver handleSaveLeadSummaryClick).
-  // TEMP-DIAG-LEAD-SUMMARY — instrumentação temporária para diagnosticar
-  // falhas do resumo persistente do lead (Etapa 1) sem depender de
-  // DevTools do vendedor: registra só o estágio e o código/status interno
-  // da falha, nunca o texto do resumo, conteúdo da conversa ou token.
-  // Remover quando a Etapa 1 estiver validada em produção real.
-  function __leadSummaryDiag(stage, data) {
-    console.log('[LEAD-SUMMARY-DIAG]', stage, data)
-  }
-
   async function loadCompanionLeadSummaryForCurrentCycle() {
     const cycleId =
       state.leadResolution?.cycle?.id
@@ -9931,11 +9887,6 @@
       }
 
       if (!result?.ok || !result.payload?.ok) {
-        __leadSummaryDiag('FETCH_FAILED', {
-          status_code: result?.statusCode ?? null,
-          code: result?.payload?.code ?? null,
-        })
-
         state = {
           ...state,
           companionLeadSummary: {
@@ -9972,10 +9923,6 @@
       if (!isStillCurrentContext()) {
         return
       }
-
-      __leadSummaryDiag('FETCH_EXCEPTION', {
-        error_name: error instanceof Error ? error.name : 'unknown',
-      })
 
       state = {
         ...state,
@@ -10033,10 +9980,6 @@
       }
 
       if (result?.payload?.code === 'LEAD_SUMMARY_VERSION_CONFLICT') {
-        __leadSummaryDiag('SAVE_CONFLICT', {
-          status_code: result?.statusCode ?? null,
-        })
-
         state = {
           ...state,
           companionLeadSummarySaveStatus: 'conflict',
@@ -10048,11 +9991,6 @@
       }
 
       if (!result?.ok || !result.payload?.ok) {
-        __leadSummaryDiag('SAVE_FAILED', {
-          status_code: result?.statusCode ?? null,
-          code: result?.payload?.code ?? null,
-        })
-
         state = {
           ...state,
           companionLeadSummarySaveStatus: 'error',
@@ -10097,10 +10035,6 @@
 
       renderPanel()
     } catch (error) {
-      __leadSummaryDiag('SAVE_EXCEPTION', {
-        error_name: error instanceof Error ? error.name : 'unknown',
-      })
-
       state = {
         ...state,
         companionLeadSummarySaveStatus: 'error',
@@ -10193,16 +10127,6 @@
         .suggestionApplyResult &&
       !isCurrentAnalysisOutdated()
 
-    // TEMP-DIAG-FASE12A
-    __fase12aDiag('AGORA', {
-      branch: richEligible ? 'rich' : 'legacy',
-      conversationAnalysis_engine_source:
-        state.conversationAnalysis?.engine_source ?? null,
-      has_commercial_reading: Boolean(commercialReading),
-      commercial_relevance: commercialReading?.commercial_relevance ?? null,
-      commercial_role: commercialReading?.commercial_role ?? null,
-    })
-
     if (richEligible) {
       return (
         getRichCommercialReadingCardHtml(
@@ -10225,21 +10149,6 @@
       !state.conversationAnalysisLoading &&
       !state.conversationAnalysisError &&
       !isCurrentAnalysisOutdated()
-
-    // TEMP-DIAG-FASE12A
-    __fase12aDiag('ANALISE', {
-      branch: richEligible
-        ? 'rich'
-        : state.conversationAnalysisLoading
-          ? 'loading'
-          : state.conversationAnalysisError
-            ? 'error'
-            : isCurrentAnalysisOutdated()
-              ? 'outdated'
-              : 'empty-progressive',
-      has_commercial_reading: Boolean(commercialReading),
-      deep_analysis_status: state.deepAnalysisStatus ?? null,
-    })
 
     if (richEligible) {
       return `
@@ -10327,15 +10236,6 @@
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
 
-    // TEMP-DIAG-FASE12A
-    __fase12aDiag('CLIENTE', {
-      has_commercial_reading: Boolean(commercialReading),
-      has_commercial_html: Boolean(commercialHtml),
-      has_relationship_html: Boolean(relationshipHtml),
-      customer_counts:
-        __fase12aDiagCustomerCounts(commercialReading),
-    })
-
     if (!commercialHtml && !relationshipHtml) {
       return `
         <div class="yolen-card yolen-seller-area-card">
@@ -10397,9 +10297,42 @@
     `
   }
 
+  // AGORA é a única superfície de decisão: quando há um alerta relevante
+  // (SLA, risco de atendimento, desvio de método, pergunta/objeção em
+  // aberto), ele é o item de maior prioridade visual — o mesmo sinal que já
+  // acende no rail minimizado (getCollapsedCompanionAttentionSnapshot) não
+  // pode desaparecer quando o painel é expandido. Fica quieto (string
+  // vazia) sem sinal útil; nunca duplica o diagnóstico completo, que
+  // continua exclusivo de ANÁLISE.
+  function getNowAttentionSnapshotHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const hasCurrentReading =
+      Boolean(commercialReading) &&
+      !state.conversationAnalysisLoading &&
+      !isCurrentAnalysisOutdated() &&
+      commercialReading.analysis_status === 'complete'
+
+    if (!hasCurrentReading) {
+      return ''
+    }
+
+    return sellerInformationViewTools.renderNowAttentionSnapshot(
+      commercialReading,
+      state.companionClientContext,
+      {
+        now: Date.now(),
+        cycleClosed:
+          state.leadResolution?.flags?.is_closed === true,
+      },
+    )
+  }
+
   function getSellerInformationArchitectureHtml() {
     const nowHtml =
-      getCompanionLeadSummaryCardHtml() ||
+      getNowAttentionSnapshotHtml() +
+      (getCompanionLeadSummaryCardHtml() ||
       `
         <div class="yolen-card yolen-seller-area-card yolen-status-neutral">
           <div class="yolen-section-label">Agora</div>
@@ -10407,7 +10340,7 @@
             A Yolen está preparando o resumo e a orientação desta conversa.
           </div>
         </div>
-      `
+      `)
 
     const analysisHtml =
       getDetailedAnalysisAreaHtml()
@@ -13171,21 +13104,6 @@
       }
 
       if (data.status === 'succeeded') {
-        // TEMP-DIAG-FASE12A
-        __fase12aDiag('deep-succeeded', {
-          engine_source: data.result?.engine_source ?? null,
-          commercial_relevance:
-            data.result?.commercial_relevance ?? null,
-          commercial_role:
-            data.result?.commercial_role ?? null,
-          has_commercial_reading:
-            Boolean(data.result?.commercial_reading),
-          customer_counts:
-            __fase12aDiagCustomerCounts(
-              data.result?.commercial_reading,
-            ),
-        })
-
         activeAnalysisAttempt = null
 
         state = {
@@ -13207,9 +13125,6 @@
       }
 
       if (data.status === 'superseded') {
-        // TEMP-DIAG-FASE12A
-        __fase12aDiag('deep-superseded', {})
-
         // Um job mais novo para a MESMA conversa já assumiu o lugar deste
         // job específico — mas, como o V2 é o único motor, não existe mais
         // nenhum resultado já aplicado por baixo para sustentar a UI: sem
@@ -13229,11 +13144,6 @@
         renderPanel()
         return
       }
-
-      // TEMP-DIAG-FASE12A
-      __fase12aDiag('deep-failed-or-unknown-status', {
-        status: data.status ?? null,
-      })
 
       activeAnalysisAttempt = null
 
@@ -13528,22 +13438,6 @@
       )
 
       renderPanel()
-
-      // TEMP-DIAG-FASE12A
-      __fase12aDiag('quick-response', {
-        engine_source:
-          result.payload.data.engine_source ?? null,
-        has_deep_analysis:
-          Boolean(result.payload.data.deep_analysis),
-        deep_analysis_status:
-          result.payload.data.deep_analysis?.status ?? null,
-        deep_analysis_job_id_prefix:
-          result.payload.data.deep_analysis?.analysis_job_id
-            ? String(
-                result.payload.data.deep_analysis.analysis_job_id,
-              ).slice(0, 8)
-            : null,
-      })
 
       const deepAnalysisJob =
         result.payload.data.deep_analysis

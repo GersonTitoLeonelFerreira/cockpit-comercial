@@ -1953,6 +1953,14 @@ html.yolen-companion-collapsed #app {
   box-shadow: none;
 }
 
+/* Alerta relevante (nível 1) sempre no topo do AGORA, antes do resumo. */
+.yolen-seller-workspace--ux7
+.yolen-seller-panel[data-yolen-seller-panel="now"]
+> .yolen-now-attention {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
 /* AGORA is one stable action surface. Deep-analysis loading/error lives in ANÁLISE. */
 .yolen-seller-workspace--ux7
 .yolen-seller-panel[data-yolen-seller-panel="now"]
