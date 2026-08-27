@@ -94,15 +94,15 @@ test(
 
     assert.match(
       requestBlock,
-      /sessionBaseUrl \|\|\s*message\.baseUrl/,
+      /TEMP_TEST_BASE_URL \|\|\s*sessionBaseUrl \|\|\s*message\.baseUrl/,
     )
 
     assert.ok(
       requestBlock.indexOf(
-        'cachedSession.origin',
+        'TEMP_TEST_BASE_URL ||',
       ) <
         requestBlock.indexOf(
-          'message.baseUrl',
+          'sessionBaseUrl ||',
         ),
     )
   },
