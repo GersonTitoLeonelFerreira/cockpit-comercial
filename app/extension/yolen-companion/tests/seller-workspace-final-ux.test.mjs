@@ -74,3 +74,23 @@ test('preview continua sendo removido dos pacotes de produção', () => {
     /DEV_HOST_PATTERN = \/localhost\|cockpit-comercial-vocn-git-\/i/,
   )
 })
+
+
+test('AGORA nunca fica vazio mesmo se um renderer secundário falhar', () => {
+  assert.match(
+    contentScript,
+    /function getSafeSellerAreaContentHtml\(\s*area,?\s*\)/,
+  )
+  assert.match(
+    contentScript,
+    /getSellerAreaFallbackHtml\(\s*'now'/,
+  )
+  assert.match(
+    contentScript,
+    /data-yolen-area-fallback="now"/,
+  )
+  assert.match(
+    contentScript,
+    /catch \(error\)[\s\S]*getSellerAreaFallbackHtml/,
+  )
+})

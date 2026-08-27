@@ -1965,3 +1965,13 @@ html.yolen-companion-collapsed #app {
     linear-gradient(180deg, rgba(17,27,43,.84), rgba(8,14,23,.78));
 }
 .yolen-global-interruption { margin-bottom: 8px; }
+
+
+.yolen-seller-workspace--final [data-yolen-area-fallback] {
+  min-height: 118px;
+}
+.yolen-seller-workspace--final [data-yolen-area-fallback] .yolen-seller-empty-state {
+  color: #9fb0c6;
+  font-size: 11px;
+  line-height: 1.5;
+}

@@ -10397,27 +10397,125 @@
     `
   }
 
+  function getSellerAreaFallbackHtml(
+    area,
+    error = null,
+  ) {
+    if (error) {
+      console.error(
+        '[Yolen Companion] Falha ao renderizar área',
+        area,
+        error,
+      )
+    }
+
+    if (area === 'analysis') {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-neutral" data-yolen-area-fallback="analysis">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state">
+            A análise detalhada ainda não está disponível para esta conversa.
+          </div>
+          <div class="yolen-inline-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
+    if (area === 'client') {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-neutral" data-yolen-area-fallback="client">
+          <div class="yolen-section-label">Cliente</div>
+          <div class="yolen-seller-empty-state">
+            Ainda não há inteligência consolidada suficiente deste cliente.
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      <div class="yolen-card yolen-decision-card yolen-status-neutral" data-yolen-area-fallback="now">
+        <div class="yolen-decision-header">
+          <div class="yolen-section-label">Agora</div>
+          <div class="yolen-decision-badge">
+            ${escapeHtml(
+              getCompanionDecisionBadge(),
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-decision-block">
+          <div class="yolen-decision-kicker">Resumo</div>
+          <div class="yolen-card-title yolen-decision-title">
+            ${escapeHtml(
+              getCompanionMomentText(),
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-inline-actions yolen-decision-actions">
+          ${getAnalysisActionButton()}
+        </div>
+      </div>
+    `
+  }
+
+  function getSafeSellerAreaContentHtml(
+    area,
+  ) {
+    try {
+      if (area === 'analysis') {
+        return (
+          getDetailedAnalysisAreaHtml() ||
+          getSellerAreaFallbackHtml(
+            'analysis',
+          )
+        )
+      }
+
+      if (area === 'client') {
+        const clientHtml = [
+          getClientInformationAreaHtml(),
+          getLeadEnrichmentCandidatesHtml(),
+          getConversationRegistrationCardHtml(),
+        ].filter(Boolean).join('')
+
+        return (
+          clientHtml ||
+          getSellerAreaFallbackHtml(
+            'client',
+          )
+        )
+      }
+
+      const nowHtml = [
+        getAnalysisCardHtml(),
+        getCompanionLeadSummaryCardHtml(),
+      ].filter(Boolean).join('')
+
+      return (
+        nowHtml ||
+        getSellerAreaFallbackHtml(
+          'now',
+        )
+      )
+    } catch (error) {
+      return getSellerAreaFallbackHtml(
+        area,
+        error,
+      )
+    }
+  }
+
   function getSellerInformationArchitectureHtml() {
     const preSendHtml =
       getPreSendAssessmentCardHtml()
 
-    let activeContent = ''
-
-    if (activeSellerArea === 'analysis') {
-      activeContent =
-        getDetailedAnalysisAreaHtml()
-    } else if (activeSellerArea === 'client') {
-      activeContent = [
-        getClientInformationAreaHtml(),
-        getLeadEnrichmentCandidatesHtml(),
-        getConversationRegistrationCardHtml(),
-      ].filter(Boolean).join('')
-    } else {
-      activeContent = [
-        getAnalysisCardHtml(),
-        getCompanionLeadSummaryCardHtml(),
-      ].filter(Boolean).join('')
-    }
+    const activeContent =
+      getSafeSellerAreaContentHtml(
+        activeSellerArea,
+      )
 
     const panels = [
       'now',
