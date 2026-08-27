@@ -474,7 +474,7 @@ test('2 eventos correspondentes falham fechado; nunca escolhe o primeiro', async
   assert.equal(body.code, 'DEEP_RESULT_INTEGRITY_ERROR')
 })
 
-test('evento histórico V2 não satisfaz o join V3', async () => {
+test('evento histórico V2 não satisfaz o join do contrato atual (V4)', async () => {
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
   const fixtures = baseFixtures()
   fixtures.jobs.push(jobRow({
@@ -491,6 +491,45 @@ test('evento histórico V2 não satisfaz o join V3', async () => {
 
   assert.equal(status, 500)
   assert.equal(body.code, 'DEEP_RESULT_INTEGRITY_ERROR')
+})
+
+test('evento histórico V3 não satisfaz o join de um job novo no contrato V4', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({
+    status: 'succeeded',
+    candidateStateVersion: 1,
+  }))
+  fixtures.events.push(eventRow({
+    outputContractVersion: 'phase-5.2-stateful-copilot-v3',
+    normalizedOutput: deepOutput({ contract_version: 'phase-5.2-stateful-copilot-v3' }),
+  }))
+
+  const { status, body } = await callStatus(fixtures, token, {
+    analysis_job_id: ANALYSIS_JOB_ID_A,
+  })
+
+  assert.equal(status, 500)
+  assert.equal(body.code, 'DEEP_RESULT_INTEGRITY_ERROR')
+})
+
+test('job succeeded no contrato V4 encontra exatamente o evento V4 e entrega o deep seller result', async () => {
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+  const fixtures = baseFixtures()
+  fixtures.jobs.push(jobRow({
+    status: 'succeeded',
+    candidateStateVersion: 1,
+  }))
+  fixtures.events.push(eventRow({}))
+
+  const { status, body } = await callStatus(fixtures, token, {
+    analysis_job_id: ANALYSIS_JOB_ID_A,
+  })
+
+  assert.equal(status, 200)
+  assert.equal(body.data.status, 'succeeded')
+  assert.equal(body.data.result.engine_source, 'stateful')
+  assert.equal(body.data.result.summary, 'Cliente pediu desconto no plano anual.')
 })
 
 test('output/communication/commercial-reading incompatível falha fechado', async () => {
