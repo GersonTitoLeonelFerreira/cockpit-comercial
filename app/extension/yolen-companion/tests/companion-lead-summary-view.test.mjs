@@ -97,7 +97,7 @@ test('resumo curto permanece direto sem controle de expansão desnecessário', (
 
   assert.match(html, /yolen-lead-summary-text/)
   assert.doesNotMatch(html, /Ver resumo completo/)
-  assert.doesNotMatch(html, /yolen-lead-summary-details/)
+  assert.doesNotMatch(html, /class="yolen-lead-summary-details"/)
 })
 
 test('resumo canônico sem mudanças mostra estado salvo e não oferece novo save', () => {

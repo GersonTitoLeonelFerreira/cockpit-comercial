@@ -2019,3 +2019,359 @@ test(
     )
   },
 )
+
+// ONDA 8 / FRENTE 2 — commercial-method-v2 é a única fonte ativa de
+// método comercial no caminho do Companion. Os testes abaixo comprovam,
+// no nível do carregador real (a mesma consulta usada em produção):
+// draft nunca vaza para o Companion, e uma nova análise após publicação
+// usa imediatamente a versão nova, sem cache preso à versão anterior.
+
+function buildMethodVersionRow({
+  id,
+  versionNumber,
+  status,
+  stageName,
+}) {
+  return {
+    id,
+
+    company_id:
+      companyId,
+
+    version_number:
+      versionNumber,
+
+    contract_version:
+      'phase-2-v1',
+
+    status,
+
+    business_description:
+      'Empresa de serviços comerciais.',
+
+    target_audience:
+      'Clientes que buscam acompanhamento.',
+
+    value_proposition:
+      'Atendimento consultivo e estruturado.',
+
+    commercial_method_name:
+      `Método ${stageName} (legado, não deve ser usado)`,
+
+    commercial_method_description:
+      'Texto legado, não deve ser parseado como etapas.',
+
+    commercial_method_contract_version:
+      'commercial-method-v2',
+
+    commercial_method_definition: {
+      contract_version:
+        'commercial-method-v2',
+
+      name:
+        `Método ${stageName}`,
+
+      description:
+        `Descrição estruturada do método ${stageName}.`,
+
+      principles: [
+        'Esperar é uma decisão comercial válida.',
+      ],
+
+      stages: [
+        {
+          key:
+            stageName.toLowerCase(),
+
+          display_order:
+            1,
+
+          name:
+            stageName,
+
+          objective:
+            'Compreender a necessidade relevante.',
+
+          requirement:
+            'required',
+
+          completion_criteria: [
+            'Necessidade compreendida.',
+          ],
+
+          partial_completion_criteria: [],
+          skip_conditions: [],
+          recommended_questions: [],
+          common_mistakes: [],
+          deepen_when: [],
+
+          sufficient_when: [
+            'Existe informação suficiente para orientar.',
+          ],
+
+          advance_when: [],
+          wait_when: [],
+
+          stop_asking_when: [
+            'Novas perguntas não alterariam a decisão.',
+          ],
+
+          dimensions: [],
+        },
+      ],
+    },
+
+    communication_tone:
+      'Direto e respeitoso.',
+
+    required_behaviors: [],
+    prohibited_behaviors: [],
+
+    created_by:
+      ownerId,
+
+    published_by:
+      status === 'published'
+        ? ownerId
+        : null,
+
+    archived_by:
+      status === 'archived'
+        ? ownerId
+        : null,
+
+    created_at:
+      '2026-08-01T10:00:00.000Z',
+
+    updated_at:
+      '2026-08-02T10:00:00.000Z',
+
+    published_at:
+      status === 'published'
+        ? '2026-08-02T10:00:00.000Z'
+        : null,
+
+    archived_at:
+      status === 'archived'
+        ? '2026-08-03T10:00:00.000Z'
+        : null,
+  }
+}
+
+test(
+  'draft commercial-method-v2 nunca é usado enquanto outra versão está publicada (cenário A)',
+  async () => {
+    const fixtures =
+      buildFixtures()
+
+    fixtures
+      .company_commercial_config_versions =
+      [
+        buildMethodVersionRow({
+          id:
+            configVersionId,
+
+          versionNumber:
+            3,
+
+          status:
+            'published',
+
+          stageName:
+            'Tour',
+        }),
+
+        buildMethodVersionRow({
+          id:
+            '60000000-0000-4000-8000-000000000009',
+
+          versionNumber:
+            4,
+
+          status:
+            'draft',
+
+          stageName:
+            'RascunhoNuncaUsado',
+        }),
+      ]
+
+    const {
+      client,
+    } =
+      createMockClient(
+        fixtures,
+      )
+
+    const loader =
+      createStatefulCopilotRealContextLoader(
+        client,
+      )
+
+    const result =
+      await loader(
+        buildLoadArgs(),
+      )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Tour',
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps
+        .some(
+          (step) =>
+            step.name ===
+            'RascunhoNuncaUsado',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'nova análise após publicação usa a nova versão publicada, sem cache preso à anterior (cenário B)',
+  async () => {
+    const versionAFixtures =
+      buildFixtures()
+
+    versionAFixtures
+      .company_commercial_config_versions =
+      [
+        buildMethodVersionRow({
+          id:
+            configVersionId,
+
+          versionNumber:
+            3,
+
+          status:
+            'published',
+
+          stageName:
+            'Tour',
+        }),
+      ]
+
+    const loader =
+      createStatefulCopilotRealContextLoader(
+        createMockClient(
+          versionAFixtures,
+        ).client,
+      )
+
+    const resultA =
+      await loader(
+        buildLoadArgs(),
+      )
+
+    assert.equal(
+      resultA
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Tour',
+    )
+
+    assert.equal(
+      resultA
+        .diagnostic_input
+        .commercial_context
+        .config_version_number,
+      3,
+    )
+
+    // Simula o resultado de uma publicação bem-sucedida: a versão 3
+    // agora está arquivada e a versão 4 passa a ser a única publicada.
+    const versionBFixtures =
+      buildFixtures()
+
+    versionBFixtures
+      .company_commercial_config_versions =
+      [
+        buildMethodVersionRow({
+          id:
+            configVersionId,
+
+          versionNumber:
+            3,
+
+          status:
+            'archived',
+
+          stageName:
+            'Tour',
+        }),
+
+        buildMethodVersionRow({
+          id:
+            '60000000-0000-4000-8000-000000000004',
+
+          versionNumber:
+            4,
+
+          status:
+            'published',
+
+          stageName:
+            'Apresentacao',
+        }),
+      ]
+
+    const freshLoader =
+      createStatefulCopilotRealContextLoader(
+        createMockClient(
+          versionBFixtures,
+        ).client,
+      )
+
+    const resultAfterPublish =
+      await freshLoader(
+        buildLoadArgs(),
+      )
+
+    assert.equal(
+      resultAfterPublish
+        .diagnostic_input
+        .commercial_context
+        .config_version_number,
+      4,
+    )
+
+    assert.equal(
+      resultAfterPublish
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Apresentacao',
+    )
+
+    assert.equal(
+      resultAfterPublish
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps
+        .some(
+          (step) =>
+            step.name ===
+            'Tour',
+        ),
+      false,
+    )
+  },
+)

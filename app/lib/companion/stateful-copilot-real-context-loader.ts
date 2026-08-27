@@ -2483,6 +2483,27 @@ export function createStatefulCopilotRealContextLoader(
         products,
       })
 
+    if (
+      diagnosticInput.analysis_precondition
+        .limitations.includes(
+          'commercial_method_invalid',
+        )
+    ) {
+      console.error(
+        '[STATEFUL_COPILOT_REAL_CONTEXT] commercial method invalid, falling back to no method guidance',
+        {
+          company_id: companyId,
+          config_version_id:
+            commercialConfig?.version.id ??
+            null,
+          config_contract_version:
+            commercialConfig?.version
+              .commercial_method_contract_version ??
+            null,
+        },
+      )
+    }
+
     const activeMessageIds =
       [
         ...diagnosticInput

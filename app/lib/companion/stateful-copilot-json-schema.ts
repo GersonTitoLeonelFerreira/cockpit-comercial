@@ -261,12 +261,18 @@ const statePatchSchema =
     need_ids_to_resolve:
       stringArraySchema,
 
+    need_ids_to_supersede:
+      stringArraySchema,
+
     open_loops_to_add:
       arraySchema(
         openLoopCandidateSchema,
       ),
 
     open_loop_ids_to_resolve:
+      stringArraySchema,
+
+    open_loop_ids_to_supersede:
       stringArraySchema,
 
     objections_to_add:
@@ -299,6 +305,9 @@ const statePatchSchema =
       ),
 
     uncertainty_ids_to_resolve:
+      stringArraySchema,
+
+    uncertainty_ids_to_supersede:
       stringArraySchema,
   })
 
@@ -873,11 +882,14 @@ export function buildStatefulCopilotDiagnosticStructuredOutputFormat({
   const statePatchMemoryReferences = [
     'fact_ids_to_supersede',
     'need_ids_to_resolve',
+    'need_ids_to_supersede',
     'open_loop_ids_to_resolve',
+    'open_loop_ids_to_supersede',
     'objection_ids_to_resolve',
     'objection_ids_to_supersede',
     'signal_ids_to_resolve',
     'uncertainty_ids_to_resolve',
+    'uncertainty_ids_to_supersede',
   ] as const
 
   for (

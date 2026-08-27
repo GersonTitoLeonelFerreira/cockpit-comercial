@@ -35,9 +35,22 @@ type LegacyHistoryEntry = {
   objections: string[]
 }
 
+type RegisteredConversationHistoryEntry = {
+  cycle_id: string
+  conversation_key: string
+  watermark: string
+  summary_text: string
+  message_count: number
+  created_at: string
+}
+
 type SummarySource =
   | 'canonical'
   | 'canonical_plus_conversation'
+  | 'canonical_plus_history'
+  | 'canonical_plus_history_plus_conversation'
+  | 'registered_history'
+  | 'registered_history_plus_conversation'
   | 'legacy_history'
   | 'legacy_history_plus_conversation'
   | 'conversation_only'
@@ -169,6 +182,91 @@ function dedupeLegacyHistory(entries: LegacyHistoryEntry[]): LegacyHistoryEntry[
   return result
 }
 
+function normalizeRegisteredHistoryRows(
+  data: unknown,
+): RegisteredConversationHistoryEntry[] {
+  if (!Array.isArray(data)) {
+    return []
+  }
+
+  return data
+    .filter(isRecord)
+    .map((row) => ({
+      cycle_id: normalizeString(row.cycle_id),
+      conversation_key:
+        normalizeString(row.conversation_key),
+      watermark: normalizeString(row.watermark),
+      summary_text:
+        normalizeString(row.summary_text),
+      message_count:
+        typeof row.message_count === 'number'
+          ? row.message_count
+          : null,
+      created_at: normalizeString(row.created_at),
+    }))
+    .filter(
+      (
+        row,
+      ): row is RegisteredConversationHistoryEntry =>
+        Boolean(
+          row.cycle_id &&
+            row.conversation_key &&
+            row.watermark &&
+            row.summary_text &&
+            row.created_at &&
+            row.message_count !== null,
+        ),
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(left.created_at) -
+        Date.parse(right.created_at),
+    )
+}
+
+function dedupeRegisteredHistory(
+  entries: RegisteredConversationHistoryEntry[],
+) {
+  // Cada registro resume o snapshot completo daquela conversa. Portanto,
+  // a versão mais recente por conversation_key substitui os marcos antigos
+  // da mesma conversa, sem apagar registros de outras conversas do lead.
+  const latestByConversation = new Map<
+    string,
+    RegisteredConversationHistoryEntry
+  >()
+
+  for (const entry of entries) {
+    latestByConversation.set(
+      entry.conversation_key,
+      entry,
+    )
+  }
+
+  const seenSummaries = new Set<string>()
+
+  return Array.from(
+    latestByConversation.values(),
+  )
+    .sort(
+      (left, right) =>
+        Date.parse(left.created_at) -
+        Date.parse(right.created_at),
+    )
+    .filter((entry) => {
+      const key = entry.summary_text
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLocaleLowerCase('pt-BR')
+
+      if (seenSummaries.has(key)) {
+        return false
+      }
+
+      seenSummaries.add(key)
+      return true
+    })
+}
+
 async function loadLegacyHistory({
   admin,
   identity,
@@ -192,6 +290,34 @@ async function loadLegacyHistory({
   }
 
   return normalizeLegacyHistoryRows(data)
+}
+
+async function loadRegisteredHistory({
+  admin,
+  identity,
+}: {
+  admin: SupabaseClient
+  identity: CompanionLeadIdentity
+}): Promise<RegisteredConversationHistoryEntry[]> {
+  const { data, error } = await admin
+    .from('companion_conversation_registrations')
+    .select(
+      'cycle_id, conversation_key, watermark, summary_text, message_count, created_at',
+    )
+    .eq('company_id', identity.company_id)
+    .eq('lead_id', identity.lead_id)
+
+  if (error) {
+    throw new CompanionLeadSummaryError({
+      code: 'LEAD_SUMMARY_REGISTERED_HISTORY_FAILED',
+      message:
+        'Não foi possível carregar as conversas registradas deste lead.',
+      status_code: 500,
+      retryable: true,
+    })
+  }
+
+  return normalizeRegisteredHistoryRows(data)
 }
 
 async function loadMessagesForSummary({
@@ -250,6 +376,17 @@ function formatHistoryForPrompt(entries: LegacyHistoryEntry[]) {
   }))
 }
 
+function formatRegisteredHistoryForPrompt(
+  entries: RegisteredConversationHistoryEntry[],
+) {
+  return entries.map((entry) => ({
+    occurred_at: entry.created_at,
+    conversation_key: entry.conversation_key,
+    summary: entry.summary_text,
+    message_count: entry.message_count,
+  }))
+}
+
 function formatMessagesForPrompt(messages: CanonicalConversationMessage[]) {
   return messages.map((message) => ({
     occurred_at: message.occurred_at,
@@ -261,17 +398,42 @@ function formatMessagesForPrompt(messages: CanonicalConversationMessage[]) {
 
 function resolveSource({
   savedSummary,
+  registeredHistory,
   legacyHistory,
   messagesForPrompt,
   needsComposition,
 }: {
   savedSummary: CompanionLeadConversationSummary | null
+  registeredHistory: RegisteredConversationHistoryEntry[]
   legacyHistory: LegacyHistoryEntry[]
   messagesForPrompt: CanonicalConversationMessage[]
   needsComposition: boolean
 }): SummarySource {
   if (savedSummary) {
-    return needsComposition ? 'canonical_plus_conversation' : 'canonical'
+    if (
+      needsComposition &&
+      registeredHistory.length > 0 &&
+      messagesForPrompt.length > 0
+    ) {
+      return 'canonical_plus_history_plus_conversation'
+    }
+
+    if (
+      needsComposition &&
+      registeredHistory.length > 0
+    ) {
+      return 'canonical_plus_history'
+    }
+
+    return needsComposition
+      ? 'canonical_plus_conversation'
+      : 'canonical'
+  }
+
+  if (registeredHistory.length > 0) {
+    return messagesForPrompt.length > 0
+      ? 'registered_history_plus_conversation'
+      : 'registered_history'
   }
 
   if (legacyHistory.length > 0) {
@@ -289,14 +451,21 @@ function resolveSource({
 
 async function composeWorkingSummary({
   savedSummary,
+  registeredHistory,
   legacyHistory,
   messages,
 }: {
   savedSummary: CompanionLeadConversationSummary | null
+  registeredHistory: RegisteredConversationHistoryEntry[]
   legacyHistory: LegacyHistoryEntry[]
   messages: CanonicalConversationMessage[]
 }): Promise<string | null> {
-  if (!savedSummary && legacyHistory.length === 0 && messages.length === 0) {
+  if (
+    !savedSummary &&
+    registeredHistory.length === 0 &&
+    legacyHistory.length === 0 &&
+    messages.length === 0
+  ) {
     return null
   }
 
@@ -313,6 +482,9 @@ async function composeWorkingSummary({
       'Produza um único resumo consolidado em português do Brasil.',
       'O resumo deve registrar fatos do relacionamento: necessidades, dores, interesses, produtos/serviços/propostas discutidos, valores quando explicitamente registrados, objeções, dúvidas, critérios de decisão, compromissos, pendências e acontecimentos comerciais relevantes.',
       'Preserve fatos históricos ainda relevantes mesmo quando a conversa mais recente for pessoal, neutra ou operacional.',
+      'O resumo persistente salvo é a memória consolidada prioritária e deve ser usado como base quando existir.',
+      'Os registros confirmados de conversa são marcos históricos factuais. Eles complementam a memória, mas não substituem silenciosamente o resumo persistente salvo.',
+      'Uma conversa registrada pode resumir mensagens também presentes no snapshot canônico. Una o fato uma única vez e nunca duplique informação por aparecer em mais de uma fonte.',
       'Não transforme silêncio ou conversa pessoal em perda de interesse.',
       'Não invente fatos e não repita a mesma informação em frases diferentes.',
       'Quando houver informação nova que contradiga uma antiga, prefira a informação explícita mais recente e descreva a mudança quando isso for importante.',
@@ -322,6 +494,10 @@ async function composeWorkingSummary({
     ].join('\n'),
     user_prompt: JSON.stringify({
       saved_summary: savedSummary?.summary ?? null,
+      registered_conversation_history:
+        formatRegisteredHistoryForPrompt(
+          registeredHistory,
+        ),
       legacy_yolen_history: formatHistoryForPrompt(legacyHistory),
       current_or_new_messages: formatMessagesForPrompt(messages),
     }),
@@ -425,11 +601,20 @@ export async function POST(request: Request) {
       conversation_key: body.conversation_key,
     })
 
-    const [summary, legacyHistoryRaw, canonicalMessages] = await Promise.all([
+    const [
+      summary,
+      registeredHistoryRaw,
+      legacyHistoryRaw,
+      canonicalMessages,
+    ] = await Promise.all([
       getCompanionLeadConversationSummary({
         admin,
         companyId: identity.company_id,
         leadId: identity.lead_id,
+      }),
+      loadRegisteredHistory({
+        admin,
+        identity,
       }),
       loadLegacyHistory({
         admin,
@@ -441,43 +626,174 @@ export async function POST(request: Request) {
       }),
     ])
 
+    const registeredHistory =
+      dedupeRegisteredHistory(
+        registeredHistoryRaw,
+      )
     const legacyHistory = dedupeLegacyHistory(legacyHistoryRaw)
+    const registeredSummaryKeys = new Set(
+      registeredHistory.map((entry) =>
+        entry.summary_text
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLocaleLowerCase('pt-BR'),
+      ),
+    )
+    const legacyHistoryWithoutRegisteredDuplicates =
+      legacyHistory.filter(
+        (entry) =>
+          !registeredSummaryKeys.has(
+            entry.conversation_summary
+              .replace(/\s+/g, ' ')
+              .trim()
+              .toLocaleLowerCase('pt-BR'),
+          ),
+      )
     const usableMessages = getUsableMessages(canonicalMessages)
     const currentWatermark = computeConversationWatermark(canonicalMessages)
+    const latestCurrentRegistration =
+      registeredHistory
+        .filter(
+          (entry) =>
+            entry.conversation_key ===
+            identity.conversation_key,
+        )
+        .at(-1) ?? null
 
     let messagesForPrompt: CanonicalConversationMessage[] = []
+    let registeredHistoryForPrompt:
+      RegisteredConversationHistoryEntry[] = []
     let workingSummary: string | null = null
     let needsComposition = false
 
     if (summary) {
       const watermarkChanged = summary.last_message_watermark !== currentWatermark
+      registeredHistoryForPrompt =
+        registeredHistory.filter((entry) => {
+          if (
+            Date.parse(entry.created_at) <=
+            Date.parse(summary.updated_at)
+          ) {
+            return false
+          }
 
-      if (!watermarkChanged || usableMessages.length === 0) {
+          // O mesmo snapshot já consolidado no resumo persistente não vira
+          // uma alteração só porque o vendedor também o registrou no log.
+          return !(
+            entry.conversation_key ===
+              identity.conversation_key &&
+            entry.watermark === currentWatermark &&
+            summary.last_message_watermark ===
+              currentWatermark
+          )
+        })
+
+      if (
+        (!watermarkChanged ||
+          usableMessages.length === 0) &&
+        registeredHistoryForPrompt.length === 0
+      ) {
         workingSummary = summary.summary
       } else {
-        messagesForPrompt = getMessagesAfter(usableMessages, summary.updated_at)
+        const currentRegistrationIsNewer =
+          latestCurrentRegistration &&
+          Date.parse(
+            latestCurrentRegistration.created_at,
+          ) > Date.parse(summary.updated_at)
+
+        const currentConversationAnchor =
+          currentRegistrationIsNewer
+            ? latestCurrentRegistration.created_at
+            : summary.updated_at
+
+        if (watermarkChanged) {
+          messagesForPrompt = getMessagesAfter(
+            usableMessages,
+            currentConversationAnchor,
+          )
+        }
 
         // Uma edição/restauração antiga também muda o watermark. Se nada ficou
         // cronologicamente "depois" do resumo, mande o snapshot canônico atual
         // inteiro para que a IA consiga reconciliar a mudança sem perder fatos.
-        if (messagesForPrompt.length === 0) {
+        if (
+          watermarkChanged &&
+          usableMessages.length > 0 &&
+          messagesForPrompt.length === 0 &&
+          latestCurrentRegistration?.watermark !==
+            currentWatermark
+        ) {
           messagesForPrompt = usableMessages
         }
 
         needsComposition = true
         workingSummary = await composeWorkingSummary({
           savedSummary: summary,
+          registeredHistory:
+            registeredHistoryForPrompt,
           legacyHistory: [],
           messages: messagesForPrompt,
         })
       }
-    } else if (legacyHistory.length > 0) {
-      const latestHistoryAt = legacyHistory.at(-1)?.created_at ?? null
-      messagesForPrompt = getMessagesAfter(usableMessages, latestHistoryAt)
+    } else if (registeredHistory.length > 0) {
+      registeredHistoryForPrompt =
+        registeredHistory
+
+      if (
+        latestCurrentRegistration?.watermark !==
+        currentWatermark
+      ) {
+        messagesForPrompt =
+          latestCurrentRegistration
+            ? getMessagesAfter(
+                usableMessages,
+                latestCurrentRegistration.created_at,
+              )
+            : usableMessages
+
+        if (
+          latestCurrentRegistration &&
+          usableMessages.length > 0 &&
+          messagesForPrompt.length === 0
+        ) {
+          messagesForPrompt = usableMessages
+        }
+      }
+
+      if (
+        registeredHistoryForPrompt.length === 1 &&
+        legacyHistoryWithoutRegisteredDuplicates.length === 0 &&
+        messagesForPrompt.length === 0
+      ) {
+        workingSummary =
+          registeredHistoryForPrompt[0].summary_text
+      } else {
+        needsComposition = true
+        workingSummary = await composeWorkingSummary({
+          savedSummary: null,
+          registeredHistory:
+            registeredHistoryForPrompt,
+          legacyHistory:
+            legacyHistoryWithoutRegisteredDuplicates,
+          messages: messagesForPrompt,
+        })
+      }
+    } else if (
+      legacyHistoryWithoutRegisteredDuplicates.length > 0
+    ) {
+      const latestHistoryAt =
+        legacyHistoryWithoutRegisteredDuplicates
+          .at(-1)?.created_at ?? null
+      messagesForPrompt = getMessagesAfter(
+        usableMessages,
+        latestHistoryAt,
+      )
       needsComposition = true
       workingSummary = await composeWorkingSummary({
         savedSummary: null,
-        legacyHistory,
+        registeredHistory: [],
+        legacyHistory:
+          legacyHistoryWithoutRegisteredDuplicates,
         messages: messagesForPrompt,
       })
     } else if (usableMessages.length > 0) {
@@ -485,6 +801,7 @@ export async function POST(request: Request) {
       needsComposition = true
       workingSummary = await composeWorkingSummary({
         savedSummary: null,
+        registeredHistory: [],
         legacyHistory: [],
         messages: messagesForPrompt,
       })
@@ -492,7 +809,10 @@ export async function POST(request: Request) {
 
     const source = resolveSource({
       savedSummary: summary,
-      legacyHistory,
+      registeredHistory:
+        registeredHistoryForPrompt,
+      legacyHistory:
+        legacyHistoryWithoutRegisteredDuplicates,
       messagesForPrompt,
       needsComposition,
     })
@@ -514,6 +834,10 @@ export async function POST(request: Request) {
           working_summary_source: source,
           has_unsaved_changes: hasUnsavedChanges,
           current_message_watermark: currentWatermark,
+          registered_history_count:
+            registeredHistoryRaw.length,
+          registered_history_distinct_count:
+            registeredHistory.length,
           legacy_history_count: legacyHistoryRaw.length,
           legacy_history_distinct_count: legacyHistory.length,
           messages_used_count: messagesForPrompt.length,

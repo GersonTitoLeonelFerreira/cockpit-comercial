@@ -14,6 +14,14 @@
     typeof api.confirmConversationRegistration === 'function'
       ? api.confirmConversationRegistration.bind(api)
       : null
+  const originalPreviewConversationRegistration =
+    typeof api.previewConversationRegistration === 'function'
+      ? api.previewConversationRegistration.bind(api)
+      : null
+  const originalIngestCapturedMessages =
+    typeof api.ingestCapturedMessages === 'function'
+      ? api.ingestCapturedMessages.bind(api)
+      : null
 
   const readyCache = new Map()
   const inFlightCache = new Map()
@@ -105,6 +113,19 @@
     }
   }
 
+  function clearDerivedCaches(
+    payload,
+    { clearSellerMessage = true } = {},
+  ) {
+    root.YolenCompanionLeadMethodGuidanceRuntime
+      ?.clear?.()
+
+    if (clearSellerMessage) {
+      root.YolenCompanionSellerMessageRuntime
+        ?.clear?.(payload)
+    }
+  }
+
   function hasUsableSummary(result) {
     if (!result?.ok || !result?.payload?.ok) {
       return false
@@ -171,6 +192,9 @@
 
       if (result?.ok && result?.payload?.ok) {
         clearConversationEntries(payload)
+        clearDerivedCaches(payload, {
+          clearSellerMessage: false,
+        })
 
         const cacheKey = buildCacheKey(payload)
 
@@ -191,6 +215,42 @@
 
         if (result?.ok && result?.payload?.ok) {
           clearConversationEntries(payload)
+          clearDerivedCaches(payload)
+        }
+
+        return result
+      }
+  }
+
+  if (originalPreviewConversationRegistration) {
+    api.previewConversationRegistration =
+      async function previewConversationRegistrationAndRecoverExistingHistory(payload) {
+        const result =
+          await originalPreviewConversationRegistration(payload)
+
+        if (
+          result?.ok &&
+          result?.payload?.ok &&
+          result.payload.data?.already_registered ===
+            true
+        ) {
+          clearConversationEntries(payload)
+          clearDerivedCaches(payload)
+        }
+
+        return result
+      }
+  }
+
+  if (originalIngestCapturedMessages) {
+    api.ingestCapturedMessages =
+      async function ingestCapturedMessagesAndInvalidateSummary(payload) {
+        const result =
+          await originalIngestCapturedMessages(payload)
+
+        if (result?.ok && result?.payload?.ok) {
+          clearConversationEntries(payload)
+          clearDerivedCaches(payload)
         }
 
         return result
@@ -200,6 +260,7 @@
   root.YolenCompanionLeadSummaryRuntimeCache = {
     clear(payload) {
       clearConversationEntries(payload)
+      clearDerivedCaches(payload)
     },
     size() {
       return readyCache.size

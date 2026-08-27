@@ -46,13 +46,10 @@ const PRODUCTION_COMPANION_BASE_URL =
 const LOCAL_COMPANION_BASE_URL =
   'http://localhost:3000'
 
-// TEMP-TEST-ENV-FASE12A — autorizado pelo Controle Mestre só para permitir
-// testar a branch claude/seller-facing-persistent-memory-integrated (V2
-// como único motor) antes de qualquer merge. Alias estável de preview,
-// sempre aponta para o deploy mais recente desta branch. Remover assim
-// que o teste real terminar ou a branch for mergeada/descartada.
+// TEMP-TEST-ENV — alias estável do preview consolidado desta branch.
+// Mantém a sessão e o backend do Companion no mesmo estado de código durante a validação real.
 const TEMP_TEST_COMPANION_BASE_URL =
-  'https://cockpit-comercial-vocn-git-claude-yolen-lead-persi-f5596b-yolen.vercel.app'
+  'https://cockpit-comercial-vocn-git-chatgpt-companion-custo-773c3b-yolen.vercel.app'
 
 async function getCompanionBaseUrl() {
   const headerStore =

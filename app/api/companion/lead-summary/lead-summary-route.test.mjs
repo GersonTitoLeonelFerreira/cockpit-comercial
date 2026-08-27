@@ -38,6 +38,11 @@ import {
 installFakeSupabaseEnv()
 
 const adminBox = { admin: null }
+const providerBox = {
+  calls: [],
+  workingSummary:
+    'Resumo composto a partir das fontes factuais.',
+}
 
 import { mock } from 'node:test'
 
@@ -46,6 +51,25 @@ mock.module('@supabase/supabase-js', {
     createClient: () => adminBox.admin,
   },
 })
+
+mock.module(
+  '../../../lib/companion/stateful-copilot-openai-provider',
+  {
+    namedExports: {
+      createStatefulCopilotOpenAIProvider:
+        () => async (request) => {
+          providerBox.calls.push(request)
+          return {
+            content: JSON.stringify({
+              working_summary:
+                providerBox.workingSummary,
+            }),
+            provider: 'test',
+          }
+        },
+    },
+  },
+)
 
 const { POST: fetchPOST } = await import('./route.ts')
 const { POST: savePOST } = await import('./save/route.ts')
@@ -142,15 +166,29 @@ function buildQueryClass(tables, tableErrors = {}) {
 // banco real (migration ausente no deploy) — reproduz exatamente o FAIL de
 // integração real reportado: um deploy cujo código já tem a rota, mas cujo
 // banco Postgres conectado ainda não recebeu a migration desta etapa.
-function createFakeAdmin({ memberships, cycles, summaries = [], tableErrors = {}, rpcError = null }) {
+function createFakeAdmin({
+  memberships,
+  cycles,
+  summaries = [],
+  registrations = [],
+  legacyHistory = [],
+  reconciliation = [],
+  messages = [],
+  tableErrors = {},
+  rpcError = null,
+}) {
   const rpcCalls = []
   let nextId = 1
 
   const tables = {
     company_memberships: memberships,
     sales_cycles: cycles,
-    conversation_message_reconciliation_state: [],
-    conversation_messages: [],
+    conversation_message_reconciliation_state:
+      reconciliation,
+    conversation_messages: messages,
+    companion_conversation_registrations:
+      registrations,
+    ai_coaching_notes: legacyHistory,
     companion_lead_conversation_summaries: summaries,
   }
 
@@ -611,4 +649,301 @@ test('10) a rota de leitura nunca grava (nenhum SAVE sem ação explícita)', as
   )
 
   assert.equal(summaries.length, 0)
+})
+
+function canonicalConversationFixtures({
+  text =
+    'Preciso organizar o follow-up da equipe.',
+  occurredAt = '2026-08-25T14:00:00.000Z',
+} = {}) {
+  return {
+    reconciliation: [
+      {
+        company_id: IDS.companyA,
+        conversation_key: CONVERSATION_KEY,
+        current_message_id: 'message-1',
+      },
+    ],
+    messages: [
+      {
+        id: 'message-1',
+        company_id: IDS.companyA,
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+        message_key: 'whatsapp-message-1',
+        version: 1,
+        direction: 'incoming',
+        occurred_at: occurredAt,
+        content_type: 'text',
+        text_content: text,
+        audio_transcription: null,
+        is_deleted: false,
+      },
+    ],
+  }
+}
+
+function registeredHistoryRow(overrides = {}) {
+  return {
+    company_id: IDS.companyA,
+    cycle_id: IDS.cycleA,
+    lead_id: IDS.leadA,
+    conversation_key: CONVERSATION_KEY,
+    watermark: 'registered-watermark-1',
+    summary_text:
+      'A cliente confirmou que precisa organizar o follow-up da equipe.',
+    message_count: 22,
+    created_at: '2026-08-25T14:30:00.000Z',
+    ...overrides,
+  }
+}
+
+function savedSummaryRow(overrides = {}) {
+  return {
+    id: 'summary-1',
+    company_id: IDS.companyA,
+    lead_id: IDS.leadA,
+    conversation_key: CONVERSATION_KEY,
+    summary:
+      'Resumo persistente aprovado pelo vendedor.',
+    version: 1,
+    last_message_watermark:
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    created_at: '2026-08-25T12:00:00.000Z',
+    updated_at: '2026-08-25T12:00:00.000Z',
+    created_by: IDS.userA,
+    updated_by: IDS.userA,
+    ...overrides,
+  }
+}
+
+test('lead recém-criado com mensagens canônicas forma working summary', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary =
+    'A cliente precisa organizar o follow-up da equipe.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    ...canonicalConversationFixtures(),
+  }).admin
+
+  const token = buildToken({
+    sub: IDS.userA,
+    companyId: IDS.companyA,
+  })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(
+    body.data.working_summary,
+    providerBox.workingSummary,
+  )
+  assert.equal(
+    body.data.working_summary_source,
+    'conversation_only',
+  )
+  assert.equal(body.data.messages_used_count, 1)
+
+  const prompt = JSON.parse(
+    providerBox.calls[0].user_prompt,
+  )
+  assert.equal(
+    prompt.current_or_new_messages[0].text,
+    'Preciso organizar o follow-up da equipe.',
+  )
+})
+
+test('conversa registrada alimenta o working summary quando é a única memória histórica', async () => {
+  providerBox.calls = []
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    registrations: [registeredHistoryRow()],
+  }).admin
+
+  const token = buildToken({
+    sub: IDS.userA,
+    companyId: IDS.companyA,
+  })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(
+    body.data.working_summary,
+    registeredHistoryRow().summary_text,
+  )
+  assert.equal(
+    body.data.working_summary_source,
+    'registered_history',
+  )
+  assert.equal(body.data.has_unsaved_changes, true)
+  assert.equal(providerBox.calls.length, 0)
+})
+
+test('resumo persistente tem prioridade sobre registro equivalente do mesmo snapshot', async () => {
+  providerBox.calls = []
+  const summary = savedSummaryRow()
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    summaries: [summary],
+    registrations: [
+      registeredHistoryRow({
+        watermark:
+          summary.last_message_watermark,
+        created_at:
+          '2026-08-25T13:00:00.000Z',
+      }),
+    ],
+  }).admin
+
+  const token = buildToken({
+    sub: IDS.userA,
+    companyId: IDS.companyA,
+  })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(
+    body.data.working_summary,
+    summary.summary,
+  )
+  assert.equal(
+    body.data.working_summary_source,
+    'canonical',
+  )
+  assert.equal(body.data.has_unsaved_changes, false)
+  assert.equal(providerBox.calls.length, 0)
+})
+
+test('registros repetidos não duplicam fatos no contexto histórico', async () => {
+  providerBox.calls = []
+  const repeatedSummary =
+    'A cliente confirmou interesse no piloto.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    registrations: [
+      registeredHistoryRow({
+        conversation_key:
+          'whatsapp:+5547999990010',
+        summary_text: repeatedSummary,
+        created_at:
+          '2026-08-24T10:00:00.000Z',
+      }),
+      registeredHistoryRow({
+        conversation_key:
+          'whatsapp:+5547999990011',
+        watermark: 'registered-watermark-2',
+        summary_text: repeatedSummary,
+        created_at:
+          '2026-08-25T10:00:00.000Z',
+      }),
+    ],
+  }).admin
+
+  const token = buildToken({
+    sub: IDS.userA,
+    companyId: IDS.companyA,
+  })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(
+    body.data.working_summary,
+    repeatedSummary,
+  )
+  assert.equal(body.data.registered_history_count, 2)
+  assert.equal(
+    body.data.registered_history_distinct_count,
+    1,
+  )
+  assert.equal(providerBox.calls.length, 0)
+})
+
+test('dado canônico novo vence resumo persistente stale', async () => {
+  providerBox.calls = []
+  providerBox.workingSummary =
+    'A cliente agora declarou que precisa organizar o follow-up.'
+
+  adminBox.admin = createFakeAdmin({
+    ...fixtures(),
+    summaries: [
+      savedSummaryRow({
+        summary:
+          'A cliente ainda não havia declarado uma necessidade.',
+        last_message_watermark:
+          'watermark-antigo',
+      }),
+    ],
+    ...canonicalConversationFixtures(),
+  }).admin
+
+  const token = buildToken({
+    sub: IDS.userA,
+    companyId: IDS.companyA,
+  })
+  const response = await fetchPOST(
+    fetchRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycleA,
+        conversation_key: CONVERSATION_KEY,
+      },
+    }),
+  )
+  const body = await response.json()
+
+  assert.equal(
+    body.data.working_summary,
+    providerBox.workingSummary,
+  )
+  assert.equal(
+    body.data.working_summary_source,
+    'canonical_plus_conversation',
+  )
+  assert.equal(body.data.has_unsaved_changes, true)
+
+  const prompt = JSON.parse(
+    providerBox.calls[0].user_prompt,
+  )
+  assert.match(prompt.saved_summary, /ainda não/i)
+  assert.match(
+    prompt.current_or_new_messages[0].text,
+    /follow-up/i,
+  )
 })

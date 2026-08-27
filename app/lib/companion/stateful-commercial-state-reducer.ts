@@ -941,11 +941,19 @@ export function reduceStatefulCommercialState(
   const needs =
     appendObservedItems(
       closeMemoryItems(
-        previousState?.needs ?? [],
+        closeMemoryItems(
+          previousState?.needs ?? [],
+          args.output
+            .state_patch
+            .need_ids_to_resolve,
+          'resolved',
+          'needs',
+          nextVersion,
+        ),
         args.output
           .state_patch
-          .need_ids_to_resolve,
-        'resolved',
+          .need_ids_to_supersede,
+        'superseded',
         'needs',
         nextVersion,
       ),
@@ -959,11 +967,19 @@ export function reduceStatefulCommercialState(
   const openLoops =
     appendOpenLoops(
       closeMemoryItems(
-        previousState?.open_loops ?? [],
+        closeMemoryItems(
+          previousState?.open_loops ?? [],
+          args.output
+            .state_patch
+            .open_loop_ids_to_resolve,
+          'resolved',
+          'open_loops',
+          nextVersion,
+        ),
         args.output
           .state_patch
-          .open_loop_ids_to_resolve,
-        'resolved',
+          .open_loop_ids_to_supersede,
+        'superseded',
         'open_loops',
         nextVersion,
       ),
@@ -1029,11 +1045,19 @@ export function reduceStatefulCommercialState(
   const uncertainties =
     appendObservedItems(
       closeMemoryItems(
-        previousState?.uncertainties ?? [],
+        closeMemoryItems(
+          previousState?.uncertainties ?? [],
+          args.output
+            .state_patch
+            .uncertainty_ids_to_resolve,
+          'resolved',
+          'uncertainties',
+          nextVersion,
+        ),
         args.output
           .state_patch
-          .uncertainty_ids_to_resolve,
-        'resolved',
+          .uncertainty_ids_to_supersede,
+        'superseded',
         'uncertainties',
         nextVersion,
       ),

@@ -64,6 +64,10 @@
     const labels = {
       canonical: 'Resumo salvo na Yolen',
       canonical_plus_conversation: 'Resumo salvo + conversa atual',
+      canonical_plus_history: 'Resumo salvo + histórico confirmado',
+      canonical_plus_history_plus_conversation: 'Resumo salvo + histórico + conversa atual',
+      registered_history: 'Conversa registrada na Yolen',
+      registered_history_plus_conversation: 'Conversa registrada + conversa atual',
       legacy_history: 'Histórico já salvo na Yolen',
       legacy_history_plus_conversation: 'Histórico da Yolen + conversa atual',
       conversation_only: 'Conversa atual',
