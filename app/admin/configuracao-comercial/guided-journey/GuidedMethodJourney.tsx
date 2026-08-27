@@ -66,6 +66,8 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
   const [dirty, setDirty] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [savedAt, setSavedAt] = React.useState<string | null>(null)
+  const [staleConflict, setStaleConflict] = React.useState(false)
+  const serverUpdatedAtRef = React.useRef<string | null>(null)
 
   const [viewingQuestionId, setViewingQuestionId] = React.useState<string | null>(null)
   const [confirmedChapters, setConfirmedChapters] = React.useState<Set<string>>(new Set())
@@ -81,8 +83,8 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
     [rerender],
   )
 
-  const save = React.useCallback(async () => {
-    if (!guardRef.current.data) return
+  const save = React.useCallback(async (): Promise<boolean> => {
+    if (!guardRef.current.data) return false
     const sentRevision = beginSave(guardRef.current)
     const payload: CommercialMethodBuilderDraftInput = buildDraftPayload(guardRef.current.data)
 
@@ -91,21 +93,37 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
     try {
       const response = await fetch('/api/admin/commercial-method-builder', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(serverUpdatedAtRef.current
+            ? {
+                'x-yolen-builder-updated-at':
+                  serverUpdatedAtRef.current,
+              }
+            : {}),
+        },
         body: JSON.stringify(payload),
       })
       const json = (await response.json()) as SaveResponse
 
       if (!response.ok || !json.ok) {
+        if (response.status === 409) {
+          setStaleConflict(true)
+        }
         throw new Error(json.ok ? 'Erro ao salvar.' : json.error)
       }
+
+      serverUpdatedAtRef.current = json.draft.updated_at
+      setStaleConflict(false)
 
       const result = applySaveResult(guardRef.current, sentRevision, json.draft.data)
       setGuard(result.state)
       setSavedAt(json.draft.updated_at)
       if (result.applied) setDirty(false)
+      return true
     } catch (saveError: unknown) {
       setError(saveError instanceof Error ? saveError.message : 'Erro ao salvar.')
+      return false
     } finally {
       setSaving(false)
     }
@@ -124,7 +142,9 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
         const raw = json.draft?.data ?? createEmptyCommercialMethodBuilderDraft().data
         const normalized = normalizeCommercialMethodBuilderData(raw)
         guardRef.current = createRevisionGuardState(normalized)
+        serverUpdatedAtRef.current = json.draft?.updated_at ?? null
         setSavedAt(json.draft?.updated_at ?? null)
+        setStaleConflict(false)
         rerender()
       } catch (loadError: unknown) {
         if (!active) return
@@ -141,10 +161,10 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
   }, [rerender])
 
   React.useEffect(() => {
-    if (loading || !dirty || saving) return
+    if (loading || !dirty || saving || staleConflict) return
     const timer = window.setTimeout(() => void save(), 900)
     return () => window.clearTimeout(timer)
-  }, [dirty, loading, saving, save, data])
+  }, [dirty, loading, saving, save, staleConflict, data])
 
   const updateData = React.useCallback(
     (updater: (current: CommercialMethodBuilderData) => CommercialMethodBuilderData) => {
@@ -157,8 +177,8 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
   )
 
   async function saveForLater() {
-    if (dirty) await save()
-    onBack()
+    const persisted = dirty ? await save() : true
+    if (persisted) onBack()
   }
 
   if (loading || !data) {
@@ -241,8 +261,8 @@ export default function GuidedMethodJourney({ onBack, onReadyForConstruction }: 
             <button
               type="button"
               onClick={async () => {
-                await save()
-                onReadyForConstruction()
+                const persisted = await save()
+                if (persisted) onReadyForConstruction()
               }}
               style={{
                 background: GJ_DS.blue,
