@@ -831,6 +831,21 @@ class FakeQuery {
   }
 
   async maybeSingle() {
+    if (this.mode === 'update') {
+      const index = this.store.findIndex((item) => this.matches(item))
+      if (index < 0) {
+        return { data: null, error: null }
+      }
+
+      this.store[index] = {
+        ...this.store[index],
+        ...this.payload,
+        updated_at: new Date().toISOString(),
+      }
+
+      return { data: this.store[index], error: null }
+    }
+
     const matches = this.applyOrder(this.store.filter((item) => this.matches(item)))
     return {
       data: matches[0] ?? null,
