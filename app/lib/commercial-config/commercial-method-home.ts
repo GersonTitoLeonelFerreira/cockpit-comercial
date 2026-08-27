@@ -1,7 +1,10 @@
 import type { CommercialConfigWorkspace } from '@/app/types/commercial-config'
 import type { CommercialMethodBuilderDraftRecord } from '@/app/types/commercial-method-builder'
 import type { CommercialMethodConstructionRecord } from '@/app/types/commercial-method-construction'
-import type { CommercialMethodDefinition } from '@/app/lib/companion/commercial-method-contract'
+import {
+  validateCommercialMethodDefinition,
+  type CommercialMethodDefinition,
+} from '@/app/lib/companion/commercial-method-contract'
 
 export type CommercialMethodNextAction =
   | 'start_diagnosis'
@@ -36,6 +39,20 @@ export interface CommercialMethodHomeState {
     key: CommercialMethodNextAction
     label: string
     description: string
+  }
+}
+
+function isOperationalPublishedDefinition(
+  definition: CommercialMethodDefinition | null,
+): definition is CommercialMethodDefinition {
+  if (!definition || definition.contract_version !== 'commercial-method-v2') {
+    return false
+  }
+
+  try {
+    return validateCommercialMethodDefinition(definition).valid
+  } catch {
+    return false
   }
 }
 
@@ -89,7 +106,7 @@ export function deriveCommercialMethodHomeState({
     publishedVersion?.status === 'published' &&
     publishedVersion.commercial_method_contract_version ===
       'commercial-method-v2' &&
-    publishedDefinition?.contract_version === 'commercial-method-v2'
+    isOperationalPublishedDefinition(publishedDefinition)
 
   const reviewMatchesPublished =
     construction?.status === 'review_ready' &&
