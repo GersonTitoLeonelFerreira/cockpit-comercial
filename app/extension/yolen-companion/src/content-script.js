@@ -4748,6 +4748,8 @@
 
   function clearLeadStateForNewConversation() {
     capturedAudioBlobEntries = []
+    window.YolenCompanionSellerMessageRuntime
+      ?.clear?.()
     clearAutomaticAnalysisTimer()
     clearDeepAnalysisPollTimer()
     clearAnalysisWatchdogTimer()
@@ -9957,6 +9959,15 @@
       }
 
       renderPanel()
+
+      window.YolenCompanionSellerMessageRuntime
+        ?.syncContext?.(
+          {
+            cycle_id: cycleId,
+            conversation_key: conversationKey,
+          },
+          result.payload.data,
+        )
     } catch (error) {
       if (!isStillCurrentContext()) {
         return
@@ -12312,6 +12323,9 @@
     )
 
     wirePanelInteractions(panel)
+
+    window.YolenCompanionSellerMessageRuntime
+      ?.render?.()
   }
 
   function escapeHtml(value) {
