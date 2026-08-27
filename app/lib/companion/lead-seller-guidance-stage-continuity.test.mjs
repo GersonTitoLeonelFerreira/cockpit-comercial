@@ -371,6 +371,119 @@ test('(6, Controle Mestre) "Mudei de ideia e quero voltar atrás." — fato afir
   assert.equal(result.stage_key, 'descoberta')
 })
 
+// ---------------------------------------------------------------------
+// Re-auditoria do Controle Mestre (3ª rodada): troca de estratégia de
+// KEYWORD + BLACKLIST para ALLOWLIST DE AFIRMAÇÕES COMERCIAIS EXPLÍCITAS.
+// "Quero saber como cancelar", "talvez eu cancele", "meu marido cancelou"
+// e "não quero mais receber mensagens" continham as palavras-chave sem
+// representar nenhuma regressão comercial real — só uma afirmação
+// explícita em primeira pessoa, ligada à negociação, pode autorizar.
+// ---------------------------------------------------------------------
+
+test('(3.1, Controle Mestre) "Quero saber como cancelar" — pergunta de informação: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Quero saber como cancelar',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.2, Controle Mestre) "Talvez eu cancele" — incerteza: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Talvez eu cancele',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.3, Controle Mestre) "Estou pensando em cancelar" — incerteza: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Estou pensando em cancelar',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.4, Controle Mestre) "Não tenho certeza se quero cancelar" — incerteza (contém "quero cancelar" como substring, mas não pode ser aprovado): BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Não tenho certeza se quero cancelar',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.5, Controle Mestre) "Meu marido cancelou o plano dele" — terceiro: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Meu marido cancelou o plano dele',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.6, Controle Mestre) "Não quero mais receber mensagens" — opt-out de comunicação, não desistência comercial: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Não quero mais receber mensagens',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.7, Controle Mestre) "Desisti" — afirmação explícita em primeira pessoa: PERMITIDO', async () => {
+  const result = await runRegressionScenario('Desisti')
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(3.8, Controle Mestre) "Quero cancelar" — afirmação explícita em primeira pessoa: PERMITIDO', async () => {
+  const result = await runRegressionScenario('Quero cancelar')
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(3.9, Controle Mestre) "Mudei de ideia e não vou seguir" — afirmação explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Mudei de ideia e não vou seguir',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(3.10, Controle Mestre) "Não quero mais continuar" — afirmação explícita ligada à continuidade: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Não quero mais continuar',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(3.11, Controle Mestre) "Meu marido cancelou. Eu quero continuar." — contradição/terceiro: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Meu marido cancelou. Eu quero continuar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(3.12, Controle Mestre) "Talvez eu cancele, mas por enquanto quero continuar." — incerteza/contradição: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Talvez eu cancele, mas por enquanto quero continuar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
 test('nova versão do método publicado não é tratada como regressão (sem estágio anterior aplicável)', async () => {
   const { provider } = buildProvider({
     stage_name: 'Descoberta',

@@ -351,43 +351,56 @@ export type PreviousMethodStage = {
   stage_reason: string | null
 }
 
-// Re-auditoria do Controle Mestre (2ª rodada): a regex anterior aceitava
-// qualquer menção às palavras-chave, incluindo perguntas, hipóteses,
-// negações da própria regressão e referências a regras/contrato — nenhuma
-// dessas frases representa uma mudança comercial REALMENTE afirmada pelo
-// cliente. MENÇÃO A CANCELAMENTO ≠ CANCELAMENTO. PERGUNTA ≠ FATO.
-// HIPÓTESE ≠ FATO. NEGAÇÃO DE REGRESSÃO ≠ REGRESSÃO.
+// Re-auditoria do Controle Mestre (3ª rodada): "palavra-chave presente +
+// nenhum filtro disparou" ainda é permissivo demais — "quero saber como
+// cancelar", "talvez eu cancele", "meu marido cancelou" e "não quero mais
+// receber mensagens" contêm as palavras-chave sem representar nenhuma
+// regressão comercial real. A estratégia muda de KEYWORD + BLACKLIST DE
+// EXCEÇÕES para ALLOWLIST: a frase só é aceita quando casa com um padrão
+// AFIRMATIVO explícito de mudança comercial em primeira pessoa
+// (AFFIRMATIVE_REGRESSION_PATTERN). Os filtros de pergunta/condicional/
+// incerteza/terceiro/negação continuam existindo como defesa adicional
+// (e são necessários: "quero cancelar" aparece como substring dentro de
+// "não quero cancelar" e de "não tenho certeza se quero cancelar", então
+// esses filtros têm que rodar ANTES do allowlist decidir). Na dúvida, não
+// regride (fail-closed) — nenhum modelo novo, só normalização + regex.
 //
-// O gate continua 100% determinístico (normalização textual + regex),
-// sem nenhum modelo novo. Analisa frase por frase (nunca o bloco inteiro
-// de uma vez, para não deixar uma frase "limpa" ser aprovada por causa de
-// outra frase problemática no mesmo texto) e só aceita uma frase como
-// evidência quando ela contém a palavra-chave E não dispara nenhum dos
-// filtros de exclusão abaixo. Na dúvida, não regride (fail-closed).
-const REGRESSION_KEYWORD_PATTERN =
-  /\b(desist\w*|cancel\w*|nao quero mais|mudou de ideia|mudei de ideia|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*|nova objecao)\b/
+// MENÇÃO A CANCELAMENTO ≠ CANCELAMENTO. PERGUNTA ≠ FATO. HIPÓTESE ≠ FATO.
+// NEGAÇÃO DE REGRESSÃO ≠ REGRESSÃO. TERCEIRO ≠ O PRÓPRIO CLIENTE.
+// "não quero mais" sozinho não basta: precisa estar ligado a um verbo de
+// continuidade da negociação (continuar/seguir/fechar/contratar/comprar)
+// — "não quero mais receber mensagens/ligação/promoção" é opt-out de
+// comunicação, não desistência comercial.
+const AFFIRMATIVE_REGRESSION_PATTERN =
+  /\b((eu )?desisti|(eu )?(quero|vou|decidi) desistir|(eu )?(quero|vou|decidi) cancelar|(eu )?mudei de ideia|voltei atras|(eu )?(quero|vou) recomecar|quero comecar de novo|nao quero mais (continuar|seguir|fechar|contratar|comprar|prosseguir|avancar))\b/
 
-// (A) Pergunta — com "?" literal ou com marcador interrogativo típico,
-// já que mensagens de WhatsApp frequentemente chegam sem pontuação.
+// (A) Pergunta — com "?" literal ou com marcador interrogativo/de busca
+// de informação, já que mensagens de WhatsApp frequentemente chegam sem
+// pontuação ("Como faço para cancelar", "Quero saber como cancelar").
 const QUESTION_MARKER_PATTERN =
-  /\b(posso|poderia|poderiam|consigo|conseguiria|seria possivel|da pra|tem como|o que acontece se|quanto custa|e se eu)\b/
+  /\b(posso|poderia|poderiam|consigo|conseguiria|seria possivel|da pra|tem como|o que acontece se|quanto custa|e se eu|como faco|quero saber|quando posso)\b/
 
 // (B) Condicional/hipótese — a frase descreve um cenário futuro/hipotético,
 // não uma decisão já tomada.
 const CONDITIONAL_MARKER_PATTERN =
   /\b(se eu|se for|se acontecer|caso eu|hipoteticamente|na hipotese|imagina se|supondo que)\b/
 
-// (D) Referência a terceiro/regra — o cliente está perguntando sobre a
-// política, não declarando a própria decisão.
+// Incerteza — "talvez", "estou pensando em", "não tenho certeza": o
+// cliente está cogitando, não afirmando um fato já decidido.
+const UNCERTAINTY_MARKER_PATTERN =
+  /\b(talvez|pode ser que|estou pensando em|estou considerando|nao tenho certeza|nao sei se|sera que|quem sabe|penso em cancelar|penso em desistir)\b/
+
+// (D) Referência a terceiro/regra — outra pessoa, ou a política da
+// empresa/contrato, não a decisão do próprio cliente.
 const THIRD_PARTY_REFERENCE_PATTERN =
-  /\b(contrato|regra|regulamento|politica|termos|clausula|condicoes gerais)\b/
+  /\b(contrato|regra|regulamento|politica|termos|clausula|condicoes gerais|meu marido|minha esposa|meu socio|minha socia|meu amigo|minha amiga|um amigo meu|uma amiga minha|ele cancelou|ela cancelou|ele desistiu|ela desistiu|a academia cancelou|meu cartao)\b/
 
 // (C) Negação da própria regressão — "não quero cancelar", "não vou
 // desistir", "não pretendo recomeçar". Deliberadamente NÃO cobre "nao
-// quero mais", que é o próprio idioma afirmativo de desistência (ver
-// REGRESSION_KEYWORD_PATTERN) e não uma negação de outra palavra-chave.
+// quero mais" seguido de verbo de continuidade, que é o próprio idioma
+// afirmativo de desistência (ver AFFIRMATIVE_REGRESSION_PATTERN).
 const NEGATED_KEYWORD_PATTERN =
-  /\bnao\s+(\w+\s+){0,3}(desist\w*|cancel\w*|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*)\b/
+  /\bnao\s+(\w+\s+){0,3}(desist\w*|cancel\w*|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*|mudei de ideia|mudou de ideia)\b/
 
 function splitIntoSentences(value: string): string[] {
   const sentences: string[] = []
@@ -416,10 +429,10 @@ function sentenceAffirmsCommercialRegression(
 ): boolean {
   const normalized = comparable(rawSentence)
 
-  if (!REGRESSION_KEYWORD_PATTERN.test(normalized)) {
-    return false
-  }
-
+  // Filtros de exclusão rodam PRIMEIRO: "quero cancelar" aparece como
+  // substring literal dentro de "não quero cancelar" e de "não tenho
+  // certeza se quero cancelar" — sem esses filtros antes do allowlist,
+  // a frase negada/incerta seria aprovada por engano.
   if (rawSentence.includes('?')) {
     return false
   }
@@ -432,6 +445,10 @@ function sentenceAffirmsCommercialRegression(
     return false
   }
 
+  if (UNCERTAINTY_MARKER_PATTERN.test(normalized)) {
+    return false
+  }
+
   if (THIRD_PARTY_REFERENCE_PATTERN.test(normalized)) {
     return false
   }
@@ -440,7 +457,9 @@ function sentenceAffirmsCommercialRegression(
     return false
   }
 
-  return true
+  // A decisão final depende exclusivamente de um padrão AFIRMATIVO
+  // explícito — nunca apenas da presença da palavra "cancelar"/"desistir".
+  return AFFIRMATIVE_REGRESSION_PATTERN.test(normalized)
 }
 
 function stageRegressionJustified(value: string): boolean {
