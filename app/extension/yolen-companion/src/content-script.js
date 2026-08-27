@@ -9515,372 +9515,114 @@
       `
     }
 
-    const legacyCurrentState =
-      !commercialReading &&
-      !state.conversationAnalysisLoading &&
-      !state.conversationAnalysisError &&
-      !isCurrentAnalysisOutdated() &&
-      typeof state.conversationAnalysis?.suggestion?.summary === 'string'
-        ? state.conversationAnalysis.suggestion.summary.trim()
-        : ''
-
     const currentState =
-      neutralCopy?.description ||
-      (
-        typeof commercialReading
-          ?.conversation_summary
-          ?.current_state
-          ?.summary === 'string'
-          ? commercialReading
-              .conversation_summary
-              .current_state
-              .summary
-              .trim()
-          : legacyCurrentState
-      )
-
-    const readingReason =
-      !neutralSession &&
-      readingIsCurrent &&
       typeof commercialReading
-        ?.best_approach
-        ?.reason === 'string'
+        ?.conversation_summary
+        ?.current_state
+        ?.summary ===
+        'string'
         ? commercialReading
-            .best_approach
-            .reason
+            .conversation_summary
+            .current_state
+            .summary
             .trim()
         : ''
 
-    const legacyNextMove =
-      !commercialReading &&
-      !state.conversationAnalysisLoading &&
-      !state.conversationAnalysisError &&
-      !isCurrentAnalysisOutdated()
-        ? getCompanionNextMoveText()
-        : null
-
-    const richNextMove =
-      readingIsCurrent &&
-      !neutralSession &&
-      typeof commercialReading
-        ?.best_approach
-        ?.decision === 'string'
-        ? getCommercialReadingDecisionLabel(
-            commercialReading.best_approach.decision,
-          )
-        : null
-    const guidance =
-      memory?.guidance || null
-
-    const guidanceReady =
-      Boolean(
-        guidance &&
-        guidance.status !== 'loading' &&
-        guidance.status !== 'no_summary',
-      )
-
-    const guidanceHtml =
-      guidanceReady
-        ? leadSummaryViewTools
-            .renderMethodGuidance(
-              guidance,
-            )
-        : ''
-
-    const transientStatus =
-      state.conversationAnalysisLoading
-        ? 'Atualizando a leitura desta conversa…'
-        : isCurrentAnalysisOutdated()
-          ? 'A conversa mudou. Atualizando a orientação…'
-          : state.conversationAnalysisError
-            ? state.conversationAnalysisError
-            : (
-                guidance?.status === 'loading'
-                  ? 'Atualizando a orientação…'
-                  : ''
-              )
-
-    const attentionHtml =
-      readingIsCurrent &&
-      !neutralSession
-        ? sellerInformationViewTools
-            .renderNowAttentionSnapshot(
-              commercialReading,
-              state.companionClientContext,
-              {
-                now: Date.now(),
-                cycleClosed:
-                  state.leadResolution
-                    ?.flags
-                    ?.is_closed === true,
-              },
-            )
-        : ''
-
-    const canShowComposer =
-      Boolean(
-        memory &&
-        guidance &&
-        (
-          guidance.status === 'ready' ||
-          guidance.status === 'not_applicable'
-        ),
-      )
-
-    const moreContext =
-      readingIsCurrent &&
-      !neutralSession
-        ? getNowMoreContextDetailsHtml(
-            commercialReading,
-          )
-        : ''
-
-    const analysisActions =
-      state.conversationAnalysisLoading
-        ? ''
-        : getAnalysisActionButton()
-
     return `
-      <div class="yolen-now-shell" data-yolen-now-shell>
-        <section
-          class="yolen-now-hero ${
-            neutralSession
-              ? 'yolen-now-hero--neutral'
-              : ''
-          }"
-          ${
-            neutralSession
-              ? 'data-yolen-now-neutral'
-              : ''
-          }
-        >
-          <div class="yolen-now-hero-header">
-            <div>
-              <div class="yolen-now-eyebrow">Agora</div>
-              <div class="yolen-now-heading">
-                ${escapeHtml(
-                  neutralCopy?.title ||
-                  'O que importa nesta conversa',
-                )}
-              </div>
-            </div>
-            ${
-              commercialReading
-                ? `
-                  <span class="yolen-now-status-pill">
-                    ${escapeHtml(
-                      neutralSession
-                        ? 'Neutro'
-                        : getRichCommercialReadingBadge(
-                            commercialReading,
-                          ),
-                    )}
-                  </span>
-                `
-                : ''
-            }
+      <div class="yolen-card yolen-decision-card ${getAnalysisStatusClass()}">
+        <div class="yolen-decision-header">
+          <div class="yolen-section-label">
+            Yolen Companion
           </div>
 
+          <div class="yolen-decision-badge">
+            ${escapeHtml(
+              getRichCommercialReadingBadge(
+                commercialReading,
+              ),
+            )}
+          </div>
+        </div>
+
+        <div class="yolen-decision-primary" data-yolen-layer="action">
           ${
             currentState
               ? `
-                <div class="yolen-now-current-block">
-                  <div class="yolen-now-current-label">Resumo</div>
-                  <div class="yolen-now-current-state">
-                    ${escapeHtml(currentState)}
+                <div class="yolen-decision-block yolen-decision-block--context" data-yolen-layer="context">
+                  <div class="yolen-decision-kicker">
+                    Resumo
+                  </div>
+
+                  <div class="yolen-card-title yolen-decision-title">
+                    ${escapeHtml(
+                      currentState,
+                    )}
                   </div>
                 </div>
               `
               : ''
           }
 
-          ${
-            transientStatus
-              ? `
-                <div class="yolen-now-transient-status" role="status" aria-live="polite">
-                  ${
-                    state.conversationAnalysisLoading
-                      ? getInlineSpinnerHtml()
-                      : ''
-                  }
-                  ${escapeHtml(transientStatus)}
-                </div>
-              `
-              : ''
-          }
+          ${getRichCommercialReadingApproachHtml(
+            commercialReading,
+          )}
 
-          ${attentionHtml}
+          ${getRichRecommendedQuestionHtml(
+            commercialReading,
+          )}
 
-          ${
-            readingReason
-              ? `
-                <div class="yolen-now-reading" data-yolen-layer="reading">
-                  <div class="yolen-now-reading-title">Leitura da Yolen</div>
-                  <div class="yolen-now-reading-copy">
-                    ${escapeHtml(readingReason)}
-                  </div>
-                </div>
-              `
-              : ''
-          }
+          ${getSuggestedMessageHtml()}
+        </div>
 
-          ${
-            guidanceHtml
-              ? `
-                <div class="yolen-now-guidance" data-yolen-layer="next-step">
-                  <div class="yolen-now-guidance-title">Orientação da Yolen</div>
-                  <div data-yolen-method-guidance-slot>
-                    ${guidanceHtml}
-                  </div>
-                </div>
-              `
-              : (
-                  legacyNextMove || richNextMove
-                    ? `
-                      <div class="yolen-now-guidance yolen-now-guidance--fallback" data-yolen-layer="next-step">
-                        <div class="yolen-now-guidance-title">Próximo passo</div>
-                        <div class="yolen-now-guidance-fallback-copy">
-                          ${escapeHtml(
-                            legacyNextMove ||
-                            richNextMove,
-                          )}
-                        </div>
-                      </div>
-                    `
-                    : (
-                        memory
-                          ? `
-                            <div class="yolen-now-quiet-state">
-                              A Yolen acompanha a conversa e mostrará uma orientação quando houver um próximo passo útil.
-                            </div>
-                          `
-                          : ''
-                      )
-                )
-          }
+        ${getDeepAnalysisStatusBlockHtml()}
 
-          ${
-            memory
-              ? `
-                <input
-                  type="hidden"
-                  data-yolen-textarea="lead-summary"
-                  value="${escapeHtml(memory.workingSummary)}"
-                >
-              `
-              : ''
-          }
+        ${sellerInformationViewTools
+          .renderNowAttentionSnapshot(
+            commercialReading,
+            state.companionClientContext,
+            {
+              now: Date.now(),
+              cycleClosed:
+                state.leadResolution
+                  ?.flags
+                  ?.is_closed === true,
+            },
+          )}
 
-          ${
-            canShowComposer
-              ? '<div data-yolen-seller-message-mount></div>'
-              : ''
-          }
+        ${getNowMoreContextDetailsHtml(
+          commercialReading,
+        )}
 
-          ${
-            analysisActions
-              ? `
-                <div class="yolen-now-actions">
-                  ${analysisActions}
-                </div>
-              `
-              : ''
-          }
-        </section>
-
-        ${moreContext}
+        <div class="yolen-inline-actions yolen-decision-actions">
+          ${getAnalysisActionButton()}
+        </div>
       </div>
     `
   }
 
-  function getLeadMemoryUtilityHtml() {
-    const memory =
-      getCurrentLeadMemoryData()
-
-    if (!memory) {
-      if (
-        state.companionLeadSummary?.status === 'error'
-      ) {
-        return `
-          <div class="yolen-client-utility-note yolen-status-warning">
-            Não foi possível carregar a memória deste lead agora.
-          </div>
-        `
-      }
-
-      return ''
-    }
-
-    const data = memory.data
-    const savedSummary =
-      data.summary || null
-
-    const hasUnsavedChanges =
-      typeof data.has_unsaved_changes === 'boolean'
-        ? data.has_unsaved_changes
-        : Boolean(
-            memory.workingSummary &&
-            !savedSummary,
-          )
-
-    const saving =
-      state.companionLeadSummarySaveStatus ===
-        'saving'
-
-    return `
-      <details class="yolen-client-utility" data-yolen-client-utility="memory">
-        <summary>
-          <span>Memória do lead</span>
-          <span class="yolen-client-utility-state">
-            ${hasUnsavedChanges ? 'Pendente' : 'Salva'}
-          </span>
-        </summary>
-
-        <div class="yolen-client-utility-content">
-          <div class="yolen-client-utility-copy">
-            ${escapeHtml(memory.workingSummary)}
-          </div>
-
-          ${
-            state.companionLeadSummarySaveError
-              ? `
-                <div class="yolen-client-utility-error">
-                  ${escapeHtml(
-                    state.companionLeadSummarySaveError,
-                  )}
-                </div>
-              `
-              : ''
-          }
-
-          ${
-            hasUnsavedChanges
-              ? `
-                <button
-                  type="button"
-                  class="yolen-secondary-button"
-                  data-yolen-action="save-lead-summary"
-                  ${saving ? 'disabled' : ''}
-                >
-                  ${saving ? 'Salvando…' : 'Salvar memória na Yolen'}
-                </button>
-              `
-              : `
-                <div class="yolen-client-utility-meta">
-                  Memória consolidada na Yolen.
-                </div>
-              `
-          }
-        </div>
-      </details>
-    `
-  }
-
-  function getClientOperationalToolsHtml() {
+  // Tudo que já respondeu "o que aconteceu" / "o que fazer" / "por que"
+  // acima fica sempre visível. O resto (etapa do método, sugestão
+  // operacional de CRM/agenda, transcrição de áudio, limitações da
+  // leitura) é contexto de apoio: continua no DOM (nada é removido do
+  // contrato nem escondido de verdade — <details> fechado ainda expõe seu
+  // texto a leitores de tela e a asserções de teste) mas recolhido por
+  // padrão, para o primeiro nível do AGORA não virar uma lista de
+  // mini-relatórios com o mesmo peso visual da decisão.
+  function getNowMoreContextDetailsHtml(
+    commercialReading,
+  ) {
     const sections = [
-      getLeadEnrichmentCandidatesHtml(),
-      getConversationRegistrationCardHtml(),
-      getLeadMemoryUtilityHtml(),
+      sellerInformationViewTools
+        .renderNowMethodSnapshot(
+          commercialReading,
+        ),
+      getRichCommercialReadingLimitationsHtml(
+        commercialReading,
+      ),
+      getRichOperationalSuggestionHtml(
+        commercialReading,
+      ),
+      getAudioTranscriptionHtml(),
     ].filter(Boolean)
 
     if (sections.length === 0) {
@@ -9888,36 +9630,794 @@
     }
 
     return `
-      <div class="yolen-client-operations">
-        <div class="yolen-client-operations-heading">
-          Ferramentas do relacionamento
+      <details
+        class="yolen-seller-secondary-details yolen-now-more-details"
+        data-yolen-preserve-details="now-more-details"
+        data-yolen-layer="context"
+      >
+        <summary>Ver mais contexto</summary>
+        <div class="yolen-now-more-details-content">
+          ${sections.join('')}
         </div>
-        ${sections.join('')}
+      </details>
+    `
+  }
+
+  // Inteligência operacional do cliente (histórico da relação, tempo de
+  // resposta, quem está aguardando quem, risco por demora). Deliberadamente
+  // independente da análise semântica acima: não depende da IA nem do
+  // estado `conversationAnalysis` — é buscada e renderizada à parte, a
+  // partir de fatos determinísticos do banco (ver
+  // app/api/companion/client-context).
+  function clearCompanionClientContextRefreshTimer() {
+    if (
+      companionClientContextRefreshTimerId
+    ) {
+      window.clearTimeout(
+        companionClientContextRefreshTimerId,
+      )
+
+      companionClientContextRefreshTimerId = 0
+    }
+  }
+
+  // Sinal real de "a captura foi persistida", disparado por
+  // runCaptureIngestion() após rememberSuccessfulCapture() — não um sleep
+  // arbitrário. Corrige tanto a primeira leitura (que pode ter ocorrido
+  // sobre um ledger ainda vazio, antes da ingestão terminar) quanto
+  // qualquer leitura posterior (nova mensagem chegando durante a
+  // conversa): as duas situações são, no fundo, "o contexto pode estar
+  // desatualizado porque uma ingestão acabou de confirmar". O pequeno
+  // debounce evita uma requisição por mensagem quando várias chegam em
+  // sequência.
+  function notifyCaptureIngestedForClientContext(
+    contextKey,
+  ) {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return
+    }
+
+    const currentContextKey = [
+      cycleId,
+      conversationKey,
+    ].join('::')
+
+    if (
+      currentContextKey !==
+      contextKey
+    ) {
+      return
+    }
+
+    clearCompanionClientContextRefreshTimer()
+
+    companionClientContextRefreshTimerId =
+      window.setTimeout(() => {
+        companionClientContextRefreshTimerId = 0
+
+        void loadCompanionClientContextForCurrentCycle(
+          {
+            force: true,
+          },
+        )
+
+        // A captura canônica confirmada pode alterar o working summary.
+        // O cache é invalidado no wrapper de ingestão e este refresh
+        // debounced evita manter na tela um resumo anterior ao novo lote.
+        void loadCompanionLeadSummaryForCurrentCycle()
+      }, COMPANION_CLIENT_CONTEXT_REFRESH_DELAY_MS)
+  }
+
+  async function loadCompanionClientContextForCurrentCycle(
+    options = {},
+  ) {
+    const force =
+      options.force === true
+
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'idle',
+        },
+        companionClientContextCycleId:
+          null,
+        companionClientContextConversationKey:
+          null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    const isSameContext =
+      state.companionClientContextCycleId ===
+        cycleId &&
+      state.companionClientContextConversationKey ===
+        conversationKey
+
+    const alreadyReady =
+      isSameContext &&
+      state.companionClientContext
+        ?.status === 'ready'
+
+    if (alreadyReady && !force) {
+      return
+    }
+
+    // Uma atualização forçada sobre dados já prontos (nova ingestão
+    // confirmada, tick periódico) acontece em silêncio: o cartão continua
+    // mostrando os últimos dados válidos em vez de piscar para o estado de
+    // carregamento a cada mensagem nova. Só a primeiríssima busca de um
+    // ciclo (ou uma busca depois de erro/idle) mostra o estado de
+    // carregamento.
+    const showLoadingState = !alreadyReady
+
+    if (showLoadingState) {
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'loading',
+        },
+        companionClientContextCycleId:
+          cycleId,
+        companionClientContextConversationKey:
+          conversationKey,
+      }
+
+      renderPanel()
+    } else {
+      state = {
+        ...state,
+        companionClientContextCycleId:
+          cycleId,
+        companionClientContextConversationKey:
+          conversationKey,
+      }
+    }
+
+    const isStillCurrentContext =
+      () =>
+        state.companionClientContextCycleId ===
+          cycleId &&
+        state.companionClientContextConversationKey ===
+          conversationKey
+
+    try {
+      const result =
+        await window.YolenCompanionApi
+          .loadClientContext({
+            cycle_id: cycleId,
+            conversation_key:
+              conversationKey,
+          })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (
+        !result?.ok ||
+        !result.payload?.ok
+      ) {
+        if (!alreadyReady) {
+          state = {
+            ...state,
+            companionClientContext: {
+              status: 'error',
+              error:
+                result?.payload
+                  ?.error ||
+                'Não foi possível carregar o relacionamento com o cliente.',
+            },
+          }
+
+          renderPanel()
+        }
+
+        // Atualização em segundo plano que falhou: mantém os dados bons
+        // já exibidos em vez de substituí-los por um erro por causa de uma
+        // falha transitória — a próxima ingestão/tick tenta de novo.
+        return
+      }
+
+      state = {
+        ...state,
+        companionClientContext: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+    } catch (error) {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!alreadyReady) {
+        state = {
+          ...state,
+          companionClientContext: {
+            status: 'error',
+            error:
+              error instanceof Error &&
+              error.message
+                ? error.message
+                : 'Não foi possível carregar o relacionamento com o cliente.',
+          },
+        }
+
+        renderPanel()
+      }
+    }
+  }
+
+  // Carrega o working summary factual do lead. A rota combina memória
+  // persistente, registros históricos confirmados e mensagens canônicas;
+  // somente o salvamento da memória consolidada continua dependendo de ação
+  // explícita do vendedor (ver handleSaveLeadSummaryClick).
+  // TEMP-DIAG-LEAD-SUMMARY — instrumentação temporária para diagnosticar
+  // falhas do resumo persistente do lead (Etapa 1) sem depender de
+  // DevTools do vendedor: registra só o estágio e o código/status interno
+  // da falha, nunca o texto do resumo, conteúdo da conversa ou token.
+  // Remover quando a Etapa 1 estiver validada em produção real.
+  function __leadSummaryDiag(stage, data) {
+    console.log('[LEAD-SUMMARY-DIAG]', stage, data)
+  }
+
+  async function loadCompanionLeadSummaryForCurrentCycle() {
+    const cycleId =
+      state.leadResolution?.cycle?.id
+
+    const conversationKey =
+      getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'idle',
+        },
+        companionLeadSummaryCycleId: null,
+        companionLeadSummaryConversationKey: null,
+        companionLeadSummarySaveStatus: null,
+        companionLeadSummarySaveError: null,
+        companionLeadSummaryDraftValue: null,
+      }
+
+      renderPanel()
+      return
+    }
+
+    state = {
+      ...state,
+      companionLeadSummary: {
+        status: 'loading',
+      },
+      companionLeadSummaryCycleId: cycleId,
+      companionLeadSummaryConversationKey: conversationKey,
+      companionLeadSummarySaveStatus: null,
+      companionLeadSummarySaveError: null,
+      companionLeadSummaryDraftValue: null,
+    }
+
+    renderPanel()
+
+    const isStillCurrentContext = () =>
+      state.companionLeadSummaryCycleId === cycleId &&
+      state.companionLeadSummaryConversationKey === conversationKey
+
+    try {
+      const result = await window.YolenCompanionApi.loadLeadSummary({
+        cycle_id: cycleId,
+        conversation_key: conversationKey,
+      })
+
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        __leadSummaryDiag('FETCH_FAILED', {
+          status_code: result?.statusCode ?? null,
+          code: result?.payload?.code ?? null,
+        })
+
+        state = {
+          ...state,
+          companionLeadSummary: {
+            status: 'error',
+            error:
+              result?.payload?.error ||
+              'Não foi possível carregar o resumo salvo na Yolen.',
+          },
+        }
+
+        renderPanel()
+        return
+      }
+
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'ready',
+          data: result.payload.data,
+        },
+      }
+
+      renderPanel()
+
+      window.YolenCompanionSellerMessageRuntime
+        ?.syncContext?.(
+          {
+            cycle_id: cycleId,
+            conversation_key: conversationKey,
+          },
+          result.payload.data,
+        )
+    } catch (error) {
+      if (!isStillCurrentContext()) {
+        return
+      }
+
+      __leadSummaryDiag('FETCH_EXCEPTION', {
+        error_name: error instanceof Error ? error.name : 'unknown',
+      })
+
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'error',
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : 'Não foi possível carregar o resumo salvo na Yolen.',
+        },
+      }
+
+      renderPanel()
+    }
+  }
+
+  // Salva o resumo por ação EXPLÍCITA do vendedor (clique no botão) — nunca
+  // automaticamente. compare-and-set: envia expected_version = versão atual
+  // conhecida (ou null se ainda não existe nenhuma); um 409 significa que
+  // outra ação salvou uma versão mais nova nesse meio-tempo, e o cartão
+  // mostra o aviso de conflito em vez de sobrescrever.
+  async function handleSaveLeadSummaryClick(summaryText) {
+    const cycleId = state.leadResolution?.cycle?.id
+    const conversationKey = getCaptureConversationKey()
+
+    if (!cycleId || !conversationKey) {
+      return
+    }
+
+    const expectedVersion =
+      state.companionLeadSummary?.data?.summary?.version ?? null
+
+    state = {
+      ...state,
+      companionLeadSummarySaveStatus: 'saving',
+      companionLeadSummarySaveError: null,
+      companionLeadSummaryDraftValue: summaryText,
+    }
+
+    renderPanel()
+
+    try {
+      const result = await window.YolenCompanionApi.saveLeadSummary({
+        cycle_id: cycleId,
+        conversation_key: conversationKey,
+        summary: summaryText,
+        expected_version: expectedVersion,
+      })
+
+      if (
+        state.leadResolution?.cycle?.id !== cycleId ||
+        getCaptureConversationKey() !== conversationKey
+      ) {
+        return
+      }
+
+      if (result?.payload?.code === 'LEAD_SUMMARY_VERSION_CONFLICT') {
+        __leadSummaryDiag('SAVE_CONFLICT', {
+          status_code: result?.statusCode ?? null,
+        })
+
+        state = {
+          ...state,
+          companionLeadSummarySaveStatus: 'conflict',
+          companionLeadSummarySaveError: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        __leadSummaryDiag('SAVE_FAILED', {
+          status_code: result?.statusCode ?? null,
+          code: result?.payload?.code ?? null,
+        })
+
+        state = {
+          ...state,
+          companionLeadSummarySaveStatus: 'error',
+          companionLeadSummarySaveError:
+            result?.payload?.error || 'Não foi possível salvar o resumo.',
+        }
+
+        renderPanel()
+        return
+      }
+
+      const previousSummaryData =
+        state.companionLeadSummary?.data || {}
+      const persistedSummary =
+        result.payload.data.summary || null
+
+      state = {
+        ...state,
+        companionLeadSummary: {
+          status: 'ready',
+          data: {
+            ...previousSummaryData,
+            ...result.payload.data,
+            working_summary:
+              persistedSummary?.summary ||
+              previousSummaryData.working_summary ||
+              null,
+            working_summary_source: 'canonical',
+            has_unsaved_changes: false,
+            current_message_watermark:
+              persistedSummary
+                ?.last_message_watermark ??
+              previousSummaryData
+                .current_message_watermark ??
+              null,
+          },
+        },
+        companionLeadSummarySaveStatus: null,
+        companionLeadSummarySaveError: null,
+        companionLeadSummaryDraftValue: null,
+      }
+
+      renderPanel()
+    } catch (error) {
+      __leadSummaryDiag('SAVE_EXCEPTION', {
+        error_name: error instanceof Error ? error.name : 'unknown',
+      })
+
+      state = {
+        ...state,
+        companionLeadSummarySaveStatus: 'error',
+        companionLeadSummarySaveError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Não foi possível salvar o resumo.',
+      }
+
+      renderPanel()
+    }
+  }
+
+  function getCompanionClientRelationshipCardHtml() {
+    if (
+      state.companionClientContext
+        ?.status === 'idle'
+    ) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-card yolen-client-relationship-card">
+        <div class="yolen-section-label">
+          Relacionamento e histórico
+        </div>
+
+        ${clientContextViewTools.renderClientContextSection(
+          state.companionClientContext,
+          Date.now(),
+        )}
       </div>
     `
   }
 
-  function getActiveSellerAreaContentHtml() {
-    if (activeSellerArea === 'analysis') {
-      return getDetailedAnalysisAreaHtml()
+  function getCompanionLeadSummaryCardHtml() {
+    if (state.companionLeadSummary?.status === 'idle') {
+      return ''
     }
 
-    if (activeSellerArea === 'client') {
+    return `
+      <div class="yolen-card yolen-lead-summary-card">
+        <div class="yolen-section-label">
+          Resumo salvo na Yolen
+        </div>
+
+        ${leadSummaryViewTools.renderLeadSummarySection({
+          ...state.companionLeadSummary,
+          saveStatus: state.companionLeadSummarySaveStatus,
+          saveError: state.companionLeadSummarySaveError,
+          draftValue: state.companionLeadSummaryDraftValue,
+        })}
+      </div>
+    `
+  }
+
+  function startCompanionClientContextTicker() {
+    if (companionClientContextTickTimerId) {
+      window.clearInterval(
+        companionClientContextTickTimerId,
+      )
+    }
+
+    companionClientContextTickTimerId =
+      window.setInterval(() => {
+        if (
+          state.companionClientContext
+            ?.status === 'ready'
+        ) {
+          renderPanel()
+        }
+      }, COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS)
+  }
+
+  function getAnalysisCardHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const richEligible =
+      Boolean(commercialReading) &&
+      !state
+        .conversationAnalysisLoading &&
+      !state
+        .conversationAnalysisError &&
+      !state
+        .suggestionApplyLoading &&
+      !state
+        .suggestionApplyError &&
+      !state
+        .suggestionApplyResult &&
+      !isCurrentAnalysisOutdated()
+
+    // TEMP-DIAG-FASE12A
+    __fase12aDiag('AGORA', {
+      branch: richEligible ? 'rich' : 'legacy',
+      conversationAnalysis_engine_source:
+        state.conversationAnalysis?.engine_source ?? null,
+      has_commercial_reading: Boolean(commercialReading),
+      commercial_relevance: commercialReading?.commercial_relevance ?? null,
+      commercial_role: commercialReading?.commercial_role ?? null,
+    })
+
+    if (richEligible) {
+      return (
+        getRichCommercialReadingCardHtml(
+          commercialReading,
+        )
+      )
+    }
+
+    return (
+      getLegacyAnalysisCardHtml()
+    )
+  }
+
+  function getDetailedAnalysisAreaHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const richEligible =
+      Boolean(commercialReading) &&
+      !state.conversationAnalysisLoading &&
+      !state.conversationAnalysisError &&
+      !isCurrentAnalysisOutdated()
+
+    // TEMP-DIAG-FASE12A
+    __fase12aDiag('ANALISE', {
+      branch: richEligible
+        ? 'rich'
+        : state.conversationAnalysisLoading
+          ? 'loading'
+          : state.conversationAnalysisError
+            ? 'error'
+            : isCurrentAnalysisOutdated()
+              ? 'outdated'
+              : 'empty-progressive',
+      has_commercial_reading: Boolean(commercialReading),
+      deep_analysis_status: state.deepAnalysisStatus ?? null,
+    })
+
+    if (richEligible) {
       return `
-        ${getClientInformationAreaHtml()}
-        ${getClientOperationalToolsHtml()}
+        <div class="yolen-card yolen-seller-area-card yolen-analysis-area-card">
+          ${getRichCommercialReadingExpandedHtml(
+            commercialReading,
+          )}
+        </div>
       `
     }
 
-    return getNowPrimaryWorkspaceHtml()
+    if (state.conversationAnalysisLoading) {
+      return `
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
+            ${getInlineSpinnerHtml()}
+            Analisando sua condução comercial…
+          </div>
+        </div>
+      `
+    }
+
+    if (state.conversationAnalysisError) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-warning">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-error role="alert">
+            ${escapeHtml(state.conversationAnalysisError)}
+          </div>
+          ${
+            canAnalyzeCurrentConversation()
+              ? `
+                <div class="yolen-inline-actions">
+                  <button
+                    class="yolen-secondary-button"
+                    type="button"
+                    data-yolen-action="analyze-conversation"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              `
+              : ''
+          }
+        </div>
+      `
+    }
+
+    if (isCurrentAnalysisOutdated()) {
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-warning">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
+            A conversa mudou. Atualize a leitura para avaliar a condução atual.
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      <div class="yolen-card yolen-seller-area-card">
+        <div class="yolen-section-label">Análise</div>
+        <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
+          A leitura atual oferece somente orientação imediata. Ainda não há análise detalhada de coaching e método.
+        </div>
+      </div>
+    `
+  }
+
+  function getClientInformationAreaHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const commercialHtml =
+      commercialReading &&
+      !state.conversationAnalysisError &&
+      !isCurrentAnalysisOutdated()
+        ? sellerInformationViewTools
+            .renderClientCommercialArea(
+              commercialReading,
+            )
+        : ''
+
+    const relationshipHtml =
+      getCompanionClientRelationshipCardHtml()
+
+    // TEMP-DIAG-FASE12A
+    __fase12aDiag('CLIENTE', {
+      has_commercial_reading: Boolean(commercialReading),
+      has_commercial_html: Boolean(commercialHtml),
+      has_relationship_html: Boolean(relationshipHtml),
+      customer_counts:
+        __fase12aDiagCustomerCounts(commercialReading),
+    })
+
+    if (!commercialHtml && !relationshipHtml) {
+      return `
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Cliente</div>
+          <div class="yolen-seller-empty-state" data-yolen-client-empty>
+            Ainda não há informações suficientes sobre este cliente.
+          </div>
+        </div>
+      `
+    }
+
+    return `
+      ${commercialHtml}
+      ${relationshipHtml}
+    `
+  }
+
+  function getSellerAreaTabHtml(
+    area,
+    label,
+  ) {
+    const selected =
+      activeSellerArea === area
+
+    return `
+      <button
+        id="yolen-seller-tab-${escapeHtml(area)}"
+        class="yolen-seller-tab ${selected ? 'yolen-seller-tab--active' : ''}"
+        type="button"
+        role="tab"
+        data-yolen-seller-area="${escapeHtml(area)}"
+        aria-selected="${selected ? 'true' : 'false'}"
+        aria-controls="yolen-seller-panel-${escapeHtml(area)}"
+        tabindex="${selected ? '0' : '-1'}"
+      >
+        ${escapeHtml(label)}
+      </button>
+    `
+  }
+
+  function getSellerAreaPanelHtml(
+    area,
+    content,
+  ) {
+    const selected =
+      activeSellerArea === area
+
+    return `
+      <section
+        id="yolen-seller-panel-${escapeHtml(area)}"
+        class="yolen-seller-panel"
+        role="tabpanel"
+        aria-labelledby="yolen-seller-tab-${escapeHtml(area)}"
+        data-yolen-seller-panel="${escapeHtml(area)}"
+        ${selected ? '' : 'hidden'}
+      >
+        ${content}
+      </section>
+    `
   }
 
   function getSellerInformationArchitectureHtml() {
     const preSendHtml =
       getPreSendAssessmentCardHtml()
 
-    const activeContent =
-      getActiveSellerAreaContentHtml()
+    let activeContent = ''
+
+    if (activeSellerArea === 'analysis') {
+      activeContent =
+        getDetailedAnalysisAreaHtml()
+    } else if (activeSellerArea === 'client') {
+      activeContent = [
+        getClientInformationAreaHtml(),
+        getLeadEnrichmentCandidatesHtml(),
+        getConversationRegistrationCardHtml(),
+      ].filter(Boolean).join('')
+    } else {
+      activeContent = [
+        getAnalysisCardHtml(),
+        getCompanionLeadSummaryCardHtml(),
+      ].filter(Boolean).join('')
+    }
 
     const panels = [
       'now',
@@ -9935,7 +10435,7 @@
       .join('')
 
     return `
-      <div class="yolen-seller-workspace">
+      <div class="yolen-seller-workspace yolen-seller-workspace--final">
         <div
           class="yolen-seller-tabs"
           role="tablist"
@@ -9949,7 +10449,7 @@
         ${
           preSendHtml
             ? `
-              <div class="yolen-global-interruption" data-yolen-global-interruption>
+              <div class="yolen-global-interruption">
                 ${preSendHtml}
               </div>
             `
@@ -11409,27 +11909,15 @@
   }
 
   function getContactCardHtml() {
-    const resolutionStatus =
-      state.leadResolution?.status || null
-
-    const needsExplanation =
-      Boolean(
-        state.leadResolutionLoading ||
-        state.leadResolutionError ||
-        !state.connected ||
-        !state.conversationPhone ||
-        (
-          resolutionStatus &&
-          resolutionStatus !== 'OWNED_BY_ME'
-        ),
-      )
-
+    const sectionLabel = 'Conversa'
     const action = getLeadActionButton()
 
     return [
       '<div class="yolen-context-bar ' +
         getLeadStatusClass() +
-        '" aria-label="Conversa">',
+        '" aria-label="' +
+        sectionLabel +
+      '">',
         '<div class="yolen-context-bar-main">',
           '<div class="yolen-context-bar-name">',
             escapeHtml(
@@ -11437,7 +11925,12 @@
             ),
           '</div>',
           getCompactContextChipsHtml(),
-          needsExplanation
+          (
+            state.leadResolutionLoading ||
+            state.leadResolutionError ||
+            !state.connected ||
+            !state.conversationPhone
+          )
             ? (
                 '<div class="yolen-context-bar-status">' +
                   escapeHtml(

@@ -127,7 +127,7 @@ export const PRODUCTION_HOSTS = [
   'https://cockpit-comercial-vocn.vercel.app/*',
 ]
 
-const DEV_HOST_PATTERN = /localhost/i
+const DEV_HOST_PATTERN = /localhost|cockpit-comercial-vocn-git-/i
 
 function isDevHost(entry) {
   return typeof entry === 'string' && DEV_HOST_PATTERN.test(entry)

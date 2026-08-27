@@ -10,7 +10,8 @@
     "https://web.whatsapp.com/*",
     "https://cockpit-comercial-vocn.vercel.app/*",
     "https://cockpit-comercial-vocn-git-claude-yolen-lead-persi-f5596b-yolen.vercel.app/*",
-    "http://localhost:3000/*"
+    "http://localhost:3000/*",
+    "https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app/*"
   ],
   "background": {
     "scripts": [
@@ -54,7 +55,8 @@
     {
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app/*"
       ],
       "js": [
         "src/yolen-bridge.js"
@@ -69,7 +71,8 @@
       ],
       "matches": [
         "https://cockpit-comercial-vocn.vercel.app/*",
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app/*"
       ]
     },
     {

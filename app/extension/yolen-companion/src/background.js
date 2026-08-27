@@ -7,7 +7,7 @@ const LOCAL_BASE_URL = 'http://localhost:3000'
 // TEMP-TEST-ENV — preview consolidado para validação real do Companion.
 // Esta branch contém a base Onda 8 + Evidence/State/Coherence + customer-facing grounding.
 const TEMP_TEST_BASE_URL =
-  'https://cockpit-comercial-vocn-git-chatgpt-companion-custo-773c3b-yolen.vercel.app'
+  'https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
 

@@ -216,20 +216,20 @@
     const style = document.createElement('style')
     style.id = 'yolen-seller-message-runtime-styles'
     style.textContent = [
-      '.yolen-seller-message-box{margin-top:14px;padding:14px;border:1px solid rgba(126,153,194,.14);border-radius:12px;background:rgba(4,10,18,.42)}',
-      '.yolen-seller-message-title{color:#eef6ff;font-size:12px;font-weight:850;letter-spacing:-.01em;margin-bottom:5px}',
-      '.yolen-seller-message-help{color:#8798ad;font-size:10px;line-height:1.45;margin-bottom:10px}',
-      '.yolen-seller-message-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}',
-      '.yolen-seller-message-preset{border:1px solid rgba(126,153,194,.18);background:rgba(15,24,38,.75);color:#c8d7ea;border-radius:999px;padding:6px 9px;font-size:10px;font-weight:700;cursor:pointer;text-align:left}',
-      '.yolen-seller-message-preset:hover{border-color:rgba(96,165,250,.45);background:rgba(30,64,175,.14)}',
-      '.yolen-seller-message-intent{box-sizing:border-box;width:100%;min-height:72px;resize:vertical;border:1px solid rgba(126,153,194,.18);border-radius:10px;background:rgba(6,12,21,.82);color:#eef6ff;padding:10px 11px;font:inherit;font-size:12px;line-height:1.45;outline:none}',
-      '.yolen-seller-message-intent:focus{border-color:rgba(96,165,250,.58);box-shadow:0 0 0 2px rgba(59,130,246,.08)}',
+      '.yolen-seller-message-box{margin-top:14px;padding-top:14px;border-top:1px solid rgba(126,153,194,.16)}',
+      '.yolen-seller-message-title{color:#8ea0b8;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}',
+      '.yolen-seller-message-help{color:#9fb0c6;font-size:11px;line-height:1.45;margin-bottom:9px}',
+      '.yolen-seller-message-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}',
+      '.yolen-seller-message-preset{border:1px solid rgba(126,153,194,.25);background:rgba(21,36,57,.65);color:#cfe1f7;border-radius:999px;padding:6px 8px;font-size:10px;font-weight:700;cursor:pointer;text-align:left}',
+      '.yolen-seller-message-preset:hover{border-color:rgba(147,197,253,.55)}',
+      '.yolen-seller-message-intent{box-sizing:border-box;width:100%;min-height:68px;resize:vertical;border:1px solid rgba(126,153,194,.24);border-radius:10px;background:#0d1726;color:#eef6ff;padding:10px;font:inherit;font-size:12px;line-height:1.45;outline:none}',
+      '.yolen-seller-message-intent:focus{border-color:rgba(96,165,250,.7)}',
       '.yolen-seller-message-generate{margin-top:8px;width:100%}',
-      '.yolen-seller-message-result{margin-top:12px;padding:12px;border-radius:10px;background:rgba(8,16,27,.72);border:1px solid rgba(34,197,94,.18)}',
-      '.yolen-seller-message-result-label{color:#8ea0b8;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}',
+      '.yolen-seller-message-result{margin-top:12px;padding:11px;border-radius:10px;background:rgba(9,20,34,.75);border:1px solid rgba(126,153,194,.18)}',
+      '.yolen-seller-message-result-label{color:#8ea0b8;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}',
       '.yolen-seller-message-result-text{color:#f2f7fd;font-size:12px;line-height:1.55;white-space:pre-wrap}',
       '.yolen-seller-message-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}',
-      '.yolen-seller-message-note{margin-top:8px;color:#8798ad;font-size:10px;line-height:1.4}',
+      '.yolen-seller-message-note{margin-top:8px;color:#9fb0c6;font-size:10px;line-height:1.4}',
       '.yolen-seller-message-error{margin-top:8px;color:#fca5a5;font-size:10px;line-height:1.4}',
     ].join('')
 
@@ -243,38 +243,39 @@
       return
     }
 
-    const dedicatedMount =
-      document.querySelector(
-        '[data-yolen-seller-message-mount]',
-      )
-
-    const summaryInput =
-      document.querySelector(
-        '[data-yolen-textarea="lead-summary"]',
-      )
-
-    const summaryMatches =
-      Boolean(
-        summaryInput &&
-        String(summaryInput.value || '').trim() ===
-          context.workingSummary,
-      )
-
-    const guidanceSlot =
-      document.querySelector(
-        '[data-yolen-method-guidance-slot]',
-      )
+    const summaryInput = document.querySelector(
+      '[data-yolen-textarea="lead-summary"]',
+    )
 
     if (
-      !dedicatedMount &&
-      (!summaryMatches || !guidanceSlot)
+      !summaryInput ||
+      String(summaryInput.value || '').trim() !==
+        context.workingSummary
     ) {
+      return
+    }
+
+    const guidanceSlot = document.querySelector(
+      '[data-yolen-method-guidance-slot]',
+    )
+
+    if (!guidanceSlot) {
       return
     }
 
     ensureStyles()
 
     const guidance = getGuidance(context)
+    const guidanceLabel = guidanceSlot.querySelector(
+      '.yolen-method-guidance-label',
+    )
+
+    if (
+      guidanceLabel &&
+      guidanceLabel.textContent !== 'Orientação da Yolen'
+    ) {
+      guidanceLabel.textContent = 'Orientação da Yolen'
+    }
 
     let box = document.querySelector(
       '[data-yolen-seller-message-box]',
@@ -286,16 +287,6 @@
         'data-yolen-seller-message-box',
         '',
       )
-    }
-
-    if (dedicatedMount) {
-      if (box.parentElement !== dedicatedMount) {
-        dedicatedMount.appendChild(box)
-      }
-    } else if (
-      guidanceSlot &&
-      box.previousElementSibling !== guidanceSlot
-    ) {
       guidanceSlot.insertAdjacentElement(
         'afterend',
         box,
@@ -780,10 +771,6 @@
     const box = document.querySelector(
       '[data-yolen-seller-message-box]',
     )
-    const dedicatedMount =
-      document.querySelector(
-        '[data-yolen-seller-message-mount]',
-      )
     const summaryInput = document.querySelector(
       '[data-yolen-textarea="lead-summary"]',
     )
@@ -791,17 +778,16 @@
       '[data-yolen-method-guidance-slot]',
     )
 
-    // Só remonta quando o shell do Companion recriou o ponto de montagem.
-    // Mutações normais do WhatsApp não reconstroem o formulário.
+    // O WhatsApp altera o DOM o tempo todo (status, áudio, lista lateral,
+    // timestamps etc.). Essas mutações não podem reconstruir o formulário,
+    // porque trocar o textarea destrói foco, cursor e seleção do vendedor.
+    // Só remontamos quando o próprio renderPanel() do Companion recriou a
+    // estrutura que hospeda o resumo/orientação e, por isso, nosso bloco
+    // deixou de existir.
     if (
       !box &&
-      (
-        dedicatedMount ||
-        (
-          summaryInput &&
-          guidanceSlot
-        )
-      )
+      summaryInput &&
+      guidanceSlot
     ) {
       queueRender()
     }
