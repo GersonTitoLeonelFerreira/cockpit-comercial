@@ -3,10 +3,10 @@
 // (`createCompanionToken`) — não reimplementa a assinatura. Isso garante
 // que o token assinado aqui é validado tanto pela verificação
 // compartilhada (`verifyCompanionRequestToken`, usada por
-// create-lead/route.ts) quanto pelas verificações locais duplicadas
-// (resolve-lead/route.ts, message-action/route.ts,
-// transcribe-audio/route.ts), já que todas usam o mesmo formato
-// HMAC-SHA256 sobre payload base64url.
+// create-lead/route.ts, resolve-lead/route.ts e apply-suggestion/route.ts)
+// quanto pelas verificações locais ainda duplicadas em rotas mais antigas
+// (message-action/route.ts, transcribe-audio/route.ts), já que todas usam
+// o mesmo formato HMAC-SHA256 sobre payload base64url.
 
 import { createCompanionToken } from '../../server/companion-token.ts'
 

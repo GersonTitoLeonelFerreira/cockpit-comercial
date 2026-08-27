@@ -274,6 +274,58 @@ function validateQuestionHypothesisGuidance({
   return null
 }
 
+function endsWithUnansweredOutgoingQuestion(
+  interaction: readonly LeadMethodCurrentInteractionMessage[],
+): boolean {
+  const latest = interaction[interaction.length - 1] ?? null
+
+  return (
+    latest?.direction === 'outgoing' &&
+    latest.text.trim().endsWith('?')
+  )
+}
+
+function nextStepRequestsNewQuestion(value: string): boolean {
+  const normalized = comparable(value)
+
+  if (/\b(aguard|espera|esperar)\w*/.test(normalized)) {
+    // Uma orientação fundamentalmente de espera pode mencionar
+    // "perguntar"/"cobrar" apenas para dizer o que NÃO fazer ainda
+    // (ex.: "aguarde antes de fazer nova cobrança"). Tratar essas
+    // menções como pedido de nova pergunta produziria falso positivo
+    // exatamente no cenário que este gate deveria proteger.
+    return false
+  }
+
+  return /\b(pergunt|questione|indague)\w*/.test(normalized)
+}
+
+function validateAlreadyExecutedActionGuidance({
+  guidance,
+  interaction,
+}: {
+  guidance: SellerFacingGuidance
+  interaction: readonly LeadMethodCurrentInteractionMessage[]
+}): string | null {
+  if (!endsWithUnansweredOutgoingQuestion(interaction)) {
+    return null
+  }
+
+  const output = [
+    guidance.next_step || '',
+    ...guidance.seller_intents,
+  ].join('\n')
+
+  if (!nextStepRequestsNewQuestion(output)) {
+    return null
+  }
+
+  return (
+    'A última mensagem outgoing já é uma pergunta sem resposta do cliente. ' +
+    'Essa ação já foi executada: não recomende perguntar de novo, oriente aguardar a resposta.'
+  )
+}
+
 function buildFactualContext(
   summary: string,
   interaction: readonly LeadMethodCurrentInteractionMessage[],
@@ -436,18 +488,6 @@ function validateContextualQuality({
     return (
       'O contexto é rico, mas o próximo passo ficou genérico e intercambiável entre clientes. ' +
       `Use naturalmente um elemento concreto pertinente, como: ${contextAnchors.slice(0, 5).join(', ')}.`
-    )
-  }
-
-  if (
-    !sellerIntents.some(
-      (intent) =>
-        mentionsAnyAnchor(intent, contextAnchors),
-    )
-  ) {
-    return (
-      'Os atalhos ficaram genéricos apesar de haver fatos específicos. ' +
-      `Pelo menos um atalho deve se ligar diretamente a: ${contextAnchors.slice(0, 5).join(', ')}.`
     )
   }
 
@@ -742,6 +782,19 @@ async function runAttempt({
         return {
           guidance: null,
           failure: hypothesisFailure,
+        }
+      }
+
+      const alreadyExecutedFailure =
+        validateAlreadyExecutedActionGuidance({
+          guidance: parsed.guidance,
+          interaction,
+        })
+
+      if (alreadyExecutedFailure) {
+        return {
+          guidance: null,
+          failure: alreadyExecutedFailure,
         }
       }
     }

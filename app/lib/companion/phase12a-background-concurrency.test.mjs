@@ -181,3 +181,60 @@ test(
     )
   },
 )
+
+test(
+  // A checagem de "newer job" original só roda ANTES de chamar o
+  // modelo (runStatefulCopilotBackgroundRuntime), que pode levar até o
+  // cycle deadline. Sem uma revalidação entre o fim da chamada ao
+  // modelo e a escrita de 'succeeded', um job A já obsoleto (um job B
+  // mais novo foi enfileirado enquanto A rodava) poderia gravar
+  // 'succeeded' e avançar candidate_state_version com uma interpretação
+  // ultrapassada. Esta checagem precisa existir DEPOIS da chamada ao
+  // runtime e ANTES da escrita 'succeeded'.
+  'reexecuta a checagem de newer job entre o runtime e a escrita succeeded',
+  () => {
+    const runtimeCallIndex =
+      workerSource.indexOf(
+        'await runStatefulCopilotBackgroundRuntime(',
+      )
+
+    const succeededWriteIndex =
+      workerSource.indexOf(
+        "status:\n              'succeeded',",
+      )
+
+    assert.ok(
+      runtimeCallIndex >= 0,
+    )
+
+    assert.ok(
+      succeededWriteIndex >= 0,
+    )
+
+    assert.ok(
+      runtimeCallIndex <
+        succeededWriteIndex,
+    )
+
+    const betweenRuntimeAndSuccess =
+      workerSource.slice(
+        runtimeCallIndex,
+        succeededWriteIndex,
+      )
+
+    assert.match(
+      betweenRuntimeAndSuccess,
+      /newerJobBeforeSuccess/,
+    )
+
+    assert.match(
+      betweenRuntimeAndSuccess,
+      /\.gt\(\s*'requested_at',\s*job\.requested_at/,
+    )
+
+    assert.match(
+      betweenRuntimeAndSuccess,
+      /status:\s*\n?\s*'superseded'/,
+    )
+  },
+)

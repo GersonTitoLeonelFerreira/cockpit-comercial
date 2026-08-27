@@ -778,6 +778,25 @@ function buildNormalizationContext(
             message.id,
         ),
 
+    pending_audio_message_ids:
+      input
+        .diagnostic_input
+        .conversation
+        .messages
+        .filter(
+          message =>
+            availableMessageIdSet.has(
+              message.id,
+            ) &&
+            message.content_type ===
+              'audio' &&
+            !message.audio_transcription,
+        )
+        .map(
+          message =>
+            message.id,
+        ),
+
     available_products:
       input
         .diagnostic_input

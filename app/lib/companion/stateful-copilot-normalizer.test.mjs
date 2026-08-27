@@ -20,6 +20,8 @@ const normalizationContext = {
     'm8',
   ],
 
+  pending_audio_message_ids: [],
+
   available_products: [],
 
   previous_communication_observations: [],
@@ -431,6 +433,30 @@ test(
           normalizationContext,
         ),
       'UNKNOWN_EVIDENCE',
+    )
+  },
+)
+
+test(
+  'rejeita evidência que aponta para áudio ainda sem transcrição',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    const contextWithPendingAudio = {
+      ...normalizationContext,
+      pending_audio_message_ids: [
+        'm8',
+      ],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          contextWithPendingAudio,
+        ),
+      'AUDIO_EVIDENCE_NOT_TRANSCRIBED',
     )
   },
 )
