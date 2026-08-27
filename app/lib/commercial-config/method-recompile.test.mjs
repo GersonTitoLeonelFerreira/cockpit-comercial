@@ -556,6 +556,89 @@ test('21) recompilação da academia resulta na estrutura esperada pela Controle
   assert.match(formalizacaoText, /pagamento da matrícula/i)
 })
 
+test('22) Apresentação é recompilada a partir do diagnóstico sem pedir respostas novamente', () => {
+  const data = academiaData()
+
+  data.company_profile.complexity.sales_events = [
+    'Tour',
+    'Demonstração',
+    'Teste',
+    'Orçamento',
+  ]
+
+  data.current_sales_process.presentation.touchpoints = [
+    'Tour',
+    'Demonstração',
+    'Teste',
+    'Orçamento',
+  ]
+
+  data.current_sales_process.sales_events_detail = [
+    {
+      event: 'Tour',
+      frequency: 'sometimes',
+      success_definition: 'O cliente validou que a estrutura atende ao que procura.',
+      depends_on_customer_knowledge: 'sometimes',
+    },
+    {
+      event: 'Demonstração',
+      frequency: 'sometimes',
+      success_definition: 'O cliente entendeu como a solução funciona na prática.',
+      depends_on_customer_knowledge: 'yes',
+    },
+    {
+      event: 'Teste',
+      frequency: 'sometimes',
+      success_definition: 'O cliente validou a experiência da solução.',
+      depends_on_customer_knowledge: 'yes',
+    },
+    {
+      event: 'Orçamento',
+      frequency: 'sometimes',
+      success_definition: 'O cliente recebeu uma proposta clara para avaliar.',
+      depends_on_customer_knowledge: 'yes',
+    },
+  ]
+
+  data.current_sales_process.presentation_depth = {
+    style: 'some_adjustments',
+    must_be_clear_before: [
+      'Necessidade principal do cliente',
+      'Condição que muda a recomendação',
+    ],
+    must_be_clear_to_customer: [
+      'Solução recomendada',
+      'Benefícios relevantes',
+      'Valor e condições',
+    ],
+    presented_too_early: [
+      'Apresentar antes de entender o que o cliente precisa',
+    ],
+    over_explained: [
+      'Explicar detalhes que não mudam a decisão',
+    ],
+  }
+
+  const stale = staleAcademiaConstruction(data)
+  const candidate = buildMethodRecompileCandidate(data, stale)
+  const presentation = stageByName(candidate, 'Apresentação')
+
+  assert.ok(presentation)
+  assert.ok(presentation.objective.trim())
+  assert.ok(presentation.completion_criteria.length > 0)
+  assert.ok(presentation.sufficient_when.length > 0)
+  assert.ok(presentation.advance_when.length > 0)
+  assert.ok(presentation.stop_asking_when.length > 0)
+  assert.match(
+    presentation.objective,
+    /solução recomendada/i,
+  )
+  assert.match(
+    presentation.completion_criteria.join(' '),
+    /valor e condições/i,
+  )
+})
+
 // ============================================================================
 // Infra mínima de Supabase falso para os testes 6/8/9, que exercitam o
 // caminho real de save (saveCommercialMethodConstruction) e publish
