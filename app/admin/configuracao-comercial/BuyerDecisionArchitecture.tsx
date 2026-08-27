@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 
+import EditableLinesTextarea from './EditableLinesTextarea'
+
 import {
   getBuyerDecisionProfile,
   getBuyerDecisionVisibility,
@@ -84,13 +86,6 @@ const URGENCY_DRIVERS = [
   'Prazo regulatório',
   'Meta interna',
 ]
-
-function cleanLines(value: string): string[] {
-  return value
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
 
 function Field({
   label,
@@ -295,10 +290,10 @@ function ListInput({
   rows?: number
 }) {
   return (
-    <textarea
+    <EditableLinesTextarea
       rows={rows}
-      value={value.join('\n')}
-      onChange={(event) => onChange(cleanLines(event.target.value))}
+      value={value}
+      onChange={onChange}
       placeholder={placeholder}
       style={{ ...inputStyle, resize: 'vertical' }}
     />

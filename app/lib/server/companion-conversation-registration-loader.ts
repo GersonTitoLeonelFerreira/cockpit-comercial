@@ -398,6 +398,36 @@ export async function loadCanonicalMessages({
   return messages
 }
 
+// Áudio transcrito é conteúdo da conversa como qualquer outro — nunca um
+// silo separado. Enquanto a transcrição ainda não existe, preservamos o
+// turno com um marcador técnico neutro, sem inventar o que foi dito.
+export const PENDING_AUDIO_TRANSCRIPTION_PLACEHOLDER =
+  '[mensagem de áudio deste participante ainda sem transcrição disponível]'
+
+export function isPendingAudioTranscription(
+  message: Pick<CanonicalConversationMessage, 'content_type' | 'text' | 'is_deleted'>,
+): boolean {
+  return (
+    !message.is_deleted &&
+    message.content_type === 'audio' &&
+    !(typeof message.text === 'string' && message.text.trim())
+  )
+}
+
+export function toCanonicalMessagePromptText(
+  message: Pick<CanonicalConversationMessage, 'content_type' | 'text'>,
+): string | null {
+  if (typeof message.text === 'string' && message.text.trim()) {
+    return message.text.trim()
+  }
+
+  if (message.content_type === 'audio') {
+    return PENDING_AUDIO_TRANSCRIPTION_PLACEHOLDER
+  }
+
+  return null
+}
+
 export function computeConversationWatermark(
   messages: readonly CanonicalConversationMessage[],
 ): string {

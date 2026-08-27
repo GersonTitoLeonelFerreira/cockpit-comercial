@@ -185,6 +185,7 @@ export async function classifyLeadMethodApplicability({
         'Uma conversa sobre geladeira, assinatura de responsável, contratação, escala, cobrança administrativa ou assunto interno é current_signal=none quando não houver compra/venda com esse contato.',
         'Uma pessoa existir como lead no CRM não prova que a conversa atual seja oportunidade de venda.',
         'Histórico comercial antigo pode coexistir com conversa pessoal ou operacional atual. Não force o método apenas porque existe histórico.',
+        'Uma mensagem marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo ainda é desconhecido. Nunca infira, presuma ou invente um sinal comercial a partir dela; trate-a como ausência de evidência até que a transcrição esteja disponível.',
         'Escolha apply_method somente quando current_signal for commercial ou direct_continuation.',
         'Escolha no_commercial_action quando current_signal for none ou quando, mesmo havendo tema comercial, não exista ação seller-facing útil agora.',
         'Não invente intenção de compra, necessidade, objeção ou oportunidade.',

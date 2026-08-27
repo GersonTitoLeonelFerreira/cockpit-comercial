@@ -212,6 +212,68 @@ function normalizeInteraction(
     .filter((message) => Boolean(message.text))
 }
 
+function isQuestionLikeHypothesis(value: string): boolean {
+  const normalized = comparable(value)
+
+  return (
+    value.includes('?') ||
+    /\b(perguntou|pergunta|quer saber|duvida)\s+(se|como)\b/.test(
+      normalized,
+    )
+  )
+}
+
+function looksLikeUnsupportedQuestionAffirmation(value: string): boolean {
+  const normalized = comparable(value)
+
+  return (
+    /\b(confirmar que|confirme que|explicar que|explique que|informar que|informe que|dizer que|diga que)\b/.test(
+      normalized,
+    ) ||
+    /\b(e so|basta)\b/.test(normalized)
+  )
+}
+
+function summaryHasDeclarativeSupport(summary: string): boolean {
+  return /\b(confirmad|regra|funciona|deve|e feito|e necessario|orientacao oficial|foi informado)\b/.test(
+    comparable(summary),
+  )
+}
+
+function validateQuestionHypothesisGuidance({
+  guidance,
+  summary,
+  interaction,
+}: {
+  guidance: SellerFacingGuidance
+  summary: string
+  interaction: readonly LeadMethodCurrentInteractionMessage[]
+}): string | null {
+  const latest = interaction[interaction.length - 1] ?? null
+
+  if (
+    latest?.direction !== 'incoming' ||
+    !isQuestionLikeHypothesis(latest.text) ||
+    summaryHasDeclarativeSupport(summary)
+  ) {
+    return null
+  }
+
+  const output = [
+    guidance.next_step || '',
+    ...guidance.seller_intents,
+  ].join('\n')
+
+  if (looksLikeUnsupportedQuestionAffirmation(output)) {
+    return (
+      'A orientação tratou como fato uma hipótese que aparece apenas como pergunta do cliente. ' +
+      'Não confirme nem explique como verdadeiro algo que ainda não possui apoio declarativo no contexto.'
+    )
+  }
+
+  return null
+}
+
 function buildFactualContext(
   summary: string,
   interaction: readonly LeadMethodCurrentInteractionMessage[],
@@ -594,6 +656,7 @@ async function runAttempt({
     'Se a última mensagem outgoing já perguntou, confirmou, explicou ou cobrou exatamente o próximo passo, NÃO recomende repetir a mesma ação enquanto não existir nova mensagem incoming que justifique isso.',
     'O contexto da empresa, o método e as regras do vendedor orientam comportamento, mas não provam fatos do cliente.',
     'Uma pergunta ou hipótese do cliente não prova que a resposta sugerida dentro dela seja verdadeira.',
+    'Uma mensagem marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido. Nunca infira o que foi dito nele; se o áudio for necessário para decidir o próximo passo, aguarde ou obtenha a transcrição.',
     'Não invente valores, datas, horários, compromisso, disponibilidade, matrícula, cadastro, documentos, condição contratual, proposta, pagamento, objeção ou qualquer outro fato.',
     'A orientação deve ser curta, concreta, operacional e ligada à interação atual.',
     'Evite frases abstratas como avançar a negociação buscando compreender, retomar contato, fazer follow-up, responder naturalmente ou marcar uma conversa sem motivo contextual.',
@@ -654,17 +717,36 @@ async function runAttempt({
           : OPERATIONAL_OUTPUT_FORMAT,
     })
 
-    return mode === 'commercial'
-      ? parseCommercialGuidance({
-          content: response.content,
-          method,
-          factualContext,
+    const parsed =
+      mode === 'commercial'
+        ? parseCommercialGuidance({
+            content: response.content,
+            method,
+            factualContext,
+          })
+        : parseOperationalGuidance({
+            content: response.content,
+            method,
+            factualContext,
+          })
+
+    if (parsed.guidance) {
+      const hypothesisFailure =
+        validateQuestionHypothesisGuidance({
+          guidance: parsed.guidance,
+          summary,
+          interaction,
         })
-      : parseOperationalGuidance({
-          content: response.content,
-          method,
-          factualContext,
-        })
+
+      if (hypothesisFailure) {
+        return {
+          guidance: null,
+          failure: hypothesisFailure,
+        }
+      }
+    }
+
+    return parsed
   } catch {
     return {
       guidance: null,
