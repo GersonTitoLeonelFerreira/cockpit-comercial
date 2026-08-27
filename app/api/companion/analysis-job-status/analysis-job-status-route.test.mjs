@@ -204,7 +204,7 @@ function commercialReading(overrides = {}) {
 
 function deepOutput(overrides = {}) {
   return {
-    contract_version: 'phase-5.2-stateful-copilot-v3',
+    contract_version: 'phase-5.2-stateful-copilot-v4',
     commercial_role: 'buyer',
     commercial_relevance: 'commercial',
     interpretation: {
@@ -234,7 +234,7 @@ function deepOutput(overrides = {}) {
 
 function eventRow({
   candidateStateVersion = 1,
-  outputContractVersion = 'phase-5.2-stateful-copilot-v3',
+  outputContractVersion = 'phase-5.2-stateful-copilot-v4',
   normalizedOutput = deepOutput(),
 }) {
   return {

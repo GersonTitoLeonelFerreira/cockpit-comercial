@@ -1,0 +1,568 @@
+{
+  "corpus_version": "evidence-state-coherence-corpus-v1",
+  "status": "draft",
+  "purpose": "Documenta a matriz obrigatória de testes A-T da frente EVIDÊNCIA + ESTADO + COERÊNCIA (YOLEN) com cenários multissetoriais sintéticos. Cada caso descreve a leitura semântica esperada do Copiloto Comercial Contextual (interpretação feita pelo modelo, guiada pelas regras de stateful-copilot-execution-plan.ts) e a garantia estrutural correspondente no contrato/normalizador/redutor. Nenhuma regra do motor depende de palavras específicas deste corpus: os termos de negócio aqui (contrato, pagamento, amostra, exame etc.) são apenas exemplos ilustrativos de um mesmo requisito comercial genérico (pending_requirement).",
+  "sectors": [
+    "academia",
+    "imobiliaria",
+    "saas_b2b",
+    "clinica",
+    "industria",
+    "varejo_servico"
+  ],
+  "cases": [
+    {
+      "id": "test-a-evidencia-explicita",
+      "letter": "A",
+      "title": "Evidência explícita resolve o requisito",
+      "sector": "saas_b2b",
+      "rule_reference": ["section-8", "section-9"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de assinatura do contrato.",
+        "active_requirements": ["assinatura_do_contrato"]
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Acabei de assinar o contrato agora."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "resolver a pendência de assinatura com evidence_message_ids contendo m1",
+          "não perguntar novamente se o contrato foi assinado"
+        ],
+        "must_not": [
+          "manter a assinatura como pendente ou incerta"
+        ]
+      }
+    },
+    {
+      "id": "test-b-intencao-futura",
+      "letter": "B",
+      "title": "Intenção futura não é conclusão",
+      "sector": "varejo_servico",
+      "rule_reference": ["section-8", "section-9"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de pagamento do pedido.",
+        "active_requirements": ["pagamento_do_pedido"]
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Vou pagar hoje ainda."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "manter a pendência de pagamento ativa"
+        ],
+        "must_not": [
+          "resolver a pendência de pagamento com base na intenção declarada",
+          "criar um compromisso com status confirmed"
+        ]
+      }
+    },
+    {
+      "id": "test-c-midia-nao-interpretada",
+      "letter": "C",
+      "title": "Mídia não interpretada com texto ambíguo vira incerteza",
+      "sector": "academia",
+      "rule_reference": ["section-10"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de envio do atestado médico para matrícula.",
+        "active_requirements": ["atestado_medico"]
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "[imagem anexada]"
+        },
+        {
+          "id": "m2",
+          "direction": "incoming",
+          "text": "Pronto."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "registrar incerteza apontando para a pendência de atestado médico, sem afirmar o conteúdo da imagem",
+          "orientar o vendedor a confirmar o que foi enviado"
+        ],
+        "must_not": [
+          "resolver a pendência do atestado só porque uma imagem foi enviada",
+          "inventar o conteúdo da imagem"
+        ]
+      }
+    },
+    {
+      "id": "test-d-incerteza-vendedor-pergunta",
+      "letter": "D",
+      "title": "Vendedor pede confirmação: incerteza continua ativa",
+      "sector": "academia",
+      "rule_reference": ["section-12"],
+      "prior_state": {
+        "summary": "A pendência do atestado médico está incerta após mídia não interpretada.",
+        "active_requirements": ["atestado_medico"],
+        "uncertain_requirements": ["atestado_medico"]
+      },
+      "new_messages": [
+        {
+          "id": "m3",
+          "direction": "outgoing",
+          "text": "Show! Só confirma pra mim: essa é a foto do atestado médico?"
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "manter a pendência do atestado médico como incerta ou pendente"
+        ],
+        "must_not": [
+          "resolver a pendência antes de uma resposta do cliente que confirme o conteúdo"
+        ]
+      }
+    },
+    {
+      "id": "test-e-vendedor-avanca-resolve-contexto",
+      "letter": "E",
+      "title": "Vendedor avança explicitamente: incerteza resolvida por contexto",
+      "sector": "academia",
+      "rule_reference": ["section-11", "section-42"],
+      "prior_state": {
+        "summary": "A pendência do atestado médico está incerta após mídia não interpretada.",
+        "active_requirements": ["atestado_medico"],
+        "uncertain_requirements": ["atestado_medico"]
+      },
+      "new_messages": [
+        {
+          "id": "m3",
+          "direction": "outgoing",
+          "text": "Perfeito, atestado recebido! Agora só falta agendar sua avaliação física."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "resolver a incerteza do atestado médico (uncertainty_ids_to_resolve) com evidência em m3",
+          "criar a nova pendência de agendamento da avaliação física (needs_to_add ou open_loops_to_add)",
+          "não voltar a sugerir confirmação do atestado médico"
+        ],
+        "must_not": [
+          "inventar o conteúdo da mídia original como fato"
+        ]
+      }
+    },
+    {
+      "id": "test-f-resposta-generica-nao-resolve",
+      "letter": "F",
+      "title": "Resposta genérica do vendedor não resolve a incerteza",
+      "sector": "academia",
+      "rule_reference": ["section-12"],
+      "prior_state": {
+        "summary": "A pendência do atestado médico está incerta após mídia não interpretada.",
+        "active_requirements": ["atestado_medico"],
+        "uncertain_requirements": ["atestado_medico"]
+      },
+      "new_messages": [
+        {
+          "id": "m3",
+          "direction": "outgoing",
+          "text": "Beleza."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "manter a pendência do atestado médico como incerta"
+        ],
+        "must_not": [
+          "resolver a incerteza porque o vendedor respondeu de forma genérica"
+        ]
+      }
+    },
+    {
+      "id": "test-g-duas-pendencias-evidencia-resolve-uma",
+      "letter": "G",
+      "title": "Duas pendências ativas: evidência resolve somente uma",
+      "sector": "imobiliaria",
+      "rule_reference": ["section-13", "section-14"],
+      "prior_state": {
+        "summary": "Existem duas pendências ativas: documentação do imóvel e análise de crédito.",
+        "active_requirements": ["documentacao_do_imovel", "analise_de_credito"]
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Acabei de enviar todos os documentos do imóvel."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "resolver somente a pendência de documentação do imóvel",
+          "manter a pendência de análise de crédito ativa e inalterada"
+        ],
+        "must_not": [
+          "resolver a análise de crédito com a mesma evidência"
+        ]
+      }
+    },
+    {
+      "id": "test-h-contradicao-reabre-estado",
+      "letter": "H",
+      "title": "Contradição posterior reabre o estado",
+      "sector": "varejo_servico",
+      "rule_reference": ["section-20"],
+      "prior_state": {
+        "summary": "O pagamento do pedido foi confirmado na sessão anterior.",
+        "resolved_requirements": ["pagamento_do_pedido"]
+      },
+      "new_messages": [
+        {
+          "id": "m5",
+          "direction": "incoming",
+          "text": "O pagamento estornou, não caiu na minha fatura."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "reabrir ou substituir o fato de pagamento confirmado com evidência em m5",
+          "recriar a pendência de pagamento como ativa"
+        ],
+        "must_not": [
+          "manter o pagamento como concluído"
+        ]
+      }
+    },
+    {
+      "id": "test-i-superseded-not-required",
+      "letter": "I",
+      "title": "Requisito deixa de ser necessário sem ter sido cumprido",
+      "sector": "industria",
+      "rule_reference": ["section-22"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de envio de amostra física para avaliação.",
+        "active_requirements": ["amostra_fisica"]
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Nosso setor de qualidade decidiu que não precisamos mais da amostra física, vamos seguir direto para a homologação documental."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "usar need_ids_to_supersede (ou open_loop_ids_to_supersede) para a pendência de amostra física",
+          "registrar a nova pendência de homologação documental"
+        ],
+        "must_not": [
+          "marcar a amostra física como resolvida/concluída",
+          "tratar a substituição como se a amostra tivesse sido entregue"
+        ]
+      }
+    },
+    {
+      "id": "test-j-condicao-nao-e-decisao",
+      "letter": "J",
+      "title": "Hipótese condicional não vira decisão",
+      "sector": "saas_b2b",
+      "rule_reference": ["section-18"],
+      "prior_state": {
+        "summary": "Nenhuma decisão de compra foi tomada ainda.",
+        "active_requirements": []
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Se a gente fechar ainda este mês, vocês dão desconto na implantação?"
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "tratar a mensagem como pergunta condicional/hipotética"
+        ],
+        "must_not": [
+          "registrar decisão de compra ou compromisso de fechamento neste mês",
+          "criar commitment com status confirmed ou proposed sem aceite real"
+        ]
+      }
+    },
+    {
+      "id": "test-k-negacao-preserva-polaridade",
+      "letter": "K",
+      "title": "Negação preserva a polaridade",
+      "sector": "saas_b2b",
+      "rule_reference": ["section-19"],
+      "prior_state": {
+        "summary": "Nenhuma pendência de aprovação de terceiro foi registrada ainda.",
+        "active_requirements": []
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Não preciso da aprovação do meu sócio para isso, decido sozinho."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "não criar pendência de aprovação de terceiro"
+        ],
+        "must_not": [
+          "interpretar a negação como se uma aprovação de terceiro fosse necessária"
+        ]
+      }
+    },
+    {
+      "id": "test-l-correcao-temporal-substitui",
+      "letter": "L",
+      "title": "Correção explícita substitui a informação anterior",
+      "sector": "clinica",
+      "rule_reference": ["section-21", "section-23"],
+      "prior_state": {
+        "summary": "Um compromisso de consulta foi proposto para terça-feira.",
+        "commitments": [
+          {
+            "kind": "appointment",
+            "status": "proposed",
+            "scheduled_at_relative": "terca-feira"
+          }
+        ]
+      },
+      "new_messages": [
+        {
+          "id": "m2",
+          "direction": "incoming",
+          "text": "Desculpa, na verdade só posso na quarta-feira."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "atualizar o compromisso existente (commitments_to_upsert com commitment_id preenchido) para a nova data",
+          "não manter as duas datas como válidas simultaneamente"
+        ],
+        "must_not": [
+          "criar um segundo compromisso paralelo mantendo terça-feira ativa"
+        ]
+      }
+    },
+    {
+      "id": "test-m-silencio-nao-e-conclusao",
+      "letter": "M",
+      "title": "Silêncio não vira conclusão",
+      "sector": "clinica",
+      "rule_reference": ["section-24"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de autorização do convênio para o exame.",
+        "active_requirements": ["autorizacao_convenio"]
+      },
+      "new_messages": [],
+      "expected_behavior": {
+        "must": [
+          "manter a pendência de autorização ativa",
+          "permitir que strategy sinalize risco de silêncio ou necessidade de follow-up"
+        ],
+        "must_not": [
+          "resolver, rejeitar, aprovar ou encerrar a pendência apenas por ausência de mensagens"
+        ]
+      }
+    },
+    {
+      "id": "test-n-emoji-ambiguo",
+      "letter": "N",
+      "title": "Emoji ambíguo não vira certeza",
+      "sector": "varejo_servico",
+      "rule_reference": ["section-25"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de confirmação de retirada do produto.",
+        "active_requirements": ["confirmacao_retirada"]
+      },
+      "new_messages": [
+        {
+          "id": "m4",
+          "direction": "incoming",
+          "text": "👍"
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "manter a pendência de confirmação de retirada como incerta ou ativa quando o emoji isolado não é inequívoco no contexto"
+        ],
+        "must_not": [
+          "tratar o emoji isolado como confirmação definitiva de retirada"
+        ]
+      }
+    },
+    {
+      "id": "test-o-resposta-parcial",
+      "letter": "O",
+      "title": "Resposta parcial resolve somente o item respondido",
+      "sector": "imobiliaria",
+      "rule_reference": ["section-26"],
+      "prior_state": {
+        "summary": "O vendedor fez duas perguntas: data da visita e forma de pagamento da entrada.",
+        "active_requirements": ["data_da_visita", "forma_pagamento_entrada"]
+      },
+      "new_messages": [
+        {
+          "id": "m6",
+          "direction": "incoming",
+          "text": "Posso visitar sábado de manhã."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "resolver ou avançar somente a pendência da data da visita"
+        ],
+        "must_not": [
+          "considerar a forma de pagamento da entrada como respondida"
+        ]
+      }
+    },
+    {
+      "id": "test-p-bot-automacao-autoria",
+      "letter": "P",
+      "title": "Mensagem de bot/automação não é confirmação do cliente",
+      "sector": "saas_b2b",
+      "rule_reference": ["section-30"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de aprovação de segurança da informação.",
+        "active_requirements": ["aprovacao_seguranca"]
+      },
+      "new_messages": [
+        {
+          "id": "m9",
+          "direction": "incoming",
+          "author_role": "automation",
+          "text": "[ManyChat] Obrigado por aguardar, em breve retornaremos."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "preservar a autoria automática/bot da mensagem",
+          "manter a pendência de aprovação de segurança inalterada"
+        ],
+        "must_not": [
+          "tratar a mensagem automática como confirmação ou fala do cliente"
+        ]
+      }
+    },
+    {
+      "id": "test-q-mensagem-vendedor-nao-vira-cliente",
+      "letter": "Q",
+      "title": "Mensagem do vendedor nunca vira fala do cliente",
+      "sector": "saas_b2b",
+      "rule_reference": ["section-16"],
+      "prior_state": {
+        "summary": "Existe uma pendência ativa de assinatura do contrato.",
+        "active_requirements": ["assinatura_do_contrato"]
+      },
+      "new_messages": [
+        {
+          "id": "m10",
+          "direction": "outgoing",
+          "text": "Já assinei o contrato aqui do meu lado e enviei para vocês."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "registrar, no máximo, uma observação operacional do vendedor",
+          "não atribuir a afirmação ao cliente"
+        ],
+        "must_not": [
+          "criar um fato do cliente com base na fala do vendedor",
+          "resolver a assinatura do contrato como se o cliente tivesse confirmado"
+        ]
+      }
+    },
+    {
+      "id": "test-r-vendedor-resolve-incerteza-ao-avancar",
+      "letter": "R",
+      "title": "Vendedor resolve incerteza implicitamente ao avançar",
+      "sector": "industria",
+      "rule_reference": ["section-11"],
+      "prior_state": {
+        "summary": "Está incerto se o pedido de compra formal foi emitido pelo cliente.",
+        "uncertain_requirements": ["pedido_de_compra"]
+      },
+      "new_messages": [
+        {
+          "id": "m11",
+          "direction": "outgoing",
+          "text": "Recebemos o pedido de compra, já estamos programando a produção do lote."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "resolver a incerteza do pedido de compra por avanço contextual explícito do vendedor",
+          "registrar a nova etapa (programação de produção) como pendência ou fato quando aplicável"
+        ],
+        "must_not": [
+          "manter a incerteza do pedido de compra ativa depois desse avanço inequívoco"
+        ]
+      }
+    },
+    {
+      "id": "test-s-evidencia-a-nunca-resolve-b",
+      "letter": "S",
+      "title": "Evidência de A nunca resolve B",
+      "sector": "varejo_servico",
+      "rule_reference": ["section-13", "section-14"],
+      "prior_state": {
+        "summary": "Existem duas pendências ativas: pagamento do pedido e retirada do produto na loja.",
+        "active_requirements": ["pagamento_do_pedido", "retirada_do_produto"]
+      },
+      "new_messages": [
+        {
+          "id": "m1",
+          "direction": "incoming",
+          "text": "Pagamento feito, acabei de confirmar no aplicativo do banco."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "resolver somente a pendência de pagamento do pedido"
+        ],
+        "must_not": [
+          "resolver a pendência de retirada do produto com a evidência de pagamento"
+        ]
+      }
+    },
+    {
+      "id": "test-t-mudanca-assunto-preserva-estado",
+      "letter": "T",
+      "title": "Assunto comercial → suporte → comercial preserva o estado sem aplicar método no assunto errado",
+      "sector": "clinica",
+      "rule_reference": ["section-27", "section-28"],
+      "prior_state": {
+        "summary": "Existe uma pendência comercial ativa de autorização do convênio para o exame.",
+        "active_requirements": ["autorizacao_convenio"]
+      },
+      "new_messages": [
+        {
+          "id": "m12",
+          "direction": "incoming",
+          "text": "A recepção de vocês fica em qual endereço mesmo? Preciso saber pra chegar amanhã em outra consulta que já tenho marcada."
+        },
+        {
+          "id": "m13",
+          "direction": "incoming",
+          "text": "Voltando ao que a gente tava falando: já tenho a autorização do convênio, pode confirmar o exame."
+        }
+      ],
+      "expected_behavior": {
+        "must": [
+          "tratar m12 isoladamente como assunto não comercial (logística/endereço), sem aplicar avanço de método comercial nessa sessão",
+          "quando a conversa retomar o assunto comercial em m13, resolver a pendência de autorização do convênio com evidência em m13"
+        ],
+        "must_not": [
+          "aplicar need_ids_to_resolve ou avanço de método sobre o assunto de endereço",
+          "descartar a pendência comercial anterior apenas porque houve um desvio de assunto"
+        ]
+      }
+    }
+  ]
+}

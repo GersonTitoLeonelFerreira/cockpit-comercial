@@ -442,10 +442,16 @@ function buildModelEngineResult({
         need_ids_to_resolve:
           [],
 
+        need_ids_to_supersede:
+          [],
+
         open_loops_to_add:
           [],
 
         open_loop_ids_to_resolve:
+          [],
+
+        open_loop_ids_to_supersede:
           [],
 
         objections_to_add:
@@ -470,6 +476,9 @@ function buildModelEngineResult({
           [],
 
         uncertainty_ids_to_resolve:
+          [],
+
+        uncertainty_ids_to_supersede:
           [],
       },
 
@@ -666,7 +675,7 @@ function buildModelPersistencePlan(
 
       normalized_output: {
         contract_version:
-          'phase-5.2-stateful-copilot-v3',
+          'phase-5.2-stateful-copilot-v4',
       },
 
       execution: {

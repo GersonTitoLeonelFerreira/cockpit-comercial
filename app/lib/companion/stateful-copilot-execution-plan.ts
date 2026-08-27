@@ -50,7 +50,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v22' as const
+  'phase-5.2-stateful-prompt-v23' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -951,6 +951,54 @@ function buildSystemPrompt(
 
     'Para incertezas compostas, não resolva uma incerteza ampla apenas porque um dos componentes foi esclarecido. Mantenha-a ativa enquanto sua descrição continuar verdadeira ou, ao substituí-la por incertezas mais específicas, preserve explicitamente todos os componentes que ainda não foram comprovados.',
 
+    'Princípio central desta atualização: raciocine sempre sobre três perguntas — que evidência realmente prova o que aconteceu; o que está pendente, incerto, resolvido ou deixou de ser necessário; e qual leitura e próximo passo são coerentes com esse estado. Nunca resolva um requisito comercial (necessidade, loop aberto, objeção, incerteza) porque "algo aconteceu" de forma vaga; a evidência precisa sustentar exatamente aquele requisito.',
+
+    'Intenção futura não é conclusão. "Vou pagar", "vou assinar", "vou verificar", "vou falar com meu sócio" mantêm o requisito correspondente pendente ou incerto. Somente uma afirmação de fato já concluído ("paguei", "assinei", "confirmado") pode sustentar resolução.',
+
+    'Mídia (imagem, PDF, áudio não transcrito, arquivo) cujo conteúdo não é interpretado por este motor nunca vira fato por si só. Quando o texto que acompanha a mídia não identificar com clareza o que foi concluído, registre incerteza (uncertainties_to_add) apontando qual requisito pode ter sido afetado, em vez de resolver ou inventar o conteúdo da mídia.',
+
+    'Uma incerteza registrada anteriormente pode ser resolvida por uma mensagem posterior do vendedor quando essa mensagem pressupuser claramente, de forma inequívoca, que a condição foi concluída (por exemplo, ao avançar explicitamente para a etapa seguinte ou confirmar o resultado). Nesse caso, use uncertainty_ids_to_resolve para a incerteza correspondente e registre a nova pendência específica em needs_to_add ou open_loops_to_add quando houver uma.',
+
+    'Uma resposta genérica do vendedor ("beleza", "ok", "certo", "combinado" sem qualquer referência a avanço, resultado ou próxima etapa) nunca resolve uma incerteza ou pendência anterior por si só. Mantenha o item ativo.',
+
+    'Quando existir mais de uma necessidade, loop aberto, objeção ou incerteza ativos simultaneamente, associe cada nova evidência exatamente ao ID do item que ela sustenta. Nunca resolva múltiplos itens ativos com uma evidência que sustenta apenas um deles, e nunca resolva "tudo que estava pendente" de uma só vez sem evidência específica para cada item.',
+
+    'Referências ambíguas ("esse", "sim", "pode ser", "o primeiro", "fechado", "isso", "pronto", "amanhã") que possam apontar para mais de um requisito, produto ou compromisso ativo não devem ser resolvidas por suposição. Mantenha o item correspondente como incerto até que uma mensagem posterior desambigue ou até que seja necessário perguntar.',
+
+    'Mensagem do vendedor nunca deve ser tratada como fala ou confirmação do cliente. Uma mensagem do vendedor pode registrar uma observação operacional ou resolver uma incerteza por avanço contextual explícito (regra acima), mas isso não equivale a criar um fato atribuído ao cliente.',
+
+    'Reação de interesse ("gostei", "parece ótimo", "interessante") não é decisão de compra. Intenção declarada ("acho que vou fechar") não é decisão concluída. Decisão positiva explícita ("quero contratar", "pode seguir com o contrato") pode avançar o método, mas ainda não é o mesmo que uma condição comercial específica (pagamento, assinatura, aprovação) já cumprida.',
+
+    'Hipótese ou condicional ("se eu fechar hoje, tem desconto?") não é decisão nem compromisso; preserve a condicionalidade e não trate a pergunta como se o cliente já tivesse decidido a condição mencionada.',
+
+    'Preserve sempre a polaridade da negação. "Não quero X" nunca implica que o cliente quer X. "Não preciso de aprovação de terceiro" nunca cria uma pendência de aprovação. "Não consegui concluir X" nunca resolve o requisito X.',
+
+    'Quando uma mensagem posterior contradizer uma decisão, compromisso ou fato anterior (por exemplo, uma decisão de avançar seguida de "na verdade vou esperar", ou um pagamento confirmado seguido de estorno), não mantenha o estado anterior como válido. Encerre o item anterior (resolvido, superado ou cancelado conforme o caso) e registre o novo estado com evidência da mensagem que contradisse.',
+
+    'Quando uma mensagem posterior for uma correção explícita de um dado específico já registrado (data, valor, horário, quantidade), a informação mais recente substitui a anterior; não mantenha as duas versões como verdades simultâneas.',
+
+    'Use need_ids_to_supersede, open_loop_ids_to_supersede ou uncertainty_ids_to_supersede (em vez de resolve) quando um requisito deixar de ser necessário ou for substituído por outro caminho, sem que exista evidência de que ele foi efetivamente cumprido. Resolver (resolve) significa que há evidência de conclusão; substituir (supersede) significa que o requisito deixou de ser exigido sem ter sido cumprido. Um ID não pode aparecer simultaneamente nas duas listas do mesmo requisito no mesmo ciclo.',
+
+    'Datas e prazos relativos ("amanhã", "sexta", "semana que vem", "depois do pagamento") referem-se sempre ao instante em que a mensagem foi enviada (occurred_at), nunca ao instante em que esta análise está sendo executada. Não recalcule uma data relativa como se ela tivesse sido dita agora.',
+
+    'Silêncio do cliente pode justificar risco ou necessidade de follow-up em strategy, mas silêncio isoladamente nunca resolve, aprova, rejeita ou encerra um requisito, compromisso ou oportunidade.',
+
+    'Emoji ou reação isolada (👍, ❤️, ✅ ou equivalentes) não é prova automática de decisão, aprovação ou conclusão. Só use como evidência de resolução quando o contexto imediato tornar o significado inequívoco; caso contrário, mantenha o requisito correspondente incerto.',
+
+    'Quando o vendedor fizer múltiplas perguntas ou apresentar múltiplas pendências e o cliente responder apenas parte delas, resolva ou esclareça somente o item efetivamente respondido. Não infira que as demais perguntas ou pendências também foram atendidas.',
+
+    'Quando a sessão temporal atual mudar de assunto comercial para um assunto não comercial (suporte, financeiro não relacionado à venda, logística de entrega já concluída, pessoal), não aplique need_ids_to_resolve, open_loop_ids_to_resolve ou qualquer avanço de método a esse novo assunto; a relevância comercial atual continua sendo o gate. Quando a conversa retornar a um assunto comercial, interprete a nova sessão pelo que ela demonstra agora; o estado comercial anterior permanece disponível como memória, mas não é reaplicado automaticamente sobre o assunto atual.',
+
+    'Aprovação, autorização ou decisão de um terceiro (gerente, sócio, jurídico, cônjuge) só resolve o requisito específico ao qual ela corresponde (por exemplo, uma aprovação jurídica resolve uma pendência de aprovação jurídica). Nunca trate a aprovação de um terceiro como conclusão automática da venda inteira, a menos que o método comercial configurado declare exatamente essa condição como suficiente para avançar.',
+
+    'Mensagens geradas por bot, automação ou ManyChat não podem ser tratadas como fala, confirmação ou decisão do cliente. Preserve a autoria de cada mensagem. Uma opção clicada pelo próprio cliente em um menu ou botão pode ser evidência válida; uma mensagem automática enviada pelo sistema para o cliente não é.',
+
+    'Quando uma condição, proposta ou preço anterior for explicitamente substituído por uma nova versão (nova proposta, novo preço, nova data), a versão antiga deixa de ser tratada como condição atual; use fact_ids_to_supersede, need_ids_to_supersede ou open_loop_ids_to_supersede conforme o caso, preservando o histórico como substituído em vez de apagá-lo.',
+
+    'Antes de definir strategy.next_move, verifique internamente se ele é coerente com tudo que state_patch acabou de resolver ou substituir nesta mesma atualização. Nunca oriente o vendedor a confirmar ou perguntar novamente algo que a própria análise atual já resolveu. Se nada estiver pendente e a decisão já estiver concluída, o próximo passo deve avançar conforme o método, não repetir uma etapa já superada.',
+
+    'Prefira registrar incerteza a inventar uma conclusão. Mas não pergunte novamente algo cuja resposta já pode ser inferida com segurança a partir de uma mensagem posterior da própria conversa.',
+
     'Use os IDs exatos das memórias ativas para resolver, substituir ou atualizar itens anteriores.',
 
     'Não invente IDs para novos fatos, necessidades, loops, objeções, sinais ou incertezas. O redutor determinístico da Yolen cria esses IDs.',
@@ -1397,8 +1445,10 @@ function buildUserPrompt(
           'fact_ids_to_supersede',
           'needs_to_add',
           'need_ids_to_resolve',
+          'need_ids_to_supersede',
           'open_loops_to_add',
           'open_loop_ids_to_resolve',
+          'open_loop_ids_to_supersede',
           'objections_to_add',
           'objection_ids_to_resolve',
           'objection_ids_to_supersede',
@@ -1407,6 +1457,7 @@ function buildUserPrompt(
           'signal_ids_to_resolve',
           'uncertainties_to_add',
           'uncertainty_ids_to_resolve',
+          'uncertainty_ids_to_supersede',
         ],
 
         strategy: [

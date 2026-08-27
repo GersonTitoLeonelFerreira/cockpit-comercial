@@ -654,7 +654,7 @@ test(
             "2026-08-06T18:10:01-03:00",
 
           outputContractVersion:
-            "phase-5.2-stateful-copilot-v3",
+            "phase-5.2-stateful-copilot-v4",
         });
 
       const secondPersist =
@@ -724,10 +724,10 @@ test(
               2,
 
             output_contract_version:
-              "phase-5.2-stateful-copilot-v3",
+              "phase-5.2-stateful-copilot-v4",
 
             normalized_contract_version:
-              "phase-5.2-stateful-copilot-v3",
+              "phase-5.2-stateful-copilot-v4",
           },
         ],
       );
