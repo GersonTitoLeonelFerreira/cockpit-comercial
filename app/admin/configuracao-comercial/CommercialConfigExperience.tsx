@@ -618,7 +618,7 @@ export default function CommercialConfigExperience() {
       <GuidedMethodJourney
         onBack={returnHome}
         onReadyForConstruction={() => {
-                setMode('construction')
+          setMode('construction')
         }}
       />
     )
@@ -694,7 +694,7 @@ export default function CommercialConfigExperience() {
       home.next_action.key === 'start_diagnosis' ||
       home.next_action.key === 'continue_diagnosis'
     ) {
-        setMode('diagnosis')
+      setMode('diagnosis')
       return
     }
 
@@ -1027,6 +1027,11 @@ export default function CommercialConfigExperience() {
           </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {snapshot.construction?.construction && (
+            <SecondaryButton onClick={() => setMode('construction')}>
+              Editar método
+            </SecondaryButton>
+          )}
           {snapshot.builder && (
             <SecondaryButton
               onClick={() => {
