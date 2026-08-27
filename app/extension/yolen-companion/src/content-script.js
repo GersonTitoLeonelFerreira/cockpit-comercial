@@ -505,15 +505,40 @@
         regionKey,
       )
 
-    if (
+    const cachedHtml =
       panelRegionHtmlCache.get(
         regionKey,
-      ) === html
+      )
+
+    const sellerRegionIntact =
+      regionKey !==
+        'seller-information-architecture' ||
+      Boolean(
+        container.querySelector(
+          '[data-yolen-ux-build="UX4"]',
+        ) &&
+        container.querySelector(
+          '.yolen-seller-panel--active',
+        )?.firstElementChild,
+      )
+
+    if (
+      cachedHtml === html &&
+      sellerRegionIntact
     ) {
       panelRegionPendingHtml.delete(
         regionKey,
       )
       return container
+    }
+
+    if (
+      cachedHtml === html &&
+      !sellerRegionIntact
+    ) {
+      panelRegionHtmlCache.delete(
+        regionKey,
+      )
     }
 
     if (
@@ -535,6 +560,65 @@
     )
 
     return container
+  }
+
+  let sellerWorkspaceIntegrityObserver = null
+  let sellerWorkspaceRepairScheduled = false
+
+  function ensureSellerWorkspaceIntegrityObserver(
+    panel,
+  ) {
+    if (
+      !panel ||
+      sellerWorkspaceIntegrityObserver
+    ) {
+      return
+    }
+
+    sellerWorkspaceIntegrityObserver =
+      new MutationObserver(() => {
+        const workspace =
+          panel.querySelector(
+            '[data-yolen-ux-build="UX4"]',
+          )
+
+        if (!workspace) {
+          return
+        }
+
+        const activePanel =
+          workspace.querySelector(
+            '.yolen-seller-panel--active',
+          )
+
+        if (
+          !activePanel ||
+          activePanel.firstElementChild ||
+          sellerWorkspaceRepairScheduled
+        ) {
+          return
+        }
+
+        sellerWorkspaceRepairScheduled = true
+
+        queueMicrotask(() => {
+          sellerWorkspaceRepairScheduled = false
+
+          panelRegionHtmlCache.delete(
+            'seller-information-architecture',
+          )
+
+          renderPanel()
+        })
+      })
+
+    sellerWorkspaceIntegrityObserver.observe(
+      panel,
+      {
+        childList: true,
+        subtree: true,
+      },
+    )
   }
 
   function flushPendingPanelRegions() {
@@ -12483,6 +12567,10 @@
     )
 
     wirePanelInteractions(panel)
+
+    ensureSellerWorkspaceIntegrityObserver(
+      panel,
+    )
 
     window.YolenCompanionSellerMessageRuntime
       ?.render?.()

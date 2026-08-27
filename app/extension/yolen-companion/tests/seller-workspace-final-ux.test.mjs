@@ -108,3 +108,35 @@ test('UX4 renderiza somente a aba ativa e nunca depende de hidden panels', () =>
   )
   assert.match(contentScript, /data-yolen-area-fallback="now"/)
 })
+
+
+test('region cache reconstrói UX4 quando a aba ativa perde o conteúdo', () => {
+  assert.match(
+    contentScript,
+    /sellerRegionIntact[\s\S]*yolen-seller-panel--active/,
+  )
+  assert.match(
+    contentScript,
+    /cachedHtml === html &&\s*!sellerRegionIntact[\s\S]*panelRegionHtmlCache\.delete/,
+  )
+})
+
+
+test('UX4 se autocorrige se algum runtime esvaziar a aba ativa', () => {
+  assert.match(
+    contentScript,
+    /function ensureSellerWorkspaceIntegrityObserver/,
+  )
+  assert.match(
+    contentScript,
+    /activePanel\.firstElementChild/,
+  )
+  assert.match(
+    contentScript,
+    /panelRegionHtmlCache\.delete\(\s*'seller-information-architecture'/,
+  )
+  assert.match(
+    contentScript,
+    /ensureSellerWorkspaceIntegrityObserver\(\s*panel/,
+  )
+})
