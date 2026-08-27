@@ -1891,3 +1891,348 @@ html.yolen-companion-collapsed #app {
   vertical-align: -1px;
   border-width: 1.5px;
 }
+
+
+/* YOLEN — FINAL SELLER UX SHELL
+   AGORA / ANÁLISE / CLIENTE are the primary product surface.
+   Legacy operational cards no longer occupy the default reading flow. */
+
+.yolen-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(126, 153, 194, 0.10);
+  border-radius: 11px;
+  background: rgba(9, 15, 24, 0.62);
+}
+
+.yolen-context-bar-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.yolen-context-bar-name {
+  overflow: hidden;
+  color: #eef5ff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yolen-context-bar .yolen-context-chips {
+  margin-top: 5px;
+  gap: 4px;
+}
+
+.yolen-context-bar .yolen-context-chip {
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 9px;
+}
+
+.yolen-context-bar-status {
+  margin-top: 5px;
+  color: #8798ad;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.yolen-context-bar-action {
+  flex: 0 0 auto;
+}
+
+.yolen-context-bar-action .yolen-primary-button,
+.yolen-context-bar-action .yolen-secondary-button,
+.yolen-context-bar-action .yolen-tertiary-button {
+  width: auto;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.yolen-seller-workspace {
+  min-width: 0;
+}
+
+.yolen-seller-tabs {
+  position: sticky;
+  top: 62px;
+  z-index: 9;
+  gap: 3px;
+  margin: 0 -2px 10px;
+  padding: 3px;
+  border-color: rgba(126, 153, 194, 0.10);
+  border-radius: 11px;
+  background: rgba(7, 12, 20, 0.96);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(16px);
+}
+
+.yolen-seller-tab {
+  padding: 8px 5px;
+  border-radius: 8px;
+  font-size: 9px;
+  letter-spacing: 0.065em;
+}
+
+.yolen-seller-tab--active {
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(37, 99, 235, 0.18);
+  box-shadow: none;
+}
+
+.yolen-seller-panel {
+  min-height: 0;
+}
+
+.yolen-global-interruption {
+  margin-bottom: 10px;
+}
+
+.yolen-global-interruption .yolen-card {
+  margin-bottom: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.yolen-now-shell {
+  display: grid;
+  gap: 9px;
+}
+
+.yolen-now-hero {
+  padding: 15px;
+  border: 1px solid rgba(126, 153, 194, 0.12);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(17, 27, 43, 0.82), rgba(8, 14, 23, 0.78));
+}
+
+.yolen-now-hero-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.yolen-now-eyebrow {
+  color: #60a5fa;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.yolen-now-heading {
+  margin-top: 3px;
+  color: #f5f9ff;
+  font-size: 14px;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.yolen-now-status-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(96, 165, 250, 0.16);
+  border-radius: 999px;
+  background: rgba(30, 64, 175, 0.12);
+  color: #aecdff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.yolen-now-current-state {
+  margin-top: 12px;
+  color: #cbd8e8;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.yolen-now-transient-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  background: rgba(30, 64, 175, 0.09);
+  color: #91a9c5;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.yolen-now-guidance {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(126, 153, 194, 0.11);
+}
+
+.yolen-now-guidance-title {
+  margin-bottom: 7px;
+  color: #8ea0b8;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yolen-now-guidance .yolen-method-guidance {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.yolen-now-guidance .yolen-method-guidance-label {
+  display: none;
+}
+
+.yolen-now-guidance .yolen-method-guidance-next-step {
+  color: #f4f8ff;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.yolen-now-guidance .yolen-method-guidance-meta {
+  margin-top: 7px;
+  color: #8193aa;
+  font-size: 9px;
+}
+
+.yolen-now-quiet-state {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(126, 153, 194, 0.10);
+  color: #8193aa;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.yolen-now-actions {
+  margin-top: 10px;
+}
+
+.yolen-now-actions .yolen-inline-actions {
+  margin-top: 0;
+}
+
+.yolen-now-actions .yolen-tertiary-button {
+  opacity: 0.72;
+}
+
+.yolen-now-shell .yolen-now-more-details {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 153, 194, 0.08);
+  border-radius: 11px;
+  background: rgba(8, 14, 23, 0.42);
+}
+
+.yolen-seller-panel > .yolen-card,
+.yolen-client-operations > .yolen-card {
+  margin-bottom: 8px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.yolen-analysis-area-card {
+  gap: 12px;
+  padding: 12px;
+}
+
+.yolen-client-commercial-card,
+.yolen-client-relationship-card {
+  padding: 12px;
+}
+
+.yolen-client-operations {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.yolen-client-operations-heading {
+  padding: 0 2px;
+  color: #768aa4;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yolen-client-utility {
+  overflow: hidden;
+  border: 1px solid rgba(126, 153, 194, 0.10);
+  border-radius: 11px;
+  background: rgba(8, 14, 23, 0.48);
+}
+
+.yolen-client-utility > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  color: #dbe7f6;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.yolen-client-utility > summary::-webkit-details-marker {
+  display: none;
+}
+
+.yolen-client-utility-state {
+  color: #7890aa;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.yolen-client-utility-content {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.yolen-client-utility-copy {
+  color: #aebdd0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.yolen-client-utility-meta {
+  color: #71859e;
+  font-size: 9px;
+}
+
+.yolen-client-utility-error,
+.yolen-client-utility-note {
+  color: #fca5a5;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.yolen-compact-footer {
+  padding-top: 4px;
+}
+
+.yolen-compact-footer .yolen-tertiary-button {
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+

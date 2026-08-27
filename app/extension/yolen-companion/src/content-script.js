@@ -10397,7 +10397,342 @@
     `
   }
 
+  function getCurrentLeadMemoryData() {
+    if (
+      state.companionLeadSummary?.status !== 'ready'
+    ) {
+      return null
+    }
+
+    const data =
+      state.companionLeadSummary?.data || {}
+
+    const workingSummary =
+      typeof data.working_summary === 'string' &&
+      data.working_summary.trim()
+        ? data.working_summary.trim()
+        : typeof data.summary?.summary === 'string'
+          ? data.summary.summary.trim()
+          : ''
+
+    if (!workingSummary) {
+      return null
+    }
+
+    return {
+      data,
+      workingSummary,
+      guidance: data.method_guidance || null,
+    }
+  }
+
+  function getNowPrimaryWorkspaceHtml() {
+    const memory =
+      getCurrentLeadMemoryData()
+
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const currentState =
+      typeof commercialReading
+        ?.conversation_summary
+        ?.current_state
+        ?.summary === 'string'
+        ? commercialReading
+            .conversation_summary
+            .current_state
+            .summary
+            .trim()
+        : ''
+
+    const guidance =
+      memory?.guidance || null
+
+    const guidanceReady =
+      Boolean(
+        guidance &&
+        guidance.status !== 'loading' &&
+        guidance.status !== 'no_summary',
+      )
+
+    const guidanceHtml =
+      guidanceReady
+        ? leadSummaryViewTools
+            .renderMethodGuidance(
+              guidance,
+            )
+        : ''
+
+    const transientStatus =
+      state.conversationAnalysisLoading
+        ? 'Atualizando a leitura desta conversa…'
+        : isCurrentAnalysisOutdated()
+          ? 'A conversa mudou. Atualizando a orientação…'
+          : state.conversationAnalysisError
+            ? state.conversationAnalysisError
+            : (
+                guidance?.status === 'loading'
+                  ? 'Atualizando a orientação…'
+                  : ''
+              )
+
+    const attentionHtml =
+      commercialReading
+        ? sellerInformationViewTools
+            .renderNowAttentionSnapshot(
+              commercialReading,
+              state.companionClientContext,
+              {
+                now: Date.now(),
+                cycleClosed:
+                  state.leadResolution
+                    ?.flags
+                    ?.is_closed === true,
+              },
+            )
+        : ''
+
+    const canShowComposer =
+      Boolean(
+        memory &&
+        guidance &&
+        (
+          guidance.status === 'ready' ||
+          guidance.status === 'not_applicable'
+        ),
+      )
+
+    const moreContext =
+      commercialReading &&
+      !state.conversationAnalysisError &&
+      !isCurrentAnalysisOutdated()
+        ? getNowMoreContextDetailsHtml(
+            commercialReading,
+          )
+        : ''
+
+    return `
+      <div class="yolen-now-shell" data-yolen-now-shell>
+        <section class="yolen-now-hero">
+          <div class="yolen-now-hero-header">
+            <div>
+              <div class="yolen-now-eyebrow">Agora</div>
+              <div class="yolen-now-heading">O que importa nesta conversa</div>
+            </div>
+            ${
+              commercialReading
+                ? `
+                  <span class="yolen-now-status-pill">
+                    ${escapeHtml(
+                      getRichCommercialReadingBadge(
+                        commercialReading,
+                      ),
+                    )}
+                  </span>
+                `
+                : ''
+            }
+          </div>
+
+          ${
+            currentState
+              ? `
+                <div class="yolen-now-current-state">
+                  ${escapeHtml(currentState)}
+                </div>
+              `
+              : ''
+          }
+
+          ${
+            transientStatus
+              ? `
+                <div class="yolen-now-transient-status" role="status" aria-live="polite">
+                  ${
+                    state.conversationAnalysisLoading
+                      ? getInlineSpinnerHtml()
+                      : ''
+                  }
+                  ${escapeHtml(transientStatus)}
+                </div>
+              `
+              : ''
+          }
+
+          ${attentionHtml}
+
+          ${
+            guidanceHtml
+              ? `
+                <div class="yolen-now-guidance" data-yolen-layer="next-step">
+                  <div class="yolen-now-guidance-title">Orientação da Yolen</div>
+                  <div data-yolen-method-guidance-slot>
+                    ${guidanceHtml}
+                  </div>
+                </div>
+              `
+              : (
+                  memory
+                    ? `
+                      <div class="yolen-now-quiet-state">
+                        A Yolen acompanha a conversa e mostrará uma orientação quando houver um próximo passo útil.
+                      </div>
+                    `
+                    : ''
+                )
+          }
+
+          ${
+            memory
+              ? `
+                <input
+                  type="hidden"
+                  data-yolen-textarea="lead-summary"
+                  value="${escapeHtml(memory.workingSummary)}"
+                >
+              `
+              : ''
+          }
+
+          ${
+            canShowComposer
+              ? '<div data-yolen-seller-message-mount></div>'
+              : ''
+          }
+
+          <div class="yolen-now-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </section>
+
+        ${moreContext}
+      </div>
+    `
+  }
+
+  function getLeadMemoryUtilityHtml() {
+    const memory =
+      getCurrentLeadMemoryData()
+
+    if (!memory) {
+      if (
+        state.companionLeadSummary?.status === 'error'
+      ) {
+        return `
+          <div class="yolen-client-utility-note yolen-status-warning">
+            Não foi possível carregar a memória deste lead agora.
+          </div>
+        `
+      }
+
+      return ''
+    }
+
+    const data = memory.data
+    const savedSummary =
+      data.summary || null
+
+    const hasUnsavedChanges =
+      typeof data.has_unsaved_changes === 'boolean'
+        ? data.has_unsaved_changes
+        : Boolean(
+            memory.workingSummary &&
+            !savedSummary,
+          )
+
+    const saving =
+      state.companionLeadSummarySaveStatus ===
+        'saving'
+
+    return `
+      <details class="yolen-client-utility" data-yolen-client-utility="memory">
+        <summary>
+          <span>Memória do lead</span>
+          <span class="yolen-client-utility-state">
+            ${hasUnsavedChanges ? 'Pendente' : 'Salva'}
+          </span>
+        </summary>
+
+        <div class="yolen-client-utility-content">
+          <div class="yolen-client-utility-copy">
+            ${escapeHtml(memory.workingSummary)}
+          </div>
+
+          ${
+            state.companionLeadSummarySaveError
+              ? `
+                <div class="yolen-client-utility-error">
+                  ${escapeHtml(
+                    state.companionLeadSummarySaveError,
+                  )}
+                </div>
+              `
+              : ''
+          }
+
+          ${
+            hasUnsavedChanges
+              ? `
+                <button
+                  type="button"
+                  class="yolen-secondary-button"
+                  data-yolen-action="save-lead-summary"
+                  ${saving ? 'disabled' : ''}
+                >
+                  ${saving ? 'Salvando…' : 'Salvar memória na Yolen'}
+                </button>
+              `
+              : `
+                <div class="yolen-client-utility-meta">
+                  Memória consolidada na Yolen.
+                </div>
+              `
+          }
+        </div>
+      </details>
+    `
+  }
+
+  function getClientOperationalToolsHtml() {
+    const sections = [
+      getLeadEnrichmentCandidatesHtml(),
+      getConversationRegistrationCardHtml(),
+      getLeadMemoryUtilityHtml(),
+    ].filter(Boolean)
+
+    if (sections.length === 0) {
+      return ''
+    }
+
+    return `
+      <div class="yolen-client-operations">
+        <div class="yolen-client-operations-heading">
+          Ferramentas do relacionamento
+        </div>
+        ${sections.join('')}
+      </div>
+    `
+  }
+
+  function getActiveSellerAreaContentHtml() {
+    if (activeSellerArea === 'analysis') {
+      return getDetailedAnalysisAreaHtml()
+    }
+
+    if (activeSellerArea === 'client') {
+      return `
+        ${getClientInformationAreaHtml()}
+        ${getClientOperationalToolsHtml()}
+      `
+    }
+
+    return getNowPrimaryWorkspaceHtml()
+  }
+
   function getSellerInformationArchitectureHtml() {
+    const preSendHtml =
+      getPreSendAssessmentCardHtml()
+
     return `
       <div class="yolen-seller-workspace">
         <div
@@ -10410,19 +10745,19 @@
           ${getSellerAreaTabHtml('client', 'Cliente')}
         </div>
 
-        ${getSellerAreaPanelHtml(
-          'now',
-          getAnalysisCardHtml(),
-        )}
+        ${
+          preSendHtml
+            ? `
+              <div class="yolen-global-interruption" data-yolen-global-interruption>
+                ${preSendHtml}
+              </div>
+            `
+            : ''
+        }
 
         ${getSellerAreaPanelHtml(
-          'analysis',
-          getDetailedAnalysisAreaHtml(),
-        )}
-
-        ${getSellerAreaPanelHtml(
-          'client',
-          getClientInformationAreaHtml(),
+          activeSellerArea,
+          getActiveSellerAreaContentHtml(),
         )}
       </div>
     `
@@ -11876,33 +12211,51 @@
   }
 
   function getContactCardHtml() {
+    const resolutionStatus =
+      state.leadResolution?.status || null
+
+    const needsExplanation =
+      Boolean(
+        state.leadResolutionLoading ||
+        state.leadResolutionError ||
+        !state.connected ||
+        !state.conversationPhone ||
+        (
+          resolutionStatus &&
+          resolutionStatus !== 'OWNED_BY_ME'
+        ),
+      )
+
+    const action = getLeadActionButton()
+
     return [
-      '<div class="yolen-card yolen-contact-card ' +
+      '<div class="yolen-context-bar ' +
         getLeadStatusClass() +
       '">',
-
-        '<div class="yolen-section-label">',
-          'Conversa',
+        '<div class="yolen-context-bar-main">',
+          '<div class="yolen-context-bar-name">',
+            escapeHtml(
+              getCompactConversationName(),
+            ),
+          '</div>',
+          getCompactContextChipsHtml(),
+          needsExplanation
+            ? (
+                '<div class="yolen-context-bar-status">' +
+                  escapeHtml(
+                    getCompactLeadDescription(),
+                  ) +
+                '</div>'
+              )
+            : '',
         '</div>',
-
-        '<div class="yolen-lead-name">',
-          escapeHtml(
-            getCompactConversationName(),
-          ),
-        '</div>',
-
-        getCompactContextChipsHtml(),
-
-        '<div class="yolen-card-description yolen-contact-description">',
-          escapeHtml(
-            getCompactLeadDescription(),
-          ),
-        '</div>',
-
-        '<div class="yolen-inline-actions yolen-contact-actions">',
-          getLeadActionButton(),
-        '</div>',
-
+        action
+          ? (
+              '<div class="yolen-context-bar-action">' +
+                action +
+              '</div>'
+            )
+          : '',
       '</div>',
     ].join('')
   }
@@ -12284,30 +12637,6 @@
       panel,
       'contact-card',
       getContactCardHtml(),
-    )
-
-    renderPanelRegion(
-      panel,
-      'registration-card',
-      getConversationRegistrationCardHtml(),
-    )
-
-    renderPanelRegion(
-      panel,
-      'lead-enrichment',
-      getLeadEnrichmentCandidatesHtml(),
-    )
-
-    renderPanelRegion(
-      panel,
-      'pre-send-assessment',
-      getPreSendAssessmentCardHtml(),
-    )
-
-    renderPanelRegion(
-      panel,
-      'lead-summary-card',
-      getCompanionLeadSummaryCardHtml(),
     )
 
     renderPanelRegion(
