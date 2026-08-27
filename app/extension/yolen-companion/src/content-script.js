@@ -9571,7 +9571,6 @@
             commercialReading,
           )}
 
-          ${getSuggestedMessageHtml()}
         </div>
 
         ${getDeepAnalysisStatusBlockHtml()}
@@ -10399,7 +10398,7 @@
 
   function getSellerInformationArchitectureHtml() {
     return `
-      <div class="yolen-seller-workspace yolen-seller-workspace--ux5" data-yolen-ux-build="UX5">
+      <div class="yolen-seller-workspace yolen-seller-workspace--ux5" data-yolen-ux-build="UX6">
         <div
           class="yolen-seller-tabs"
           role="tablist"
@@ -10411,7 +10410,7 @@
         </div>
 
         <div class="yolen-ux-build-badge" aria-label="Versão de teste da experiência">
-          UX5
+          UX6
         </div>
 
         ${getSellerAreaPanelHtml(

@@ -59,3 +59,30 @@ test('UX5 possui mount dedicado e estável para o composer de mensagem', async (
   assert.match(sellerRuntime, /\[data-yolen-seller-message-mount\]/)
   assert.match(sellerRuntime, /dedicatedMount\.appendChild\(box\)/)
 })
+
+
+test('UX6 reexibe o AGORA real e remove o hide legado', async () => {
+  const [summaryView, content] = await Promise.all([
+    readFile(
+      'app/extension/yolen-companion/src/companion-lead-summary-view.js',
+      'utf8',
+    ),
+    readFile(
+      'app/extension/yolen-companion/src/content-script.js',
+      'utf8',
+    ),
+  ])
+
+  assert.doesNotMatch(
+    summaryView,
+    /yolen-seller-panel\[data-yolen-seller-panel="now"\]\{display:none!important;\}/,
+  )
+  assert.match(content, /data-yolen-ux-build="UX6"/)
+  assert.doesNotMatch(
+    content.slice(
+      content.indexOf('function getRichCommercialReadingCardHtml'),
+      content.indexOf('function getDetailedAnalysisAreaHtml'),
+    ),
+    /getSuggestedMessageHtml\(\)/,
+  )
+})

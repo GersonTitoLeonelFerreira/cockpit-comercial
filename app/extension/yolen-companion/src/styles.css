@@ -1958,3 +1958,99 @@ html.yolen-companion-collapsed #app {
 .yolen-region-lead-enrichment {
   order: 30;
 }
+
+
+/* UX6 — AGORA real + action layer, without replacing one with the other. */
+.yolen-seller-workspace--ux5 .yolen-seller-panel[data-yolen-seller-panel="now"] {
+  display: block !important;
+  margin-bottom: 8px;
+}
+
+.yolen-seller-workspace--ux5 .yolen-decision-card {
+  padding: 14px;
+  margin-bottom: 8px;
+}
+
+.yolen-region-lead-summary-card {
+  margin-top: 0;
+}
+
+.yolen-region-lead-summary-card .yolen-lead-summary-card {
+  padding: 12px;
+  border-color: rgba(126,153,194,.10);
+  background: rgba(8,14,23,.58);
+  box-shadow: none;
+}
+
+.yolen-region-lead-summary-card .yolen-lead-summary-preview {
+  color: #cdd9e8;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.48;
+}
+
+.yolen-region-lead-summary-card .yolen-lead-summary-meta {
+  color: #71859e;
+  font-size: 9px;
+}
+
+.yolen-region-lead-summary-card .yolen-method-guidance {
+  margin-top: 11px;
+  padding-top: 11px;
+}
+
+.yolen-region-lead-summary-card .yolen-method-guidance-next-step {
+  font-size: 12px;
+  line-height: 1.48;
+}
+
+.yolen-region-lead-summary-card .yolen-lead-summary-save-button {
+  width: auto;
+  justify-self: start;
+  padding: 7px 10px;
+  border-radius: 9px;
+  color: #a9bdd5;
+  background: rgba(15,23,42,.74);
+  border: 1px solid rgba(126,153,194,.16);
+  box-shadow: none;
+  font-size: 10px;
+}
+
+.yolen-region-lead-summary-card .yolen-lead-summary-save-button:hover {
+  background: rgba(30,41,59,.9);
+  border-color: rgba(96,165,250,.3);
+}
+
+.yolen-region-lead-summary-card [data-yolen-seller-message-box] {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(126,153,194,.10);
+}
+
+.yolen-region-lead-summary-card .yolen-seller-message-title {
+  color: #f2f7fd;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.yolen-region-lead-summary-card .yolen-seller-message-help {
+  color: #7f91aa;
+  font-size: 10px;
+}
+
+.yolen-region-lead-summary-card .yolen-seller-message-preset {
+  padding: 5px 8px;
+  font-size: 9px;
+}
+
+.yolen-region-lead-summary-card .yolen-seller-message-intent {
+  min-height: 64px;
+  font-size: 11px;
+}
+
+.yolen-region-lead-summary-card .yolen-seller-message-generate {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+}

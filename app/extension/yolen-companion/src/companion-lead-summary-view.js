@@ -4,7 +4,7 @@
   // e entrega somente o próximo passo; mensagem sugerida continua fora desta
   // etapa da reconstrução.
 
-  const COMPACT_SUMMARY_CHAR_THRESHOLD = 280
+  const COMPACT_SUMMARY_CHAR_THRESHOLD = 220
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -38,11 +38,11 @@
     return (
       '<style>' +
       '.yolen-lead-summary-card > .yolen-section-label{display:none!important;}' +
-      '.yolen-seller-panel[data-yolen-seller-panel="now"]{display:none!important;}' +
+      
       '.yolen-lead-summary-details{margin:0;}' +
       '.yolen-lead-summary-toggle{display:block;list-style:none;cursor:pointer;outline:none;}' +
       '.yolen-lead-summary-toggle::-webkit-details-marker{display:none;}' +
-      '.yolen-lead-summary-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden;color:#edf5ff;font-size:12px;font-weight:600;line-height:1.55;white-space:pre-wrap;}' +
+      '.yolen-lead-summary-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;color:#edf5ff;font-size:12px;font-weight:600;line-height:1.55;white-space:pre-wrap;}' +
       '.yolen-lead-summary-expand-label{display:inline-block;margin-top:8px;color:#93c5fd;font-size:11px;font-weight:800;}' +
       '.yolen-lead-summary-expand-label--open{display:none;}' +
       '.yolen-lead-summary-details[open] .yolen-lead-summary-preview{display:none;}' +
