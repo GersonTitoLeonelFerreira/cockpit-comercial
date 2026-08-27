@@ -23,7 +23,7 @@ export type SellerFacingGuidance = {
 }
 
 const PROMPT_VERSION =
-  'lead-seller-guidance-v1-context-quality'
+  'lead-seller-guidance-v2-context-quality'
 const OUTPUT_CONTRACT_VERSION =
   'lead-seller-guidance-v1-context-quality'
 const MAX_NEXT_STEP_LENGTH = 500
@@ -330,9 +330,20 @@ function validateAlreadyExecutedActionGuidance({
 // etapa. O modelo recalcula a etapa do zero a cada chamada; sem este
 // gate, nada impede uma regressão silenciosa (ex.: Formalização ->
 // Descoberta) sem evidência real. Regressão continua sendo PERMITIDA
-// quando há evidência textual de que algo realmente mudou (desistência,
+// quando há evidência de que algo realmente mudou (desistência,
 // cancelamento, reabertura de objeção encerrada, pedido explícito de
 // recomeçar) — a ausência de avanço NÃO é motivo para regredir.
+//
+// Re-auditoria do Controle Mestre: a saída do próprio modelo (stage_reason)
+// NUNCA pode autorizar o gate — um modelo que escolha regredir poderia
+// simplesmente escrever "cliente desistiu" no seu próprio stage_reason e
+// desbloquear a própria regressão. A única fonte de evidência aceita é
+// current_interaction com direction="incoming" (o texto real do
+// cliente nesta rodada) — nunca stage_reason, nunca working_summary
+// (também gerado por modelo em turnos anteriores), nunca mensagens
+// outgoing do vendedor. Silêncio/ausência de resposta ("parou de
+// responder", "sumiu", "desapareceu") NUNCA justifica regressão — isso é
+// waiting/follow-up, não mudança comercial.
 export type PreviousMethodStage = {
   method_config_version_id: string
   stage_key: string
@@ -341,24 +352,31 @@ export type PreviousMethodStage = {
 }
 
 function stageRegressionJustified(value: string): boolean {
-  return /\b(desist|cancel|nao quero mais|mudou de ideia|mudei de ideia|reconsiderar|recomecar|voltar atras|reabri|nova objecao|parou de responder|sumiu|desapareceu)\w*/.test(
+  return /\b(desist|cancel|nao quero mais|mudou de ideia|mudei de ideia|reconsiderar|recomecar|voltar atras|reabri|nova objecao)\w*/.test(
     comparable(value),
   )
+}
+
+function buildIncomingEvidence(
+  interaction: readonly LeadMethodCurrentInteractionMessage[],
+): string {
+  return interaction
+    .filter((entry) => entry.direction === 'incoming')
+    .map((entry) => entry.text)
+    .join('\n')
 }
 
 function validateStageContinuity({
   candidateStage,
   previousStage,
-  stageReason,
-  factualContext,
+  incomingEvidence,
 }: {
   candidateStage: {
     key: string
     display_order: number
   }
   previousStage: PreviousMethodStage | null
-  stageReason: string
-  factualContext: string
+  incomingEvidence: string
 }): string | null {
   if (!previousStage) {
     return null
@@ -375,19 +393,17 @@ function validateStageContinuity({
     return null
   }
 
-  const justification = [
-    stageReason,
-    factualContext,
-  ].join('\n')
-
-  if (stageRegressionJustified(justification)) {
+  // A ÚNICA evidência aceita é a fala real do cliente nesta interação
+  // (current_interaction incoming) — nunca a saída do próprio modelo
+  // (stage_reason) nem o working_summary.
+  if (stageRegressionJustified(incomingEvidence)) {
     return null
   }
 
   return (
     `A etapa anterior confirmada tinha ordem ${previousStage.stage_display_order}; a nova escolha tem ordem ${candidateStage.display_order}, uma regressão. ` +
-    'Regressão de etapa só é permitida com evidência explícita de mudança real (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar). ' +
-    'Ausência de avanço não justifica regressão: mantenha a etapa anterior quando não houver essa evidência.'
+    'Regressão de etapa só é permitida com evidência explícita do cliente na interação atual (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar) — nunca com base na própria justificativa do modelo. ' +
+    'Ausência de avanço, silêncio ou o cliente ter parado de responder não justificam regressão: mantenha a etapa anterior quando não houver essa evidência.'
   )
 }
 
@@ -748,6 +764,8 @@ async function runAttempt({
 }): Promise<GuidanceAttempt> {
   const factualContext =
     buildFactualContext(summary, interaction)
+  const incomingEvidence =
+    buildIncomingEvidence(interaction)
   const contextAnchors =
     getSpecificAnchors(factualContext)
   const correction = correctionReason
@@ -768,7 +786,8 @@ async function runAttempt({
     mode === 'commercial' && activePreviousStage
       ? [
           `A etapa confirmada na última interação foi "${activePreviousStage.stage_key}" (ordem ${activePreviousStage.stage_display_order}).`,
-          'Só escolha uma etapa de ordem menor que essa se houver evidência explícita de mudança real (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar). Ausência de avanço não é motivo para regredir — nesse caso, repita a mesma etapa.',
+          'Só escolha uma etapa de ordem menor que essa se o próprio cliente disser, nesta interação (mensagens incoming), algo que indique mudança comercial real (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar). Uma verificação automática após esta resposta só aceita essa evidência vindo da fala do cliente — nunca da sua própria justificativa.',
+          'Ausência de avanço, silêncio ou o cliente ter parado de responder NÃO são motivo para regredir — nesse caso, repita a mesma etapa.',
         ]
       : []
 
@@ -906,9 +925,7 @@ async function runAttempt({
                     candidateStageDefinition.display_order,
                 },
                 previousStage: activePreviousStage,
-                stageReason:
-                  parsed.guidance.stage_reason || '',
-                factualContext,
+                incomingEvidence,
               })
             : null
 

@@ -129,7 +129,7 @@ test('mantém a etapa anterior quando a nova sugestão regrediria sem evidência
   assert.equal(getCalls(), 2, 'deveria esgotar as 2 tentativas antes de aplicar o fallback')
 })
 
-test('permite regressão de etapa quando há evidência explícita de mudança real', async () => {
+test('permite regressão de etapa quando o CLIENTE diz, na interação atual, algo que evidencia mudança real', async () => {
   const { provider } = buildProvider({
     stage_name: 'Descoberta',
     stage_reason:
@@ -140,8 +140,14 @@ test('permite regressão de etapa quando há evidência explícita de mudança r
 
   const result = await composeSellerFacingGuidance({
     mode: 'commercial',
-    workingSummary:
-      'A Marina disse que desistiu de seguir com a academia e quer recomeçar a conversa sobre os horários de aulas.',
+    workingSummary: WORKING_SUMMARY,
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at: '2026-08-27T10:00:00.000Z',
+        text: 'Na verdade eu desisti da academia, quero recomeçar a conversa do zero sobre os horários de aulas.',
+      },
+    ],
     method,
     provider,
     previousStage: {
@@ -156,7 +162,108 @@ test('permite regressão de etapa quando há evidência explícita de mudança r
   assert.equal(
     result.stage_key,
     'descoberta',
-    'regressão com evidência explícita deveria ser permitida',
+    'regressão com evidência explícita do cliente na interação atual deveria ser permitida',
+  )
+})
+
+test('(A, Controle Mestre) modelo inventa "cliente desistiu" no próprio stage_reason, mas a conversa não contém isso: regressão BLOQUEADA', async () => {
+  const { provider, getCalls } = buildProvider({
+    stage_name: 'Descoberta',
+    stage_reason:
+      'A Marina desistiu de seguir com a academia e quer recomeçar do zero.',
+    next_step: 'Pergunte à Marina quais horários de aulas ela prefere.',
+    seller_intents: ['Quero entender o que a Marina procura nas aulas.'],
+  })
+
+  const result = await composeSellerFacingGuidance({
+    mode: 'commercial',
+    workingSummary: WORKING_SUMMARY,
+    // Nenhuma mensagem incoming real do cliente contém desistência —
+    // a única fonte da palavra "desistiu" é o stage_reason do próprio
+    // modelo, o que NUNCA pode autorizar o gate.
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at: '2026-08-27T10:00:00.000Z',
+        text: 'Certo, e sobre o horário das aulas?',
+      },
+    ],
+    method,
+    provider,
+    previousStage: {
+      method_config_version_id: 'method-v5',
+      stage_key: 'formalizacao',
+      stage_display_order: 5,
+      stage_reason: 'Decisão de seguir com a academia já confirmada.',
+    },
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.equal(
+    result.stage_key,
+    'formalizacao',
+    'a saída do próprio modelo (stage_reason) nunca pode autorizar sua própria regressão',
+  )
+  assert.equal(getCalls(), 2)
+})
+
+test('(C, Controle Mestre) cliente parou de responder: NÃO é motivo de regressão', async () => {
+  const { provider } = buildProvider({
+    stage_name: 'Descoberta',
+    stage_reason: 'A Marina parou de responder, o que sugere que ela sumiu da conversa.',
+    next_step: 'Envie um follow-up perguntando se a Marina ainda tem interesse nas aulas.',
+    seller_intents: ['Quero saber se a Marina ainda tem interesse nas aulas.'],
+  })
+
+  const result = await composeSellerFacingGuidance({
+    mode: 'commercial',
+    workingSummary: WORKING_SUMMARY,
+    currentInteraction: [],
+    method,
+    provider,
+    previousStage: {
+      method_config_version_id: 'method-v5',
+      stage_key: 'formalizacao',
+      stage_display_order: 5,
+      stage_reason: 'Decisão de seguir com a academia já confirmada.',
+    },
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.equal(
+    result.stage_key,
+    'formalizacao',
+    'silêncio/ausência de resposta é waiting/follow-up, nunca regressão de etapa',
+  )
+})
+
+test('(D, Controle Mestre) cliente "sumiu": NÃO é motivo de regressão', async () => {
+  const { provider } = buildProvider({
+    stage_name: 'Descoberta',
+    stage_reason: 'A Marina sumiu da conversa, então voltamos para entender a necessidade dela.',
+    next_step: 'Envie um follow-up perguntando se a Marina ainda tem interesse nas aulas.',
+    seller_intents: ['Quero saber se a Marina ainda tem interesse nas aulas.'],
+  })
+
+  const result = await composeSellerFacingGuidance({
+    mode: 'commercial',
+    workingSummary: WORKING_SUMMARY,
+    currentInteraction: [],
+    method,
+    provider,
+    previousStage: {
+      method_config_version_id: 'method-v5',
+      stage_key: 'formalizacao',
+      stage_display_order: 5,
+      stage_reason: 'Decisão de seguir com a academia já confirmada.',
+    },
+  })
+
+  assert.equal(result.status, 'ready')
+  assert.equal(
+    result.stage_key,
+    'formalizacao',
+    '"sumiu" não é evidência comercial de mudança — não pode justificar regressão',
   )
 })
 

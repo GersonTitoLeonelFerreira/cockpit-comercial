@@ -75,7 +75,6 @@
   // (recalculando localmente a partir de `generated_at`), sem nenhuma
   // chamada de rede nova.
   const COMPANION_CLIENT_CONTEXT_TICK_INTERVAL_MS = 60000
-  const DISAPPEARED_MESSAGE_SCROLL_GUARD_MS = 2000
   const MAX_MESSAGE_LEDGER_SIZE = 300
   const MAX_ANALYSIS_MESSAGE_COUNT = 80
   const MAX_RETAINED_PRE_RESOLUTION_CAPTURES = 20
@@ -171,9 +170,6 @@
   let deletedMessageSnapshots = new Map()
   let pendingCaptureMutationIds =
     new Set()
-  let lastVisibleMessageSnapshots =
-    new Map()
-  let lastConversationScrollAt = 0
   let messageLedgerRequiresRebase = false
   let messageLedgerMutationRevision = 0
   // Incrementado a cada análise (automática ou manual) iniciada, qualquer
@@ -1858,9 +1854,6 @@
       new Map()
     pendingCaptureMutationIds =
       new Set()
-    lastVisibleMessageSnapshots =
-      new Map()
-    lastConversationScrollAt = 0
     messageLedgerRequiresRebase =
       false
     messageLedgerMutationRevision =
@@ -1932,22 +1925,6 @@
 
       let detectedMessageMutation =
         false
-
-      const previousVisibleMessages =
-        Array.from(
-          lastVisibleMessageSnapshots
-            .values(),
-        )
-
-      const currentVisibleMessageSnapshots =
-        new Map()
-
-      const recentConversationScroll =
-        (
-          Date.now() -
-          lastConversationScrollAt
-        ) <
-        DISAPPEARED_MESSAGE_SCROLL_GUARD_MS
 
     main
       .querySelectorAll(
@@ -2083,79 +2060,20 @@
           message.id,
           messageToStore,
         )
-
-        currentVisibleMessageSnapshots.set(
-          message.id,
-          messageToStore,
-        )
       })
 
-    const safelyDisappearedMessageIds =
-      messageMutationTools
-        .findSafeDisappearedMessageIds({
-          previousVisibleMessages,
-          currentVisibleMessages:
-            Array.from(
-              currentVisibleMessageSnapshots
-                .values(),
-            ),
-          recentScroll:
-            recentConversationScroll,
-        })
-
-    safelyDisappearedMessageIds
-      .forEach((messageId) => {
-        if (
-          deletedMessageIds.has(
-            messageId,
-          )
-        ) {
-          return
-        }
-
-        const previousMessage =
-          conversationMessageLedger.get(
-            messageId,
-          ) ||
-          lastVisibleMessageSnapshots.get(
-            messageId,
-          )
-
-        if (!previousMessage) {
-          return
-        }
-
-        conversationMessageLedger.delete(
-          messageId,
-        )
-
-        deletedMessageIds.add(
-          messageId,
-        )
-
-        deletedMessageSnapshots.set(
-          messageId,
-          {
-            ...previousMessage,
-            observedAt,
-            // Este caminho vem exclusivamente da heurística de
-            // desaparecimento do DOM (virtualização/rolagem do WhatsApp
-            // Web) — nunca de um marcador de exclusão confirmado.
-            // Precisa ser tratado como NÃO confirmado a jusante.
-            deletionReason: 'dom_disappearance',
-          },
-        )
-
-        rememberPendingCaptureMutation(
-          messageId,
-        )
-
-        detectedMessageMutation =
-          true
-      })
-
-    lastVisibleMessageSnapshots =
-      currentVisibleMessageSnapshots
+    // Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
+    // uma mensagem que simplesmente deixa de aparecer na consulta do DOM
+    // acima (rolagem, virtualização do WhatsApp Web, troca de conversa)
+    // NUNCA é tratada como exclusão. O código antigo tentava detectar
+    // "desaparecimento seguro" e gerava uma mutação de exclusão para
+    // essas mensagens — isso violava o contrato (removia conteúdo,
+    // tirava a mensagem de activeMessages e podia contaminar
+    // memória/summary/AGORA/ANÁLISE/CLIENTE só por causa de rolagem).
+    // Deliberadamente não fazemos nada aqui: a mensagem permanece em
+    // conversationMessageLedger com seu último conteúdo conhecido,
+    // intocada, até reaparecer no DOM ou até o WhatsApp mostrar um
+    // marcador explícito de exclusão (tratado acima, antes deste ponto).
 
     const sortedMessages =
       Array.from(
@@ -14933,35 +14851,6 @@
     }, SESSION_REFRESH_INTERVAL_MS)
   }
 
-  function observeConversationScrollActivity() {
-    document.addEventListener(
-      'scroll',
-      (event) => {
-        const main =
-          getMainConversationRoot()
-
-        const target =
-          event.target
-
-        if (
-          !main ||
-          !(target instanceof Element)
-        ) {
-          return
-        }
-
-        if (
-          target === main ||
-          main.contains(target)
-        ) {
-          lastConversationScrollAt =
-            Date.now()
-        }
-      },
-      true,
-    )
-  }
-
   function observeWhatsAppChanges() {
     const observedRoot =
       document.body ||
@@ -15161,7 +15050,6 @@
     renderPanel()
     await captureSessionFromHash()
     refreshConversationSnapshot()
-    observeConversationScrollActivity()
     observeWhatsAppChanges()
     observeRuntimeRecovery()
     observeComposerDraftForPreSend()

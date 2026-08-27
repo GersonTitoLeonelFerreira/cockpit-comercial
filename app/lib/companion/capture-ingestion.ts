@@ -9,12 +9,17 @@ export const MAX_AUDIO_TRANSCRIPTION_LENGTH = 200_000
 export type CaptureDirection = 'incoming' | 'outgoing'
 export type CaptureContentType = 'text' | 'audio'
 
-// Blocker 2 (Fase 12A, Frente 2B): 'explicit_deletion' significa que o
-// WhatsApp mostrou um marcador confirmado de exclusão (ou o ícone de
-// revoke). 'dom_disappearance' significa apenas que o elemento saiu do
-// DOM visível (virtualização/rolagem do WhatsApp Web) — isso NUNCA prova
-// exclusão real e precisa ser tratado como não confirmado por qualquer
-// consumidor a jusante (ledger, resumo, memória, deep analysis).
+// Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
+// 'explicit_deletion' significa que o WhatsApp mostrou um marcador
+// confirmado de exclusão (ou o ícone de revoke) — é o ÚNICO valor que
+// pode produzir is_deleted: true no contrato canônico. 'dom_disappearance'
+// significa apenas que o elemento saiu do DOM visível (virtualização/
+// rolagem do WhatsApp Web) — isso NUNCA prova exclusão real. Uma
+// mensagem que chega com is_deleted: true e deletion_reason resolvido
+// para 'dom_disappearance' (ou qualquer valor não confirmado) é
+// descartada deste lote em normalizeCaptureMessage — nunca vira uma
+// nova versão canônica de exclusão, nunca perde texto, nunca some de
+// activeMessages por causa disso.
 export type CaptureDeletionReason =
   | 'explicit_deletion'
   | 'dom_disappearance'
@@ -429,7 +434,7 @@ function normalizeObservedAt(
 function normalizeCaptureMessage(
   value: unknown,
   index: number,
-): NormalizedCaptureMessage {
+): NormalizedCaptureMessage | null {
   const path = `messages[${index}]`
 
   if (!isRecord(value)) {
@@ -489,6 +494,23 @@ function normalizeCaptureMessage(
   })
 
   if (isDeleted) {
+    const deletionReason = normalizeDeletionReason(
+      value.deletion_reason,
+      true,
+    )
+
+    if (deletionReason !== 'explicit_deletion') {
+      // Blocker 2 (re-auditoria): dom_disappearance (ou qualquer razão
+      // não confirmada) NUNCA pode virar is_deleted: true. Esta
+      // mensagem só chegaria aqui vinda de uma versão desatualizada da
+      // extensão (a versão corrigida nunca envia is_deleted para uma
+      // mera virtualização de DOM) — o texto original já pode ter sido
+      // descartado antes de chegar aqui, então a única opção segura é
+      // descartar esta mensagem do lote: nenhuma versão nova é
+      // persistida e o estado canônico existente permanece intocado.
+      return null
+    }
+
     return {
       message_key: messageKey,
       direction,
@@ -499,10 +521,7 @@ function normalizeCaptureMessage(
       text_content: null,
       audio_transcription: null,
       is_deleted: true,
-      deletion_reason: normalizeDeletionReason(
-        value.deletion_reason,
-        true,
-      ),
+      deletion_reason: 'explicit_deletion',
     }
   }
 
@@ -595,9 +614,14 @@ export function normalizeCaptureIngestionEnvelope(
     })
   }
 
-  const messages = value.messages.map((message, index) => {
-    return normalizeCaptureMessage(message, index)
-  })
+  const messages = value.messages
+    .map((message, index) => {
+      return normalizeCaptureMessage(message, index)
+    })
+    .filter(
+      (message): message is NormalizedCaptureMessage =>
+        message !== null,
+    )
 
   const observedMessageKeys = new Set<string>()
 

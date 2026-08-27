@@ -260,6 +260,14 @@ export interface ApplyAISuggestionRequest {
   suggestion: AISalesSuggestion
   source?: 'ai_copilot_detail' | 'ai_copilot_kanban' | 'whatsapp_companion'
   audio_count?: number
+  /**
+   * Fase 12A, Frente 2B (re-auditoria do Controle Mestre): confirmação
+   * humana explícita de que o vendedor realmente acionou "Aplicar
+   * sugestão". A rota é fail-closed: só `true` (booleano) autoriza a
+   * escrita no CRM — ausente, `false` ou qualquer valor não-booleano é
+   * rejeitado antes de qualquer leitura/escrita.
+   */
+  confirmed_by_human: true
 }
 
 export interface ApplyAISuggestionResponse {

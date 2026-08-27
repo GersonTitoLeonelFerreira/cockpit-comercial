@@ -258,7 +258,7 @@ test('aceita mensagem de áudio com legenda e transcrição', () => {
   )
 })
 
-test('mensagem excluída não preserva conteúdo', () => {
+test('mensagem explicitamente excluída não preserva conteúdo', () => {
   const result = normalizeCaptureIngestionEnvelope(
     buildEnvelope({
       messages: [
@@ -266,6 +266,7 @@ test('mensagem excluída não preserva conteúdo', () => {
           text_content: 'Conteúdo que foi excluído',
           audio_transcription: 'Transcrição que não pode permanecer',
           is_deleted: true,
+          deletion_reason: 'explicit_deletion',
         }),
       ],
     }),
@@ -473,7 +474,7 @@ test('edição altera a chave de estado da mensagem', () => {
   )
 })
 
-test('exclusão altera a chave e remove o conteúdo', () => {
+test('exclusão explícita altera a chave e remove o conteúdo', () => {
   const original = normalizeCaptureIngestionEnvelope(
     buildEnvelope(),
   ).messages[0]
@@ -483,6 +484,7 @@ test('exclusão altera a chave e remove o conteúdo', () => {
       messages: [
         buildTextMessage({
           is_deleted: true,
+          deletion_reason: 'explicit_deletion',
         }),
       ],
     }),
@@ -512,8 +514,8 @@ test('deletion_reason=explicit_deletion é preservado quando a mensagem está ex
   assert.equal(deleted.deletion_reason, 'explicit_deletion')
 })
 
-test('deletion_reason=dom_disappearance é preservado quando a mensagem está excluída', () => {
-  const deleted = normalizeCaptureIngestionEnvelope(
+test('Blocker 2 (re-auditoria): is_deleted=true com deletion_reason=dom_disappearance NUNCA vira uma mensagem canônica de exclusão — o lote descarta essa mensagem', () => {
+  const envelope = normalizeCaptureIngestionEnvelope(
     buildEnvelope({
       messages: [
         buildTextMessage({
@@ -522,14 +524,18 @@ test('deletion_reason=dom_disappearance é preservado quando a mensagem está ex
         }),
       ],
     }),
-  ).messages[0]
+  )
 
-  assert.equal(deleted.deletion_reason, 'dom_disappearance')
+  assert.equal(
+    envelope.messages.length,
+    0,
+    'dom_disappearance nunca pode produzir is_deleted: true — a mensagem precisa ser descartada, nunca virar uma versão canônica de exclusão',
+  )
 })
 
-test('deletion_reason ausente, malformado ou de extensão antiga NUNCA vira explicit_deletion (fail-safe)', () => {
+test('Blocker 2 (re-auditoria): is_deleted=true com deletion_reason ausente, malformado ou de extensão antiga é descartado do lote (fail-safe), nunca vira explicit_deletion nem dom_disappearance canônico', () => {
   for (const rawValue of [undefined, null, 'algo-invalido', 42, true]) {
-    const deleted = normalizeCaptureIngestionEnvelope(
+    const envelope = normalizeCaptureIngestionEnvelope(
       buildEnvelope({
         messages: [
           buildTextMessage({
@@ -538,12 +544,12 @@ test('deletion_reason ausente, malformado ou de extensão antiga NUNCA vira expl
           }),
         ],
       }),
-    ).messages[0]
+    )
 
     assert.equal(
-      deleted.deletion_reason,
-      'dom_disappearance',
-      `valor bruto ${JSON.stringify(rawValue)} deveria cair no default conservador`,
+      envelope.messages.length,
+      0,
+      `valor bruto ${JSON.stringify(rawValue)} não deveria produzir uma mensagem de exclusão canônica`,
     )
   }
 })
@@ -564,16 +570,9 @@ test('deletion_reason é sempre null para mensagem ativa (não excluída), mesmo
   assert.equal(active.deletion_reason, null)
 })
 
-test('upgrade de dom_disappearance para explicit_deletion muda a chave de estado (persiste como nova versão)', () => {
-  const disappeared = normalizeCaptureIngestionEnvelope(
-    buildEnvelope({
-      messages: [
-        buildTextMessage({
-          is_deleted: true,
-          deletion_reason: 'dom_disappearance',
-        }),
-      ],
-    }),
+test('mensagem ativa e mensagem explicitamente excluída produzem chaves de estado diferentes', () => {
+  const active = normalizeCaptureIngestionEnvelope(
+    buildEnvelope(),
   ).messages[0]
 
   const explicit = normalizeCaptureIngestionEnvelope(
@@ -588,7 +587,7 @@ test('upgrade de dom_disappearance para explicit_deletion muda a chave de estado
   ).messages[0]
 
   assert.notEqual(
-    buildCaptureMessageStateKey(disappeared),
+    buildCaptureMessageStateKey(active),
     buildCaptureMessageStateKey(explicit),
   )
 })
