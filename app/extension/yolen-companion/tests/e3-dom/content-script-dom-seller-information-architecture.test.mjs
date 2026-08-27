@@ -341,7 +341,12 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   assert.match(nowPanel.textContent, /Leitura da Yolen/)
   assert.match(nowPanel.textContent, /Próximo passo/)
   assert.match(nowPanel.textContent, /Entender o impacto antes de continuar negociando\./)
-  assert.match(nowPanel.textContent, /Mensagem sugerida/)
+  // A mensagem automática antiga não ocupa mais o AGORA. A geração
+  // seller-facing fica no composer contextual montado pela orientação.
+  assert.doesNotMatch(
+    nowPanel.textContent,
+    /Fallback legado que não deve substituir o V2/,
+  )
   assert.doesNotMatch(nowPanel.textContent, /Pergunta recomendada/)
 
   runtime.document.querySelector('[data-yolen-seller-area="analysis"]').click()

@@ -2272,3 +2272,24 @@ html.yolen-companion-collapsed #app {
   color: #94a3b8;
 }
 
+
+
+.yolen-now-current-block {
+  margin-top: 12px;
+}
+
+.yolen-now-current-label {
+  margin-bottom: 4px;
+  color: #71859e;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yolen-now-guidance-fallback-copy {
+  color: #f4f8ff;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.45;
+}
