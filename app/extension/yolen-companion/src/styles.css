@@ -1893,104 +1893,68 @@ html.yolen-companion-collapsed #app {
 }
 
 
-/* Yolen Companion — final seller workspace shell */
-.yolen-context-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: -2px 0 10px;
-  padding: 8px 10px;
-  border: 1px solid rgba(126,153,194,.10);
-  border-radius: 11px;
-  background: rgba(9,15,24,.62);
-}
-.yolen-context-bar-main { min-width: 0; flex: 1 1 auto; }
-.yolen-context-bar-name {
-  overflow: hidden;
-  color: #eef5ff;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.yolen-context-bar-status {
-  margin-top: 5px;
-  color: #8798ad;
-  font-size: 10px;
-  line-height: 1.35;
-}
-.yolen-context-bar-action { flex: 0 0 auto; }
-.yolen-context-bar-action button {
-  width: auto;
-  min-width: 0;
-  padding: 7px 9px;
-  font-size: 10px;
-}
-.yolen-seller-workspace--final .yolen-seller-tabs {
+/* UX5 — safe shell over the proven seller renderers. */
+.yolen-seller-workspace--ux5 .yolen-seller-tabs {
   position: sticky;
   top: 62px;
-  z-index: 9;
+  z-index: 8;
   gap: 3px;
-  margin: 0 -2px 10px;
+  margin: 0 0 8px;
   padding: 3px;
   border-radius: 11px;
   background: rgba(7,12,20,.96);
-  box-shadow: 0 8px 22px rgba(0,0,0,.18);
-  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.16);
+  backdrop-filter: blur(14px);
 }
-.yolen-seller-workspace--final .yolen-seller-tab {
-  padding: 8px 5px;
+.yolen-seller-workspace--ux5 .yolen-seller-tab {
+  padding: 8px 6px;
   border-radius: 8px;
   font-size: 9px;
-  letter-spacing: .065em;
+  letter-spacing: .06em;
 }
-.yolen-seller-workspace--final .yolen-seller-tab--active {
+.yolen-seller-workspace--ux5 .yolen-seller-tab--active {
+  border-color: rgba(96,165,250,.26);
   background: rgba(37,99,235,.18);
-  border-color: rgba(96,165,250,.24);
   box-shadow: none;
 }
-.yolen-seller-workspace--final .yolen-seller-panel {
-  min-height: 0;
+.yolen-seller-workspace--ux5 .yolen-seller-panel {
+  min-width: 0;
 }
-.yolen-seller-workspace--final .yolen-card {
+.yolen-seller-workspace--ux5 .yolen-card {
   margin-bottom: 8px;
   border-radius: 12px;
   box-shadow: none;
 }
-.yolen-seller-workspace--final .yolen-decision-card {
+.yolen-seller-workspace--ux5 .yolen-decision-card {
   border-color: rgba(96,165,250,.14);
-  background:
-    linear-gradient(180deg, rgba(17,27,43,.84), rgba(8,14,23,.78));
+  background: linear-gradient(180deg, rgba(17,27,43,.84), rgba(8,14,23,.78));
 }
-.yolen-global-interruption { margin-bottom: 8px; }
-
-
-.yolen-seller-workspace--final [data-yolen-area-fallback] {
-  min-height: 118px;
-}
-.yolen-seller-workspace--final [data-yolen-area-fallback] .yolen-seller-empty-state {
-  color: #9fb0c6;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-
-/* UX4 — only the active seller area exists in the DOM. */
-.yolen-seller-panel--active {
-  display: block !important;
-  min-height: 118px;
-}
-.yolen-dev-build-badge {
+.yolen-ux-build-badge {
   width: fit-content;
-  margin: -5px 0 7px auto;
+  margin: -3px 2px 7px auto;
   padding: 2px 6px;
-  border: 1px solid rgba(126,153,194,.12);
+  border: 1px solid rgba(126,153,194,.10);
   border-radius: 999px;
   color: #60738c;
-  background: rgba(8,14,23,.5);
+  background: rgba(8,14,23,.46);
   font-size: 8px;
   font-weight: 900;
   letter-spacing: .06em;
+}
+.yolen-region-pre-send-assessment:empty,
+.yolen-region-lead-summary-card:empty,
+.yolen-region-registration-card:empty,
+.yolen-region-lead-enrichment:empty {
+  display: none;
+}
+.yolen-region-seller-information-architecture {
+  order: 20;
+}
+.yolen-region-pre-send-assessment,
+.yolen-region-lead-summary-card {
+  order: 30;
+}
+.yolen-region-registration-card,
+.yolen-region-lead-enrichment {
+  order: 30;
 }
