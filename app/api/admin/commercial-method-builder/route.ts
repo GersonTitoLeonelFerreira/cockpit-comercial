@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import {
+  CommercialMethodBuilderStaleWriteError,
   getCommercialMethodBuilderDraft,
   saveCommercialMethodBuilderDraft,
 } from '@/app/lib/server/commercial-method-builder'
@@ -76,6 +77,7 @@ export async function PUT(request: Request) {
       context.companyId,
       context.userId,
       input,
+      request.headers.get('x-yolen-builder-updated-at'),
     )
 
     return NextResponse.json({
@@ -83,6 +85,17 @@ export async function PUT(request: Request) {
       draft,
     })
   } catch (error: unknown) {
+    if (error instanceof CommercialMethodBuilderStaleWriteError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'STALE_BUILDER_DRAFT',
+          error: error.message,
+        },
+        { status: 409 },
+      )
+    }
+
     return NextResponse.json(
       {
         ok: false,
