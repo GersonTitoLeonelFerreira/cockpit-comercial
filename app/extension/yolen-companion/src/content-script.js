@@ -9571,6 +9571,7 @@
             commercialReading,
           )}
 
+          ${getSuggestedMessageHtml()}
         </div>
 
         ${getDeepAnalysisStatusBlockHtml()}
@@ -10397,8 +10398,28 @@
   }
 
   function getSellerInformationArchitectureHtml() {
+    const nowHtml =
+      getCompanionLeadSummaryCardHtml() ||
+      `
+        <div class="yolen-card yolen-seller-area-card yolen-status-neutral">
+          <div class="yolen-section-label">Agora</div>
+          <div class="yolen-seller-empty-state">
+            A Yolen está preparando o resumo e a orientação desta conversa.
+          </div>
+        </div>
+      `
+
+    const analysisHtml =
+      getDetailedAnalysisAreaHtml()
+
+    const clientHtml = [
+      getClientInformationAreaHtml(),
+      getConversationRegistrationCardHtml(),
+      getLeadEnrichmentCandidatesHtml(),
+    ].filter(Boolean).join('')
+
     return `
-      <div class="yolen-seller-workspace yolen-seller-workspace--ux5" data-yolen-ux-build="UX6">
+      <div class="yolen-seller-workspace yolen-seller-workspace--ux7" data-yolen-ux-build="UX7">
         <div
           class="yolen-seller-tabs"
           role="tablist"
@@ -10409,23 +10430,19 @@
           ${getSellerAreaTabHtml('client', 'Cliente')}
         </div>
 
-        <div class="yolen-ux-build-badge" aria-label="Versão de teste da experiência">
-          UX6
-        </div>
-
         ${getSellerAreaPanelHtml(
           'now',
-          getAnalysisCardHtml(),
+          nowHtml,
         )}
 
         ${getSellerAreaPanelHtml(
           'analysis',
-          getDetailedAnalysisAreaHtml(),
+          analysisHtml,
         )}
 
         ${getSellerAreaPanelHtml(
           'client',
-          getClientInformationAreaHtml(),
+          clientHtml,
         )}
       </div>
     `
@@ -11880,21 +11897,18 @@
 
   function getContactCardHtml() {
     return [
-      '<div class="yolen-card yolen-contact-card ' +
+      '<div class="yolen-card yolen-contact-card yolen-contact-card--compact ' +
         getLeadStatusClass() +
       '">',
 
-        '<div class="yolen-section-label">',
-          'Conversa',
+        '<div class="yolen-contact-compact-head">',
+          '<div class="yolen-lead-name">',
+            escapeHtml(
+              getCompactConversationName(),
+            ),
+          '</div>',
+          getCompactContextChipsHtml(),
         '</div>',
-
-        '<div class="yolen-lead-name">',
-          escapeHtml(
-            getCompactConversationName(),
-          ),
-        '</div>',
-
-        getCompactContextChipsHtml(),
 
         '<div class="yolen-card-description yolen-contact-description">',
           escapeHtml(
@@ -12291,40 +12305,14 @@
 
     renderPanelRegion(
       panel,
+      'pre-send-assessment',
+      getPreSendAssessmentCardHtml(),
+    )
+
+    renderPanelRegion(
+      panel,
       'seller-information-architecture',
       getSellerInformationArchitectureHtml(),
-    )
-
-    renderPanelRegion(
-      panel,
-      'pre-send-assessment',
-      activeSellerArea === 'now'
-        ? getPreSendAssessmentCardHtml()
-        : '',
-    )
-
-    renderPanelRegion(
-      panel,
-      'lead-summary-card',
-      activeSellerArea === 'now'
-        ? getCompanionLeadSummaryCardHtml()
-        : '',
-    )
-
-    renderPanelRegion(
-      panel,
-      'registration-card',
-      activeSellerArea === 'client'
-        ? getConversationRegistrationCardHtml()
-        : '',
-    )
-
-    renderPanelRegion(
-      panel,
-      'lead-enrichment',
-      activeSellerArea === 'client'
-        ? getLeadEnrichmentCandidatesHtml()
-        : '',
     )
 
     renderPanelRegion(

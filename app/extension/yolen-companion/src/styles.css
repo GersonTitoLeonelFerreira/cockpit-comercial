@@ -1893,164 +1893,132 @@ html.yolen-companion-collapsed #app {
 }
 
 
-/* UX5 — safe shell over the proven seller renderers. */
-.yolen-seller-workspace--ux5 .yolen-seller-tabs {
-  position: sticky;
-  top: 62px;
-  z-index: 8;
-  gap: 3px;
-  margin: 0 0 8px;
-  padding: 3px;
-  border-radius: 11px;
-  background: rgba(7,12,20,.96);
-  box-shadow: 0 8px 20px rgba(0,0,0,.16);
-  backdrop-filter: blur(14px);
-}
-.yolen-seller-workspace--ux5 .yolen-seller-tab {
-  padding: 8px 6px;
-  border-radius: 8px;
-  font-size: 9px;
-  letter-spacing: .06em;
-}
-.yolen-seller-workspace--ux5 .yolen-seller-tab--active {
-  border-color: rgba(96,165,250,.26);
-  background: rgba(37,99,235,.18);
-  box-shadow: none;
-}
-.yolen-seller-workspace--ux5 .yolen-seller-panel {
-  min-width: 0;
-}
-.yolen-seller-workspace--ux5 .yolen-card {
-  margin-bottom: 8px;
+/* UX7 — single-responsibility seller architecture */
+.yolen-contact-card--compact {
+  padding: 11px 12px;
+  margin-bottom: 9px;
   border-radius: 12px;
   box-shadow: none;
 }
-.yolen-seller-workspace--ux5 .yolen-decision-card {
-  border-color: rgba(96,165,250,.14);
-  background: linear-gradient(180deg, rgba(17,27,43,.84), rgba(8,14,23,.78));
+.yolen-contact-compact-head {
+  display: grid;
+  gap: 6px;
 }
-.yolen-ux-build-badge {
-  width: fit-content;
-  margin: -3px 2px 7px auto;
-  padding: 2px 6px;
-  border: 1px solid rgba(126,153,194,.10);
-  border-radius: 999px;
-  color: #60738c;
-  background: rgba(8,14,23,.46);
-  font-size: 8px;
-  font-weight: 900;
-  letter-spacing: .06em;
+.yolen-contact-card--compact .yolen-lead-name {
+  margin: 0;
+  font-size: 13px;
 }
-.yolen-region-pre-send-assessment:empty,
-.yolen-region-lead-summary-card:empty,
-.yolen-region-registration-card:empty,
-.yolen-region-lead-enrichment:empty {
-  display: none;
+.yolen-contact-card--compact .yolen-contact-description {
+  margin-top: 7px;
+  font-size: 10px;
 }
-.yolen-region-seller-information-architecture {
-  order: 20;
+.yolen-contact-card--compact .yolen-contact-actions {
+  margin-top: 8px;
 }
-.yolen-region-pre-send-assessment,
-.yolen-region-lead-summary-card {
-  order: 30;
-}
-.yolen-region-registration-card,
-.yolen-region-lead-enrichment {
-  order: 30;
+.yolen-contact-card--compact .yolen-contact-actions button {
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 10px;
 }
 
-
-/* UX6 — AGORA real + action layer, without replacing one with the other. */
-.yolen-seller-workspace--ux5 .yolen-seller-panel[data-yolen-seller-panel="now"] {
-  display: block !important;
+.yolen-seller-workspace--ux7 .yolen-seller-tabs {
+  position: sticky;
+  top: 62px;
+  z-index: 8;
+  margin: 0 0 9px;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 11px;
+  background: rgba(7,12,20,.96);
+  box-shadow: 0 8px 20px rgba(0,0,0,.14);
+  backdrop-filter: blur(14px);
+}
+.yolen-seller-workspace--ux7 .yolen-seller-tab {
+  padding: 8px 5px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-tab--active {
+  background: rgba(37,99,235,.18);
+  border-color: rgba(96,165,250,.25);
+  box-shadow: none;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-panel {
+  min-width: 0;
+}
+.yolen-seller-workspace--ux7 .yolen-card {
   margin-bottom: 8px;
-}
-
-.yolen-seller-workspace--ux5 .yolen-decision-card {
-  padding: 14px;
-  margin-bottom: 8px;
-}
-
-.yolen-region-lead-summary-card {
-  margin-top: 0;
-}
-
-.yolen-region-lead-summary-card .yolen-lead-summary-card {
   padding: 12px;
-  border-color: rgba(126,153,194,.10);
-  background: rgba(8,14,23,.58);
+  border-radius: 12px;
   box-shadow: none;
 }
 
-.yolen-region-lead-summary-card .yolen-lead-summary-preview {
-  color: #cdd9e8;
+/* AGORA is one stable action surface. Deep-analysis loading/error lives in ANÁLISE. */
+.yolen-seller-workspace--ux7
+.yolen-seller-panel[data-yolen-seller-panel="now"]
+.yolen-lead-summary-card {
+  border-color: rgba(96,165,250,.14);
+  background:
+    linear-gradient(180deg, rgba(17,27,43,.80), rgba(8,14,23,.76));
+}
+.yolen-seller-workspace--ux7 .yolen-lead-summary-preview {
+  -webkit-line-clamp: 3;
+  color: #dce7f4;
   font-size: 11px;
-  font-weight: 600;
   line-height: 1.48;
 }
-
-.yolen-region-lead-summary-card .yolen-lead-summary-meta {
-  color: #71859e;
+.yolen-seller-workspace--ux7 .yolen-lead-summary-meta {
+  color: #6f829b;
   font-size: 9px;
 }
-
-.yolen-region-lead-summary-card .yolen-method-guidance {
+.yolen-seller-workspace--ux7 .yolen-method-guidance {
   margin-top: 11px;
   padding-top: 11px;
 }
-
-.yolen-region-lead-summary-card .yolen-method-guidance-next-step {
+.yolen-seller-workspace--ux7 .yolen-method-guidance-next-step {
   font-size: 12px;
   line-height: 1.48;
 }
-
-.yolen-region-lead-summary-card .yolen-lead-summary-save-button {
+.yolen-seller-workspace--ux7 .yolen-lead-summary-save-button {
   width: auto;
   justify-self: start;
   padding: 7px 10px;
   border-radius: 9px;
-  color: #a9bdd5;
-  background: rgba(15,23,42,.74);
-  border: 1px solid rgba(126,153,194,.16);
-  box-shadow: none;
   font-size: 10px;
+  box-shadow: none;
 }
-
-.yolen-region-lead-summary-card .yolen-lead-summary-save-button:hover {
-  background: rgba(30,41,59,.9);
-  border-color: rgba(96,165,250,.3);
-}
-
-.yolen-region-lead-summary-card [data-yolen-seller-message-box] {
+.yolen-seller-workspace--ux7 [data-yolen-seller-message-box] {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(126,153,194,.10);
 }
-
-.yolen-region-lead-summary-card .yolen-seller-message-title {
+.yolen-seller-workspace--ux7 .yolen-seller-message-title {
   color: #f2f7fd;
   font-size: 11px;
   letter-spacing: 0;
   text-transform: none;
 }
-
-.yolen-region-lead-summary-card .yolen-seller-message-help {
-  color: #7f91aa;
+.yolen-seller-workspace--ux7 .yolen-seller-message-help {
+  color: #7d90aa;
   font-size: 10px;
 }
-
-.yolen-region-lead-summary-card .yolen-seller-message-preset {
+.yolen-seller-workspace--ux7 .yolen-seller-message-preset {
   padding: 5px 8px;
   font-size: 9px;
 }
-
-.yolen-region-lead-summary-card .yolen-seller-message-intent {
+.yolen-seller-workspace--ux7 .yolen-seller-message-intent {
   min-height: 64px;
   font-size: 11px;
 }
-
-.yolen-region-lead-summary-card .yolen-seller-message-generate {
+.yolen-seller-workspace--ux7 .yolen-seller-message-generate {
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 11px;
+}
+
+/* Operational utilities are subordinate to CLIENTE. */
+.yolen-seller-workspace--ux7
+.yolen-seller-panel[data-yolen-seller-panel="client"]
+.yolen-card {
+  box-shadow: none;
 }

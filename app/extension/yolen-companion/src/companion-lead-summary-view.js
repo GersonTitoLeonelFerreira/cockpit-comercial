@@ -363,7 +363,7 @@
         ? (
             '<button ' +
             'type="button" ' +
-            'class="yolen-primary-button yolen-lead-summary-save-button" ' +
+            'class="yolen-secondary-button yolen-lead-summary-save-button" ' +
             'data-yolen-action="save-lead-summary" ' +
             (saving ? 'disabled' : '') +
             '>' +
