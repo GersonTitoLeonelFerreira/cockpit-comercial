@@ -484,6 +484,153 @@ test('(3.12, Controle Mestre) "Talvez eu cancele, mas por enquanto quero continu
   assert.equal(result.stage_key, 'formalizacao')
 })
 
+// ---------------------------------------------------------------------
+// Re-auditoria do Controle Mestre (4ª rodada, hardening final):
+//   1. Contrato/regra não é terceiro — "quero cancelar o contrato" é
+//      declaração comercial válida; só a PERGUNTA sobre a regra bloqueia.
+//   2. Objeto não comercial — "cancelar"/"desisti" não autorizam
+//      cancelamento de agenda/operacional (aula, agendamento, ligação);
+//      e "desisti de cancelar"/"desisti da ideia de cancelar" é inversão
+//      semântica (quer continuar, não desistir do negócio).
+//   3. Contradição entre frases — uma afirmação de continuidade em
+//      qualquer parte da interação veta a regressão nesta rodada.
+// ---------------------------------------------------------------------
+
+test('(4.1, Controle Mestre) "Quero cancelar o contrato." — contrato não é terceiro: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Quero cancelar o contrato.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(4.2, Controle Mestre) "Decidi cancelar o contrato." — declaração comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Decidi cancelar o contrato.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(4.3, Controle Mestre) "Quero cancelar o plano." — declaração comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Quero cancelar o plano.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(4.4, Controle Mestre) "Desisti da compra." — desistência comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da compra.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(4.5, Controle Mestre) "Desisti da contratação." — desistência comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da contratação.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(4.6, Controle Mestre) "O contrato diz que posso cancelar?" — pergunta sobre a regra: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'O contrato diz que posso cancelar?',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.7, Controle Mestre) "Quero cancelar a aula de amanhã." — objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Quero cancelar a aula de amanhã.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.8, Controle Mestre) "Quero cancelar meu agendamento." — objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Quero cancelar meu agendamento.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.9, Controle Mestre) "Quero cancelar a ligação." — objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Quero cancelar a ligação.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.10, Controle Mestre) "Desisti de cancelar." — inversão semântica (quer continuar): BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti de cancelar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.11, Controle Mestre) "Desisti da ideia de cancelar." — inversão semântica (quer continuar): BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da ideia de cancelar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.12, Controle Mestre) "Não quero mais receber mensagens." — opt-out de comunicação: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Não quero mais receber mensagens.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.13, Controle Mestre) "Desisti. Pensando melhor, quero continuar." — contradição explícita: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti. Pensando melhor, quero continuar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.14, Controle Mestre) "Quero cancelar. Na verdade, quero seguir." — contradição explícita: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Quero cancelar. Na verdade, quero seguir.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(4.15, Controle Mestre) "Mudei de ideia. Mas decidi continuar com a contratação." — contradição explícita: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Mudei de ideia. Mas decidi continuar com a contratação.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
 test('nova versão do método publicado não é tratada como regressão (sem estágio anterior aplicável)', async () => {
   const { provider } = buildProvider({
     stage_name: 'Descoberta',

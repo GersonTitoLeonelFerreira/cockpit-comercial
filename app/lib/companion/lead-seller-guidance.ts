@@ -371,6 +371,26 @@ export type PreviousMethodStage = {
 // continuidade da negociação (continuar/seguir/fechar/contratar/comprar)
 // — "não quero mais receber mensagens/ligação/promoção" é opt-out de
 // comunicação, não desistência comercial.
+//
+// Re-auditoria do Controle Mestre (4ª rodada, hardening final): três
+// refinamentos adicionais:
+//   1. Referência a contrato/regra NÃO é automaticamente terceiro —
+//      "quero cancelar o contrato" é uma declaração comercial válida.
+//      Só bloqueia quando a frase é uma PERGUNTA sobre a regra (já
+//      coberto pelo filtro de pergunta: "?"), não pela mera presença da
+//      palavra "contrato".
+//   2. Objeto não comercial: "cancelar"/"desistir" não autorizam
+//      QUALQUER cancelamento — só quando o objeto é comercial (contrato,
+//      plano) ou ausente, nunca quando é operacional/agenda (aula,
+//      agendamento, reunião, ligação, reserva, check-in, consulta).
+//      Também cobre a inversão semântica "desisti de cancelar"/"desisti
+//      da ideia de cancelar", que significa desistir DO CANCELAMENTO
+//      (ou seja, quer continuar), não desistência comercial.
+//   3. Contradição entre frases: uma afirmação inequívoca de
+//      continuidade ("quero continuar", "decidi continuar", "quero
+//      seguir") em QUALQUER parte da interação atual veta
+//      deterministicamente a regressão nesta rodada, mesmo que outra
+//      frase isoladamente pareça afirmar regressão.
 const AFFIRMATIVE_REGRESSION_PATTERN =
   /\b((eu )?desisti|(eu )?(quero|vou|decidi) desistir|(eu )?(quero|vou|decidi) cancelar|(eu )?mudei de ideia|voltei atras|(eu )?(quero|vou) recomecar|quero comecar de novo|nao quero mais (continuar|seguir|fechar|contratar|comprar|prosseguir|avancar))\b/
 
@@ -390,10 +410,11 @@ const CONDITIONAL_MARKER_PATTERN =
 const UNCERTAINTY_MARKER_PATTERN =
   /\b(talvez|pode ser que|estou pensando em|estou considerando|nao tenho certeza|nao sei se|sera que|quem sabe|penso em cancelar|penso em desistir)\b/
 
-// (D) Referência a terceiro/regra — outra pessoa, ou a política da
-// empresa/contrato, não a decisão do próprio cliente.
+// (D) Referência a TERCEIRO real (outra pessoa) — nunca contrato/regra,
+// que é a própria decisão do cliente sobre os termos que ELE assinou,
+// não uma referência a um terceiro.
 const THIRD_PARTY_REFERENCE_PATTERN =
-  /\b(contrato|regra|regulamento|politica|termos|clausula|condicoes gerais|meu marido|minha esposa|meu socio|minha socia|meu amigo|minha amiga|um amigo meu|uma amiga minha|ele cancelou|ela cancelou|ele desistiu|ela desistiu|a academia cancelou|meu cartao)\b/
+  /\b(meu marido|minha esposa|meu socio|minha socia|meu amigo|minha amiga|um amigo meu|uma amiga minha|ele cancelou|ela cancelou|ele desistiu|ela desistiu|a academia cancelou|meu cartao)\b/
 
 // (C) Negação da própria regressão — "não quero cancelar", "não vou
 // desistir", "não pretendo recomeçar". Deliberadamente NÃO cobre "nao
@@ -401,6 +422,25 @@ const THIRD_PARTY_REFERENCE_PATTERN =
 // afirmativo de desistência (ver AFFIRMATIVE_REGRESSION_PATTERN).
 const NEGATED_KEYWORD_PATTERN =
   /\bnao\s+(\w+\s+){0,3}(desist\w*|cancel\w*|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*|mudei de ideia|mudou de ideia)\b/
+
+// Objeto operacional/de agenda — quando "cancelar" se refere a isso, não
+// é uma regressão comercial (não é desistência do negócio, é só desmarcar
+// um compromisso pontual).
+const OPERATIONAL_OBJECT_PATTERN =
+  /\b(a aula|minha aula|o agendamento|meu agendamento|a reuniao|minha reuniao|a ligacao|minha ligacao|a reserva|minha reserva|o check-?in|meu check-?in|a consulta|minha consulta|o horario|meu horario|a visita|minha visita)\b/
+
+// Inversão semântica: "desisti de cancelar"/"desisti da ideia de
+// cancelar" significa desistir DO CANCELAMENTO — o cliente quer
+// continuar, não é uma desistência comercial.
+const INVERTED_DESISTENCE_PATTERN =
+  /\bdesisti\s+(da ideia de\s+|de\s+)cancelar\b/
+
+// Afirmação explícita, em primeira pessoa e não negada, de que o cliente
+// quer CONTINUAR — contradiz e veta qualquer regressão detectada em
+// outra frase da mesma interação. O lookbehind exclui a forma negada
+// ("não vou seguir", que é evidência de regressão, não de continuidade).
+const CONTINUITY_AFFIRMATION_PATTERN =
+  /(?<!nao )(?<!nao \w+ )(?<!nao \w+ \w+ )\b(quero|vou|decidi) (continuar|seguir)\b/
 
 function splitIntoSentences(value: string): string[] {
   const sentences: string[] = []
@@ -457,12 +497,37 @@ function sentenceAffirmsCommercialRegression(
     return false
   }
 
+  // "desisti de cancelar" contém "desisti" como substring literal — sem
+  // este filtro antes do allowlist, a inversão semântica seria aprovada
+  // por engano (o cliente quer CONTINUAR, não desistir do negócio).
+  if (INVERTED_DESISTENCE_PATTERN.test(normalized)) {
+    return false
+  }
+
+  // "cancelar" ligado a um objeto operacional/de agenda não é regressão
+  // comercial — é só desmarcar um compromisso pontual.
+  if (
+    /\b(quero|vou|decidi) cancelar\b/.test(normalized) &&
+    OPERATIONAL_OBJECT_PATTERN.test(normalized)
+  ) {
+    return false
+  }
+
   // A decisão final depende exclusivamente de um padrão AFIRMATIVO
   // explícito — nunca apenas da presença da palavra "cancelar"/"desistir".
   return AFFIRMATIVE_REGRESSION_PATTERN.test(normalized)
 }
 
 function stageRegressionJustified(value: string): boolean {
+  // Veto determinístico de contradição: uma afirmação inequívoca de
+  // continuidade em QUALQUER parte da interação atual barra a regressão
+  // nesta rodada, mesmo que outra frase isoladamente pareça afirmar
+  // regressão ("Desisti. Pensando melhor, quero continuar."). Fail-closed
+  // diante de contradição explícita — sem inferir ordem/recência.
+  if (CONTINUITY_AFFIRMATION_PATTERN.test(comparable(value))) {
+    return false
+  }
+
   return splitIntoSentences(value).some(
     sentenceAffirmsCommercialRegression,
   )
