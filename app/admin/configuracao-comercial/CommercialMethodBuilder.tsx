@@ -2,6 +2,12 @@
 
 import * as React from 'react'
 
+import EditableLinesTextarea from './EditableLinesTextarea'
+import {
+  isLatestEditRevision,
+  normalizeTextListsForPersistence,
+} from '@/app/lib/commercial-config/text-editing'
+
 import {
   advanceCommercialMethodBuilder,
   buildCommercialMethodBuilderReview,
@@ -87,17 +93,6 @@ type SaveResponse =
 
 interface Props {
   onBack: () => void
-}
-
-function linesToArray(value: string): string[] {
-  return value
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function arrayToLines(value: string[]): string {
-  return value.join('\n')
 }
 
 function cardStyle(): React.CSSProperties {
@@ -336,10 +331,10 @@ function ListField({
 }) {
   return (
     <Field label={label} help={help} example={example}>
-      <textarea
+      <EditableLinesTextarea
         rows={rows}
-        value={arrayToLines(value)}
-        onChange={(event) => onChange(linesToArray(event.target.value))}
+        value={value}
+        onChange={onChange}
         style={{ ...inputStyle, resize: 'vertical' }}
         placeholder="Uma resposta por linha"
       />
@@ -445,9 +440,11 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
   const [error, setError] = React.useState<string | null>(null)
   const [issues, setIssues] = React.useState<string[]>([])
   const [savedAt, setSavedAt] = React.useState<string | null>(null)
+  const editRevisionRef = React.useRef(0)
 
   const updateData = React.useCallback(
     (updater: (data: CommercialMethodBuilderData) => CommercialMethodBuilderData) => {
+      editRevisionRef.current += 1
       setDraft((current) => ({
         ...current,
         ready_for_method: false,
@@ -461,7 +458,8 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
 
   const saveDraft = React.useCallback(
     async (nextDraft?: CommercialMethodBuilderDraftInput) => {
-      const payload = nextDraft ?? draft
+      const saveRevision = editRevisionRef.current
+      const payload = normalizeTextListsForPersistence(nextDraft ?? draft)
       setSaving(true)
       setError(null)
 
@@ -479,14 +477,10 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
           )
         }
 
-        setDraft({
-          current_step: json.draft.current_step,
-          completed_steps: json.draft.completed_steps,
-          ready_for_method: json.draft.ready_for_method,
-          data: json.draft.data,
-        })
-        setDirty(false)
-        setSavedAt(json.draft.updated_at)
+        if (isLatestEditRevision(saveRevision, editRevisionRef.current)) {
+          setDirty(false)
+          setSavedAt(json.draft.updated_at)
+        }
         return true
       } catch (saveError: unknown) {
         setError(
@@ -579,6 +573,7 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
       ready_for_method: false,
     }
 
+    editRevisionRef.current += 1
     setDraft(nextDraft)
     setDirty(true)
     setIssues([])
@@ -591,6 +586,7 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
       current_step: goToPreviousBuilderStep(draft.current_step),
       ready_for_method: false,
     }
+    editRevisionRef.current += 1
     setDraft(nextDraft)
     setDirty(true)
     setIssues([])
@@ -606,6 +602,7 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
       ).sort() as CommercialMethodBuilderStep[],
       ready_for_method: true,
     }
+    editRevisionRef.current += 1
     setDraft(nextDraft)
     setDirty(true)
     await saveDraft(nextDraft)
@@ -1241,6 +1238,7 @@ export default function CommercialMethodBuilder({ onBack }: Props) {
                 <button
                   type="button"
                   onClick={() => {
+                    editRevisionRef.current += 1
                     setDraft((current) => ({ ...current, current_step: block.step, ready_for_method: false }))
                     setDirty(true)
                   }}

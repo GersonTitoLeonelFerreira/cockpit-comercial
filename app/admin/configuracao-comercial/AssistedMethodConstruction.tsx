@@ -2,7 +2,11 @@
 
 import * as React from 'react'
 
+import EditableLinesTextarea from './EditableLinesTextarea'
 import BuyerDecisionArchitecture from '@/app/admin/configuracao-comercial/BuyerDecisionArchitecture'
+import {
+  normalizeTextListsForPersistence,
+} from '@/app/lib/commercial-config/text-editing'
 import {
   appendConstructionStage,
   auditCommercialMethodConstruction,
@@ -91,13 +95,6 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
 }
 
-function cleanLines(value: string): string[] {
-  return value
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
 function Field({
   label,
   help,
@@ -151,10 +148,10 @@ function ListEditor({
 
   return (
     <Field label={label} help={help} example={example}>
-      <textarea
+      <EditableLinesTextarea
         rows={4}
-        value={value.join('\n')}
-        onChange={(event) => onChange(cleanLines(event.target.value))}
+        value={value}
+        onChange={onChange}
         placeholder="Um item por linha"
         style={{ ...inputStyle, resize: 'vertical' }}
       />
@@ -398,6 +395,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     nextStatus: 'editing' | 'review_ready' = 'editing',
   ) => {
     const sentRevision = revisionRef.current
+    const persistedDraft = normalizeTextListsForPersistence(nextDraft)
     setSaving(true)
     setError(null)
     setServerIssues([])
@@ -405,7 +403,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
       const response = await fetch('/api/admin/commercial-method-builder/method', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ status: nextStatus, construction: nextDraft }),
+        body: JSON.stringify({ status: nextStatus, construction: persistedDraft }),
       })
       const json = (await response.json()) as MethodResponse
       if (!response.ok || !json.ok) {

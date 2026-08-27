@@ -3,7 +3,9 @@ import { NextResponse } from 'next/server'
 
 import {
   computeConversationWatermark,
+  isPendingAudioTranscription,
   loadCanonicalMessages,
+  toCanonicalMessagePromptText,
   type CanonicalConversationMessage,
 } from '../../../lib/server/companion-conversation-registration-loader'
 
@@ -345,9 +347,17 @@ async function loadMessagesForSummary({
 }
 
 function getUsableMessages(messages: CanonicalConversationMessage[]) {
-  return messages.filter(
-    (message) => !message.is_deleted && typeof message.text === 'string' && message.text.trim(),
-  )
+  return messages.filter((message) => {
+    if (message.is_deleted) {
+      return false
+    }
+
+    if (message.content_type === 'audio') {
+      return true
+    }
+
+    return typeof message.text === 'string' && message.text.trim().length > 0
+  })
 }
 
 function getMessagesAfter(
@@ -392,7 +402,7 @@ function formatMessagesForPrompt(messages: CanonicalConversationMessage[]) {
     occurred_at: message.occurred_at,
     speaker: message.direction === 'incoming' ? 'cliente' : 'vendedor',
     kind: message.content_type,
-    text: message.text,
+    text: toCanonicalMessagePromptText(message),
   }))
 }
 
@@ -489,6 +499,7 @@ async function composeWorkingSummary({
       'Não invente fatos e não repita a mesma informação em frases diferentes.',
       'Quando houver informação nova que contradiga uma antiga, prefira a informação explícita mais recente e descreva a mudança quando isso for importante.',
       'Não inclua coaching do vendedor, avaliação de condução, próximo passo, recomendação, estratégia ou mensagem sugerida.',
+      'Uma mensagem marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" representa um áudio real ainda não transcrito: nunca invente, presuma ou infira o que foi dito nele. Quando isso afetar a compreensão do momento, registre apenas que existe um áudio pendente de transcrição.',
       'Se houver apenas conversa pessoal e nenhum histórico comercial, descreva isso factualmente.',
       `O texto final deve ter no máximo ${MAX_WORKING_SUMMARY_LENGTH} caracteres.`,
     ].join('\n'),
@@ -841,6 +852,8 @@ export async function POST(request: Request) {
           legacy_history_count: legacyHistoryRaw.length,
           legacy_history_distinct_count: legacyHistory.length,
           messages_used_count: messagesForPrompt.length,
+          pending_audio_transcription_count:
+            messagesForPrompt.filter(isPendingAudioTranscription).length,
         },
       },
       {

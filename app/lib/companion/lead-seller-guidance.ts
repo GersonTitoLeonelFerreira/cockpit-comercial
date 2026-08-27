@@ -594,6 +594,7 @@ async function runAttempt({
     'Se a última mensagem outgoing já perguntou, confirmou, explicou ou cobrou exatamente o próximo passo, NÃO recomende repetir a mesma ação enquanto não existir nova mensagem incoming que justifique isso.',
     'O contexto da empresa, o método e as regras do vendedor orientam comportamento, mas não provam fatos do cliente.',
     'Uma pergunta ou hipótese do cliente não prova que a resposta sugerida dentro dela seja verdadeira.',
+    'Uma mensagem marcada como "[mensagem de áudio deste participante ainda sem transcrição disponível]" é um áudio real cujo conteúdo é desconhecido. Nunca infira o que foi dito nele; se o áudio for necessário para decidir o próximo passo, aguarde ou obtenha a transcrição.',
     'Não invente valores, datas, horários, compromisso, disponibilidade, matrícula, cadastro, documentos, condição contratual, proposta, pagamento, objeção ou qualquer outro fato.',
     'A orientação deve ser curta, concreta, operacional e ligada à interação atual.',
     'Evite frases abstratas como avançar a negociação buscando compreender, retomar contato, fazer follow-up, responder naturalmente ou marcar uma conversa sem motivo contextual.',
