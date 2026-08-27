@@ -480,7 +480,6 @@ function MethodExecutiveView({
 
 export default function CommercialConfigExperience() {
   const [mode, setMode] = React.useState<ExperienceMode>('home')
-  const [forceDiagnosticReview, setForceDiagnosticReview] = React.useState(false)
   const [snapshot, setSnapshot] = React.useState<LifecycleSnapshot | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [refreshing, setRefreshing] = React.useState(false)
@@ -571,7 +570,6 @@ export default function CommercialConfigExperience() {
   }, [loadLifecycle])
 
   const returnHome = React.useCallback(() => {
-    setForceDiagnosticReview(false)
     setMode('home')
     void loadLifecycle(true)
   }, [loadLifecycle])
@@ -620,8 +618,7 @@ export default function CommercialConfigExperience() {
       <GuidedMethodJourney
         onBack={returnHome}
         onReadyForConstruction={() => {
-          setForceDiagnosticReview(false)
-          setMode('construction')
+                setMode('construction')
         }}
       />
     )
@@ -697,8 +694,7 @@ export default function CommercialConfigExperience() {
       home.next_action.key === 'start_diagnosis' ||
       home.next_action.key === 'continue_diagnosis'
     ) {
-      setForceDiagnosticReview(false)
-      setMode('diagnosis')
+        setMode('diagnosis')
       return
     }
 
@@ -1034,7 +1030,6 @@ export default function CommercialConfigExperience() {
           {snapshot.builder && (
             <SecondaryButton
               onClick={() => {
-                setForceDiagnosticReview(true)
                 setMode('diagnosis')
               }}
             >
