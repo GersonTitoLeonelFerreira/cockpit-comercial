@@ -37,6 +37,12 @@ import {
 
 import { verifyCompanionRequestToken } from '../../../lib/server/companion-token'
 
+import {
+  CompanionMethodStageStoreError,
+  loadCompanionMethodStage,
+  saveCompanionMethodStage,
+} from '../../../lib/server/companion-method-stage-store'
+
 type MethodGuidanceBody = {
   cycle_id?: unknown
   conversation_key?: unknown
@@ -462,16 +468,62 @@ export async function POST(request: Request) {
       )
     }
 
+    const guidanceMode =
+      applicability.status === 'no_commercial_action'
+        ? 'operational'
+        : 'commercial'
+
+    // Fase 12A, Frente 2B — Blocker 3: carrega a última etapa válida
+    // conhecida para este escopo (company_id, cycle_id, conversation_key)
+    // ANTES de chamar o modelo, para alimentar o gate determinístico
+    // anti-regressão dentro de composeSellerFacingGuidance.
+    const previousStage =
+      guidanceMode === 'commercial'
+        ? await loadCompanionMethodStage({
+            admin,
+            companyId: identity.company_id,
+            cycleId: identity.cycle_id,
+            conversationKey: identity.conversation_key,
+          })
+        : null
+
     const guidance = await composeSellerFacingGuidance({
-      mode:
-        applicability.status === 'no_commercial_action'
-          ? 'operational'
-          : 'commercial',
+      mode: guidanceMode,
       workingSummary: workingSummary || null,
       currentInteraction,
       method,
       provider,
+      previousStage,
     })
+
+    // Persiste a etapa aceita (já passada pelo gate) para a PRÓXIMA
+    // chamada poder comparar contra ela. Só grava quando há um estágio
+    // real (mode commercial + status ready) — silêncio/erro/operacional
+    // não alteram o estágio persistido.
+    if (
+      guidanceMode === 'commercial' &&
+      guidance.status === 'ready' &&
+      guidance.stage_key &&
+      guidance.stage_name
+    ) {
+      const stageDefinition = method.stages.find(
+        (stage) => stage.key === guidance.stage_key,
+      )
+
+      if (stageDefinition) {
+        await saveCompanionMethodStage({
+          admin,
+          companyId: identity.company_id,
+          cycleId: identity.cycle_id,
+          conversationKey: identity.conversation_key,
+          methodConfigVersionId: method.id,
+          stageKey: stageDefinition.key,
+          stageName: stageDefinition.name,
+          stageDisplayOrder: stageDefinition.display_order,
+          stageReason: guidance.stage_reason,
+        })
+      }
+    }
 
     return NextResponse.json(
       {
@@ -485,6 +537,21 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     if (error instanceof CompanionLeadSummaryError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: error.code,
+          error: error.message,
+          retryable: error.retryable,
+        },
+        {
+          status: error.status_code,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (error instanceof CompanionMethodStageStoreError) {
       return NextResponse.json(
         {
           ok: false,

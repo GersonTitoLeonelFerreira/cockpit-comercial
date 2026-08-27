@@ -326,6 +326,71 @@ function validateAlreadyExecutedActionGuidance({
   )
 }
 
+// Fase 12A, Frente 2B — Blocker 3: gate determinístico anti-regressão de
+// etapa. O modelo recalcula a etapa do zero a cada chamada; sem este
+// gate, nada impede uma regressão silenciosa (ex.: Formalização ->
+// Descoberta) sem evidência real. Regressão continua sendo PERMITIDA
+// quando há evidência textual de que algo realmente mudou (desistência,
+// cancelamento, reabertura de objeção encerrada, pedido explícito de
+// recomeçar) — a ausência de avanço NÃO é motivo para regredir.
+export type PreviousMethodStage = {
+  method_config_version_id: string
+  stage_key: string
+  stage_display_order: number
+  stage_reason: string | null
+}
+
+function stageRegressionJustified(value: string): boolean {
+  return /\b(desist|cancel|nao quero mais|mudou de ideia|mudei de ideia|reconsiderar|recomecar|voltar atras|reabri|nova objecao|parou de responder|sumiu|desapareceu)\w*/.test(
+    comparable(value),
+  )
+}
+
+function validateStageContinuity({
+  candidateStage,
+  previousStage,
+  stageReason,
+  factualContext,
+}: {
+  candidateStage: {
+    key: string
+    display_order: number
+  }
+  previousStage: PreviousMethodStage | null
+  stageReason: string
+  factualContext: string
+}): string | null {
+  if (!previousStage) {
+    return null
+  }
+
+  if (
+    candidateStage.display_order >=
+    previousStage.stage_display_order
+  ) {
+    return null
+  }
+
+  if (candidateStage.key === previousStage.stage_key) {
+    return null
+  }
+
+  const justification = [
+    stageReason,
+    factualContext,
+  ].join('\n')
+
+  if (stageRegressionJustified(justification)) {
+    return null
+  }
+
+  return (
+    `A etapa anterior confirmada tinha ordem ${previousStage.stage_display_order}; a nova escolha tem ordem ${candidateStage.display_order}, uma regressão. ` +
+    'Regressão de etapa só é permitida com evidência explícita de mudança real (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar). ' +
+    'Ausência de avanço não justifica regressão: mantenha a etapa anterior quando não houver essa evidência.'
+  )
+}
+
 function buildFactualContext(
   summary: string,
   interaction: readonly LeadMethodCurrentInteractionMessage[],
@@ -449,6 +514,8 @@ const OPERATIONAL_OUTPUT_FORMAT = {
 type GuidanceAttempt = {
   guidance: SellerFacingGuidance | null
   failure: string | null
+  stageRegressionBlocked?: boolean
+  rejectedGuidance?: SellerFacingGuidance | null
 }
 
 function validateContextualQuality({
@@ -669,6 +736,7 @@ async function runAttempt({
   method,
   provider,
   correctionReason,
+  previousStage,
 }: {
   mode: 'commercial' | 'operational'
   summary: string
@@ -676,6 +744,7 @@ async function runAttempt({
   method: PublishedCommercialMethod
   provider: StatefulCopilotProvider
   correctionReason?: string | null
+  previousStage?: PreviousMethodStage | null
 }): Promise<GuidanceAttempt> {
   const factualContext =
     buildFactualContext(summary, interaction)
@@ -688,6 +757,20 @@ async function runAttempt({
         'Corrija sem relaxar grounding, gate comercial ou especificidade.',
       ]
     : []
+
+  const activePreviousStage =
+    previousStage &&
+    previousStage.method_config_version_id === method.id
+      ? previousStage
+      : null
+
+  const stageContinuityPrompt =
+    mode === 'commercial' && activePreviousStage
+      ? [
+          `A etapa confirmada na última interação foi "${activePreviousStage.stage_key}" (ordem ${activePreviousStage.stage_display_order}).`,
+          'Só escolha uma etapa de ordem menor que essa se houver evidência explícita de mudança real (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar). Ausência de avanço não é motivo para regredir — nesse caso, repita a mesma etapa.',
+        ]
+      : []
 
   const commonPrompt = [
     'Você é o motor seller-facing do Yolen Companion.',
@@ -728,6 +811,7 @@ async function runAttempt({
       system_prompt: [
         ...commonPrompt,
         ...modePrompt,
+        ...stageContinuityPrompt,
         ...correction,
       ].join('\n'),
       user_prompt: JSON.stringify({
@@ -736,6 +820,15 @@ async function runAttempt({
         current_interaction: interaction,
         context_specificity_anchors:
           contextAnchors.slice(0, 12),
+        previous_stage:
+          activePreviousStage
+            ? {
+                stage_key:
+                  activePreviousStage.stage_key,
+                stage_display_order:
+                  activePreviousStage.stage_display_order,
+              }
+            : null,
         published_commercial_context: {
           config_version_id: method.id,
           source_contract_version:
@@ -797,6 +890,37 @@ async function runAttempt({
           failure: alreadyExecutedFailure,
         }
       }
+
+      if (mode === 'commercial' && parsed.guidance.stage_key) {
+        const candidateStageDefinition =
+          method.stages.find(
+            (stage) => stage.key === parsed.guidance!.stage_key,
+          )
+
+        const stageContinuityFailure =
+          candidateStageDefinition
+            ? validateStageContinuity({
+                candidateStage: {
+                  key: candidateStageDefinition.key,
+                  display_order:
+                    candidateStageDefinition.display_order,
+                },
+                previousStage: activePreviousStage,
+                stageReason:
+                  parsed.guidance.stage_reason || '',
+                factualContext,
+              })
+            : null
+
+        if (stageContinuityFailure) {
+          return {
+            guidance: null,
+            failure: stageContinuityFailure,
+            stageRegressionBlocked: true,
+            rejectedGuidance: parsed.guidance,
+          }
+        }
+      }
     }
 
     return parsed
@@ -815,12 +939,14 @@ export async function composeSellerFacingGuidance({
   currentInteraction = [],
   method,
   provider,
+  previousStage = null,
 }: {
   mode: 'commercial' | 'operational'
   workingSummary: string | null
   currentInteraction?: readonly LeadMethodCurrentInteractionMessage[]
   method: PublishedCommercialMethod
   provider: StatefulCopilotProvider
+  previousStage?: PreviousMethodStage | null
 }): Promise<SellerFacingGuidance> {
   const summary = text(workingSummary)
   const interaction =
@@ -846,6 +972,7 @@ export async function composeSellerFacingGuidance({
     interaction,
     method,
     provider,
+    previousStage,
   })
 
   if (first.guidance) {
@@ -858,6 +985,7 @@ export async function composeSellerFacingGuidance({
     interaction,
     method,
     provider,
+    previousStage,
     correctionReason:
       first.failure ||
       'A primeira saída não passou pela validação.',
@@ -865,6 +993,41 @@ export async function composeSellerFacingGuidance({
 
   if (corrected.guidance) {
     return corrected.guidance
+  }
+
+  // Regressão de etapa sem evidência, em ambas as tentativas: em vez de
+  // devolver um erro duro (deixando o vendedor sem nenhuma orientação),
+  // mantemos a etapa anterior confirmada e aproveitamos o next_step /
+  // seller_intents já validados pela tentativa corrigida — a orientação
+  // operacional continua útil, só a etapa não regride sem evidência.
+  const fallbackAttempt =
+    corrected.stageRegressionBlocked
+      ? corrected
+      : first.stageRegressionBlocked
+        ? first
+        : null
+
+  if (
+    fallbackAttempt?.rejectedGuidance &&
+    previousStage &&
+    previousStage.method_config_version_id === method.id
+  ) {
+    const previousStageDefinition =
+      method.stages.find(
+        (stage) => stage.key === previousStage.stage_key,
+      )
+
+    return {
+      ...fallbackAttempt.rejectedGuidance,
+      status: 'ready',
+      stage_key: previousStage.stage_key,
+      stage_name:
+        previousStageDefinition?.name ??
+        fallbackAttempt.rejectedGuidance.stage_name,
+      stage_reason:
+        'Etapa mantida: a nova sugestão do modelo regrediria a etapa sem evidência de mudança real na conversa.',
+      error: null,
+    }
   }
 
   return {
