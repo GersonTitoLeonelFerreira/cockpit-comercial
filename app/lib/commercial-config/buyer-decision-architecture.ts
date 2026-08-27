@@ -756,6 +756,12 @@ function applyEventFrequencySynthesis(
     ]
   }
 
+  if (next.advance_when.length === 0 && cleanText(detail.success_definition)) {
+    next.advance_when = [
+      `O resultado esperado desta etapa foi validado: ${cleanText(detail.success_definition)}.`,
+    ]
+  }
+
   if (next.stop_asking_when.length === 0 && cleanText(detail.success_definition)) {
     next.stop_asking_when = [
       'Novas perguntas não mudariam se esse resultado já foi alcançado.',
@@ -847,6 +853,22 @@ function applyFormalizationStageSynthesis(
     next.sufficient_when = [
       'Está claro o que ainda falta para concluir a contratação depois da decisão.',
     ]
+  }
+
+  if (next.advance_when.length === 0) {
+    if (cleanText(formalization?.sale_completed_when ?? '')) {
+      next.advance_when = [
+        `A formalização pode avançar quando: ${cleanText(formalization!.sale_completed_when)}.`,
+      ]
+    } else if (steps.length > 0) {
+      next.advance_when = [
+        `Os requisitos necessários de formalização foram concluídos: ${steps.join(', ')}.`,
+      ]
+    } else {
+      next.advance_when = [
+        'As ações necessárias de formalização foram concluídas e a contratação está efetivamente finalizada.',
+      ]
+    }
   }
 
   if (next.stop_asking_when.length === 0) {
@@ -1078,6 +1100,12 @@ function applyDiscoveryStageSynthesis(
   if (next.sufficient_when.length === 0) {
     next.sufficient_when = [
       'O que já foi confirmado é suficiente para recomendar com segurança, mesmo sem esgotar todos os detalhes possíveis.',
+    ]
+  }
+
+  if (next.advance_when.length === 0) {
+    next.advance_when = [
+      'Já existe informação suficiente e confiável para recomendar a solução adequada sem depender de novas perguntas que mudariam a recomendação.',
     ]
   }
 
