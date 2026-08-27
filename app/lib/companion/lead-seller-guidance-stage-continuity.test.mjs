@@ -94,7 +94,7 @@ function buildProvider(response) {
   }
 }
 
-test('mantém a etapa anterior quando a nova sugestão regrediria sem evidência', async () => {
+test('regressão sem evidência em ambas as tentativas: status de erro controlado, sem reaproveitar next_step/seller_intents da etapa rejeitada', async () => {
   const { provider, getCalls } = buildProvider({
     stage_name: 'Descoberta',
     stage_reason: 'Quero entender melhor o que a Marina procura nas aulas.',
@@ -115,17 +115,24 @@ test('mantém a etapa anterior quando a nova sugestão regrediria sem evidência
     },
   })
 
-  assert.equal(result.status, 'ready')
+  // Re-auditoria (2ª rodada): a saída rejeitada foi gerada para a etapa
+  // REGRESSIVA ("Descoberta") — nunca pode ser exibida como se fosse a
+  // orientação da etapa anterior ("Formalização"). O contrato correto é
+  // um erro controlado, nunca "Formalização" + ação de "Descoberta".
+  assert.equal(result.status, 'error')
   assert.equal(
     result.stage_key,
     'formalizacao',
-    'a etapa não deveria regredir sem evidência de mudança real',
+    'o estágio informado precisa continuar sendo o anterior (persistido), nunca o regressivo rejeitado',
   )
   assert.equal(result.stage_name, 'Formalização')
-  assert.match(result.stage_reason, /mantida/i)
-  // O next_step da tentativa (rejeitada apenas por causa da etapa)
-  // continua sendo aproveitado.
-  assert.match(result.next_step, /horários de aulas/i)
+  assert.equal(
+    result.next_step,
+    null,
+    'next_step da tentativa rejeitada (gerada para Descoberta) nunca pode ser reaproveitado sob Formalização',
+  )
+  assert.deepEqual(result.seller_intents, [])
+  assert.ok(result.error, 'precisa haver uma mensagem de erro explicando a rejeição')
   assert.equal(getCalls(), 2, 'deveria esgotar as 2 tentativas antes de aplicar o fallback')
 })
 
@@ -198,12 +205,13 @@ test('(A, Controle Mestre) modelo inventa "cliente desistiu" no próprio stage_r
     },
   })
 
-  assert.equal(result.status, 'ready')
+  assert.equal(result.status, 'error')
   assert.equal(
     result.stage_key,
     'formalizacao',
     'a saída do próprio modelo (stage_reason) nunca pode autorizar sua própria regressão',
   )
+  assert.equal(result.next_step, null)
   assert.equal(getCalls(), 2)
 })
 
@@ -229,12 +237,13 @@ test('(C, Controle Mestre) cliente parou de responder: NÃO é motivo de regress
     },
   })
 
-  assert.equal(result.status, 'ready')
+  assert.equal(result.status, 'error')
   assert.equal(
     result.stage_key,
     'formalizacao',
     'silêncio/ausência de resposta é waiting/follow-up, nunca regressão de etapa',
   )
+  assert.equal(result.next_step, null)
 })
 
 test('(D, Controle Mestre) cliente "sumiu": NÃO é motivo de regressão', async () => {
@@ -259,12 +268,107 @@ test('(D, Controle Mestre) cliente "sumiu": NÃO é motivo de regressão', async
     },
   })
 
-  assert.equal(result.status, 'ready')
+  assert.equal(result.status, 'error')
   assert.equal(
     result.stage_key,
     'formalizacao',
     '"sumiu" não é evidência comercial de mudança — não pode justificar regressão',
   )
+  assert.equal(result.next_step, null)
+})
+
+// ---------------------------------------------------------------------
+// Re-auditoria do Controle Mestre (2ª rodada): MENÇÃO A CANCELAMENTO ≠
+// CANCELAMENTO. PERGUNTA ≠ FATO. HIPÓTESE ≠ FATO. NEGAÇÃO DE REGRESSÃO ≠
+// REGRESSÃO. Os 6 testes abaixo usam as frases exatas exigidas pelo
+// Controle Mestre para validar sentenceAffirmsCommercialRegression.
+// ---------------------------------------------------------------------
+
+async function runRegressionScenario(incomingText) {
+  const { provider } = buildProvider({
+    stage_name: 'Descoberta',
+    stage_reason: 'A conversa indica uma mudança na decisão da Marina sobre a academia.',
+    next_step: 'Pergunte à Marina o que mudou e quais horários de aulas ela prefere agora.',
+    seller_intents: ['Quero entender o que mudou para a Marina.'],
+  })
+
+  return composeSellerFacingGuidance({
+    mode: 'commercial',
+    workingSummary: WORKING_SUMMARY,
+    currentInteraction: [
+      {
+        direction: 'incoming',
+        occurred_at: '2026-08-27T10:00:00.000Z',
+        text: incomingText,
+      },
+    ],
+    method,
+    provider,
+    previousStage: {
+      method_config_version_id: 'method-v5',
+      stage_key: 'formalizacao',
+      stage_display_order: 5,
+      stage_reason: 'Decisão de seguir com a academia já confirmada.',
+    },
+  })
+}
+
+test('(1, Controle Mestre) "Se eu cancelar depois, tem multa?" — pergunta condicional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Se eu cancelar depois, tem multa?',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+  assert.equal(result.next_step, null)
+})
+
+test('(2, Controle Mestre) "Não quero cancelar, só queria entender." — negação da própria regressão: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Não quero cancelar, só queria entender.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+  assert.equal(result.next_step, null)
+})
+
+test('(3, Controle Mestre) "Eu não quero recomeçar." — negação da própria regressão: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Eu não quero recomeçar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+  assert.equal(result.next_step, null)
+})
+
+test('(4, Controle Mestre) "Se eu desistir no futuro, o que acontece?" — hipótese/pergunta: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Se eu desistir no futuro, o que acontece?',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+  assert.equal(result.next_step, null)
+})
+
+test('(5, Controle Mestre) "Desisti. Não quero mais continuar." — fato afirmado em primeira pessoa: regressão PODE ser aceita', async () => {
+  const result = await runRegressionScenario(
+    'Desisti. Não quero mais continuar.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(6, Controle Mestre) "Mudei de ideia e quero voltar atrás." — fato afirmado em primeira pessoa: regressão PODE ser aceita', async () => {
+  const result = await runRegressionScenario(
+    'Mudei de ideia e quero voltar atrás.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
 })
 
 test('nova versão do método publicado não é tratada como regressão (sem estágio anterior aplicável)', async () => {

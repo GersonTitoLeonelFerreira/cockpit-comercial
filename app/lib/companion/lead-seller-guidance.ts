@@ -351,9 +351,101 @@ export type PreviousMethodStage = {
   stage_reason: string | null
 }
 
+// Re-auditoria do Controle Mestre (2ª rodada): a regex anterior aceitava
+// qualquer menção às palavras-chave, incluindo perguntas, hipóteses,
+// negações da própria regressão e referências a regras/contrato — nenhuma
+// dessas frases representa uma mudança comercial REALMENTE afirmada pelo
+// cliente. MENÇÃO A CANCELAMENTO ≠ CANCELAMENTO. PERGUNTA ≠ FATO.
+// HIPÓTESE ≠ FATO. NEGAÇÃO DE REGRESSÃO ≠ REGRESSÃO.
+//
+// O gate continua 100% determinístico (normalização textual + regex),
+// sem nenhum modelo novo. Analisa frase por frase (nunca o bloco inteiro
+// de uma vez, para não deixar uma frase "limpa" ser aprovada por causa de
+// outra frase problemática no mesmo texto) e só aceita uma frase como
+// evidência quando ela contém a palavra-chave E não dispara nenhum dos
+// filtros de exclusão abaixo. Na dúvida, não regride (fail-closed).
+const REGRESSION_KEYWORD_PATTERN =
+  /\b(desist\w*|cancel\w*|nao quero mais|mudou de ideia|mudei de ideia|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*|nova objecao)\b/
+
+// (A) Pergunta — com "?" literal ou com marcador interrogativo típico,
+// já que mensagens de WhatsApp frequentemente chegam sem pontuação.
+const QUESTION_MARKER_PATTERN =
+  /\b(posso|poderia|poderiam|consigo|conseguiria|seria possivel|da pra|tem como|o que acontece se|quanto custa|e se eu)\b/
+
+// (B) Condicional/hipótese — a frase descreve um cenário futuro/hipotético,
+// não uma decisão já tomada.
+const CONDITIONAL_MARKER_PATTERN =
+  /\b(se eu|se for|se acontecer|caso eu|hipoteticamente|na hipotese|imagina se|supondo que)\b/
+
+// (D) Referência a terceiro/regra — o cliente está perguntando sobre a
+// política, não declarando a própria decisão.
+const THIRD_PARTY_REFERENCE_PATTERN =
+  /\b(contrato|regra|regulamento|politica|termos|clausula|condicoes gerais)\b/
+
+// (C) Negação da própria regressão — "não quero cancelar", "não vou
+// desistir", "não pretendo recomeçar". Deliberadamente NÃO cobre "nao
+// quero mais", que é o próprio idioma afirmativo de desistência (ver
+// REGRESSION_KEYWORD_PATTERN) e não uma negação de outra palavra-chave.
+const NEGATED_KEYWORD_PATTERN =
+  /\bnao\s+(\w+\s+){0,3}(desist\w*|cancel\w*|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*)\b/
+
+function splitIntoSentences(value: string): string[] {
+  const sentences: string[] = []
+  let current = ''
+
+  for (const char of value) {
+    current += char
+
+    if (char === '.' || char === '!' || char === '?' || char === '\n') {
+      if (current.trim()) {
+        sentences.push(current)
+      }
+      current = ''
+    }
+  }
+
+  if (current.trim()) {
+    sentences.push(current)
+  }
+
+  return sentences
+}
+
+function sentenceAffirmsCommercialRegression(
+  rawSentence: string,
+): boolean {
+  const normalized = comparable(rawSentence)
+
+  if (!REGRESSION_KEYWORD_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (rawSentence.includes('?')) {
+    return false
+  }
+
+  if (QUESTION_MARKER_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (CONDITIONAL_MARKER_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (THIRD_PARTY_REFERENCE_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (NEGATED_KEYWORD_PATTERN.test(normalized)) {
+    return false
+  }
+
+  return true
+}
+
 function stageRegressionJustified(value: string): boolean {
-  return /\b(desist|cancel|nao quero mais|mudou de ideia|mudei de ideia|reconsiderar|recomecar|voltar atras|reabri|nova objecao)\w*/.test(
-    comparable(value),
+  return splitIntoSentences(value).some(
+    sentenceAffirmsCommercialRegression,
   )
 }
 
@@ -531,7 +623,6 @@ type GuidanceAttempt = {
   guidance: SellerFacingGuidance | null
   failure: string | null
   stageRegressionBlocked?: boolean
-  rejectedGuidance?: SellerFacingGuidance | null
 }
 
 function validateContextualQuality({
@@ -934,7 +1025,6 @@ async function runAttempt({
             guidance: null,
             failure: stageContinuityFailure,
             stageRegressionBlocked: true,
-            rejectedGuidance: parsed.guidance,
           }
         }
       }
@@ -1012,11 +1102,15 @@ export async function composeSellerFacingGuidance({
     return corrected.guidance
   }
 
-  // Regressão de etapa sem evidência, em ambas as tentativas: em vez de
-  // devolver um erro duro (deixando o vendedor sem nenhuma orientação),
-  // mantemos a etapa anterior confirmada e aproveitamos o next_step /
-  // seller_intents já validados pela tentativa corrigida — a orientação
-  // operacional continua útil, só a etapa não regride sem evidência.
+  // Re-auditoria do Controle Mestre (2ª rodada): regressão de etapa sem
+  // evidência, em ambas as tentativas. A saída rejeitada (next_step,
+  // seller_intents) foi produzida pelo modelo para a etapa REGRESSIVA
+  // candidata — nunca pode ser reaproveitada como se pertencesse à etapa
+  // anterior (ex.: mostrar "Formalização" com uma ação de "Descoberta").
+  // A opção mais segura é um status de erro controlado: nenhum next_step
+  // incorreto é exibido e, como status !== 'ready', o gate de
+  // persistência do caller (method-guidance/route.ts) nunca sobrescreve
+  // o estágio já persistido — o stage persistido permanece intacto.
   const fallbackAttempt =
     corrected.stageRegressionBlocked
       ? corrected
@@ -1024,26 +1118,35 @@ export async function composeSellerFacingGuidance({
         ? first
         : null
 
-  if (
-    fallbackAttempt?.rejectedGuidance &&
-    previousStage &&
-    previousStage.method_config_version_id === method.id
-  ) {
+  if (fallbackAttempt) {
+    const activePreviousStage =
+      previousStage &&
+      previousStage.method_config_version_id === method.id
+        ? previousStage
+        : null
+
     const previousStageDefinition =
-      method.stages.find(
-        (stage) => stage.key === previousStage.stage_key,
-      )
+      activePreviousStage
+        ? method.stages.find(
+            (stage) => stage.key === activePreviousStage.stage_key,
+          )
+        : undefined
 
     return {
-      ...fallbackAttempt.rejectedGuidance,
-      status: 'ready',
-      stage_key: previousStage.stage_key,
+      status: 'error',
+      method_name: method.name,
+      method_config_version_id: method.id,
+      stage_key:
+        activePreviousStage?.stage_key ?? null,
       stage_name:
-        previousStageDefinition?.name ??
-        fallbackAttempt.rejectedGuidance.stage_name,
+        previousStageDefinition?.name ?? null,
       stage_reason:
-        'Etapa mantida: a nova sugestão do modelo regrediria a etapa sem evidência de mudança real na conversa.',
-      error: null,
+        activePreviousStage?.stage_reason ?? null,
+      next_step: null,
+      seller_intents: [],
+      error:
+        fallbackAttempt.failure ||
+        'A nova sugestão regrediria a etapa sem evidência de mudança real na conversa; a etapa anterior permanece sem uma nova orientação nesta rodada.',
     }
   }
 
