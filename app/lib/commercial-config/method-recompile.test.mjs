@@ -639,6 +639,45 @@ test('22) Apresentação é recompilada a partir do diagnóstico sem pedir respo
   )
 })
 
+test('23) Descoberta, eventos e Formalização sempre explicam quando avançar', () => {
+  const data = academiaData()
+
+  data.current_sales_process.discovery.needs_to_discover = [
+    'Necessidade principal do cliente',
+  ]
+  data.current_sales_process.discovery.indispensable_information = [
+    'Condição que muda a recomendação',
+  ]
+
+  const stale = staleAcademiaConstruction(data)
+  const candidate = buildMethodRecompileCandidate(data, stale)
+
+  const discovery = stageByName(candidate, 'Descoberta')
+  const tour = stageByName(candidate, 'Tour')
+  const formalization = stageByName(candidate, 'Formalização')
+
+  assert.ok(discovery)
+  assert.ok(tour)
+  assert.ok(formalization)
+
+  assert.ok(discovery.advance_when.length > 0)
+  assert.ok(tour.advance_when.length > 0)
+  assert.ok(formalization.advance_when.length > 0)
+
+  assert.match(
+    discovery.advance_when.join(' '),
+    /informação suficiente/i,
+  )
+  assert.match(
+    tour.advance_when.join(' '),
+    /resultado esperado/i,
+  )
+  assert.match(
+    formalization.advance_when.join(' '),
+    /formaliza|contrata|pagamento/i,
+  )
+})
+
 // ============================================================================
 // Infra mínima de Supabase falso para os testes 6/8/9, que exercitam o
 // caminho real de save (saveCommercialMethodConstruction) e publish
