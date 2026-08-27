@@ -368,6 +368,8 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   const [recompileCandidate, setRecompileCandidate] =
     React.useState<CommercialMethodConstructionDraft | null>(null)
   const [recompiling, setRecompiling] = React.useState(false)
+  const [staleConflict, setStaleConflict] = React.useState(false)
+  const serverMethodUpdatedAtRef = React.useRef<string | null>(null)
 
   const diagnosis: CommercialMethodBuilderData | null = workspace?.diagnosis ?? null
 
@@ -381,6 +383,9 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
       setWorkspace(json.construction)
       setDraft(json.construction?.construction ?? null)
       setStatus(json.construction?.status ?? 'not_started')
+      serverMethodUpdatedAtRef.current =
+        json.construction?.method_updated_at ?? null
+      setStaleConflict(false)
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Erro ao carregar a construção.')
     } finally {
@@ -402,14 +407,27 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     try {
       const response = await fetch('/api/admin/commercial-method-builder/method', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(serverMethodUpdatedAtRef.current
+            ? {
+                'x-yolen-method-updated-at':
+                  serverMethodUpdatedAtRef.current,
+              }
+            : {}),
+        },
         body: JSON.stringify({ status: nextStatus, construction: persistedDraft }),
       })
       const json = (await response.json()) as MethodResponse
       if (!response.ok || !json.ok) {
         if (!json.ok && json.issues) setServerIssues(json.issues.map((issue) => `${issue.path}: ${issue.message}`))
+        if (response.status === 409) setStaleConflict(true)
         throw new Error(json.ok ? 'Erro ao salvar o método.' : json.error)
       }
+
+      serverMethodUpdatedAtRef.current =
+        json.construction?.method_updated_at ?? serverMethodUpdatedAtRef.current
+      setStaleConflict(false)
 
       if (revisionRef.current === sentRevision) {
         // Nenhuma edição local aconteceu enquanto o save estava em voo —
@@ -432,10 +450,10 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   }, [])
 
   React.useEffect(() => {
-    if (!draft || !dirty || saving || status === 'review_ready') return
+    if (!draft || !dirty || saving || staleConflict || status === 'review_ready') return
     const timer = window.setTimeout(() => { void save(draft, 'editing') }, 900)
     return () => window.clearTimeout(timer)
-  }, [dirty, draft, save, saving, status])
+  }, [dirty, draft, save, saving, staleConflict, status])
 
   function updateDraft(updater: (current: CommercialMethodConstructionDraft) => CommercialMethodConstructionDraft) {
     revisionRef.current += 1
@@ -455,12 +473,24 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
       setWorkspace(json.construction)
       setDraft(json.construction.construction)
       setStatus(json.construction.status)
+      serverMethodUpdatedAtRef.current =
+        json.construction.method_updated_at
+      setStaleConflict(false)
       setDirty(false)
     } catch (startError: unknown) {
       setError(startError instanceof Error ? startError.message : 'Erro ao iniciar a construção.')
     } finally {
       setSaving(false)
     }
+  }
+
+  async function backToHome() {
+    if (draft && dirty) {
+      const persisted = await save(draft, 'editing')
+      if (!persisted) return
+    }
+
+    onBack()
   }
 
   if (loading) return <div style={{ ...cardStyle(), color: DS.textSecondary, padding: 24 }}>Carregando construção assistida...</div>
@@ -470,7 +500,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
       <div style={{ ...cardStyle(), padding: 22 }}>
         <strong style={{ color: DS.yellowSoft }}>O diagnóstico ainda não está pronto.</strong>
         <p style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.6 }}>Conclua primeiro o mapeamento da operação. A Yolen não cria método sem essa matéria-prima.</p>
-        <button type="button" onClick={onBack} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>Voltar</button>
+        <button type="button" onClick={() => void backToHome()} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>Voltar</button>
       </div>
     )
   }
@@ -479,7 +509,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     const synthesis = buildMethodConstructionSynthesis(diagnosis)
     return (
       <div style={{ display: 'grid', gap: 14 }}>
-        <button type="button" onClick={onBack} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', justifySelf: 'start' }}>← Voltar</button>
+        <button type="button" onClick={() => void backToHome()} style={{ ...inputStyle, cursor: 'pointer', width: 'auto', justifySelf: 'start' }}>← Voltar</button>
         <div style={{ ...cardStyle(), padding: 22 }}>
           <div style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>Construção assistida</div>
           <h2 style={{ color: DS.textPrimary, fontSize: 23, marginBottom: 8 }}>Vamos transformar o diagnóstico em um método proporcional à sua venda</h2>
@@ -503,7 +533,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     return (
       <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' }}>
-          <button type="button" onClick={onBack} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>← Voltar às opções</button>
+          <button type="button" onClick={() => void backToHome()} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>← Voltar às opções</button>
           <div style={{ color: DS.textMuted, fontSize: 10 }}>{saving ? 'Salvando...' : dirty ? 'Alterações serão salvas automaticamente' : 'Rascunho salvo'}</div>
         </div>
         {error && <div style={{ ...cardStyle(), borderColor: 'rgba(239,68,68,0.3)', color: DS.redSoft, fontSize: 11, padding: 14 }}>{error}</div>}
@@ -591,7 +621,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' }}>
-        <button type="button" onClick={onBack} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>← Voltar às opções</button>
+        <button type="button" onClick={() => void backToHome()} style={{ ...inputStyle, cursor: 'pointer', width: 'auto' }}>← Voltar às opções</button>
         <div style={{ color: DS.textMuted, fontSize: 10 }}>{saving ? 'Salvando...' : dirty ? 'Alterações serão salvas automaticamente' : 'Rascunho salvo'}</div>
       </div>
       {hasUnpublishedChangesWhileEditing && (
