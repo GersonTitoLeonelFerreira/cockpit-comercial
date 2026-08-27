@@ -7,9 +7,12 @@ import {
 } from '../../../lib/companion/lead-method-applicability'
 
 import {
-  composeLeadMethodGuidance,
   normalizePublishedCommercialMethod,
 } from '../../../lib/companion/lead-method-guidance'
+
+import {
+  composeSellerFacingGuidance,
+} from '../../../lib/companion/lead-seller-guidance'
 
 import {
   composeSellerMessage,
@@ -430,31 +433,6 @@ export async function POST(request: Request) {
         provider,
       })
 
-    if (
-      applicability.status ===
-      'no_commercial_action'
-    ) {
-      return NextResponse.json(
-        {
-          ok: true,
-          data: {
-            status: 'not_applicable',
-            method_name: method.name,
-            method_config_version_id: method.id,
-            stage_key: null,
-            stage_name: null,
-            stage_reason: null,
-            next_step: null,
-            error: null,
-          },
-        },
-        {
-          status: 200,
-          headers: corsHeaders,
-        },
-      )
-    }
-
     if (applicability.status === 'error') {
       return NextResponse.json(
         {
@@ -467,6 +445,7 @@ export async function POST(request: Request) {
             stage_name: null,
             stage_reason: null,
             next_step: null,
+            seller_intents: [],
             error: applicability.reason,
           },
         },
@@ -477,8 +456,13 @@ export async function POST(request: Request) {
       )
     }
 
-    const guidance = await composeLeadMethodGuidance({
+    const guidance = await composeSellerFacingGuidance({
+      mode:
+        applicability.status === 'no_commercial_action'
+          ? 'operational'
+          : 'commercial',
       workingSummary: workingSummary || null,
+      currentInteraction,
       method,
       provider,
     })

@@ -68,6 +68,7 @@
       stage_name: null,
       stage_reason: null,
       next_step: null,
+      seller_intents: [],
       error: null,
       error_code: null,
       status_code: null,
@@ -282,7 +283,21 @@
       return
     }
 
-    slot.innerHTML = renderGuidance(guidance)
+    const renderableGuidance =
+      guidance?.status === 'not_applicable' &&
+      typeof guidance?.next_step === 'string' &&
+      guidance.next_step.trim()
+        ? {
+            ...guidance,
+            status: 'ready',
+            method_name: null,
+            stage_name: null,
+          }
+        : guidance
+
+    slot.innerHTML = renderGuidance(
+      renderableGuidance,
+    )
   }
 
   function scheduleGuidance({
@@ -322,6 +337,9 @@
         workingSummary,
         guidance,
       )
+
+      root.YolenCompanionSellerMessageRuntime
+        ?.render?.()
     })
 
     return key
