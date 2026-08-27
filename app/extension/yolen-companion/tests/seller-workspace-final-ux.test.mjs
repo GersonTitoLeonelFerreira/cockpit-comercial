@@ -41,3 +41,21 @@ test('UX5 apenas roteia regiões auxiliares para a aba pertinente', () => {
     /'registration-card',[\s\S]*activeSellerArea === 'client'[\s\S]*getConversationRegistrationCardHtml\(\)/,
   )
 })
+
+
+test('UX5 possui mount dedicado e estável para o composer de mensagem', async () => {
+  const [summaryView, sellerRuntime] = await Promise.all([
+    readFile(
+      'app/extension/yolen-companion/src/companion-lead-summary-view.js',
+      'utf8',
+    ),
+    readFile(
+      'app/extension/yolen-companion/src/seller-message-runtime.js',
+      'utf8',
+    ),
+  ])
+
+  assert.match(summaryView, /data-yolen-seller-message-mount/)
+  assert.match(sellerRuntime, /\[data-yolen-seller-message-mount\]/)
+  assert.match(sellerRuntime, /dedicatedMount\.appendChild\(box\)/)
+})

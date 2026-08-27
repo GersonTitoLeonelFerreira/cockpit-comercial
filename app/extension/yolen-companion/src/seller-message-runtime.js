@@ -259,14 +259,18 @@
       '[data-yolen-method-guidance-slot]',
     )
 
-    if (!guidanceSlot) {
+    const dedicatedMount = document.querySelector(
+      '[data-yolen-seller-message-mount]',
+    )
+
+    if (!guidanceSlot && !dedicatedMount) {
       return
     }
 
     ensureStyles()
 
     const guidance = getGuidance(context)
-    const guidanceLabel = guidanceSlot.querySelector(
+    const guidanceLabel = guidanceSlot?.querySelector?.(
       '.yolen-method-guidance-label',
     )
 
@@ -287,6 +291,16 @@
         'data-yolen-seller-message-box',
         '',
       )
+    }
+
+    if (dedicatedMount) {
+      if (box.parentElement !== dedicatedMount) {
+        dedicatedMount.appendChild(box)
+      }
+    } else if (
+      guidanceSlot &&
+      box.previousElementSibling !== guidanceSlot
+    ) {
       guidanceSlot.insertAdjacentElement(
         'afterend',
         box,
@@ -777,17 +791,18 @@
     const guidanceSlot = document.querySelector(
       '[data-yolen-method-guidance-slot]',
     )
+    const dedicatedMount = document.querySelector(
+      '[data-yolen-seller-message-mount]',
+    )
 
-    // O WhatsApp altera o DOM o tempo todo (status, áudio, lista lateral,
-    // timestamps etc.). Essas mutações não podem reconstruir o formulário,
-    // porque trocar o textarea destrói foco, cursor e seleção do vendedor.
-    // Só remontamos quando o próprio renderPanel() do Companion recriou a
-    // estrutura que hospeda o resumo/orientação e, por isso, nosso bloco
-    // deixou de existir.
+    // Só remonta quando o shell do resumo foi recriado.
     if (
       !box &&
       summaryInput &&
-      guidanceSlot
+      (
+        dedicatedMount ||
+        guidanceSlot
+      )
     ) {
       queueRender()
     }

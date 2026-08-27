@@ -354,6 +354,7 @@
       '<div data-yolen-method-guidance-slot>' +
       renderMethodGuidance(data.method_guidance) +
       '</div>' +
+      '<div data-yolen-seller-message-mount></div>' +
       '<input type="hidden" data-yolen-textarea="lead-summary" value="' +
       escapeHtml(workingSummary) +
       '">' +
