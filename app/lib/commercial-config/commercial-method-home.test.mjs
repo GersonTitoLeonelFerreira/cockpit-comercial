@@ -35,7 +35,26 @@ function methodDefinition() {
     name: 'AVANÇAR',
     description: 'Método da empresa',
     principles: ['Confirmar entendimento'],
-    stages: [],
+    stages: [
+      {
+        key: 'entender',
+        display_order: 1,
+        name: 'Entender',
+        objective: 'Confirmar o contexto necessário para orientar a decisão.',
+        requirement: 'required',
+        completion_criteria: ['O contexto essencial foi confirmado.'],
+        partial_completion_criteria: [],
+        skip_conditions: [],
+        recommended_questions: [],
+        common_mistakes: [],
+        deepen_when: [],
+        sufficient_when: ['Há informação suficiente para orientar a decisão.'],
+        advance_when: ['O contexto essencial está confirmado.'],
+        wait_when: [],
+        stop_asking_when: ['Novas perguntas não mudariam a orientação.'],
+        dimensions: [],
+      },
+    ],
   }
 }
 
@@ -157,4 +176,28 @@ test('versão publicada igual ao método revisado fica sem ação pendente', () 
   assert.equal(state.draft.has_unpublished_changes, false)
   assert.equal(state.published.version, 4)
   assert.equal(state.published.companion_using, true)
+})
+
+
+test('publicação marcada como V2 mas semanticamente inválida não é anunciada como ativa no Companion', () => {
+  const invalid = {
+    contract_version: 'commercial-method-v2',
+    name: 'Inválido',
+    description: 'Sem etapas',
+    principles: ['Princípio'],
+    stages: [],
+  }
+
+  const state = deriveCommercialMethodHomeState({
+    builder: builder({ ready_for_method: true }),
+    construction: construction({
+      status: 'review_ready',
+      method_definition: invalid,
+    }),
+    workspace: workspace(publishedBundle(invalid)),
+  })
+
+  assert.equal(state.published.exists, true)
+  assert.equal(state.published.companion_using, false)
+  assert.equal(state.published.definition, null)
 })
