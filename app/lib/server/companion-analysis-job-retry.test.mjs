@@ -303,10 +303,10 @@ test('succeeded/superseded/queued/running nunca são reabertos', async () => {
         cycle_id: IDS.cycle,
         conversation_key: CONVERSATION,
         candidate_state_version: 1,
-        output_contract_version: 'phase-5.2-stateful-copilot-v3',
+        output_contract_version: 'phase-5.2-stateful-copilot-v4',
         generated_at: '2026-08-23T10:01:00.000Z',
         normalized_output: {
-          contract_version: 'phase-5.2-stateful-copilot-v3',
+          contract_version: 'phase-5.2-stateful-copilot-v4',
           commercial_role: 'buyer',
           commercial_relevance: 'commercial',
           interpretation: { current_moment: { summary: 'ok' } },

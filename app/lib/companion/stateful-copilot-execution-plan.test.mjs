@@ -1293,7 +1293,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v22',
+      'phase-5.2-stateful-prompt-v23',
     )
 
     assert.match(

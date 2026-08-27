@@ -99,8 +99,10 @@ function emptyPatch() {
     fact_ids_to_supersede: [],
     needs_to_add: [],
     need_ids_to_resolve: [],
+    need_ids_to_supersede: [],
     open_loops_to_add: [],
     open_loop_ids_to_resolve: [],
+    open_loop_ids_to_supersede: [],
     objections_to_add: [],
     objection_ids_to_resolve: [],
     objection_ids_to_supersede: [],
@@ -109,6 +111,7 @@ function emptyPatch() {
     signal_ids_to_resolve: [],
     uncertainties_to_add: [],
     uncertainty_ids_to_resolve: [],
+    uncertainty_ids_to_supersede: [],
   }
 }
 

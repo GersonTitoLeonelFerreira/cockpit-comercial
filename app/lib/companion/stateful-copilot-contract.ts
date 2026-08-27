@@ -9,7 +9,7 @@ import {
 } from './commercial-relevance'
 
 export const STATEFUL_COPILOT_CONTRACT_VERSION =
-  'phase-5.2-stateful-copilot-v3' as const
+  'phase-5.2-stateful-copilot-v4' as const
 
 export const STATEFUL_COPILOT_COMMERCIAL_ROLES = [
   'buyer',
@@ -94,10 +94,16 @@ export type StatefulCopilotStatePatch = {
   need_ids_to_resolve:
     string[]
 
+  need_ids_to_supersede:
+    string[]
+
   open_loops_to_add:
     StatefulCopilotOpenLoopCandidate[]
 
   open_loop_ids_to_resolve:
+    string[]
+
+  open_loop_ids_to_supersede:
     string[]
 
   objections_to_add:
@@ -122,6 +128,9 @@ export type StatefulCopilotStatePatch = {
     StatefulCopilotObservedItem[]
 
   uncertainty_ids_to_resolve:
+    string[]
+
+  uncertainty_ids_to_supersede:
     string[]
 }
 
