@@ -24,6 +24,14 @@ import {
 import GuidedBuyerDecisionJourney from './guided-journey/GuidedBuyerDecisionJourney'
 import GuidedStageJourney from './guided-journey/GuidedStageJourney'
 import MethodPublicationPanel from './MethodPublicationPanel'
+import {
+  buildMethodRecompileCandidate,
+  diffMethodRecompileCandidate,
+  isMethodSynthesisStale,
+} from '@/app/lib/commercial-config/method-recompile'
+import type {
+  MethodRecompileDiff,
+} from '@/app/lib/commercial-config/method-recompile'
 import type { PublishedMethodInfo } from './MethodPublicationPanel'
 import type {
   CommercialMethodBuilderData,
@@ -192,6 +200,17 @@ function StepBar({ step }: { step: CommercialMethodConstructionDraft['constructi
   )
 }
 
+function requirementLabel(
+  value: CommercialMethodConstructionStageDraft['requirement'] | undefined,
+): string {
+  if (!value) return 'não existia'
+  return {
+    required: 'Obrigatória',
+    conditional: 'Condicional',
+    optional: 'Opcional',
+  }[value]
+}
+
 function RequirementHelp({ value }: { value: CommercialMethodConstructionStageDraft['requirement'] }) {
   const text = {
     required: 'Obrigatória: toda oportunidade passa por esta etapa.',
@@ -343,6 +362,15 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   // como alternativa avançada, sem removê-lo.
   const [buyerDecisionMode, setBuyerDecisionMode] = React.useState<'guided' | 'advanced'>('guided')
   const [stageMode, setStageMode] = React.useState<'guided' | 'advanced'>('guided')
+
+  // Recompilação segura (ONDA 8 / HOTFIX): a proposta recompilada NUNCA
+  // entra em `draft`/`updateDraft` — isso disparia o autosave e aplicaria a
+  // atualização sem clique explícito. Ela vive num estado separado, só
+  // usado para pré-visualização e diff, até "Aplicar atualização" chamar
+  // `save` diretamente (o mesmo caminho de sempre, com a mesma validação).
+  const [recompileCandidate, setRecompileCandidate] =
+    React.useState<CommercialMethodConstructionDraft | null>(null)
+  const [recompiling, setRecompiling] = React.useState(false)
 
   const diagnosis: CommercialMethodBuilderData | null = workspace?.diagnosis ?? null
 
@@ -529,6 +557,39 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
   const hasUnpublishedChangesWhileEditing =
     status === 'editing' && !publishedInfoLoading && publishedInfo !== null
 
+  const canOfferRecompile =
+    Boolean(buyerDecision.confirmed) &&
+    isMethodSynthesisStale(draft) &&
+    (status === 'editing' || status === 'review_ready')
+
+  const recompileDiff: MethodRecompileDiff | null = recompileCandidate
+    ? diffMethodRecompileCandidate(draft, recompileCandidate)
+    : null
+
+  function startRecompilePreview() {
+    if (!diagnosis || !draft) return
+    const candidate = buildMethodRecompileCandidate(diagnosis, draft)
+    setRecompileCandidate(candidate)
+  }
+
+  function keepCurrentMethod() {
+    setRecompileCandidate(null)
+  }
+
+  async function applyRecompileCandidate() {
+    if (!recompileCandidate) return
+    setRecompiling(true)
+    try {
+      const ok = await save(
+        recompileCandidate,
+        status === 'review_ready' ? 'review_ready' : 'editing',
+      )
+      if (ok) setRecompileCandidate(null)
+    } finally {
+      setRecompiling(false)
+    }
+  }
+
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' }}>
@@ -540,6 +601,55 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
           <strong style={{ color: DS.yellowSoft, fontSize: 11 }}>Alterações não publicadas</strong>
           <div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5, marginTop: 4 }}>
             Existe uma versão publicada (“{publishedInfo?.method_name}”), mas você possui alterações ainda não publicadas. Ela continua ativa até você concluir a revisão e publicar novamente.
+          </div>
+        </div>
+      )}
+      {canOfferRecompile && !recompileCandidate && (
+        <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: DS.radiusContainer, padding: 13 }}>
+          <strong style={{ color: DS.blueSoft, fontSize: 11 }}>Há uma atualização disponível para a estrutura do seu método</strong>
+          <div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5, marginTop: 4 }}>
+            A Yolen evoluiu como transforma suas respostas em etapas. Suas respostas continuam as mesmas — você pode gerar uma proposta atualizada e decidir se aplica. Nada muda até você aplicar.
+          </div>
+          <button type="button" onClick={startRecompilePreview} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 850, marginTop: 10, padding: '9px 13px' }}>
+            Atualizar método com a versão mais recente da Yolen
+          </button>
+        </div>
+      )}
+      {recompileCandidate && recompileDiff && (
+        <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: DS.radiusContainer, padding: 13 }}>
+          <strong style={{ color: DS.blueSoft, fontSize: 11 }}>Atualizações encontradas</strong>
+          {!recompileDiff.has_changes && (
+            <div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5, marginTop: 6 }}>
+              A estrutura atual já reflete a síntese mais recente. Nenhuma mudança estrutural encontrada.
+            </div>
+          )}
+          {recompileDiff.has_changes && (
+            <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+              {recompileDiff.stages.filter((entry) => entry.change !== 'unchanged').map((entry) => (
+                <div key={entry.key} style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5 }}>
+                  <strong style={{ color: DS.textPrimary }}>{entry.name}</strong>{' — '}
+                  {entry.change === 'added' && 'nova etapa sugerida'}
+                  {entry.change === 'removed' && 'não aparece mais na síntese atual'}
+                  {entry.change === 'changed' && entry.previous_requirement !== entry.next_requirement
+                    ? `${requirementLabel(entry.previous_requirement)} → ${requirementLabel(entry.next_requirement)}`
+                    : entry.change === 'changed' ? 'conteúdo sugerido mudou' : null}
+                </div>
+              ))}
+              {recompileDiff.principles_changed && (
+                <div style={{ color: DS.textSecondary, fontSize: 10, lineHeight: 1.5 }}>
+                  <strong style={{ color: DS.textPrimary }}>Princípios</strong>{' — atualizados a partir da mesma arquitetura de decisão.'}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ color: DS.textMuted, fontSize: 10, lineHeight: 1.5, marginTop: 8 }}>
+            Suas respostas do diagnóstico não mudam. Etapas que você adicionou manualmente são preservadas. Nada é publicado — isso só atualiza o rascunho em revisão.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            <button type="button" onClick={keepCurrentMethod} disabled={recompiling} style={{ ...inputStyle, cursor: recompiling ? 'wait' : 'pointer', width: 'auto' }}>Manter método atual</button>
+            <button type="button" onClick={() => void applyRecompileCandidate()} disabled={recompiling || !recompileDiff.has_changes} style={{ background: DS.blue, border: 0, borderRadius: DS.radius, color: '#fff', cursor: recompiling ? 'wait' : 'pointer', fontSize: 11, fontWeight: 850, padding: '9px 13px' }}>
+              {recompiling ? 'Aplicando...' : 'Aplicar atualização'}
+            </button>
           </div>
         </div>
       )}

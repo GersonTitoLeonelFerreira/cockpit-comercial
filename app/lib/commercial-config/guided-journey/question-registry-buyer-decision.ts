@@ -294,6 +294,9 @@ export const BUYER_DECISION_QUESTIONS: GuidedQuestion<BuyerDecisionContext>[] = 
       { value: 'some_adjustments', label: 'Alguns ajustes' },
       { value: 'highly_customized', label: 'Muito personalizada' },
     ],
+    // O diagnóstico (Q03) já pergunta exatamente isso com a mesma escala.
+    // Só perguntar de novo se o diagnóstico não respondeu.
+    showWhen: (context) => !context.diagnosis.company_profile.offer.customization_depth,
     getValue: (context) => context.decision.solution_customization,
     setValue: (context, value) =>
       withDecision(context, (decision) => ({
@@ -312,6 +315,9 @@ export const BUYER_DECISION_QUESTIONS: GuidedQuestion<BuyerDecisionContext>[] = 
       { value: 'balanced', label: 'Equilibrado' },
       { value: 'few_complex', label: 'Poucas oportunidades, mais complexas' },
     ],
+    // O diagnóstico (Q14) já pergunta exatamente isso com a mesma escala.
+    // Só perguntar de novo se o diagnóstico não respondeu.
+    showWhen: (context) => !context.diagnosis.company_profile.buyer_behavior?.workload_pattern,
     getValue: (context) => context.decision.operation_intensity,
     setValue: (context, value) =>
       withDecision(context, (decision) => ({
