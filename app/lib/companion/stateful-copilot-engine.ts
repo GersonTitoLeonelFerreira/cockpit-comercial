@@ -36,6 +36,11 @@ import type {
 } from './stateful-commercial-state'
 
 import {
+  applyDurableMemorySeedToFreshState,
+  type DurableMemorySeed,
+} from './durable-memory-seed'
+
+import {
   buildStatefulCommunicationExecutionPlan,
 } from './stateful-communication-execution-plan'
 
@@ -121,6 +126,13 @@ export type RunStatefulCopilotEngineArgs = {
 
   create_memory_id:
     StatefulCommercialMemoryIdFactory
+
+  // Fase 12A, Frente 2B — Blocker 4: memória durável do cliente extraída
+  // de um ciclo ANTERIOR do mesmo lead. Só produz efeito quando este é,
+  // de fato, o primeiro estado real do ciclo atual (previous_state
+  // null) — ver applyDurableMemorySeedToFreshState.
+  durable_memory_seed?:
+    DurableMemorySeed | null
 
   dependencies?:
     StatefulCopilotEngineDependencies
@@ -326,6 +338,7 @@ export async function runStatefulCopilotEngine({
   known_message_ids,
   provider,
   create_memory_id,
+  durable_memory_seed = null,
   dependencies = {},
 }: RunStatefulCopilotEngineArgs): Promise<StatefulCopilotEngineResult> {
   const buildInput =
@@ -428,7 +441,7 @@ export async function runStatefulCopilotEngine({
     )
   }
 
-  const diagnosticCandidateState =
+  const preservedCandidateState =
     preservePreviousCommercialStateWhenClosed({
       candidateState:
         reduceState({
@@ -460,6 +473,25 @@ export async function runStatefulCopilotEngine({
 
       output:
         orchestration.output,
+    })
+
+  // Blocker 4: só produz efeito quando input.state_context.previous_state
+  // é null, ou seja, este é o primeiro estado real deste ciclo — nunca em
+  // uma rodada seguinte, onde o ciclo já tem vida própria.
+  const diagnosticCandidateState =
+    applyDurableMemorySeedToFreshState({
+      candidateState:
+        preservedCandidateState,
+
+      previousState:
+        input
+          .state_context
+          .previous_state,
+
+      seed:
+        durable_memory_seed,
+
+      create_memory_id,
     })
 
   const communicationPlan =

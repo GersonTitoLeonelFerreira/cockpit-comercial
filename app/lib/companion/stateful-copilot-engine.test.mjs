@@ -21,6 +21,10 @@ import {
   runStatefulCopilotEngine,
 } from './stateful-copilot-engine.ts'
 
+import {
+  buildDurableMemorySeedFromPriorState,
+} from './durable-memory-seed.ts'
+
 function emptyPatch() {
   return {
     facts_to_add: [],
@@ -1158,6 +1162,204 @@ test(
     assert.deepEqual(
       diagnosticInput,
       originalInput,
+    )
+  },
+)
+
+test(
+  'Blocker 4: primeiro estado do ciclo herda memória durável de um ciclo anterior via durable_memory_seed',
+  async () => {
+    const diagnosticInput =
+      buildDiagnosticInput()
+
+    const calls = []
+
+    const priorState = {
+      contract_version: 'phase-5.1-commercial-state-v1',
+      cycle_id: 'cycle-old',
+      version: 4,
+      commercial_role: 'buyer',
+      current_moment: { summary: 'x', evidence_message_ids: [] },
+      current_priority: { summary: 'x', evidence_message_ids: [] },
+      last_analyzed_message_ids: [],
+      last_evidence_message_ids: [],
+      facts: [
+        {
+          id: 'old-fact-objective',
+          kind: 'client.objective',
+          value: null,
+          summary: 'Quer emagrecer para a maratona.',
+          confidence: 'high',
+          evidence_message_ids: ['old-msg-1'],
+          memory_status: 'active',
+          created_in_state_version: 2,
+          updated_in_state_version: 2,
+          closed_in_state_version: null,
+        },
+      ],
+      needs: [],
+      open_loops: [],
+      objections: [
+        {
+          id: 'old-objection-price',
+          kind: 'client.objection.price',
+          summary: 'Achou o plano anterior caro.',
+          confidence: 'medium',
+          evidence_message_ids: ['old-msg-2'],
+          memory_status: 'active',
+          created_in_state_version: 3,
+          updated_in_state_version: 3,
+          closed_in_state_version: null,
+        },
+      ],
+      commitments: [],
+      signals: [],
+      uncertainties: [],
+      created_at: '2026-08-01T10:00:00.000Z',
+      updated_at: '2026-08-01T10:00:00.000Z',
+    }
+
+    const seed =
+      buildDurableMemorySeedFromPriorState(
+        priorState,
+      )
+
+    assert.ok(seed, 'fixture deveria produzir um seed herdável')
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          diagnosticInput,
+
+        previous_state:
+          null,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                addFact:
+                  true,
+              }),
+              buildCommunicationOutput(),
+            ],
+            calls,
+          ),
+
+        create_memory_id:
+          createMemoryId,
+
+        durable_memory_seed:
+          seed,
+      })
+
+    assert.equal(
+      result.candidate_state.facts.length,
+      2,
+      'preserva o fato observado nesta conversa e acrescenta o herdado',
+    )
+
+    const inheritedFact =
+      result.candidate_state.facts.find(
+        (fact) => fact.kind === 'client.objective',
+      )
+
+    assert.ok(inheritedFact, 'o fato herdado deveria estar presente')
+    assert.deepEqual(inheritedFact.evidence_message_ids, [])
+    assert.equal(inheritedFact.confidence, 'medium')
+    assert.match(inheritedFact.summary, /Herdado do ciclo anterior/)
+
+    assert.equal(
+      result.candidate_state.objections.length,
+      1,
+    )
+
+    assert.match(
+      result.candidate_state.objections[0].summary,
+      /Herdado do ciclo anterior/,
+    )
+  },
+)
+
+test(
+  'Blocker 4: uma rodada seguinte (previous_state já existente) nunca re-herda memória durável',
+  async () => {
+    const diagnosticInput =
+      buildDiagnosticInput()
+
+    const calls = []
+
+    const existingState = {
+      contract_version: 'phase-5.1-commercial-state-v1',
+      cycle_id: 'cycle-1',
+      version: 1,
+      commercial_role: 'buyer',
+      current_moment: { summary: 'x', evidence_message_ids: ['m1'] },
+      current_priority: { summary: 'x', evidence_message_ids: ['m1'] },
+      last_analyzed_message_ids: ['m1'],
+      last_evidence_message_ids: ['m1'],
+      facts: [],
+      needs: [],
+      open_loops: [],
+      objections: [],
+      commitments: [],
+      signals: [],
+      uncertainties: [],
+      created_at: '2026-08-06T15:00:00-03:00',
+      updated_at: '2026-08-06T15:00:00-03:00',
+    }
+
+    const seed = {
+      source_cycle_id: 'cycle-old',
+      facts: [
+        {
+          kind: 'client.objective',
+          value: null,
+          summary: 'Não deveria entrar: já existe estado neste ciclo.',
+          confidence: 'medium',
+        },
+      ],
+      objections: [],
+    }
+
+    const result =
+      await runStatefulCopilotEngine({
+        diagnostic_input:
+          diagnosticInput,
+
+        previous_state:
+          existingState,
+
+        known_message_ids: [
+          'm1',
+        ],
+
+        provider:
+          createProvider(
+            [
+              buildOutput({
+                previousStateVersion: 1,
+              }),
+              buildCommunicationOutput(),
+            ],
+            calls,
+          ),
+
+        create_memory_id:
+          createMemoryId,
+
+        durable_memory_seed:
+          seed,
+      })
+
+    assert.equal(
+      result.candidate_state.facts.length,
+      0,
+      'seed não deve ser aplicado quando o ciclo já possui um estado anterior',
     )
   },
 )

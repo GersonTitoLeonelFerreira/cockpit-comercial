@@ -1403,6 +1403,9 @@ export function createStatefulCopilotServerRuntimeOrchestrator(
 
           create_memory_id:
             composition.create_memory_id,
+
+          durable_memory_seed:
+            context.durable_memory_seed,
         })
     } catch (error) {
       return buildFallbackResult({
