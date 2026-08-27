@@ -65,6 +65,15 @@ function mapRow(row: ConstructionRow): CommercialMethodConstructionRecord {
   }
 }
 
+export class CommercialMethodConstructionStaleWriteError extends Error {
+  constructor() {
+    super(
+      'Este método foi alterado em outra sessão. Recarregue a página antes de salvar novamente.',
+    )
+    this.name = 'CommercialMethodConstructionStaleWriteError'
+  }
+}
+
 export class CommercialMethodConstructionValidationError extends Error {
   readonly issues: CommercialMethodValidationIssue[]
 
@@ -141,6 +150,7 @@ export async function saveCommercialMethodConstruction(
   companyId: string,
   userId: string,
   input: CommercialMethodConstructionSaveInput,
+  expectedMethodUpdatedAt?: string | null,
 ): Promise<CommercialMethodConstructionRecord> {
   const current = await getCommercialMethodConstruction(supabase, companyId)
 
@@ -167,7 +177,8 @@ export async function saveCommercialMethodConstruction(
   }
 
   const now = new Date().toISOString()
-  const { data, error } = await supabase
+
+  let updateQuery = supabase
     .from('company_commercial_method_builder_drafts')
     .update({
       method_construction_status: input.status,
@@ -179,11 +190,24 @@ export async function saveCommercialMethodConstruction(
       updated_by: userId,
     })
     .eq('company_id', companyId)
+
+  if (expectedMethodUpdatedAt) {
+    updateQuery = updateQuery.eq(
+      'method_updated_at',
+      expectedMethodUpdatedAt,
+    )
+  }
+
+  const { data, error } = await updateQuery
     .select(FIELDS)
-    .single()
+    .maybeSingle()
 
   if (error) {
     throw new Error(`Erro ao salvar a construção do método: ${error.message}`)
+  }
+
+  if (!data) {
+    throw new CommercialMethodConstructionStaleWriteError()
   }
 
   return mapRow(data as ConstructionRow)
