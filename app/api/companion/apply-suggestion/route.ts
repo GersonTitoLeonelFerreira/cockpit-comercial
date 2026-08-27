@@ -266,14 +266,12 @@ export async function POST(request: Request) {
       : null
     const source = getSource(body.source)
     const audioCount = getAudioCount(body.audio_count)
-    const confirmedByHuman = body.confirmed_by_human !== false
-
-    if (body.confirmed_by_human === false) {
+    if (body.confirmed_by_human !== true) {
       return NextResponse.json<ApplyAISuggestionResponse>(
         {
           ok: false,
           error:
-            'Aplicação de sugestão exige confirmação humana explícita antes da escrita no CRM.',
+            'Aplicação de sugestão exige confirmação humana explícita (confirmed_by_human: true) antes da escrita no CRM.',
         },
         {
           status: 400,
@@ -281,6 +279,8 @@ export async function POST(request: Request) {
         },
       )
     }
+
+    const confirmedByHuman = true as const
 
     if (!cycleId) {
       return NextResponse.json<ApplyAISuggestionResponse>(

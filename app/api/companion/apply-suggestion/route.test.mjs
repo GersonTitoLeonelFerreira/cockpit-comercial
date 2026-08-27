@@ -163,14 +163,8 @@ test('apply-suggestion: confirmed_by_human=false é rejeitado antes de qualquer 
   assert.equal(fake.calls.length, 0, 'nenhuma leitura/escrita deveria acontecer antes do gate de confirmação')
 })
 
-test('apply-suggestion: confirmed_by_human omitido preserva o comportamento atual da extensão (aplica normalmente)', async () => {
-  const fake = useAdmin([
-    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
-    selectStep('sales_cycles', openCycle()),
-    updateStep('sales_cycles', null),
-    insertStep('cycle_events', null),
-    insertStep('cycle_events', null),
-  ])
+test('apply-suggestion: confirmed_by_human omitido é FAIL CLOSED (rejeitado, nenhuma escrita)', async () => {
+  const fake = useAdmin([])
   const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
 
   const response = await POST(
@@ -185,18 +179,40 @@ test('apply-suggestion: confirmed_by_human omitido preserva o comportamento atua
   )
   const payload = await readJson(response)
 
-  assert.equal(response.status, 200)
-  assert.equal(payload.ok, true)
-
-  const appliedEvent = fake.calls.find(
-    (call) => call.table === 'cycle_events' && call.method === 'insert',
-  )
-  assert.ok(appliedEvent, 'deveria registrar um cycle_event')
+  assert.equal(response.status, 400)
+  assert.equal(payload.ok, false)
+  assert.match(payload.error, /confirmação humana/i)
   assert.equal(
-    appliedEvent.payload.metadata.companion.applied_with_user_approval,
-    true,
-    'sem confirmed_by_human explícito, o comportamento atual (extensão já confirma via window.confirm) é preservado',
+    fake.calls.length,
+    0,
+    'ausência de confirmed_by_human precisa ser fail-closed: nenhuma leitura/escrita no CRM',
   )
+})
+
+test('apply-suggestion: confirmed_by_human com valor truthy não-booleano (ex.: "true" string, 1) é FAIL CLOSED', async () => {
+  for (const nonBooleanTruthy of ['true', 1, 'yes', {}]) {
+    const fake = useAdmin([])
+    const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+    const response = await POST(
+      postRequest({
+        token,
+        body: {
+          cycle_id: IDS.cycle,
+          applied_status: 'negociacao',
+          suggestion: suggestion(),
+          confirmed_by_human: nonBooleanTruthy,
+        },
+      }),
+    )
+
+    assert.equal(
+      response.status,
+      400,
+      `confirmed_by_human=${JSON.stringify(nonBooleanTruthy)} deveria ser rejeitado (só === true é aceito)`,
+    )
+    assert.equal(fake.calls.length, 0)
+  }
 })
 
 test('apply-suggestion: confirmed_by_human=true explícito também aplica e registra o sinal real recebido', async () => {
@@ -246,6 +262,7 @@ test('apply-suggestion: consulta do ciclo usa o company_id do token, mesmo que o
         cycle_id: IDS.cycle,
         applied_status: 'negociacao',
         suggestion: suggestion(),
+        confirmed_by_human: true,
         company_id: 'bbbbbbbb-0000-4000-8000-000000000002',
       },
     }),
@@ -256,5 +273,69 @@ test('apply-suggestion: consulta do ciclo usa o company_id do token, mesmo que o
   assert.ok(
     cycleLookup.filters.some((filter) => filter.column === 'company_id' && filter.value === IDS.companyA),
     'a busca do ciclo deve filtrar pelo company_id do token, não pelo do corpo',
+  )
+})
+
+test('apply-suggestion: ciclo de outra empresa (tenant errado) não é encontrado, mesmo com confirmação válida', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    // A query real filtra por company_id do token; um ciclo de outra
+    // empresa nunca bateria o filtro e o Supabase real devolveria null.
+    selectStep('sales_cycles', null),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: {
+        cycle_id: 'aaaaaaaa-0000-4000-8000-0000000000ff',
+        applied_status: 'negociacao',
+        suggestion: suggestion(),
+        confirmed_by_human: true,
+      },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 404)
+  assert.equal(payload.ok, false)
+  assert.equal(
+    fake.calls.some((call) => call.method === 'update' || call.method === 'insert'),
+    false,
+    'nenhuma escrita deveria acontecer para um ciclo de outro tenant',
+  )
+})
+
+test('apply-suggestion: replay da mesma sugestão já confirmada contra ciclo inalterado é idempotente (não escreve de novo)', async () => {
+  const fake = useAdmin([
+    selectStep('company_memberships', ACTIVE_MEMBERSHIP),
+    // O ciclo já está no estado que a sugestão pediria (replay de uma
+    // aplicação anterior bem-sucedida) — o route.ts detecta que nada
+    // mudaria e responde already_applied:true sem tocar em update/insert.
+    selectStep('sales_cycles', openCycle({ status: 'negociacao' })),
+  ])
+  const token = buildToken({ sub: IDS.userA, companyId: IDS.companyA })
+
+  const response = await POST(
+    postRequest({
+      token,
+      body: {
+        cycle_id: IDS.cycle,
+        applied_status: 'negociacao',
+        suggestion: suggestion(),
+        confirmed_by_human: true,
+      },
+    }),
+  )
+  const payload = await readJson(response)
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.data.already_applied, true)
+  assert.equal(
+    fake.calls.some((call) => call.method === 'update' || call.method === 'insert'),
+    false,
+    'replay contra um ciclo já no estado desejado não deveria gerar nova escrita',
   )
 })

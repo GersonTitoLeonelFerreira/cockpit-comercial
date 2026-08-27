@@ -79,7 +79,8 @@ const MESSAGE_FIELDS = `
   content_type,
   text_content,
   audio_transcription,
-  is_deleted
+  is_deleted,
+  deletion_reason
 `
 
 const CAPTURE_STATE_FIELDS = `
@@ -1015,6 +1016,7 @@ type NormalizedLedgerMessage = {
   text_content: string | null
   audio_transcription: string | null
   is_deleted: boolean
+  deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
 }
 
 function normalizeLedgerMessage(
@@ -1092,6 +1094,20 @@ function normalizeLedgerMessage(
     })
   }
 
+  // Fail-safe (não fail-closed): esta coluna é protegida por CHECK
+  // constraint no banco (is_deleted=true exige um dos dois valores
+  // conhecidos; is_deleted=false exige nulo), então em produção o valor
+  // já chega correto. Aqui só normalizamos defensivamente — nunca
+  // rejeitamos a carga inteira do contexto real por causa de um valor
+  // ausente/legado, e nunca promovemos um valor desconhecido a
+  // 'explicit_deletion'.
+  const rawDeletionReason: 'explicit_deletion' | 'dom_disappearance' | null =
+    !record.is_deleted
+      ? null
+      : record.deletion_reason === 'explicit_deletion'
+        ? 'explicit_deletion'
+        : 'dom_disappearance'
+
   return {
     id:
       normalizeMessageId(
@@ -1161,6 +1177,9 @@ function normalizeLedgerMessage(
 
     is_deleted:
       record.is_deleted,
+
+    deletion_reason:
+      rawDeletionReason,
   }
 }
 

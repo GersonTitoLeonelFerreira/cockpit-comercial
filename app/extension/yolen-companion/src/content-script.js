@@ -1788,6 +1788,12 @@
       return {
         ...previousMessage,
         observedAt,
+        // Este builder só é chamado a partir do caminho de marcador
+        // explícito do WhatsApp (isDeletedMessageNode), nunca a partir
+        // da heurística de desaparecimento do DOM — por isso a razão é
+        // sempre 'explicit_deletion' aqui, mesmo reaproveitando o
+        // conteúdo de uma mensagem já conhecida.
+        deletionReason: 'explicit_deletion',
       }
     }
 
@@ -1833,6 +1839,7 @@
           container,
         ),
       observedAt,
+      deletionReason: 'explicit_deletion',
     }
   }
 
@@ -1973,7 +1980,15 @@
           const deletedSnapshot =
             messageWasAlreadyDeleted &&
             previousDeletedSnapshot
-              ? previousDeletedSnapshot
+              ? {
+                  // Upgrade: mesmo reaproveitando o snapshot já
+                  // conhecido, o nó atual mostra um marcador explícito
+                  // de exclusão do WhatsApp — a razão nunca pode
+                  // regredir de 'explicit_deletion' para
+                  // 'dom_disappearance'.
+                  ...previousDeletedSnapshot,
+                  deletionReason: 'explicit_deletion',
+                }
               : buildDeletedMessageSnapshotFromNode(
                   node,
                   previousMessage,
@@ -2123,6 +2138,11 @@
           {
             ...previousMessage,
             observedAt,
+            // Este caminho vem exclusivamente da heurística de
+            // desaparecimento do DOM (virtualização/rolagem do WhatsApp
+            // Web) — nunca de um marcador de exclusão confirmado.
+            // Precisa ser tratado como NÃO confirmado a jusante.
+            deletionReason: 'dom_disappearance',
           },
         )
 
@@ -14845,6 +14865,11 @@
         suggestion,
         source: 'whatsapp_companion',
         audio_count: state.lastAnalysisAudioCount || 0,
+        // O backend agora é fail-closed: só executa a escrita no CRM
+        // quando confirmed_by_human === true. Este ponto do código só é
+        // alcançado depois do `if (!confirmed) return` acima, ou seja,
+        // o vendedor já confirmou explicitamente via window.confirm().
+        confirmed_by_human: true,
       })
 
       if (!result?.ok || !result.payload?.ok || !result.payload?.data) {

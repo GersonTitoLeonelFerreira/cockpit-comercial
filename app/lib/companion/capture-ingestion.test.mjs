@@ -497,6 +497,102 @@ test('exclusão altera a chave e remove o conteúdo', () => {
   assert.equal(deleted.audio_transcription, null)
 })
 
+test('deletion_reason=explicit_deletion é preservado quando a mensagem está excluída', () => {
+  const deleted = normalizeCaptureIngestionEnvelope(
+    buildEnvelope({
+      messages: [
+        buildTextMessage({
+          is_deleted: true,
+          deletion_reason: 'explicit_deletion',
+        }),
+      ],
+    }),
+  ).messages[0]
+
+  assert.equal(deleted.deletion_reason, 'explicit_deletion')
+})
+
+test('deletion_reason=dom_disappearance é preservado quando a mensagem está excluída', () => {
+  const deleted = normalizeCaptureIngestionEnvelope(
+    buildEnvelope({
+      messages: [
+        buildTextMessage({
+          is_deleted: true,
+          deletion_reason: 'dom_disappearance',
+        }),
+      ],
+    }),
+  ).messages[0]
+
+  assert.equal(deleted.deletion_reason, 'dom_disappearance')
+})
+
+test('deletion_reason ausente, malformado ou de extensão antiga NUNCA vira explicit_deletion (fail-safe)', () => {
+  for (const rawValue of [undefined, null, 'algo-invalido', 42, true]) {
+    const deleted = normalizeCaptureIngestionEnvelope(
+      buildEnvelope({
+        messages: [
+          buildTextMessage({
+            is_deleted: true,
+            deletion_reason: rawValue,
+          }),
+        ],
+      }),
+    ).messages[0]
+
+    assert.equal(
+      deleted.deletion_reason,
+      'dom_disappearance',
+      `valor bruto ${JSON.stringify(rawValue)} deveria cair no default conservador`,
+    )
+  }
+})
+
+test('deletion_reason é sempre null para mensagem ativa (não excluída), mesmo se o campo for enviado por engano', () => {
+  const active = normalizeCaptureIngestionEnvelope(
+    buildEnvelope({
+      messages: [
+        buildTextMessage({
+          is_deleted: false,
+          deletion_reason: 'explicit_deletion',
+        }),
+      ],
+    }),
+  ).messages[0]
+
+  assert.equal(active.is_deleted, false)
+  assert.equal(active.deletion_reason, null)
+})
+
+test('upgrade de dom_disappearance para explicit_deletion muda a chave de estado (persiste como nova versão)', () => {
+  const disappeared = normalizeCaptureIngestionEnvelope(
+    buildEnvelope({
+      messages: [
+        buildTextMessage({
+          is_deleted: true,
+          deletion_reason: 'dom_disappearance',
+        }),
+      ],
+    }),
+  ).messages[0]
+
+  const explicit = normalizeCaptureIngestionEnvelope(
+    buildEnvelope({
+      messages: [
+        buildTextMessage({
+          is_deleted: true,
+          deletion_reason: 'explicit_deletion',
+        }),
+      ],
+    }),
+  ).messages[0]
+
+  assert.notEqual(
+    buildCaptureMessageStateKey(disappeared),
+    buildCaptureMessageStateKey(explicit),
+  )
+})
+
 test('classifica erros conhecidos e mantém falhas transitórias como 5xx', () => {
   assert.equal(
     getCaptureRpcErrorHttpStatus({

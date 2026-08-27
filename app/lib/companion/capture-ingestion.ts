@@ -9,6 +9,16 @@ export const MAX_AUDIO_TRANSCRIPTION_LENGTH = 200_000
 export type CaptureDirection = 'incoming' | 'outgoing'
 export type CaptureContentType = 'text' | 'audio'
 
+// Blocker 2 (Fase 12A, Frente 2B): 'explicit_deletion' significa que o
+// WhatsApp mostrou um marcador confirmado de exclusão (ou o ícone de
+// revoke). 'dom_disappearance' significa apenas que o elemento saiu do
+// DOM visível (virtualização/rolagem do WhatsApp Web) — isso NUNCA prova
+// exclusão real e precisa ser tratado como não confirmado por qualquer
+// consumidor a jusante (ledger, resumo, memória, deep analysis).
+export type CaptureDeletionReason =
+  | 'explicit_deletion'
+  | 'dom_disappearance'
+
 export type NormalizedCaptureMessage = {
   message_key: string
   direction: CaptureDirection
@@ -19,6 +29,7 @@ export type NormalizedCaptureMessage = {
   text_content: string | null
   audio_transcription: string | null
   is_deleted: boolean
+  deletion_reason: CaptureDeletionReason | null
 }
 
 export type NormalizedCaptureIngestionEnvelope = {
@@ -277,6 +288,26 @@ function normalizeContentType(
   return value
 }
 
+function normalizeDeletionReason(
+  value: unknown,
+  isDeleted: boolean,
+): CaptureDeletionReason | null {
+  if (!isDeleted) {
+    return null
+  }
+
+  if (value === 'explicit_deletion' || value === 'dom_disappearance') {
+    return value
+  }
+
+  // Fail-safe, não fail-closed: um valor ausente, malformado ou vindo de
+  // uma versão antiga da extensão (que ainda não envia este campo) nunca
+  // pode ser promovido a 'explicit_deletion'. O batch inteiro não deve
+  // ser rejeitado por causa disso — a mensagem continua marcada como
+  // excluída (sem conteúdo), só que com a razão mais conservadora.
+  return 'dom_disappearance'
+}
+
 function normalizeBoolean(value: unknown, path: string) {
   if (typeof value !== 'boolean') {
     fail({
@@ -468,6 +499,10 @@ function normalizeCaptureMessage(
       text_content: null,
       audio_transcription: null,
       is_deleted: true,
+      deletion_reason: normalizeDeletionReason(
+        value.deletion_reason,
+        true,
+      ),
     }
   }
 
@@ -497,6 +532,7 @@ function normalizeCaptureMessage(
     text_content: textContent,
     audio_transcription: audioTranscription,
     is_deleted: false,
+    deletion_reason: null,
   }
 }
 
@@ -598,5 +634,6 @@ export function buildCaptureMessageStateKey(
     message.text_content,
     message.audio_transcription,
     message.is_deleted,
+    message.deletion_reason,
   ])
 }
