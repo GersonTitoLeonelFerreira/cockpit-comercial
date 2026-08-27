@@ -9,6 +9,7 @@ import {
   suggestInitialMethodConstruction,
 } from '../commercial-config/assisted-method-construction.ts'
 import {
+  CommercialMethodConstructionStaleWriteError,
   CommercialMethodConstructionValidationError,
   getCommercialMethodConstruction,
   saveCommercialMethodConstruction,
@@ -168,6 +169,19 @@ class FakeQuery {
   }
 
   async maybeSingle() {
+    if (this.mode === 'update') {
+      const index = this.store.findIndex((item) => this.matches(item))
+      if (index < 0) return { data: null, error: null }
+
+      this.store[index] = {
+        ...this.store[index],
+        ...this.payload,
+        updated_at: '2026-08-26T05:00:00.000Z',
+      }
+
+      return { data: this.store[index], error: null }
+    }
+
     const matches = this.store.filter((item) => this.matches(item))
     return {
       data: matches[0] ?? null,
@@ -380,4 +394,35 @@ test('review_ready válido materializa commercial-method-v2 sem publicar configu
   assert.equal(store[1].company_id, COMPANY_B)
   assert.equal(store[1].method_construction_status, 'not_started')
   assert.equal(store[1].method_definition, null)
+})
+
+
+test('save stale não sobrescreve construção mais nova', async () => {
+  const data = diagnosis()
+  const current = suggestInitialMethodConstruction(data)
+  const store = [
+    row(COMPANY_A, USER_A, {
+      method_construction_status: 'editing',
+      method_construction: current,
+      method_updated_at: '2026-08-26T06:00:00.000Z',
+    }),
+  ]
+  const staleDraft = {
+    ...current,
+    method_name: 'Nome antigo',
+  }
+
+  await assert.rejects(
+    saveCommercialMethodConstruction(
+      fakeSupabase(store),
+      COMPANY_A,
+      USER_A,
+      { status: 'editing', construction: staleDraft },
+      '2026-08-26T05:00:00.000Z',
+    ),
+    CommercialMethodConstructionStaleWriteError,
+  )
+
+  assert.notEqual(store[0].method_construction.method_name, 'Nome antigo')
+  assert.equal(store[0].method_updated_at, '2026-08-26T06:00:00.000Z')
 })
