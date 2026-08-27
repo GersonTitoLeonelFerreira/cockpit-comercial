@@ -10466,74 +10466,104 @@
   ) {
     try {
       if (area === 'analysis') {
+        const html =
+          getDetailedAnalysisAreaHtml()
+
         return (
-          getDetailedAnalysisAreaHtml() ||
-          getSellerAreaFallbackHtml(
-            'analysis',
-          )
+          html ||
+          `
+            <div class="yolen-card yolen-seller-area-card yolen-status-neutral" data-yolen-area-fallback="analysis">
+              <div class="yolen-section-label">Análise</div>
+              <div class="yolen-seller-empty-state">
+                A análise detalhada ainda não está disponível para esta conversa.
+              </div>
+            </div>
+          `
         )
       }
 
       if (area === 'client') {
-        const clientHtml = [
+        const html = [
           getClientInformationAreaHtml(),
           getLeadEnrichmentCandidatesHtml(),
           getConversationRegistrationCardHtml(),
         ].filter(Boolean).join('')
 
         return (
-          clientHtml ||
-          getSellerAreaFallbackHtml(
-            'client',
-          )
+          html ||
+          `
+            <div class="yolen-card yolen-seller-area-card yolen-status-neutral" data-yolen-area-fallback="client">
+              <div class="yolen-section-label">Cliente</div>
+              <div class="yolen-seller-empty-state">
+                A Yolen ainda está consolidando a inteligência deste cliente.
+              </div>
+            </div>
+          `
         )
       }
 
-      const nowHtml = [
+      const html = [
         getAnalysisCardHtml(),
         getCompanionLeadSummaryCardHtml(),
       ].filter(Boolean).join('')
 
       return (
-        nowHtml ||
-        getSellerAreaFallbackHtml(
-          'now',
-        )
+        html ||
+        `
+          <div class="yolen-card yolen-decision-card yolen-status-neutral" data-yolen-area-fallback="now">
+            <div class="yolen-decision-header">
+              <div class="yolen-section-label">Agora</div>
+              <div class="yolen-decision-badge">Preparando</div>
+            </div>
+            <div class="yolen-decision-block">
+              <div class="yolen-decision-kicker">Resumo</div>
+              <div class="yolen-card-title yolen-decision-title">
+                A Yolen está preparando a leitura desta conversa.
+              </div>
+            </div>
+          </div>
+        `
       )
     } catch (error) {
-      return getSellerAreaFallbackHtml(
+      console.error(
+        '[Yolen Companion] Falha ao renderizar área',
         area,
         error,
       )
+
+      return `
+        <div class="yolen-card yolen-seller-area-card yolen-status-warning" data-yolen-area-fallback="${escapeHtml(area)}">
+          <div class="yolen-section-label">
+            ${area === 'analysis' ? 'Análise' : area === 'client' ? 'Cliente' : 'Agora'}
+          </div>
+          <div class="yolen-seller-empty-state">
+            Esta área encontrou uma falha de exibição. Atualize a leitura para tentar novamente.
+          </div>
+        </div>
+      `
     }
   }
 
   function getSellerInformationArchitectureHtml() {
-    const preSendHtml =
-      getPreSendAssessmentCardHtml()
+    let preSendHtml = ''
+
+    try {
+      preSendHtml =
+        getPreSendAssessmentCardHtml()
+    } catch (error) {
+      console.error(
+        '[Yolen Companion] Falha no pre-send',
+        error,
+      )
+    }
 
     const activeContent =
       getSafeSellerAreaContentHtml(
         activeSellerArea,
       )
 
-    const panels = [
-      'now',
-      'analysis',
-      'client',
-    ]
-      .map((area) =>
-        getSellerAreaPanelHtml(
-          area,
-          area === activeSellerArea
-            ? activeContent
-            : '',
-        ),
-      )
-      .join('')
-
     return `
-      <div class="yolen-seller-workspace yolen-seller-workspace--final">
+      <div class="yolen-seller-workspace yolen-seller-workspace--final" data-yolen-ux-build="UX4">
         <div
           class="yolen-seller-tabs"
           role="tablist"
@@ -10542,6 +10572,10 @@
           ${getSellerAreaTabHtml('now', 'Agora')}
           ${getSellerAreaTabHtml('analysis', 'Análise')}
           ${getSellerAreaTabHtml('client', 'Cliente')}
+        </div>
+
+        <div class="yolen-dev-build-badge" aria-label="Versão de teste da experiência">
+          UX4
         </div>
 
         ${
@@ -10554,7 +10588,15 @@
             : ''
         }
 
-        ${panels}
+        <section
+          id="yolen-seller-panel-${escapeHtml(activeSellerArea)}"
+          class="yolen-seller-panel yolen-seller-panel--active"
+          role="tabpanel"
+          aria-labelledby="yolen-seller-tab-${escapeHtml(activeSellerArea)}"
+          data-yolen-seller-panel="${escapeHtml(activeSellerArea)}"
+        >
+          ${activeContent}
+        </section>
       </div>
     `
   }

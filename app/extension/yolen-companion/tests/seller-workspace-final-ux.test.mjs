@@ -94,3 +94,17 @@ test('AGORA nunca fica vazio mesmo se um renderer secundário falhar', () => {
     /catch \(error\)[\s\S]*getSellerAreaFallbackHtml/,
   )
 })
+
+
+test('UX4 renderiza somente a aba ativa e nunca depende de hidden panels', () => {
+  assert.match(contentScript, /data-yolen-ux-build="UX4"/)
+  assert.match(contentScript, /yolen-seller-panel--active/)
+  assert.doesNotMatch(
+    contentScript.slice(
+      contentScript.indexOf('function getSellerInformationArchitectureHtml'),
+      contentScript.indexOf('function setActiveSellerArea'),
+    ),
+    /getSellerAreaPanelHtml\(/,
+  )
+  assert.match(contentScript, /data-yolen-area-fallback="now"/)
+})

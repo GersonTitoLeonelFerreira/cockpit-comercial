@@ -1975,3 +1975,22 @@ html.yolen-companion-collapsed #app {
   font-size: 11px;
   line-height: 1.5;
 }
+
+
+/* UX4 — only the active seller area exists in the DOM. */
+.yolen-seller-panel--active {
+  display: block !important;
+  min-height: 118px;
+}
+.yolen-dev-build-badge {
+  width: fit-content;
+  margin: -5px 0 7px auto;
+  padding: 2px 6px;
+  border: 1px solid rgba(126,153,194,.12);
+  border-radius: 999px;
+  color: #60738c;
+  background: rgba(8,14,23,.5);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .06em;
+}
