@@ -116,7 +116,7 @@ test(
 
     assert.match(
       renderPanel,
-      /'Conversa'/,
+      /aria-label="Conversa"/,
     )
   },
 )
