@@ -582,7 +582,7 @@ export default function AssistedMethodConstruction({ onBack }: Props) {
     try {
       const ok = await save(
         recompileCandidate,
-        status === 'review_ready' ? 'review_ready' : 'editing',
+        'editing',
       )
       if (ok) setRecompileCandidate(null)
     } finally {
