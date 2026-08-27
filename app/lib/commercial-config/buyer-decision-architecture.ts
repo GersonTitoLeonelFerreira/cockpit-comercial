@@ -972,6 +972,85 @@ function applyFollowUpStageSynthesis(
   return next
 }
 
+function applyPresentationStageSynthesis(
+  stage: CommercialMethodConstructionStageDraft,
+  data: CommercialMethodBuilderData,
+): CommercialMethodConstructionStageDraft {
+  const process = data.current_sales_process
+  const depth = process.presentation_depth
+  const clearBefore = cleanList(depth?.must_be_clear_before ?? [])
+  const clearToCustomer = cleanList(depth?.must_be_clear_to_customer ?? [])
+  const presentedTooEarly = cleanList(depth?.presented_too_early ?? [])
+  const overExplained = cleanList(depth?.over_explained ?? [])
+  const next = { ...stage }
+
+  if (!cleanText(next.objective)) {
+    next.objective =
+      clearToCustomer.length > 0
+        ? `Garantir que o cliente compreenda ${clearToCustomer.join(', ')} e por que a solução apresentada faz sentido para a situação dele.`
+        : 'Apresentar a solução de forma suficiente para o cliente entender o que está sendo recomendado, por que faz sentido e quais condições precisa avaliar antes de decidir.'
+  }
+
+  if (next.completion_criteria.length === 0) {
+    next.completion_criteria =
+      clearToCustomer.length > 0
+        ? clearToCustomer.map(
+            (item) => `O cliente confirmou que entendeu: ${item}.`,
+          )
+        : ['O cliente confirmou que entendeu a solução apresentada e por que ela faz sentido para o que procura.']
+  }
+
+  if (next.deepen_when.length === 0 && clearToCustomer.length > 0) {
+    next.deepen_when = clearToCustomer.map(
+      (item) => `Ainda não está claro para o cliente: ${item}.`,
+    )
+  }
+
+  if (next.wait_when.length === 0 && clearBefore.length > 0) {
+    next.wait_when = clearBefore.map(
+      (item) => `Ainda falta esclarecer antes de avançar na apresentação: ${item}.`,
+    )
+  }
+
+  if (next.sufficient_when.length === 0) {
+    next.sufficient_when = [
+      'O cliente já entendeu o que foi recomendado, por que faz sentido para ele e as condições relevantes para avaliar a decisão.',
+    ]
+  }
+
+  if (next.advance_when.length === 0) {
+    next.advance_when = [
+      'O cliente demonstra que compreendeu a solução apresentada e não existe dúvida relevante sobre a proposta que impeça seguir para a decisão.',
+    ]
+  }
+
+  if (next.stop_asking_when.length === 0) {
+    next.stop_asking_when = [
+      'Novas explicações ou perguntas não mudariam a compreensão do cliente nem a avaliação da proposta.',
+    ]
+  }
+
+  if (next.recommended_questions.length === 0) {
+    next.recommended_questions = [
+      'Essa opção faz sentido para o que você procura?',
+      'Ficou alguma dúvida importante sobre o que está sendo recomendado?',
+    ]
+  }
+
+  if (next.common_mistakes.length === 0) {
+    next.common_mistakes = cleanList([
+      ...presentedTooEarly.map(
+        (item) => `Apresentar cedo demais: ${item}`,
+      ),
+      ...overExplained.map(
+        (item) => `Explicar além do necessário: ${item}`,
+      ),
+    ])
+  }
+
+  return next
+}
+
 function applyDiscoveryStageSynthesis(
   stage: CommercialMethodConstructionStageDraft,
   data: CommercialMethodBuilderData,
@@ -1054,6 +1133,10 @@ function synthesizeStageFields(
 
   if (stageLooksLike(next, ['follow'])) {
     next = applyFollowUpStageSynthesis(next, data, decision)
+  }
+
+  if (stageLooksLike(next, ['apresentação', 'proposta', 'orçamento'])) {
+    next = applyPresentationStageSynthesis(next, data)
   }
 
   if (stageLooksLike(next, ['descoberta', 'diagnóstico', 'entender', 'acolher'])) {
