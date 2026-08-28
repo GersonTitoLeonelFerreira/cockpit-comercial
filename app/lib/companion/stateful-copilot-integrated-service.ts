@@ -40,6 +40,10 @@ import type {
   StatefulCopilotStateReader,
 } from './stateful-copilot-supabase-reader'
 
+import type {
+  DurableMemorySeed,
+} from './durable-memory-seed'
+
 type JsonRecord =
   Record<string, unknown>
 
@@ -90,6 +94,12 @@ export type RunStatefulCopilotIntegratedServiceArgs = {
 
   create_memory_id:
     StatefulCommercialMemoryIdFactory
+
+  // Fase 12A, Frente 2B — Blocker 4: repassado ao motor tal como
+  // recebido. Só produz efeito quando o ciclo ainda não possui um
+  // estado real (ver applyDurableMemorySeedToFreshState).
+  durable_memory_seed?:
+    DurableMemorySeed | null
 
   dependencies?:
     StatefulCopilotIntegratedServiceDependencies
@@ -599,6 +609,7 @@ export async function runStatefulCopilotIntegratedService({
   writer,
   provider,
   create_memory_id,
+  durable_memory_seed = null,
   dependencies = {},
 }: RunStatefulCopilotIntegratedServiceArgs): Promise<StatefulCopilotIntegratedServiceResult> {
   const runEngine =
@@ -732,6 +743,8 @@ export async function runStatefulCopilotIntegratedService({
       provider,
 
       create_memory_id,
+
+      durable_memory_seed,
     })
 
   const engineResult =

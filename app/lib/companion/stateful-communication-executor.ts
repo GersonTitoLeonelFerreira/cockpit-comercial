@@ -47,6 +47,54 @@ const COMMUNICATION_OUTPUT_FIELDS =
     STATEFUL_COMMUNICATION_MODEL_OUTPUT_FIELDS,
   )
 
+// Mesmo padrão de detecção de fato protegido (valor, percentual, data,
+// horário) usado em lead-seller-message.ts, mas aplicado ao caminho
+// proativo/coaching (suggested_message/recommended_question), que não
+// passava por nenhum gate de grounding pós-modelo — apenas por instrução
+// de prompt. O contexto permitido aqui é o estado comercial acumulado
+// (fatos/necessidades/compromissos já validados) e o catálogo publicado,
+// não um resumo textual solto.
+function normalizeForGrounding(value: string) {
+  return value
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+}
+
+function getProtectedFacts(value: string) {
+  return value.match(
+    /R\$\s*\d[\d.,]*|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|\b\d{1,2}h(?:\d{2})?\b/giu,
+  ) ?? []
+}
+
+function hasUnsupportedProtectedFact({
+  message,
+  allowedContext,
+}: {
+  message: string
+  allowedContext: string
+}) {
+  const normalizedContext =
+    normalizeForGrounding(allowedContext)
+
+  return getProtectedFacts(message).some(
+    (fact) =>
+      !normalizedContext.includes(
+        normalizeForGrounding(fact),
+      ),
+  )
+}
+
+function buildCommunicationGroundingContext(
+  context: StatefulCommunicationNormalizationContext,
+): string {
+  return [
+    JSON.stringify(context.candidate_state),
+    JSON.stringify(context.products),
+  ].join('\n')
+}
+
 type JsonRecord =
   Record<string, unknown>
 
@@ -742,6 +790,45 @@ function normalizeCommunicationOutput({
       invariant:
         'NO_INTERVENTION_REQUIRES_SILENCE',
     })
+  }
+
+  const groundingContext =
+    buildCommunicationGroundingContext(
+      context,
+    )
+
+  for (
+    const candidate of [
+      {
+        path:
+          'communication.suggested_message',
+        text: suggestedMessage,
+      },
+      {
+        path:
+          'communication.recommended_question',
+        text: recommendedQuestion,
+      },
+    ] as const
+  ) {
+    if (
+      candidate.text &&
+      hasUnsupportedProtectedFact({
+        message: candidate.text,
+        allowedContext: groundingContext,
+      })
+    ) {
+      failInvalidOutput({
+        message:
+          'O texto introduziu valor, percentual, data ou horário sem base no estado comercial ou no catálogo publicado.',
+
+        path:
+          candidate.path,
+
+        invariant:
+          'UNSUPPORTED_PROTECTED_FACT',
+      })
+    }
   }
 
   const commercialReading =

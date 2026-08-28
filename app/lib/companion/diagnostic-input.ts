@@ -83,6 +83,13 @@ export type DiagnosticExcludedMessage = {
   message_key: string
   version: number
   reason: 'deleted'
+  // Blocker 2 (Fase 12A, Frente 2B): 'explicit_deletion' = o WhatsApp
+  // mostrou um marcador de exclusão confirmado. 'dom_disappearance' = o
+  // elemento só saiu do DOM visível da extensão (virtualização/rolagem)
+  // e NUNCA prova exclusão real — o modelo nunca pode afirmar que o
+  // cliente apagou algo com esse valor, apenas que o conteúdo está
+  // indisponível/incerto (mesmo tratamento de áudio pendente).
+  deletion_reason: 'explicit_deletion' | 'dom_disappearance'
 }
 
 export type DiagnosticCommercialMethodStep = {
@@ -259,6 +266,7 @@ type NormalizedCanonicalMessage = {
   text_content: string | null
   audio_transcription: string | null
   is_deleted: boolean
+  deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
 }
 
 export class CompanionDiagnosticInputError
@@ -626,6 +634,19 @@ function normalizeCanonicalMessage(
     audioTranscription = null
   }
 
+  const rawDeletionReason =
+    record.deletion_reason
+
+  const deletionReason:
+    'explicit_deletion' | 'dom_disappearance' | null =
+    !isDeleted
+      ? null
+      : rawDeletionReason === 'explicit_deletion'
+        ? 'explicit_deletion'
+        // Fail-safe: ausência ou valor inválido nunca é promovido a
+        // explicit_deletion.
+        : 'dom_disappearance'
+
   if (
     !isDeleted &&
     contentType === 'text' &&
@@ -694,6 +715,9 @@ function normalizeCanonicalMessage(
 
     is_deleted:
       isDeleted,
+
+    deletion_reason:
+      deletionReason,
   }
 }
 
@@ -2198,7 +2222,10 @@ export function buildCompanionDiagnosticInput({
         message_key:
           message.message_key,
         version: message.version,
-        reason: 'deleted',
+        reason: 'deleted' as const,
+        deletion_reason:
+          message.deletion_reason ??
+          'dom_disappearance',
       }))
 
   const hasUntranscribedAudio =

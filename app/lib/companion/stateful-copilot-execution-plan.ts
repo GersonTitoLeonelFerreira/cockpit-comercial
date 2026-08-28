@@ -50,7 +50,7 @@ import type {
 } from './stateful-commercial-state'
 
 export const STATEFUL_COPILOT_PROMPT_VERSION =
-  'phase-5.2-stateful-prompt-v23' as const
+  'phase-5.2-stateful-prompt-v24' as const
 
 const PROHIBITED_CRM_STATUSES:
   DiagnosticLeadStatus[] = [
@@ -778,6 +778,25 @@ function buildNormalizationContext(
             message.id,
         ),
 
+    pending_audio_message_ids:
+      input
+        .diagnostic_input
+        .conversation
+        .messages
+        .filter(
+          message =>
+            availableMessageIdSet.has(
+              message.id,
+            ) &&
+            message.content_type ===
+              'audio' &&
+            !message.audio_transcription,
+        )
+        .map(
+          message =>
+            message.id,
+        ),
+
     available_products:
       input
         .diagnostic_input
@@ -956,6 +975,8 @@ function buildSystemPrompt(
     'Intenção futura não é conclusão. "Vou pagar", "vou assinar", "vou verificar", "vou falar com meu sócio" mantêm o requisito correspondente pendente ou incerto. Somente uma afirmação de fato já concluído ("paguei", "assinei", "confirmado") pode sustentar resolução.',
 
     'Mídia (imagem, PDF, áudio não transcrito, arquivo) cujo conteúdo não é interpretado por este motor nunca vira fato por si só. Quando o texto que acompanha a mídia não identificar com clareza o que foi concluído, registre incerteza (uncertainties_to_add) apontando qual requisito pode ter sido afetado, em vez de resolver ou inventar o conteúdo da mídia.',
+
+    'diagnostic_input.conversation.excluded_messages lista mensagens fora da fotografia atual, cada uma com deletion_reason. deletion_reason="explicit_deletion" significa que o WhatsApp confirmou a exclusão. deletion_reason="dom_disappearance" significa apenas que a extensão perdeu o elemento de vista (rolagem/virtualização do WhatsApp Web) — isso NUNCA prova que o cliente ou o vendedor excluiu algo. Nunca registre como fato, necessidade resolvida, objeção ou sinal que "o cliente apagou uma mensagem" com base em dom_disappearance; trate como ausência de informação, no máximo registrando incerteza se isso afetar algum requisito pendente.',
 
     'Uma incerteza registrada anteriormente pode ser resolvida por uma mensagem posterior do vendedor quando essa mensagem pressupuser claramente, de forma inequívoca, que a condição foi concluída (por exemplo, ao avançar explicitamente para a etapa seguinte ou confirmar o resultado). Nesse caso, use uncertainty_ids_to_resolve para a incerteza correspondente e registre a nova pendência específica em needs_to_add ou open_loops_to_add quando houver uma.',
 

@@ -222,6 +222,11 @@ export default function LeadCopilotPanel({
         edited_summary: editableSummary || null,
         suggestion,
         source: compact ? 'ai_copilot_kanban' : 'ai_copilot_detail',
+        // Fase 12A, Frente 2B (re-auditoria): só é enviado true aqui
+        // porque handleApply só roda em resposta ao clique explícito do
+        // vendedor no botão "Aplicar sugestão" (a própria revisão da
+        // sugestão editável nesta tela é a confirmação humana).
+        confirmed_by_human: true,
       })
 
       setConversationText('')

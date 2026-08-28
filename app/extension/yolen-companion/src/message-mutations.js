@@ -405,112 +405,19 @@
     return buildFingerprint(source)
   }
 
-  function findSafeDisappearedMessageIds({
-    previousVisibleMessages = [],
-    currentVisibleMessages = [],
-    recentScroll = false,
-    minimumRetainedMessages = 2,
-  } = {}) {
-    if (recentScroll) {
-      return []
-    }
-
-    const previousMessages =
-      Array.isArray(previousVisibleMessages)
-        ? previousVisibleMessages
-        : []
-
-    const currentMessages =
-      Array.isArray(currentVisibleMessages)
-        ? currentVisibleMessages
-        : []
-
-    const minimumRetained =
-      Number.isSafeInteger(
-        minimumRetainedMessages,
-      ) &&
-      minimumRetainedMessages > 0
-        ? minimumRetainedMessages
-        : 2
-
-    if (
-      previousMessages.length === 0 ||
-      currentMessages.length <
-        minimumRetained
-    ) {
-      return []
-    }
-
-    const currentIds =
-      new Set(
-        currentMessages
-          .map((message) =>
-            String(
-              message?.id || '',
-            ).trim(),
-          )
-          .filter(Boolean),
-      )
-
-    const currentTimestamps =
-      currentMessages
-        .map((message) =>
-          Number(
-            message?.timestampMs ??
-            message?.timestamp_ms,
-          ),
-        )
-        .filter(
-          (timestamp) =>
-            Number.isFinite(timestamp) &&
-            timestamp > 0,
-        )
-
-    if (
-      currentIds.size <
-        minimumRetained ||
-      currentTimestamps.length === 0
-    ) {
-      return []
-    }
-
-    const earliestCurrentTimestamp =
-      Math.min(
-        ...currentTimestamps,
-      )
-
-    return previousMessages
-      .filter((message) => {
-        const id =
-          String(
-            message?.id || '',
-          ).trim()
-
-        const timestamp =
-          Number(
-            message?.timestampMs ??
-            message?.timestamp_ms,
-          )
-
-        return (
-          Boolean(id) &&
-          !currentIds.has(id) &&
-          Number.isFinite(timestamp) &&
-          timestamp >=
-            earliestCurrentTimestamp
-        )
-      })
-      .map((message) =>
-        String(message.id).trim(),
-      )
-  }
+  // Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
+  // a antiga findSafeDisappearedMessageIds() foi removida. Ela tentava
+  // inferir exclusão a partir do desaparecimento de um elemento do DOM
+  // (rolagem/virtualização do WhatsApp Web), mas isso nunca prova
+  // exclusão real — o único sinal confiável é o marcador explícito de
+  // exclusão do próprio WhatsApp (isDeletedMessageText). Uma mensagem
+  // que só sai da consulta atual do DOM permanece ativa e intocada.
 
   const api = Object.freeze({
     areCapturedMessagesEqual,
     buildMessageSnapshotFingerprint,
     buildStableCaptureConversationKey,
     cleanCapturedMessageText,
-    findSafeDisappearedMessageIds,
     getLatestDateMessageBlock,
     inferCapturedMessageDirection,
     isDeletedMessageText,

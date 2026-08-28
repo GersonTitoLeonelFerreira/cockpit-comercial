@@ -54,6 +54,8 @@ export type StatefulCopilotNormalizationContext = {
 
   customer_message_ids: string[]
 
+  pending_audio_message_ids: string[]
+
   available_products: Array<{
     product_id: string
     name: string | null
@@ -2286,6 +2288,29 @@ export function normalizeStatefulCopilotOutput(
         'MISSING_GLOBAL_EVIDENCE',
         'output.evidence_message_ids',
         `A evidência ${messageId} foi usada, mas não está declarada no conjunto global.`,
+      )
+    }
+  }
+
+  const pendingAudioMessageIds =
+    new Set(
+      context.pending_audio_message_ids ??
+        [],
+    )
+
+  for (
+    const messageId of
+    collectedEvidenceIds
+  ) {
+    if (
+      pendingAudioMessageIds.has(
+        messageId,
+      )
+    ) {
+      fail(
+        'AUDIO_EVIDENCE_NOT_TRANSCRIBED',
+        'output.evidence_message_ids',
+        `A mensagem ${messageId} é um áudio ainda sem transcrição e não pode ser usada como evidência.`,
       )
     }
   }

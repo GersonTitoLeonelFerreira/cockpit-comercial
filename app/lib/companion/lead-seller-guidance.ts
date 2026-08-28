@@ -23,7 +23,7 @@ export type SellerFacingGuidance = {
 }
 
 const PROMPT_VERSION =
-  'lead-seller-guidance-v1-context-quality'
+  'lead-seller-guidance-v2-context-quality'
 const OUTPUT_CONTRACT_VERSION =
   'lead-seller-guidance-v1-context-quality'
 const MAX_NEXT_STEP_LENGTH = 500
@@ -274,6 +274,320 @@ function validateQuestionHypothesisGuidance({
   return null
 }
 
+function endsWithUnansweredOutgoingQuestion(
+  interaction: readonly LeadMethodCurrentInteractionMessage[],
+): boolean {
+  const latest = interaction[interaction.length - 1] ?? null
+
+  return (
+    latest?.direction === 'outgoing' &&
+    latest.text.trim().endsWith('?')
+  )
+}
+
+function nextStepRequestsNewQuestion(value: string): boolean {
+  const normalized = comparable(value)
+
+  if (/\b(aguard|espera|esperar)\w*/.test(normalized)) {
+    // Uma orientação fundamentalmente de espera pode mencionar
+    // "perguntar"/"cobrar" apenas para dizer o que NÃO fazer ainda
+    // (ex.: "aguarde antes de fazer nova cobrança"). Tratar essas
+    // menções como pedido de nova pergunta produziria falso positivo
+    // exatamente no cenário que este gate deveria proteger.
+    return false
+  }
+
+  return /\b(pergunt|questione|indague)\w*/.test(normalized)
+}
+
+function validateAlreadyExecutedActionGuidance({
+  guidance,
+  interaction,
+}: {
+  guidance: SellerFacingGuidance
+  interaction: readonly LeadMethodCurrentInteractionMessage[]
+}): string | null {
+  if (!endsWithUnansweredOutgoingQuestion(interaction)) {
+    return null
+  }
+
+  const output = [
+    guidance.next_step || '',
+    ...guidance.seller_intents,
+  ].join('\n')
+
+  if (!nextStepRequestsNewQuestion(output)) {
+    return null
+  }
+
+  return (
+    'A última mensagem outgoing já é uma pergunta sem resposta do cliente. ' +
+    'Essa ação já foi executada: não recomende perguntar de novo, oriente aguardar a resposta.'
+  )
+}
+
+// Fase 12A, Frente 2B — Blocker 3: gate determinístico anti-regressão de
+// etapa. O modelo recalcula a etapa do zero a cada chamada; sem este
+// gate, nada impede uma regressão silenciosa (ex.: Formalização ->
+// Descoberta) sem evidência real. Regressão continua sendo PERMITIDA
+// quando há evidência de que algo realmente mudou (desistência,
+// cancelamento, reabertura de objeção encerrada, pedido explícito de
+// recomeçar) — a ausência de avanço NÃO é motivo para regredir.
+//
+// Re-auditoria do Controle Mestre: a saída do próprio modelo (stage_reason)
+// NUNCA pode autorizar o gate — um modelo que escolha regredir poderia
+// simplesmente escrever "cliente desistiu" no seu próprio stage_reason e
+// desbloquear a própria regressão. A única fonte de evidência aceita é
+// current_interaction com direction="incoming" (o texto real do
+// cliente nesta rodada) — nunca stage_reason, nunca working_summary
+// (também gerado por modelo em turnos anteriores), nunca mensagens
+// outgoing do vendedor. Silêncio/ausência de resposta ("parou de
+// responder", "sumiu", "desapareceu") NUNCA justifica regressão — isso é
+// waiting/follow-up, não mudança comercial.
+export type PreviousMethodStage = {
+  method_config_version_id: string
+  stage_key: string
+  stage_display_order: number
+  stage_reason: string | null
+}
+
+// Re-auditoria do Controle Mestre (3ª rodada): "palavra-chave presente +
+// nenhum filtro disparou" ainda é permissivo demais — "quero saber como
+// cancelar", "talvez eu cancele", "meu marido cancelou" e "não quero mais
+// receber mensagens" contêm as palavras-chave sem representar nenhuma
+// regressão comercial real. A estratégia muda de KEYWORD + BLACKLIST DE
+// EXCEÇÕES para ALLOWLIST: a frase só é aceita quando casa com um padrão
+// AFIRMATIVO explícito de mudança comercial em primeira pessoa
+// (AFFIRMATIVE_REGRESSION_PATTERN). Os filtros de pergunta/condicional/
+// incerteza/terceiro/negação continuam existindo como defesa adicional
+// (e são necessários: "quero cancelar" aparece como substring dentro de
+// "não quero cancelar" e de "não tenho certeza se quero cancelar", então
+// esses filtros têm que rodar ANTES do allowlist decidir). Na dúvida, não
+// regride (fail-closed) — nenhum modelo novo, só normalização + regex.
+//
+// MENÇÃO A CANCELAMENTO ≠ CANCELAMENTO. PERGUNTA ≠ FATO. HIPÓTESE ≠ FATO.
+// NEGAÇÃO DE REGRESSÃO ≠ REGRESSÃO. TERCEIRO ≠ O PRÓPRIO CLIENTE.
+// "não quero mais" sozinho não basta: precisa estar ligado a um verbo de
+// continuidade da negociação (continuar/seguir/fechar/contratar/comprar)
+// — "não quero mais receber mensagens/ligação/promoção" é opt-out de
+// comunicação, não desistência comercial.
+//
+// Re-auditoria do Controle Mestre (4ª rodada, hardening final): três
+// refinamentos adicionais:
+//   1. Referência a contrato/regra NÃO é automaticamente terceiro —
+//      "quero cancelar o contrato" é uma declaração comercial válida.
+//      Só bloqueia quando a frase é uma PERGUNTA sobre a regra (já
+//      coberto pelo filtro de pergunta: "?"), não pela mera presença da
+//      palavra "contrato".
+//   2. Objeto não comercial: "cancelar"/"desistir" não autorizam
+//      QUALQUER cancelamento — só quando o objeto é comercial (contrato,
+//      plano) ou ausente, nunca quando é operacional/agenda (aula,
+//      agendamento, reunião, ligação, reserva, check-in, consulta).
+//      Também cobre a inversão semântica "desisti de cancelar"/"desisti
+//      da ideia de cancelar", que significa desistir DO CANCELAMENTO
+//      (ou seja, quer continuar), não desistência comercial.
+//   3. Contradição entre frases: uma afirmação inequívoca de
+//      continuidade ("quero continuar", "decidi continuar", "quero
+//      seguir") em QUALQUER parte da interação atual veta
+//      deterministicamente a regressão nesta rodada, mesmo que outra
+//      frase isoladamente pareça afirmar regressão.
+const AFFIRMATIVE_REGRESSION_PATTERN =
+  /\b((eu )?desisti|(eu )?(quero|vou|decidi) desistir|(eu )?(quero|vou|decidi) cancelar|(eu )?mudei de ideia|voltei atras|(eu )?(quero|vou) recomecar|quero comecar de novo|nao quero mais (continuar|seguir|fechar|contratar|comprar|prosseguir|avancar))\b/
+
+// (A) Pergunta — com "?" literal ou com marcador interrogativo/de busca
+// de informação, já que mensagens de WhatsApp frequentemente chegam sem
+// pontuação ("Como faço para cancelar", "Quero saber como cancelar").
+const QUESTION_MARKER_PATTERN =
+  /\b(posso|poderia|poderiam|consigo|conseguiria|seria possivel|da pra|tem como|o que acontece se|quanto custa|e se eu|como faco|quero saber|quando posso)\b/
+
+// (B) Condicional/hipótese — a frase descreve um cenário futuro/hipotético,
+// não uma decisão já tomada.
+const CONDITIONAL_MARKER_PATTERN =
+  /\b(se eu|se for|se acontecer|caso eu|hipoteticamente|na hipotese|imagina se|supondo que)\b/
+
+// Incerteza — "talvez", "estou pensando em", "não tenho certeza": o
+// cliente está cogitando, não afirmando um fato já decidido.
+const UNCERTAINTY_MARKER_PATTERN =
+  /\b(talvez|pode ser que|estou pensando em|estou considerando|nao tenho certeza|nao sei se|sera que|quem sabe|penso em cancelar|penso em desistir)\b/
+
+// (D) Referência a TERCEIRO real (outra pessoa) — nunca contrato/regra,
+// que é a própria decisão do cliente sobre os termos que ELE assinou,
+// não uma referência a um terceiro.
+const THIRD_PARTY_REFERENCE_PATTERN =
+  /\b(meu marido|minha esposa|meu socio|minha socia|meu amigo|minha amiga|um amigo meu|uma amiga minha|ele cancelou|ela cancelou|ele desistiu|ela desistiu|a academia cancelou|meu cartao)\b/
+
+// (C) Negação da própria regressão — "não quero cancelar", "não vou
+// desistir", "não pretendo recomeçar". Deliberadamente NÃO cobre "nao
+// quero mais" seguido de verbo de continuidade, que é o próprio idioma
+// afirmativo de desistência (ver AFFIRMATIVE_REGRESSION_PATTERN).
+const NEGATED_KEYWORD_PATTERN =
+  /\bnao\s+(\w+\s+){0,3}(desist\w*|cancel\w*|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*|mudei de ideia|mudou de ideia)\b/
+
+// Objeto operacional/de agenda — quando "cancelar" OU "desisti" se refere
+// a isso, não é uma regressão comercial (não é desistência do negócio, é
+// só desmarcar um compromisso pontual). Casa pelo substantivo isolado
+// (não "a aula"/"o agendamento") de propósito: "desisti DA aula"/"desisti
+// DO agendamento" tem a preposição contraída ("da"/"do"), que não cria
+// fronteira de palavra antes do artigo — casar pelo substantivo evita
+// esse buraco sem precisar enumerar cada contração.
+const OPERATIONAL_OBJECT_PATTERN =
+  /\b(aula|agendamento|reuniao|ligacao|reserva|check-?in|consulta|horario|visita)\b/
+
+// Inversão semântica: "desisti de cancelar"/"desisti da ideia de
+// cancelar" significa desistir DO CANCELAMENTO — o cliente quer
+// continuar, não é uma desistência comercial.
+const INVERTED_DESISTENCE_PATTERN =
+  /\bdesisti\s+(da ideia de\s+|de\s+)cancelar\b/
+
+// Afirmação explícita, em primeira pessoa e não negada, de que o cliente
+// quer CONTINUAR — contradiz e veta qualquer regressão detectada em
+// outra frase da mesma interação. O lookbehind exclui a forma negada
+// ("não vou seguir", que é evidência de regressão, não de continuidade).
+const CONTINUITY_AFFIRMATION_PATTERN =
+  /(?<!nao )(?<!nao \w+ )(?<!nao \w+ \w+ )\b(quero|vou|decidi) (continuar|seguir)\b/
+
+function splitIntoSentences(value: string): string[] {
+  const sentences: string[] = []
+  let current = ''
+
+  for (const char of value) {
+    current += char
+
+    if (char === '.' || char === '!' || char === '?' || char === '\n') {
+      if (current.trim()) {
+        sentences.push(current)
+      }
+      current = ''
+    }
+  }
+
+  if (current.trim()) {
+    sentences.push(current)
+  }
+
+  return sentences
+}
+
+function sentenceAffirmsCommercialRegression(
+  rawSentence: string,
+): boolean {
+  const normalized = comparable(rawSentence)
+
+  // Filtros de exclusão rodam PRIMEIRO: "quero cancelar" aparece como
+  // substring literal dentro de "não quero cancelar" e de "não tenho
+  // certeza se quero cancelar" — sem esses filtros antes do allowlist,
+  // a frase negada/incerta seria aprovada por engano.
+  if (rawSentence.includes('?')) {
+    return false
+  }
+
+  if (QUESTION_MARKER_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (CONDITIONAL_MARKER_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (UNCERTAINTY_MARKER_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (THIRD_PARTY_REFERENCE_PATTERN.test(normalized)) {
+    return false
+  }
+
+  if (NEGATED_KEYWORD_PATTERN.test(normalized)) {
+    return false
+  }
+
+  // "desisti de cancelar" contém "desisti" como substring literal — sem
+  // este filtro antes do allowlist, a inversão semântica seria aprovada
+  // por engano (o cliente quer CONTINUAR, não desistir do negócio).
+  if (INVERTED_DESISTENCE_PATTERN.test(normalized)) {
+    return false
+  }
+
+  // "cancelar" ou "desisti" ligados a um objeto operacional/de agenda não
+  // são regressão comercial — é só desmarcar um compromisso pontual
+  // ("Desisti da aula de amanhã.", "Desisti da reunião.").
+  if (
+    /\b((quero|vou|decidi) cancelar|desisti)\b/.test(normalized) &&
+    OPERATIONAL_OBJECT_PATTERN.test(normalized)
+  ) {
+    return false
+  }
+
+  // A decisão final depende exclusivamente de um padrão AFIRMATIVO
+  // explícito — nunca apenas da presença da palavra "cancelar"/"desistir".
+  return AFFIRMATIVE_REGRESSION_PATTERN.test(normalized)
+}
+
+function stageRegressionJustified(value: string): boolean {
+  // Veto determinístico de contradição: uma afirmação inequívoca de
+  // continuidade em QUALQUER parte da interação atual barra a regressão
+  // nesta rodada, mesmo que outra frase isoladamente pareça afirmar
+  // regressão ("Desisti. Pensando melhor, quero continuar."). Fail-closed
+  // diante de contradição explícita — sem inferir ordem/recência.
+  if (CONTINUITY_AFFIRMATION_PATTERN.test(comparable(value))) {
+    return false
+  }
+
+  return splitIntoSentences(value).some(
+    sentenceAffirmsCommercialRegression,
+  )
+}
+
+function buildIncomingEvidence(
+  interaction: readonly LeadMethodCurrentInteractionMessage[],
+): string {
+  return interaction
+    .filter((entry) => entry.direction === 'incoming')
+    .map((entry) => entry.text)
+    .join('\n')
+}
+
+function validateStageContinuity({
+  candidateStage,
+  previousStage,
+  incomingEvidence,
+}: {
+  candidateStage: {
+    key: string
+    display_order: number
+  }
+  previousStage: PreviousMethodStage | null
+  incomingEvidence: string
+}): string | null {
+  if (!previousStage) {
+    return null
+  }
+
+  if (
+    candidateStage.display_order >=
+    previousStage.stage_display_order
+  ) {
+    return null
+  }
+
+  if (candidateStage.key === previousStage.stage_key) {
+    return null
+  }
+
+  // A ÚNICA evidência aceita é a fala real do cliente nesta interação
+  // (current_interaction incoming) — nunca a saída do próprio modelo
+  // (stage_reason) nem o working_summary.
+  if (stageRegressionJustified(incomingEvidence)) {
+    return null
+  }
+
+  return (
+    `A etapa anterior confirmada tinha ordem ${previousStage.stage_display_order}; a nova escolha tem ordem ${candidateStage.display_order}, uma regressão. ` +
+    'Regressão de etapa só é permitida com evidência explícita do cliente na interação atual (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar) — nunca com base na própria justificativa do modelo. ' +
+    'Ausência de avanço, silêncio ou o cliente ter parado de responder não justificam regressão: mantenha a etapa anterior quando não houver essa evidência.'
+  )
+}
+
 function buildFactualContext(
   summary: string,
   interaction: readonly LeadMethodCurrentInteractionMessage[],
@@ -397,6 +711,7 @@ const OPERATIONAL_OUTPUT_FORMAT = {
 type GuidanceAttempt = {
   guidance: SellerFacingGuidance | null
   failure: string | null
+  stageRegressionBlocked?: boolean
 }
 
 function validateContextualQuality({
@@ -436,18 +751,6 @@ function validateContextualQuality({
     return (
       'O contexto é rico, mas o próximo passo ficou genérico e intercambiável entre clientes. ' +
       `Use naturalmente um elemento concreto pertinente, como: ${contextAnchors.slice(0, 5).join(', ')}.`
-    )
-  }
-
-  if (
-    !sellerIntents.some(
-      (intent) =>
-        mentionsAnyAnchor(intent, contextAnchors),
-    )
-  ) {
-    return (
-      'Os atalhos ficaram genéricos apesar de haver fatos específicos. ' +
-      `Pelo menos um atalho deve se ligar diretamente a: ${contextAnchors.slice(0, 5).join(', ')}.`
     )
   }
 
@@ -629,6 +932,7 @@ async function runAttempt({
   method,
   provider,
   correctionReason,
+  previousStage,
 }: {
   mode: 'commercial' | 'operational'
   summary: string
@@ -636,9 +940,12 @@ async function runAttempt({
   method: PublishedCommercialMethod
   provider: StatefulCopilotProvider
   correctionReason?: string | null
+  previousStage?: PreviousMethodStage | null
 }): Promise<GuidanceAttempt> {
   const factualContext =
     buildFactualContext(summary, interaction)
+  const incomingEvidence =
+    buildIncomingEvidence(interaction)
   const contextAnchors =
     getSpecificAnchors(factualContext)
   const correction = correctionReason
@@ -648,6 +955,21 @@ async function runAttempt({
         'Corrija sem relaxar grounding, gate comercial ou especificidade.',
       ]
     : []
+
+  const activePreviousStage =
+    previousStage &&
+    previousStage.method_config_version_id === method.id
+      ? previousStage
+      : null
+
+  const stageContinuityPrompt =
+    mode === 'commercial' && activePreviousStage
+      ? [
+          `A etapa confirmada na última interação foi "${activePreviousStage.stage_key}" (ordem ${activePreviousStage.stage_display_order}).`,
+          'Só escolha uma etapa de ordem menor que essa se o próprio cliente disser, nesta interação (mensagens incoming), algo que indique mudança comercial real (desistência, cancelamento, reabertura de objeção encerrada ou pedido de recomeçar). Uma verificação automática após esta resposta só aceita essa evidência vindo da fala do cliente — nunca da sua própria justificativa.',
+          'Ausência de avanço, silêncio ou o cliente ter parado de responder NÃO são motivo para regredir — nesse caso, repita a mesma etapa.',
+        ]
+      : []
 
   const commonPrompt = [
     'Você é o motor seller-facing do Yolen Companion.',
@@ -688,6 +1010,7 @@ async function runAttempt({
       system_prompt: [
         ...commonPrompt,
         ...modePrompt,
+        ...stageContinuityPrompt,
         ...correction,
       ].join('\n'),
       user_prompt: JSON.stringify({
@@ -696,6 +1019,15 @@ async function runAttempt({
         current_interaction: interaction,
         context_specificity_anchors:
           contextAnchors.slice(0, 12),
+        previous_stage:
+          activePreviousStage
+            ? {
+                stage_key:
+                  activePreviousStage.stage_key,
+                stage_display_order:
+                  activePreviousStage.stage_display_order,
+              }
+            : null,
         published_commercial_context: {
           config_version_id: method.id,
           source_contract_version:
@@ -744,6 +1076,47 @@ async function runAttempt({
           failure: hypothesisFailure,
         }
       }
+
+      const alreadyExecutedFailure =
+        validateAlreadyExecutedActionGuidance({
+          guidance: parsed.guidance,
+          interaction,
+        })
+
+      if (alreadyExecutedFailure) {
+        return {
+          guidance: null,
+          failure: alreadyExecutedFailure,
+        }
+      }
+
+      if (mode === 'commercial' && parsed.guidance.stage_key) {
+        const candidateStageDefinition =
+          method.stages.find(
+            (stage) => stage.key === parsed.guidance!.stage_key,
+          )
+
+        const stageContinuityFailure =
+          candidateStageDefinition
+            ? validateStageContinuity({
+                candidateStage: {
+                  key: candidateStageDefinition.key,
+                  display_order:
+                    candidateStageDefinition.display_order,
+                },
+                previousStage: activePreviousStage,
+                incomingEvidence,
+              })
+            : null
+
+        if (stageContinuityFailure) {
+          return {
+            guidance: null,
+            failure: stageContinuityFailure,
+            stageRegressionBlocked: true,
+          }
+        }
+      }
     }
 
     return parsed
@@ -762,12 +1135,14 @@ export async function composeSellerFacingGuidance({
   currentInteraction = [],
   method,
   provider,
+  previousStage = null,
 }: {
   mode: 'commercial' | 'operational'
   workingSummary: string | null
   currentInteraction?: readonly LeadMethodCurrentInteractionMessage[]
   method: PublishedCommercialMethod
   provider: StatefulCopilotProvider
+  previousStage?: PreviousMethodStage | null
 }): Promise<SellerFacingGuidance> {
   const summary = text(workingSummary)
   const interaction =
@@ -793,6 +1168,7 @@ export async function composeSellerFacingGuidance({
     interaction,
     method,
     provider,
+    previousStage,
   })
 
   if (first.guidance) {
@@ -805,6 +1181,7 @@ export async function composeSellerFacingGuidance({
     interaction,
     method,
     provider,
+    previousStage,
     correctionReason:
       first.failure ||
       'A primeira saída não passou pela validação.',
@@ -812,6 +1189,54 @@ export async function composeSellerFacingGuidance({
 
   if (corrected.guidance) {
     return corrected.guidance
+  }
+
+  // Re-auditoria do Controle Mestre (2ª rodada): regressão de etapa sem
+  // evidência, em ambas as tentativas. A saída rejeitada (next_step,
+  // seller_intents) foi produzida pelo modelo para a etapa REGRESSIVA
+  // candidata — nunca pode ser reaproveitada como se pertencesse à etapa
+  // anterior (ex.: mostrar "Formalização" com uma ação de "Descoberta").
+  // A opção mais segura é um status de erro controlado: nenhum next_step
+  // incorreto é exibido e, como status !== 'ready', o gate de
+  // persistência do caller (method-guidance/route.ts) nunca sobrescreve
+  // o estágio já persistido — o stage persistido permanece intacto.
+  const fallbackAttempt =
+    corrected.stageRegressionBlocked
+      ? corrected
+      : first.stageRegressionBlocked
+        ? first
+        : null
+
+  if (fallbackAttempt) {
+    const activePreviousStage =
+      previousStage &&
+      previousStage.method_config_version_id === method.id
+        ? previousStage
+        : null
+
+    const previousStageDefinition =
+      activePreviousStage
+        ? method.stages.find(
+            (stage) => stage.key === activePreviousStage.stage_key,
+          )
+        : undefined
+
+    return {
+      status: 'error',
+      method_name: method.name,
+      method_config_version_id: method.id,
+      stage_key:
+        activePreviousStage?.stage_key ?? null,
+      stage_name:
+        previousStageDefinition?.name ?? null,
+      stage_reason:
+        activePreviousStage?.stage_reason ?? null,
+      next_step: null,
+      seller_intents: [],
+      error:
+        fallbackAttempt.failure ||
+        'A nova sugestão regrediria a etapa sem evidência de mudança real na conversa; a etapa anterior permanece sem uma nova orientação nesta rodada.',
+    }
   }
 
   return {

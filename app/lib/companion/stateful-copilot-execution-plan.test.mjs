@@ -1293,7 +1293,7 @@ test(
 
     assert.equal(
       STATEFUL_COPILOT_PROMPT_VERSION,
-      'phase-5.2-stateful-prompt-v23',
+      'phase-5.2-stateful-prompt-v24',
     )
 
     assert.match(
@@ -1369,6 +1369,11 @@ test(
     assert.match(
       plan.request.system_prompt,
       /conecte a solução ao problema antes de continuar coletando detalhes opcionais/,
+    )
+
+    assert.match(
+      plan.request.system_prompt,
+      /dom_disappearance.*NUNCA prova que o cliente ou o vendedor excluiu algo/,
     )
   },
 )
