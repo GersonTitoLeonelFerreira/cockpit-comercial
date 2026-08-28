@@ -26,9 +26,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Run controlled FASE 12A gates
         shell: bash
         run: |
@@ -52,6 +49,7 @@ jobs:
           git diff --name-only "$BASE" HEAD > validation-artifacts/changed-files.txt
           git log --oneline --decorate --graph "$BASE"..HEAD > validation-artifacts/integration-log.txt
 
+          run_gate npm-ci "npm ci"
           run_gate diff-check "git diff --check $BASE HEAD"
 
           run_gate test-companion "npm run test:companion"
