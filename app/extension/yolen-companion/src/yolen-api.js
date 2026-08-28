@@ -575,7 +575,19 @@
   }
 
   async function resolveLead(payload) {
+    // conversation_key é somente para o Companion nunca reaproveitar este
+    // contexto numa conversa diferente (ver getLastLeadLookupContext) — o
+    // backend de resolve-lead não espera esse campo, então ele nunca é
+    // encaminhado em sendToBackground.
+    const {
+      conversation_key: conversationKey,
+      ...backendPayload
+    } = payload || {}
+
     lastLeadLookupContext = {
+      conversation_key: conversationKey
+        ? String(conversationKey)
+        : null,
       phone: payload?.phone
         ? String(payload.phone)
         : null,
@@ -584,13 +596,27 @@
         : null,
     }
 
-    return sendToBackground('RESOLVE_LEAD', payload)
+    return sendToBackground('RESOLVE_LEAD', backendPayload)
   }
 
-  function getLastLeadLookupContext() {
-    return lastLeadLookupContext
-      ? { ...lastLeadLookupContext }
-      : null
+  // Sem conversationKey: comportamento antigo, devolve o último contexto
+  // resolvido (compatibilidade). Com conversationKey: só devolve o
+  // contexto se ele realmente pertencer a essa conversa — nunca vaza o
+  // telefone/nome de uma conversa anterior para o formulário de outra.
+  function getLastLeadLookupContext(conversationKey) {
+    if (!lastLeadLookupContext) {
+      return null
+    }
+
+    if (
+      conversationKey &&
+      lastLeadLookupContext.conversation_key &&
+      lastLeadLookupContext.conversation_key !== conversationKey
+    ) {
+      return null
+    }
+
+    return { ...lastLeadLookupContext }
   }
 
   async function createLead(payload) {

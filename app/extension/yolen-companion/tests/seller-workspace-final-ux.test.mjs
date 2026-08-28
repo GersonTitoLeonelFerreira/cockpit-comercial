@@ -18,13 +18,68 @@ test('UX7 dá responsabilidade única para AGORA ANÁLISE CLIENTE', () => {
   )
   const block = contentScript.slice(start, end)
 
-  assert.match(block, /const nowHtml =\s*getCompanionLeadSummaryCardHtml\(\)/)
+  assert.match(
+    block,
+    /const nowHtml =\s*getNowAttentionSnapshotHtml\(\)\s*\+\s*\(getCompanionLeadSummaryCardHtml\(\)/,
+  )
   assert.match(block, /const analysisHtml =\s*getDetailedAnalysisAreaHtml\(\)/)
   assert.match(block, /getClientInformationAreaHtml\(\)/)
   assert.match(block, /getConversationRegistrationCardHtml\(\)/)
   assert.match(block, /getLeadEnrichmentCandidatesHtml\(\)/)
   assert.doesNotMatch(block, /getAnalysisCardHtml\(\)/)
   assert.match(block, /data-yolen-ux-build="UX7"/)
+})
+
+test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico de ANÁLISE', () => {
+  const attentionStart = contentScript.indexOf(
+    'function getNowAttentionSnapshotHtml()',
+  )
+  const attentionEnd = contentScript.indexOf(
+    'function getSellerInformationArchitectureHtml()',
+    attentionStart,
+  )
+  const attentionBlock = contentScript.slice(attentionStart, attentionEnd)
+
+  assert.notEqual(attentionStart, -1)
+  assert.notEqual(attentionEnd, -1)
+  assert.match(
+    attentionBlock,
+    /sellerInformationViewTools\.renderNowAttentionSnapshot\(/,
+  )
+  assert.doesNotMatch(
+    attentionBlock,
+    /renderAnalysisArea|getDetailedAnalysisAreaHtml/,
+  )
+})
+
+test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA', () => {
+  const summaryCardStart = contentScript.indexOf(
+    'function getCompanionLeadSummaryCardHtml()',
+  )
+  const summaryCardEnd = contentScript.indexOf(
+    '\n  }',
+    summaryCardStart,
+  )
+  const summaryCardBlock = contentScript.slice(
+    summaryCardStart,
+    summaryCardEnd,
+  )
+
+  assert.notEqual(summaryCardStart, -1)
+
+  // AGORA (getCompanionLeadSummaryCardHtml) só depende do status do
+  // resumo salvo — nunca do estado da análise profunda/deep analysis.
+  assert.doesNotMatch(
+    summaryCardBlock,
+    /conversationAnalysisLoading|conversationAnalysisError|deepAnalysisStatus|getDeepAnalysisStatusBlockHtml|getInlineSpinnerHtml/,
+  )
+
+  // companion-lead-summary-view.js (o único módulo que desenha o conteúdo
+  // de AGORA) não conhece nenhum estado de análise profunda.
+  assert.doesNotMatch(
+    summaryView,
+    /deep.?analysis|analysis.?job|conversationAnalysis/i,
+  )
 })
 
 test('AGORA não é escondido e possui composer contextual', () => {

@@ -159,6 +159,11 @@
 
   const leadResolutionInFlightKeys =
     new Set()
+  // Idempotência determinística de createLead por conversa: nenhum clique
+  // duplicado/triplo pode gerar uma segunda requisição CREATE_LEAD
+  // enquanto a primeira ainda está em voo para a MESMA conversationKey.
+  const leadCreationInFlightKeys =
+    new Set()
   let autoContactLookupInFlight = false
   let capturedAudioBlobEntries = []
   let automaticAnalysisTimerId = 0
@@ -253,6 +258,9 @@
     leadResolutionLoading: false,
     leadResolution: null,
     leadResolutionError: null,
+    leadCreationStatus: null,
+    leadCreationConversationKey: null,
+    leadCreationError: null,
     companionClientContext: {
       status: 'idle',
     },
@@ -4782,6 +4790,9 @@
       leadResolutionLoading: false,
       leadResolution: null,
       leadResolutionError: null,
+      leadCreationStatus: null,
+      leadCreationConversationKey: null,
+      leadCreationError: null,
       companionClientContext: {
         status: 'idle',
       },
@@ -5148,8 +5159,61 @@
     return labels[status] || status || '-'
   }
 
+  function getLeadCreationStatusHtml(message, tone) {
+    return `
+      <div class="yolen-lead-create-status" data-tone="${escapeHtml(tone)}">
+        ${escapeHtml(message)}
+      </div>
+    `
+  }
+
   function getLeadActionButton() {
-    if (state.leadResolutionLoading || state.isSelfConversation) {
+    if (state.isSelfConversation) {
+      return ''
+    }
+
+    // O estado de criação de lead (creating/created_resolving/error) só
+    // pode ser aplicado à região "Conversa" se ele pertencer à conversa
+    // ATUAL — se o vendedor já trocou de conversa, leadCreationConversationKey
+    // não bate mais com state.conversationKey e este bloco fica inerte
+    // (clearLeadStateForNewConversation() já zera os dois campos numa
+    // troca real, isto aqui é uma segunda trava de segurança).
+    const creationBelongsToCurrentConversation =
+      Boolean(state.conversationKey) &&
+      state.leadCreationConversationKey === state.conversationKey
+
+    if (creationBelongsToCurrentConversation) {
+      if (state.leadCreationStatus === 'creating') {
+        return getLeadCreationStatusHtml(
+          'Criando lead na Yolen...',
+          'loading',
+        )
+      }
+
+      if (state.leadCreationStatus === 'created_resolving') {
+        return getLeadCreationStatusHtml(
+          'Lead criado. Atualizando o vínculo...',
+          'success',
+        )
+      }
+
+      // O backend já confirmou a criação — nunca pode voltar a mostrar o
+      // formulário/botão "Criar lead" (permitiria um segundo create do
+      // mesmo lead). Só uma reconsulta manual (RESOLVE, nunca CREATE) pode
+      // sair daqui — ver retryLeadLinkAfterCreation().
+      if (state.leadCreationStatus === 'created_unresolved') {
+        return `
+          <div class="yolen-lead-create-status" data-tone="warning">
+            Lead criado, mas o vínculo ainda não foi atualizado.
+          </div>
+          <button class="yolen-secondary-button" type="button" data-yolen-action="retry-lead-link">
+            Atualizar vínculo
+          </button>
+        `
+      }
+    }
+
+    if (state.leadResolutionLoading) {
       return ''
     }
 
@@ -5170,10 +5234,25 @@
       // meio-tempo, o botão simples podia reaparecer entre o pointerdown e
       // o click do vendedor, e o primeiro clique se perdia. Com uma única
       // fonte de verdade por região, isso não pode mais acontecer.
+      //
+      // conversationKey/phone/displayName são passados explicitamente —
+      // lead-automation.js NÃO decide sozinho a partir de um estado global
+      // implícito qual é "a conversa atual" (causa raiz do vazamento A→B
+      // corrigido na Frente 1B): a única fonte de verdade é o state deste
+      // arquivo, no instante exato deste render.
       const formHtml =
         window.YolenCompanionLeadAutomation
           ?.buildCreateLeadFormHtml
-          ?.()
+          ?.({
+            conversationKey: state.conversationKey,
+            phone: state.conversationPhone,
+            displayName: state.conversationTitle,
+            errorMessage:
+              creationBelongsToCurrentConversation &&
+              state.leadCreationStatus === 'error'
+                ? state.leadCreationError
+                : null,
+          })
 
       if (formHtml) {
         return formHtml
@@ -5633,41 +5712,6 @@
       'stateful'
     )
   }
-
-  // TEMP-DIAG-FASE12A — instrumentação temporária, somente console,
-  // somente booleanos/enums/contagens. Remover após o diagnóstico.
-  function __fase12aDiagCustomerCounts(reading) {
-    const customer = reading?.customer
-
-    if (!customer) {
-      return null
-    }
-
-    return {
-      objectives: customer.objectives?.length ?? 0,
-      problems: customer.problems?.length ?? 0,
-      needs: customer.needs?.length ?? 0,
-      interests: customer.interests?.length ?? 0,
-      objections: customer.objections?.length ?? 0,
-      discussed_products: customer.discussed_products?.length ?? 0,
-    }
-  }
-
-  let __fase12aDiagLastSignature = null
-
-  function __fase12aDiag(label, data) {
-    const signature =
-      label + '|' + JSON.stringify(data)
-
-    if (signature === __fase12aDiagLastSignature) {
-      return
-    }
-
-    __fase12aDiagLastSignature = signature
-
-    console.log('[FASE12A-DIAG]', label, data)
-  }
-  // TEMP-DIAG-FASE12A — fim do helper
 
   function getActiveCommercialReading() {
     const analysis =
@@ -9869,15 +9913,6 @@
   // persistente, registros históricos confirmados e mensagens canônicas;
   // somente o salvamento da memória consolidada continua dependendo de ação
   // explícita do vendedor (ver handleSaveLeadSummaryClick).
-  // TEMP-DIAG-LEAD-SUMMARY — instrumentação temporária para diagnosticar
-  // falhas do resumo persistente do lead (Etapa 1) sem depender de
-  // DevTools do vendedor: registra só o estágio e o código/status interno
-  // da falha, nunca o texto do resumo, conteúdo da conversa ou token.
-  // Remover quando a Etapa 1 estiver validada em produção real.
-  function __leadSummaryDiag(stage, data) {
-    console.log('[LEAD-SUMMARY-DIAG]', stage, data)
-  }
-
   async function loadCompanionLeadSummaryForCurrentCycle() {
     const cycleId =
       state.leadResolution?.cycle?.id
@@ -9931,11 +9966,6 @@
       }
 
       if (!result?.ok || !result.payload?.ok) {
-        __leadSummaryDiag('FETCH_FAILED', {
-          status_code: result?.statusCode ?? null,
-          code: result?.payload?.code ?? null,
-        })
-
         state = {
           ...state,
           companionLeadSummary: {
@@ -9972,10 +10002,6 @@
       if (!isStillCurrentContext()) {
         return
       }
-
-      __leadSummaryDiag('FETCH_EXCEPTION', {
-        error_name: error instanceof Error ? error.name : 'unknown',
-      })
 
       state = {
         ...state,
@@ -10033,10 +10059,6 @@
       }
 
       if (result?.payload?.code === 'LEAD_SUMMARY_VERSION_CONFLICT') {
-        __leadSummaryDiag('SAVE_CONFLICT', {
-          status_code: result?.statusCode ?? null,
-        })
-
         state = {
           ...state,
           companionLeadSummarySaveStatus: 'conflict',
@@ -10048,11 +10070,6 @@
       }
 
       if (!result?.ok || !result.payload?.ok) {
-        __leadSummaryDiag('SAVE_FAILED', {
-          status_code: result?.statusCode ?? null,
-          code: result?.payload?.code ?? null,
-        })
-
         state = {
           ...state,
           companionLeadSummarySaveStatus: 'error',
@@ -10097,10 +10114,6 @@
 
       renderPanel()
     } catch (error) {
-      __leadSummaryDiag('SAVE_EXCEPTION', {
-        error_name: error instanceof Error ? error.name : 'unknown',
-      })
-
       state = {
         ...state,
         companionLeadSummarySaveStatus: 'error',
@@ -10193,16 +10206,6 @@
         .suggestionApplyResult &&
       !isCurrentAnalysisOutdated()
 
-    // TEMP-DIAG-FASE12A
-    __fase12aDiag('AGORA', {
-      branch: richEligible ? 'rich' : 'legacy',
-      conversationAnalysis_engine_source:
-        state.conversationAnalysis?.engine_source ?? null,
-      has_commercial_reading: Boolean(commercialReading),
-      commercial_relevance: commercialReading?.commercial_relevance ?? null,
-      commercial_role: commercialReading?.commercial_role ?? null,
-    })
-
     if (richEligible) {
       return (
         getRichCommercialReadingCardHtml(
@@ -10225,21 +10228,6 @@
       !state.conversationAnalysisLoading &&
       !state.conversationAnalysisError &&
       !isCurrentAnalysisOutdated()
-
-    // TEMP-DIAG-FASE12A
-    __fase12aDiag('ANALISE', {
-      branch: richEligible
-        ? 'rich'
-        : state.conversationAnalysisLoading
-          ? 'loading'
-          : state.conversationAnalysisError
-            ? 'error'
-            : isCurrentAnalysisOutdated()
-              ? 'outdated'
-              : 'empty-progressive',
-      has_commercial_reading: Boolean(commercialReading),
-      deep_analysis_status: state.deepAnalysisStatus ?? null,
-    })
 
     if (richEligible) {
       return `
@@ -10327,15 +10315,6 @@
     const relationshipHtml =
       getCompanionClientRelationshipCardHtml()
 
-    // TEMP-DIAG-FASE12A
-    __fase12aDiag('CLIENTE', {
-      has_commercial_reading: Boolean(commercialReading),
-      has_commercial_html: Boolean(commercialHtml),
-      has_relationship_html: Boolean(relationshipHtml),
-      customer_counts:
-        __fase12aDiagCustomerCounts(commercialReading),
-    })
-
     if (!commercialHtml && !relationshipHtml) {
       return `
         <div class="yolen-card yolen-seller-area-card">
@@ -10397,9 +10376,42 @@
     `
   }
 
+  // AGORA é a única superfície de decisão: quando há um alerta relevante
+  // (SLA, risco de atendimento, desvio de método, pergunta/objeção em
+  // aberto), ele é o item de maior prioridade visual — o mesmo sinal que já
+  // acende no rail minimizado (getCollapsedCompanionAttentionSnapshot) não
+  // pode desaparecer quando o painel é expandido. Fica quieto (string
+  // vazia) sem sinal útil; nunca duplica o diagnóstico completo, que
+  // continua exclusivo de ANÁLISE.
+  function getNowAttentionSnapshotHtml() {
+    const commercialReading =
+      getActiveCommercialReading()
+
+    const hasCurrentReading =
+      Boolean(commercialReading) &&
+      !state.conversationAnalysisLoading &&
+      !isCurrentAnalysisOutdated() &&
+      commercialReading.analysis_status === 'complete'
+
+    if (!hasCurrentReading) {
+      return ''
+    }
+
+    return sellerInformationViewTools.renderNowAttentionSnapshot(
+      commercialReading,
+      state.companionClientContext,
+      {
+        now: Date.now(),
+        cycleClosed:
+          state.leadResolution?.flags?.is_closed === true,
+      },
+    )
+  }
+
   function getSellerInformationArchitectureHtml() {
     const nowHtml =
-      getCompanionLeadSummaryCardHtml() ||
+      getNowAttentionSnapshotHtml() +
+      (getCompanionLeadSummaryCardHtml() ||
       `
         <div class="yolen-card yolen-seller-area-card yolen-status-neutral">
           <div class="yolen-section-label">Agora</div>
@@ -10407,7 +10419,7 @@
             A Yolen está preparando o resumo e a orientação desta conversa.
           </div>
         </div>
-      `
+      `)
 
     const analysisHtml =
       getDetailedAnalysisAreaHtml()
@@ -12008,6 +12020,16 @@
 
     panel
       .querySelectorAll(
+        '[data-yolen-action="retry-lead-link"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          void retryLeadLinkAfterCreation()
+        })
+      })
+
+    panel
+      .querySelectorAll(
         '[data-yolen-action="confirm-lead-enrichment"]',
       )
       .forEach((button) => {
@@ -12182,6 +12204,11 @@
     ) {
       window.YolenCompanionLeadAutomation.bindCreateLeadForm(
         panel,
+        {
+          conversationKey: state.conversationKey,
+          phone: state.conversationPhone,
+          displayName: state.conversationTitle,
+        },
       )
     }
   }
@@ -12677,6 +12704,7 @@
           .resolveLead({
             phone: phoneAtRequest,
             display_name: titleAtRequest,
+            conversation_key: keyAtRequest,
           })
 
       if (
@@ -12713,11 +12741,36 @@
         return
       }
 
+      // Fonte única de verdade para sair de um estado de criação de lead
+      // pendente (ver createLeadForCurrentConversation()/
+      // resolveAfterLeadCreation()): QUALQUER resolveCurrentLead() bem
+      // sucedido que encontre o lead fecha a pendência — não importa se
+      // foi retryLeadLinkAfterCreation(), o botão global "Atualizar" ou
+      // qualquer outro chamador legítimo desta mesma conversa. Antes,
+      // só o caminho de retryLeadLinkAfterCreation() fazia essa limpeza,
+      // então um resolve disparado pelo botão global podia deixar
+      // "Lead criado, mas o vínculo ainda não foi atualizado." preso na
+      // tela mesmo depois do vínculo já ter sido confirmado.
+      const shouldClearPendingLeadCreation =
+        result.payload.status !== 'NOT_FOUND' &&
+        state.leadCreationConversationKey === keyAtRequest &&
+        (
+          state.leadCreationStatus === 'created_resolving' ||
+          state.leadCreationStatus === 'created_unresolved'
+        )
+
       state = {
         ...state,
         leadResolutionLoading: false,
         leadResolution: result.payload,
         leadResolutionError: null,
+        ...(shouldClearPendingLeadCreation
+          ? {
+              leadCreationStatus: null,
+              leadCreationConversationKey: null,
+              leadCreationError: null,
+            }
+          : {}),
       }
 
       renderPanel()
@@ -12764,6 +12817,255 @@
         keyAtRequest,
       )
     }
+  }
+
+  const LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS =
+    [400, 900, 1600]
+
+  // Depois de um CREATE_LEAD confirmado, o vínculo pode ainda não estar
+  // visível na primeira consulta (eventual consistency) — poucas
+  // tentativas curtas com backoff, nunca polling agressivo/indefinido
+  // (ver TESTE 3 e TESTE 7 da Frente 1B). A cada tentativa valida de novo
+  // se a conversa/telefone ainda são os mesmos de quando o create foi
+  // disparado: se o vendedor já trocou de conversa, para silenciosamente
+  // sem tocar em nada da UI atual (ver TESTE 5/TESTE 6). Se uma tentativa
+  // coincidir com outra resolução da mesma conversa já em voo (guard de
+  // resolveCurrentLead()), ela vira um no-op silencioso — o pedido não se
+  // perde porque a PRÓXIMA tentativa deste laço tenta de novo pouco
+  // depois (ver TESTE 2); não precisamos de uma fila própria dentro de
+  // resolveCurrentLead() só para isso.
+  async function resolveAfterLeadCreation(
+    conversationKeyAtCreate,
+    phoneAtCreate,
+  ) {
+    const stillCurrent = () =>
+      state.conversationKey === conversationKeyAtCreate &&
+      state.conversationPhone === phoneAtCreate
+
+    for (
+      let attempt = 0;
+      attempt <= LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS.length;
+      attempt += 1
+    ) {
+      if (!stillCurrent()) {
+        return
+      }
+
+      await resolveCurrentLead()
+
+      if (!stillCurrent()) {
+        return
+      }
+
+      if (
+        state.leadResolution &&
+        state.leadResolution.status !== 'NOT_FOUND'
+      ) {
+        state = {
+          ...state,
+          leadCreationStatus: null,
+          leadCreationConversationKey: null,
+          leadCreationError: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (attempt < LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS.length) {
+        await sleep(
+          LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS[attempt],
+        )
+      }
+    }
+
+    // Tentativas esgotadas: o backend já confirmou a criação (senão nunca
+    // teríamos chegado aqui) — isso NUNCA pode voltar a ser um estado de
+    // "erro de criação" genérico, porque 'error' também é usado para um
+    // CREATE que falhou de verdade (ver createLeadForCurrentConversation),
+    // e esse caso reabre o formulário com o botão "Criar lead" habilitado
+    // de propósito. Aqui o lead já existe no backend: reabrir o formulário
+    // permitiria um SEGUNDO create depois de um primeiro já confirmado —
+    // proibido. 'created_unresolved' é um estado à parte, sem permissão
+    // de criar de novo: só uma reconsulta manual (ver
+    // retryLeadLinkAfterCreation()) pode sair dele.
+    if (stillCurrent()) {
+      state = {
+        ...state,
+        leadCreationStatus: 'created_unresolved',
+        leadCreationConversationKey: conversationKeyAtCreate,
+        leadCreationError: null,
+      }
+
+      renderPanel()
+    }
+  }
+
+  // Clique em "Atualizar vínculo" a partir do estado created_unresolved —
+  // dispara só uma reconsulta (RESOLVE), nunca um novo CREATE. Se o
+  // vínculo aparecer, sai do estado pendente; se continuar NOT_FOUND, o
+  // vendedor continua vendo "Lead criado, mas o vínculo ainda não foi
+  // atualizado." sem nenhum formulário de criação reaparecer.
+  async function retryLeadLinkAfterCreation() {
+    // resolveCurrentLead() já é a fonte única de verdade para sair de
+    // created_unresolved (ver o bloco de sucesso lá dentro) — dispara
+    // sempre a MESMA reconsulta que o botão global "Atualizar" dispara,
+    // sem lógica própria duplicada aqui.
+    await resolveCurrentLead()
+  }
+
+  // Fonte única de verdade para criar um lead a partir do formulário de
+  // "Novo contato": chamado por lead-automation.js via
+  // window.YolenCompanionLeadCreationBridge, nunca por clique sintético em
+  // [data-yolen-action="refresh"] (ver causa raiz do BLOCKER da Frente
+  // 1B). conversationKey/phone recebidos são os que estavam vinculados ao
+  // FORMULÁRIO no momento do clique — comparados aqui contra o state atual
+  // antes de qualquer efeito colateral, e de novo depois do POST, porque o
+  // vendedor pode trocar de conversa a qualquer momento durante o create.
+  async function createLeadForCurrentConversation(payload) {
+    const {
+      name,
+      phone,
+      email,
+      document,
+      conversationKey,
+    } = payload || {}
+
+    if (
+      !conversationKey ||
+      conversationKey !== state.conversationKey ||
+      !phone ||
+      phone !== state.conversationPhone
+    ) {
+      return {
+        ok: false,
+        code: 'conversation_changed',
+      }
+    }
+
+    if (leadCreationInFlightKeys.has(conversationKey)) {
+      return {
+        ok: false,
+        code: 'already_in_flight',
+      }
+    }
+
+    leadCreationInFlightKeys.add(conversationKey)
+
+    state = {
+      ...state,
+      leadCreationStatus: 'creating',
+      leadCreationConversationKey: conversationKey,
+      leadCreationError: null,
+    }
+
+    renderPanel()
+
+    const stillCurrent = () =>
+      state.conversationKey === conversationKey &&
+      state.conversationPhone === phone
+
+    try {
+      const result =
+        await window.YolenCompanionApi.createLead({
+          name,
+          phone,
+          email: email || null,
+          cpf_cnpj: document || null,
+        })
+
+      if (!stillCurrent()) {
+        // A conversa já mudou — o resultado deste create pertence à
+        // conversa anterior e não pode alterar a UI da conversa atual.
+        return { ok: true, applied: false }
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        const code =
+          result?.payload?.code ||
+          result?.payload?.status
+
+        if (
+          code === 'active_lead_conflict' ||
+          code === 'concurrent_create_conflict'
+        ) {
+          state = {
+            ...state,
+            leadCreationStatus: 'created_resolving',
+            leadCreationError: null,
+          }
+
+          renderPanel()
+
+          await resolveAfterLeadCreation(
+            conversationKey,
+            phone,
+          )
+
+          return { ok: true, applied: true, code }
+        }
+
+        state = {
+          ...state,
+          leadCreationStatus: 'error',
+          leadCreationConversationKey: conversationKey,
+          leadCreationError:
+            result?.payload?.error ||
+            'Não foi possível criar o lead.',
+        }
+
+        renderPanel()
+
+        return {
+          ok: false,
+          applied: true,
+          error: state.leadCreationError,
+        }
+      }
+
+      state = {
+        ...state,
+        leadCreationStatus: 'created_resolving',
+        leadCreationError: null,
+      }
+
+      renderPanel()
+
+      await resolveAfterLeadCreation(
+        conversationKey,
+        phone,
+      )
+
+      return { ok: true, applied: true }
+    } catch (error) {
+      if (!stillCurrent()) {
+        return { ok: true, applied: false }
+      }
+
+      state = {
+        ...state,
+        leadCreationStatus: 'error',
+        leadCreationConversationKey: conversationKey,
+        leadCreationError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao criar lead na Yolen.',
+      }
+
+      renderPanel()
+
+      return {
+        ok: false,
+        applied: true,
+        error: state.leadCreationError,
+      }
+    } finally {
+      leadCreationInFlightKeys.delete(conversationKey)
+    }
+  }
+
+  window.YolenCompanionLeadCreationBridge = {
+    createLead: createLeadForCurrentConversation,
   }
 
   function createActionTelemetryInteractionId() {
@@ -13171,21 +13473,6 @@
       }
 
       if (data.status === 'succeeded') {
-        // TEMP-DIAG-FASE12A
-        __fase12aDiag('deep-succeeded', {
-          engine_source: data.result?.engine_source ?? null,
-          commercial_relevance:
-            data.result?.commercial_relevance ?? null,
-          commercial_role:
-            data.result?.commercial_role ?? null,
-          has_commercial_reading:
-            Boolean(data.result?.commercial_reading),
-          customer_counts:
-            __fase12aDiagCustomerCounts(
-              data.result?.commercial_reading,
-            ),
-        })
-
         activeAnalysisAttempt = null
 
         state = {
@@ -13207,9 +13494,6 @@
       }
 
       if (data.status === 'superseded') {
-        // TEMP-DIAG-FASE12A
-        __fase12aDiag('deep-superseded', {})
-
         // Um job mais novo para a MESMA conversa já assumiu o lugar deste
         // job específico — mas, como o V2 é o único motor, não existe mais
         // nenhum resultado já aplicado por baixo para sustentar a UI: sem
@@ -13229,11 +13513,6 @@
         renderPanel()
         return
       }
-
-      // TEMP-DIAG-FASE12A
-      __fase12aDiag('deep-failed-or-unknown-status', {
-        status: data.status ?? null,
-      })
 
       activeAnalysisAttempt = null
 
@@ -13528,22 +13807,6 @@
       )
 
       renderPanel()
-
-      // TEMP-DIAG-FASE12A
-      __fase12aDiag('quick-response', {
-        engine_source:
-          result.payload.data.engine_source ?? null,
-        has_deep_analysis:
-          Boolean(result.payload.data.deep_analysis),
-        deep_analysis_status:
-          result.payload.data.deep_analysis?.status ?? null,
-        deep_analysis_job_id_prefix:
-          result.payload.data.deep_analysis?.analysis_job_id
-            ? String(
-                result.payload.data.deep_analysis.analysis_job_id,
-              ).slice(0, 8)
-            : null,
-      })
 
       const deepAnalysisJob =
         result.payload.data.deep_analysis

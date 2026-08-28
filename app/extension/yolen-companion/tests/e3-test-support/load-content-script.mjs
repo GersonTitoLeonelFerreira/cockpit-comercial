@@ -215,7 +215,18 @@ function createFakeBackground({
     }),
     RESOLVE_LEAD: async (payload) => {
       const phoneDigits = String(payload?.phone ?? '').replace(/\D/g, '')
-      const resolution = resolutionsByPhone[phoneDigits] ?? defaultLeadResolution({ phone: phoneDigits })
+      const configured = resolutionsByPhone[phoneDigits]
+      // Mesmo padrão de clientContextResult/leadSummaryResult: um valor
+      // estático (como antes) ou uma função `(payload) => resolution`
+      // (podendo devolver uma Promise) — usada pelos testes de isolamento
+      // de conversa/criação de lead da Frente 1B para simular respostas
+      // que mudam entre chamadas (ex.: NOT_FOUND na primeira consulta,
+      // OWNED_BY_ME depois do CREATE) ou uma resolução deliberadamente
+      // presa em voo até o teste liberar.
+      const resolution =
+        typeof configured === 'function'
+          ? await configured(payload)
+          : (configured ?? defaultLeadResolution({ phone: phoneDigits }))
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
