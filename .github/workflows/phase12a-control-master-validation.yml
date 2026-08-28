@@ -1,104 +1,128 @@
 name: FASE 12A Control Master Validation
 
 on:
-  push:
-    branches:
-      - 'validation/phase12a-control-master-gates'
   pull_request:
     branches:
       - 'validation/phase12a-control-master-gates'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   combined-gate:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_REF: ${{ github.head_ref }}
+      CANDIDATE_SHA: 39e724b0fbe87c3dd2f0432b437d6183ed7ac705
+      BASE_SHA: 369bccbc2da091b6a464f24d9ecea4f1e63cd123
     steps:
-      - name: Checkout candidate snapshot
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Run controlled FASE 12A gates
+      - name: Run and persist FASE 12A gates
         shell: bash
         run: |
           set +e
-          mkdir -p validation-artifacts
+          ROOT="$RUNNER_TEMP/phase12a"
+          REPO_DIR="$ROOT/repo"
+          RESULT_DIR="$ROOT/results"
+          mkdir -p "$ROOT" "$RESULT_DIR"
 
-          BASE=369bccbc2da091b6a464f24d9ecea4f1e63cd123
+          echo "runner_node=$(node --version 2>&1)" > "$RESULT_DIR/runner.txt"
+          echo "runner_npm=$(npm --version 2>&1)" >> "$RESULT_DIR/runner.txt"
+          echo "candidate=$CANDIDATE_SHA" >> "$RESULT_DIR/runner.txt"
+          echo "base=$BASE_SHA" >> "$RESULT_DIR/runner.txt"
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "$REPO_DIR" > "$RESULT_DIR/git-clone.log" 2>&1
+          CLONE_CODE=$?
+          echo "$CLONE_CODE" > "$RESULT_DIR/git-clone.exit"
+
+          if [ "$CLONE_CODE" -eq 0 ]; then
+            cd "$REPO_DIR"
+            git fetch origin "$CANDIDATE_SHA" --depth=1 > "$RESULT_DIR/git-fetch-candidate.log" 2>&1
+            FETCH_CODE=$?
+            echo "$FETCH_CODE" > "$RESULT_DIR/git-fetch-candidate.exit"
+            if [ "$FETCH_CODE" -eq 0 ]; then
+              git checkout --detach "$CANDIDATE_SHA" > "$RESULT_DIR/git-checkout-candidate.log" 2>&1
+            fi
+          fi
 
           run_gate() {
             NAME="$1"
             shift
             echo "===== $NAME ====="
-            bash -lc "$*" > "validation-artifacts/$NAME.log" 2>&1
+            bash -lc "$*" > "$RESULT_DIR/$NAME.log" 2>&1
             CODE=$?
-            echo "$CODE" > "validation-artifacts/$NAME.exit"
-            cat "validation-artifacts/$NAME.log"
+            echo "$CODE" > "$RESULT_DIR/$NAME.exit"
+            tail -n 80 "$RESULT_DIR/$NAME.log" || true
             echo "===== $NAME EXIT $CODE ====="
             return 0
           }
 
-          git diff --name-only "$BASE" HEAD > validation-artifacts/changed-files.txt
-          git log --oneline --decorate --graph "$BASE"..HEAD > validation-artifacts/integration-log.txt
+          if [ "$CLONE_CODE" -eq 0 ] && [ "${FETCH_CODE:-1}" -eq 0 ]; then
+            cd "$REPO_DIR"
 
-          run_gate npm-ci "npm ci"
-          run_gate diff-check "git diff --check $BASE HEAD"
+            git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" > "$RESULT_DIR/changed-files.txt"
+            git log --oneline --decorate --graph "$BASE_SHA".."$CANDIDATE_SHA" > "$RESULT_DIR/integration-log.txt"
 
-          run_gate test-companion "npm run test:companion"
+            run_gate npm-ci "npm ci"
+            run_gate diff-check "git diff --check $BASE_SHA $CANDIDATE_SHA"
+            run_gate test-companion "npm run test:companion"
+            run_gate typescript "npx tsc --noEmit -p ."
 
-          run_gate typescript "npx tsc --noEmit -p ."
+            CHANGED_LINTABLES="$(git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- '*.ts' '*.tsx' '*.js' '*.mjs' | tr '\n' ' ')"
+            if [ -n "$CHANGED_LINTABLES" ]; then
+              run_gate eslint "npx eslint $CHANGED_LINTABLES"
+            else
+              echo 0 > "$RESULT_DIR/eslint.exit"
+              echo "No lintable changed files." > "$RESULT_DIR/eslint.log"
+            fi
 
-          CHANGED_LINTABLES="$(git diff --name-only "$BASE" HEAD -- '*.ts' '*.tsx' '*.js' '*.mjs' | tr '\n' ' ')"
-          if [ -n "$CHANGED_LINTABLES" ]; then
-            run_gate eslint "npx eslint $CHANGED_LINTABLES"
-          else
-            echo 0 > validation-artifacts/eslint.exit
-            echo "No lintable changed files." > validation-artifacts/eslint.log
-          fi
+            run_gate f1b-isolation-16 "node --test app/extension/yolen-companion/tests/e3-dom/content-script-dom-lead-create-conversation-isolation.test.mjs"
+            run_gate f1b-lead-automation-10 "node --test app/extension/yolen-companion/tests/lead-automation-flow.test.mjs"
 
-          run_gate f1b-isolation-16 "node --test app/extension/yolen-companion/tests/e3-dom/content-script-dom-lead-create-conversation-isolation.test.mjs"
-          run_gate f1b-lead-automation-10 "node --test app/extension/yolen-companion/tests/lead-automation-flow.test.mjs"
+            run_gate f2b-directed "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/api/ai/apply-suggestion/route.test.mjs app/api/companion/apply-suggestion/route.test.mjs app/extension/yolen-companion/tests/content-script-apply-suggestion-confirmation.test.mjs app/extension/yolen-companion/tests/content-script-deletion-reason.test.mjs app/extension/yolen-companion/tests/message-mutations.test.mjs app/lib/companion/lead-seller-guidance-stage-continuity.test.mjs app/lib/server/companion-method-stage-store.test.mjs app/lib/companion/durable-memory-seed.test.mjs app/lib/companion/capture-ingestion.test.mjs app/lib/companion/phase12a-background-concurrency.test.mjs"
+            run_gate f2b-db-contracts "node --test supabase/phase-tests/phase-12b-message-deletion-reason.test.mjs supabase/phase-tests/phase-12b-method-stage-state.test.mjs"
 
-          run_gate f2b-directed "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/api/ai/apply-suggestion/route.test.mjs app/api/companion/apply-suggestion/route.test.mjs app/extension/yolen-companion/tests/content-script-apply-suggestion-confirmation.test.mjs app/extension/yolen-companion/tests/content-script-deletion-reason.test.mjs app/extension/yolen-companion/tests/message-mutations.test.mjs app/lib/companion/lead-seller-guidance-stage-continuity.test.mjs app/lib/server/companion-method-stage-store.test.mjs app/lib/companion/durable-memory-seed.test.mjs app/lib/companion/capture-ingestion.test.mjs app/lib/companion/phase12a-background-concurrency.test.mjs"
-          run_gate f2b-db-contracts "node --test supabase/phase-tests/phase-12b-message-deletion-reason.test.mjs supabase/phase-tests/phase-12b-method-stage-state.test.mjs"
+            run_gate f3-commercial-method "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/admin/configuracao-comercial/*.test.mjs app/lib/commercial-config/*.test.mjs app/lib/server/commercial-method-*.test.mjs"
 
-          run_gate f3-commercial-method "node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/admin/configuracao-comercial/*.test.mjs app/lib/commercial-config/*.test.mjs app/lib/server/commercial-method-*.test.mjs"
+            run_gate e3-dom "node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs"
 
-          run_gate e3-dom "node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs"
+            run_gate build-extension "node app/extension/yolen-companion/scripts/build-package.mjs"
+            run_gate validate-release-candidate "node app/extension/yolen-companion/scripts/validate-release-candidate.mjs"
 
-          run_gate build-extension "node app/extension/yolen-companion/scripts/build-package.mjs"
-          run_gate validate-release-candidate "node app/extension/yolen-companion/scripts/validate-release-candidate.mjs"
-
-          if [ -f dist/yolen-companion/build-summary.json ]; then
-            cp dist/yolen-companion/build-summary.json validation-artifacts/build-summary.json
-          fi
-          if [ -f dist/yolen-companion/release-candidate-report.json ]; then
-            cp dist/yolen-companion/release-candidate-report.json validation-artifacts/release-candidate-report.json
+            if [ -f dist/yolen-companion/build-summary.json ]; then
+              cp dist/yolen-companion/build-summary.json "$RESULT_DIR/build-summary.json"
+            fi
+            if [ -f dist/yolen-companion/release-candidate-report.json ]; then
+              cp dist/yolen-companion/release-candidate-report.json "$RESULT_DIR/release-candidate-report.json"
+            fi
           fi
 
           {
             echo "FASE 12A gate exit codes"
-            for f in validation-artifacts/*.exit; do
-              printf "%s=" "$(basename "$f" .exit)"
-              cat "$f"
+            for file in "$RESULT_DIR"/*.exit; do
+              [ -e "$file" ] || continue
+              printf "%s=" "$(basename "$file" .exit)"
+              cat "$file"
             done
-          } | tee validation-artifacts/summary.txt
+          } > "$RESULT_DIR/summary.txt"
+
+          if [ "$CLONE_CODE" -eq 0 ]; then
+            cd "$REPO_DIR"
+            git fetch origin "$HEAD_REF" > "$RESULT_DIR/git-fetch-head.log" 2>&1
+            git switch -C validation-evidence "origin/$HEAD_REF" > "$RESULT_DIR/git-switch-evidence.log" 2>&1
+            rm -rf validation-results/latest
+            mkdir -p validation-results/latest
+            cp -R "$RESULT_DIR"/. validation-results/latest/
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add validation-results/latest
+            git commit -m "chore(validation): attach FASE 12A gate evidence [skip ci]" > "$RESULT_DIR/git-commit-evidence.log" 2>&1
+            COMMIT_CODE=$?
+            echo "$COMMIT_CODE" > "$RESULT_DIR/git-commit-evidence.exit"
+            if [ "$COMMIT_CODE" -eq 0 ]; then
+              git push origin HEAD:"$HEAD_REF" > "$RESULT_DIR/git-push-evidence.log" 2>&1
+            fi
+          fi
 
           exit 0
-
-      - name: Upload validation evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase12a-control-master-validation
-          path: validation-artifacts/
-          retention-days: 14
-          if-no-files-found: error
