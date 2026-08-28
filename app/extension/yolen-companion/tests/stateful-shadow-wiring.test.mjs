@@ -108,36 +108,49 @@ test(
 )
 
 test(
-  'shadow continua usando after',
+  // Fase 12A — V2 como único motor: não existe mais modo 'shadow' nem
+  // 'v1' no Companion, nem o hook after() de auditoria silenciosa que
+  // dependia de já ter um resultado V1 calculado por baixo.
+  'Companion não tem mais shadow/after nem gate de statefulRouteMode',
   () => {
-    assert.match(
+    assert.doesNotMatch(
       analyzeRoute,
-      /statefulRouteMode ===\s*'shadow'[\s\S]*after\(async \(\) => \{/,
+      /after\(async \(\) => \{/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       analyzeRoute,
       /stateful_shadow_completed/,
+    )
+
+    assert.doesNotMatch(
+      analyzeRoute,
+      /statefulRouteMode/,
+    )
+
+    assert.doesNotMatch(
+      analyzeRoute,
+      /statefulActiveBackgroundRequested/,
     )
   },
 )
 
 test(
-  'active usa Queue e não after para V2 profundo',
+  'toda chamada usa a Queue do V2 sem chamar V1 — sem gate de modo/engine',
   () => {
     assert.match(
       analyzeRoute,
-      /statefulActiveBackgroundRequested[\s\S]*await send\(/,
+      /await send\(/,
     )
 
-    const afterOccurrences =
-      analyzeRoute.match(
-        /after\(async \(\) => \{/g,
-      ) ?? []
+    assert.doesNotMatch(
+      analyzeRoute,
+      /analyzeConversationWithCopilotDetailed/,
+    )
 
-    assert.equal(
-      afterOccurrences.length,
-      1,
+    assert.doesNotMatch(
+      analyzeRoute,
+      /generateSalesCoaching/,
     )
   },
 )

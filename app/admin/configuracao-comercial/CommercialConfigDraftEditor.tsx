@@ -3,7 +3,6 @@
 import * as React from 'react'
 
 import CommercialFactsEditor from './CommercialFactsEditor'
-import CommercialMethodStepsEditor from './CommercialMethodStepsEditor'
 import CommercialObjectionGuidesEditor from './CommercialObjectionGuidesEditor'
 import CommercialProductProfilesEditor from './CommercialProductProfilesEditor'
 import {
@@ -334,6 +333,70 @@ function SectionHeader({
   )
 }
 
+// A Guided Commercial Method Journey é o único caminho oficial para criar
+// ou reconstruir o método comercial (ver seção 16/17). Este editor avançado
+// continua existindo para produtos, fatos, objeções e diretrizes — mas o
+// método aparece aqui apenas em modo leitura, com um link de volta para a
+// jornada guiada, em vez do formulário manual antigo.
+function MethodReadOnlySummary({
+  methodName,
+  methodDescription,
+  stageCount,
+}: {
+  methodName: string
+  methodDescription: string
+  stageCount: number
+}) {
+  return (
+    <section>
+      <SectionHeader
+        eyebrow="Método comercial"
+        title="O método é criado pela Jornada Guiada"
+        description="Para preservar um único caminho de criação e publicação, o método comercial não é mais editado por aqui. Use a Jornada Guiada para criar ou revisar o método e publique a partir de lá."
+      />
+
+      <div
+        style={{
+          background: DS.surfaceBg,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radius,
+          marginTop: 16,
+          padding: 16,
+        }}
+      >
+        {methodName ? (
+          <>
+            <FieldLabel>Método atual</FieldLabel>
+            <div style={{ color: DS.textPrimary, fontSize: 14, fontWeight: 800 }}>
+              {methodName}
+            </div>
+            {methodDescription && (
+              <div style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.6, marginTop: 6 }}>
+                {methodDescription}
+              </div>
+            )}
+            {stageCount > 0 && (
+              <div style={{ color: DS.textMuted, fontSize: 10, marginTop: 8 }}>
+                {stageCount} {stageCount === 1 ? 'etapa configurada' : 'etapas configuradas'}
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ color: DS.textMuted, fontSize: 12 }}>
+            Nenhum método comercial foi publicado ainda.
+          </div>
+        )}
+      </div>
+
+      <FieldHelp>
+        As mudanças feitas aqui em produtos, fatos, objeções e diretrizes são salvas e
+        publicadas normalmente — apenas o método é gerido exclusivamente pela Jornada
+        Guiada, em Método Comercial.
+      </FieldHelp>
+    </section>
+  )
+}
+
 export default function CommercialConfigDraftEditor({
   workspace,
   onSaved,
@@ -389,23 +452,6 @@ export default function CommercialConfigDraftEditor({
     setDraft((current) => ({
       ...current,
       [field]: value,
-    }))
-
-    setDirty(true)
-    setFeedback(null)
-  }
-
-  const updateMethodSection = (
-    nextValue: Pick<
-      CommercialConfigDraftInput,
-      | 'commercial_method_name'
-      | 'commercial_method_description'
-      | 'method_steps'
-    >,
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      ...nextValue,
     }))
 
     setDirty(true)
@@ -877,18 +923,13 @@ export default function CommercialConfigDraftEditor({
           }}
         />
 
-<CommercialMethodStepsEditor
-          key={`${draft.config_version_id ?? 'new'}:${
-            workspace.draft?.version.updated_at ?? 'local'
-          }`}
-          value={{
-            commercial_method_name:
-              draft.commercial_method_name,
-            commercial_method_description:
-              draft.commercial_method_description,
-            method_steps: draft.method_steps,
-          }}
-          onChange={updateMethodSection}
+<MethodReadOnlySummary
+          methodName={draft.commercial_method_name}
+          methodDescription={draft.commercial_method_description}
+          stageCount={
+            draft.commercial_method_definition?.stages.length ??
+            draft.method_steps.length
+          }
         />
 
         <div

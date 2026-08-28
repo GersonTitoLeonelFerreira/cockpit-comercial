@@ -76,6 +76,15 @@ function getAnalyzeButton(document) {
   )
 }
 
+function getAnalysisErrorText(document) {
+  return (
+    getPanel(document)
+      ?.querySelector('[data-yolen-analysis-error]')
+      ?.textContent
+      ?.trim() ?? null
+  )
+}
+
 function getDeepAnalysisStatusText(document) {
   return (
     getPanel(document)
@@ -292,8 +301,13 @@ function deepOutput(overrides = {}) {
   }
 }
 
+// Fase 12A — V2 como único motor: a resposta rápida real para uma empresa
+// no modo 'active' nunca inclui suggestion/coaching (V1) junto com
+// deep_analysis — o servidor retorna direto para a chamada V1 quando o
+// job em segundo plano existe. `summary` é mantido como parâmetro só para
+// compatibilidade dos testes que ainda o passam; não aparece mais na
+// resposta rápida.
 function analysisResultWithDeepJob({
-  summary,
   analysisJobId,
   deepStatus = 'queued',
   watermark = 'wm-1',
@@ -301,13 +315,6 @@ function analysisResultWithDeepJob({
   return {
     ok: true,
     data: {
-      engine_source: 'v1',
-      suggestion: {
-        summary,
-        recommended_status: 'contato',
-        tags: [],
-      },
-      coaching: {},
       deep_analysis: {
         analysis_job_id: analysisJobId,
         status: deepStatus,
@@ -329,7 +336,7 @@ function succeededStatus(result, watermark = 'wm-1') {
   }
 }
 
-test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', async () => {
+test('queued → succeeded: sem V1, painel fica em loading até o V2 concluir e então aplica o resultado', async () => {
   const { document, calls } = loadContentScript({
     initialHtml: pageHtmlFor({
       headerTitle: CONVERSATION_A_TITLE,
@@ -341,7 +348,6 @@ test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', as
       [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
     },
     analysisResult: analysisResultWithDeepJob({
-      summary: 'RESUMO RAPIDO A',
       analysisJobId: 'a'.repeat(64),
     }),
     analysisJobStatusResult: succeededStatus(deepOutput()),
@@ -352,8 +358,16 @@ test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', as
   )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
+  // Fase 12A — V2 como único motor: a resposta rápida não trouxe nenhuma
+  // suggestion V1 (a fixture não tem esse campo) — o painel precisa
+  // continuar em "Analisando" até o job do V2 resolver.
   await waitFor(
     () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
+  )
+  assert.equal(getAnalysisErrorText(document), null)
+  assert.match(
+    getPanel(document)?.textContent ?? '',
+    /Analisando/,
   )
 
   await waitFor(
@@ -361,6 +375,15 @@ test('queued → succeeded mantém V1 imediato e entrega deep seller-facing', as
       getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:') &&
       getDeepAnalysisStatusText(document)?.includes('Consigo 10% no plano anual'),
     { timeoutMs: 8000 },
+  )
+
+  // O sucesso do V2 é quem tira o painel do loading e aplica o resultado
+  // único — sem V1 concorrente, sem promoção de um resultado sobre outro.
+  assert.equal(getAnalysisErrorText(document), null)
+  assert.ok(getAnalyzeButton(document))
+  assert.doesNotMatch(
+    getAnalyzeButton(document)?.textContent ?? '',
+    /Tentar novamente/,
   )
 
   assert.ok(analysisJobStatusCalls(calls).length >= 1)
@@ -461,6 +484,20 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
   await waitFor(
     () => getDeepAnalysisStatusText(document)?.includes('Falha na análise aprofundada'),
     { timeoutMs: 8000 },
+  )
+
+  // Fase 12A — V2 como único motor: sem V1 por baixo, uma falha do V2 tem
+  // que virar erro explícito de primeiro nível com retry disponível — não
+  // pode ficar só como um indicador secundário na aba ANÁLISE enquanto o
+  // resto do painel finge que está tudo bem.
+  await waitFor(() => getAnalysisErrorText(document) !== null)
+  assert.match(
+    getAnalysisErrorText(document) ?? '',
+    /Não foi possível concluir a leitura comercial da Yolen\. Tente novamente\./,
+  )
+  assert.ok(
+    getAnalyzeButton(document),
+    'retry deveria estar disponível depois de uma falha do V2',
   )
 
   const panelHtml = getPanel(document)?.innerHTML ?? ''
@@ -792,4 +829,255 @@ test('non-commercial deep substitui atomicamente mensagem/CTA comercial antigo',
   const panelText = getPanel(document)?.textContent ?? ''
   assert.doesNotMatch(panelText, /CTA ANTIGO NÃO PODE SOBREVIVER/)
   assert.doesNotMatch(panelText, /MENSAGEM V1 ANTIGA NÃO PODE SOBREVIVER/)
+})
+
+// ---------------------------------------------------------------------------
+// Fase 12A — wiring da memória comercial persistente (CLIENTE) a partir do
+// deep result. CLIENTE = memória persistente, AGORA = momento atual: uma
+// sessão non_commercial/uncertain não pode esconder memória já conhecida.
+// ---------------------------------------------------------------------------
+
+function clickSellerArea(document, area) {
+  document
+    .querySelector(`[data-yolen-seller-area="${area}"]`)
+    ?.dispatchEvent(
+      new document.defaultView.Event('click', { bubbles: true }),
+    )
+}
+
+function getSellerPanelText(document, area) {
+  return (
+    document
+      .querySelector(`[data-yolen-seller-panel="${area}"]`)
+      ?.textContent ?? ''
+  )
+}
+
+async function openSellerPanel(document, area) {
+  clickSellerArea(document, area)
+
+  await waitFor(
+    () =>
+      !document.querySelector(`[data-yolen-seller-panel="${area}"]`)?.hidden,
+  )
+}
+
+function preservedMemoryDeepOutput() {
+  const baseReading = deepReading('non_commercial')
+
+  return deepOutput({
+    commercial_relevance: 'non_commercial',
+    commercial_role: 'unknown',
+    summary: 'Cliente mandou apenas "Bom dia" — sem retomada explícita da proposta anterior.',
+    recommended_next_approach:
+      'Confirmar com o cliente se ele ainda quer retomar a proposta anterior.',
+    recommended_question: null,
+    suggested_message: null,
+    commercial_reading: {
+      ...baseReading,
+      customer: {
+        ...baseReading.customer,
+        needs: [
+          evidence('Cliente busca reduzir leads sem retorno.'),
+        ],
+      },
+    },
+  })
+}
+
+test('non_commercial atual preserva memória do CLIENTE e mantém AGORA neutro', async () => {
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Bom dia',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      summary: 'RESUMO RAPIDO A',
+      analysisJobId: 'a'.repeat(64),
+    }),
+    analysisJobStatusResult: succeededStatus(
+      preservedMemoryDeepOutput(),
+    ),
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await waitFor(
+    () =>
+      getDeepAnalysisStatusText(document)?.includes(
+        'nenhuma intervenção comercial necessária',
+      ),
+    { timeoutMs: 8000 },
+  )
+
+  // AGORA (área "now") continua neutro — nenhuma ação comercial inventada
+  // a partir de uma mensagem neutra.
+  await openSellerPanel(document, 'now')
+  const nowText = getSellerPanelText(document, 'now')
+  assert.match(nowText, /Conversa sem evidência comercial relevante/)
+  assert.ok(
+    document.querySelector('[data-yolen-now-neutral]'),
+    'card "Agora" deveria estar marcado como neutro',
+  )
+
+  // CLIENTE continua mostrando a inteligência comercial já consolidada,
+  // mesmo com a sessão atual sendo non_commercial.
+  await openSellerPanel(document, 'client')
+  const clientText = getSellerPanelText(document, 'client')
+  assert.match(clientText, /Cliente busca reduzir leads sem retorno/)
+})
+
+test('deep succeeded sem commercial_reading válido não é usado — CLIENTE não inventa conteúdo', async () => {
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      summary: 'RESUMO RAPIDO A',
+      analysisJobId: 'a'.repeat(64),
+    }),
+    analysisJobStatusResult: {
+      ok: true,
+      data: {
+        analysis_job_id: 'a'.repeat(64),
+        status: 'succeeded',
+        message_watermark: 'wm-1',
+        result: {
+          contract_version: 'phase12a-deep-seller-v1',
+          engine_source: 'stateful',
+          commercial_relevance: 'commercial',
+          commercial_role: 'buyer',
+          summary: 'Resumo profundo sem leitura comercial anexada.',
+          recommended_next_approach: 'Aprofundar descoberta.',
+          recommended_question: null,
+          suggested_message: null,
+          // commercial_reading ausente/malformado de propósito.
+        },
+      },
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await waitFor(
+    () =>
+      getDeepAnalysisStatusText(document) ===
+      'Análise aprofundada em andamento',
+  )
+
+  // yolen-api.js (promoteDeepSellerResult) rejeita esse payload como
+  // INVALID_DEEP_SELLER_RESULT por faltar commercial_reading — o poller
+  // trata isso como falha transitória e continua tentando (mesmo payload
+  // inválido a cada tick), nunca promovendo engine_source para 'stateful'.
+  // CLIENTE precisa continuar sem inventar conteúdo enquanto isso.
+  await new Promise((resolve) => setTimeout(resolve, 2500))
+
+  assert.equal(
+    getDeepAnalysisStatusText(document),
+    'Análise aprofundada em andamento',
+  )
+
+  // CLIENTE nunca inventa memória comercial a partir de um payload
+  // inválido — o card de relacionamento (dado real, não-comercial, vindo
+  // do fixture do lead) pode continuar aparecendo normalmente; o que não
+  // pode aparecer é conteúdo comercial fabricado a partir do deep result.
+  await openSellerPanel(document, 'client')
+  const clientText = getSellerPanelText(document, 'client')
+  assert.doesNotMatch(
+    clientText,
+    /Resumo profundo sem leitura comercial anexada/,
+  )
+  assert.doesNotMatch(clientText, /Aprofundar descoberta/)
+})
+
+test('troca de conversa após deep succeeded — memória do CLIENTE de A nunca aparece em B', async () => {
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Quero entender melhor a solução e o impacto no follow-up.',
+    }),
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+      [PHONE_B]: leadResolutionFor(CYCLE_B, PHONE_B),
+    },
+    analysisResult: async (requestPayload) => {
+      if (requestPayload.cycle_id === CYCLE_A) {
+        return analysisResultWithDeepJob({
+          summary: 'RESUMO RAPIDO A',
+          analysisJobId: 'a'.repeat(64),
+        })
+      }
+
+      return {
+        ok: true,
+        data: {
+          engine_source: 'v1',
+          suggestion: {
+            summary: 'RESUMO RAPIDO B',
+            recommended_status: 'contato',
+            tags: [],
+          },
+          coaching: {},
+        },
+      }
+    },
+    analysisJobStatusResult: succeededStatus(deepOutput()),
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+  const resolveLeadCountAfterA = resolveLeadCalls(calls).length
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+  await waitFor(
+    () => getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:'),
+    { timeoutMs: 8000 },
+  )
+
+  await openSellerPanel(document, 'client')
+  assert.match(
+    getSellerPanelText(document, 'client'),
+    /Necessidade profunda/,
+  )
+
+  await goToConversationB({
+    document,
+    calls,
+    resolveLeadCountBefore: resolveLeadCountAfterA,
+    title: CONVERSATION_B_TITLE,
+    messageId: 'msg-b1',
+    prePlainText: '[11:00, 21/08/2026] Cliente B: ',
+    text: 'Bom dia, preciso de ajuda para agendar uma visita.',
+  })
+
+  assert.equal(getDeepAnalysisStatusText(document), null)
+
+  const panelHtml = getPanel(document)?.innerHTML ?? ''
+  assert.doesNotMatch(panelHtml, /Necessidade profunda/)
+
+  await openSellerPanel(document, 'client')
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'client'),
+    /Necessidade profunda/,
+  )
 })

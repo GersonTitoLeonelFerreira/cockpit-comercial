@@ -5,14 +5,16 @@
 // `node:module`'s `register()`, dentro de cada arquivo de teste que
 // precisa importar um `route.ts` de verdade.
 //
-// Resolve dois casos que o loader compartilhado (scripts/typescript-test-loader.mjs)
+// Resolve três casos que o loader compartilhado (scripts/typescript-test-loader.mjs)
 // não cobre, porque nenhum teste existente antes da E2 importava um
-// `route.ts` (que usa `next/server`) nem um import de VALOR (não-tipo) a
-// partir do alias `@/...`:
+// `route.ts` (que usa `next/server`/`next/headers`) nem um import de
+// VALOR (não-tipo) a partir do alias `@/...`:
 //   1. `next/server` (specifier "bare", sem extensão) -> `next/server.js`
 //      (o pacote não declara "exports" no package.json, então a
 //      resolução ESM padrão não tenta adicionar a extensão sozinha).
-//   2. `@/<caminho>` -> arquivo real em `<raiz-do-repo>/<caminho>`,
+//   2. `next/headers` (mesmo motivo) -> `next/headers.js` — usado por
+//      rotas com autenticação via cookie (ex.: app/api/ai/apply-suggestion).
+//   3. `@/<caminho>` -> arquivo real em `<raiz-do-repo>/<caminho>`,
 //      espelhando o alias `paths: {"@/*": ["./*"]}` do tsconfig.json,
 //      com a mesma tentativa de extensão (.ts/.tsx/index.ts/index.tsx)
 //      já usada pelo loader compartilhado para especificadores relativos.
@@ -70,6 +72,10 @@ function normalizeAliasSpecifier(specifier) {
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === 'next/server') {
     return nextResolve('next/server.js', context)
+  }
+
+  if (specifier === 'next/headers') {
+    return nextResolve('next/headers.js', context)
   }
 
   const aliasSpecifier =

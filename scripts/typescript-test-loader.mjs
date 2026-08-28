@@ -11,11 +11,64 @@ function isModuleNotFoundError(error) {
   )
 }
 
+async function resolveCandidates(
+  candidates,
+  context,
+  nextResolve,
+) {
+  let lastError = null
+
+  for (const candidate of candidates) {
+    try {
+      return await nextResolve(
+        candidate,
+        context,
+      )
+    } catch (candidateError) {
+      if (
+        !isModuleNotFoundError(
+          candidateError,
+        )
+      ) {
+        throw candidateError
+      }
+      lastError = candidateError
+    }
+  }
+
+  throw lastError
+}
+
 export async function resolve(
   specifier,
   context,
   nextResolve,
 ) {
+  if (specifier.startsWith('@/')) {
+    const projectRelative = specifier.slice(2)
+    const baseUrl = new URL(
+      `../${projectRelative}`,
+      import.meta.url,
+    ).href
+    const alreadyHasExtension =
+      /\.[a-z0-9]+$/i.test(specifier)
+
+    const candidates = alreadyHasExtension
+      ? [baseUrl]
+      : [
+          `${baseUrl}.ts`,
+          `${baseUrl}.tsx`,
+          `${baseUrl}/index.ts`,
+          `${baseUrl}/index.tsx`,
+        ]
+
+    return resolveCandidates(
+      candidates,
+      context,
+      nextResolve,
+    )
+  }
+
   try {
     return await nextResolve(
       specifier,
@@ -47,24 +100,11 @@ export async function resolve(
       `${specifier}/index.tsx`,
     ]
 
-    for (const candidate of candidates) {
-      try {
-        return await nextResolve(
-          candidate,
-          context,
-        )
-      } catch (candidateError) {
-        if (
-          !isModuleNotFoundError(
-            candidateError,
-          )
-        ) {
-          throw candidateError
-        }
-      }
-    }
-
-    throw error
+    return resolveCandidates(
+      candidates,
+      context,
+      nextResolve,
+    )
   }
 }
 

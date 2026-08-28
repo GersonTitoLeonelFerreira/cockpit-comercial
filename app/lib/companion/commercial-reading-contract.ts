@@ -3753,6 +3753,18 @@ function neutralizeNonActionableReading(
       ? 'Conversa sem evidência comercial relevante para este ciclo.'
       : 'Momento atual sem relevância comercial confirmada.'
 
+  /*
+   * Regra de produto (Fase 12A): CLIENTE = memória comercial persistente,
+   * AGORA/ANÁLISE = leitura do ciclo atual. Um ciclo atual non_commercial
+   * ou uncertain neutraliza a leitura do MOMENTO (abaixo), mas nunca pode
+   * apagar `reading.customer` — ele já chega aqui derivado
+   * deterministicamente do estado persistido
+   * (buildCommercialReadingCustomerFromState, a partir de candidate_state),
+   * não de uma reinterpretação do ciclo atual. Por isso `customer` é
+   * mantido via `...reading` e não é reescrito neste objeto: se não havia
+   * memória anterior, `reading.customer` já chega vazio por conta própria
+   * (nada aqui inventa conteúdo); se havia, ela sobrevive ao ciclo neutro.
+   */
   return {
     ...reading,
 
@@ -3773,31 +3785,6 @@ function neutralizeNonActionableReading(
       },
       last_customer_request_or_decision:
         null,
-    },
-
-    customer: {
-      objectives: [],
-      problems: [],
-      impacts: [],
-      needs: [],
-      interests: [],
-      decision_criteria: [],
-      preferences: [],
-      open_questions: [],
-      objections: [],
-      uncertainties: [],
-      discussed_products: [],
-      primary_product_interest:
-        null,
-      competitors: [],
-      commitments: [],
-      missing_discovery: [],
-      resolved_information: [],
-      superseded_information: [],
-      communication: {
-        events: [],
-        patterns: [],
-      },
     },
 
     commercial_evolution:

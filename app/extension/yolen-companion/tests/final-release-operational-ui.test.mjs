@@ -62,7 +62,12 @@ test(
   () => {
     assert.match(
       contentScript,
-      /Momento atual/,
+      /Resumo/,
+    )
+
+    assert.match(
+      contentScript,
+      /Leitura da Yolen/,
     )
 
     assert.match(

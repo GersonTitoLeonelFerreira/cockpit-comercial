@@ -1,17 +1,10 @@
-import { createHash, createHmac, timingSafeEqual } from 'crypto'
+import { createHash } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-type CompanionRole = 'admin' | 'manager' | 'member'
-type MessageAction = 'copied' | 'inserted' | 'sent'
+import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 
-type CompanionTokenPayload = {
-  sub: string
-  company_id: string
-  role: CompanionRole
-  iat: number
-  exp: number
-}
+type MessageAction = 'copied' | 'inserted' | 'sent'
 
 type RegisterMessageActionBody = {
   cycle_id?: unknown
@@ -90,77 +83,6 @@ function getCorsHeaders(request: Request) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     Vary: 'Origin',
   }
-}
-
-function getTokenSecret() {
-  const secret =
-    process.env.COMPANION_TOKEN_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!secret) {
-    throw new Error(
-      'ENV faltando: COMPANION_TOKEN_SECRET, SUPABASE_SERVICE_ROLE_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY.',
-    )
-  }
-
-  return secret
-}
-
-function decodeBase64UrlJson<T>(value: string): T {
-  const json = Buffer.from(value, 'base64url').toString('utf8')
-  return JSON.parse(json) as T
-}
-
-function signPayload(encodedPayload: string) {
-  return createHmac('sha256', getTokenSecret())
-    .update(encodedPayload)
-    .digest('base64url')
-}
-
-function safeCompare(a: string, b: string) {
-  const aBuffer = Buffer.from(a)
-  const bBuffer = Buffer.from(b)
-
-  if (aBuffer.length !== bBuffer.length) {
-    return false
-  }
-
-  return timingSafeEqual(aBuffer, bBuffer)
-}
-
-function verifyCompanionToken(request: Request): CompanionTokenPayload | null {
-  const authorization = request.headers.get('authorization') ?? ''
-
-  if (!authorization.startsWith('Bearer ')) {
-    return null
-  }
-
-  const token = authorization.replace('Bearer ', '').trim()
-  const [encodedPayload, signature] = token.split('.')
-
-  if (!encodedPayload || !signature) {
-    return null
-  }
-
-  const expectedSignature = signPayload(encodedPayload)
-
-  if (!safeCompare(signature, expectedSignature)) {
-    return null
-  }
-
-  const payload = decodeBase64UrlJson<CompanionTokenPayload>(encodedPayload)
-  const now = Math.floor(Date.now() / 1000)
-
-  if (!payload.sub || !payload.company_id || !payload.role || !payload.exp) {
-    return null
-  }
-
-  if (payload.exp <= now) {
-    return null
-  }
-
-  return payload
 }
 
 function getString(value: unknown) {
@@ -311,7 +233,7 @@ export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request)
 
   try {
-    const tokenPayload = verifyCompanionToken(request)
+    const tokenPayload = verifyCompanionRequestToken(request)
 
     if (!tokenPayload) {
       return NextResponse.json<RegisterMessageActionResponse>(

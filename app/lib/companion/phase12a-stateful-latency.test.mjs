@@ -40,6 +40,15 @@ const salesCopilotSource =
     'utf8',
   )
 
+const salesCoachingSource =
+  readFileSync(
+    new URL(
+      '../ai/sales-coaching.ts',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
 test(
   'guardrail stateful padrão permanece em 25s',
   () => {
@@ -61,26 +70,52 @@ test(
 )
 
 test(
-  'first value active limita V1 a 8s',
+  // Fase 12A — V2 stateful como único motor: o Companion nunca mais chama
+  // V1 (analyzeConversationWithCopilotDetailed/generateSalesCoaching),
+  // nem tem gate de modo escolhendo entre engines — toda chamada cria o
+  // job em segundo plano do V2. sales-copilot.ts/sales-coaching.ts (V1)
+  // continuam intactos e com teto (AbortSignal.timeout) porque ainda
+  // servem /api/ai/analyze-conversation, fora do Companion.
+  'Companion nunca chama V1 — nem sugestão nem coaching, nem gate de modo',
   () => {
-    assert.match(
+    assert.doesNotMatch(
       routeSource,
-      /providerTimeoutMs:\s*statefulActiveBackgroundRequested\s*\?\s*8_000\s*:\s*undefined/,
+      /analyzeConversationWithCopilotDetailed/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /generateSalesCoaching/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /generateCompanionCoachingOrFallback/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /statefulRouteMode/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /statefulActiveBackgroundRequested/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /engine_source:\s*'v1'/,
     )
 
     assert.match(
       salesCopilotSource,
       /AbortSignal\.timeout\(\s*providerTimeoutMs/,
     )
-  },
-)
 
-test(
-  'first value active evita segunda IA de coaching',
-  () => {
     assert.match(
-      routeSource,
-      /statefulActiveBackgroundRequested\s*\?\s*buildCompanionCoaching/,
+      salesCoachingSource,
+      /AbortSignal\.timeout\(\s*providerTimeoutMs/,
     )
   },
 )

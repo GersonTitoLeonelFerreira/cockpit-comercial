@@ -1585,6 +1585,147 @@ test(
 )
 
 test(
+  'J: suggested_message com valor/percentual não sustentado pelo estado ou catálogo é rejeitada',
+  async () => {
+    const output =
+      buildCommunicationOutput({
+        suggestedMessage:
+          'Vou te garantir 50% de desconto se você fechar hoje.',
+      })
+
+    const error =
+      await executeTwiceExpectingFailure({
+        output,
+      })
+
+    assert.equal(
+      error.code,
+      'INVALID_COMMUNICATION_OUTPUT',
+    )
+
+    assert.equal(
+      error.details
+        .communication_failure_path,
+      'communication.suggested_message',
+    )
+
+    assert.equal(
+      error.details
+        .communication_failure_invariant,
+      'UNSUPPORTED_PROTECTED_FACT',
+    )
+  },
+)
+
+test(
+  'K: recommended_question com valor não sustentado é rejeitada mesmo com suggested_message limpa',
+  async () => {
+    const output =
+      buildCommunicationOutput({
+        recommendedQuestion:
+          'Posso confirmar o agendamento para as 14h30?',
+
+        suggestedMessage:
+          null,
+
+        interventionNeeded:
+          true,
+      })
+
+    const error =
+      await executeTwiceExpectingFailure({
+        output,
+      })
+
+    assert.equal(
+      error.code,
+      'INVALID_COMMUNICATION_OUTPUT',
+    )
+
+    assert.equal(
+      error.details
+        .communication_failure_path,
+      'communication.recommended_question',
+    )
+
+    assert.equal(
+      error.details
+        .communication_failure_invariant,
+      'UNSUPPORTED_PROTECTED_FACT',
+    )
+  },
+)
+
+test(
+  'L: valor citado na mensagem é aceito quando já está sustentado pelo estado comercial acumulado',
+  async () => {
+    const candidateState =
+      buildCandidateState({
+        facts: [
+          {
+            id:
+              'fact-price-1',
+
+            kind:
+              'client.commercial.decision_criteria',
+
+            value:
+              'Cliente foi informado do valor de R$ 300 mensais.',
+
+            memory_status:
+              'active',
+
+            confidence:
+              'high',
+
+            evidence_message_ids: [
+              'm2',
+            ],
+
+            created_at:
+              '2026-08-06T15:30:00-03:00',
+
+            updated_at:
+              '2026-08-06T15:30:00-03:00',
+          },
+        ],
+      })
+
+    const output =
+      buildCommunicationOutput({
+        suggestedMessage:
+          'Como conversamos, o valor é R$ 300 mensais.',
+      })
+
+    const plan =
+      buildPlan({
+        candidateState,
+      })
+
+    const provider =
+      createProvider([
+        structuredClone(
+          output,
+        ),
+      ])
+
+    const result =
+      await executeStatefulCommunicationPlan({
+        plan,
+
+        provider:
+          provider.provider,
+      })
+
+    assert.equal(
+      result.output
+        .suggested_message,
+      'Como conversamos, o valor é R$ 300 mensais.',
+    )
+  },
+)
+
+test(
   'campos derivados reproduzem papel relevância completude CRM Agenda e referências validados',
   async () => {
     const plan =

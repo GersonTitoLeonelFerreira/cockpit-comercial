@@ -20,6 +20,8 @@ const normalizationContext = {
     'm8',
   ],
 
+  pending_audio_message_ids: [],
+
   available_products: [],
 
   previous_communication_observations: [],
@@ -155,6 +157,7 @@ function buildValidOutput() {
 
       needs_to_add: [],
       need_ids_to_resolve: [],
+      need_ids_to_supersede: [],
 
       open_loops_to_add: [
         {
@@ -171,6 +174,7 @@ function buildValidOutput() {
       ],
 
       open_loop_ids_to_resolve: [],
+      open_loop_ids_to_supersede: [],
 
       objections_to_add: [],
       objection_ids_to_resolve: [],
@@ -215,6 +219,7 @@ function buildValidOutput() {
       ],
 
       uncertainty_ids_to_resolve: [],
+      uncertainty_ids_to_supersede: [],
     },
 
     strategy: {
@@ -428,6 +433,30 @@ test(
           normalizationContext,
         ),
       'UNKNOWN_EVIDENCE',
+    )
+  },
+)
+
+test(
+  'rejeita evidência que aponta para áudio ainda sem transcrição',
+  () => {
+    const candidate =
+      buildValidOutput()
+
+    const contextWithPendingAudio = {
+      ...normalizationContext,
+      pending_audio_message_ids: [
+        'm8',
+      ],
+    }
+
+    expectContractError(
+      () =>
+        normalizeStatefulCopilotOutput(
+          candidate,
+          contextWithPendingAudio,
+        ),
+      'AUDIO_EVIDENCE_NOT_TRANSCRIBED',
     )
   },
 )

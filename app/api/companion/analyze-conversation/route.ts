@@ -1,37 +1,18 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
-import { after, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { send } from '@vercel/queue'
 
-import { analyzeConversationWithCopilotDetailed } from '@/app/lib/ai/sales-copilot'
-import { generateSalesCoaching } from '@/app/lib/ai/sales-coaching'
-import {
-  resolveStatefulCopilotActivationGate,
-} from '@/app/lib/companion/stateful-copilot-activation-gate'
-import {
-  resolveStatefulCopilotRouteMode,
-  type StatefulCopilotRouteMode,
-} from '@/app/lib/companion/stateful-copilot-route-mode'
-import {
-  createStatefulCopilotServerRuntimeOrchestrator,
-} from '@/app/lib/server/stateful-copilot-runtime-orchestrator'
 import {
   STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
   buildStatefulCopilotBackgroundJobDescriptor,
   buildStatefulCopilotBackgroundJobMessage,
   isStatefulCopilotBackgroundJobStatus,
 } from '@/app/lib/server/stateful-copilot-background-job'
-import {
-  selectStructuredMessageBatch,
-  shouldForceReanalysis,
-} from '@/app/lib/companion/message-selection'
-import type { AICoaching } from '@/app/types/ai-coaching'
 import type {
   AISalesContext,
   AISalesRecentEvent,
-  AISalesSuggestion,
-  AnalyzeConversationResponse,
-  ConversationSource,
+  CompanionStatefulOnlyAnalyzeResponse,
 } from '@/app/types/ai-sales'
 import type { LeadStatus } from '@/app/types/sales_cycles'
 
@@ -52,13 +33,8 @@ type AnalyzeCompanionBody = {
   conversation_text?: unknown
   messages?: unknown
   source?: unknown
-  audio_count?: unknown
-  force_reanalysis?: unknown
   message_snapshot_hash?: unknown
 }
-
-const runStatefulCopilotRuntime =
-  createStatefulCopilotServerRuntimeOrchestrator()
 
 type CompanionMessageDirection =
   | 'incoming'
@@ -76,86 +52,7 @@ type CompanionMessage = {
   audio_transcription: string | null
 }
 
-type CompanionMessageCursor = {
-  has_cursor: boolean
-  last_message_timestamp_ms: number
-  last_message_id: string | null
-  processed_message_ids: string[]
-}
-
-
 type JsonRecord = Record<string, unknown>
-
-type CompanionQueryError = {
-  message?: string
-}
-
-type SavedCompanionCoaching = {
-  id: string
-  occurred_at: string
-  reused?: boolean
-  incremental?: boolean
-  analyzed_character_count?: number
-  audio_count?: number
-  has_audio_without_transcription?: boolean
-}
-
-type InsertResult = {
-  error: CompanionQueryError | null
-}
-
-type InsertSingleResult = {
-  data: JsonRecord | null
-  error: CompanionQueryError | null
-}
-
-type InsertSelectBuilder = {
-  single: () => PromiseLike<InsertSingleResult>
-}
-
-type InsertBuilder = PromiseLike<InsertResult> & {
-  select: (columns: string) => InsertSelectBuilder
-}
-
-type CompanionWriteTable = {
-  insert: (values: JsonRecord) => InsertBuilder
-}
-
-type CompanionWriteClient = {
-  from: (table: 'ai_coaching_notes' | 'cycle_events') => CompanionWriteTable
-}
-
-
-type ExistingCoachingQueryResult = {
-  data: JsonRecord | null
-  error: CompanionQueryError | null
-}
-
-type ExistingCoachingQueryBuilder = {
-  eq: (column: string, value: string) => ExistingCoachingQueryBuilder
-  order: (
-    column: string,
-    options?: {
-      ascending?: boolean
-    },
-  ) => ExistingCoachingQueryBuilder
-  limit: (count: number) => ExistingCoachingQueryBuilder
-  maybeSingle: () => PromiseLike<ExistingCoachingQueryResult>
-}
-
-type ExistingCoachingTable = {
-  select: (columns: string) => ExistingCoachingQueryBuilder
-}
-
-
-type CompanionReadClient = {
-  from: (table: 'ai_coaching_notes') => ExistingCoachingTable
-}
-
-type ExistingCompanionCoaching = SavedCompanionCoaching & {
-  yolenDecision: JsonRecord | null
-  coaching: JsonRecord | null
-}
 
 function getCorsHeaders(request: Request) {
   const origin = request.headers.get('origin') ?? ''
@@ -197,10 +94,6 @@ function isLeadStatus(value: unknown): value is LeadStatus {
     value === 'ganho' ||
     value === 'perdido'
   )
-}
-
-function isConversationSource(value: unknown): value is ConversationSource {
-  return value === 'whatsapp' || value === 'phone_summary' || value === 'notes'
 }
 
 function getTokenSecret() {
@@ -296,113 +189,8 @@ function getRecord(value: unknown) {
   return isRecord(value) ? value : null
 }
 
-function getStringArray(value: unknown) {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value.filter((item): item is string => typeof item === 'string')
-}
-
-
 function getNumber(value: unknown) {
   return typeof value === 'number' ? value : undefined
-}
-
-
-function getAudioCount(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.floor(value))
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value)
-
-    if (Number.isFinite(parsed)) {
-      return Math.max(0, Math.floor(parsed))
-    }
-  }
-
-  return 0
-}
-
-function getStatefulActivationAudit(
-  companyId: string,
-) {
-  try {
-    const activation =
-      resolveStatefulCopilotActivationGate({
-        company_id:
-          companyId,
-      })
-
-    return {
-      mode:
-        activation.mode,
-      reason:
-        activation.reason,
-      engine_version:
-        activation.engine_version,
-      enabled:
-        activation.enabled,
-      should_execute_stateful:
-        activation
-          .should_execute_stateful,
-      should_persist_stateful_state:
-        activation
-          .should_persist_stateful_state,
-    }
-  } catch {
-    return {
-      mode:
-        'invalid',
-      reason:
-        'activation_gate_error',
-      engine_version:
-        null,
-      enabled:
-        false,
-      should_execute_stateful:
-        false,
-      should_persist_stateful_state:
-        false,
-    }
-  }
-}
-
-function getStatefulRouteMode(
-  companyId: string,
-): StatefulCopilotRouteMode {
-  try {
-    const activation =
-      resolveStatefulCopilotActivationGate({
-        company_id:
-          companyId,
-      })
-
-    return resolveStatefulCopilotRouteMode(
-      activation,
-    )
-  } catch {
-    return 'v1'
-  }
-}
-
-function getCompanionRecordFromDecision(value: unknown) {
-  const decision = getRecord(value)
-
-  return getRecord(decision?.companion)
-}
-
-function getCompanionAudioCount(value: unknown) {
-  return getAudioCount(getCompanionRecordFromDecision(value)?.audio_count)
-}
-
-function hasCompanionAudioWithoutTranscription(value: unknown) {
-  const companion = getCompanionRecordFromDecision(value)
-  const audioCount = getAudioCount(companion?.audio_count)
-
-  return audioCount > 0 && companion?.audio_transcribed !== true
 }
 
 function cleanCompanionMessageText(
@@ -541,167 +329,6 @@ function cleanCompanionMessages(
     .slice(-300)
 }
 
-function buildStructuredConversationText(
-  messages: CompanionMessage[],
-) {
-  return messages
-    .map((message) => {
-      const actor =
-        message.direction ===
-        'outgoing'
-          ? 'Vendedor'
-          : 'Lead'
-
-      const parts: string[] = []
-
-      if (message.text) {
-        parts.push(message.text)
-      }
-
-      if (
-        message.audio_transcription
-      ) {
-        parts.push(
-          `[Áudio transcrito: ${message.audio_transcription}]`,
-        )
-      } else if (message.has_audio) {
-        parts.push(
-          '[Áudio ainda sem transcrição]',
-        )
-      }
-
-      if (parts.length === 0) {
-        return null
-      }
-
-      return `[${message.timestamp_label}] ${actor}: ${parts.join(
-        ' ',
-      )}`
-    })
-    .filter(
-      (line): line is string =>
-        Boolean(line),
-    )
-    .join('\n')
-    .trim()
-    .slice(0, 24000)
-}
-
-function getMessageCursorFromDecision(
-  value: unknown,
-): CompanionMessageCursor {
-  const companion =
-    getCompanionRecordFromDecision(value)
-
-  const processedMessageIds =
-    getStringArray(
-      companion?.processed_message_ids,
-    )
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .slice(-500)
-
-  const lastTimestamp =
-    getNumber(
-      companion
-        ?.last_message_timestamp_ms,
-    ) || 0
-
-  const lastMessageId =
-    getNullableString(
-      companion?.last_message_id,
-    )
-
-  return {
-    has_cursor:
-      companion
-        ?.message_cursor_version ===
-        1 ||
-      lastTimestamp > 0 ||
-      processedMessageIds.length > 0,
-    last_message_timestamp_ms:
-      lastTimestamp,
-    last_message_id: lastMessageId,
-    processed_message_ids:
-      processedMessageIds,
-  }
-}
-
-function getMessageSnapshotHashFromDecision(
-  value: unknown,
-) {
-  const companion =
-    getCompanionRecordFromDecision(value)
-
-  return getNullableString(
-    companion?.message_snapshot_hash,
-  )
-}
-
-function buildNextMessageCursor({
-  latestDecision,
-  messageBatch,
-}: {
-  latestDecision: JsonRecord | null
-  messageBatch: CompanionMessage[]
-}) {
-  const previousCursor =
-    getMessageCursorFromDecision(
-      latestDecision,
-    )
-
-  const mergedIds =
-    Array.from(
-      new Set([
-        ...previousCursor
-          .processed_message_ids,
-        ...messageBatch.map(
-          (message) => message.id,
-        ),
-      ]),
-    ).slice(-500)
-
-  const latestBatchMessage =
-    messageBatch.at(-1) || null
-
-  const lastTimestamp =
-    Math.max(
-      previousCursor
-        .last_message_timestamp_ms,
-      latestBatchMessage
-        ?.timestamp_ms || 0,
-    )
-
-  const lastMessageId =
-    latestBatchMessage &&
-    latestBatchMessage
-      .timestamp_ms >=
-      previousCursor
-        .last_message_timestamp_ms
-      ? latestBatchMessage.id
-      : previousCursor.last_message_id
-
-  return {
-    has_cursor:
-      previousCursor.has_cursor ||
-      messageBatch.length > 0,
-    processed_message_ids:
-      mergedIds,
-    last_message_timestamp_ms:
-      lastTimestamp,
-    last_message_id:
-      lastMessageId,
-  }
-}
-
-function getSuggestionSource(value: unknown): AISalesSuggestion['source'] {
-  if (value === 'ai' || value === 'fallback' || value === 'yolen') {
-    return value
-  }
-
-  return 'fallback'
-}
-
 function getNestedString(record: JsonRecord, paths: string[][]) {
   for (const path of paths) {
     let current: unknown = record
@@ -730,7 +357,6 @@ function normalizeEventMetadata(value: unknown): JsonRecord {
 function buildConversationHash(conversationText: string) {
   return createHash('sha256').update(conversationText).digest('hex')
 }
-
 
 function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
   const metadata = normalizeEventMetadata(event.metadata)
@@ -806,478 +432,6 @@ function mapRecentEvent(event: JsonRecord): AISalesRecentEvent | null {
   }
 }
 
-function buildResponseCoaching(value: unknown) {
-  const coaching = getRecord(value)
-
-  if (!coaching) {
-    return {
-      recommended_next_approach: null,
-      suggested_message: null,
-    }
-  }
-
-  return {
-    recommended_next_approach: getNullableString(coaching.recommended_next_approach),
-    suggested_message: getNullableString(coaching.suggested_message),
-  }
-}
-
-async function generateCompanionCoachingOrFallback({
-  context,
-  analysisText,
-  suggestion,
-}: {
-  context: AISalesContext
-  analysisText: string
-  suggestion: AISalesSuggestion
-}): Promise<AICoaching> {
-  try {
-    return await generateSalesCoaching({
-      context,
-      conversationText: analysisText,
-      suggestion,
-    })
-  } catch {
-    return buildCompanionCoaching({
-      conversationText: analysisText,
-      suggestion,
-    })
-  }
-}
-
-
-
-function buildSuggestionFromSavedDecision(value: unknown): AISalesSuggestion | null {
-  const decision = getRecord(value)
-
-  if (!decision || !isLeadStatus(decision.recommended_status)) {
-    return null
-  }
-
-  const summary = getString(decision.summary)
-  const reason = getString(decision.reason_for_recommendation)
-
-  if (!summary || !reason) {
-    return null
-  }
-
-  return {
-    recommended_status: decision.recommended_status,
-    confidence:
-      typeof decision.confidence === 'number'
-        ? decision.confidence
-        : 0.55,
-    action_channel: getNullableString(decision.action_channel),
-    action_result: getNullableString(decision.action_result),
-    result_detail: getNullableString(decision.result_detail),
-    next_action: getNullableString(decision.next_action),
-    next_action_date: getNullableString(decision.next_action_date),
-    summary,
-    tags: getStringArray(decision.tags),
-    should_close_won: decision.should_close_won === true,
-    should_close_lost: decision.should_close_lost === true,
-    close_reason: getNullableString(decision.close_reason),
-    reason_for_recommendation: reason,
-    source: getSuggestionSource(decision.source),
-  }
-}
-
-function getCapturedTextFromDecision(value: unknown) {
-  const decision = getRecord(value)
-  const companion = getRecord(decision?.companion)
-
-  return getString(companion?.captured_text)
-}
-
-function getCapturedTailFromDecision(value: unknown) {
-  const decision = getRecord(value)
-  const companion = getRecord(decision?.companion)
-
-  return getString(companion?.captured_text_tail)
-}
-
-function extractIncrementalConversationText({
-  currentText,
-  latestDecision,
-}: {
-  currentText: string
-  latestDecision: JsonRecord | null
-}) {
-  const previousText = getCapturedTextFromDecision(latestDecision)
-  const previousTail = getCapturedTailFromDecision(latestDecision)
-
-  if (!previousText && !previousTail) {
-    return {
-      text: currentText,
-      incremental: false,
-      previous_captured_character_count: 0,
-    }
-  }
-
-  if (previousText && currentText === previousText) {
-    return {
-      text: '',
-      incremental: true,
-      previous_captured_character_count: previousText.length,
-    }
-  }
-
-  if (previousText && currentText.startsWith(previousText)) {
-    return {
-      text: currentText.slice(previousText.length).trim(),
-      incremental: true,
-      previous_captured_character_count: previousText.length,
-    }
-  }
-
-  if (previousText) {
-    const previousTextIndex = currentText.lastIndexOf(previousText)
-
-    if (previousTextIndex >= 0) {
-      return {
-        text: currentText.slice(previousTextIndex + previousText.length).trim(),
-        incremental: true,
-        previous_captured_character_count: previousText.length,
-      }
-    }
-  }
-
-  if (previousTail) {
-    const previousTailIndex = currentText.lastIndexOf(previousTail)
-
-    if (previousTailIndex >= 0) {
-      return {
-        text: currentText.slice(previousTailIndex + previousTail.length).trim(),
-        incremental: true,
-        previous_captured_character_count: previousTail.length,
-      }
-    }
-  }
-
-  return {
-    text: currentText,
-    incremental: false,
-    previous_captured_character_count: previousText?.length ?? previousTail?.length ?? 0,
-  }
-}
-
-function buildCompanionCoaching({
-  conversationText,
-  suggestion,
-}: {
-  conversationText: string
-  suggestion: {
-    summary: string
-    recommended_status: LeadStatus
-    action_result: string | null
-    result_detail: string | null
-    next_action: string | null
-    reason_for_recommendation: string
-    tags: string[]
-  }
-}) {
-  const whatWentWell = [
-    suggestion.action_result,
-    suggestion.result_detail,
-  ].filter((item): item is string => Boolean(item && item.trim()))
-
-  const whatToImprove = [
-    suggestion.next_action
-      ? `Próxima ação recomendada: ${suggestion.next_action}`
-      : null,
-    suggestion.reason_for_recommendation,
-  ].filter((item): item is string => Boolean(item && item.trim()))
-
-  const hasCommercialObjection =
-    suggestion.recommended_status === 'negociacao' ||
-    suggestion.tags.some((tag) => tag.includes('objecao'))
-
-  return {
-    conversation_summary:
-      suggestion.summary ||
-      conversationText.slice(0, 700) ||
-      'Análise gerada pelo Yolen Companion a partir da conversa do WhatsApp.',
-    customer_interests: suggestion.tags.slice(0, 6),
-    objections: hasCommercialObjection
-      ? [suggestion.result_detail || 'Objeção comercial identificada na conversa.']
-      : [],
-    what_went_well: whatWentWell.slice(0, 6),
-    what_to_improve: whatToImprove.slice(0, 6),
-    recommended_next_approach: suggestion.next_action,
-    suggested_message: null,
-  }
-}
-
-function buildYolenDecision({
-  suggestion,
-  diagnostics,
-  conversationText,
-  analysisText,
-  conversationHash,
-  incrementalAnalysis,
-  previousCoachingNoteId,
-  previousCapturedCharacterCount,
-  audioCount,
-  messageBatch,
-  latestDecision,
-  messageSnapshotHash,
-  forceReanalysis,
-  companyId,
-}: {
-  suggestion: JsonRecord
-  diagnostics: unknown
-  conversationText: string
-  analysisText: string
-  conversationHash: string
-  incrementalAnalysis: boolean
-  previousCoachingNoteId: string | null
-  previousCapturedCharacterCount: number
-  audioCount: number
-  messageBatch: CompanionMessage[]
-  latestDecision: JsonRecord | null
-  messageSnapshotHash: string | null
-  forceReanalysis: boolean
-  companyId: string
-}) {
-  const messageCursor =
-    buildNextMessageCursor({
-      latestDecision,
-      messageBatch,
-    })
-  return {
-    recommended_status: suggestion.recommended_status,
-    confidence: suggestion.confidence,
-    action_channel: suggestion.action_channel,
-    action_result: suggestion.action_result,
-    result_detail: suggestion.result_detail,
-    next_action: suggestion.next_action,
-    next_action_date: suggestion.next_action_date,
-    summary: suggestion.summary,
-    tags: suggestion.tags,
-    source: suggestion.source,
-    reason_for_recommendation: suggestion.reason_for_recommendation,
-    should_close_won: suggestion.should_close_won,
-    should_close_lost: suggestion.should_close_lost,
-    close_reason: suggestion.close_reason,
-    diagnostics,
-    companion: {
-      source: 'whatsapp_companion',
-      conversation_hash: conversationHash,
-      analysis_text_hash: buildConversationHash(analysisText),
-      captured_character_count: conversationText.length,
-      analyzed_character_count: analysisText.length,
-      incremental_analysis: incrementalAnalysis,
-      previous_coaching_note_id: previousCoachingNoteId,
-      previous_captured_character_count: previousCapturedCharacterCount,
-      captured_text: conversationText,
-      captured_text_tail: conversationText.slice(-4000),
-      analysis_text_preview: analysisText.slice(0, 4000),
-      audio_count: audioCount,
-      audio_transcribed:
-        audioCount === 0,
-      has_audio_without_transcription:
-        audioCount > 0,
-      capture_mode:
-        messageBatch.length > 0
-          ? 'structured_messages'
-          : 'legacy_text',
-      message_cursor_version:
-        messageCursor.has_cursor
-          ? 1
-          : null,
-      processed_message_ids:
-        messageCursor
-          .processed_message_ids,
-      last_message_timestamp_ms:
-        messageCursor
-          .last_message_timestamp_ms,
-      last_message_id:
-        messageCursor
-          .last_message_id,
-      message_batch_ids:
-        messageBatch.map(
-          (message) => message.id,
-        ),
-      message_count:
-        messageBatch.length,
-      message_snapshot_hash:
-        messageSnapshotHash,
-      force_reanalysis:
-        forceReanalysis,
-      stateful_activation:
-        getStatefulActivationAudit(
-          companyId,
-        ),
-      saved_without_applying: true,
-    },
-  }
-}
-
-async function findExistingCompanionCoachingNote({
-  admin,
-  tokenPayload,
-  cycleId,
-  conversationHash,
-}: {
-  admin: CompanionReadClient
-  tokenPayload: CompanionTokenPayload
-  cycleId: string
-  conversationHash: string
-}): Promise<ExistingCompanionCoaching | null> {
-  const { data, error } = await admin
-    .from('ai_coaching_notes')
-    .select('id, created_at, coaching, yolen_decision')
-    .eq('company_id', tokenPayload.company_id)
-    .eq('cycle_id', cycleId)
-    .eq('source', 'whatsapp_companion')
-    .eq('yolen_decision->companion->>conversation_hash', conversationHash)
-    .order('created_at', {
-      ascending: false,
-    })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message || 'Erro ao verificar análise já salva.')
-  }
-
-  const id = getString(data?.id)
-  const occurredAt = getString(data?.created_at)
-
-  if (!id || !occurredAt) {
-    return null
-  }
-
-  return {
-    id,
-    occurred_at: occurredAt,
-    reused: true,
-    coaching: getRecord(data?.coaching),
-    yolenDecision: getRecord(data?.yolen_decision),
-  }
-}
-
-async function findLatestCompanionCoachingNote({
-  admin,
-  tokenPayload,
-  cycleId,
-}: {
-  admin: CompanionReadClient
-  tokenPayload: CompanionTokenPayload
-  cycleId: string
-}): Promise<ExistingCompanionCoaching | null> {
-  const { data, error } = await admin
-    .from('ai_coaching_notes')
-    .select('id, created_at, coaching, yolen_decision')
-    .eq('company_id', tokenPayload.company_id)
-    .eq('cycle_id', cycleId)
-    .eq('source', 'whatsapp_companion')
-    .order('created_at', {
-      ascending: false,
-    })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(error.message || 'Erro ao verificar última análise salva.')
-  }
-
-  const id = getString(data?.id)
-  const occurredAt = getString(data?.created_at)
-
-  if (!id || !occurredAt) {
-    return null
-  }
-
-  return {
-    id,
-    occurred_at: occurredAt,
-    reused: true,
-    coaching: getRecord(data?.coaching),
-    yolenDecision: getRecord(data?.yolen_decision),
-  }
-}
-
-async function saveCompanionCoachingNote({
-  admin,
-  tokenPayload,
-  cycleId,
-  coaching,
-  yolenDecision,
-}: {
-  admin: CompanionWriteClient
-  tokenPayload: CompanionTokenPayload
-  cycleId: string
-  coaching: JsonRecord
-  yolenDecision: JsonRecord
-}): Promise<SavedCompanionCoaching> {
-  const now = new Date().toISOString()
-
-  const { data: note, error: noteError } = await admin
-    .from('ai_coaching_notes')
-    .insert({
-      company_id: tokenPayload.company_id,
-      cycle_id: cycleId,
-      created_by: tokenPayload.sub,
-      source: 'whatsapp_companion',
-      coaching,
-      yolen_decision: yolenDecision,
-      created_at: now,
-    })
-    .select('id, created_at')
-    .single()
-
-  if (noteError) {
-    throw new Error(noteError.message || 'Erro ao salvar leitura no histórico.')
-  }
-
-  const noteId = getString(note?.id)
-
-  if (!noteId) {
-    throw new Error('Leitura salva sem ID retornado.')
-  }
-
-  const occurredAt = getString(note?.created_at) || now
-  const summaryPreview = getString(coaching.conversation_summary)?.slice(0, 220) || ''
-  const companion = getRecord(yolenDecision.companion)
-  const audioCount = getAudioCount(companion?.audio_count)
-  const hasAudioWithoutTranscription =
-    audioCount > 0 && companion?.audio_transcribed !== true
-
-  const { error: eventError } = await admin.from('cycle_events').insert({
-    company_id: tokenPayload.company_id,
-    cycle_id: cycleId,
-    event_type: 'ai_coaching_saved',
-    created_by: tokenPayload.sub,
-    occurred_at: occurredAt,
-    metadata: {
-      coaching_note_id: noteId,
-      summary_preview: summaryPreview,
-      source: 'whatsapp_companion',
-      companion: {
-        saved_without_applying: true,
-        audio_count: audioCount,
-        audio_transcribed: false,
-        has_audio_without_transcription: hasAudioWithoutTranscription,
-      },
-    },
-  })
-
-  if (eventError) {
-    throw new Error(eventError.message || 'Erro ao registrar evento da leitura.')
-  }
-
-  return {
-    id: noteId,
-    occurred_at: occurredAt,
-    reused: false,
-    incremental: companion?.incremental_analysis === true,
-    analyzed_character_count: getNumber(companion?.analyzed_character_count),
-    audio_count: audioCount,
-    has_audio_without_transcription: hasAudioWithoutTranscription,
-  }
-}
-
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
     status: 204,
@@ -1285,6 +439,15 @@ export async function OPTIONS(request: Request) {
   })
 }
 
+// Fase 12A — V2 stateful como único motor seller-facing do Companion. Não
+// existe mais escolha entre V1 e V2, nem modo 'shadow'/'v1' para esta
+// rota: toda chamada cria (ou reaproveita, via idempotência do
+// message_watermark) o job em segundo plano do V2 e devolve só isso — o
+// cliente aplica o resultado quando o polling do job resolve (ver
+// startDeepAnalysisPolling em content-script.js). Se o job nem puder ser
+// criado, a resposta é um erro explícito: não existe fallback para V1
+// nesta rota. sales-copilot.ts/sales-coaching.ts (V1) continuam intactos
+// porque ainda servem /api/ai/analyze-conversation, fora do Companion.
 export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request)
 
@@ -1296,7 +459,7 @@ export async function POST(request: Request) {
     const tokenPayload = verifyCompanionToken(request)
 
     if (!tokenPayload) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'Sessão do Companion inválida ou expirada.',
@@ -1307,11 +470,6 @@ export async function POST(request: Request) {
         },
       )
     }
-
-    const statefulRouteMode =
-      getStatefulRouteMode(
-        tokenPayload.company_id,
-      )
 
     const body = (
       await request
@@ -1342,28 +500,13 @@ export async function POST(request: Request) {
         body.messages,
       )
 
-    const source =
-      isConversationSource(
-        body.source,
-      )
-        ? body.source
-        : 'whatsapp'
-
-    const audioCount =
-      getAudioCount(
-        body.audio_count,
-      )
-
-    const forceReanalysisRequested =
-      body.force_reanalysis === true
-
     const messageSnapshotHash =
       getNullableString(
         body.message_snapshot_hash,
       )?.slice(0, 200) ?? null
 
     if (!cycleId) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'cycle_id é obrigatório.',
@@ -1379,7 +522,7 @@ export async function POST(request: Request) {
       structuredMessages.length === 0 &&
       legacyConversationText.length < 15
     ) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error:
@@ -1392,11 +535,25 @@ export async function POST(request: Request) {
       )
     }
 
+    if (!conversationKey || !deviceKey) {
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+        {
+          ok: false,
+          error:
+            'Identificação da conversa ausente para a leitura comercial da Yolen.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
     if (!supabaseUrl || !serviceRoleKey) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'ENV faltando: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY.',
@@ -1415,6 +572,9 @@ export async function POST(request: Request) {
       },
     })
 
+    // Isolamento de tenant: sessão precisa pertencer a uma empresa ativa,
+    // e o ciclo precisa pertencer à mesma empresa e (fora de admin/manager)
+    // ao próprio vendedor. Nada disso muda com a remoção do V1.
     const { data: membership, error: membershipError } = await admin
       .from('company_memberships')
       .select('company_id, user_id, role, is_active')
@@ -1424,7 +584,7 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (membershipError) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: membershipError.message,
@@ -1437,7 +597,7 @@ export async function POST(request: Request) {
     }
 
     if (!membership?.company_id) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'Usuário sem vínculo ativo com a empresa do Companion.',
@@ -1459,7 +619,7 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (cycleError) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: cycleError.message,
@@ -1472,7 +632,7 @@ export async function POST(request: Request) {
     }
 
     if (!cycle?.id || !cycle.lead_id || !isLeadStatus(cycle.status)) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'Ciclo não encontrado ou sem permissão.',
@@ -1488,7 +648,7 @@ export async function POST(request: Request) {
     const isAdminOrManager = tokenPayload.role === 'admin' || tokenPayload.role === 'manager'
 
     if (!isAdminOrManager && ownerUserId !== tokenPayload.sub) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'Este ciclo não pertence à sua carteira.',
@@ -1508,7 +668,7 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (leadError) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: leadError.message,
@@ -1521,7 +681,7 @@ export async function POST(request: Request) {
     }
 
     if (!lead?.id) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: 'Lead do ciclo não encontrado.',
@@ -1544,7 +704,7 @@ export async function POST(request: Request) {
         .maybeSingle()
 
       if (groupError) {
-        return NextResponse.json<AnalyzeConversationResponse>(
+        return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
           {
             ok: false,
             error: groupError.message,
@@ -1570,7 +730,7 @@ export async function POST(request: Request) {
       .limit(12)
 
     if (eventsError) {
-      return NextResponse.json<AnalyzeConversationResponse>(
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
         {
           ok: false,
           error: eventsError.message,
@@ -1602,825 +762,189 @@ export async function POST(request: Request) {
       recent_events: recentEvents,
     }
 
-    const companionReadAdmin =
-    admin as unknown as CompanionReadClient
+    const messageWatermark =
+      messageSnapshotHash ||
+      buildConversationHash(
+        legacyConversationText ||
+          JSON.stringify(
+            structuredMessages.map((message) => message.id),
+          ),
+      )
 
-  const companionWriteAdmin =
-    admin as unknown as CompanionWriteClient
-
-  const latestSavedCoaching =
-    await findLatestCompanionCoachingNote({
-      admin:
-        companionReadAdmin,
-      tokenPayload,
-      cycleId,
-    })
-
-  const latestMessageSnapshotHash =
-    getMessageSnapshotHashFromDecision(
-      latestSavedCoaching
-        ?.yolenDecision,
-    )
-
-  const forceReanalysis =
-    shouldForceReanalysis({
-      requested:
-        forceReanalysisRequested,
-      currentSnapshotHash:
-        messageSnapshotHash,
-      previousSnapshotHash:
-        latestMessageSnapshotHash,
-    })
-
-  const structuredSelection =
-    selectStructuredMessageBatch({
-      messages:
-        structuredMessages,
-      cursor:
-        getMessageCursorFromDecision(
-          latestSavedCoaching
-            ?.yolenDecision ?? null,
-        ),
-      forceReanalysis,
-    })
-
-  const latestSuggestion =
-    buildSuggestionFromSavedDecision(
-      latestSavedCoaching
-        ?.yolenDecision,
-    )
-
-  if (
-    structuredMessages.length > 0 &&
-    structuredSelection
-      .messages.length === 0 &&
-    latestSavedCoaching &&
-    latestSuggestion
-  ) {
-    return NextResponse.json<AnalyzeConversationResponse>(
-      {
-        ok: true,
-        data: {
-          context,
-          suggestion:
-            latestSuggestion,
-          saved_coaching: {
-            id:
-              latestSavedCoaching.id,
-            occurred_at:
-              latestSavedCoaching
-                .occurred_at,
-            reused: true,
-            incremental: true,
-            analyzed_character_count:
-              0,
-            audio_count:
-              getCompanionAudioCount(
-                latestSavedCoaching
-                  .yolenDecision,
-              ),
-            has_audio_without_transcription:
-              hasCompanionAudioWithoutTranscription(
-                latestSavedCoaching
-                  .yolenDecision,
-              ),
-          },
-          coaching:
-            buildResponseCoaching(
-              latestSavedCoaching
-                .coaching,
-            ),
-        },
-      },
-      {
-        headers: corsHeaders,
-      },
-    )
-  }
-
-  const conversationText =
-    structuredMessages.length > 0
-      ? buildStructuredConversationText(
-          structuredSelection
-            .messages,
-        )
-      : legacyConversationText
-
-  if (
-    conversationText.length < 15
-  ) {
-    return NextResponse.json<AnalyzeConversationResponse>(
-      {
-        ok: false,
-        error:
-          'Não existem mensagens novas suficientes para uma nova análise.',
-      },
-      {
-        status: 400,
-        headers: corsHeaders,
-      },
-    )
-  }
-
-  const incrementalResult =
-    structuredMessages.length > 0
-      ? {
-          text:
-            conversationText,
-          incremental:
-            structuredSelection
-              .incremental,
-          previous_captured_character_count:
-            0,
-        }
-      : extractIncrementalConversationText({
-          currentText:
-            conversationText,
-          latestDecision:
-            latestSavedCoaching
-              ?.yolenDecision ??
-            null,
-        })
-
-  const analysisText =
-    incrementalResult.text
-      .trim().length >= 15
-      ? incrementalResult.text.trim()
-      : conversationText
-
-  const incrementalAnalysis =
-    structuredMessages.length > 0
-      ? structuredSelection
-          .incremental
-      : incrementalResult.text
-            .trim().length >= 15
-        ? incrementalResult
-            .incremental
-        : false
-
-  const conversationHash =
-    buildConversationHash(
-      conversationText,
-    )
-
-  const existingSavedCoaching =
-    await findExistingCompanionCoachingNote({
-      admin:
-        companionReadAdmin,
-      tokenPayload,
-      cycleId,
-      conversationHash,
-    })
-
-  const existingSuggestion =
-    buildSuggestionFromSavedDecision(
-      existingSavedCoaching
-        ?.yolenDecision,
-    )
-
-  if (
-    existingSavedCoaching &&
-    existingSuggestion
-  ) {
-    return NextResponse.json<AnalyzeConversationResponse>(
-      {
-        ok: true,
-        data: {
-          context,
-          suggestion:
-            existingSuggestion,
-          saved_coaching: {
-            id:
-              existingSavedCoaching.id,
-            occurred_at:
-              existingSavedCoaching
-                .occurred_at,
-            reused: true,
-            incremental:
-              getRecord(
-                existingSavedCoaching
-                  .yolenDecision
-                  ?.companion,
-              )
-                ?.incremental_analysis ===
-              true,
-            analyzed_character_count:
-              getNumber(
-                getRecord(
-                  existingSavedCoaching
-                    .yolenDecision
-                    ?.companion,
-                )
-                  ?.analyzed_character_count,
-              ),
-            audio_count:
-              getCompanionAudioCount(
-                existingSavedCoaching
-                  .yolenDecision,
-              ),
-            has_audio_without_transcription:
-              hasCompanionAudioWithoutTranscription(
-                existingSavedCoaching
-                  .yolenDecision,
-              ),
-          },
-          coaching:
-            buildResponseCoaching(
-              existingSavedCoaching
-                .coaching,
-            ),
-        },
-      },
-      {
-        headers: corsHeaders,
-      },
-    )
-  }
-
-    const statefulActiveBackgroundRequested =
-      statefulRouteMode ===
-      'active'
-
-    const result = await analyzeConversationWithCopilotDetailed({
-      context,
-      conversationText: analysisText,
-      source,
-      providerTimeoutMs:
-        statefulActiveBackgroundRequested
-          ? 8_000
-          : undefined,
-    })
-
-    const coaching =
-      statefulActiveBackgroundRequested
-        ? buildCompanionCoaching({
-            conversationText:
-              analysisText,
-            suggestion:
-              result.suggestion,
-          })
-        : await generateCompanionCoachingOrFallback({
-            context,
-            analysisText,
-            suggestion:
-              result.suggestion,
-          })
-
-    const yolenDecision =
-      buildYolenDecision({
-        suggestion:
-          result.suggestion as unknown as JsonRecord,
-        diagnostics:
-          result.diagnostics,
-        conversationText,
-        analysisText,
-        conversationHash,
-        incrementalAnalysis,
-        previousCoachingNoteId:
-          latestSavedCoaching
-            ?.id ?? null,
-        previousCapturedCharacterCount:
-          incrementalResult
-            .previous_captured_character_count,
-        audioCount,
-        messageBatch:
-          structuredSelection
-            .messages,
-        latestDecision:
-          latestSavedCoaching
-            ?.yolenDecision ?? null,
-        messageSnapshotHash,
-        forceReanalysis,
-        companyId:
-          tokenPayload.company_id,
+    const backgroundJob =
+      buildStatefulCopilotBackgroundJobDescriptor({
+        company_id: tokenPayload.company_id,
+        cycle_id: cycleId,
+        conversation_key: conversationKey,
+        message_watermark: messageWatermark,
+        requested_at: analysisRequestedAt,
       })
 
-    const savedCoaching = await saveCompanionCoachingNote({
-      admin: companionWriteAdmin,
-      tokenPayload,
-      cycleId,
-      coaching: coaching as unknown as JsonRecord,
-      yolenDecision,
-    })
-
-    const v1ResponseData = {
-      engine_source:
-        'v1' as const,
-
-      context,
-      suggestion:
-        result.suggestion,
-      diagnostics:
-        result.diagnostics,
-      saved_coaching:
-        savedCoaching,
-      coaching:
-        buildResponseCoaching(
-          coaching,
-        ),
-    }
-
     let deepAnalysis:
-      NonNullable<
-        AnalyzeConversationResponse[
-          'data'
-        ]
-      >['deep_analysis'] =
+      NonNullable<CompanionStatefulOnlyAnalyzeResponse['data']>['deep_analysis'] |
+        undefined =
         undefined
 
+    let shouldScheduleBackground = false
+
+    const {
+      data: insertedBackgroundJob,
+      error: insertBackgroundJobError,
+    } = await admin
+      .from('companion_background_analysis_jobs')
+      .insert({
+        analysis_job_id: backgroundJob.analysis_job_id,
+        company_id: backgroundJob.company_id,
+        cycle_id: backgroundJob.cycle_id,
+        conversation_key: backgroundJob.conversation_key,
+        message_watermark: backgroundJob.message_watermark,
+        status: 'queued',
+        requested_at: backgroundJob.requested_at,
+        automatic_crm_write: false,
+        automatic_agenda_write: false,
+      })
+      .select('analysis_job_id, status, message_watermark')
+      .single()
+
     if (
-      statefulActiveBackgroundRequested &&
-      conversationKey &&
-      deviceKey
+      !insertBackgroundJobError &&
+      insertedBackgroundJob &&
+      isStatefulCopilotBackgroundJobStatus(insertedBackgroundJob.status)
     ) {
-      const backgroundJob =
-        buildStatefulCopilotBackgroundJobDescriptor({
-          company_id:
-            tokenPayload.company_id,
+      shouldScheduleBackground = true
 
-          cycle_id:
-            cycleId,
-
-          conversation_key:
-            conversationKey,
-
-          message_watermark:
-            messageSnapshotHash ||
-            conversationHash,
-
-          requested_at:
-            analysisRequestedAt,
-        })
-
-      let shouldScheduleBackground =
-        false
-
+      deepAnalysis = {
+        analysis_job_id: String(insertedBackgroundJob.analysis_job_id),
+        status: insertedBackgroundJob.status,
+        message_watermark: String(insertedBackgroundJob.message_watermark),
+      }
+    } else if (insertBackgroundJobError?.code === '23505') {
+      // Mesma empresa/ciclo/conversa/watermark já tem um job — idempotência:
+      // reaproveita o existente em vez de duplicar trabalho.
       const {
-        data:
-          insertedBackgroundJob,
-
-        error:
-          insertBackgroundJobError,
-      } =
-        await admin
-          .from(
-            'companion_background_analysis_jobs',
-          )
-          .insert({
-            analysis_job_id:
-              backgroundJob
-                .analysis_job_id,
-
-            company_id:
-              backgroundJob
-                .company_id,
-
-            cycle_id:
-              backgroundJob
-                .cycle_id,
-
-            conversation_key:
-              backgroundJob
-                .conversation_key,
-
-            message_watermark:
-              backgroundJob
-                .message_watermark,
-
-            status:
-              'queued',
-
-            requested_at:
-              backgroundJob
-                .requested_at,
-
-            automatic_crm_write:
-              false,
-
-            automatic_agenda_write:
-              false,
-          })
-          .select(
-            'analysis_job_id, status, message_watermark',
-          )
-          .single()
+        data: existingBackgroundJob,
+        error: existingBackgroundJobError,
+      } = await admin
+        .from('companion_background_analysis_jobs')
+        .select('analysis_job_id, status, message_watermark')
+        .eq('analysis_job_id', backgroundJob.analysis_job_id)
+        .eq('company_id', backgroundJob.company_id)
+        .eq('cycle_id', backgroundJob.cycle_id)
+        .eq('conversation_key', backgroundJob.conversation_key)
+        .eq('message_watermark', backgroundJob.message_watermark)
+        .maybeSingle()
 
       if (
-        !insertBackgroundJobError &&
-        insertedBackgroundJob &&
-        isStatefulCopilotBackgroundJobStatus(
-          insertedBackgroundJob
-            .status,
-        )
+        !existingBackgroundJobError &&
+        existingBackgroundJob &&
+        isStatefulCopilotBackgroundJobStatus(existingBackgroundJob.status)
       ) {
-        shouldScheduleBackground =
-          true
+        deepAnalysis = {
+          analysis_job_id: String(existingBackgroundJob.analysis_job_id),
+          status: existingBackgroundJob.status,
+          message_watermark: String(existingBackgroundJob.message_watermark),
+        }
+      }
+    } else if (insertBackgroundJobError) {
+      console.warn(
+        'YOLEN_COMPANION_BACKGROUND_JOB',
+        JSON.stringify({
+          event: 'background_job_enqueue_failed',
+          company_id: backgroundJob.company_id,
+          cycle_id: backgroundJob.cycle_id,
+          analysis_job_id: backgroundJob.analysis_job_id,
+          database_code: insertBackgroundJobError.code ?? null,
+        }),
+      )
+    }
+
+    if (!deepAnalysis) {
+      return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
+        {
+          ok: false,
+          error:
+            'Não foi possível iniciar a leitura comercial da Yolen. Tente novamente.',
+        },
+        {
+          status: 502,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    if (shouldScheduleBackground) {
+      try {
+        await send(
+          STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
+          buildStatefulCopilotBackgroundJobMessage({
+            descriptor: backgroundJob,
+            device_key: deviceKey,
+          }),
+          {
+            idempotencyKey: backgroundJob.analysis_job_id,
+            retentionSeconds: 24 * 60 * 60,
+          },
+        )
+
+        console.info(
+          'YOLEN_COMPANION_BACKGROUND_JOB',
+          JSON.stringify({
+            event: 'background_job_published',
+            company_id: backgroundJob.company_id,
+            cycle_id: backgroundJob.cycle_id,
+            analysis_job_id: backgroundJob.analysis_job_id,
+            message_watermark: backgroundJob.message_watermark,
+          }),
+        )
+      } catch {
+        const completedAt = new Date().toISOString()
+
+        const { error: publishFailurePersistenceError } = await admin
+          .from('companion_background_analysis_jobs')
+          .update({
+            status: 'failed',
+            completed_at: completedAt,
+            updated_at: completedAt,
+            failure_code: 'QUEUE_PUBLISH_FAILED',
+            automatic_crm_write: false,
+            automatic_agenda_write: false,
+          })
+          .eq('analysis_job_id', backgroundJob.analysis_job_id)
+          .eq('company_id', backgroundJob.company_id)
+          .eq('cycle_id', backgroundJob.cycle_id)
+          .eq('conversation_key', backgroundJob.conversation_key)
+          .eq('message_watermark', backgroundJob.message_watermark)
+          .eq('status', 'queued')
 
         deepAnalysis = {
-          analysis_job_id:
-            String(
-              insertedBackgroundJob
-                .analysis_job_id,
-            ),
-
-          status:
-            insertedBackgroundJob
-              .status,
-
-          message_watermark:
-            String(
-              insertedBackgroundJob
-                .message_watermark,
-            ),
+          analysis_job_id: backgroundJob.analysis_job_id,
+          status: 'failed',
+          message_watermark: backgroundJob.message_watermark,
         }
-      } else if (
-        insertBackgroundJobError
-          ?.code ===
-          '23505'
-      ) {
-        const {
-          data:
-            existingBackgroundJob,
 
-          error:
-            existingBackgroundJobError,
-        } =
-          await admin
-            .from(
-              'companion_background_analysis_jobs',
-            )
-            .select(
-              'analysis_job_id, status, message_watermark',
-            )
-            .eq(
-              'analysis_job_id',
-              backgroundJob
-                .analysis_job_id,
-            )
-            .eq(
-              'company_id',
-              backgroundJob
-                .company_id,
-            )
-            .eq(
-              'cycle_id',
-              backgroundJob
-                .cycle_id,
-            )
-            .eq(
-              'conversation_key',
-              backgroundJob
-                .conversation_key,
-            )
-            .eq(
-              'message_watermark',
-              backgroundJob
-                .message_watermark,
-            )
-            .maybeSingle()
-
-        if (
-          !existingBackgroundJobError &&
-          existingBackgroundJob &&
-          isStatefulCopilotBackgroundJobStatus(
-            existingBackgroundJob
-              .status,
-          )
-        ) {
-          deepAnalysis = {
-            analysis_job_id:
-              String(
-                existingBackgroundJob
-                  .analysis_job_id,
-              ),
-
-            status:
-              existingBackgroundJob
-                .status,
-
-            message_watermark:
-              String(
-                existingBackgroundJob
-                  .message_watermark,
-              ),
-          }
-        }
-      } else if (
-        insertBackgroundJobError
-      ) {
         console.warn(
           'YOLEN_COMPANION_BACKGROUND_JOB',
           JSON.stringify({
-            event:
-              'background_job_enqueue_failed',
-
-            company_id:
-              backgroundJob
-                .company_id,
-
-            cycle_id:
-              backgroundJob
-                .cycle_id,
-
-            analysis_job_id:
-              backgroundJob
-                .analysis_job_id,
-
-            database_code:
-              insertBackgroundJobError
-                .code ??
-              null,
+            event: 'background_job_publish_failed',
+            company_id: backgroundJob.company_id,
+            cycle_id: backgroundJob.cycle_id,
+            analysis_job_id: backgroundJob.analysis_job_id,
+            persistence_failed: Boolean(publishFailurePersistenceError),
           }),
         )
       }
-
-      if (
-        shouldScheduleBackground
-      ) {
-        try {
-          await send(
-            STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
-
-            buildStatefulCopilotBackgroundJobMessage({
-              descriptor:
-                backgroundJob,
-
-              device_key:
-                deviceKey,
-            }),
-
-            {
-              idempotencyKey:
-                backgroundJob
-                  .analysis_job_id,
-
-              retentionSeconds:
-                24 *
-                60 *
-                60,
-            },
-          )
-
-          console.info(
-            'YOLEN_COMPANION_BACKGROUND_JOB',
-            JSON.stringify({
-              event:
-                'background_job_published',
-
-              company_id:
-                backgroundJob
-                  .company_id,
-
-              cycle_id:
-                backgroundJob
-                  .cycle_id,
-
-              analysis_job_id:
-                backgroundJob
-                  .analysis_job_id,
-
-              message_watermark:
-                backgroundJob
-                  .message_watermark,
-            }),
-          )
-        } catch {
-          const completedAt =
-            new Date()
-              .toISOString()
-
-          const {
-            error:
-              publishFailurePersistenceError,
-          } =
-            await admin
-              .from(
-                'companion_background_analysis_jobs',
-              )
-              .update({
-                status:
-                  'failed',
-
-                completed_at:
-                  completedAt,
-
-                updated_at:
-                  completedAt,
-
-                failure_code:
-                  'QUEUE_PUBLISH_FAILED',
-
-                automatic_crm_write:
-                  false,
-
-                automatic_agenda_write:
-                  false,
-              })
-              .eq(
-                'analysis_job_id',
-                backgroundJob
-                  .analysis_job_id,
-              )
-              .eq(
-                'company_id',
-                backgroundJob
-                  .company_id,
-              )
-              .eq(
-                'cycle_id',
-                backgroundJob
-                  .cycle_id,
-              )
-              .eq(
-                'conversation_key',
-                backgroundJob
-                  .conversation_key,
-              )
-              .eq(
-                'message_watermark',
-                backgroundJob
-                  .message_watermark,
-              )
-              .eq(
-                'status',
-                'queued',
-              )
-
-          deepAnalysis = {
-            analysis_job_id:
-              backgroundJob
-                .analysis_job_id,
-
-            status:
-              'failed',
-
-            message_watermark:
-              backgroundJob
-                .message_watermark,
-          }
-
-          console.warn(
-            'YOLEN_COMPANION_BACKGROUND_JOB',
-            JSON.stringify({
-              event:
-                'background_job_publish_failed',
-
-              company_id:
-                backgroundJob
-                  .company_id,
-
-              cycle_id:
-                backgroundJob
-                  .cycle_id,
-
-              analysis_job_id:
-                backgroundJob
-                  .analysis_job_id,
-
-              persistence_failed:
-                Boolean(
-                  publishFailurePersistenceError,
-                ),
-            }),
-          )
-        }
-      }
     }
 
-    const responseData = {
-      ...v1ResponseData,
-
-      ...(deepAnalysis
-        ? {
-            deep_analysis:
-              deepAnalysis,
-          }
-        : {}),
-    }
-
-    /*
-     * Fase 5.3 — shadow:
-     *
-     * O V1 já foi calculado e é devolvido normalmente.
-     * O V2 roda depois da resposta, somente para auditoria.
-     */
-    if (
-      statefulRouteMode ===
-      'shadow'
-    ) {
-      after(async () => {
-        const startedAt =
-          Date.now()
-
-        try {
-          const statefulResult =
-            await runStatefulCopilotRuntime({
-              company_id:
-                tokenPayload.company_id,
-
-              cycle_id:
-                cycleId,
-
-              conversation_key:
-                conversationKey,
-
-              device_key:
-                deviceKey,
-
-              reference_time:
-                new Date().toISOString(),
-
-              v1_response:
-                v1ResponseData,
-            })
-
-          console.info(
-            'YOLEN_COMPANION_STATEFUL_SHADOW',
-            JSON.stringify({
-              event:
-                'stateful_shadow_completed',
-
-              company_id:
-                tokenPayload.company_id,
-
-              cycle_id:
-                cycleId,
-
-              activation_mode:
-                statefulResult
-                  .activation
-                  .mode,
-
-              runtime_mode:
-                statefulResult.mode,
-
-              response_source:
-                statefulResult
-                  .response_source,
-
-              stateful_executed:
-                statefulResult
-                  .stateful_executed,
-
-              duration_ms:
-                Math.max(
-                  0,
-                  Date.now() -
-                    startedAt,
-                ),
-
-              execution:
-                statefulResult
-                  .stateful_execution,
-
-              failure:
-                statefulResult
-                  .stateful_failure,
-
-              automatic_crm_write:
-                statefulResult
-                  .automatic_crm_write,
-
-              automatic_agenda_write:
-                statefulResult
-                  .automatic_agenda_write,
-            }),
-          )
-        } catch {
-          console.warn(
-            'YOLEN_COMPANION_STATEFUL_SHADOW',
-            JSON.stringify({
-              event:
-                'stateful_shadow_unhandled_failure',
-
-              company_id:
-                tokenPayload.company_id,
-
-              cycle_id:
-                cycleId,
-
-              duration_ms:
-                Math.max(
-                  0,
-                  Date.now() -
-                    startedAt,
-                ),
-            }),
-          )
-        }
-      })
-    }
-
-    return NextResponse.json<AnalyzeConversationResponse>(
+    return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
       {
         ok: true,
-
-        data:
-          responseData,
+        data: {
+          context,
+          deep_analysis: deepAnalysis,
+        },
       },
       {
-        headers:
-          corsHeaders,
+        headers: corsHeaders,
       },
     )
   } catch (error: unknown) {
@@ -2429,7 +953,7 @@ export async function POST(request: Request) {
         ? error.message
         : 'Erro desconhecido ao analisar conversa pelo Companion.'
 
-    return NextResponse.json<AnalyzeConversationResponse>(
+    return NextResponse.json<CompanionStatefulOnlyAnalyzeResponse>(
       {
         ok: false,
         error: message,

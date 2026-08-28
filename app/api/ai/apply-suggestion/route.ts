@@ -60,6 +60,24 @@ export async function POST(req: Request) {
       )
     }
 
+    // Fase 12A, Frente 2B (re-auditoria do Controle Mestre): esta rota
+    // escrevia no CRM sem exigir nenhum sinal de confirmação humana.
+    // Fail-closed: só o booleano `true` autoriza a escrita — ausência,
+    // `false` ou qualquer valor não-booleano é rejeitado antes de
+    // qualquer leitura/escrita no CRM. O servidor nunca fabrica esse
+    // valor; ele só chega como `true` quando o vendedor realmente clicou
+    // em "Aplicar sugestão" (ver LeadCopilotPanel.tsx).
+    if ((body as { confirmed_by_human?: unknown }).confirmed_by_human !== true) {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        {
+          ok: false,
+          error:
+            'Aplicação de sugestão exige confirmação humana explícita (confirmed_by_human: true) antes da escrita no CRM.',
+        },
+        { status: 400 }
+      )
+    }
+
     let nextActionDate: string | null = null
 
     if (body.next_action_date) {

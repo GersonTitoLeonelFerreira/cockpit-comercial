@@ -81,7 +81,7 @@ test(
     const renderBlock =
       getBlock(
         'function renderPanel()',
-        "panel.innerHTML = [\n      '<div class=\"yolen-panel-header",
+        "renderPanelRegion(\n      panel,\n      'header',",
       )
 
     assert.match(
@@ -107,7 +107,7 @@ test(
     const renderBlock =
       getBlock(
         'function renderPanel()',
-        "panel.innerHTML = [\n      '<div class=\"yolen-panel-header",
+        "renderPanelRegion(\n      panel,\n      'header',",
       )
 
     assert.match(
@@ -351,7 +351,7 @@ test(
     const renderBlock =
       getBlock(
         'function renderPanel()',
-        "panel.innerHTML = [\n      '<div class=\"yolen-panel-header",
+        "renderPanelRegion(\n      panel,\n      'header',",
       )
 
     assert.match(
@@ -435,7 +435,7 @@ test(
     const renderBlock =
       getBlock(
         'function renderPanel()',
-        "panel.innerHTML = [\n      '<div class=\"yolen-panel-header",
+        "renderPanelRegion(\n      panel,\n      'header',",
       )
 
     assert.match(

@@ -1,22 +1,12 @@
-import { createHmac, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+import { verifyCompanionRequestToken } from '@/app/lib/server/companion-token'
 import type {
   AISalesSuggestion,
   ApplyAISuggestionResponse,
 } from '@/app/types/ai-sales'
 import type { LeadStatus } from '@/app/types/sales_cycles'
-
-type CompanionRole = 'admin' | 'manager' | 'member'
-
-type CompanionTokenPayload = {
-  sub: string
-  company_id: string
-  role: CompanionRole
-  iat: number
-  exp: number
-}
 
 type ApplyCompanionSuggestionBody = {
   cycle_id?: unknown
@@ -27,6 +17,7 @@ type ApplyCompanionSuggestionBody = {
   suggestion?: unknown
   source?: unknown
   audio_count?: unknown
+  confirmed_by_human?: unknown
 }
 
 type JsonRecord = Record<string, unknown>
@@ -104,77 +95,6 @@ function isLeadStatus(value: unknown): value is LeadStatus {
 
 function isOpenApplyStatus(value: unknown): value is LeadStatus {
   return isLeadStatus(value) && OPEN_APPLY_STATUSES.includes(value)
-}
-
-function getTokenSecret() {
-  const secret =
-    process.env.COMPANION_TOKEN_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!secret) {
-    throw new Error(
-      'ENV faltando: COMPANION_TOKEN_SECRET, SUPABASE_SERVICE_ROLE_KEY ou NEXT_PUBLIC_SUPABASE_ANON_KEY.',
-    )
-  }
-
-  return secret
-}
-
-function decodeBase64UrlJson<T>(value: string): T {
-  const json = Buffer.from(value, 'base64url').toString('utf8')
-  return JSON.parse(json) as T
-}
-
-function signPayload(encodedPayload: string) {
-  return createHmac('sha256', getTokenSecret())
-    .update(encodedPayload)
-    .digest('base64url')
-}
-
-function safeCompare(a: string, b: string) {
-  const aBuffer = Buffer.from(a)
-  const bBuffer = Buffer.from(b)
-
-  if (aBuffer.length !== bBuffer.length) {
-    return false
-  }
-
-  return timingSafeEqual(aBuffer, bBuffer)
-}
-
-function verifyCompanionToken(request: Request): CompanionTokenPayload | null {
-  const authorization = request.headers.get('authorization') ?? ''
-
-  if (!authorization.startsWith('Bearer ')) {
-    return null
-  }
-
-  const token = authorization.replace('Bearer ', '').trim()
-  const [encodedPayload, signature] = token.split('.')
-
-  if (!encodedPayload || !signature) {
-    return null
-  }
-
-  const expectedSignature = signPayload(encodedPayload)
-
-  if (!safeCompare(signature, expectedSignature)) {
-    return null
-  }
-
-  const payload = decodeBase64UrlJson<CompanionTokenPayload>(encodedPayload)
-  const now = Math.floor(Date.now() / 1000)
-
-  if (!payload.sub || !payload.company_id || !payload.role || !payload.exp) {
-    return null
-  }
-
-  if (payload.exp <= now) {
-    return null
-  }
-
-  return payload
 }
 
 function getString(value: unknown) {
@@ -320,7 +240,7 @@ export async function POST(request: Request) {
   const corsHeaders = getCorsHeaders(request)
 
   try {
-    const tokenPayload = verifyCompanionToken(request)
+    const tokenPayload = verifyCompanionRequestToken(request)
 
     if (!tokenPayload) {
       return NextResponse.json<ApplyAISuggestionResponse>(
@@ -346,6 +266,21 @@ export async function POST(request: Request) {
       : null
     const source = getSource(body.source)
     const audioCount = getAudioCount(body.audio_count)
+    if (body.confirmed_by_human !== true) {
+      return NextResponse.json<ApplyAISuggestionResponse>(
+        {
+          ok: false,
+          error:
+            'Aplicação de sugestão exige confirmação humana explícita (confirmed_by_human: true) antes da escrita no CRM.',
+        },
+        {
+          status: 400,
+          headers: corsHeaders,
+        },
+      )
+    }
+
+    const confirmedByHuman = true as const
 
     if (!cycleId) {
       return NextResponse.json<ApplyAISuggestionResponse>(
@@ -648,7 +583,7 @@ export async function POST(request: Request) {
     const commonMetadata = {
       source,
       companion: {
-        applied_with_user_approval: true,
+        applied_with_user_approval: confirmedByHuman,
         applied_from: 'whatsapp_companion',
         audio_count: audioCount,
       },

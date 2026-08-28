@@ -1,9 +1,6 @@
 ;(function initYolenCompanionLeadAutomation() {
-  const PANEL_ID = 'yolen-companion-panel'
-  const CREATE_ACTION = 'create-lead-yolen'
-  const REFRESH_ACTION = 'refresh'
-
-  let panelObserver = null
+  const leadDraftsByPhone = new Map()
+  const formContextByForm = new WeakMap()
 
   function onlyDigits(value) {
     return String(value || '').replace(/\D/g, '')
@@ -35,15 +32,10 @@
       .replaceAll("'", '&#039;')
   }
 
-  function getLookupContext() {
-    const context =
-      window.YolenCompanionApi
-        ?.getLastLeadLookupContext
-        ?.()
-
-    const phone = onlyDigits(context?.phone)
-    const displayName = cleanText(context?.display_name)
-
+  // Só os campos de enriquecimento (e-mail/documento sugeridos a partir da
+  // conversa) ainda vêm de um provedor externo próprio — identidade
+  // (telefone/conversa/nome) nunca mais vem daqui, ver buildFormContext().
+  function getEnrichmentSuggestions() {
     const candidates =
       globalThis
         .YolenCompanionLeadEnrichmentContext
@@ -63,31 +55,127 @@
           candidate?.field === 'cnpj',
       )
 
-    const suggestedEmail =
-      emailCandidates.length === 1
-        ? cleanText(
-            emailCandidates[0]
-              .normalized_value,
-          )
-        : ''
+    return {
+      suggestedEmail:
+        emailCandidates.length === 1
+          ? cleanText(
+              emailCandidates[0]
+                .normalized_value,
+            )
+          : '',
+      suggestedDocument:
+        documentCandidates.length === 1
+          ? onlyDigits(
+              documentCandidates[0]
+                .normalized_value,
+            )
+          : '',
+    }
+  }
 
-    const suggestedDocument =
-      documentCandidates.length === 1
-        ? onlyDigits(
-            documentCandidates[0]
-              .normalized_value,
-          )
-        : ''
+  // Única fonte de verdade de identidade do formulário: conversationKey e
+  // phone SEMPRE vêm do parâmetro explícito passado por content-script.js
+  // (state.conversationKey/state.conversationPhone no instante do
+  // render/bind) — nunca de um estado global implícito deste ou de outro
+  // módulo. Isso é a correção da causa raiz do BLOCKER da Frente 1B: um
+  // vazamento visual do telefone/nome de uma conversa anterior para o
+  // formulário da conversa atual.
+  function buildFormContext(explicitContext) {
+    const phone = onlyDigits(explicitContext?.phone)
+    const displayName = cleanText(explicitContext?.displayName)
+    const enrichment = getEnrichmentSuggestions()
 
     return {
+      conversationKey: explicitContext?.conversationKey || null,
       phone,
       displayName,
       suggestedName:
         displayName && !looksLikePhone(displayName)
           ? displayName
           : '',
-      suggestedEmail,
-      suggestedDocument,
+      suggestedEmail: enrichment.suggestedEmail,
+      suggestedDocument: enrichment.suggestedDocument,
+      errorMessage: explicitContext?.errorMessage || null,
+    }
+  }
+
+  function getDefaultDraft(context) {
+    return {
+      name: context.suggestedName || '',
+      phone: context.phone || '',
+      email: context.suggestedEmail || '',
+      document: context.suggestedDocument || '',
+      dirty: false,
+    }
+  }
+
+  function getLeadDraft(context) {
+    if (!context?.phone) {
+      return getDefaultDraft(context || {})
+    }
+
+    const existing =
+      leadDraftsByPhone.get(context.phone)
+
+    if (existing) {
+      if (!existing.dirty) {
+        if (!existing.name && context.suggestedName) {
+          existing.name = context.suggestedName
+        }
+
+        if (!existing.email && context.suggestedEmail) {
+          existing.email = context.suggestedEmail
+        }
+
+        if (!existing.document && context.suggestedDocument) {
+          existing.document = context.suggestedDocument
+        }
+      }
+
+      return existing
+    }
+
+    const draft = getDefaultDraft(context)
+    leadDraftsByPhone.set(context.phone, draft)
+    return draft
+  }
+
+  function captureLeadDraft(form) {
+    if (!form) {
+      return null
+    }
+
+    const phone = onlyDigits(
+      form.querySelector('[name="yolen-lead-phone"]')?.value,
+    )
+
+    if (!phone) {
+      return null
+    }
+
+    const draft = {
+      name: String(
+        form.querySelector('[name="yolen-lead-name"]')?.value || '',
+      ),
+      phone,
+      email: String(
+        form.querySelector('[name="yolen-lead-email"]')?.value || '',
+      ),
+      document: String(
+        form.querySelector('[name="yolen-lead-document"]')?.value || '',
+      ),
+      dirty: true,
+    }
+
+    leadDraftsByPhone.set(phone, draft)
+    return draft
+  }
+
+  function clearLeadDraft(phone) {
+    const normalizedPhone = onlyDigits(phone)
+
+    if (normalizedPhone) {
+      leadDraftsByPhone.delete(normalizedPhone)
     }
   }
 
@@ -96,6 +184,13 @@
   }
 
   function setFormStatus(form, message, tone = 'neutral') {
+    if (!form.isConnected) {
+      // O formulário já não pertence mais ao DOM atual (região
+      // re-renderizada, provavelmente por troca real de conversa) — não
+      // escreve em um node órfão.
+      return
+    }
+
     const status = getStatusElement(form)
 
     if (!status) {
@@ -106,20 +201,18 @@
     status.dataset.tone = tone
   }
 
-  function refreshLeadResolution() {
-    const panel = document.getElementById(PANEL_ID)
-    const refreshButton =
-      panel?.querySelector(
-        `[data-yolen-action="${REFRESH_ACTION}"]`,
-      )
-
-    refreshButton?.click()
-  }
-
+  // Criação e reconsulta do vínculo são feitas por content-script.js via
+  // window.YolenCompanionLeadCreationBridge — nunca mais um clique
+  // simulado no botão "Atualizar" com um temporizador. A conclusão
+  // (formulário some / "Lead criado. Atualizando o vínculo..." / erro) é
+  // 100% dirigida pelo state de content-script.js e chega aqui através do
+  // próximo renderPanel(); este módulo só cuida da submissão em si.
   async function submitLeadCreation(form) {
     if (form.dataset.submitting === 'true') {
       return
     }
+
+    const context = formContextByForm.get(form)
 
     const nameInput = form.querySelector('[name="yolen-lead-name"]')
     const phoneInput = form.querySelector('[name="yolen-lead-phone"]')
@@ -127,12 +220,13 @@
     const documentInput = form.querySelector('[name="yolen-lead-document"]')
     const submitButton = form.querySelector('button[type="submit"]')
 
+    captureLeadDraft(form)
+
     const name = cleanText(nameInput?.value)
     const phone = onlyDigits(phoneInput?.value)
     const email = cleanText(emailInput?.value)
       .toLowerCase()
     const document = onlyDigits(documentInput?.value)
-    const currentContext = getLookupContext()
 
     if (!name || looksLikePhone(name)) {
       setFormStatus(
@@ -144,7 +238,11 @@
       return
     }
 
-    if (!phone || phone !== currentContext.phone) {
+    if (
+      !context?.conversationKey ||
+      !phone ||
+      phone !== context.phone
+    ) {
       setFormStatus(
         form,
         'A conversa mudou. Atualize o Companion antes de criar o lead.',
@@ -153,7 +251,7 @@
       return
     }
 
-    if (!window.YolenCompanionApi?.createLead) {
+    if (!window.YolenCompanionLeadCreationBridge?.createLead) {
       setFormStatus(
         form,
         'Criação de lead indisponível nesta versão do Companion.',
@@ -172,40 +270,42 @@
 
     try {
       const result =
-        await window.YolenCompanionApi.createLead({
+        await window.YolenCompanionLeadCreationBridge.createLead({
           name,
           phone,
           email: email || null,
-          cpf_cnpj: document || null,
+          document: document || null,
+          conversationKey: context.conversationKey,
         })
 
-      if (!result?.ok || !result.payload?.ok) {
-        const code = result?.payload?.code || result?.payload?.status
+      if (result?.applied === false || result?.code === 'conversation_changed') {
+        // A conversa já mudou (antes do POST sair, ou enquanto ele estava
+        // em voo) — content-script.js já decidiu não tocar na UI atual, e
+        // este formulário específico pode nem existir mais no DOM.
+        return
+      }
 
-        if (code === 'active_lead_conflict' || code === 'concurrent_create_conflict') {
-          setFormStatus(
-            form,
-            'Contato já localizado. Atualizando o vínculo...',
-            'success',
-          )
-          window.setTimeout(refreshLeadResolution, 250)
-          return
-        }
+      if (result?.code === 'already_in_flight') {
+        // Duplo/triplo clique: a primeira submissão já está cuidando
+        // disso, esta chamada não faz nada além de não duplicar o CREATE.
+        return
+      }
 
+      if (!result?.ok) {
         throw new Error(
-          result?.payload?.error ||
-            'Não foi possível criar o lead.',
+          result?.error || 'Não foi possível criar o lead.',
         )
       }
 
-      setFormStatus(
-        form,
-        'Lead criado. Atualizando o vínculo...',
-        'success',
-      )
-
-      window.setTimeout(refreshLeadResolution, 150)
+      clearLeadDraft(phone)
+      // Sucesso: a partir daqui content-script.js assume o estado
+      // (created_resolving/erro de reconsulta) e re-renderiza a região —
+      // não há mais nada síncrono para este formulário fazer.
     } catch (error) {
+      if (!form.isConnected) {
+        return
+      }
+
       form.dataset.submitting = 'false'
 
       if (submitButton) {
@@ -223,6 +323,7 @@
   }
 
   function buildFormHtml(context) {
+    const draft = getLeadDraft(context)
     const hasConversationData =
       Boolean(
         context.suggestedEmail ||
@@ -249,7 +350,7 @@
             ' name="yolen-lead-name"',
             ' autocomplete="off"',
             ' maxlength="160"',
-            ' value="' + escapeHtml(context.suggestedName) + '"',
+            ' value="' + escapeHtml(draft.name) + '"',
             ' placeholder="Nome do contato"',
           '>',
         '</label>',
@@ -259,7 +360,7 @@
           '<input',
             ' type="text"',
             ' name="yolen-lead-phone"',
-            ' value="' + escapeHtml(context.phone) + '"',
+            ' value="' + escapeHtml(draft.phone || context.phone) + '"',
             ' readonly',
           '>',
         '</label>',
@@ -271,7 +372,7 @@
             ' name="yolen-lead-email"',
             ' autocomplete="email"',
             ' maxlength="254"',
-            ' value="' + escapeHtml(context.suggestedEmail) + '"',
+            ' value="' + escapeHtml(draft.email) + '"',
             ' placeholder="email@exemplo.com"',
           '>',
         '</label>',
@@ -284,12 +385,15 @@
             ' name="yolen-lead-document"',
             ' autocomplete="off"',
             ' maxlength="18"',
-            ' value="' + escapeHtml(context.suggestedDocument) + '"',
+            ' value="' + escapeHtml(draft.document) + '"',
             ' placeholder="CPF ou CNPJ"',
           '>',
         '</label>',
 
-        '<div class="yolen-lead-create-status" data-yolen-lead-create-status data-tone="neutral"></div>',
+        '<div class="yolen-lead-create-status" data-yolen-lead-create-status data-tone="' +
+          (context.errorMessage ? 'error' : 'neutral') + '">' +
+          (context.errorMessage ? escapeHtml(context.errorMessage) : '') +
+        '</div>',
 
         '<button class="yolen-primary-button yolen-lead-create-submit" type="submit">',
           'Criar lead',
@@ -306,51 +410,56 @@
       return
     }
 
+    const draft = getLeadDraft(context)
+    const nameInput =
+      form.querySelector(
+        '[name="yolen-lead-name"]',
+      )
     const emailInput =
       form.querySelector(
         '[name="yolen-lead-email"]',
       )
-
     const documentInput =
       form.querySelector(
         '[name="yolen-lead-document"]',
       )
-
     const subtitle =
       form.querySelector(
         '.yolen-lead-create-subtitle',
       )
 
-    let suggestionApplied = false
+    if (!draft.dirty) {
+      if (
+        nameInput &&
+        !cleanText(nameInput.value) &&
+        context.suggestedName
+      ) {
+        nameInput.value = context.suggestedName
+        draft.name = context.suggestedName
+      }
 
-    if (
-      emailInput &&
-      !cleanText(emailInput.value) &&
-      context.suggestedEmail
-    ) {
-      emailInput.value =
+      if (
+        emailInput &&
+        !cleanText(emailInput.value) &&
         context.suggestedEmail
+      ) {
+        emailInput.value = context.suggestedEmail
+        draft.email = context.suggestedEmail
+      }
 
-      suggestionApplied = true
-    }
-
-    if (
-      documentInput &&
-      !onlyDigits(
-        documentInput.value,
-      ) &&
-      context.suggestedDocument
-    ) {
-      documentInput.value =
+      if (
+        documentInput &&
+        !onlyDigits(documentInput.value) &&
         context.suggestedDocument
-
-      suggestionApplied = true
+      ) {
+        documentInput.value = context.suggestedDocument
+        draft.document = context.suggestedDocument
+      }
     }
 
     if (
       subtitle &&
       (
-        suggestionApplied ||
         context.suggestedEmail ||
         context.suggestedDocument
       )
@@ -360,101 +469,78 @@
     }
   }
 
-  function mountLeadCreationForm() {
-    const panel = document.getElementById(PANEL_ID)
-
-    if (!panel) {
+  function bindLeadCreationForm(form) {
+    if (!form || form.dataset.yolenDraftBound === 'true') {
       return
     }
 
-    const createButton =
-      panel.querySelector(
-        `[data-yolen-action="${CREATE_ACTION}"]`,
-      )
+    form.dataset.yolenDraftBound = 'true'
 
-    if (!createButton) {
-      return
-    }
+    form.addEventListener('input', () => {
+      captureLeadDraft(form)
+    })
 
-    const actionsContainer =
-      createButton.closest('.yolen-contact-actions') ||
-      createButton.parentElement
+    form.addEventListener('change', () => {
+      captureLeadDraft(form)
+    })
 
-    if (!actionsContainer) {
-      return
-    }
-
-    const context =
-      getLookupContext()
-
-    if (!context.phone) {
-      return
-    }
-
-    const existingForm =
-      actionsContainer.querySelector(
-        '[data-yolen-lead-create-form]',
-      )
-
-    if (existingForm) {
-      syncLeadCreationFormSuggestions(
-        existingForm,
-        context,
-      )
-
-      return
-    }
-
-    actionsContainer.innerHTML = buildFormHtml(context)
-
-    const form =
-      actionsContainer.querySelector('[data-yolen-lead-create-form]')
-
-    form?.addEventListener('submit', (event) => {
+    form.addEventListener('submit', (event) => {
       event.preventDefault()
+      captureLeadDraft(form)
       void submitLeadCreation(form)
     })
   }
 
-  function observePanel(panel) {
-    panelObserver?.disconnect()
+  // buildCreateLeadFormHtml()/bindCreateLeadForm() são a única porta de
+  // entrada deste arquivo no DOM do painel. Antes, este arquivo observava
+  // o painel com seu próprio MutationObserver e substituía o botão
+  // "Criar lead na Yolen" por este formulário de forma assíncrona e
+  // independente de renderPanel() (content-script.js) — dois renders
+  // competindo pelo mesmo pedaço do DOM, sem nenhuma trava entre eles.
+  // Quando uma atualização de fundo do Companion chegava nesse meio-tempo
+  // (mais frequente com "Dados do contato" do WhatsApp aberto), o botão
+  // simples podia reaparecer bem na hora do clique do vendedor, e o
+  // primeiro clique em "Criar lead" se perdia. Agora content-script.js
+  // chama buildCreateLeadFormHtml() dentro da MESMA passada de render que
+  // decide o resto do card "Conversa" (getLeadActionButton()), e
+  // bindCreateLeadForm() só liga os handlers do formulário que já está no
+  // DOM — nenhum dos dois mexe em DOM por conta própria.
+  //
+  // explicitContext ({conversationKey, phone, displayName, errorMessage?})
+  // é obrigatório e vem sempre de content-script.js — nenhuma identidade
+  // de conversa é lida daqui por conta própria.
+  function buildCreateLeadFormHtml(explicitContext) {
+    const context = buildFormContext(explicitContext)
 
-    panelObserver = new MutationObserver(() => {
-      mountLeadCreationForm()
-    })
+    if (!context.phone || !context.conversationKey) {
+      return ''
+    }
 
-    panelObserver.observe(panel, {
-      childList: true,
-      subtree: true,
-    })
-
-    mountLeadCreationForm()
+    return buildFormHtml(context)
   }
 
-  function start() {
-    const existingPanel = document.getElementById(PANEL_ID)
+  function bindCreateLeadForm(panel, explicitContext) {
+    const form =
+      panel?.querySelector(
+        '[data-yolen-lead-create-form]',
+      )
 
-    if (existingPanel) {
-      observePanel(existingPanel)
+    if (!form) {
       return
     }
 
-    const rootObserver = new MutationObserver(() => {
-      const panel = document.getElementById(PANEL_ID)
+    const context = buildFormContext(explicitContext)
+    formContextByForm.set(form, context)
 
-      if (!panel) {
-        return
-      }
-
-      rootObserver.disconnect()
-      observePanel(panel)
-    })
-
-    rootObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    })
+    syncLeadCreationFormSuggestions(
+      form,
+      context,
+    )
+    bindLeadCreationForm(form)
   }
 
-  start()
+  window.YolenCompanionLeadAutomation = {
+    buildCreateLeadFormHtml,
+    bindCreateLeadForm,
+  }
 })()

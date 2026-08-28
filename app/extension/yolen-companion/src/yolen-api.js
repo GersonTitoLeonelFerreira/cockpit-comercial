@@ -7,6 +7,11 @@
   const LOCAL_BASE_URL =
     'http://localhost:3000'
 
+  // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx. Remover
+  // junto com os outros pontos marcados TEMP-TEST-ENV-FASE12A.
+  const TEMP_TEST_BASE_URL =
+    'https://cockpit-comercial-vocn-git-claude-yolen-lead-persi-f5596b-yolen.vercel.app'
+
   let sessionBaseUrl = null
   let lastLeadLookupContext = null
   let messageDomRevision = 0
@@ -37,7 +42,8 @@
   function getAllowedSessionBaseUrl(value) {
     if (
       value === DEFAULT_BASE_URL ||
-      value === LOCAL_BASE_URL
+      value === LOCAL_BASE_URL ||
+      value === TEMP_TEST_BASE_URL
     ) {
       return value
     }
@@ -66,8 +72,13 @@
     return null
   }
 
+  // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx e
+  // background.js. Mesma prioridade: o preview desta branch vence a
+  // origem em que a sessão foi capturada, para não depender de reconectar
+  // manualmente numa sessão já capturada em produção.
   function getBaseUrl() {
     return (
+      TEMP_TEST_BASE_URL ||
       sessionBaseUrl ||
       DEFAULT_BASE_URL
     )
@@ -564,7 +575,19 @@
   }
 
   async function resolveLead(payload) {
+    // conversation_key é somente para o Companion nunca reaproveitar este
+    // contexto numa conversa diferente (ver getLastLeadLookupContext) — o
+    // backend de resolve-lead não espera esse campo, então ele nunca é
+    // encaminhado em sendToBackground.
+    const {
+      conversation_key: conversationKey,
+      ...backendPayload
+    } = payload || {}
+
     lastLeadLookupContext = {
+      conversation_key: conversationKey
+        ? String(conversationKey)
+        : null,
       phone: payload?.phone
         ? String(payload.phone)
         : null,
@@ -573,13 +596,27 @@
         : null,
     }
 
-    return sendToBackground('RESOLVE_LEAD', payload)
+    return sendToBackground('RESOLVE_LEAD', backendPayload)
   }
 
-  function getLastLeadLookupContext() {
-    return lastLeadLookupContext
-      ? { ...lastLeadLookupContext }
-      : null
+  // Sem conversationKey: comportamento antigo, devolve o último contexto
+  // resolvido (compatibilidade). Com conversationKey: só devolve o
+  // contexto se ele realmente pertencer a essa conversa — nunca vaza o
+  // telefone/nome de uma conversa anterior para o formulário de outra.
+  function getLastLeadLookupContext(conversationKey) {
+    if (!lastLeadLookupContext) {
+      return null
+    }
+
+    if (
+      conversationKey &&
+      lastLeadLookupContext.conversation_key &&
+      lastLeadLookupContext.conversation_key !== conversationKey
+    ) {
+      return null
+    }
+
+    return { ...lastLeadLookupContext }
   }
 
   async function createLead(payload) {
@@ -828,6 +865,36 @@
           freshness,
         )
 
+      // TEMP-DIAG-FASE12A — instrumentação temporária, somente console,
+      // somente booleanos/enums/contagens. Remover após o diagnóstico.
+      const __diagCustomer =
+        promoted?.commercial_reading?.customer
+
+      console.log(
+        '[FASE12A-DIAG]',
+        'promote-attempt',
+        {
+          promote_succeeded: Boolean(promoted),
+          engine_source_after_promotion:
+            freshness.analysisDataRef?.engine_source ?? null,
+          commercial_relevance: promoted?.commercial_relevance ?? null,
+          commercial_role: promoted?.commercial_role ?? null,
+          has_commercial_reading: Boolean(promoted?.commercial_reading),
+          customer_counts: __diagCustomer
+            ? {
+                objectives: __diagCustomer.objectives?.length ?? 0,
+                problems: __diagCustomer.problems?.length ?? 0,
+                needs: __diagCustomer.needs?.length ?? 0,
+                interests: __diagCustomer.interests?.length ?? 0,
+                objections: __diagCustomer.objections?.length ?? 0,
+                discussed_products:
+                  __diagCustomer.discussed_products?.length ?? 0,
+              }
+            : null,
+        },
+      )
+      // TEMP-DIAG-FASE12A — fim
+
       if (!promoted) {
         return {
           ok: false,
@@ -904,6 +971,14 @@
     )
   }
 
+  async function loadLeadSummary(payload) {
+    return sendToBackground('LOAD_LEAD_SUMMARY', payload)
+  }
+
+  async function saveLeadSummary(payload) {
+    return sendToBackground('SAVE_LEAD_SUMMARY', payload)
+  }
+
   window.YolenCompanionApi = {
     getBaseUrl,
     getMe,
@@ -924,5 +999,7 @@
     ingestCapturedMessages,
     previewConversationRegistration,
     confirmConversationRegistration,
+    loadLeadSummary,
+    saveLeadSummary,
   }
 })()

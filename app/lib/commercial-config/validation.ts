@@ -6,6 +6,8 @@ import type {
     CommercialConfigValidationResult,
   } from '@/app/types/commercial-config'
 
+  import { validateCommercialMethodDefinition } from '../companion/commercial-method-contract'
+
   function hasText(value: string): boolean {
     return value.trim().length > 0
   }
@@ -124,60 +126,88 @@ import type {
       )
     }
 
-    if (bundle.method_steps.length === 0) {
-      addIssue(
-        issues,
-        'commercial_method',
-        'method_steps',
-        'Cadastre pelo menos uma etapa do método.',
-      )
+    if (
+      version.commercial_method_contract_version ===
+      'commercial-method-v2'
+    ) {
+      if (!version.commercial_method_definition) {
+        addIssue(
+          issues,
+          'commercial_method',
+          'commercial_method_definition',
+          'O modo estruturado (V2) está ativo, mas a definição do método está vazia.',
+        )
+      } else {
+        const definitionResult =
+          validateCommercialMethodDefinition(
+            version.commercial_method_definition,
+          )
+
+        definitionResult.issues.forEach((issue) => {
+          addIssue(
+            issues,
+            'commercial_method',
+            `commercial_method_definition.${issue.path}`,
+            issue.message,
+          )
+        })
+      }
+    } else {
+      if (bundle.method_steps.length === 0) {
+        addIssue(
+          issues,
+          'commercial_method',
+          'method_steps',
+          'Cadastre pelo menos uma etapa do método.',
+        )
+      }
+
+      bundle.method_steps.forEach((step, index) => {
+        const stepLabel = `Etapa ${index + 1}`
+
+        if (!hasText(step.name)) {
+          addIssue(
+            issues,
+            'commercial_method',
+            `method_steps.${index}.name`,
+            `${stepLabel}: preencha o nome.`,
+          )
+        }
+
+        if (!hasText(step.objective)) {
+          addIssue(
+            issues,
+            'commercial_method',
+            `method_steps.${index}.objective`,
+            `${stepLabel}: preencha o objetivo.`,
+          )
+        }
+
+        if (
+          !hasTextItems(step.completion_criteria)
+        ) {
+          addIssue(
+            issues,
+            'commercial_method',
+            `method_steps.${index}.completion_criteria`,
+            `${stepLabel}: informe pelo menos um critério de conclusão.`,
+          )
+        }
+
+        if (
+          step.recommended_questions.some(
+            (question) => !hasText(question),
+          )
+        ) {
+          addIssue(
+            issues,
+            'commercial_method',
+            `method_steps.${index}.recommended_questions`,
+            `${stepLabel}: remova perguntas vazias.`,
+          )
+        }
+      })
     }
-
-    bundle.method_steps.forEach((step, index) => {
-      const stepLabel = `Etapa ${index + 1}`
-
-      if (!hasText(step.name)) {
-        addIssue(
-          issues,
-          'commercial_method',
-          `method_steps.${index}.name`,
-          `${stepLabel}: preencha o nome.`,
-        )
-      }
-
-      if (!hasText(step.objective)) {
-        addIssue(
-          issues,
-          'commercial_method',
-          `method_steps.${index}.objective`,
-          `${stepLabel}: preencha o objetivo.`,
-        )
-      }
-
-      if (
-        !hasTextItems(step.completion_criteria)
-      ) {
-        addIssue(
-          issues,
-          'commercial_method',
-          `method_steps.${index}.completion_criteria`,
-          `${stepLabel}: informe pelo menos um critério de conclusão.`,
-        )
-      }
-
-      if (
-        step.recommended_questions.some(
-          (question) => !hasText(question),
-        )
-      ) {
-        addIssue(
-          issues,
-          'commercial_method',
-          `method_steps.${index}.recommended_questions`,
-          `${stepLabel}: remova perguntas vazias.`,
-        )
-      }
-    })
 
     const profileCountByProductId =
       new Map<string, number>()

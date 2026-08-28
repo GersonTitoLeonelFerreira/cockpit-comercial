@@ -34,6 +34,7 @@ const DEPENDENCY_FILES = [
   'capture-resilience-null-base.js',
   'lead-enrichment.js',
   'companion-client-context-view.js',
+  'companion-lead-summary-view.js',
   'companion-seller-information-view.js',
 ]
 
@@ -171,14 +172,35 @@ export function emptyClientContext(overrides = {}) {
   })
 }
 
+export function defaultLeadSummary(overrides = {}) {
+  return {
+    ok: true,
+    data: {
+      identity: {
+        company_id: 'company-1',
+        lead_id: 'lead-1',
+        cycle_id: 'cycle-1',
+        conversation_key: 'whatsapp:5511988887777',
+      },
+      summary: null,
+      ...(overrides.data ?? {}),
+    },
+    ...overrides,
+  }
+}
+
 function createFakeBackground({
   resolutionsByPhone = {},
   clientContextResult,
   analysisResult,
   analysisJobStatusResult,
+  leadSummaryResult,
+  saveLeadSummaryResult,
+  createLeadResult,
 } = {}) {
   const calls = []
   let loadClientContextCallCount = 0
+  let loadLeadSummaryCallCount = 0
 
   const handlers = {
     GET_ME: async () => ({
@@ -193,7 +215,18 @@ function createFakeBackground({
     }),
     RESOLVE_LEAD: async (payload) => {
       const phoneDigits = String(payload?.phone ?? '').replace(/\D/g, '')
-      const resolution = resolutionsByPhone[phoneDigits] ?? defaultLeadResolution({ phone: phoneDigits })
+      const configured = resolutionsByPhone[phoneDigits]
+      // Mesmo padrão de clientContextResult/leadSummaryResult: um valor
+      // estático (como antes) ou uma função `(payload) => resolution`
+      // (podendo devolver uma Promise) — usada pelos testes de isolamento
+      // de conversa/criação de lead da Frente 1B para simular respostas
+      // que mudam entre chamadas (ex.: NOT_FOUND na primeira consulta,
+      // OWNED_BY_ME depois do CREATE) ou uma resolução deliberadamente
+      // presa em voo até o teste liberar.
+      const resolution =
+        typeof configured === 'function'
+          ? await configured(payload)
+          : (configured ?? defaultLeadResolution({ phone: phoneDigits }))
       return { ok: true, statusCode: 200, payload: resolution }
     },
     LOAD_AUDIO_TRANSCRIPTIONS: async () => ({ ok: true, statusCode: 200, payload: { ok: true, data: [] } }),
@@ -248,6 +281,59 @@ function createFakeBackground({
         payload,
       }
     },
+    LOAD_LEAD_SUMMARY: async (requestPayload) => {
+      loadLeadSummaryCallCount += 1
+
+      const payload = await (
+        typeof leadSummaryResult === 'function'
+          ? leadSummaryResult(loadLeadSummaryCallCount, requestPayload)
+          : (leadSummaryResult ?? defaultLeadSummary())
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 500 : 200,
+        payload,
+      }
+    },
+    SAVE_LEAD_SUMMARY: async (requestPayload) => {
+      const payload = await (
+        typeof saveLeadSummaryResult === 'function'
+          ? saveLeadSummaryResult(requestPayload)
+          : (saveLeadSummaryResult ??
+              defaultLeadSummary({
+                data: {
+                  summary: {
+                    summary: requestPayload?.summary ?? '',
+                    version: 1,
+                    updated_at: '2026-08-25T12:00:00.000Z',
+                  },
+                },
+              }))
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
+    CREATE_LEAD: async (requestPayload) => {
+      const payload = await (
+        typeof createLeadResult === 'function'
+          ? createLeadResult(requestPayload)
+          : (createLeadResult ?? {
+              ok: true,
+              lead: { id: 'lead-new-1', name: requestPayload?.name, phone: requestPayload?.phone },
+            })
+      )
+
+      return {
+        ok: true,
+        statusCode: payload?.ok === false ? 409 : 200,
+        payload,
+      }
+    },
   }
 
   const sendMessage = async (message) => {
@@ -262,12 +348,25 @@ function createFakeBackground({
   return { sendMessage, calls }
 }
 
+// Carregados só quando `withStabilityRuntimes: true` — os dois runtimes de
+// estabilidade (Onda 6) e lead-automation.js (Onda 7), na mesma ordem em
+// que o manifest.json real os injeta DEPOIS de content-script.js.
+const STABILITY_RUNTIME_FILES = [
+  'panel-stability-runtime.js',
+  'editable-field-stability-runtime.js',
+  'lead-automation.js',
+]
+
 export function loadContentScript({
   initialHtml,
   resolutionsByPhone,
   clientContextResult,
   analysisResult,
   analysisJobStatusResult,
+  leadSummaryResult,
+  saveLeadSummaryResult,
+  createLeadResult,
+  withStabilityRuntimes = false,
 } = {}) {
   const dom = new JSDOM(initialHtml, { url: 'https://web.whatsapp.com/', pretendToBeVisual: true })
   const background = createFakeBackground({
@@ -275,6 +374,9 @@ export function loadContentScript({
     clientContextResult,
     analysisResult,
     analysisJobStatusResult,
+    leadSummaryResult,
+    saveLeadSummaryResult,
+    createLeadResult,
   })
 
   const fakeChrome = {
@@ -310,8 +412,23 @@ export function loadContentScript({
     clearInterval,
     Promise,
     crypto: globalThis.crypto,
+    // content-script.js usa queueMicrotask() para adiar a liberação da
+    // trava de região (pointerdown -> click) até depois do handler de
+    // click real do vendedor já ter rodado — presente em qualquer browser
+    // real, mas precisa ser exposto explicitamente aqui porque o contexto
+    // do vm é isolado.
+    queueMicrotask,
   }
   sandbox.globalThis = sandbox
+
+  if (withStabilityRuntimes) {
+    sandbox.requestAnimationFrame = (callback) => dom.window.requestAnimationFrame(callback)
+    sandbox.cancelAnimationFrame = (handle) => dom.window.cancelAnimationFrame(handle)
+    sandbox.addEventListener = (...args) => dom.window.addEventListener(...args)
+    sandbox.removeEventListener = (...args) => dom.window.removeEventListener(...args)
+    sandbox.dispatchEvent = (...args) => dom.window.dispatchEvent(...args)
+  }
+
   vm.createContext(sandbox)
 
   for (const dependency of DEPENDENCY_FILES) {
@@ -319,9 +436,16 @@ export function loadContentScript({
   }
   vm.runInContext(readSource('content-script.js'), sandbox, { filename: 'content-script.js' })
 
+  if (withStabilityRuntimes) {
+    for (const runtimeFile of STABILITY_RUNTIME_FILES) {
+      vm.runInContext(readSource(runtimeFile), sandbox, { filename: runtimeFile })
+    }
+  }
+
   return {
     dom,
     document: sandbox.document,
+    window: sandbox.window,
     calls: background.calls,
   }
 }
@@ -334,8 +458,20 @@ export function resolveLeadCalls(calls) {
   return calls.filter((call) => call.action === 'RESOLVE_LEAD')
 }
 
+export function createLeadCalls(calls) {
+  return calls.filter((call) => call.action === 'CREATE_LEAD')
+}
+
 export function clientContextCalls(calls) {
   return calls.filter((call) => call.action === 'LOAD_CLIENT_CONTEXT')
+}
+
+export function leadSummaryCalls(calls) {
+  return calls.filter((call) => call.action === 'LOAD_LEAD_SUMMARY')
+}
+
+export function saveLeadSummaryCalls(calls) {
+  return calls.filter((call) => call.action === 'SAVE_LEAD_SUMMARY')
 }
 
 export function analysisCalls(calls) {

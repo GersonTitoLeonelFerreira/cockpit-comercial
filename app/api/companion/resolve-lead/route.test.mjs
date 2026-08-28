@@ -4,10 +4,10 @@
 // `mock.module` para substituir @supabase/supabase-js por um cliente
 // falso determinístico. A rota real roda de ponta a ponta.
 //
-// Nota: resolve-lead/route.ts implementa sua PRÓPRIA verificação de token
-// (não importa companion-token.ts) — mas usa o mesmo algoritmo HMAC, então
-// os tokens assinados por `buildToken`/`buildExpiredToken` (que usam
-// createCompanionToken de companion-token.ts) são válidos aqui também.
+// Nota: resolve-lead/route.ts importa verifyCompanionRequestToken de
+// companion-token.ts (mesma verificação usada por create-lead/enrich-lead),
+// então os tokens assinados por `buildToken`/`buildExpiredToken` (que usam
+// createCompanionToken de companion-token.ts) são válidos aqui.
 
 import assert from 'node:assert/strict'
 import { register } from 'node:module'

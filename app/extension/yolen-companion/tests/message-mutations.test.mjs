@@ -7,7 +7,6 @@ const {
   buildMessageSnapshotFingerprint,
   buildStableCaptureConversationKey,
   cleanCapturedMessageText,
-  findSafeDisappearedMessageIds,
   getLatestDateMessageBlock,
   inferCapturedMessageDirection,
   isDeletedMessageText,
@@ -361,105 +360,9 @@ test('altera a chave somente quando o conteúdo efetivamente muda', () => {
   )
 })
 
-test('detecta mensagens que desapareceram do meio ou final sem rolagem', () => {
-  const previous = [
-    message({
-      id: 'm1',
-      timestampMs: 100,
-    }),
-    message({
-      id: 'm2',
-      timestampMs: 200,
-    }),
-    message({
-      id: 'm3',
-      timestampMs: 300,
-    }),
-    message({
-      id: 'm4',
-      timestampMs: 400,
-    }),
-  ]
-
-  const current = [
-    previous[0],
-    previous[1],
-  ]
-
-  assert.deepEqual(
-    findSafeDisappearedMessageIds({
-      previousVisibleMessages:
-        previous,
-      currentVisibleMessages:
-        current,
-      recentScroll:
-        false,
-    }),
-    [
-      'm3',
-      'm4',
-    ],
-  )
-})
-
-test('não interpreta virtualização no topo como exclusão', () => {
-  const previous = [
-    message({
-      id: 'm1',
-      timestampMs: 100,
-    }),
-    message({
-      id: 'm2',
-      timestampMs: 200,
-    }),
-    message({
-      id: 'm3',
-      timestampMs: 300,
-    }),
-  ]
-
-  assert.deepEqual(
-    findSafeDisappearedMessageIds({
-      previousVisibleMessages:
-        previous,
-      currentVisibleMessages: [
-        previous[1],
-        previous[2],
-      ],
-      recentScroll:
-        false,
-    }),
-    [],
-  )
-})
-
-test('não interpreta desaparecimento durante rolagem como exclusão', () => {
-  const previous = [
-    message({
-      id: 'm1',
-      timestampMs: 100,
-    }),
-    message({
-      id: 'm2',
-      timestampMs: 200,
-    }),
-    message({
-      id: 'm3',
-      timestampMs: 300,
-    }),
-  ]
-
-  assert.deepEqual(
-    findSafeDisappearedMessageIds({
-      previousVisibleMessages:
-        previous,
-      currentVisibleMessages: [
-        previous[0],
-        previous[1],
-      ],
-      recentScroll:
-        true,
-    }),
-    [],
-  )
-})
+// Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
+// findSafeDisappearedMessageIds() foi removida — desaparecimento do DOM
+// nunca é tratado como exclusão. Ver content-script-deletion-reason.test.mjs
+// e content-script-capture-wiring.test.mjs para os testes estruturais que
+// confirmam que synchronizeConversationMessageLedger() não gera mais
+// nenhuma mutação a partir de mensagens que somem da consulta do DOM.

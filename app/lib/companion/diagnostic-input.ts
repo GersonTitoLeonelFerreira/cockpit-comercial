@@ -83,6 +83,13 @@ export type DiagnosticExcludedMessage = {
   message_key: string
   version: number
   reason: 'deleted'
+  // Blocker 2 (Fase 12A, Frente 2B): 'explicit_deletion' = o WhatsApp
+  // mostrou um marcador de exclusão confirmado. 'dom_disappearance' = o
+  // elemento só saiu do DOM visível da extensão (virtualização/rolagem)
+  // e NUNCA prova exclusão real — o modelo nunca pode afirmar que o
+  // cliente apagou algo com esse valor, apenas que o conteúdo está
+  // indisponível/incerto (mesmo tratamento de áudio pendente).
+  deletion_reason: 'explicit_deletion' | 'dom_disappearance'
 }
 
 export type DiagnosticCommercialMethodStep = {
@@ -204,7 +211,6 @@ export type CompanionDiagnosticInput = {
       configured: boolean
 
       contract_version:
-        | 'commercial-method-v1'
         | 'commercial-method-v2'
         | null
 
@@ -260,6 +266,7 @@ type NormalizedCanonicalMessage = {
   text_content: string | null
   audio_transcription: string | null
   is_deleted: boolean
+  deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
 }
 
 export class CompanionDiagnosticInputError
@@ -627,6 +634,19 @@ function normalizeCanonicalMessage(
     audioTranscription = null
   }
 
+  const rawDeletionReason =
+    record.deletion_reason
+
+  const deletionReason:
+    'explicit_deletion' | 'dom_disappearance' | null =
+    !isDeleted
+      ? null
+      : rawDeletionReason === 'explicit_deletion'
+        ? 'explicit_deletion'
+        // Fail-safe: ausência ou valor inválido nunca é promovido a
+        // explicit_deletion.
+        : 'dom_disappearance'
+
   if (
     !isDeleted &&
     contentType === 'text' &&
@@ -695,6 +715,9 @@ function normalizeCanonicalMessage(
 
     is_deleted:
       isDeleted,
+
+    deletion_reason:
+      deletionReason,
   }
 }
 
@@ -917,14 +940,26 @@ function addLimitation(
   }
 }
 
-type ResolvedCommercialMethod = {
-  contract_version:
-    | 'commercial-method-v1'
-    | 'commercial-method-v2'
+// O Companion só pode tratar commercial-method-v2 como método operacional.
+// commercial-method-v1 e qualquer estrutura legada (method_steps,
+// commercial_method_description) nunca voltam a ser fonte ativa de método:
+// nem como valor primário, nem como rede de segurança quando o V2
+// publicado estiver ausente ou inválido. Ver ONDA 8 / FRENTE 2.
+type ResolvedCommercialMethod =
+  | {
+      status: 'active'
 
-  definition:
-    CommercialMethodDefinition | null
-}
+      definition:
+        CommercialMethodDefinition
+    }
+  | {
+      status: 'not_configured'
+    }
+  | {
+      status: 'invalid'
+
+      reason: string
+    }
 
 function resolveCommercialMethod(
   bundle: CommercialConfigBundle,
@@ -937,51 +972,27 @@ function resolveCommercialMethod(
     bundle.version
       .commercial_method_definition
 
+  const hasDefinitionValue =
+    definitionValue !== undefined &&
+    definitionValue !== null
+
   if (
     contractValue === undefined ||
-    contractValue === null
-  ) {
-    if (
-      definitionValue !== undefined &&
-      definitionValue !== null
-    ) {
-      fail(
-        'INVALID_COMMERCIAL_METHOD_DEFINITION',
-        'commercial_config.version.commercial_method_definition',
-        'Uma definição semântica não pode existir sem versão do contrato do método.',
-      )
-    }
-
-    return {
-      contract_version:
-        'commercial-method-v1',
-
-      definition:
-        null,
-    }
-  }
-
-  if (
+    contractValue === null ||
     contractValue ===
-    'commercial-method-v1'
+      'commercial-method-v1'
   ) {
-    if (
-      definitionValue !== undefined &&
-      definitionValue !== null
-    ) {
-      fail(
-        'INVALID_COMMERCIAL_METHOD_DEFINITION',
-        'commercial_config.version.commercial_method_definition',
-        'O método legado não pode possuir definição semântica V2.',
-      )
+    if (hasDefinitionValue) {
+      return {
+        status: 'invalid',
+
+        reason:
+          'commercial_method_definition presente sem contract_version=commercial-method-v2.',
+      }
     }
 
     return {
-      contract_version:
-        'commercial-method-v1',
-
-      definition:
-        null,
+      status: 'not_configured',
     }
   }
 
@@ -989,19 +1000,21 @@ function resolveCommercialMethod(
     contractValue !==
     'commercial-method-v2'
   ) {
-    fail(
-      'INVALID_COMMERCIAL_METHOD_CONTRACT',
-      'commercial_config.version.commercial_method_contract_version',
-      'A versão persistida do contrato do método comercial é incompatível.',
-    )
+    return {
+      status: 'invalid',
+
+      reason:
+        `commercial_method_contract_version desconhecido: ${String(contractValue)}.`,
+    }
   }
 
   if (!isRecord(definitionValue)) {
-    fail(
-      'INVALID_COMMERCIAL_METHOD_DEFINITION',
-      'commercial_config.version.commercial_method_definition',
-      'O método V2 publicado precisa possuir uma definição semântica.',
-    )
+    return {
+      status: 'invalid',
+
+      reason:
+        'O método V2 publicado precisa possuir uma definição semântica.',
+    }
   }
 
   const definition =
@@ -1016,24 +1029,31 @@ function resolveCommercialMethod(
         definition,
       )
   } catch {
-    fail(
-      'INVALID_COMMERCIAL_METHOD_DEFINITION',
-      'commercial_config.version.commercial_method_definition',
-      'A definição semântica publicada do método comercial é inválida.',
-    )
+    return {
+      status: 'invalid',
+
+      reason:
+        'A definição semântica publicada do método comercial é inválida.',
+    }
   }
 
   if (!validation.valid) {
-    fail(
-      'INVALID_COMMERCIAL_METHOD_DEFINITION',
-      'commercial_config.version.commercial_method_definition',
-      'A definição semântica publicada do método comercial não respeita o contrato V2.',
-    )
+    return {
+      status: 'invalid',
+
+      reason:
+        'A definição semântica publicada do método comercial não respeita o contrato V2: ' +
+        validation.issues
+          .map(
+            (issue) =>
+              `${issue.path} (${issue.code})`,
+          )
+          .join('; '),
+    }
   }
 
   return {
-    contract_version:
-      'commercial-method-v2',
+    status: 'active',
 
     definition,
   }
@@ -1635,48 +1655,12 @@ function buildCommercialContext(
       bundle,
     )
 
-  const legacyMethodSteps =
-    [...bundle.method_steps]
-      .sort(
-        (a, b) =>
-          a.step_order -
-          b.step_order,
-      )
-      .map((step) => ({
-        step_order:
-          step.step_order,
-
-        name:
-          normalizeRequiredString(
-            step.name,
-            'commercial_config.method_steps.name',
-          ),
-
-        objective:
-          normalizeRequiredString(
-            step.objective,
-            'commercial_config.method_steps.objective',
-            5000,
-          ),
-
-        completion_criteria:
-          normalizeStringArray(
-            step.completion_criteria,
-            'commercial_config.method_steps.completion_criteria',
-          ),
-
-        recommended_questions:
-          normalizeStringArray(
-            step.recommended_questions,
-            'commercial_config.method_steps.recommended_questions',
-          ),
-
-        is_required:
-          step.is_required === true,
-      }))
-
+  // company_commercial_method_steps (bundle.method_steps) e
+  // commercial_method_description NUNCA alimentam sales_method.steps.
+  // O único caminho operacional é resolvedMethod.status === 'active',
+  // isto é, uma versão publicada com commercial-method-v2 válido.
   const methodSteps =
-    resolvedMethod.definition
+    resolvedMethod.status === 'active'
       ? [
           ...resolvedMethod
             .definition
@@ -1720,15 +1704,25 @@ function buildCommercialContext(
               stage.requirement ===
               'required',
           }))
-      : legacyMethodSteps
+      : []
 
   const methodConfigured =
-    methodSteps.length > 0
+    resolvedMethod.status === 'active'
 
-  if (!methodConfigured) {
+  if (
+    resolvedMethod.status ===
+    'not_configured'
+  ) {
     addLimitation(
       limitations,
       'method_not_configured',
+    )
+  }
+
+  if (resolvedMethod.status === 'invalid') {
+    addLimitation(
+      limitations,
+      'commercial_method_invalid',
     )
   }
 
@@ -1956,58 +1950,62 @@ function buildCommercialContext(
         'commercial_config.version.prohibited_behaviors',
       ),
 
-    sales_method: {
-      configured:
-        methodConfigured,
+    sales_method:
+      resolvedMethod.status ===
+      'active'
+        ? {
+            configured: true,
 
-      contract_version:
-        methodConfigured
-          ? resolvedMethod
-              .contract_version
-          : null,
+            contract_version:
+              'commercial-method-v2',
 
-      name:
-        methodConfigured
-          ? normalizeRequiredString(
-              resolvedMethod
-                .definition
-                ?.name ??
-                bundle.version
-                  .commercial_method_name,
-              'commercial_context.sales_method.name',
-              5000,
-            )
-          : null,
+            name:
+              normalizeRequiredString(
+                resolvedMethod
+                  .definition
+                  .name,
+                'commercial_context.sales_method.name',
+                5000,
+              ),
 
-      description:
-        methodConfigured
-          ? normalizeRequiredString(
-              resolvedMethod
-                .definition
-                ?.description ??
-                bundle.version
-                  .commercial_method_description,
-              'commercial_context.sales_method.description',
-              10000,
-            )
-          : null,
+            description:
+              normalizeRequiredString(
+                resolvedMethod
+                  .definition
+                  .description,
+                'commercial_context.sales_method.description',
+                10000,
+              ),
 
-      principles:
-        resolvedMethod.definition
-          ? normalizeStringArray(
-              resolvedMethod
-                .definition
-                .principles,
-              'commercial_context.sales_method.principles',
-            )
-          : [],
+            principles:
+              normalizeStringArray(
+                resolvedMethod
+                  .definition
+                  .principles,
+                'commercial_context.sales_method.principles',
+              ),
 
-      definition:
-        resolvedMethod.definition,
+            definition:
+              resolvedMethod.definition,
 
-      steps:
-        methodSteps,
-    },
+            steps:
+              methodSteps,
+          }
+        : {
+            configured: false,
+
+            contract_version: null,
+
+            name: null,
+
+            description: null,
+
+            principles: [],
+
+            definition: null,
+
+            steps: [],
+          },
 
     products:
       commercialProducts,
@@ -2224,7 +2222,10 @@ export function buildCompanionDiagnosticInput({
         message_key:
           message.message_key,
         version: message.version,
-        reason: 'deleted',
+        reason: 'deleted' as const,
+        deletion_reason:
+          message.deletion_reason ??
+          'dom_disappearance',
       }))
 
   const hasUntranscribedAudio =

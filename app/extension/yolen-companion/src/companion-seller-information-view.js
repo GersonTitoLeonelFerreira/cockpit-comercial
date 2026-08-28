@@ -647,7 +647,7 @@
     }
 
     return `
-      <details class="yolen-seller-secondary-details">
+      <details class="yolen-seller-secondary-details" data-yolen-preserve-details="commercial-evolution">
         <summary>Ver evolução comercial</summary>
         <div class="yolen-method-stages">
           ${items.map((item) => `
@@ -1002,6 +1002,20 @@
           ? 'Produto principal'
           : 'Maior interesse observado',
         value: primaryName,
+      })
+    }
+
+    const openCommitment = displayItems(customer.commitments)
+      .find((item) => (
+        displayText(item.summary) &&
+        item.status !== 'completed' &&
+        item.status !== 'cancelled'
+      ))
+
+    if (openCommitment) {
+      summaryItems.push({
+        label: 'Pendência',
+        value: displayText(openCommitment.summary),
       })
     }
 

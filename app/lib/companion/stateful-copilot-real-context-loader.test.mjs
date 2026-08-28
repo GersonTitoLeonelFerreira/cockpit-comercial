@@ -2019,3 +2019,568 @@ test(
     )
   },
 )
+
+// ONDA 8 / FRENTE 2 — commercial-method-v2 é a única fonte ativa de
+// método comercial no caminho do Companion. Os testes abaixo comprovam,
+// no nível do carregador real (a mesma consulta usada em produção):
+// draft nunca vaza para o Companion, e uma nova análise após publicação
+// usa imediatamente a versão nova, sem cache preso à versão anterior.
+
+function buildMethodVersionRow({
+  id,
+  versionNumber,
+  status,
+  stageName,
+}) {
+  return {
+    id,
+
+    company_id:
+      companyId,
+
+    version_number:
+      versionNumber,
+
+    contract_version:
+      'phase-2-v1',
+
+    status,
+
+    business_description:
+      'Empresa de serviços comerciais.',
+
+    target_audience:
+      'Clientes que buscam acompanhamento.',
+
+    value_proposition:
+      'Atendimento consultivo e estruturado.',
+
+    commercial_method_name:
+      `Método ${stageName} (legado, não deve ser usado)`,
+
+    commercial_method_description:
+      'Texto legado, não deve ser parseado como etapas.',
+
+    commercial_method_contract_version:
+      'commercial-method-v2',
+
+    commercial_method_definition: {
+      contract_version:
+        'commercial-method-v2',
+
+      name:
+        `Método ${stageName}`,
+
+      description:
+        `Descrição estruturada do método ${stageName}.`,
+
+      principles: [
+        'Esperar é uma decisão comercial válida.',
+      ],
+
+      stages: [
+        {
+          key:
+            stageName.toLowerCase(),
+
+          display_order:
+            1,
+
+          name:
+            stageName,
+
+          objective:
+            'Compreender a necessidade relevante.',
+
+          requirement:
+            'required',
+
+          completion_criteria: [
+            'Necessidade compreendida.',
+          ],
+
+          partial_completion_criteria: [],
+          skip_conditions: [],
+          recommended_questions: [],
+          common_mistakes: [],
+          deepen_when: [],
+
+          sufficient_when: [
+            'Existe informação suficiente para orientar.',
+          ],
+
+          advance_when: [],
+          wait_when: [],
+
+          stop_asking_when: [
+            'Novas perguntas não alterariam a decisão.',
+          ],
+
+          dimensions: [],
+        },
+      ],
+    },
+
+    communication_tone:
+      'Direto e respeitoso.',
+
+    required_behaviors: [],
+    prohibited_behaviors: [],
+
+    created_by:
+      ownerId,
+
+    published_by:
+      status === 'published'
+        ? ownerId
+        : null,
+
+    archived_by:
+      status === 'archived'
+        ? ownerId
+        : null,
+
+    created_at:
+      '2026-08-01T10:00:00.000Z',
+
+    updated_at:
+      '2026-08-02T10:00:00.000Z',
+
+    published_at:
+      status === 'published'
+        ? '2026-08-02T10:00:00.000Z'
+        : null,
+
+    archived_at:
+      status === 'archived'
+        ? '2026-08-03T10:00:00.000Z'
+        : null,
+  }
+}
+
+test(
+  'draft commercial-method-v2 nunca é usado enquanto outra versão está publicada (cenário A)',
+  async () => {
+    const fixtures =
+      buildFixtures()
+
+    fixtures
+      .company_commercial_config_versions =
+      [
+        buildMethodVersionRow({
+          id:
+            configVersionId,
+
+          versionNumber:
+            3,
+
+          status:
+            'published',
+
+          stageName:
+            'Tour',
+        }),
+
+        buildMethodVersionRow({
+          id:
+            '60000000-0000-4000-8000-000000000009',
+
+          versionNumber:
+            4,
+
+          status:
+            'draft',
+
+          stageName:
+            'RascunhoNuncaUsado',
+        }),
+      ]
+
+    const {
+      client,
+    } =
+      createMockClient(
+        fixtures,
+      )
+
+    const loader =
+      createStatefulCopilotRealContextLoader(
+        client,
+      )
+
+    const result =
+      await loader(
+        buildLoadArgs(),
+      )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Tour',
+    )
+
+    assert.equal(
+      result
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps
+        .some(
+          (step) =>
+            step.name ===
+            'RascunhoNuncaUsado',
+        ),
+      false,
+    )
+  },
+)
+
+test(
+  'nova análise após publicação usa a nova versão publicada, sem cache preso à anterior (cenário B)',
+  async () => {
+    const versionAFixtures =
+      buildFixtures()
+
+    versionAFixtures
+      .company_commercial_config_versions =
+      [
+        buildMethodVersionRow({
+          id:
+            configVersionId,
+
+          versionNumber:
+            3,
+
+          status:
+            'published',
+
+          stageName:
+            'Tour',
+        }),
+      ]
+
+    const loader =
+      createStatefulCopilotRealContextLoader(
+        createMockClient(
+          versionAFixtures,
+        ).client,
+      )
+
+    const resultA =
+      await loader(
+        buildLoadArgs(),
+      )
+
+    assert.equal(
+      resultA
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Tour',
+    )
+
+    assert.equal(
+      resultA
+        .diagnostic_input
+        .commercial_context
+        .config_version_number,
+      3,
+    )
+
+    // Simula o resultado de uma publicação bem-sucedida: a versão 3
+    // agora está arquivada e a versão 4 passa a ser a única publicada.
+    const versionBFixtures =
+      buildFixtures()
+
+    versionBFixtures
+      .company_commercial_config_versions =
+      [
+        buildMethodVersionRow({
+          id:
+            configVersionId,
+
+          versionNumber:
+            3,
+
+          status:
+            'archived',
+
+          stageName:
+            'Tour',
+        }),
+
+        buildMethodVersionRow({
+          id:
+            '60000000-0000-4000-8000-000000000004',
+
+          versionNumber:
+            4,
+
+          status:
+            'published',
+
+          stageName:
+            'Apresentacao',
+        }),
+      ]
+
+    const freshLoader =
+      createStatefulCopilotRealContextLoader(
+        createMockClient(
+          versionBFixtures,
+        ).client,
+      )
+
+    const resultAfterPublish =
+      await freshLoader(
+        buildLoadArgs(),
+      )
+
+    assert.equal(
+      resultAfterPublish
+        .diagnostic_input
+        .commercial_context
+        .config_version_number,
+      4,
+    )
+
+    assert.equal(
+      resultAfterPublish
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps[0]
+        .name,
+      'Apresentacao',
+    )
+
+    assert.equal(
+      resultAfterPublish
+        .diagnostic_input
+        .commercial_context
+        .sales_method
+        .steps
+        .some(
+          (step) =>
+            step.name ===
+            'Tour',
+        ),
+      false,
+    )
+  },
+)
+
+const priorCycleId =
+  '30000000-0000-4000-8000-000000000099'
+
+function priorStateSnapshotFixture() {
+  return {
+    contract_version:
+      'phase-5.1-commercial-state-v1',
+
+    cycle_id:
+      priorCycleId,
+
+    version: 2,
+
+    commercial_role:
+      'buyer',
+
+    current_moment: {
+      summary: 'x',
+      evidence_message_ids: [],
+    },
+
+    current_priority: {
+      summary: 'x',
+      evidence_message_ids: [],
+    },
+
+    last_analyzed_message_ids: [],
+    last_evidence_message_ids: [],
+
+    facts: [
+      {
+        id: 'old-fact-objective',
+        kind: 'client.objective',
+        value: null,
+        summary: 'Queria emagrecer para a maratona no ciclo anterior.',
+        confidence: 'high',
+        evidence_message_ids: ['old-msg-1'],
+        memory_status: 'active',
+        created_in_state_version: 2,
+        updated_in_state_version: 2,
+        closed_in_state_version: null,
+      },
+    ],
+
+    needs: [],
+    open_loops: [],
+    objections: [],
+    commitments: [],
+    signals: [],
+    uncertainties: [],
+
+    created_at: '2026-08-01T10:00:00.000Z',
+    updated_at: '2026-08-01T10:00:00.000Z',
+  }
+}
+
+test(
+  'Blocker 4: ciclo sem estado próprio herda memória durável do ciclo indicado por origin_cycle_id',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    fixtures.sales_cycles[0].origin_cycle_id =
+      priorCycleId
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-01T10:00:00.000Z',
+        persisted_at: '2026-08-01T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.ok(result.durable_memory_seed, 'deveria herdar memória do ciclo indicado por origin_cycle_id')
+    assert.equal(result.durable_memory_seed.source_cycle_id, priorCycleId)
+    assert.equal(result.durable_memory_seed.facts.length, 1)
+    assert.equal(result.durable_memory_seed.facts[0].kind, 'client.objective')
+    assert.match(result.durable_memory_seed.facts[0].summary, /Herdado do ciclo anterior/)
+  },
+)
+
+test(
+  'Blocker 4: sem origin_cycle_id, herda do ciclo mais recente do mesmo lead (heurística de fallback)',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    // origin_cycle_id não é setado — precisa cair na heurística de
+    // "ciclo mais recente do mesmo lead, excluindo o ciclo atual".
+    fixtures.sales_cycles.push({
+      id: priorCycleId,
+      company_id: companyId,
+      lead_id: leadId,
+      owner_user_id: ownerId,
+      status: 'perdido',
+      next_action: null,
+      next_action_date: null,
+      updated_at: '2026-08-01T10:00:00.000Z',
+      created_at: '2026-08-01T09:00:00.000Z',
+    })
+
+    fixtures.sales_cycles[0].created_at =
+      '2026-08-06T09:00:00.000Z'
+
+    fixtures.companion_commercial_states = [
+      {
+        id: '80000000-0000-4000-8000-000000000099',
+        company_id: companyId,
+        cycle_id: priorCycleId,
+        conversation_key: 'whatsapp:+5547999990099',
+        state_version: 2,
+        state_contract_version: 'phase-5.1-commercial-state-v1',
+        state_updated_at: '2026-08-01T10:00:00.000Z',
+        persisted_at: '2026-08-01T10:00:01.000Z',
+        state_snapshot: priorStateSnapshotFixture(),
+      },
+    ]
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.ok(result.durable_memory_seed, 'deveria herdar via heurística de fallback')
+    assert.equal(result.durable_memory_seed.source_cycle_id, priorCycleId)
+  },
+)
+
+test(
+  'Blocker 4: ciclo que já possui estado próprio nunca consulta memória durável de outro ciclo',
+  async () => {
+    const fixtures =
+      buildFixtures()
+
+    const { client, calls } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'found')
+    assert.equal(result.durable_memory_seed, null)
+
+    assert.equal(
+      calls.some(
+        (call) =>
+          call.table === 'sales_cycles' &&
+          call.filters.some((f) => f.column === 'lead_id'),
+      ),
+      false,
+      'não deveria nem buscar ciclos anteriores quando já há estado próprio',
+    )
+  },
+)
+
+test(
+  'Blocker 4: sem ciclo anterior e sem origin_cycle_id, durable_memory_seed permanece null',
+  async () => {
+    const fixtures =
+      buildFixtures({
+        includeState: false,
+      })
+
+    const { client } =
+      createMockClient(fixtures)
+
+    const result =
+      await createStatefulCopilotRealContextLoader(
+        client,
+      )(
+        buildLoadArgs(),
+      )
+
+    assert.equal(result.state_read.mode, 'missing')
+    assert.equal(result.durable_memory_seed, null)
+  },
+)

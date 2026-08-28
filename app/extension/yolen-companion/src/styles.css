@@ -1393,6 +1393,95 @@ html.yolen-companion-collapsed #app {
   color: #fca5a5;
 }
 
+.yolen-lead-summary--loading,
+.yolen-lead-summary--error {
+  color: #a8b8cb;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.yolen-lead-summary--error {
+  color: #fca5a5;
+}
+
+.yolen-lead-summary--ready {
+  display: grid;
+  gap: 10px;
+}
+
+.yolen-lead-summary-text {
+  color: #edf5ff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.yolen-lead-summary-meta {
+  color: #7e99c2;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.yolen-lead-summary-editor {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(126, 153, 194, 0.1);
+}
+
+.yolen-lead-summary-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid rgba(126, 153, 194, 0.18);
+  background: rgba(2, 6, 23, 0.34);
+  color: #e3edf9;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.5;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.yolen-lead-summary-textarea:disabled {
+  opacity: 0.6;
+}
+
+.yolen-lead-summary-save-button {
+  width: auto;
+  padding: 9px 16px;
+  font-size: 12px;
+}
+
+.yolen-lead-summary-save-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+  opacity: 0.7;
+}
+
+.yolen-lead-summary-feedback--conflict,
+.yolen-lead-summary-feedback--error {
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.yolen-lead-summary-feedback--conflict {
+  color: #fcd34d;
+  background: rgba(146, 64, 14, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.yolen-lead-summary-feedback--error {
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.16);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+}
+
 .yolen-client-commercial-card {
   display: grid;
   gap: 12px;
@@ -1616,4 +1705,328 @@ html.yolen-companion-collapsed #app {
   .yolen-method-stage-header {
     align-items: flex-start;
   }
+}
+
+
+/* YOLEN COMPANION UX — DECISÃO ÚNICA, LOADING VIVO, MICROTRANSIÇÕES */
+
+/*
+ * O painel inteiro é reconstruído (innerHTML) a cada mudança de estado,
+ * inclusive em ticks periódicos sem nenhuma mudança visível para o
+ * vendedor. Por isso as transições abaixo são deliberadamente curtas e
+ * parciais (nunca partem de opacidade zero): suavizam o corte de repintura
+ * em vez de tentar simular uma transição "sob demanda" que a arquitetura
+ * atual não consegue distinguir de um refresh de rotina.
+ */
+@keyframes yolen-soft-repaint {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes yolen-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes yolen-pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.32);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0);
+  }
+}
+
+@keyframes yolen-badge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.yolen-decision-primary,
+.yolen-seller-panel:not([hidden]),
+.yolen-now-attention,
+.yolen-deep-analysis-status {
+  animation: yolen-soft-repaint 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yolen-decision-primary,
+  .yolen-seller-panel:not([hidden]),
+  .yolen-now-attention,
+  .yolen-deep-analysis-status,
+  .yolen-spinner,
+  .yolen-deep-analysis-status--fresh,
+  .yolen-deep-analysis-fresh-badge {
+    animation: none !important;
+  }
+}
+
+/* Camada 1 — AÇÃO: o único bloco que precisa saltar aos olhos em <5s. */
+.yolen-decision-primary {
+  margin-top: 14px;
+  padding: 14px 14px 4px;
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(15, 23, 42, 0.4));
+}
+
+.yolen-decision-primary > .yolen-decision-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.yolen-decision-primary .yolen-decision-block--context .yolen-decision-title {
+  font-size: 13px;
+  color: #cfe0f5;
+}
+
+.yolen-decision-primary .yolen-message-suggestion,
+.yolen-decision-primary .yolen-operational-suggestion {
+  margin-top: 14px;
+}
+
+/* Camada 2 — CONTEXTO: visível, mas com peso visual claramente menor que a ação. */
+.yolen-now-more-details {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(126, 153, 194, 0.12);
+}
+
+.yolen-now-more-details > summary {
+  cursor: pointer;
+  color: #8ea0b8;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  list-style: none;
+}
+
+.yolen-now-more-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.yolen-now-more-details > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 140ms ease-out;
+}
+
+.yolen-now-more-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.yolen-now-more-details-content {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  opacity: 0.92;
+}
+
+.yolen-now-more-details-content .yolen-decision-block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Camada 3 — EVIDÊNCIA: citação/trecho da conversa, sempre a informação mais quieta da tela. */
+.yolen-seller-evidence::before {
+  content: "❝ ";
+  color: #4a6285;
+}
+
+/* "Nova inteligência disponível": só pulsa na primeira renderização de um
+   resultado novo (controlado em JS via isDeepAnalysisResultFresh()), nunca
+   em re-renders de rotina do mesmo resultado. */
+.yolen-deep-analysis-status--fresh {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(30, 64, 175, 0.14);
+  animation:
+    yolen-soft-repaint 140ms ease-out,
+    yolen-pulse-ring 1.1s ease-out 1;
+}
+
+.yolen-deep-analysis-fresh-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.28);
+  color: #dbeafe;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  animation: yolen-badge-pulse 1.1s ease-in-out 2;
+}
+
+/* Loading vivo: mesma frase de sempre, agora com um sinal real de movimento. */
+.yolen-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 7px;
+  vertical-align: -2px;
+  border: 2px solid rgba(148, 178, 219, 0.28);
+  border-top-color: #60a5fa;
+  border-radius: 50%;
+  animation: yolen-spin 700ms linear infinite;
+}
+
+.yolen-spinner-inline {
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border-width: 1.5px;
+}
+
+
+/* UX7 — single-responsibility seller architecture */
+.yolen-contact-card--compact {
+  padding: 11px 12px;
+  margin-bottom: 9px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.yolen-contact-compact-head {
+  display: grid;
+  gap: 6px;
+}
+.yolen-contact-card--compact .yolen-lead-name {
+  margin: 0;
+  font-size: 13px;
+}
+.yolen-contact-card--compact .yolen-contact-description {
+  margin-top: 7px;
+  font-size: 10px;
+}
+.yolen-contact-card--compact .yolen-contact-actions {
+  margin-top: 8px;
+}
+.yolen-contact-card--compact .yolen-contact-actions button {
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.yolen-seller-workspace--ux7 .yolen-seller-tabs {
+  position: sticky;
+  top: 62px;
+  z-index: 8;
+  margin: 0 0 9px;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 11px;
+  background: rgba(7,12,20,.96);
+  box-shadow: 0 8px 20px rgba(0,0,0,.14);
+  backdrop-filter: blur(14px);
+}
+.yolen-seller-workspace--ux7 .yolen-seller-tab {
+  padding: 8px 5px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-tab--active {
+  background: rgba(37,99,235,.18);
+  border-color: rgba(96,165,250,.25);
+  box-shadow: none;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-panel {
+  min-width: 0;
+}
+.yolen-seller-workspace--ux7 .yolen-card {
+  margin-bottom: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+/* Alerta relevante (nível 1) sempre no topo do AGORA, antes do resumo. */
+.yolen-seller-workspace--ux7
+.yolen-seller-panel[data-yolen-seller-panel="now"]
+> .yolen-now-attention {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+/* AGORA is one stable action surface. Deep-analysis loading/error lives in ANÁLISE. */
+.yolen-seller-workspace--ux7
+.yolen-seller-panel[data-yolen-seller-panel="now"]
+.yolen-lead-summary-card {
+  border-color: rgba(96,165,250,.14);
+  background:
+    linear-gradient(180deg, rgba(17,27,43,.80), rgba(8,14,23,.76));
+}
+.yolen-seller-workspace--ux7 .yolen-lead-summary-preview {
+  -webkit-line-clamp: 3;
+  color: #dce7f4;
+  font-size: 11px;
+  line-height: 1.48;
+}
+.yolen-seller-workspace--ux7 .yolen-lead-summary-meta {
+  color: #6f829b;
+  font-size: 9px;
+}
+.yolen-seller-workspace--ux7 .yolen-method-guidance {
+  margin-top: 11px;
+  padding-top: 11px;
+}
+.yolen-seller-workspace--ux7 .yolen-method-guidance-next-step {
+  font-size: 12px;
+  line-height: 1.48;
+}
+.yolen-seller-workspace--ux7 .yolen-lead-summary-save-button {
+  width: auto;
+  justify-self: start;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 10px;
+  box-shadow: none;
+}
+.yolen-seller-workspace--ux7 [data-yolen-seller-message-box] {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(126,153,194,.10);
+}
+.yolen-seller-workspace--ux7 .yolen-seller-message-title {
+  color: #f2f7fd;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-message-help {
+  color: #7d90aa;
+  font-size: 10px;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-message-preset {
+  padding: 5px 8px;
+  font-size: 9px;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-message-intent {
+  min-height: 64px;
+  font-size: 11px;
+}
+.yolen-seller-workspace--ux7 .yolen-seller-message-generate {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+/* Operational utilities are subordinate to CLIENTE. */
+.yolen-seller-workspace--ux7
+.yolen-seller-panel[data-yolen-seller-panel="client"]
+.yolen-card {
+  box-shadow: none;
 }

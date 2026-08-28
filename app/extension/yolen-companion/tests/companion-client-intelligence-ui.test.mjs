@@ -300,3 +300,36 @@ test('resumo fica no primeiro nível e os grupos usam detalhe nativo sob demanda
   assert.match(html, /<summary>/)
   assert.doesNotMatch(html, /<details[^>]*\sopen(?:=|\s|>)/)
 })
+
+test('pendência (compromisso ainda em aberto) aparece no resumo do primeiro nível', () => {
+  const html = view.renderClientCommercialArea(reading(customer({
+    objectives: [evidence('Regularizar o pagamento em atraso.')],
+    commitments: [evidence('Cliente vai enviar o comprovante de pagamento.', {
+      status: 'proposed',
+    })],
+  })))
+
+  const summaryMatch = html.match(
+    /<div class="yolen-client-intelligence-summary"[\s\S]*?<\/div>\s*<div class="yolen-client-intelligence-groups">/,
+  )
+
+  assert.ok(summaryMatch, 'deveria existir um bloco de resumo no primeiro nível')
+  assert.match(summaryMatch[0], /Pendência/)
+  assert.match(summaryMatch[0], /Cliente vai enviar o comprovante de pagamento\./)
+})
+
+test('compromisso já concluído ou cancelado não aparece como pendência no resumo', () => {
+  const html = view.renderClientCommercialArea(reading(customer({
+    commitments: [evidence('Visita já realizada.', {
+      status: 'completed',
+    })],
+  })))
+
+  const summaryMatch = html.match(
+    /<div class="yolen-client-intelligence-summary"[\s\S]*?<\/div>\s*<div class="yolen-client-intelligence-groups">/,
+  )
+
+  if (summaryMatch) {
+    assert.doesNotMatch(summaryMatch[0], /Pendência/)
+  }
+})

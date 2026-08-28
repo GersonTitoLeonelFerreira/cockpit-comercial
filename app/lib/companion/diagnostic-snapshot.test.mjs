@@ -180,6 +180,57 @@ function buildMessage(
   }
 }
 
+function buildCommercialMethodV2() {
+  return {
+    contract_version:
+      'commercial-method-v2',
+
+    name:
+      'Método Consultivo',
+
+    description:
+      'Entender antes de apresentar.',
+
+    principles: [
+      'Perguntar somente quando a resposta puder alterar a decisão comercial.',
+    ],
+
+    stages: [
+      {
+        key: 'diagnostico',
+        display_order: 1,
+        name: 'Diagnóstico',
+        objective:
+          'Entender objetivo e rotina.',
+        requirement: 'required',
+        completion_criteria: [
+          'Objetivo identificado.',
+        ],
+        partial_completion_criteria: [],
+        skip_conditions: [],
+        recommended_questions: [
+          'Qual é seu principal objetivo?',
+        ],
+        common_mistakes: [],
+        deepen_when: [
+          'Falta informação que pode alterar a recomendação.',
+        ],
+        sufficient_when: [
+          'As informações disponíveis já permitem orientar com segurança.',
+        ],
+        advance_when: [
+          'Existe correspondência comprovada entre necessidade e solução.',
+        ],
+        wait_when: [],
+        stop_asking_when: [
+          'Novas perguntas não alterariam a decisão comercial.',
+        ],
+        dimensions: [],
+      },
+    ],
+  }
+}
+
 function buildVersion(
   overrides = {},
 ) {
@@ -200,11 +251,19 @@ function buildVersion(
     value_proposition:
       'Estrutura e acompanhamento.',
 
+    // Colunas legadas mantidas apenas por histórico; o Companion não
+    // deve mais lê-las como fonte de método operacional.
     commercial_method_name:
-      'Método Consultivo',
+      'Método Consultivo (legado, não deve ser usado)',
 
     commercial_method_description:
-      'Entender antes de apresentar.',
+      'Entender antes de apresentar. (legado, não deve ser usado)',
+
+    commercial_method_contract_version:
+      'commercial-method-v2',
+
+    commercial_method_definition:
+      buildCommercialMethodV2(),
 
     communication_tone:
       'Direto e acolhedor.',

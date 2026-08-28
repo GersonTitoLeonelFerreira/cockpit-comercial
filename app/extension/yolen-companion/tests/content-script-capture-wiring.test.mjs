@@ -1005,7 +1005,7 @@ test('captura usa corpo selecionável e chave estável', () => {
     )
   })
 
-test('detecta desaparecimento do DOM com proteção contra rolagem', () => {
+test('Blocker 2 (re-auditoria): desaparecimento do DOM nunca gera mutação de mensagem nem exclusão', () => {
   const synchronizeStart =
     contentScript.indexOf(
       '  function synchronizeConversationMessageLedger()',
@@ -1033,19 +1033,41 @@ test('detecta desaparecimento do DOM com proteção contra rolagem', () => {
       synchronizeEnd,
     )
 
-  assert.match(
-    synchronizeBlock,
+  // A heurística de "desaparecimento seguro" foi removida por completo:
+  // nenhum destes identificadores deve existir mais em lugar nenhum do
+  // content-script.js.
+  assert.doesNotMatch(
+    contentScript,
     /findSafeDisappearedMessageIds/,
   )
 
-  assert.match(
-    synchronizeBlock,
+  assert.doesNotMatch(
+    contentScript,
     /lastVisibleMessageSnapshots/,
   )
 
+  assert.doesNotMatch(
+    contentScript,
+    /recentConversationScroll/,
+  )
+
+  assert.doesNotMatch(
+    contentScript,
+    /function observeConversationScrollActivity\(\)/,
+  )
+
+  assert.doesNotMatch(
+    contentScript,
+    /DISAPPEARED_MESSAGE_SCROLL_GUARD_MS/,
+  )
+
+  // Dentro de synchronizeConversationMessageLedger(), deletedMessageSnapshots.set
+  // e rememberPendingCaptureMutation só podem aparecer ligados ao ramo de
+  // marcador explícito de exclusão do WhatsApp (isDeletedMessageNode) —
+  // nunca a partir de mensagens que somem da consulta do DOM.
   assert.match(
     synchronizeBlock,
-    /recentConversationScroll/,
+    /isDeletedMessageNode\(node\)/,
   )
 
   assert.match(
@@ -1056,15 +1078,5 @@ test('detecta desaparecimento do DOM com proteção contra rolagem', () => {
   assert.match(
     synchronizeBlock,
     /rememberPendingCaptureMutation/,
-  )
-
-  assert.match(
-    contentScript,
-    /function observeConversationScrollActivity\(\)/,
-  )
-
-  assert.match(
-    contentScript,
-    /DISAPPEARED_MESSAGE_SCROLL_GUARD_MS/,
   )
 })

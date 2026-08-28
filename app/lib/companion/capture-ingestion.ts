@@ -9,6 +9,21 @@ export const MAX_AUDIO_TRANSCRIPTION_LENGTH = 200_000
 export type CaptureDirection = 'incoming' | 'outgoing'
 export type CaptureContentType = 'text' | 'audio'
 
+// Blocker 2 (Fase 12A, Frente 2B, re-auditoria do Controle Mestre):
+// 'explicit_deletion' significa que o WhatsApp mostrou um marcador
+// confirmado de exclusão (ou o ícone de revoke) — é o ÚNICO valor que
+// pode produzir is_deleted: true no contrato canônico. 'dom_disappearance'
+// significa apenas que o elemento saiu do DOM visível (virtualização/
+// rolagem do WhatsApp Web) — isso NUNCA prova exclusão real. Uma
+// mensagem que chega com is_deleted: true e deletion_reason resolvido
+// para 'dom_disappearance' (ou qualquer valor não confirmado) é
+// descartada deste lote em normalizeCaptureMessage — nunca vira uma
+// nova versão canônica de exclusão, nunca perde texto, nunca some de
+// activeMessages por causa disso.
+export type CaptureDeletionReason =
+  | 'explicit_deletion'
+  | 'dom_disappearance'
+
 export type NormalizedCaptureMessage = {
   message_key: string
   direction: CaptureDirection
@@ -19,6 +34,7 @@ export type NormalizedCaptureMessage = {
   text_content: string | null
   audio_transcription: string | null
   is_deleted: boolean
+  deletion_reason: CaptureDeletionReason | null
 }
 
 export type NormalizedCaptureIngestionEnvelope = {
@@ -277,6 +293,26 @@ function normalizeContentType(
   return value
 }
 
+function normalizeDeletionReason(
+  value: unknown,
+  isDeleted: boolean,
+): CaptureDeletionReason | null {
+  if (!isDeleted) {
+    return null
+  }
+
+  if (value === 'explicit_deletion' || value === 'dom_disappearance') {
+    return value
+  }
+
+  // Fail-safe, não fail-closed: um valor ausente, malformado ou vindo de
+  // uma versão antiga da extensão (que ainda não envia este campo) nunca
+  // pode ser promovido a 'explicit_deletion'. O batch inteiro não deve
+  // ser rejeitado por causa disso — a mensagem continua marcada como
+  // excluída (sem conteúdo), só que com a razão mais conservadora.
+  return 'dom_disappearance'
+}
+
 function normalizeBoolean(value: unknown, path: string) {
   if (typeof value !== 'boolean') {
     fail({
@@ -398,7 +434,7 @@ function normalizeObservedAt(
 function normalizeCaptureMessage(
   value: unknown,
   index: number,
-): NormalizedCaptureMessage {
+): NormalizedCaptureMessage | null {
   const path = `messages[${index}]`
 
   if (!isRecord(value)) {
@@ -458,6 +494,23 @@ function normalizeCaptureMessage(
   })
 
   if (isDeleted) {
+    const deletionReason = normalizeDeletionReason(
+      value.deletion_reason,
+      true,
+    )
+
+    if (deletionReason !== 'explicit_deletion') {
+      // Blocker 2 (re-auditoria): dom_disappearance (ou qualquer razão
+      // não confirmada) NUNCA pode virar is_deleted: true. Esta
+      // mensagem só chegaria aqui vinda de uma versão desatualizada da
+      // extensão (a versão corrigida nunca envia is_deleted para uma
+      // mera virtualização de DOM) — o texto original já pode ter sido
+      // descartado antes de chegar aqui, então a única opção segura é
+      // descartar esta mensagem do lote: nenhuma versão nova é
+      // persistida e o estado canônico existente permanece intocado.
+      return null
+    }
+
     return {
       message_key: messageKey,
       direction,
@@ -468,6 +521,7 @@ function normalizeCaptureMessage(
       text_content: null,
       audio_transcription: null,
       is_deleted: true,
+      deletion_reason: 'explicit_deletion',
     }
   }
 
@@ -497,6 +551,7 @@ function normalizeCaptureMessage(
     text_content: textContent,
     audio_transcription: audioTranscription,
     is_deleted: false,
+    deletion_reason: null,
   }
 }
 
@@ -559,9 +614,14 @@ export function normalizeCaptureIngestionEnvelope(
     })
   }
 
-  const messages = value.messages.map((message, index) => {
-    return normalizeCaptureMessage(message, index)
-  })
+  const messages = value.messages
+    .map((message, index) => {
+      return normalizeCaptureMessage(message, index)
+    })
+    .filter(
+      (message): message is NormalizedCaptureMessage =>
+        message !== null,
+    )
 
   const observedMessageKeys = new Set<string>()
 
@@ -598,5 +658,6 @@ export function buildCaptureMessageStateKey(
     message.text_content,
     message.audio_transcription,
     message.is_deleted,
+    message.deletion_reason,
   ])
 }

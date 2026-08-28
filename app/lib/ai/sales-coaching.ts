@@ -8,6 +8,7 @@ import type {
     context: AISalesContext
     conversationText: string
     suggestion: AISalesSuggestion
+    providerTimeoutMs?: number
   }
   
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -232,10 +233,20 @@ import type {
         input.suggestion.reason_for_recommendation,
     }
   
+    const providerTimeoutMs =
+      typeof input.providerTimeoutMs === 'number' &&
+      Number.isFinite(input.providerTimeoutMs)
+        ? Math.max(1_000, Math.floor(input.providerTimeoutMs))
+        : null
+
     const response = await fetch(
       'https://api.openai.com/v1/chat/completions',
       {
         method: 'POST',
+        signal:
+          providerTimeoutMs
+            ? AbortSignal.timeout(providerTimeoutMs)
+            : undefined,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENAI_API_KEY}`,

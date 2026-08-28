@@ -291,6 +291,18 @@
           text_content: null,
           audio_transcription: null,
           is_deleted: true,
+          // Blocker 2 (Fase 12A, Frente 2B): distingue exclusão
+          // confirmada pelo WhatsApp de mero desaparecimento do DOM
+          // (virtualização/rolagem), que NUNCA prova exclusão real.
+          // 'explicit_deletion' é o único valor tratado como fato
+          // comercial confirmado a jusante; qualquer outro valor
+          // (incluindo ausência do campo, para compatibilidade com
+          // snapshots antigos) é tratado como não confirmado.
+          deletion_reason:
+            message.deletionReason ===
+              'explicit_deletion'
+              ? 'explicit_deletion'
+              : 'dom_disappearance',
         }
       }
 

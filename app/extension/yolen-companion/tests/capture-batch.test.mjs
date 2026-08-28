@@ -394,8 +394,62 @@ test('mensagem excluída não preserva conteúdo ou transcrição', () => {
       text_content: null,
       audio_transcription: null,
       is_deleted: true,
+      // Sem deletionReason explícito no snapshot (compat com estado
+      // antigo do content-script), o wire format nunca assume exclusão
+      // confirmada por default — cai em 'dom_disappearance'.
+      deletion_reason: 'dom_disappearance',
     },
   ])
+})
+
+test('mensagem com deletionReason=explicit_deletion no snapshot vira deletion_reason=explicit_deletion no wire format', () => {
+  const messages = buildCaptureMessages({
+    deletedMessages: [
+      activeMessage({
+        id: 'deleted-explicit-001',
+        text: 'Mensagem apagada pelo remetente.',
+        deletionReason: 'explicit_deletion',
+      }),
+    ],
+  })
+
+  assert.equal(messages.length, 1)
+  assert.equal(messages[0].is_deleted, true)
+  assert.equal(messages[0].deletion_reason, 'explicit_deletion')
+})
+
+test('mensagem com deletionReason=dom_disappearance no snapshot NUNCA vira explicit_deletion no wire format', () => {
+  const messages = buildCaptureMessages({
+    deletedMessages: [
+      activeMessage({
+        id: 'deleted-disappeared-001',
+        text: 'Mensagem que só saiu do DOM.',
+        deletionReason: 'dom_disappearance',
+      }),
+    ],
+  })
+
+  assert.equal(messages.length, 1)
+  assert.equal(messages[0].is_deleted, true)
+  assert.equal(
+    messages[0].deletion_reason,
+    'dom_disappearance',
+    'desaparecimento do DOM nunca pode ser promovido a exclusão confirmada',
+  )
+})
+
+test('qualquer valor desconhecido/adulterado de deletionReason cai em dom_disappearance (fail-safe, nunca fail-open para explicit_deletion)', () => {
+  const messages = buildCaptureMessages({
+    deletedMessages: [
+      activeMessage({
+        id: 'deleted-unknown-001',
+        text: 'Valor inesperado.',
+        deletionReason: 'algo-nao-reconhecido',
+      }),
+    ],
+  })
+
+  assert.equal(messages[0].deletion_reason, 'dom_disappearance')
 })
 
 test('mensagem restaurada ativa prevalece sobre a fotografia excluída', () => {

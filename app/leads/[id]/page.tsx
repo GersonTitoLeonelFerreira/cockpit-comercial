@@ -57,6 +57,12 @@ type GroupRow = {
   name: string
 }
 
+type LeadConversationSummaryRow = {
+  summary: string
+  version: number
+  updated_at: string
+}
+
 type LeadCycle = SalesCycle & {
   products?: ProductRelation | null
 }
@@ -383,6 +389,19 @@ async function getLeadPageData(
     .eq('company_id', activeCompanyId)
     .maybeSingle()
 
+  // Etapa 1 da reconstrução do Companion: mesma fonte lida pela extensão
+  // (public.companion_lead_conversation_summaries), aqui via RLS de posse
+  // de lead em vez do token do Companion — nunca um "resumo da página"
+  // separado do "resumo da extensão".
+  const { data: leadSummaryData } = await supabase
+    .from('companion_lead_conversation_summaries')
+    .select('summary, version, updated_at')
+    .eq('company_id', activeCompanyId)
+    .eq('lead_id', leadId)
+    .maybeSingle()
+
+  const leadSummary = (leadSummaryData ?? null) as LeadConversationSummaryRow | null
+
   const { data: groupCycle } = await supabase
     .from('lead_group_cycles')
     .select('lead_groups:group_id(name)')
@@ -405,6 +424,7 @@ async function getLeadPageData(
 activeGroupName: groupRelation?.name ?? null,
 profileNameById,
 groupNameById,
+leadSummary,
   }
 }
 
@@ -434,6 +454,7 @@ leadProfile,
 activeGroupName,
 profileNameById,
 groupNameById,
+leadSummary,
   } = await getLeadPageData(leadId, requestedOpportunityId)
 
   const selectedProduct = selectedCycle.products ?? null
@@ -597,6 +618,64 @@ const cyclesById = new Map(
             </div>
           </div>
         </div>
+      </section>
+
+      <section
+        style={{
+          background: DS.panelBg,
+          border: `1px solid ${DS.border}`,
+          borderRadius: 16,
+          padding: 16,
+          marginBottom: 14,
+        }}
+      >
+        <div
+          style={{
+            color: DS.blue,
+            fontSize: 10,
+            fontWeight: 900,
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            marginBottom: 10,
+          }}
+        >
+          Resumo salvo na Yolen
+        </div>
+
+        {leadSummary ? (
+          <>
+            <div
+              style={{
+                color: DS.textPrimary,
+                fontSize: 13,
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {leadSummary.summary}
+            </div>
+
+            <div
+              style={{
+                color: DS.textMuted,
+                fontSize: 11,
+                marginTop: 10,
+              }}
+            >
+              Versão {leadSummary.version} · atualizado em{' '}
+              {fmtDateShort(leadSummary.updated_at)}
+            </div>
+          </>
+        ) : (
+          <div
+            style={{
+              color: DS.textSecondary,
+              fontSize: 13,
+            }}
+          >
+            Ainda não existe resumo salvo para este lead.
+          </div>
+        )}
       </section>
 
       <section

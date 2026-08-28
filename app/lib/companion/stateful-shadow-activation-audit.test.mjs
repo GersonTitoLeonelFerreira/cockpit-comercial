@@ -11,21 +11,31 @@ const routeSource = readFileSync(
 )
 
 test(
-  'analise operacional salva a decisao de ativacao do motor contextual para auditoria',
+  // Fase 12A — V2 stateful como único motor: a auditoria de qual modo de
+  // ativação gerou uma decisão só existia porque V1 salvava seu resultado
+  // em ai_coaching_notes e precisava registrar sob qual gate isso
+  // aconteceu. Sem V1 nesta rota, não existe mais essa gravação nem esse
+  // gate decidindo o motor — o Companion sempre cria o job do V2.
+  'Companion não tem mais gate de ativação decidindo o motor, nem grava decisão V1 para auditoria',
   () => {
-    assert.match(
+    assert.doesNotMatch(
       routeSource,
       /resolveStatefulCopilotActivationGate/,
     )
 
-    assert.match(
+    assert.doesNotMatch(
       routeSource,
-      /stateful_activation:\s*getStatefulActivationAudit/,
+      /getStatefulActivationAudit/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /ai_coaching_notes/,
     )
 
     assert.match(
       routeSource,
-      /companyId:\s*tokenPayload\.company_id/,
+      /buildStatefulCopilotBackgroundJobDescriptor/,
     )
   },
 )

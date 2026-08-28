@@ -77,29 +77,37 @@ const packageSource =
   )
 
 test(
-  'active publica V2 na Queue depois do first value',
+  // Fase 12A — V2 como único motor: toda chamada do Companion publica na
+  // Queue do V2 — não existe mais nenhuma chamada V1
+  // (analyzeConversationWithCopilotDetailed/generateSalesCoaching), nem
+  // gate de modo ('v1'/'shadow'/'active') decidindo entre os dois. Se o
+  // job não puder ser criado, a resposta é um erro explícito — sem
+  // fallback para V1.
+  'toda chamada publica V2 na Queue sem nunca chamar V1',
   () => {
-    const v1 =
-      routeSource.indexOf(
-        'const result = await analyzeConversationWithCopilotDetailed({',
-      )
-
-    const publish =
-      routeSource.indexOf(
-        'await send(',
-      )
-
-    assert.ok(
-      v1 >= 0,
-    )
-
-    assert.ok(
-      publish > v1,
+    assert.match(
+      routeSource,
+      /await send\(/,
     )
 
     assert.match(
       routeSource,
       /STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /analyzeConversationWithCopilotDetailed/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /generateSalesCoaching/,
+    )
+
+    assert.doesNotMatch(
+      routeSource,
+      /statefulRouteMode/,
     )
 
     assert.doesNotMatch(

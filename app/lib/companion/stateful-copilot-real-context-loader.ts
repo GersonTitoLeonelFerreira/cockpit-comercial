@@ -20,6 +20,11 @@ import {
   type StatefulCopilotSupabaseReadClient,
 } from './stateful-copilot-supabase-reader'
 
+import {
+  buildDurableMemorySeedFromPriorState,
+  type DurableMemorySeed,
+} from './durable-memory-seed'
+
 const LEDGER_PAGE_SIZE =
   500
 
@@ -53,7 +58,23 @@ const CYCLE_FIELDS = `
   status,
   next_action,
   next_action_date,
-  updated_at
+  updated_at,
+  origin_cycle_id
+`
+
+// Fase 12A, Frente 2B — Blocker 4: colunas mínimas para localizar o ciclo
+// ANTERIOR do mesmo lead (candidato a fonte de memória durável). Nunca
+// traz colunas comerciais/transacionais desse outro ciclo — só o
+// suficiente para decidir "qual é o ciclo anterior".
+const PRIOR_CYCLE_LOOKUP_FIELDS = `
+  id,
+  created_at
+`
+
+const DURABLE_MEMORY_SEED_STATE_FIELDS = `
+  cycle_id,
+  state_snapshot,
+  persisted_at
 `
 
 const LEAD_FIELDS = `
@@ -79,7 +100,8 @@ const MESSAGE_FIELDS = `
   content_type,
   text_content,
   audio_transcription,
-  is_deleted
+  is_deleted,
+  deletion_reason
 `
 
 const CAPTURE_STATE_FIELDS = `
@@ -357,6 +379,14 @@ export type StatefulCopilotRealContext = {
 
   state_read:
     StatefulCopilotStateReadResult
+
+  // Fase 12A, Frente 2B — Blocker 4: memória durável do cliente herdada
+  // de um ciclo ANTERIOR do mesmo lead, quando este ciclo ainda não
+  // possui nenhum estado próprio (state_read.mode === 'missing'). null
+  // em qualquer outro caso — inclusive quando não há ciclo anterior ou
+  // ele não deixou nenhuma memória herdável.
+  durable_memory_seed:
+    DurableMemorySeed | null
 }
 
 export type StatefulCopilotRealContextLoader =
@@ -1015,6 +1045,7 @@ type NormalizedLedgerMessage = {
   text_content: string | null
   audio_transcription: string | null
   is_deleted: boolean
+  deletion_reason: 'explicit_deletion' | 'dom_disappearance' | null
 }
 
 function normalizeLedgerMessage(
@@ -1092,6 +1123,20 @@ function normalizeLedgerMessage(
     })
   }
 
+  // Fail-safe (não fail-closed): esta coluna é protegida por CHECK
+  // constraint no banco (is_deleted=true exige um dos dois valores
+  // conhecidos; is_deleted=false exige nulo), então em produção o valor
+  // já chega correto. Aqui só normalizamos defensivamente — nunca
+  // rejeitamos a carga inteira do contexto real por causa de um valor
+  // ausente/legado, e nunca promovemos um valor desconhecido a
+  // 'explicit_deletion'.
+  const rawDeletionReason: 'explicit_deletion' | 'dom_disappearance' | null =
+    !record.is_deleted
+      ? null
+      : record.deletion_reason === 'explicit_deletion'
+        ? 'explicit_deletion'
+        : 'dom_disappearance'
+
   return {
     id:
       normalizeMessageId(
@@ -1161,6 +1206,9 @@ function normalizeLedgerMessage(
 
     is_deleted:
       record.is_deleted,
+
+    deletion_reason:
+      rawDeletionReason,
   }
 }
 
@@ -2074,6 +2122,161 @@ async function loadCommercialConfig({
   }
 }
 
+// Fase 12A, Frente 2B — Blocker 4: encontra a memória durável de um ciclo
+// ANTERIOR do mesmo lead, para ser herdada apenas quando o ciclo atual
+// ainda não tem nenhum estado próprio. Deliberadamente best-effort e
+// nunca bloqueante: se a busca falhar, a herança é apenas ignorada nesta
+// rodada (o Companion continua funcionando sem CLIENTE herdado) — isto
+// não é um dado crítico como o ledger ou a configuração comercial
+// publicada, é um enriquecimento sobre um recorte que já nasce vazio.
+async function loadDurableMemorySeedForMissingState({
+  client,
+  companyId,
+  cycleId,
+  leadId,
+  originCycleId,
+}: {
+  client:
+    StatefulCopilotRealContextSupabaseClient
+
+  companyId: string
+  cycleId: string
+  leadId: string
+
+  originCycleId:
+    string | null
+}): Promise<DurableMemorySeed | null> {
+  try {
+    let priorCycleId =
+      originCycleId
+
+    if (
+      !priorCycleId ||
+      priorCycleId === cycleId
+    ) {
+      const candidateRows =
+        await readList(
+          client
+            .from(
+              'sales_cycles',
+            )
+            .select(
+              PRIOR_CYCLE_LOOKUP_FIELDS,
+            )
+            .eq(
+              'company_id',
+              companyId,
+            )
+            .eq(
+              'lead_id',
+              leadId,
+            )
+            .order(
+              'created_at',
+              {
+                ascending:
+                  false,
+              },
+            )
+            .limit(
+              5,
+            ),
+          'sales_cycles.prior_cycle_lookup',
+        )
+
+      priorCycleId =
+        candidateRows
+          .map(
+            (row) =>
+              requireRecord(
+                row,
+                'sales_cycles.prior_cycle_lookup',
+              ),
+          )
+          .map(
+            (record) =>
+              typeof record.id === 'string'
+                ? record.id
+                : null,
+          )
+          .find(
+            (id) =>
+              id !== null &&
+              id !== cycleId,
+          ) ??
+          null
+    }
+
+    if (
+      !priorCycleId ||
+      priorCycleId === cycleId
+    ) {
+      return null
+    }
+
+    const stateRows =
+      await readList(
+        client
+          .from(
+            'companion_commercial_states',
+          )
+          .select(
+            DURABLE_MEMORY_SEED_STATE_FIELDS,
+          )
+          .eq(
+            'company_id',
+            companyId,
+          )
+          .eq(
+            'cycle_id',
+            priorCycleId,
+          )
+          .order(
+            'persisted_at',
+            {
+              ascending:
+                false,
+            },
+          )
+          .limit(
+            1,
+          ),
+        'companion_commercial_states.durable_memory_seed_lookup',
+      )
+
+    if (
+      stateRows.length === 0
+    ) {
+      return null
+    }
+
+    const stateRecord =
+      requireRecord(
+        stateRows[0],
+        'companion_commercial_states.durable_memory_seed_lookup',
+      )
+
+    return buildDurableMemorySeedFromPriorState(
+      stateRecord.state_snapshot,
+    )
+  } catch (error) {
+    console.error(
+      '[STATEFUL_COPILOT_REAL_CONTEXT] durable memory seed lookup failed, continuing without inherited memory',
+      {
+        company_id:
+          companyId,
+
+        cycle_id:
+          cycleId,
+
+        error,
+      },
+    )
+
+    return null
+  }
+}
+
 export function createStatefulCopilotRealContextLoader(
   client:
     StatefulCopilotRealContextSupabaseClient,
@@ -2483,6 +2686,27 @@ export function createStatefulCopilotRealContextLoader(
         products,
       })
 
+    if (
+      diagnosticInput.analysis_precondition
+        .limitations.includes(
+          'commercial_method_invalid',
+        )
+    ) {
+      console.error(
+        '[STATEFUL_COPILOT_REAL_CONTEXT] commercial method invalid, falling back to no method guidance',
+        {
+          company_id: companyId,
+          config_version_id:
+            commercialConfig?.version.id ??
+            null,
+          config_contract_version:
+            commercialConfig?.version
+              .commercial_method_contract_version ??
+            null,
+        },
+      )
+    }
+
     const activeMessageIds =
       [
         ...diagnosticInput
@@ -2507,6 +2731,28 @@ export function createStatefulCopilotRealContextLoader(
         active_message_ids:
           activeMessageIds,
       })
+
+    const originCycleId =
+      cycleRecord.origin_cycle_id === null ||
+      cycleRecord.origin_cycle_id === undefined
+        ? null
+        : requireUuid(
+            cycleRecord.origin_cycle_id,
+            'sales_cycles.origin_cycle_id',
+          )
+
+    const durableMemorySeed =
+      stateRead.mode === 'missing'
+        ? await loadDurableMemorySeedForMissingState({
+            client,
+
+            companyId,
+            cycleId,
+            leadId,
+
+            originCycleId,
+          })
+        : null
 
     return {
       loaded_at:
@@ -2653,6 +2899,9 @@ export function createStatefulCopilotRealContextLoader(
 
       state_read:
         stateRead,
+
+      durable_memory_seed:
+        durableMemorySeed,
     }
   }
 }

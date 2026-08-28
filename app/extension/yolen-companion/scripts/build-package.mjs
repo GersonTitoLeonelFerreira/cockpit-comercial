@@ -71,13 +71,21 @@ export const SHARED_RUNTIME_FILES = [
   'src/capture-resilience.js',
   'src/capture-transport.js',
   'src/companion-client-context-view.js',
+  'src/companion-lead-summary-view.js',
   'src/companion-seller-information-view.js',
   'src/content-script.js',
   'src/conversation-registration-tools.js',
+  'src/editable-field-stability-runtime.js',
   'src/lead-automation.css',
   'src/lead-automation.js',
   'src/lead-enrichment.js',
+  'src/lead-method-guidance-runtime.js',
+  'src/lead-resolution-runtime-cache.js',
+  'src/lead-summary-expand-state.js',
+  'src/lead-summary-runtime-cache.js',
   'src/message-mutations.js',
+  'src/panel-stability-runtime.js',
+  'src/seller-message-runtime.js',
   'src/styles.css',
   'src/whatsapp-audio-bridge.js',
   'src/yolen-api.js',
@@ -119,7 +127,7 @@ export const PRODUCTION_HOSTS = [
   'https://cockpit-comercial-vocn.vercel.app/*',
 ]
 
-const DEV_HOST_PATTERN = /localhost/i
+const DEV_HOST_PATTERN = /localhost|cockpit-comercial-vocn-git-/i
 
 function isDevHost(entry) {
   return typeof entry === 'string' && DEV_HOST_PATTERN.test(entry)

@@ -42,6 +42,13 @@ const outputV3MigrationPath = fileURLToPath(
   ),
 );
 
+const outputV4MigrationPath = fileURLToPath(
+  new URL(
+    "../migrations/20260827030000_align_stateful_output_v4_persistence.sql",
+    import.meta.url,
+  ),
+);
+
 const supabaseBootstrap = `
   create role anon nologin;
   create role authenticated nologin;
@@ -150,6 +157,7 @@ function buildAudit({
   generatedAt,
   outputContractVersion =
     "phase-5.1-stateful-copilot-v2",
+  normalizedOutputOverrides = {},
 }) {
   return {
     event_type:
@@ -186,6 +194,8 @@ function buildAudit({
     normalized_output: {
       contract_version:
         outputContractVersion,
+
+      ...normalizedOutputOverrides,
     },
 
     execution: {
@@ -264,7 +274,7 @@ async function callRpc(
 }
 
 test(
-  "Fase 5.1 persiste memória comercial com versão, auditoria e idempotência",
+  "Fase 5.1 persiste memória comercial com versão, auditoria e idempotência; alinhamento V2→V3→V4 preserva histórico e restringe novas gravações ao contrato vigente",
   async () => {
     const db = new PGlite({
       extensions: {
@@ -936,6 +946,313 @@ test(
 
       await db.exec(
         "reset role",
+      );
+
+      // -----------------------------------------------------------------
+      // Alinhamento V4 (frente Evidência + Estado + Coerência): a mesma
+      // base de dados, agora com histórico V2 e V3 reais, recebe a
+      // migration aditiva que introduz o contrato V4.
+      // -----------------------------------------------------------------
+
+      await db.exec(
+        await readFile(
+          outputV4MigrationPath,
+          "utf8",
+        ),
+      );
+
+      // A + B: histórico V2 (versão 1) e V3 (versão 2) continuam válidos
+      // e não são reescritos pela migration V4.
+      const historyAfterV4 =
+        await db.query(`
+          select
+            candidate_state_version,
+            output_contract_version,
+            normalized_output ->>
+              'contract_version'
+              as normalized_contract_version
+          from public.companion_commercial_state_events
+          order by candidate_state_version
+        `);
+
+      assert.deepEqual(
+        historyAfterV4.rows,
+        [
+          {
+            candidate_state_version:
+              1,
+
+            output_contract_version:
+              "phase-5.1-stateful-copilot-v2",
+
+            normalized_contract_version:
+              "phase-5.1-stateful-copilot-v2",
+          },
+          {
+            candidate_state_version:
+              2,
+
+            output_contract_version:
+              "phase-5.2-stateful-copilot-v3",
+
+            normalized_contract_version:
+              "phase-5.2-stateful-copilot-v3",
+          },
+        ],
+      );
+
+      // D: uma nova gravação declarando o contrato V3 é rejeitada depois
+      // que a RPC passa a exigir V4.
+      const state3ForRejectedV3 =
+        buildState({
+          version:
+            3,
+
+          updatedAt:
+            "2026-08-06T18:20:00-03:00",
+        });
+
+      const rejectedV3Audit =
+        buildAudit({
+          previousVersion:
+            2,
+
+          candidateVersion:
+            3,
+
+          generatedAt:
+            "2026-08-06T18:20:01-03:00",
+
+          outputContractVersion:
+            "phase-5.2-stateful-copilot-v3",
+        });
+
+      await assert.rejects(
+        callRpc(
+          db,
+          {
+            operationKey:
+              "stateful-copilot:company-1:cycle-1:rejected-v3",
+
+            expectedVersion:
+              2,
+
+            expectedUpdatedAt:
+              "2026-08-06T18:10:00-03:00",
+
+            candidateVersion:
+              3,
+
+            state:
+              state3ForRejectedV3,
+
+            audit:
+              rejectedV3Audit,
+          },
+        ),
+        /Contrato da análise normalizada incompatível/,
+      );
+
+      // C + E + F + G: uma nova gravação V4 é aceita, e normalized_output
+      // é persistido intacto (incluindo um campo extra de marcação).
+      const state3 =
+        buildState({
+          version:
+            3,
+
+          updatedAt:
+            "2026-08-06T18:20:00-03:00",
+        });
+
+      const audit3 =
+        buildAudit({
+          previousVersion:
+            2,
+
+          candidateVersion:
+            3,
+
+          generatedAt:
+            "2026-08-06T18:20:01-03:00",
+
+          outputContractVersion:
+            "phase-5.2-stateful-copilot-v4",
+
+          normalizedOutputOverrides: {
+            evidence_state_coherence_marker:
+              "need_ids_to_supersede-v4",
+          },
+        });
+
+      const thirdPersist =
+        await callRpc(
+          db,
+          {
+            operationKey:
+              "stateful-copilot:company-1:cycle-1:v3",
+
+            expectedVersion:
+              2,
+
+            expectedUpdatedAt:
+              "2026-08-06T18:10:00-03:00",
+
+            candidateVersion:
+              3,
+
+            state:
+              state3,
+
+            audit:
+              audit3,
+          },
+        );
+
+      assert.equal(
+        thirdPersist.rows[0].status,
+        "persisted",
+      );
+
+      assert.equal(
+        thirdPersist
+          .rows[0]
+          .persisted_state_version,
+        3,
+      );
+
+      const v4Row =
+        await db.query(`
+          select
+            output_contract_version,
+            normalized_output,
+            automatic_crm_write,
+            automatic_agenda_write
+          from public.companion_commercial_state_events
+          where candidate_state_version = 3
+        `);
+
+      assert.equal(
+        v4Row.rows.length,
+        1,
+      );
+
+      assert.equal(
+        v4Row.rows[0].output_contract_version,
+        "phase-5.2-stateful-copilot-v4",
+      );
+
+      assert.equal(
+        v4Row.rows[0].normalized_output.contract_version,
+        "phase-5.2-stateful-copilot-v4",
+      );
+
+      assert.equal(
+        v4Row.rows[0].normalized_output
+          .evidence_state_coherence_marker,
+        "need_ids_to_supersede-v4",
+      );
+
+      // J: CRM e Agenda continuam sem escrita automática no evento V4.
+      assert.equal(
+        v4Row.rows[0].automatic_crm_write,
+        false,
+      );
+
+      assert.equal(
+        v4Row.rows[0].automatic_agenda_write,
+        false,
+      );
+
+      // H: CAS continua funcionando também para gravações V4 — uma
+      // tentativa com versão anterior desatualizada retorna conflito em
+      // vez de sobrescrever o estado já avançado para a versão 3.
+      const staleV4Attempt =
+        await callRpc(
+          db,
+          {
+            operationKey:
+              "stateful-copilot:company-1:cycle-1:stale-v4",
+
+            expectedVersion:
+              2,
+
+            expectedUpdatedAt:
+              "2026-08-06T18:10:00-03:00",
+
+            candidateVersion:
+              3,
+
+            state:
+              state3,
+
+            audit:
+              audit3,
+          },
+        );
+
+      assert.equal(
+        staleV4Attempt.rows[0].status,
+        "conflict",
+      );
+
+      assert.equal(
+        staleV4Attempt
+          .rows[0]
+          .current_state_version,
+        3,
+      );
+
+      // I: idempotência continua funcionando — repetir a mesma
+      // operation_key com o mesmo candidate_state_version devolve o
+      // mesmo audit_event_id, sem duplicar o evento.
+      const repeatedV4Persist =
+        await callRpc(
+          db,
+          {
+            operationKey:
+              "stateful-copilot:company-1:cycle-1:v3",
+
+            expectedVersion:
+              2,
+
+            expectedUpdatedAt:
+              "2026-08-06T18:10:00-03:00",
+
+            candidateVersion:
+              3,
+
+            state:
+              state3,
+
+            audit:
+              audit3,
+          },
+        );
+
+      assert.equal(
+        repeatedV4Persist.rows[0].status,
+        "persisted",
+      );
+
+      assert.equal(
+        repeatedV4Persist
+          .rows[0]
+          .audit_event_id,
+        thirdPersist
+          .rows[0]
+          .audit_event_id,
+      );
+
+      const v4EventCount =
+        await db.query(`
+          select count(*)::int as total
+          from public.companion_commercial_state_events
+          where candidate_state_version = 3
+        `);
+
+      assert.equal(
+        v4EventCount.rows[0].total,
+        1,
       );
     } finally {
       await db.close();

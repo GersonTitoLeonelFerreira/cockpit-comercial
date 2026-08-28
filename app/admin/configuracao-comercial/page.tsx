@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import CommercialConfigClient from './CommercialConfigClient'
+import CommercialConfigExperience from './CommercialConfigExperience'
 import { requireCommercialConfigAdmin } from '@/app/lib/server/require-commercial-config-admin'
 
 export const metadata = {
@@ -24,5 +24,5 @@ export default async function CommercialConfigPage() {
     redirect('/leads')
   }
 
-  return <CommercialConfigClient />
+  return <CommercialConfigExperience />
 }

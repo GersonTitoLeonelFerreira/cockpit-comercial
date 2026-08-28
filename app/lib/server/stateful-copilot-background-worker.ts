@@ -612,6 +612,156 @@ export async function processStatefulCopilotBackgroundMessage(
       return
     }
 
+    /*
+     * Terceira barreira de safety: entre o início da execução (checagem
+     * de "newer job" antes de chamar o modelo, acima) e a escrita de
+     * sucesso, uma janela real de corrida existe — a chamada ao modelo
+     * pode levar até o cycle deadline. Se uma análise mais nova para a
+     * mesma conversa foi enfileirada nesse intervalo, esta execução
+     * (agora obsoleta) nunca pode gravar `succeeded`: isso avançaria
+     * candidate_state_version com uma interpretação já ultrapassada,
+     * mesmo que o cliente final ainda descarte o resultado pelo
+     * watermark. Revalida e, se houver job mais novo, marca esta
+     * execução como superseded em vez de succeeded.
+     */
+    const {
+      data:
+        newerJobBeforeSuccess,
+
+      error:
+        newerJobBeforeSuccessError,
+    } =
+      await admin
+        .from(
+          'companion_background_analysis_jobs',
+        )
+        .select(
+          'analysis_job_id',
+        )
+        .eq(
+          'company_id',
+          job.company_id,
+        )
+        .eq(
+          'cycle_id',
+          job.cycle_id,
+        )
+        .eq(
+          'conversation_key',
+          job.conversation_key,
+        )
+        .gt(
+          'requested_at',
+          job.requested_at,
+        )
+        .order(
+          'requested_at',
+          {
+            ascending:
+              true,
+          },
+        )
+        .limit(
+          1,
+        )
+        .maybeSingle()
+
+    if (
+      newerJobBeforeSuccessError
+    ) {
+      throw new StatefulCopilotBackgroundRetryError(
+        'BACKGROUND_NEWER_JOB_CHECK_FAILED',
+      )
+    }
+
+    if (
+      newerJobBeforeSuccess
+    ) {
+      const completedAt =
+        new Date()
+          .toISOString()
+
+      const {
+        error:
+          lateSupersededError,
+      } =
+        await admin
+          .from(
+            'companion_background_analysis_jobs',
+          )
+          .update({
+            status:
+              'superseded',
+
+            completed_at:
+              completedAt,
+
+            updated_at:
+              completedAt,
+
+            automatic_crm_write:
+              false,
+
+            automatic_agenda_write:
+              false,
+          })
+          .eq(
+            'analysis_job_id',
+            job.analysis_job_id,
+          )
+          .eq(
+            'company_id',
+            job.company_id,
+          )
+          .eq(
+            'cycle_id',
+            job.cycle_id,
+          )
+          .eq(
+            'conversation_key',
+            job.conversation_key,
+          )
+          .eq(
+            'message_watermark',
+            job.message_watermark,
+          )
+          .eq(
+            'status',
+            'running',
+          )
+          .eq(
+            'started_at',
+            startedAt,
+          )
+
+      if (
+        lateSupersededError
+      ) {
+        throw new StatefulCopilotBackgroundRetryError(
+          'BACKGROUND_SUPERSEDE_WRITE_FAILED',
+        )
+      }
+
+      console.info(
+        'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+        JSON.stringify({
+          event:
+            'background_analysis_superseded_late',
+
+          company_id:
+            job.company_id,
+
+          cycle_id:
+            job.cycle_id,
+
+          analysis_job_id:
+            job.analysis_job_id,
+        }),
+      )
+
+      return
+    }
+
     if (
       statefulResult.mode ===
       'active'

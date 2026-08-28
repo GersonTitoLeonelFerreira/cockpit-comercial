@@ -54,6 +54,8 @@ export type StatefulCopilotNormalizationContext = {
 
   customer_message_ids: string[]
 
+  pending_audio_message_ids: string[]
+
   available_products: Array<{
     product_id: string
     name: string | null
@@ -102,24 +104,59 @@ function validateClientStatePatch(
       ),
     )
 
-  const objectionIdsToResolve =
-    new Set(
-      patch.objection_ids_to_resolve,
-    )
+  const rejectConflictingClosure = (
+    label: string,
+    code: string,
+    idsToResolve: string[],
+    idsToSupersede: string[],
+  ) => {
+    const resolvedIds =
+      new Set(
+        idsToResolve,
+      )
 
-  const duplicatedObjectionClosure =
-    patch.objection_ids_to_supersede.find(
-      id =>
-        objectionIdsToResolve.has(id),
-    )
+    const duplicated =
+      idsToSupersede.find(
+        id =>
+          resolvedIds.has(id),
+      )
 
-  if (duplicatedObjectionClosure) {
-    fail(
-      'CONFLICTING_OBJECTION_CLOSURE',
-      'output.state_patch',
-      `A objeção ${duplicatedObjectionClosure} não pode ser resolvida e substituída no mesmo ciclo.`,
-    )
+    if (duplicated) {
+      fail(
+        code,
+        'output.state_patch',
+        `${label} ${duplicated} não pode ser resolvido(a) e substituído(a) no mesmo ciclo.`,
+      )
+    }
   }
+
+  rejectConflictingClosure(
+    'A necessidade',
+    'CONFLICTING_NEED_CLOSURE',
+    patch.need_ids_to_resolve,
+    patch.need_ids_to_supersede,
+  )
+
+  rejectConflictingClosure(
+    'O loop aberto',
+    'CONFLICTING_OPEN_LOOP_CLOSURE',
+    patch.open_loop_ids_to_resolve,
+    patch.open_loop_ids_to_supersede,
+  )
+
+  rejectConflictingClosure(
+    'A objeção',
+    'CONFLICTING_OBJECTION_CLOSURE',
+    patch.objection_ids_to_resolve,
+    patch.objection_ids_to_supersede,
+  )
+
+  rejectConflictingClosure(
+    'A incerteza',
+    'CONFLICTING_UNCERTAINTY_CLOSURE',
+    patch.uncertainty_ids_to_resolve,
+    patch.uncertainty_ids_to_supersede,
+  )
 
   const requireCustomerEvidence = (
     evidenceMessageIds: string[],
@@ -1383,6 +1420,15 @@ function normalizeStatePatch(
         collectedMemoryIds,
       ),
 
+    need_ids_to_supersede:
+      normalizeMemoryIds(
+        record.need_ids_to_supersede,
+        `${path}.need_ids_to_supersede`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
+      ),
+
     open_loops_to_add:
       normalizeList(
         record.open_loops_to_add,
@@ -1400,6 +1446,15 @@ function normalizeStatePatch(
       normalizeMemoryIds(
         record.open_loop_ids_to_resolve,
         `${path}.open_loop_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
+      ),
+
+    open_loop_ids_to_supersede:
+      normalizeMemoryIds(
+        record.open_loop_ids_to_supersede,
+        `${path}.open_loop_ids_to_supersede`,
         availableMemoryIds,
         activeMemoryIds,
         collectedMemoryIds,
@@ -1491,6 +1546,15 @@ function normalizeStatePatch(
       normalizeMemoryIds(
         record.uncertainty_ids_to_resolve,
         `${path}.uncertainty_ids_to_resolve`,
+        availableMemoryIds,
+        activeMemoryIds,
+        collectedMemoryIds,
+      ),
+
+    uncertainty_ids_to_supersede:
+      normalizeMemoryIds(
+        record.uncertainty_ids_to_supersede,
+        `${path}.uncertainty_ids_to_supersede`,
         availableMemoryIds,
         activeMemoryIds,
         collectedMemoryIds,
@@ -2224,6 +2288,29 @@ export function normalizeStatefulCopilotOutput(
         'MISSING_GLOBAL_EVIDENCE',
         'output.evidence_message_ids',
         `A evidência ${messageId} foi usada, mas não está declarada no conjunto global.`,
+      )
+    }
+  }
+
+  const pendingAudioMessageIds =
+    new Set(
+      context.pending_audio_message_ids ??
+        [],
+    )
+
+  for (
+    const messageId of
+    collectedEvidenceIds
+  ) {
+    if (
+      pendingAudioMessageIds.has(
+        messageId,
+      )
+    ) {
+      fail(
+        'AUDIO_EVIDENCE_NOT_TRANSCRIBED',
+        'output.evidence_message_ids',
+        `A mensagem ${messageId} é um áudio ainda sem transcrição e não pode ser usada como evidência.`,
       )
     }
   }

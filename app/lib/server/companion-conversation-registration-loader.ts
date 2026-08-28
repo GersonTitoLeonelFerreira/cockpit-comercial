@@ -104,7 +104,7 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function normalizeUuid(value: unknown, path: string): string {
+export function normalizeUuid(value: unknown, path: string): string {
   if (typeof value !== 'string' || !UUID_PATTERN.test(value.trim())) {
     fail({
       code: 'INVALID_CONVERSATION_REGISTRATION_ARGUMENT',
@@ -117,7 +117,7 @@ function normalizeUuid(value: unknown, path: string): string {
   return value.trim().toLowerCase()
 }
 
-function normalizeConversationKey(value: unknown): string {
+export function normalizeConversationKey(value: unknown): string {
   if (typeof value !== 'string') {
     fail({
       code: 'INVALID_CONVERSATION_REGISTRATION_ARGUMENT',
@@ -167,7 +167,7 @@ function getRows(result: QueryResult, table: string): JsonRecord[] {
   return result.data.filter(isRecord)
 }
 
-async function validateMembership({
+export async function validateMembership({
   admin,
   companyId,
   userId,
@@ -210,7 +210,7 @@ async function validateMembership({
   return data.role
 }
 
-async function loadCycle({
+export async function loadCycle({
   admin,
   companyId,
   cycleId,
@@ -268,7 +268,7 @@ async function loadCycle({
   }
 }
 
-function validateCyclePermission({
+export function validateCyclePermission({
   role,
   ownerUserId,
   userId,
@@ -289,7 +289,7 @@ function validateCyclePermission({
   }
 }
 
-async function loadCanonicalMessages({
+export async function loadCanonicalMessages({
   admin,
   companyId,
   cycleId,
@@ -396,6 +396,36 @@ async function loadCanonicalMessages({
   })
 
   return messages
+}
+
+// Áudio transcrito é conteúdo da conversa como qualquer outro — nunca um
+// silo separado. Enquanto a transcrição ainda não existe, preservamos o
+// turno com um marcador técnico neutro, sem inventar o que foi dito.
+export const PENDING_AUDIO_TRANSCRIPTION_PLACEHOLDER =
+  '[mensagem de áudio deste participante ainda sem transcrição disponível]'
+
+export function isPendingAudioTranscription(
+  message: Pick<CanonicalConversationMessage, 'content_type' | 'text' | 'is_deleted'>,
+): boolean {
+  return (
+    !message.is_deleted &&
+    message.content_type === 'audio' &&
+    !(typeof message.text === 'string' && message.text.trim())
+  )
+}
+
+export function toCanonicalMessagePromptText(
+  message: Pick<CanonicalConversationMessage, 'content_type' | 'text'>,
+): string | null {
+  if (typeof message.text === 'string' && message.text.trim()) {
+    return message.text.trim()
+  }
+
+  if (message.content_type === 'audio') {
+    return PENDING_AUDIO_TRANSCRIPTION_PLACEHOLDER
+  }
+
+  return null
 }
 
 export function computeConversationWatermark(
