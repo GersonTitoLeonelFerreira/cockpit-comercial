@@ -221,25 +221,22 @@ test(
   },
 )
 
-// Regressão FASE 13 Frente 1 — root cause real da aba ANÁLISE travando em
-// "Não foi possível concluir a leitura comercial da Yolen. Tente
-// novamente.": o orquestrador stateful (stateful-copilot-runtime-
-// orchestrator.ts) devolve `stateful_failure: null` quando a persistência
-// recusa a escrita por conflito de versão (execution.persistence_mode ===
-// 'conflict', mode: 'active_fallback_v1' com fallback_reason
-// 'stateful_state_not_persisted') — um caso herdado da semântica V1+V2,
-// onde isso significava "cair para V1 com segurança". No worker V2-only
-// (companion-deep-analysis), não existe V1 para cair: antes desta
-// correção, o worker lia `failure?.retryable === true` sobre um `failure`
-// null, sempre obtendo `false`, e a evidência produzida em produção
-// (Vercel runtime logs, projeto cockpit-comercial-vocn,
-// company_id=40fb91ee-f998-4d98-acdf-7d0794369ccf,
-// analysis_job_id=e27d5104de148ec475566bb9740d1d29563f51971a60a7fc2fa575dfe6ae5d4e)
-// mostra exatamente essa assinatura: failure_code=STATEFUL_BACKGROUND_FAILED,
-// failure_path=null, failure_invariant=null, communication_attempts=null —
-// marcando um job terminal 'failed' sem nenhuma tentativa de retry, mesmo
-// sendo um conflito de CAS inerentemente transitório (uma nova leitura do
-// estado resolveria). Este teste falha no código anterior a esta correção.
+// Regressão FASE 13 Frente 1 — o worker V2-only não pode tratar todo
+// `stateful_failure: null` como uma falha genérica terminal. O orquestrador
+// pode produzir esse formato em outcomes distintos, incluindo conflito de
+// persistência (`execution.persistence_mode === 'conflict'`) e precondição
+// bloqueada (`execution.engine_mode === 'blocked').
+//
+// Antes desta correção, o worker ignorava essa semântica disponível em
+// `stateful_execution`, convertia o resultado em
+// `STATEFUL_BACKGROUND_FAILED` e não fazia retry do conflito de CAS.
+//
+// Logs históricos de produção apresentam a mesma assinatura genérica, mas
+// não registravam `engine_mode`/`persistence_mode`; portanto, não permitem
+// determinar retrospectivamente qual desses outcomes causou um incidente
+// específico. Este teste prova o defeito estrutural e a recuperação correta
+// do caso de conflito, sem atribuir ao incidente histórico uma causa não
+// demonstrável.
 test(
   'conflito de escrita (CAS) sem failure explícito é retryable com código diagnosticável, nunca genérico',
   () => {

@@ -30,8 +30,9 @@ const worker =
 // stateful-copilot-background-job.test.mjs para a cobertura de
 // comportamento real desta função (inclusive o caso que este arquivo não
 // cobria: `failure` null por conflito de persistência, que antes virava
-// falha genérica não-retryable — root cause real da aba ANÁLISE travando
-// em "Não foi possível concluir a leitura comercial da Yolen.").
+// falha genérica não-retryable). Esse defeito é compatível com a assinatura
+// genérica observada historicamente, mas os logs antigos não permitem
+// atribuir retrospectivamente um incidente específico ao conflito de CAS.
 const backgroundJob =
   fs.readFileSync(
     new URL(
