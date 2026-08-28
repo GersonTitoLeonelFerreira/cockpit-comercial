@@ -278,6 +278,13 @@
     automaticAnalysisStatus: null,
     deepAnalysisStatus: null,
     deepAnalysisResult: null,
+    // CLIENTE precisa continuar mostrando a última inteligência comercial
+    // válida enquanto uma nova tentativa de análise (automática ou manual)
+    // está em voo ou termina em erro — ver getLastKnownClientCommercialReading.
+    // ANÁLISE/AGORA continuam lendo só conversationAnalysis/
+    // getActiveCommercialReading, sem nenhuma mudança de comportamento.
+    lastKnownCommercialReading: null,
+    lastKnownCommercialReadingFingerprint: null,
     suggestionApplyLoading: false,
     suggestionApplyResult: null,
     suggestionApplyError: null,
@@ -4752,6 +4759,8 @@
       automaticAnalysisStatus: null,
       deepAnalysisStatus: null,
       deepAnalysisResult: null,
+      lastKnownCommercialReading: null,
+      lastKnownCommercialReadingFingerprint: null,
       suggestionApplyLoading: false,
       suggestionApplyResult: null,
       suggestionApplyError: null,
@@ -5651,11 +5660,9 @@
     )
   }
 
-  function getActiveCommercialReading() {
-    const analysis =
-      state
-        .conversationAnalysis
-
+  function extractStatefulCommercialReading(
+    analysis,
+  ) {
     const reading =
       analysis
         ?.commercial_reading
@@ -5672,6 +5679,73 @@
     }
 
     return reading
+  }
+
+  function getActiveCommercialReading() {
+    return extractStatefulCommercialReading(
+      state
+        .conversationAnalysis,
+    )
+  }
+
+  // CLIENTE representa conhecimento acumulado sobre o cliente ("o que já
+  // sabemos"), não um indicador de execução ao vivo — diferente de ANÁLISE/
+  // AGORA, que legitimamente precisam refletir só a tentativa corrente.
+  // Toda nova tentativa de análise (automática por nova mensagem, ou
+  // manual) zera conversationAnalysis de imediato, antes mesmo de saber se
+  // vai suceder — então, sem este snapshot, uma leitura comercial válida
+  // desaparece de CLIENTE a cada re-análise em voo e permanece perdida se
+  // essa nova tentativa falhar, mesmo sem nenhuma mensagem nova que a
+  // invalidasse de fato. getLastKnownClientCommercialReading() devolve o
+  // último resultado promovido com sucesso, ainda sujeito à mesma proteção
+  // contra desatualização por fingerprint que isCurrentAnalysisOutdated()
+  // aplica ao resultado ao vivo — se novas mensagens já tornaram esse
+  // snapshot obsoleto, ele também deixa de ser exibido.
+  function getLastKnownClientCommercialReading() {
+    if (
+      !state.lastKnownCommercialReading ||
+      !state.lastKnownCommercialReadingFingerprint
+    ) {
+      return null
+    }
+
+    const currentFingerprint =
+      getCurrentConversationFingerprint()
+
+    if (
+      currentFingerprint &&
+      currentFingerprint !==
+        state.lastKnownCommercialReadingFingerprint
+    ) {
+      return null
+    }
+
+    return state.lastKnownCommercialReading
+  }
+
+  // Chamado só nos pontos em que uma análise stateful válida acabou de ser
+  // aplicada a state.conversationAnalysis (sucesso do polling profundo e
+  // sucesso da resposta rápida V1/shadow) — nunca em erro/loading/timeout,
+  // então nunca grava lixo por cima de um snapshot bom anterior.
+  function rememberLastKnownClientCommercialReadingIfPresent(
+    fingerprint,
+    analysis =
+      state
+        .conversationAnalysis,
+  ) {
+    const reading =
+      extractStatefulCommercialReading(
+        analysis,
+      )
+
+    if (!reading || !fingerprint) {
+      return {}
+    }
+
+    return {
+      lastKnownCommercialReading: reading,
+      lastKnownCommercialReadingFingerprint: fingerprint,
+    }
   }
 
   // B4_PRE_SEND_EVALUATOR_START
@@ -10253,13 +10327,23 @@
   }
 
   function getClientInformationAreaHtml() {
-    const commercialReading =
+    const liveCommercialReading =
       getActiveCommercialReading()
 
-    const commercialHtml =
-      commercialReading &&
+    // CLIENTE não pode perder inteligência comercial válida só porque uma
+    // nova tentativa de análise (automática ou manual) está em voo ou
+    // terminou em erro — ver rememberLastKnownClientCommercialReadingIfPresent/
+    // getLastKnownClientCommercialReading. ANÁLISE/AGORA continuam usando
+    // getActiveCommercialReading() sozinho, sem este fallback.
+    const commercialReading =
+      liveCommercialReading &&
       !state.conversationAnalysisError &&
       !isCurrentAnalysisOutdated()
+        ? liveCommercialReading
+        : getLastKnownClientCommercialReading()
+
+    const commercialHtml =
+      commercialReading
         ? sellerInformationViewTools
             .renderClientCommercialArea(
               commercialReading,
@@ -13441,6 +13525,9 @@
               : null,
           deepAnalysisStatus: 'succeeded',
           deepAnalysisResult: data.result || null,
+          ...rememberLastKnownClientCommercialReadingIfPresent(
+            conversationFingerprint,
+          ),
         }
 
         renderPanel()
@@ -13738,6 +13825,10 @@
             isAutomatic
               ? 'Análise automática concluída.'
               : null,
+          ...rememberLastKnownClientCommercialReadingIfPresent(
+            conversationFingerprint,
+            result.payload.data,
+          ),
         }
       } else {
         activeAnalysisAttempt = null
