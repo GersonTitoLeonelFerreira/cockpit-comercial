@@ -184,8 +184,10 @@ test(
 
 test(
   // A checagem de "newer job" original só roda ANTES de chamar o
-  // modelo (runStatefulCopilotBackgroundRuntime), que pode levar até o
-  // cycle deadline. Sem uma revalidação entre o fim da chamada ao
+  // modelo (runRuntime, injetável desde a FASE 13 Frente 1 — ver
+  // StatefulCopilotBackgroundWorkerDependencies — mas sempre
+  // runStatefulCopilotBackgroundRuntime em produção), que pode levar até
+  // o cycle deadline. Sem uma revalidação entre o fim da chamada ao
   // modelo e a escrita de 'succeeded', um job A já obsoleto (um job B
   // mais novo foi enfileirado enquanto A rodava) poderia gravar
   // 'succeeded' e avançar candidate_state_version com uma interpretação
@@ -195,7 +197,7 @@ test(
   () => {
     const runtimeCallIndex =
       workerSource.indexOf(
-        'await runStatefulCopilotBackgroundRuntime(',
+        'await runRuntime(',
       )
 
     const succeededWriteIndex =

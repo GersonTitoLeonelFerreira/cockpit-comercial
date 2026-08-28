@@ -8,6 +8,7 @@ import {
   STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
   STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS,
   parseStatefulCopilotBackgroundJobMessage,
+  resolveStatefulCopilotBackgroundFailureOutcome,
   shouldRetryStatefulCopilotBackgroundFailure,
 } from './stateful-copilot-background-job'
 
@@ -104,6 +105,14 @@ function createAdminClient() {
   )
 }
 
+export type StatefulCopilotBackgroundWorkerDependencies = {
+  create_admin_client?:
+    typeof createAdminClient
+
+  run_runtime?:
+    typeof runStatefulCopilotBackgroundRuntime
+}
+
 export async function processStatefulCopilotBackgroundMessage(
   rawMessage:
     unknown,
@@ -113,14 +122,28 @@ export async function processStatefulCopilotBackgroundMessage(
     delivery_count:
       number
   },
+  // Injeção só usada por teste (ver stateful-copilot-background-worker.test.mjs)
+  // para exercitar o ciclo real running -> conflict -> queued -> nova
+  // entrega -> succeeded sem depender de um Supabase de verdade. Em
+  // produção, ambas seguem sendo sempre as implementações reais.
+  dependencies:
+    StatefulCopilotBackgroundWorkerDependencies = {},
 ): Promise<void> {
+  const createAdmin =
+    dependencies.create_admin_client ??
+    createAdminClient
+
+  const runRuntime =
+    dependencies.run_runtime ??
+    runStatefulCopilotBackgroundRuntime
+
   const job =
     parseStatefulCopilotBackgroundJobMessage(
       rawMessage,
     )
 
   const admin =
-    createAdminClient()
+    createAdmin()
 
   const {
     data:
@@ -505,7 +528,7 @@ export async function processStatefulCopilotBackgroundMessage(
 
   try {
     const statefulResult =
-      await runStatefulCopilotBackgroundRuntime({
+      await runRuntime({
         company_id:
           job.company_id,
 
@@ -900,43 +923,39 @@ export async function processStatefulCopilotBackgroundMessage(
       statefulResult
         .stateful_execution
 
+    // `failure` vem null tanto quando o motor não produziu saída de
+    // modelo (execution.engine_mode === 'blocked') quanto quando a
+    // persistência recusou por conflito de versão
+    // (execution.persistence_mode === 'conflict') — nenhum dos dois é
+    // "sem causa conhecida", e o segundo é transitório/retryable. Ver
+    // resolveStatefulCopilotBackgroundFailureOutcome.
+    const failureOutcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure,
+        execution,
+      })
+
     const failureCode =
-      safeFailureCode(
-        failure?.code,
-        'STATEFUL_BACKGROUND_FAILED',
-      )
+      failureOutcome
+        .failure_code
 
     const failurePath =
-      failure
-        ?.communication_failure_path ??
-      failure
-        ?.diagnostic_failure_path ??
-      failure
-        ?.state_failure_path ??
-      null
+      failureOutcome
+        .failure_path
 
     const failureInvariant =
-      failure
-        ?.communication_failure_invariant ??
-      failure
-        ?.diagnostic_failure_invariant ??
-      failure
-        ?.state_failure_invariant ??
-      null
+      failureOutcome
+        .failure_invariant
 
     const communicationAttempts =
-      execution
-        ?.communication_attempts ??
-      failure
-        ?.communication_attempts ??
-      null
+      failureOutcome
+        .communication_attempts
 
     if (
       shouldRetryStatefulCopilotBackgroundFailure({
         retryable:
-          failure
-            ?.retryable ===
-          true,
+          failureOutcome
+            .retryable,
 
         delivery_count,
       })
@@ -1024,6 +1043,36 @@ export async function processStatefulCopilotBackgroundMessage(
           'BACKGROUND_RETRY_WRITE_FAILED',
         )
       }
+
+      console.info(
+        'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+        JSON.stringify({
+          event:
+            'background_analysis_requeued',
+
+          company_id:
+            job.company_id,
+
+          cycle_id:
+            job.cycle_id,
+
+          analysis_job_id:
+            job.analysis_job_id,
+
+          failure_code:
+            failureCode,
+
+          engine_mode:
+            execution?.engine_mode ??
+            null,
+
+          persistence_mode:
+            execution?.persistence_mode ??
+            null,
+
+          delivery_count,
+        }),
+      )
 
       /*
        * Lançar erro faz o handleCallback não dar ack
@@ -1146,6 +1195,14 @@ export async function processStatefulCopilotBackgroundMessage(
 
         communication_attempts:
           communicationAttempts,
+
+        engine_mode:
+          execution?.engine_mode ??
+          null,
+
+        persistence_mode:
+          execution?.persistence_mode ??
+          null,
 
         automatic_crm_write:
           false,

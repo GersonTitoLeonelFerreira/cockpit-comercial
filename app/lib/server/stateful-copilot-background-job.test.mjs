@@ -9,6 +9,7 @@ import {
   buildStatefulCopilotBackgroundJobMessage,
   isStatefulCopilotBackgroundJobStatus,
   parseStatefulCopilotBackgroundJobMessage,
+  resolveStatefulCopilotBackgroundFailureOutcome,
   shouldRetryStatefulCopilotBackgroundFailure,
 } from './stateful-copilot-background-job.ts'
 
@@ -215,6 +216,168 @@ test(
         delivery_count:
           5,
       }),
+      false,
+    )
+  },
+)
+
+// Regressão FASE 13 Frente 1 — o worker V2-only não pode tratar todo
+// `stateful_failure: null` como uma falha genérica terminal. O orquestrador
+// pode produzir esse formato em outcomes distintos, incluindo conflito de
+// persistência (`execution.persistence_mode === 'conflict'`) e precondição
+// bloqueada (`execution.engine_mode === 'blocked').
+//
+// Antes desta correção, o worker ignorava essa semântica disponível em
+// `stateful_execution`, convertia o resultado em
+// `STATEFUL_BACKGROUND_FAILED` e não fazia retry do conflito de CAS.
+//
+// Logs históricos de produção apresentam a mesma assinatura genérica, mas
+// não registravam `engine_mode`/`persistence_mode`; portanto, não permitem
+// determinar retrospectivamente qual desses outcomes causou um incidente
+// específico. Este teste prova o defeito estrutural e a recuperação correta
+// do caso de conflito, sem atribuir ao incidente histórico uma causa não
+// demonstrável.
+test(
+  'conflito de escrita (CAS) sem failure explícito é retryable com código diagnosticável, nunca genérico',
+  () => {
+    const outcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure:
+          null,
+
+        execution: {
+          engine_mode:
+            'model',
+
+          persistence_mode:
+            'conflict',
+
+          communication_attempts:
+            1,
+        },
+      })
+
+    assert.equal(
+      outcome.failure_code,
+      'STATEFUL_STATE_WRITE_CONFLICT',
+    )
+
+    assert.equal(
+      outcome.retryable,
+      true,
+    )
+
+    assert.equal(
+      outcome.communication_attempts,
+      1,
+    )
+  },
+)
+
+test(
+  'precondição de análise bloqueada (sem conteúdo utilizável) é terminal, mas com código diagnosticável e não genérico',
+  () => {
+    const outcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure:
+          null,
+
+        execution: {
+          engine_mode:
+            'blocked',
+
+          persistence_mode:
+            'skipped',
+
+          communication_attempts:
+            null,
+        },
+      })
+
+    assert.equal(
+      outcome.failure_code,
+      'ANALYSIS_PRECONDITION_BLOCKED',
+    )
+
+    assert.equal(
+      outcome.retryable,
+      false,
+    )
+  },
+)
+
+test(
+  'falha real do orquestrador (com code/retryable) é preservada sem alteração',
+  () => {
+    const outcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure: {
+          code:
+            'INVALID_COMMUNICATION_OUTPUT',
+
+          retryable:
+            true,
+
+          communication_failure_path:
+            'communication_output.suggested_message',
+
+          communication_failure_invariant:
+            'REQUIRED_FIELD_MISSING',
+
+          communication_attempts:
+            2,
+        },
+
+        execution:
+          null,
+      })
+
+    assert.equal(
+      outcome.failure_code,
+      'INVALID_COMMUNICATION_OUTPUT',
+    )
+
+    assert.equal(
+      outcome.retryable,
+      true,
+    )
+
+    assert.equal(
+      outcome.failure_path,
+      'communication_output.suggested_message',
+    )
+
+    assert.equal(
+      outcome.failure_invariant,
+      'REQUIRED_FIELD_MISSING',
+    )
+
+    assert.equal(
+      outcome.communication_attempts,
+      2,
+    )
+  },
+)
+
+test(
+  'sem failure e sem execution reconhecível permanece um fallback terminal seguro (nunca retry cego)',
+  () => {
+    const outcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure:
+          null,
+
+        execution:
+          null,
+      })
+
+    assert.equal(
+      outcome.failure_code,
+      'STATEFUL_BACKGROUND_FAILED',
+    )
+
+    assert.equal(
+      outcome.retryable,
       false,
     )
   },
