@@ -159,6 +159,11 @@
 
   const leadResolutionInFlightKeys =
     new Set()
+  // Idempotência determinística de createLead por conversa: nenhum clique
+  // duplicado/triplo pode gerar uma segunda requisição CREATE_LEAD
+  // enquanto a primeira ainda está em voo para a MESMA conversationKey.
+  const leadCreationInFlightKeys =
+    new Set()
   let autoContactLookupInFlight = false
   let capturedAudioBlobEntries = []
   let automaticAnalysisTimerId = 0
@@ -253,6 +258,9 @@
     leadResolutionLoading: false,
     leadResolution: null,
     leadResolutionError: null,
+    leadCreationStatus: null,
+    leadCreationConversationKey: null,
+    leadCreationError: null,
     companionClientContext: {
       status: 'idle',
     },
@@ -4782,6 +4790,9 @@
       leadResolutionLoading: false,
       leadResolution: null,
       leadResolutionError: null,
+      leadCreationStatus: null,
+      leadCreationConversationKey: null,
+      leadCreationError: null,
       companionClientContext: {
         status: 'idle',
       },
@@ -5148,8 +5159,46 @@
     return labels[status] || status || '-'
   }
 
+  function getLeadCreationStatusHtml(message, tone) {
+    return `
+      <div class="yolen-lead-create-status" data-tone="${escapeHtml(tone)}">
+        ${escapeHtml(message)}
+      </div>
+    `
+  }
+
   function getLeadActionButton() {
-    if (state.leadResolutionLoading || state.isSelfConversation) {
+    if (state.isSelfConversation) {
+      return ''
+    }
+
+    // O estado de criação de lead (creating/created_resolving/error) só
+    // pode ser aplicado à região "Conversa" se ele pertencer à conversa
+    // ATUAL — se o vendedor já trocou de conversa, leadCreationConversationKey
+    // não bate mais com state.conversationKey e este bloco fica inerte
+    // (clearLeadStateForNewConversation() já zera os dois campos numa
+    // troca real, isto aqui é uma segunda trava de segurança).
+    const creationBelongsToCurrentConversation =
+      Boolean(state.conversationKey) &&
+      state.leadCreationConversationKey === state.conversationKey
+
+    if (creationBelongsToCurrentConversation) {
+      if (state.leadCreationStatus === 'creating') {
+        return getLeadCreationStatusHtml(
+          'Criando lead na Yolen...',
+          'loading',
+        )
+      }
+
+      if (state.leadCreationStatus === 'created_resolving') {
+        return getLeadCreationStatusHtml(
+          'Lead criado. Atualizando o vínculo...',
+          'success',
+        )
+      }
+    }
+
+    if (state.leadResolutionLoading) {
       return ''
     }
 
@@ -5170,10 +5219,25 @@
       // meio-tempo, o botão simples podia reaparecer entre o pointerdown e
       // o click do vendedor, e o primeiro clique se perdia. Com uma única
       // fonte de verdade por região, isso não pode mais acontecer.
+      //
+      // conversationKey/phone/displayName são passados explicitamente —
+      // lead-automation.js NÃO decide sozinho a partir de um estado global
+      // implícito qual é "a conversa atual" (causa raiz do vazamento A→B
+      // corrigido na Frente 1B): a única fonte de verdade é o state deste
+      // arquivo, no instante exato deste render.
       const formHtml =
         window.YolenCompanionLeadAutomation
           ?.buildCreateLeadFormHtml
-          ?.()
+          ?.({
+            conversationKey: state.conversationKey,
+            phone: state.conversationPhone,
+            displayName: state.conversationTitle,
+            errorMessage:
+              creationBelongsToCurrentConversation &&
+              state.leadCreationStatus === 'error'
+                ? state.leadCreationError
+                : null,
+          })
 
       if (formHtml) {
         return formHtml
@@ -12115,6 +12179,11 @@
     ) {
       window.YolenCompanionLeadAutomation.bindCreateLeadForm(
         panel,
+        {
+          conversationKey: state.conversationKey,
+          phone: state.conversationPhone,
+          displayName: state.conversationTitle,
+        },
       )
     }
   }
@@ -12610,6 +12679,7 @@
           .resolveLead({
             phone: phoneAtRequest,
             display_name: titleAtRequest,
+            conversation_key: keyAtRequest,
           })
 
       if (
@@ -12697,6 +12767,238 @@
         keyAtRequest,
       )
     }
+  }
+
+  const LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS =
+    [400, 900, 1600]
+
+  // Depois de um CREATE_LEAD confirmado, o vínculo pode ainda não estar
+  // visível na primeira consulta (eventual consistency) — poucas
+  // tentativas curtas com backoff, nunca polling agressivo/indefinido
+  // (ver TESTE 3 e TESTE 7 da Frente 1B). A cada tentativa valida de novo
+  // se a conversa/telefone ainda são os mesmos de quando o create foi
+  // disparado: se o vendedor já trocou de conversa, para silenciosamente
+  // sem tocar em nada da UI atual (ver TESTE 5/TESTE 6). Se uma tentativa
+  // coincidir com outra resolução da mesma conversa já em voo (guard de
+  // resolveCurrentLead()), ela vira um no-op silencioso — o pedido não se
+  // perde porque a PRÓXIMA tentativa deste laço tenta de novo pouco
+  // depois (ver TESTE 2); não precisamos de uma fila própria dentro de
+  // resolveCurrentLead() só para isso.
+  async function resolveAfterLeadCreation(
+    conversationKeyAtCreate,
+    phoneAtCreate,
+  ) {
+    const stillCurrent = () =>
+      state.conversationKey === conversationKeyAtCreate &&
+      state.conversationPhone === phoneAtCreate
+
+    for (
+      let attempt = 0;
+      attempt <= LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS.length;
+      attempt += 1
+    ) {
+      if (!stillCurrent()) {
+        return
+      }
+
+      await resolveCurrentLead()
+
+      if (!stillCurrent()) {
+        return
+      }
+
+      if (
+        state.leadResolution &&
+        state.leadResolution.status !== 'NOT_FOUND'
+      ) {
+        state = {
+          ...state,
+          leadCreationStatus: null,
+          leadCreationConversationKey: null,
+          leadCreationError: null,
+        }
+
+        renderPanel()
+        return
+      }
+
+      if (attempt < LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS.length) {
+        await sleep(
+          LEAD_CREATION_RESOLVE_RETRY_DELAYS_MS[attempt],
+        )
+      }
+    }
+
+    // Tentativas esgotadas: o backend já confirmou a criação (senão nunca
+    // teríamos chegado aqui), mas ainda não conseguimos reconfirmar o
+    // vínculo. Nunca deixa o formulário reaparecer silenciosamente como se
+    // nada tivesse acontecido nem permite um novo CREATE — mostra um
+    // estado claro e acionável (o vendedor pode clicar "Atualizar").
+    if (stillCurrent()) {
+      state = {
+        ...state,
+        leadCreationStatus: 'error',
+        leadCreationConversationKey: conversationKeyAtCreate,
+        leadCreationError:
+          'Lead criado, mas não foi possível confirmar o vínculo ainda. Atualize para tentar de novo.',
+      }
+
+      renderPanel()
+    }
+  }
+
+  // Fonte única de verdade para criar um lead a partir do formulário de
+  // "Novo contato": chamado por lead-automation.js via
+  // window.YolenCompanionLeadCreationBridge, nunca por clique sintético em
+  // [data-yolen-action="refresh"] (ver causa raiz do BLOCKER da Frente
+  // 1B). conversationKey/phone recebidos são os que estavam vinculados ao
+  // FORMULÁRIO no momento do clique — comparados aqui contra o state atual
+  // antes de qualquer efeito colateral, e de novo depois do POST, porque o
+  // vendedor pode trocar de conversa a qualquer momento durante o create.
+  async function createLeadForCurrentConversation(payload) {
+    const {
+      name,
+      phone,
+      email,
+      document,
+      conversationKey,
+    } = payload || {}
+
+    if (
+      !conversationKey ||
+      conversationKey !== state.conversationKey ||
+      !phone ||
+      phone !== state.conversationPhone
+    ) {
+      return {
+        ok: false,
+        code: 'conversation_changed',
+      }
+    }
+
+    if (leadCreationInFlightKeys.has(conversationKey)) {
+      return {
+        ok: false,
+        code: 'already_in_flight',
+      }
+    }
+
+    leadCreationInFlightKeys.add(conversationKey)
+
+    state = {
+      ...state,
+      leadCreationStatus: 'creating',
+      leadCreationConversationKey: conversationKey,
+      leadCreationError: null,
+    }
+
+    renderPanel()
+
+    const stillCurrent = () =>
+      state.conversationKey === conversationKey &&
+      state.conversationPhone === phone
+
+    try {
+      const result =
+        await window.YolenCompanionApi.createLead({
+          name,
+          phone,
+          email: email || null,
+          cpf_cnpj: document || null,
+        })
+
+      if (!stillCurrent()) {
+        // A conversa já mudou — o resultado deste create pertence à
+        // conversa anterior e não pode alterar a UI da conversa atual.
+        return { ok: true, applied: false }
+      }
+
+      if (!result?.ok || !result.payload?.ok) {
+        const code =
+          result?.payload?.code ||
+          result?.payload?.status
+
+        if (
+          code === 'active_lead_conflict' ||
+          code === 'concurrent_create_conflict'
+        ) {
+          state = {
+            ...state,
+            leadCreationStatus: 'created_resolving',
+            leadCreationError: null,
+          }
+
+          renderPanel()
+
+          await resolveAfterLeadCreation(
+            conversationKey,
+            phone,
+          )
+
+          return { ok: true, applied: true, code }
+        }
+
+        state = {
+          ...state,
+          leadCreationStatus: 'error',
+          leadCreationConversationKey: conversationKey,
+          leadCreationError:
+            result?.payload?.error ||
+            'Não foi possível criar o lead.',
+        }
+
+        renderPanel()
+
+        return {
+          ok: false,
+          applied: true,
+          error: state.leadCreationError,
+        }
+      }
+
+      state = {
+        ...state,
+        leadCreationStatus: 'created_resolving',
+        leadCreationError: null,
+      }
+
+      renderPanel()
+
+      await resolveAfterLeadCreation(
+        conversationKey,
+        phone,
+      )
+
+      return { ok: true, applied: true }
+    } catch (error) {
+      if (!stillCurrent()) {
+        return { ok: true, applied: false }
+      }
+
+      state = {
+        ...state,
+        leadCreationStatus: 'error',
+        leadCreationConversationKey: conversationKey,
+        leadCreationError:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Erro ao criar lead na Yolen.',
+      }
+
+      renderPanel()
+
+      return {
+        ok: false,
+        applied: true,
+        error: state.leadCreationError,
+      }
+    } finally {
+      leadCreationInFlightKeys.delete(conversationKey)
+    }
+  }
+
+  window.YolenCompanionLeadCreationBridge = {
+    createLead: createLeadForCurrentConversation,
   }
 
   function createActionTelemetryInteractionId() {

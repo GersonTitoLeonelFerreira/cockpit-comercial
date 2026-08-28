@@ -98,10 +98,31 @@ test('B1 usa o contexto já resolvido pelo Companion e cria sem abrir a Yolen', 
   assert.doesNotMatch(leadAutomation, /window\.open/)
 })
 
-test('B1 reconsulta o vínculo automaticamente depois da criação', () => {
-  assert.match(leadAutomation, /refreshLeadResolution/)
-  assert.match(leadAutomation, /data-yolen-action=/)
-  assert.match(leadAutomation, /refreshButton\?\.click\(\)/)
+test('B1 reconsulta o vínculo automaticamente depois da criação, sem clique sintético', () => {
+  // A confirmação do backend não pode depender de clique sintético em
+  // [data-yolen-action="refresh"] + setTimeout (causa raiz do BLOCKER da
+  // Frente 1B) — a reconsulta é feita chamando explicitamente a mesma
+  // fonte de verdade de resolução (resolveCurrentLead/resolveAfterLeadCreation),
+  // nunca simulando um clique de usuário.
+  assert.doesNotMatch(leadAutomation, /refreshLeadResolution/)
+  assert.doesNotMatch(leadAutomation, /refreshButton/)
+  assert.doesNotMatch(
+    leadAutomation,
+    /data-yolen-action="refresh"/,
+  )
+  assert.doesNotMatch(leadAutomation, /window\.setTimeout/)
+
+  assert.match(
+    leadAutomation,
+    /window\.YolenCompanionLeadCreationBridge\?\.createLead/,
+  )
+
+  assert.match(contentScript, /function resolveAfterLeadCreation/)
+  assert.match(contentScript, /function createLeadForCurrentConversation/)
+  assert.match(
+    contentScript,
+    /window\.YolenCompanionLeadCreationBridge = \{/,
+  )
 })
 
 test('B1 mantém proteção multiempresa e duplicidade por variantes de telefone', () => {
@@ -136,8 +157,15 @@ test('B2 envia CPF ou CNPJ opcional na criação pelo Companion', () => {
     leadAutomation,
     /CPF\/CNPJ \(opcional\)/,
   )
+  // lead-automation.js entrega "document" à bridge de criação
+  // (window.YolenCompanionLeadCreationBridge); é content-script.js quem
+  // conhece o contrato de fio do backend e mapeia para cpf_cnpj.
   assert.match(
     leadAutomation,
+    /document:\s*document \|\| null/,
+  )
+  assert.match(
+    contentScript,
     /cpf_cnpj:\s*document \|\| null/,
   )
 })
@@ -260,10 +288,12 @@ test('B2 atualiza formulário já montado quando enriquecimento termina depois',
   // bindCreateLeadForm() é chamado a cada renderPanel() (via
   // wirePanelInteractions()) e resincroniza as sugestões no formulário que
   // já está no DOM — equivalente ao "existingForm" da versão anterior,
-  // que era acionado pelo MutationObserver próprio deste arquivo.
+  // que era acionado pelo MutationObserver próprio deste arquivo. O
+  // contexto (conversationKey/phone/displayName) vem sempre explícito de
+  // content-script.js, nunca de um lookup implícito global (ver B1B).
   assert.match(
     leadAutomation,
-    /function bindCreateLeadForm\([\s\S]*syncLeadCreationFormSuggestions\(\s*\n?\s*form,\s*\n?\s*getLookupContext\(\)/,
+    /function bindCreateLeadForm\(panel, explicitContext\)[\s\S]*syncLeadCreationFormSuggestions\(\s*\n?\s*form,\s*\n?\s*context,/,
   )
 
   assert.match(
