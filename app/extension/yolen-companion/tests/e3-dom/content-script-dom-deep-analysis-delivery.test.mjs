@@ -85,6 +85,13 @@ function getAnalysisErrorText(document) {
   )
 }
 
+// Reconciliação pós-FASE 12A (UX7): `.yolen-deep-analysis-status` só é
+// produzido por getLegacyAnalysisCardHtml(), alcançável em
+// getDetailedAnalysisAreaHtml() somente quando state.conversationAnalysis
+// (V1) está populado — branch morta no fluxo V2-only (getAnalysisCardHtml,
+// a outra chamadora do bloco, nunca é invocada em lugar nenhum do
+// runtime). Mantido só para o teste "superseded", que verifica a ausência
+// legítima do marcador.
 function getDeepAnalysisStatusText(document) {
   return (
     getPanel(document)
@@ -93,6 +100,40 @@ function getDeepAnalysisStatusText(document) {
       )
       ?.textContent
       ?.trim() ?? null
+  )
+}
+
+// Sinais reais e atualmente alcançáveis da área ANÁLISE (UX7):
+// loading -> [data-yolen-analysis-loading]; erro -> getAnalysisErrorText();
+// neutro/non-commercial -> [data-yolen-analysis-neutral]
+// (companion-seller-information-view.js renderAnalysisArea); sucesso rico
+// -> conteúdo real (strengths/method/risks) via
+// sellerInformationViewTools.renderAnalysisArea, sem elemento-marcador
+// dedicado — verificado pelo próprio texto que cada teste já espera a
+// seguir.
+function isAnalysisAreaLoading(document) {
+  return Boolean(
+    document.querySelector(
+      '[data-yolen-seller-panel="analysis"] [data-yolen-analysis-loading]',
+    ),
+  )
+}
+
+function getAnalysisAreaNeutralText(document) {
+  return (
+    document
+      .querySelector(
+        '[data-yolen-seller-panel="analysis"] [data-yolen-analysis-neutral]',
+      )
+      ?.textContent
+      ?.trim() ?? null
+  )
+}
+
+function getAnalysisAreaText(document) {
+  return (
+    document.querySelector('[data-yolen-seller-panel="analysis"]')
+      ?.textContent ?? ''
   )
 }
 
@@ -153,6 +194,22 @@ function evidence(summary) {
     evidence_message_ids: ['msg-a1'],
     memory_ids: [],
   }
+}
+
+// Marcador de distinção renderizável: renderAnalysisArea() (ANÁLISE) só
+// exibe seller_strengths/method/risks/commercial_evolution do
+// commercial_reading — o campo suggested_message de deepOutput() (nível
+// raiz, fora de commercial_reading) nunca é lido por nenhum caminho de
+// render atual. Testes que precisam de um marcador visível na tela devem
+// injetá-lo aqui, não em suggested_message.
+function strengthMarker(summary) {
+  return [{
+    kind: 'good_discovery',
+    summary,
+    why_it_matters: 'Mantém o diagnóstico consistente.',
+    evidence_message_ids: ['msg-a1'],
+    memory_ids: [],
+  }]
 }
 
 function deepReading(relevance = 'commercial') {
@@ -361,9 +418,7 @@ test('queued → succeeded: sem V1, painel fica em loading até o V2 concluir e 
   // Fase 12A — V2 como único motor: a resposta rápida não trouxe nenhuma
   // suggestion V1 (a fixture não tem esse campo) — o painel precisa
   // continuar em "Analisando" até o job do V2 resolver.
-  await waitFor(
-    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
-  )
+  await waitFor(() => isAnalysisAreaLoading(document))
   assert.equal(getAnalysisErrorText(document), null)
   assert.match(
     getPanel(document)?.textContent ?? '',
@@ -372,8 +427,9 @@ test('queued → succeeded: sem V1, painel fica em loading até o V2 concluir e 
 
   await waitFor(
     () =>
-      getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:') &&
-      getDeepAnalysisStatusText(document)?.includes('Consigo 10% no plano anual'),
+      !isAnalysisAreaLoading(document) &&
+      getAnalysisAreaText(document).includes('Método Deep') &&
+      getAnalysisAreaText(document).includes('Acerto profundo'),
     { timeoutMs: 8000 },
   )
 
@@ -416,7 +472,7 @@ test('succeeded promove commercial_reading real para ANÁLISE e CLIENTE', async 
   )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
   await waitFor(
-    () => getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:'),
+    () => !isAnalysisAreaLoading(document) && getAnalysisAreaText(document).includes('Método Deep'),
     { timeoutMs: 8000 },
   )
 
@@ -480,11 +536,6 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
     () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
   )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
-
-  await waitFor(
-    () => getDeepAnalysisStatusText(document)?.includes('Falha na análise aprofundada'),
-    { timeoutMs: 8000 },
-  )
 
   // Fase 12A — V2 como único motor: sem V1 por baixo, uma falha do V2 tem
   // que virar erro explícito de primeiro nível com retry disponível — não
@@ -585,9 +636,7 @@ test('deep pendente de A nunca contamina conversa B', async () => {
   const resolveLeadCountAfterA = resolveLeadCalls(calls).length
 
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
-  await waitFor(
-    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
-  )
+  await waitFor(() => isAnalysisAreaLoading(document))
 
   await goToConversationB({
     document,
@@ -650,7 +699,10 @@ test('A1 antigo nunca sobrescreve deep A2 mais novo na mesma conversa', async ()
             status: 'succeeded',
             message_watermark: 'wm-1',
             result: deepOutput({
-              suggested_message: 'MENSAGEM DO JOB ANTIGO',
+              commercial_reading: {
+                ...deepReading('commercial'),
+                seller_strengths: strengthMarker('MENSAGEM DO JOB ANTIGO'),
+              },
             }),
           },
         }
@@ -663,7 +715,10 @@ test('A1 antigo nunca sobrescreve deep A2 mais novo na mesma conversa', async ()
           status: 'succeeded',
           message_watermark: 'wm-2',
           result: deepOutput({
-            suggested_message: 'MENSAGEM DO JOB NOVO',
+            commercial_reading: {
+              ...deepReading('commercial'),
+              seller_strengths: strengthMarker('MENSAGEM DO JOB NOVO'),
+            },
           }),
         },
       }
@@ -675,9 +730,7 @@ test('A1 antigo nunca sobrescreve deep A2 mais novo na mesma conversa', async ()
   )
 
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
-  await waitFor(
-    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
-  )
+  await waitFor(() => isAnalysisAreaLoading(document))
   await waitFor(
     () => analysisJobStatusCalls(calls).some(
       (call) => call.payload.analysis_job_id === 'a'.repeat(64),
@@ -701,7 +754,7 @@ test('A1 antigo nunca sobrescreve deep A2 mais novo na mesma conversa', async ()
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(
-    () => getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB NOVO'),
+    () => getAnalysisAreaText(document).includes('MENSAGEM DO JOB NOVO'),
     { timeoutMs: 8000 },
   )
 
@@ -709,10 +762,10 @@ test('A1 antigo nunca sobrescreve deep A2 mais novo na mesma conversa', async ()
   await new Promise((resolve) => setTimeout(resolve, 300))
 
   assert.ok(
-    getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB NOVO'),
+    getAnalysisAreaText(document).includes('MENSAGEM DO JOB NOVO'),
   )
   assert.ok(
-    !getDeepAnalysisStatusText(document)?.includes('MENSAGEM DO JOB ANTIGO'),
+    !getAnalysisAreaText(document).includes('MENSAGEM DO JOB ANTIGO'),
   )
 })
 
@@ -740,7 +793,10 @@ test('mutação de mensagem enquanto poll está em voo invalida succeeded antes 
       await statusGate
       return succeededStatus(
         deepOutput({
-          suggested_message: 'STALE NÃO PODE APARECER',
+          commercial_reading: {
+            ...deepReading('commercial'),
+            seller_strengths: strengthMarker('STALE NÃO PODE APARECER'),
+          },
         }),
       )
     },
@@ -750,9 +806,7 @@ test('mutação de mensagem enquanto poll está em voo invalida succeeded antes 
     () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
   )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
-  await waitFor(
-    () => getDeepAnalysisStatusText(document) === 'Análise aprofundada em andamento',
-  )
+  await waitFor(() => isAnalysisAreaLoading(document))
   await waitFor(() => analysisJobStatusCalls(calls).length > 0)
 
   const messageText = document.querySelector(
@@ -820,9 +874,7 @@ test('non-commercial deep substitui atomicamente mensagem/CTA comercial antigo',
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(
-    () => getDeepAnalysisStatusText(document)?.includes(
-      'nenhuma intervenção comercial necessária',
-    ),
+    () => getAnalysisAreaNeutralText(document) !== null,
     { timeoutMs: 8000 },
   )
 
@@ -911,21 +963,20 @@ test('non_commercial atual preserva memória do CLIENTE e mantém AGORA neutro',
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
   await waitFor(
-    () =>
-      getDeepAnalysisStatusText(document)?.includes(
-        'nenhuma intervenção comercial necessária',
-      ),
+    () => getAnalysisAreaNeutralText(document) !== null,
     { timeoutMs: 8000 },
   )
 
-  // AGORA (área "now") continua neutro — nenhuma ação comercial inventada
-  // a partir de uma mensagem neutra.
+  // AGORA (área "now") continua neutro — sessão non_commercial sem nenhum
+  // alerta relevante não gera nenhum sinal de atenção nem CTA comercial;
+  // por desenho do UX7, AGORA fica quieta (renderNowAttentionSnapshot
+  // devolve string vazia) em vez de exibir um badge "neutro" explícito.
   await openSellerPanel(document, 'now')
   const nowText = getSellerPanelText(document, 'now')
-  assert.match(nowText, /Conversa sem evidência comercial relevante/)
+  assert.doesNotMatch(nowText, /Necessidade profunda|CTA|Consigo/)
   assert.ok(
-    document.querySelector('[data-yolen-now-neutral]'),
-    'card "Agora" deveria estar marcado como neutro',
+    !document.querySelector('[data-yolen-now-attention]'),
+    'AGORA não deveria mostrar nenhum alerta a partir de uma sessão non_commercial sem evidência',
   )
 
   // CLIENTE continua mostrando a inteligência comercial já consolidada,
@@ -976,11 +1027,7 @@ test('deep succeeded sem commercial_reading válido não é usado — CLIENTE n�
   )
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
 
-  await waitFor(
-    () =>
-      getDeepAnalysisStatusText(document) ===
-      'Análise aprofundada em andamento',
-  )
+  await waitFor(() => isAnalysisAreaLoading(document))
 
   // yolen-api.js (promoteDeepSellerResult) rejeita esse payload como
   // INVALID_DEEP_SELLER_RESULT por faltar commercial_reading — o poller
@@ -989,9 +1036,9 @@ test('deep succeeded sem commercial_reading válido não é usado — CLIENTE n�
   // CLIENTE precisa continuar sem inventar conteúdo enquanto isso.
   await new Promise((resolve) => setTimeout(resolve, 2500))
 
-  assert.equal(
-    getDeepAnalysisStatusText(document),
-    'Análise aprofundada em andamento',
+  assert.ok(
+    isAnalysisAreaLoading(document),
+    'sem commercial_reading válido, a promoção nunca acontece e ANÁLISE continua em loading',
   )
 
   // CLIENTE nunca inventa memória comercial a partir de um payload
@@ -1050,7 +1097,7 @@ test('troca de conversa após deep succeeded — memória do CLIENTE de A nunca 
 
   await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
   await waitFor(
-    () => getDeepAnalysisStatusText(document)?.includes('Leitura aprofundada:'),
+    () => !isAnalysisAreaLoading(document) && getAnalysisAreaText(document).includes('Método Deep'),
     { timeoutMs: 8000 },
   )
 
