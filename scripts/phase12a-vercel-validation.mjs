@@ -77,6 +77,8 @@ for (const [name, command, args] of gates) {
     encoding: 'utf8',
     shell: name === 'e3-dom',
     maxBuffer: 1024 * 1024 * 20,
+    timeout: 180000,
+    killSignal: 'SIGKILL',
   })
   const stdout = result.stdout ?? ''
   const stderr = result.stderr ?? ''
@@ -105,6 +107,8 @@ const build = spawnSync('npx', ['next', 'build'], {
   env: process.env,
   encoding: 'utf8',
   maxBuffer: 1024 * 1024 * 20,
+  timeout: 600000,
+  killSignal: 'SIGKILL',
 })
 writeFileSync(
   join(outDir, 'next-build.log'),
