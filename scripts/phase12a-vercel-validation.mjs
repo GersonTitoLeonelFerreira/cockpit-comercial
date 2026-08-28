@@ -69,6 +69,11 @@ gates.push(run(
 ))
 
 gates.push(run(
+  'adversarial-phase12a',
+  'node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/extension/yolen-companion/tests/e3-dom/content-script-dom-analysis-context-guard.test.mjs app/extension/yolen-companion/tests/e3-dom/content-script-dom-deep-analysis-delivery.test.mjs app/extension/yolen-companion/tests/deep-analysis-freshness.test.mjs app/lib/companion/phase12a-background-concurrency.test.mjs app/lib/server/companion-client-context-loader.test.mjs app/lib/server/companion-conversation-registration-loader.test.mjs app/lib/server/stateful-copilot-background-job.test.mjs',
+))
+
+gates.push(run(
   'e3-dom',
   'node --test app/extension/yolen-companion/tests/e3-dom/*.test.mjs',
 ))
