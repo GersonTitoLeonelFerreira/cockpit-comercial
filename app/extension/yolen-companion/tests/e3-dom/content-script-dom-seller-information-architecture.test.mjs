@@ -325,7 +325,11 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
   })
 
   await analyze(runtime)
-  await waitFor(() => runtime.document.querySelector('[data-yolen-now-method]'))
+  await waitFor(() =>
+    runtime.document.querySelector(
+      '[data-yolen-analysis-section="strengths"]',
+    ),
+  )
   await waitFor(() =>
     runtime.document
       .querySelector('[data-yolen-seller-panel="now"]')
@@ -334,13 +338,12 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
 
   const nowPanel = runtime.document.querySelector('[data-yolen-seller-panel="now"]')
   assert.match(nowPanel.textContent, /Resumo/i)
-  assert.match(nowPanel.textContent, /Diagnóstico/)
   assert.match(nowPanel.textContent, /Risco alto na etapa CONTATO/)
-  assert.doesNotMatch(nowPanel.textContent, /Fora do método/)
   assert.equal(nowPanel.querySelectorAll('[data-yolen-now-attention]').length, 1)
-  assert.match(nowPanel.textContent, /Leitura da Yolen/)
-  assert.match(nowPanel.textContent, /Próximo passo/)
-  assert.match(nowPanel.textContent, /Entender o impacto antes de continuar negociando\./)
+  assert.doesNotMatch(
+    nowPanel.textContent,
+    /Método Consultivo|Fora do método|Acertos|Pontos de melhoria/,
+  )
   // A mensagem automática antiga não ocupa mais o AGORA. A geração
   // seller-facing fica no composer contextual montado pela orientação.
   assert.doesNotMatch(
@@ -413,11 +416,13 @@ test('non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do
   })
 
   await analyze(runtime)
-  await waitFor(() => runtime.document.querySelector('[data-yolen-now-neutral]'))
+  await waitFor(() =>
+    runtime.document.querySelector(
+      '[data-yolen-analysis-neutral]',
+    ),
+  )
 
   const nowPanel = runtime.document.querySelector('[data-yolen-seller-panel="now"]')
-  assert.match(nowPanel.textContent, /sem evidência comercial relevante/i)
-  assert.match(nowPanel.textContent, /Nenhuma ação comercial necessária/i)
   assert.doesNotMatch(nowPanel.textContent, /Método Consultivo|Mensagem sugerida|Preço apresentado/)
 
   runtime.document.querySelector('[data-yolen-seller-area="analysis"]').click()
@@ -458,10 +463,17 @@ test('V1 pobre usa progressive enhancement sem afirmar ausência de erro ou risc
   await waitFor(() => runtime.document.querySelector('[data-yolen-analysis-progressive]'))
 
   const nowPanel = runtime.document.querySelector('[data-yolen-seller-panel="now"]')
-  assert.match(nowPanel.textContent, /Confirme o próximo passo/)
+  assert.doesNotMatch(
+    nowPanel.textContent,
+    /Confirme o próximo passo com o cliente/,
+  )
 
   runtime.document.querySelector('[data-yolen-seller-area="analysis"]').click()
   const analysisPanel = runtime.document.querySelector('[data-yolen-seller-panel="analysis"]')
+  assert.match(
+    analysisPanel.textContent,
+    /Confirme o próximo passo com o cliente/,
+  )
   assert.match(analysisPanel.textContent, /Ainda não há análise detalhada/)
   assert.doesNotMatch(analysisPanel.textContent, /nenhum erro|sem risco/i)
 })

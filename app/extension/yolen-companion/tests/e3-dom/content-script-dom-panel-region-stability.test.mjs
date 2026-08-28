@@ -74,7 +74,10 @@ test('1) atualização de resumo em segundo plano preserva a posição de leitur
   Object.defineProperty(panel, 'clientHeight', { get: () => 600, configurable: true })
   panel.scrollTop = 850
 
-  const leadSummaryRegionBefore = panel.querySelector('[data-yolen-region="lead-summary-card"]')
+  const sellerWorkspaceRegionBefore = panel.querySelector(
+    '[data-yolen-region="seller-information-architecture"]',
+  )
+  assert.ok(sellerWorkspaceRegionBefore)
 
   // Atualização em segundo plano: o clique em "Atualizar" refaz a
   // resolução do lead e recarrega o contexto/resumo — o tipo de evento que
@@ -87,11 +90,15 @@ test('1) atualização de resumo em segundo plano preserva a posição de leitur
 
   assert.equal(panel.scrollTop, 850, 'scroll não pode voltar ao topo por causa de uma atualização de fundo')
 
-  // A região do resumo pode ter sido recriada (o conteúdo mudou de fato
-  // entre as duas resoluções simuladas), mas o painel continua sendo o
-  // MESMO elemento e a estrutura de regiões continua de pé.
+  // UX7 mantém estável o boundary seller-facing. O conteúdo interno
+  // pode ser recalculado, mas o painel e sua região estrutural permanecem.
   assert.equal(getPanel(document), panel)
-  assert.ok(leadSummaryRegionBefore)
+  assert.equal(
+    panel.querySelector(
+      '[data-yolen-region="seller-information-architecture"]',
+    ),
+    sellerWorkspaceRegionBefore,
+  )
 })
 
 test('2) loading local (Conversa) não remove o conteúdo já renderizado do Resumo atual', async () => {
@@ -106,7 +113,10 @@ test('2) loading local (Conversa) não remove o conteúdo já renderizado do Res
   await waitFor(() => document.querySelector('.yolen-lead-summary-card')?.textContent.includes('Resumo salvo previamente'))
 
   const panel = getPanel(document)
-  const summaryCardBefore = document.querySelector('.yolen-lead-summary-card')
+  const sellerWorkspaceRegionBefore = panel.querySelector(
+    '[data-yolen-region="seller-information-architecture"]',
+  )
+  assert.ok(sellerWorkspaceRegionBefore)
 
   // Clicar em "Atualizar" liga leadResolutionLoading (mostrado só na
   // região "Conversa") de forma síncrona, antes de qualquer resposta de
@@ -119,7 +129,13 @@ test('2) loading local (Conversa) não remove o conteúdo já renderizado do Res
   const summaryCardDuringLoading = document.querySelector('.yolen-lead-summary-card')
   assert.ok(summaryCardDuringLoading, 'o card de resumo não pode desaparecer por causa de um loading em outra região')
   assert.match(summaryCardDuringLoading.textContent, /Resumo salvo previamente/)
-  assert.equal(summaryCardDuringLoading, summaryCardBefore, 'a região do resumo nem precisava ser tocada')
+  assert.equal(
+    panel.querySelector(
+      '[data-yolen-region="seller-information-architecture"]',
+    ),
+    sellerWorkspaceRegionBefore,
+    'o boundary seller-facing deve permanecer o mesmo node',
+  )
 
   await waitFor(() => resolveLeadCalls(calls).length > 1)
 })

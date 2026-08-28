@@ -9558,19 +9558,6 @@
 
         ${getDeepAnalysisStatusBlockHtml()}
 
-        ${sellerInformationViewTools
-          .renderNowAttentionSnapshot(
-            commercialReading,
-            state.companionClientContext,
-            {
-              now: Date.now(),
-              cycleClosed:
-                state.leadResolution
-                  ?.flags
-                  ?.is_closed === true,
-            },
-          )}
-
         ${getNowMoreContextDetailsHtml(
           commercialReading,
         )}
@@ -10173,6 +10160,10 @@
           ${getRichCommercialReadingExpandedHtml(
             commercialReading,
           )}
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
         </div>
       `
     }
@@ -10184,6 +10175,10 @@
           <div class="yolen-seller-empty-state" data-yolen-analysis-loading role="status" aria-live="polite">
             ${getInlineSpinnerHtml()}
             Analisando sua condução comercial…
+          </div>
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
           </div>
         </div>
       `
@@ -10222,6 +10217,23 @@
           <div class="yolen-seller-empty-state" data-yolen-analysis-outdated>
             A conversa mudou. Atualize a leitura para avaliar a condução atual.
           </div>
+
+          <div class="yolen-inline-actions yolen-decision-actions">
+            ${getAnalysisActionButton()}
+          </div>
+        </div>
+      `
+    }
+
+    if (state.conversationAnalysis) {
+      return `
+        ${getLegacyAnalysisCardHtml()}
+
+        <div class="yolen-card yolen-seller-area-card">
+          <div class="yolen-section-label">Análise</div>
+          <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
+            A leitura atual oferece somente orientação imediata. Ainda não há análise detalhada de coaching e método.
+          </div>
         </div>
       `
     }
@@ -10231,6 +10243,10 @@
         <div class="yolen-section-label">Análise</div>
         <div class="yolen-seller-empty-state" data-yolen-analysis-progressive>
           A leitura atual oferece somente orientação imediata. Ainda não há análise detalhada de coaching e método.
+        </div>
+
+        <div class="yolen-inline-actions yolen-decision-actions">
+          ${getAnalysisActionButton()}
         </div>
       </div>
     `

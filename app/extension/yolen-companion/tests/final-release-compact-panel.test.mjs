@@ -115,8 +115,23 @@ test(
     )
 
     assert.match(
-      renderPanel,
-      /aria-label="Conversa"/,
+      contentScript,
+      /aria-label="Áreas do Yolen Companion"/,
+    )
+
+    assert.match(
+      contentScript,
+      /getSellerAreaTabHtml\('now', 'Agora'\)/,
+    )
+
+    assert.match(
+      contentScript,
+      /getSellerAreaTabHtml\('analysis', 'Análise'\)/,
+    )
+
+    assert.match(
+      contentScript,
+      /getSellerAreaTabHtml\('client', 'Cliente'\)/,
     )
   },
 )

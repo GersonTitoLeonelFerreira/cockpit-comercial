@@ -71,15 +71,16 @@ test('após vincular o lead, o RESUMO ATUAL automático aparece na tela principa
   assert.match(card.textContent, /Larissa já conhece a proposta da Yolen/)
   assert.match(card.textContent, /Histórico da Yolen \+ conversa atual/)
 
-  // Continua fora de qualquer aba escondida e antes do workspace seller-facing.
-  assert.equal(card.closest('[data-yolen-seller-panel]'), null)
+  // UX7: o resumo persistente pertence a AGORA e permanece visível
+  // enquanto AGORA for a área seller-facing ativa.
+  const nowPanel = card.closest('[data-yolen-seller-panel="now"]')
+  assert.ok(nowPanel)
+  assert.equal(nowPanel.hidden, false)
   assert.equal(card.closest('[hidden]'), null)
 
   const workspace = document.querySelector('.yolen-seller-workspace')
   assert.ok(workspace)
-
-  const DOCUMENT_POSITION_FOLLOWING = document.defaultView.Node.DOCUMENT_POSITION_FOLLOWING
-  assert.ok(card.compareDocumentPosition(workspace) & DOCUMENT_POSITION_FOLLOWING)
+  assert.ok(workspace.contains(card))
 
   // Não existe editor manual. O input hidden serve apenas de ponte para o
   // handler já existente que salva o working summary por clique explícito.
@@ -95,11 +96,12 @@ test('após vincular o lead, o RESUMO ATUAL automático aparece na tela principa
   assert.ok(button)
   assert.match(button.textContent, /Salvar resumo na Yolen/)
 
-  // AGORA antigo não concorre visualmente com o novo resumo.
-  const oldNowPanel = document.querySelector('[data-yolen-seller-panel="now"]')
-  assert.ok(oldNowPanel)
-  assert.match(oldNowPanel.getAttribute('style') ?? '', /^$/)
-  assert.match(card.innerHTML, /yolen-seller-panel\[data-yolen-seller-panel="now"\]/)
+  // ANÁLISE continua sendo uma área independente de AGORA.
+  const analysisPanel = document.querySelector(
+    '[data-yolen-seller-panel="analysis"]',
+  )
+  assert.ok(analysisPanel)
+  assert.equal(analysisPanel.hidden, true)
 })
 
 test('antes de resolver o lead, o card do resumo não aparece', async () => {

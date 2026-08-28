@@ -43,6 +43,7 @@
   let pendingPanelHtml = null
   let resumeGuardUntil = 0
   let resumeGuardTimerId = 0
+  let windowWasBlurred = false
   const cachedLeadResolutions = new Map()
   let scrollSnapshot = {
     top: 0,
@@ -621,15 +622,36 @@
     )
   }
 
-  // Sem `useCapture`: 'focus' não é borbulhante, então um listener na fase
-  // de captura em `root` (window) dispararia para QUALQUER elemento da
-  // página que ganhasse foco (inclusive um campo do próprio painel), não só
-  // quando a aba/janela volta a ficar ativa. Sem capture, só o `focus` cujo
-  // alvo é a própria window chega até aqui — exatamente o sinal de "voltou
-  // pra aba" que o resume guard precisa.
+  // `focus` da window só representa retomada real quando houve um `blur`
+  // anterior da própria janela. Um campo interno do Companion pode perder
+  // foco sem que o usuário tenha saído da aba; esse caso não deve ativar o
+  // resume guard nem reter rerenders legítimos.
+  root.addEventListener(
+    'blur',
+    (event) => {
+      if (
+        event.target !==
+        document.defaultView
+      ) {
+        return
+      }
+
+      windowWasBlurred = true
+    },
+  )
+
   root.addEventListener(
     'focus',
-    () => {
+    (event) => {
+      if (
+        event.target !==
+          document.defaultView ||
+        windowWasBlurred !== true
+      ) {
+        return
+      }
+
+      windowWasBlurred = false
       beginResumeGuard()
     },
   )
