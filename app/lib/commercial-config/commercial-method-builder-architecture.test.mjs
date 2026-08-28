@@ -39,7 +39,7 @@ test('15) editor avançado existente continua acessível, mas não é mais ofere
   // diretrizes — a entrada não pode mais se apresentar como uma forma
   // alternativa de "estruturar" o método manualmente.
   assert.doesNotMatch(content, /Já sei como quero estruturar/)
-  assert.match(content, /Editar produtos, fatos e objeções/)
+  assert.match(content, /Configuração avançada/)
 })
 
 test('16) fluxo assistido não publica configuração automaticamente', async () => {
