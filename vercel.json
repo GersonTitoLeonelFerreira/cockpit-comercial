@@ -1,16 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "app/api/queues/companion-deep-analysis/route.ts": {
-      "maxDuration": 180,
-      "experimentalTriggers": [
-        {
-          "type": "queue/v2beta",
-          "topic": "companion-deep-analysis-v1",
-          "retryAfterSeconds": 15,
-          "initialDelaySeconds": 0
-        }
-      ]
-    }
-  }
+  "buildCommand": "node scripts/phase12a-vercel-validation.mjs",
+  "outputDirectory": "public",
+  "framework": null
 }
