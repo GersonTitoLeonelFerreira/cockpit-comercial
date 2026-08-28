@@ -423,11 +423,15 @@ const THIRD_PARTY_REFERENCE_PATTERN =
 const NEGATED_KEYWORD_PATTERN =
   /\bnao\s+(\w+\s+){0,3}(desist\w*|cancel\w*|reconsiderar\w*|recomecar\w*|voltar atras|reabri\w*|mudei de ideia|mudou de ideia)\b/
 
-// Objeto operacional/de agenda — quando "cancelar" se refere a isso, não
-// é uma regressão comercial (não é desistência do negócio, é só desmarcar
-// um compromisso pontual).
+// Objeto operacional/de agenda — quando "cancelar" OU "desisti" se refere
+// a isso, não é uma regressão comercial (não é desistência do negócio, é
+// só desmarcar um compromisso pontual). Casa pelo substantivo isolado
+// (não "a aula"/"o agendamento") de propósito: "desisti DA aula"/"desisti
+// DO agendamento" tem a preposição contraída ("da"/"do"), que não cria
+// fronteira de palavra antes do artigo — casar pelo substantivo evita
+// esse buraco sem precisar enumerar cada contração.
 const OPERATIONAL_OBJECT_PATTERN =
-  /\b(a aula|minha aula|o agendamento|meu agendamento|a reuniao|minha reuniao|a ligacao|minha ligacao|a reserva|minha reserva|o check-?in|meu check-?in|a consulta|minha consulta|o horario|meu horario|a visita|minha visita)\b/
+  /\b(aula|agendamento|reuniao|ligacao|reserva|check-?in|consulta|horario|visita)\b/
 
 // Inversão semântica: "desisti de cancelar"/"desisti da ideia de
 // cancelar" significa desistir DO CANCELAMENTO — o cliente quer
@@ -504,10 +508,11 @@ function sentenceAffirmsCommercialRegression(
     return false
   }
 
-  // "cancelar" ligado a um objeto operacional/de agenda não é regressão
-  // comercial — é só desmarcar um compromisso pontual.
+  // "cancelar" ou "desisti" ligados a um objeto operacional/de agenda não
+  // são regressão comercial — é só desmarcar um compromisso pontual
+  // ("Desisti da aula de amanhã.", "Desisti da reunião.").
   if (
-    /\b(quero|vou|decidi) cancelar\b/.test(normalized) &&
+    /\b((quero|vou|decidi) cancelar|desisti)\b/.test(normalized) &&
     OPERATIONAL_OBJECT_PATTERN.test(normalized)
   ) {
     return false

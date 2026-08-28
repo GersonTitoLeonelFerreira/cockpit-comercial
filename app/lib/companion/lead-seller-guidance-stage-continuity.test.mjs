@@ -631,6 +631,111 @@ test('(4.15, Controle Mestre) "Mudei de ideia. Mas decidi continuar com a contra
   assert.equal(result.stage_key, 'formalizacao')
 })
 
+// ---------------------------------------------------------------------
+// Re-auditoria do Controle Mestre (última correção cirúrgica): o filtro
+// de objeto operacional só rodava para "(quero|vou|decidi) cancelar" —
+// "desisti" isolado (sem "cancelar") ligado a um objeto operacional
+// ("Desisti da aula de amanhã.") ainda escapava e autorizava regressão
+// comercial indevidamente.
+// ---------------------------------------------------------------------
+
+test('(5.1, Controle Mestre) "Desisti da aula de amanhã." — desistência de objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da aula de amanhã.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(5.2, Controle Mestre) "Desisti da reunião." — desistência de objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da reunião.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(5.3, Controle Mestre) "Desisti da visita." — desistência de objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da visita.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(5.4, Controle Mestre) "Desisti do agendamento." — desistência de objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti do agendamento.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(5.5, Controle Mestre) "Desisti da consulta." — desistência de objeto operacional: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da consulta.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
+test('(5.6, Controle Mestre) "Desisti." — desistência comercial sem objeto: PERMITIDO', async () => {
+  const result = await runRegressionScenario('Desisti.')
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(5.7, Controle Mestre) "Desisti da compra." — desistência comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da compra.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(5.8, Controle Mestre) "Desisti da contratação." — desistência comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti da contratação.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(5.9, Controle Mestre) "Desisti do plano." — desistência comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti do plano.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(5.10, Controle Mestre) "Desisti do contrato." — desistência comercial explícita: PERMITIDO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti do contrato.',
+  )
+
+  assert.equal(result.status, 'ready')
+  assert.equal(result.stage_key, 'descoberta')
+})
+
+test('(5.11, Controle Mestre) "Desisti de cancelar." — inversão semântica preservada: BLOQUEADO', async () => {
+  const result = await runRegressionScenario(
+    'Desisti de cancelar.',
+  )
+
+  assert.equal(result.status, 'error')
+  assert.equal(result.stage_key, 'formalizacao')
+})
+
 test('nova versão do método publicado não é tratada como regressão (sem estágio anterior aplicável)', async () => {
   const { provider } = buildProvider({
     stage_name: 'Descoberta',
