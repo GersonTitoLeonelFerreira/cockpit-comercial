@@ -77,11 +77,21 @@ export async function getCommercialMethodBuilderDraft(
   return mapBuilderRow(data as BuilderRow)
 }
 
+export class CommercialMethodBuilderStaleWriteError extends Error {
+  constructor() {
+    super(
+      'Este diagnóstico foi alterado em outra sessão. Recarregue a página antes de salvar novamente.',
+    )
+    this.name = 'CommercialMethodBuilderStaleWriteError'
+  }
+}
+
 export async function saveCommercialMethodBuilderDraft(
   supabase: CommercialMethodBuilderSupabase,
   companyId: string,
   userId: string,
   input: CommercialMethodBuilderDraftInput,
+  expectedUpdatedAt?: string | null,
 ): Promise<CommercialMethodBuilderDraftRecord> {
   const existing = await getCommercialMethodBuilderDraft(
     supabase,
@@ -98,21 +108,41 @@ export async function saveCommercialMethodBuilderDraft(
     updated_by: userId,
   }
 
-  const query = existing
-    ? supabase
-        .from('company_commercial_method_builder_drafts')
-        .update(payload)
-        .eq('company_id', companyId)
-        .eq('id', existing.id)
-    : supabase
-        .from('company_commercial_method_builder_drafts')
-        .insert({
-          company_id: companyId,
-          created_by: userId,
-          ...payload,
-        })
+  if (existing) {
+    let updateQuery = supabase
+      .from('company_commercial_method_builder_drafts')
+      .update(payload)
+      .eq('company_id', companyId)
+      .eq('id', existing.id)
 
-  const { data, error } = await query
+    if (expectedUpdatedAt) {
+      updateQuery = updateQuery.eq('updated_at', expectedUpdatedAt)
+    }
+
+    const { data, error } = await updateQuery
+      .select(BUILDER_FIELDS)
+      .maybeSingle()
+
+    if (error) {
+      throw new Error(
+        `Erro ao salvar o rascunho assistido: ${error.message}`,
+      )
+    }
+
+    if (!data) {
+      throw new CommercialMethodBuilderStaleWriteError()
+    }
+
+    return mapBuilderRow(data as BuilderRow)
+  }
+
+  const { data, error } = await supabase
+    .from('company_commercial_method_builder_drafts')
+    .insert({
+      company_id: companyId,
+      created_by: userId,
+      ...payload,
+    })
     .select(BUILDER_FIELDS)
     .single()
 

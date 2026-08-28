@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  CommercialMethodBuilderStaleWriteError,
   getCommercialMethodBuilderDraft,
   saveCommercialMethodBuilderDraft,
 } from './commercial-method-builder.ts'
@@ -65,6 +66,19 @@ class FakeQuery {
   }
 
   async maybeSingle() {
+    if (this.mode === 'update') {
+      const index = this.store.findIndex((item) => this.matches(item))
+      if (index < 0) return { data: null, error: null }
+
+      this.store[index] = {
+        ...this.store[index],
+        ...this.payload,
+        updated_at: '2026-08-26T04:00:00.000Z',
+      }
+
+      return { data: this.store[index], error: null }
+    }
+
     const matches = this.store.filter((item) => this.matches(item))
     return {
       data: matches[0] ?? null,
@@ -169,4 +183,30 @@ test('14) novo rascunho nasce com company_id e autoria explícitos', async () =>
   assert.equal(saved.created_by, USER_A)
   assert.equal(saved.updated_by, USER_A)
   assert.equal(store.length, 1)
+})
+
+
+test('15) save stale não sobrescreve diagnóstico mais novo', async () => {
+  const store = [
+    row(COMPANY_A, USER_A, {
+      updated_at: '2026-08-26T05:00:00.000Z',
+      current_step: 3,
+    }),
+  ]
+  const input = createEmptyCommercialMethodBuilderDraft()
+  input.current_step = 2
+
+  await assert.rejects(
+    saveCommercialMethodBuilderDraft(
+      fakeSupabase(store),
+      COMPANY_A,
+      USER_A,
+      input,
+      '2026-08-26T04:00:00.000Z',
+    ),
+    CommercialMethodBuilderStaleWriteError,
+  )
+
+  assert.equal(store[0].current_step, 3)
+  assert.equal(store[0].updated_at, '2026-08-26T05:00:00.000Z')
 })

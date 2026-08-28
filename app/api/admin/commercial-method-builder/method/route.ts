@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import {
+  CommercialMethodConstructionStaleWriteError,
   CommercialMethodConstructionValidationError,
   getCommercialMethodConstruction,
   saveCommercialMethodConstruction,
@@ -129,10 +130,22 @@ export async function PUT(request: Request) {
         status: body.status,
         construction,
       },
+      request.headers.get('x-yolen-method-updated-at'),
     )
 
     return NextResponse.json({ ok: true, construction: saved })
   } catch (error: unknown) {
+    if (error instanceof CommercialMethodConstructionStaleWriteError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: 'STALE_METHOD_CONSTRUCTION',
+          error: error.message,
+        },
+        { status: 409 },
+      )
+    }
+
     if (error instanceof CommercialMethodConstructionValidationError) {
       return NextResponse.json(
         {

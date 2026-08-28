@@ -112,6 +112,19 @@ export default function MethodPublicationPanel({
 
   const upToDate = isMethodPublishedUpToDate(published, methodDefinition)
 
+  React.useEffect(() => {
+    if (!confirmOpen) return
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !publishing) {
+        setConfirmOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [confirmOpen, publishing])
+
   async function confirmPublish() {
     setPublishing(true)
     setPublishError(null)
@@ -163,9 +176,11 @@ export default function MethodPublicationPanel({
             padding: 16,
           }}
         >
-          <strong style={{ color: DS.greenSoft, fontSize: 12 }}>Publicado</strong>
+          <strong style={{ color: DS.greenSoft, fontSize: 12 }}>
+            Método ativo e atualizado
+          </strong>
           <div style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.55, marginTop: 5 }}>
-            Método publicado e disponível para a inteligência da Yolen.
+            Esta é a mesma versão publicada que o Yolen Companion usa como método operacional.
           </div>
         </div>
       ) : (
@@ -178,12 +193,12 @@ export default function MethodPublicationPanel({
           }}
         >
           <strong style={{ color: DS.yellowSoft, fontSize: 12 }}>
-            Ainda não está em uso
+            Alterações aguardando publicação
           </strong>
           <div style={{ color: DS.textSecondary, fontSize: 11, lineHeight: 1.55, marginTop: 5 }}>
-            Revise antes de tornar este método ativo. A inteligência da Yolen continua
-            usando {published ? `“${published.method_name}”` : 'o método atual'} até
-            você publicar.
+            O rascunho não altera a operação sozinho. O Yolen Companion continua
+            usando {published ? `“${published.method_name}” · V${published.version_number}` : 'nenhum método estruturado'}
+            até sua confirmação explícita de publicação.
           </div>
         </div>
       )}
@@ -200,7 +215,7 @@ export default function MethodPublicationPanel({
       >
         <div>
           <div style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>
-            Método atualmente ativo
+            Atualmente ativo
           </div>
           {published ? (
             <div style={{ color: DS.textPrimary, fontSize: 13, marginTop: 6 }}>
@@ -220,7 +235,7 @@ export default function MethodPublicationPanel({
 
         <div>
           <div style={{ color: DS.blueSoft, fontSize: 10, fontWeight: 850, textTransform: 'uppercase' }}>
-            Novo método
+            O que será publicado
           </div>
           <div style={{ color: DS.textPrimary, fontSize: 13, marginTop: 6 }}>
             {methodName || 'Método ainda sem nome'}
@@ -299,6 +314,7 @@ export default function MethodPublicationPanel({
           role="dialog"
           aria-modal="true"
           aria-label="Confirmar publicação do método"
+          aria-describedby="commercial-method-publish-description"
           style={{
             alignItems: 'center',
             background: 'rgba(4,6,12,0.72)',
@@ -322,12 +338,15 @@ export default function MethodPublicationPanel({
             <h3 style={{ color: DS.textPrimary, fontSize: 16, margin: 0 }}>
               Publicar método
             </h3>
-            <p style={{ color: DS.textSecondary, fontSize: 12, lineHeight: 1.65, marginTop: 12 }}>
-              Após publicar, este método passará a ser a versão oficial usada pela
-              inteligência comercial da Yolen.
+            <p
+              id="commercial-method-publish-description"
+              style={{ color: DS.textSecondary, fontSize: 12, lineHeight: 1.65, marginTop: 12 }}
+            >
+              Você está confirmando a troca da versão operacional. Somente depois
+              desta ação o novo método passará a ser usado pelo Yolen Companion.
               {published
-                ? ` O método “${published.method_name}” atualmente publicado será preservado no histórico.`
-                : ''}
+                ? ` “${published.method_name}” · V${published.version_number} permanece ativo até a publicação concluir e será preservado no histórico.`
+                : ' Até a publicação concluir, nenhum método estruturado será ativado.'}
             </p>
             {publishing && (
               <div style={{ color: DS.blueSoft, fontSize: 11, marginTop: 10 }}>
@@ -337,6 +356,7 @@ export default function MethodPublicationPanel({
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
               <button
                 type="button"
+                autoFocus
                 onClick={() => setConfirmOpen(false)}
                 disabled={publishing}
                 style={{
