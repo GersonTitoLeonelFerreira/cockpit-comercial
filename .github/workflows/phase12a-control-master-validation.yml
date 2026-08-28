@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - 'validation/phase12a-control-master-gates'
+  pull_request:
+    branches:
+      - 'validation/phase12a-control-master-gates'
 
 permissions:
   contents: read
