@@ -105,6 +105,14 @@ function createAdminClient() {
   )
 }
 
+export type StatefulCopilotBackgroundWorkerDependencies = {
+  create_admin_client?:
+    typeof createAdminClient
+
+  run_runtime?:
+    typeof runStatefulCopilotBackgroundRuntime
+}
+
 export async function processStatefulCopilotBackgroundMessage(
   rawMessage:
     unknown,
@@ -114,14 +122,28 @@ export async function processStatefulCopilotBackgroundMessage(
     delivery_count:
       number
   },
+  // Injeção só usada por teste (ver stateful-copilot-background-worker.test.mjs)
+  // para exercitar o ciclo real running -> conflict -> queued -> nova
+  // entrega -> succeeded sem depender de um Supabase de verdade. Em
+  // produção, ambas seguem sendo sempre as implementações reais.
+  dependencies:
+    StatefulCopilotBackgroundWorkerDependencies = {},
 ): Promise<void> {
+  const createAdmin =
+    dependencies.create_admin_client ??
+    createAdminClient
+
+  const runRuntime =
+    dependencies.run_runtime ??
+    runStatefulCopilotBackgroundRuntime
+
   const job =
     parseStatefulCopilotBackgroundJobMessage(
       rawMessage,
     )
 
   const admin =
-    createAdminClient()
+    createAdmin()
 
   const {
     data:
@@ -506,7 +528,7 @@ export async function processStatefulCopilotBackgroundMessage(
 
   try {
     const statefulResult =
-      await runStatefulCopilotBackgroundRuntime({
+      await runRuntime({
         company_id:
           job.company_id,
 
@@ -1022,6 +1044,36 @@ export async function processStatefulCopilotBackgroundMessage(
         )
       }
 
+      console.info(
+        'YOLEN_COMPANION_STATEFUL_BACKGROUND',
+        JSON.stringify({
+          event:
+            'background_analysis_requeued',
+
+          company_id:
+            job.company_id,
+
+          cycle_id:
+            job.cycle_id,
+
+          analysis_job_id:
+            job.analysis_job_id,
+
+          failure_code:
+            failureCode,
+
+          engine_mode:
+            execution?.engine_mode ??
+            null,
+
+          persistence_mode:
+            execution?.persistence_mode ??
+            null,
+
+          delivery_count,
+        }),
+      )
+
       /*
        * Lançar erro faz o handleCallback não dar ack
        * e a Vercel Queue agenda nova entrega.
@@ -1143,6 +1195,14 @@ export async function processStatefulCopilotBackgroundMessage(
 
         communication_attempts:
           communicationAttempts,
+
+        engine_mode:
+          execution?.engine_mode ??
+          null,
+
+        persistence_mode:
+          execution?.persistence_mode ??
+          null,
 
         automatic_crm_write:
           false,
