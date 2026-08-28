@@ -65,7 +65,7 @@ gates.push(run(
 
 gates.push(run(
   'f3-commercial-method',
-  'node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/admin/configuracao-comercial/*.test.mjs app/lib/commercial-config/*.test.mjs app/lib/server/commercial-method-*.test.mjs',
+  'node --conditions=react-server --import ./scripts/register-typescript-test-loader.mjs --test app/lib/commercial-config/assisted-method-construction.test.mjs app/lib/commercial-config/buyer-decision-architecture.test.mjs app/lib/commercial-config/method-recompile.test.mjs app/lib/commercial-config/smart-method-synthesis.test.mjs app/lib/commercial-config/validation.test.mjs app/lib/commercial-config/onda8-final-academia-end-to-end.test.mjs app/lib/commercial-config/commercial-method-builder.test.mjs app/lib/server/commercial-method-builder.test.mjs app/lib/server/commercial-method-construction.test.mjs app/lib/server/commercial-method-publish.test.mjs app/lib/server/commercial-config.test.mjs app/admin/configuracao-comercial/commercial-method-builder-text-editing.test.mjs app/admin/configuracao-comercial/commercial-method-lifecycle-ux.test.mjs app/lib/commercial-config/commercial-method-home.test.mjs',
 ))
 
 gates.push(run(
