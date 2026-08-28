@@ -5196,6 +5196,21 @@
           'success',
         )
       }
+
+      // O backend já confirmou a criação — nunca pode voltar a mostrar o
+      // formulário/botão "Criar lead" (permitiria um segundo create do
+      // mesmo lead). Só uma reconsulta manual (RESOLVE, nunca CREATE) pode
+      // sair daqui — ver retryLeadLinkAfterCreation().
+      if (state.leadCreationStatus === 'created_unresolved') {
+        return `
+          <div class="yolen-lead-create-status" data-tone="warning">
+            Lead criado, mas o vínculo ainda não foi atualizado.
+          </div>
+          <button class="yolen-secondary-button" type="button" data-yolen-action="retry-lead-link">
+            Atualizar vínculo
+          </button>
+        `
+      }
     }
 
     if (state.leadResolutionLoading) {
@@ -12005,6 +12020,16 @@
 
     panel
       .querySelectorAll(
+        '[data-yolen-action="retry-lead-link"]',
+      )
+      .forEach((button) => {
+        wireOnce(button, 'click', () => {
+          void retryLeadLinkAfterCreation()
+        })
+      })
+
+    panel
+      .querySelectorAll(
         '[data-yolen-action="confirm-lead-enrichment"]',
       )
       .forEach((button) => {
@@ -12830,17 +12855,56 @@
     }
 
     // Tentativas esgotadas: o backend já confirmou a criação (senão nunca
-    // teríamos chegado aqui), mas ainda não conseguimos reconfirmar o
-    // vínculo. Nunca deixa o formulário reaparecer silenciosamente como se
-    // nada tivesse acontecido nem permite um novo CREATE — mostra um
-    // estado claro e acionável (o vendedor pode clicar "Atualizar").
+    // teríamos chegado aqui) — isso NUNCA pode voltar a ser um estado de
+    // "erro de criação" genérico, porque 'error' também é usado para um
+    // CREATE que falhou de verdade (ver createLeadForCurrentConversation),
+    // e esse caso reabre o formulário com o botão "Criar lead" habilitado
+    // de propósito. Aqui o lead já existe no backend: reabrir o formulário
+    // permitiria um SEGUNDO create depois de um primeiro já confirmado —
+    // proibido. 'created_unresolved' é um estado à parte, sem permissão
+    // de criar de novo: só uma reconsulta manual (ver
+    // retryLeadLinkAfterCreation()) pode sair dele.
     if (stillCurrent()) {
       state = {
         ...state,
-        leadCreationStatus: 'error',
+        leadCreationStatus: 'created_unresolved',
         leadCreationConversationKey: conversationKeyAtCreate,
-        leadCreationError:
-          'Lead criado, mas não foi possível confirmar o vínculo ainda. Atualize para tentar de novo.',
+        leadCreationError: null,
+      }
+
+      renderPanel()
+    }
+  }
+
+  // Clique em "Atualizar vínculo" a partir do estado created_unresolved —
+  // dispara só uma reconsulta (RESOLVE), nunca um novo CREATE. Se o
+  // vínculo aparecer, sai do estado pendente; se continuar NOT_FOUND, o
+  // vendedor continua vendo "Lead criado, mas o vínculo ainda não foi
+  // atualizado." sem nenhum formulário de criação reaparecer.
+  async function retryLeadLinkAfterCreation() {
+    const conversationKeyAtRequest =
+      state.conversationKey
+    const phoneAtRequest =
+      state.conversationPhone
+
+    await resolveCurrentLead()
+
+    if (
+      state.conversationKey !== conversationKeyAtRequest ||
+      state.conversationPhone !== phoneAtRequest
+    ) {
+      return
+    }
+
+    if (
+      state.leadResolution &&
+      state.leadResolution.status !== 'NOT_FOUND'
+    ) {
+      state = {
+        ...state,
+        leadCreationStatus: null,
+        leadCreationConversationKey: null,
+        leadCreationError: null,
       }
 
       renderPanel()

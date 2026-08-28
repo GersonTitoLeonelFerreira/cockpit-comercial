@@ -626,3 +626,239 @@ test('TESTE 10: active_lead_conflict/concurrent_create_conflict resolve o víncu
     'conflito resolve o vínculo existente, nunca dispara um segundo CREATE',
   )
 })
+
+test('TESTE 11: CREATE sucesso mas todos os resolves pós-create continuam NOT_FOUND -> vínculo pendente, sem formulário de CREATE', async () => {
+  const resolutions = {
+    // Nunca muda: mesmo depois do CREATE confirmado, toda reconsulta
+    // continua NOT_FOUND (o pior caso de eventual consistency).
+    [PHONE_A]: notFoundResolution(PHONE_A),
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  // Os retries limitados (400/900/1600ms de backoff) precisam se esgotar
+  // antes do estado de vínculo pendente aparecer.
+  await waitFor(
+    () =>
+      getPanel(document).innerHTML.includes(
+        'vínculo ainda não foi atualizado',
+      ),
+    { timeoutMs: 6000 },
+  )
+
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+    'CREATE já confirmado no backend: o formulário de criação não pode reaparecer',
+  )
+  assert.equal(
+    document.querySelector('.yolen-lead-create-submit'),
+    null,
+    'nenhum botão "Criar lead" pode ficar disponível depois de um CREATE já confirmado',
+  )
+  assert.ok(
+    document.querySelector('[data-yolen-action="retry-lead-link"]'),
+    'precisa existir uma ação de reconsultar o vínculo (nunca de criar de novo)',
+  )
+  assert.equal(
+    createLeadCalls(calls).length,
+    1,
+    'eventual consistency nunca esgotada pode gerar um segundo CREATE',
+  )
+})
+
+test('TESTE 12: vínculo pendente -> clique em Atualizar -> resolve continua NOT_FOUND -> continua pendente, sem CREATE', async () => {
+  const resolutions = {
+    [PHONE_A]: notFoundResolution(PHONE_A),
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  await waitFor(
+    () =>
+      Boolean(
+        document.querySelector('[data-yolen-action="retry-lead-link"]'),
+      ),
+    { timeoutMs: 6000 },
+  )
+
+  const resolveCallsBeforeRetry = resolveLeadCalls(calls).length
+
+  const retryButton = document.querySelector(
+    '[data-yolen-action="retry-lead-link"]',
+  )
+  dispatch(retryButton, 'click')
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveCallsBeforeRetry,
+  )
+  await sleep(50)
+
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+    'ainda NOT_FOUND: o formulário de criação continua indisponível',
+  )
+  assert.ok(
+    getPanel(document).innerHTML.includes(
+      'vínculo ainda não foi atualizado',
+    ),
+    'continua mostrando o vínculo como pendente',
+  )
+  assert.equal(
+    createLeadCalls(calls).length,
+    1,
+    'Atualizar vínculo nunca pode disparar um CREATE',
+  )
+})
+
+test('TESTE 13: vínculo pendente -> clique em Atualizar -> resolve agora OWNED_BY_ME -> pendência some, vínculo aparece', async () => {
+  let armLinkedOnNextCall = false
+
+  const resolutions = {
+    [PHONE_A]: () => {
+      if (armLinkedOnNextCall) {
+        armLinkedOnNextCall = false
+        return ownedResolution(PHONE_A)
+      }
+
+      return notFoundResolution(PHONE_A)
+    },
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  await waitFor(
+    () =>
+      Boolean(
+        document.querySelector('[data-yolen-action="retry-lead-link"]'),
+      ),
+    { timeoutMs: 6000 },
+  )
+
+  armLinkedOnNextCall = true
+  const retryButton = document.querySelector(
+    '[data-yolen-action="retry-lead-link"]',
+  )
+  dispatch(retryButton, 'click')
+
+  await waitFor(
+    () =>
+      Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
+    { timeoutMs: 4000 },
+  )
+
+  assert.doesNotMatch(
+    getPanel(document).innerHTML,
+    /vínculo ainda não foi atualizado/,
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-action="retry-lead-link"]'),
+    null,
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+  )
+  assert.equal(createLeadCalls(calls).length, 1, 'nunca um segundo CREATE')
+})
+
+test('TESTE 14: CREATE falha de verdade -> formulário reaparece, botão habilitado, nova tentativa de CREATE permitida', async () => {
+  let shouldFail = true
+
+  const resolutions = {
+    [PHONE_A]: notFoundResolution(PHONE_A),
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: () =>
+      shouldFail
+        ? { ok: false, code: 'invalid_document', error: 'Documento inválido.' }
+        : {
+            ok: true,
+            lead_id: 'lead-new-1',
+            cycle_id: 'cycle-new-1',
+            owner_user_id: 'user-1',
+          },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  await waitFor(() =>
+    getPanel(document).innerHTML.includes('Documento inválido'),
+  )
+
+  const formAfterError = document.querySelector(
+    '[data-yolen-lead-create-form]',
+  )
+  assert.ok(formAfterError, 'formulário precisa reaparecer depois de um erro real')
+
+  const submitButtonAfterError = formAfterError.querySelector(
+    '.yolen-lead-create-submit',
+  )
+  assert.ok(submitButtonAfterError)
+  assert.equal(submitButtonAfterError.disabled, false)
+
+  // Nova tentativa: desta vez o backend aceita.
+  shouldFail = false
+
+  const nameInput = formAfterError.querySelector('[name="yolen-lead-name"]')
+  nameInput.value = 'Cliente Novo Corrigido'
+  dispatch(nameInput, 'input')
+  dispatch(formAfterError, 'submit')
+
+  await waitFor(() => createLeadCalls(calls).length > 1)
+
+  assert.equal(
+    createLeadCalls(calls).length,
+    2,
+    'um erro real de CREATE precisa continuar permitindo novas tentativas',
+  )
+})
