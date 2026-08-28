@@ -8,6 +8,7 @@ import {
   STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
   STATEFUL_COPILOT_BACKGROUND_RUNNING_LEASE_MS,
   parseStatefulCopilotBackgroundJobMessage,
+  resolveStatefulCopilotBackgroundFailureOutcome,
   shouldRetryStatefulCopilotBackgroundFailure,
 } from './stateful-copilot-background-job'
 
@@ -900,43 +901,39 @@ export async function processStatefulCopilotBackgroundMessage(
       statefulResult
         .stateful_execution
 
+    // `failure` vem null tanto quando o motor não produziu saída de
+    // modelo (execution.engine_mode === 'blocked') quanto quando a
+    // persistência recusou por conflito de versão
+    // (execution.persistence_mode === 'conflict') — nenhum dos dois é
+    // "sem causa conhecida", e o segundo é transitório/retryable. Ver
+    // resolveStatefulCopilotBackgroundFailureOutcome.
+    const failureOutcome =
+      resolveStatefulCopilotBackgroundFailureOutcome({
+        failure,
+        execution,
+      })
+
     const failureCode =
-      safeFailureCode(
-        failure?.code,
-        'STATEFUL_BACKGROUND_FAILED',
-      )
+      failureOutcome
+        .failure_code
 
     const failurePath =
-      failure
-        ?.communication_failure_path ??
-      failure
-        ?.diagnostic_failure_path ??
-      failure
-        ?.state_failure_path ??
-      null
+      failureOutcome
+        .failure_path
 
     const failureInvariant =
-      failure
-        ?.communication_failure_invariant ??
-      failure
-        ?.diagnostic_failure_invariant ??
-      failure
-        ?.state_failure_invariant ??
-      null
+      failureOutcome
+        .failure_invariant
 
     const communicationAttempts =
-      execution
-        ?.communication_attempts ??
-      failure
-        ?.communication_attempts ??
-      null
+      failureOutcome
+        .communication_attempts
 
     if (
       shouldRetryStatefulCopilotBackgroundFailure({
         retryable:
-          failure
-            ?.retryable ===
-          true,
+          failureOutcome
+            .retryable,
 
         delivery_count,
       })

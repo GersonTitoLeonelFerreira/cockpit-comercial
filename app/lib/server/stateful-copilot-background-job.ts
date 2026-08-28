@@ -327,6 +327,205 @@ export function parseStatefulCopilotBackgroundJobMessage(
   })
 }
 
+export type StatefulCopilotBackgroundFailureInput = {
+  code?: string
+  retryable?: boolean
+
+  communication_failure_path?:
+    string
+
+  diagnostic_failure_path?:
+    string
+
+  state_failure_path?:
+    string
+
+  communication_failure_invariant?:
+    string
+
+  diagnostic_failure_invariant?:
+    string
+
+  state_failure_invariant?:
+    string
+
+  communication_attempts?:
+    1 | 2
+}
+
+export type StatefulCopilotBackgroundExecutionInput = {
+  engine_mode?:
+    string
+
+  persistence_mode?:
+    string
+
+  communication_attempts?:
+    1 | 2 | null
+}
+
+export type StatefulCopilotBackgroundFailureOutcome = {
+  failure_code:
+    string
+
+  failure_path:
+    string | null
+
+  failure_invariant:
+    string | null
+
+  communication_attempts:
+    1 | 2 | null
+
+  retryable:
+    boolean
+}
+
+function safeStatefulCopilotBackgroundFailureCode(
+  value:
+    unknown,
+  fallback:
+    string,
+): string {
+  if (
+    typeof value ===
+      'string' &&
+    /^[A-Z0-9_]+$/.test(
+      value,
+    ) &&
+    value.length <=
+      120
+  ) {
+    return value
+  }
+
+  return fallback
+}
+
+/*
+ * Traduz o resultado do orquestrador stateful (que ainda expressa, na sua
+ * forma de tipos, semântica herdada de um fallback para V1 — ver
+ * `active_fallback_v1` em stateful-copilot-runtime-orchestrator.ts) para o
+ * vocabulário real do worker background V2-only, que não tem nenhum V1
+ * para cair. Quando `failure` vem null do orquestrador, isso NÃO significa
+ * "sem causa conhecida" — a causa está em `execution` (engine_mode/
+ * persistence_mode) e precisa ser lida de lá, em vez de virar o código
+ * genérico STATEFUL_BACKGROUND_FAILED sem path/invariant e sem chance de
+ * retry.
+ */
+export function resolveStatefulCopilotBackgroundFailureOutcome({
+  failure,
+  execution,
+}: {
+  failure:
+    StatefulCopilotBackgroundFailureInput | null
+
+  execution:
+    StatefulCopilotBackgroundExecutionInput | null
+}): StatefulCopilotBackgroundFailureOutcome {
+  if (failure) {
+    return {
+      failure_code:
+        safeStatefulCopilotBackgroundFailureCode(
+          failure.code,
+          'STATEFUL_BACKGROUND_FAILED',
+        ),
+
+      failure_path:
+        failure.communication_failure_path ??
+        failure.diagnostic_failure_path ??
+        failure.state_failure_path ??
+        null,
+
+      failure_invariant:
+        failure.communication_failure_invariant ??
+        failure.diagnostic_failure_invariant ??
+        failure.state_failure_invariant ??
+        null,
+
+      communication_attempts:
+        execution?.communication_attempts ??
+        failure.communication_attempts ??
+        null,
+
+      retryable:
+        failure.retryable === true,
+    }
+  }
+
+  // O orquestrador só devolve `stateful_failure: null` em dois casos: o
+  // motor não produziu saída de modelo (`engine_mode: 'blocked'` — sem
+  // conteúdo utilizável na conversa, precondição determinística, não é um
+  // bug) ou a persistência recusou a escrita por conflito de versão
+  // (`persistence_mode: 'conflict'` — outra execução já avançou o CAS
+  // desta mesma conversa). O conflito de escrita é, por construção,
+  // transitório: uma nova tentativa relê o estado atual e escreve sobre a
+  // versão certa. Tratá-lo como falha terminal não retryable (como o
+  // código genérico fazia) descarta essa recuperação sem motivo.
+  if (
+    execution?.persistence_mode ===
+    'conflict'
+  ) {
+    return {
+      failure_code:
+        'STATEFUL_STATE_WRITE_CONFLICT',
+
+      failure_path:
+        null,
+
+      failure_invariant:
+        null,
+
+      communication_attempts:
+        execution.communication_attempts ??
+        null,
+
+      retryable:
+        true,
+    }
+  }
+
+  if (
+    execution?.engine_mode ===
+    'blocked'
+  ) {
+    return {
+      failure_code:
+        'ANALYSIS_PRECONDITION_BLOCKED',
+
+      failure_path:
+        null,
+
+      failure_invariant:
+        null,
+
+      communication_attempts:
+        null,
+
+      retryable:
+        false,
+    }
+  }
+
+  return {
+    failure_code:
+      'STATEFUL_BACKGROUND_FAILED',
+
+    failure_path:
+      null,
+
+    failure_invariant:
+      null,
+
+    communication_attempts:
+      execution?.communication_attempts ??
+      null,
+
+    retryable:
+      false,
+  }
+}
+
 export function shouldRetryStatefulCopilotBackgroundFailure({
   retryable,
   delivery_count,
