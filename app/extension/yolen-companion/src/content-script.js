@@ -12741,11 +12741,36 @@
         return
       }
 
+      // Fonte única de verdade para sair de um estado de criação de lead
+      // pendente (ver createLeadForCurrentConversation()/
+      // resolveAfterLeadCreation()): QUALQUER resolveCurrentLead() bem
+      // sucedido que encontre o lead fecha a pendência — não importa se
+      // foi retryLeadLinkAfterCreation(), o botão global "Atualizar" ou
+      // qualquer outro chamador legítimo desta mesma conversa. Antes,
+      // só o caminho de retryLeadLinkAfterCreation() fazia essa limpeza,
+      // então um resolve disparado pelo botão global podia deixar
+      // "Lead criado, mas o vínculo ainda não foi atualizado." preso na
+      // tela mesmo depois do vínculo já ter sido confirmado.
+      const shouldClearPendingLeadCreation =
+        result.payload.status !== 'NOT_FOUND' &&
+        state.leadCreationConversationKey === keyAtRequest &&
+        (
+          state.leadCreationStatus === 'created_resolving' ||
+          state.leadCreationStatus === 'created_unresolved'
+        )
+
       state = {
         ...state,
         leadResolutionLoading: false,
         leadResolution: result.payload,
         leadResolutionError: null,
+        ...(shouldClearPendingLeadCreation
+          ? {
+              leadCreationStatus: null,
+              leadCreationConversationKey: null,
+              leadCreationError: null,
+            }
+          : {}),
       }
 
       renderPanel()
@@ -12882,33 +12907,11 @@
   // vendedor continua vendo "Lead criado, mas o vínculo ainda não foi
   // atualizado." sem nenhum formulário de criação reaparecer.
   async function retryLeadLinkAfterCreation() {
-    const conversationKeyAtRequest =
-      state.conversationKey
-    const phoneAtRequest =
-      state.conversationPhone
-
+    // resolveCurrentLead() já é a fonte única de verdade para sair de
+    // created_unresolved (ver o bloco de sucesso lá dentro) — dispara
+    // sempre a MESMA reconsulta que o botão global "Atualizar" dispara,
+    // sem lógica própria duplicada aqui.
     await resolveCurrentLead()
-
-    if (
-      state.conversationKey !== conversationKeyAtRequest ||
-      state.conversationPhone !== phoneAtRequest
-    ) {
-      return
-    }
-
-    if (
-      state.leadResolution &&
-      state.leadResolution.status !== 'NOT_FOUND'
-    ) {
-      state = {
-        ...state,
-        leadCreationStatus: null,
-        leadCreationConversationKey: null,
-        leadCreationError: null,
-      }
-
-      renderPanel()
-    }
   }
 
   // Fonte única de verdade para criar um lead a partir do formulário de

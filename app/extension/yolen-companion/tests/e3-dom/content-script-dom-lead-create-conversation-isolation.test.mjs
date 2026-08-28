@@ -862,3 +862,127 @@ test('TESTE 14: CREATE falha de verdade -> formulário reaparece, botão habilit
     'um erro real de CREATE precisa continuar permitindo novas tentativas',
   )
 })
+
+test('TESTE 15: vínculo pendente -> botão GLOBAL Atualizar -> resolve OWNED_BY_ME -> pendência some (mesmo sem passar por retry-lead-link)', async () => {
+  let armLinkedOnNextCall = false
+
+  const resolutions = {
+    [PHONE_A]: () => {
+      if (armLinkedOnNextCall) {
+        armLinkedOnNextCall = false
+        return ownedResolution(PHONE_A)
+      }
+
+      return notFoundResolution(PHONE_A)
+    },
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  await waitFor(
+    () =>
+      getPanel(document).innerHTML.includes(
+        'vínculo ainda não foi atualizado',
+      ),
+    { timeoutMs: 6000 },
+  )
+
+  // Não usa [data-yolen-action="retry-lead-link"] de propósito — o
+  // botão GLOBAL "Atualizar" chama resolveCurrentLead() diretamente, sem
+  // passar por retryLeadLinkAfterCreation().
+  armLinkedOnNextCall = true
+  const panel = getPanel(document)
+  dispatch(panel.querySelector('[data-yolen-action="refresh"]'), 'click')
+
+  await waitFor(
+    () =>
+      Boolean(document.querySelector('[data-yolen-action="open-cycle-yolen"]')),
+    { timeoutMs: 4000 },
+  )
+
+  assert.doesNotMatch(
+    getPanel(document).innerHTML,
+    /vínculo ainda não foi atualizado/,
+    'o resolve do botão global precisa fechar a pendência de criação, igual ao retry-lead-link',
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-action="retry-lead-link"]'),
+    null,
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+  )
+  assert.equal(createLeadCalls(calls).length, 1, 'nunca um segundo CREATE')
+})
+
+test('TESTE 16: vínculo pendente -> botão GLOBAL Atualizar -> resolve continua NOT_FOUND -> continua pendente, sem formulário de CREATE', async () => {
+  const resolutions = {
+    [PHONE_A]: notFoundResolution(PHONE_A),
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor(CONVERSATION_A_TITLE),
+    resolutionsByPhone: resolutions,
+    withStabilityRuntimes: true,
+    createLeadResult: {
+      ok: true,
+      lead_id: 'lead-new-1',
+      cycle_id: 'cycle-new-1',
+      owner_user_id: 'user-1',
+    },
+  })
+
+  await waitFor(() => resolveLeadCalls(calls).length > 0)
+  await fillAndSubmit(document, 'Cliente Novo')
+  await waitFor(() => createLeadCalls(calls).length > 0)
+
+  await waitFor(
+    () =>
+      getPanel(document).innerHTML.includes(
+        'vínculo ainda não foi atualizado',
+      ),
+    { timeoutMs: 6000 },
+  )
+
+  const resolveCallsBeforeRefresh = resolveLeadCalls(calls).length
+
+  const panel = getPanel(document)
+  dispatch(panel.querySelector('[data-yolen-action="refresh"]'), 'click')
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveCallsBeforeRefresh,
+  )
+  await sleep(50)
+
+  assert.ok(
+    getPanel(document).innerHTML.includes(
+      'vínculo ainda não foi atualizado',
+    ),
+    'continua pendente: o resolve do botão global ainda não encontrou o lead',
+  )
+  assert.equal(
+    document.querySelector('[data-yolen-lead-create-form]'),
+    null,
+    'formulário de criação continua indisponível',
+  )
+  assert.equal(
+    createLeadCalls(calls).length,
+    1,
+    'o botão global Atualizar nunca pode disparar um CREATE',
+  )
+})
