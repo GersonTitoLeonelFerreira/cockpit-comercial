@@ -430,6 +430,52 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
       ?.open,
     true,
   )
+
+  const liveWants =
+    runtime.document.querySelector(
+      '[data-yolen-client-intelligence-group="wants"]',
+    )
+
+  const liveSummary =
+    liveWants.querySelector('summary')
+
+  liveSummary.dispatchEvent(
+    new runtime.dom.window.Event(
+      'pointerdown',
+      {
+        bubbles: true,
+      },
+    ),
+  )
+
+  liveSummary.click()
+
+  assert.equal(
+    liveWants.open,
+    false,
+  )
+
+  liveSummary.dispatchEvent(
+    new runtime.dom.window.Event(
+      'pointerdown',
+      {
+        bubbles: true,
+      },
+    ),
+  )
+
+  liveSummary.click()
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, 250)
+  })
+
+  assert.equal(
+    runtime.document
+      .querySelector('[data-yolen-client-intelligence-group="wants"]')
+      ?.open,
+    true,
+  )
 })
 
 test('non-commercial neutraliza AGORA e ANÁLISE sem apagar fatos persistidos do cliente', async () => {
