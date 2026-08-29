@@ -403,7 +403,7 @@ test('V2 rico distribui prioridade, coaching, método, recovery e cliente nas á
     wants.querySelector('summary')
 
   wantsSummary.dispatchEvent(
-    new runtime.dom.window.PointerEvent(
+    new runtime.dom.window.Event(
       'pointerdown',
       {
         bubbles: true,
