@@ -146,6 +146,13 @@
   // vendedor está interagindo com aquela região especificamente.
   const panelRegionHtmlCache = new Map()
   const panelRegionPendingHtml = new Map()
+
+  // Estado controlado dos accordions da Inteligência Comercial.
+  // Não dependemos da ação nativa de <details> do navegador: quando o
+  // vendedor abre um grupo, a chave fica registrada aqui e é reaplicada
+  // em qualquer re-render da mesma conversa.
+  const controlledOpenClientIntelligenceGroups =
+    new Set()
   let lastAcknowledgedCollapsedAttentionKey = null
   let lastRenderedDeepAnalysisResultKey = null
   let sessionRefreshTimerId = 0
@@ -394,7 +401,13 @@
     panel,
     keys,
   ) {
-    if (!keys || keys.size === 0) {
+    const preservedKeys =
+      new Set([
+        ...(keys || []),
+        ...controlledOpenClientIntelligenceGroups,
+      ])
+
+    if (preservedKeys.size === 0) {
       return
     }
 
@@ -406,7 +419,10 @@
             details,
           )
 
-        if (key && keys.has(key)) {
+        if (
+          key &&
+          preservedKeys.has(key)
+        ) {
           details.open = true
         }
       })
@@ -655,18 +671,52 @@
         flushPendingPanelRegions()
       }
 
-      // SUMMARY depende da ação nativa do navegador para alternar o
-      // atributo open do DETAILS. No Firefox, um microtask pode rodar
-      // antes dessa ação padrão terminar; se houver HTML pendente da mesma
-      // região, o DOM é substituído e o accordion volta fechado.
-      //
-      // Para SUMMARY, soltamos a trava apenas no próximo macrotask, quando
-      // o open já foi aplicado. Os demais botões mantêm o comportamento
-      // anterior, liberando logo após os handlers do clique.
       if (
         action?.tagName ===
         'SUMMARY'
       ) {
+        const clientDetails =
+          action.closest?.(
+            'details[data-yolen-client-intelligence-group]',
+          )
+
+        if (clientDetails) {
+          // CLIENTE usa accordion controlado pelo Companion. Cancelamos a
+          // ação nativa do Firefox e alternamos explicitamente o estado,
+          // gravando a chave para que qualquer re-render preserve a escolha
+          // do vendedor.
+          event.preventDefault()
+
+          const key =
+            getDetailsPreservationKey(
+              clientDetails,
+            )
+
+          const nextOpen =
+            !clientDetails.open
+
+          clientDetails.open =
+            nextOpen
+
+          if (key) {
+            if (nextOpen) {
+              controlledOpenClientIntelligenceGroups.add(
+                key,
+              )
+            } else {
+              controlledOpenClientIntelligenceGroups.delete(
+                key,
+              )
+            }
+          }
+
+          queueMicrotask(
+            releaseRegionActionLock,
+          )
+          return
+        }
+
+        // Outros <details> continuam usando o toggle nativo.
         window.setTimeout(
           releaseRegionActionLock,
           0,
@@ -4750,6 +4800,7 @@
     // do lead anterior, e volta o scroll ao topo.
     panelRegionHtmlCache.clear()
     panelRegionPendingHtml.clear()
+    controlledOpenClientIntelligenceGroups.clear()
 
     const panel =
       document.getElementById(PANEL_ID)
