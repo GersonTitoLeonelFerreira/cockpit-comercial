@@ -12,6 +12,16 @@ permissions:
   contents: read
 
 jobs:
+  retry-node-native-smoke:
+    name: Retry Node nativo sem npm ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test app/extension/yolen-companion/tests/yolen-api-failed-job-first-retry.test.mjs
+
   extension-first-retry:
     name: Retry explícito após reload
     runs-on: ubuntu-latest
