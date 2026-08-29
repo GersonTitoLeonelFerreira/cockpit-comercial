@@ -12229,6 +12229,12 @@
         wireOnce(button, 'click', () => {
           analyzeCurrentConversation({
             automatic: false,
+            retryFailedJob:
+              Boolean(
+                state.conversationAnalysisError,
+              ) ||
+              state.deepAnalysisStatus ===
+                'failed',
           })
         })
       })
@@ -13695,6 +13701,9 @@
     const isAutomatic =
       options.automatic === true
 
+    const retryFailedJob =
+      options.retryFailedJob === true
+
     clearDeepAnalysisPollTimer()
     clearAutomaticAnalysisTimer()
     clearAnalysisWatchdogTimer()
@@ -13894,6 +13903,8 @@
               0,
             force_reanalysis:
               forceReanalysis,
+            retry_failed_job:
+              retryFailedJob,
             message_snapshot_hash:
               conversationFingerprint,
           })
