@@ -172,6 +172,32 @@
       return null
     }
 
+    const enrichmentAction =
+      action.getAttribute?.(
+        'data-yolen-action',
+      )
+    const enrichmentKey =
+      action.getAttribute?.(
+        'data-yolen-enrichment-key',
+      )
+
+    if (
+      enrichmentAction &&
+      enrichmentKey
+    ) {
+      return {
+        type: 'attribute-pair',
+        firstAttribute:
+          'data-yolen-action',
+        firstValue:
+          enrichmentAction,
+        secondAttribute:
+          'data-yolen-enrichment-key',
+        secondValue:
+          enrichmentKey,
+      }
+    }
+
     for (const attribute of ACTION_IDENTITY_ATTRIBUTES) {
       const value =
         action.getAttribute?.(attribute)
@@ -255,6 +281,29 @@
             action.getAttribute?.(
               identity.attribute,
             ) === identity.value,
+        ) || null
+      )
+    }
+
+    if (
+      identity.type ===
+      'attribute-pair'
+    ) {
+      return (
+        Array.from(
+          targetPanel.querySelectorAll(
+            ACTION_SELECTOR,
+          ),
+        ).find(
+          (action) =>
+            action.getAttribute?.(
+              identity.firstAttribute,
+            ) ===
+              identity.firstValue &&
+            action.getAttribute?.(
+              identity.secondAttribute,
+            ) ===
+              identity.secondValue,
         ) || null
       )
     }
@@ -377,9 +426,22 @@
         action?.getBoundingClientRect?.()
 
       if (
+        !action ||
         !rect ||
         !Number.isFinite(rect.top)
       ) {
+        // A própria ação pode desaparecer como resultado legítimo do
+        // clique (ex.: Ignorar um enriquecimento). Nesse caso não existe
+        // mais um controle visual que possa servir de âncora. Libera o
+        // estado imediatamente para que scroll e renders seguintes voltem
+        // ao fluxo normal, em vez de manter uma referência obsoleta.
+        if (
+          actionVisualAnchor ===
+          anchor
+        ) {
+          releaseActionVisualAnchor()
+        }
+
         return
       }
 
@@ -876,6 +938,7 @@
           'PageDown',
           'Home',
           'End',
+          'Tab',
           ' ',
         ].includes(event.key)
       ) {
