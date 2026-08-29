@@ -94,6 +94,22 @@ test(
       ),
     )
 
+    for (const source of [
+      connectPage,
+      background,
+      yolenApi,
+    ]) {
+      assert.doesNotMatch(
+        source,
+        /TEMP_TEST_/,
+      )
+
+      assert.doesNotMatch(
+        source,
+        /cockpit-comercial-vocn-git-/,
+      )
+    }
+
     assert.equal(
       connectPage.includes(
         retiredPreviewBaseUrl,
