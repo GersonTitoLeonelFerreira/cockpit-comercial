@@ -1,6 +1,5 @@
 import type {
   CommercialConfigBundle,
-  CommercialConfigProductOption,
   CommercialFact,
   CommercialObjectionGuide,
   CommercialProductProfile,
@@ -389,7 +388,7 @@ function buildConversation(
             .filter(
               (
                 message,
-              ): message is typeof latest =>
+              ): message is NonNullable<typeof latest> =>
                 message !== null,
             )
             .flatMap(
