@@ -4,10 +4,6 @@ const SESSION_STORAGE_KEY = 'yolen_companion_session'
 const DEVICE_STORAGE_KEY = 'yolen_companion_device_key'
 const DEFAULT_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
 const LOCAL_BASE_URL = 'http://localhost:3000'
-// TEMP-TEST-ENV — preview consolidado para validação real do Companion.
-// Esta branch contém a base Onda 8 + Evidence/State/Coherence + customer-facing grounding.
-const TEMP_TEST_BASE_URL =
-  'https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app'
 
 const extensionApi = typeof browser !== 'undefined' ? browser : chrome
 
@@ -30,10 +26,6 @@ function getAllowedBaseUrl(baseUrl) {
 
   if (baseUrl === DEFAULT_BASE_URL) {
     return DEFAULT_BASE_URL
-  }
-
-  if (baseUrl === TEMP_TEST_BASE_URL) {
-    return TEMP_TEST_BASE_URL
   }
 
   return DEFAULT_BASE_URL
@@ -212,25 +204,13 @@ async function requestYolenWithToken(message, path, body) {
     cachedSession.origin ===
       LOCAL_BASE_URL ||
     cachedSession.origin ===
-      DEFAULT_BASE_URL ||
-    cachedSession.origin ===
-      TEMP_TEST_BASE_URL
+      DEFAULT_BASE_URL
       ? cachedSession.origin
       : null
 
-  // TEMP-TEST-ENV-FASE12A — ver app/companion/connect/page.tsx. Durante a
-  // janela de teste, o preview desta branch tem prioridade sobre a origem
-  // em que o token foi capturado: sem isso, uma sessão já capturada em
-  // produção (o fluxo normal de login, que é onde o vendedor sempre entra)
-  // trava todo o tráfego do Companion em produção mesmo com
-  // TEMP_TEST_BASE_URL definido — o vendedor precisaria reconectar
-  // manualmente na URL de preview para o teste funcionar, o que este ponto
-  // evita. Remover esta prioridade junto com os outros pontos
-  // TEMP-TEST-ENV-FASE12A.
   const baseUrl =
     getAllowedBaseUrl(
-      TEMP_TEST_BASE_URL ||
-        sessionBaseUrl ||
+      sessionBaseUrl ||
         message.baseUrl ||
         DEFAULT_BASE_URL,
     )

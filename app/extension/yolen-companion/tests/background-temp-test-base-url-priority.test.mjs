@@ -1,18 +1,3 @@
-// FAIL de integração real (Etapa 1, "Resumo persistente do lead"):
-// mesmo com TEMP_TEST_BASE_URL corrigido para o alias certo desta branch,
-// o vendedor continuava recebendo "Não foi possível carregar o resumo
-// salvo na Yolen." — porque a sessão do Companion já capturada (fluxo
-// normal de login, sempre em produção) fixava `cachedSession.origin` em
-// produção, e requestYolenWithToken() dava prioridade a essa origem sobre
-// TEMP_TEST_BASE_URL. Confirmado nos logs reais do Vercel: todo o
-// tráfego do Companion (resolve-lead, client-context, capture/messages...)
-// ia para o deploy de `main`, nunca para o preview desta branch.
-//
-// Este teste prova, com background.js real (mesmo harness de
-// background-session-auth.test.mjs), que uma sessão já capturada em
-// produção é redirecionada para TEMP_TEST_BASE_URL quando ele está
-// definido — sem exigir que o vendedor reconecte manualmente.
-
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
@@ -28,19 +13,20 @@ const backgroundSource = readFileSync(
   'utf8',
 )
 
-const tempTestBaseUrlMatch = backgroundSource.match(
-  /const TEMP_TEST_BASE_URL =\s*\n?\s*'([^']+)'/,
-)
+const PRODUCTION_BASE_URL =
+  'https://cockpit-comercial-vocn.vercel.app'
 
-const PRODUCTION_BASE_URL = 'https://cockpit-comercial-vocn.vercel.app'
-const SESSION_KEY = 'yolen_companion_session'
+const STALE_PREVIEW_BASE_URL =
+  'https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app'
 
-assert.ok(tempTestBaseUrlMatch, 'TEMP_TEST_BASE_URL não encontrado em background.js')
-
-const TEMP_TEST_BASE_URL = tempTestBaseUrlMatch[1]
+const SESSION_KEY =
+  'yolen_companion_session'
 
 function futureIso(secondsFromNow) {
-  return new Date(Date.now() + secondsFromNow * 1000).toISOString()
+  return new Date(
+    Date.now() +
+      secondsFromNow * 1000,
+  ).toISOString()
 }
 
 function sessionCapturedAt(origin) {
@@ -48,76 +34,164 @@ function sessionCapturedAt(origin) {
     ok: true,
     statusCode: 200,
     origin,
-    capturedAt: new Date().toISOString(),
+    capturedAt:
+      new Date().toISOString(),
     payload: {
       ok: true,
-      companion_token: 'fake.token.value',
-      expires_at: futureIso(6 * 60 * 60),
+      companion_token:
+        'fake.token.value',
+      expires_at:
+        futureIso(
+          6 * 60 * 60,
+        ),
     },
   }
 }
 
-test('TEMP_TEST_BASE_URL está definido e é diferente de produção (senão este teste não prova nada)', () => {
-  assert.notEqual(TEMP_TEST_BASE_URL, PRODUCTION_BASE_URL)
-  assert.match(TEMP_TEST_BASE_URL, /^https:\/\/.+\.vercel\.app$/)
-})
+test(
+  'Final Release não contém override TEMP_TEST_BASE_URL nem alias git-* de preview',
+  () => {
+    assert.doesNotMatch(
+      backgroundSource,
+      /TEMP_TEST_BASE_URL/,
+    )
 
-test('sessão já capturada em PRODUÇÃO é roteada para o preview (TEMP_TEST_BASE_URL vence a origem da sessão)', async () => {
-  const { fetchFn, calls } = createFakeFetchQueue([
-    () => jsonResponse(200, { ok: true, data: { identity: {}, summary: null } }),
-  ])
+    assert.doesNotMatch(
+      backgroundSource,
+      /cockpit-comercial-vocn-git-/,
+    )
 
-  const bg = loadBackgroundScript({
-    fetchFn,
-    initialStorage: {
-      [SESSION_KEY]: sessionCapturedAt(PRODUCTION_BASE_URL),
-    },
-  })
+    assert.equal(
+      backgroundSource.includes(
+        STALE_PREVIEW_BASE_URL,
+      ),
+      false,
+    )
+  },
+)
 
-  const response = await bg.sendMessage({
-    source: 'YOLEN_COMPANION',
-    action: 'LOAD_LEAD_SUMMARY',
-    baseUrl: PRODUCTION_BASE_URL,
-    payload: { cycle_id: 'cycle-1', conversation_key: 'whatsapp:+5511999990000' },
-  })
+test(
+  'sessão capturada em produção mantém todo o tráfego autenticado em produção',
+  async () => {
+    const {
+      fetchFn,
+      calls,
+    } =
+      createFakeFetchQueue([
+        () =>
+          jsonResponse(
+            200,
+            {
+              ok: true,
+              data: {
+                identity: {},
+                summary: null,
+              },
+            },
+          ),
+      ])
 
-  assert.equal(calls.length, 1)
-  assert.ok(
-    calls[0].url.startsWith(TEMP_TEST_BASE_URL),
-    `esperava a requisição para ${TEMP_TEST_BASE_URL}, foi para ${calls[0].url}`,
-  )
-  assert.ok(!calls[0].url.startsWith(PRODUCTION_BASE_URL))
-  assert.equal(response.ok, true)
-})
+    const bg =
+      loadBackgroundScript({
+        fetchFn,
+        initialStorage: {
+          [SESSION_KEY]:
+            sessionCapturedAt(
+              PRODUCTION_BASE_URL,
+            ),
+        },
+      })
 
-test('sessão já capturada em produção também é roteada para o preview no SAVE (não só na busca)', async () => {
-  const { fetchFn, calls } = createFakeFetchQueue([
-    () =>
-      jsonResponse(200, {
-        ok: true,
-        data: { identity: {}, summary: { summary: 'x', version: 1, updated_at: null } },
-      }),
-  ])
+    const response =
+      await bg.sendMessage({
+        source:
+          'YOLEN_COMPANION',
+        action:
+          'LOAD_LEAD_SUMMARY',
+        baseUrl:
+          STALE_PREVIEW_BASE_URL,
+        payload: {
+          cycle_id:
+            'cycle-1',
+          conversation_key:
+            'whatsapp:+5511999990000',
+        },
+      })
 
-  const bg = loadBackgroundScript({
-    fetchFn,
-    initialStorage: {
-      [SESSION_KEY]: sessionCapturedAt(PRODUCTION_BASE_URL),
-    },
-  })
+    assert.equal(
+      calls.length,
+      1,
+    )
 
-  await bg.sendMessage({
-    source: 'YOLEN_COMPANION',
-    action: 'SAVE_LEAD_SUMMARY',
-    baseUrl: PRODUCTION_BASE_URL,
-    payload: {
-      cycle_id: 'cycle-1',
-      conversation_key: 'whatsapp:+5511999990000',
-      summary: 'Resumo de teste.',
-      expected_version: null,
-    },
-  })
+    assert.ok(
+      calls[0].url.startsWith(
+        PRODUCTION_BASE_URL,
+      ),
+    )
 
-  assert.equal(calls.length, 1)
-  assert.ok(calls[0].url.startsWith(TEMP_TEST_BASE_URL))
-})
+    assert.ok(
+      !calls[0].url.startsWith(
+        STALE_PREVIEW_BASE_URL,
+      ),
+    )
+
+    assert.equal(
+      response.ok,
+      true,
+    )
+  },
+)
+
+test(
+  'origem antiga de preview armazenada na sessão não é autorizada e cai para produção',
+  async () => {
+    const {
+      fetchFn,
+      calls,
+    } =
+      createFakeFetchQueue([
+        () =>
+          jsonResponse(
+            200,
+            {
+              ok: true,
+            },
+          ),
+      ])
+
+    const bg =
+      loadBackgroundScript({
+        fetchFn,
+        initialStorage: {
+          [SESSION_KEY]:
+            sessionCapturedAt(
+              STALE_PREVIEW_BASE_URL,
+            ),
+        },
+      })
+
+    await bg.sendMessage({
+      source:
+        'YOLEN_COMPANION',
+      action:
+        'RESOLVE_LEAD',
+      baseUrl:
+        STALE_PREVIEW_BASE_URL,
+      payload: {
+        phone:
+          '5511999990000',
+      },
+    })
+
+    assert.equal(
+      calls.length,
+      1,
+    )
+
+    assert.equal(
+      calls[0].url,
+      PRODUCTION_BASE_URL +
+        '/api/companion/resolve-lead',
+    )
+  },
+)

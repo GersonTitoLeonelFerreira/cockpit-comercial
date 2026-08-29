@@ -23,7 +23,7 @@ const background =
   )
 
 test(
-  'página de conexão publica a origem que assinou a sessão',
+  'página de conexão publica apenas origem final autorizada',
   () => {
     assert.match(
       connectPage,
@@ -49,11 +49,21 @@ test(
       connectPage,
       /https:\/\/cockpit-comercial-vocn\.vercel\.app/,
     )
+
+    assert.doesNotMatch(
+      connectPage,
+      /TEMP_TEST_/,
+    )
+
+    assert.doesNotMatch(
+      connectPage,
+      /cockpit-comercial-vocn-git-/,
+    )
   },
 )
 
 test(
-  'background envia o token para a origem da própria sessão',
+  'background envia o token para a origem autorizada da sessão sem override de preview',
   () => {
     const requestStart =
       background.indexOf(
@@ -92,17 +102,22 @@ test(
       /cachedSession\.origin/,
     )
 
+    assert.doesNotMatch(
+      requestBlock,
+      /TEMP_TEST_BASE_URL/,
+    )
+
     assert.match(
       requestBlock,
-      /TEMP_TEST_BASE_URL \|\|\s*sessionBaseUrl \|\|\s*message\.baseUrl/,
+      /sessionBaseUrl \|\|\s*message\.baseUrl \|\|\s*DEFAULT_BASE_URL/,
     )
 
     assert.ok(
       requestBlock.indexOf(
-        'TEMP_TEST_BASE_URL ||',
+        'sessionBaseUrl ||',
       ) <
         requestBlock.indexOf(
-          'sessionBaseUrl ||',
+          'message.baseUrl ||',
         ),
     )
   },
