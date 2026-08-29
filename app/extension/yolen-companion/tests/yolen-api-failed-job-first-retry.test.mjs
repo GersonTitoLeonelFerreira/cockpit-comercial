@@ -138,12 +138,19 @@ test(
       'retry_failed_job é um sinal interno da extensão e não deve vazar para a rota normal de análise',
     )
 
+    assert.equal(
+      calls[1].payload
+        .analysis_job_id,
+      analysisJobId,
+    )
+
     assert.deepEqual(
-      calls[1].payload,
-      {
-        analysis_job_id:
-          analysisJobId,
-      },
+      Object.keys(
+        calls[1].payload,
+      ),
+      [
+        'analysis_job_id',
+      ],
     )
 
     assert.equal(
