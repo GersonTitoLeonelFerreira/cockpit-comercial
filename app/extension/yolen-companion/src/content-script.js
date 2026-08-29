@@ -12521,16 +12521,59 @@
         return
       }
 
+      const previousCompanyId =
+        state.companyId
+
+      const nextCompanyId =
+        result.payload.active_company?.id ||
+        null
+
+      // A troca de empresa ativa da sessão invalida qualquer ownership de
+      // análise em voo pertencente à empresa anterior —
+      // isAnalysisResponseStillCurrent() já impede o resultado antigo de
+      // ser aplicado (ver companyIdAtRequest), mas sozinho isso deixaria
+      // conversationAnalysisLoading/activeAnalysisAttempt presos donos de
+      // uma tentativa que nunca mais vai chegar a um estado terminal,
+      // bloqueando canScheduleAutomaticAnalysis() para a empresa nova.
+      // Só dispara quando as duas empresas são conhecidas e diferentes —
+      // nunca no primeiro GET_ME da sessão (previousCompanyId null) nem
+      // quando nada mudou.
+      const companyChanged =
+        previousCompanyId !== null &&
+        nextCompanyId !== null &&
+        previousCompanyId !==
+          nextCompanyId
+
+      if (companyChanged) {
+        clearDeepAnalysisPollTimer()
+        clearAnalysisWatchdogTimer()
+        clearAutomaticAnalysisTimer()
+        activeAnalysisAttempt = null
+      }
+
       state = {
         ...state,
         connected: true,
         loading: false,
         userName: result.payload.user?.full_name || result.payload.user?.email || null,
-        companyId: result.payload.active_company?.id || null,
+        companyId: nextCompanyId,
         companyName: result.payload.active_company?.name || null,
         companyRole: result.payload.active_company?.role || null,
         lastError: null,
         lastSessionSyncAt: getCurrentTimeLabel(),
+        ...(companyChanged
+          ? {
+              conversationAnalysisLoading: false,
+              conversationAnalysis: null,
+              conversationAnalysisError: null,
+              analyzedConversationFingerprint: null,
+              automaticAnalysisStatus: null,
+              deepAnalysisStatus: null,
+              deepAnalysisResult: null,
+              lastKnownCommercialReading: null,
+              lastKnownCommercialReadingContext: null,
+            }
+          : {}),
       }
 
       renderPanel()

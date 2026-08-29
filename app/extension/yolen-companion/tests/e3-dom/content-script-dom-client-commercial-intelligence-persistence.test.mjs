@@ -237,6 +237,14 @@ function isClientAreaEmpty(document) {
   return Boolean(document.querySelector('[data-yolen-client-empty]'))
 }
 
+function isAnalysisAreaLoading(document) {
+  return Boolean(
+    document.querySelector(
+      '[data-yolen-seller-panel="analysis"] [data-yolen-analysis-loading]',
+    ),
+  )
+}
+
 test('CLIENTE mantém a inteligência comercial já conhecida enquanto uma nova análise está em voo', async () => {
   let analyzeCallCount = 0
 
@@ -800,5 +808,174 @@ test('COMPANY_IN_FLIGHT_ISOLATION: job iniciado na empresa A nunca é promovido 
     getSellerPanelText(document, 'client'),
     /CONHECIMENTO DA EMPRESA A/,
     'CLIENTE nunca pode mostrar conhecimento comercial de um job iniciado numa empresa diferente da empresa ativa atual',
+  )
+})
+
+// Reauditoria do Controle Mestre — efeito colateral do fix de isolation
+// acima: isAnalysisResponseStillCurrent() passa a rejeitar corretamente o
+// resultado da empresa antiga, mas o `return` isolado dentro de runTick()
+// não limpava sozinho conversationAnalysisLoading/activeAnalysisAttempt —
+// a UI podia ficar presa em "Analisando..." para sempre e
+// canScheduleAutomaticAnalysis() ficava bloqueado para a empresa nova.
+// Este teste prova as duas metades separadamente: ISOLATION (resultado de
+// A nunca aparece) e RECOVERY (B consegue analisar normalmente depois).
+test('COMPANY_IN_FLIGHT_RECOVERY: depois que a empresa ativa muda, a tentativa presa da empresa antiga libera o runtime para uma análise real da empresa nova', async () => {
+  let activeCompanyId = 'company-1'
+  let getMeCallCount = 0
+  let analyzeCallCount = 0
+
+  let releaseJobA
+  const jobAGate = new Promise((resolve) => {
+    releaseJobA = resolve
+  })
+
+  function getMeResponse(companyId) {
+    return {
+      ok: true,
+      statusCode: 200,
+      origin: 'https://cockpit-comercial-vocn.vercel.app',
+      payload: {
+        ok: true,
+        user: { full_name: 'Vendedor Teste' },
+        active_company: { id: companyId, name: 'Empresa Teste', role: 'member' },
+      },
+    }
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    getMeResult: () => {
+      getMeCallCount += 1
+      return getMeResponse(activeCompanyId)
+    },
+    // Mesma resolução de ciclo o tempo todo — isola exclusivamente a
+    // variável company_id, como no teste de isolation acima.
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: async () => {
+      analyzeCallCount += 1
+
+      return analysisResultWithDeepJob({
+        analysisJobId: analyzeCallCount === 1 ? 'a'.repeat(64) : 'b'.repeat(64),
+        watermark: analyzeCallCount === 1 ? 'wm-1' : 'wm-2',
+      })
+    },
+    analysisJobStatusResult: async (requestPayload) => {
+      if (requestPayload.analysis_job_id === 'a'.repeat(64)) {
+        // Job da empresa A nunca resolve sozinho — só depois que o teste
+        // chamar releaseJobA(), explicitamente depois da troca de empresa.
+        await jobAGate
+
+        return succeededStatus({
+          analysisJobId: 'a'.repeat(64),
+          watermark: 'wm-1',
+          result: deepOutputWithNeed('CONHECIMENTO DA EMPRESA A'),
+        })
+      }
+
+      return succeededStatus({
+        analysisJobId: 'b'.repeat(64),
+        watermark: 'wm-2',
+        result: deepOutputWithNeed('CONHECIMENTO DA EMPRESA B'),
+      })
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  // 1-3: company-A ativa, inicia análise A, job A fica preso em voo.
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  await waitFor(
+    () => analysisJobStatusCalls(calls).some(
+      (call) => call.payload.analysis_job_id === 'a'.repeat(64),
+    ),
+  )
+
+  await waitFor(() => isAnalysisAreaLoading(document))
+  assert.ok(
+    isAnalysisAreaLoading(document),
+    'ANÁLISE deveria estar carregando enquanto o job A está em voo',
+  )
+
+  // 4-5: troca sessão para company-B — mesma conversation_key/cycle_id
+  // (já resolvido), só a empresa ativa muda (botão global "Atualizar").
+  const resolveLeadCountBeforeRefresh = resolveLeadCalls(calls).length
+  const getMeCallCountBeforeRefresh = getMeCallCount
+
+  activeCompanyId = 'company-2'
+
+  const refreshButton = getRefreshButton(document)
+  assert.ok(refreshButton, 'esperava o botão global de atualizar no painel')
+
+  refreshButton.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(() => getMeCallCount > getMeCallCountBeforeRefresh)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveLeadCountBeforeRefresh,
+  )
+
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  // ISOLATION, metade 1: a troca de empresa por si só já precisa ter
+  // tirado a UI do estado de loading — não é preciso esperar o resultado
+  // de A ser liberado para isso, porque a tentativa presa pertence à
+  // empresa que não é mais a ativa.
+  assert.equal(
+    isAnalysisAreaLoading(document),
+    false,
+    'ANÁLISE não pode continuar presa em loading depois que a empresa ativa mudou',
+  )
+
+  // 6: só agora libera o resultado succeeded do job iniciado em A.
+  releaseJobA()
+
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  // 7: resultado A não aparece — ISOLATION, metade 2.
+  await openSellerPanel(document, 'client')
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'client'),
+    /CONHECIMENTO DA EMPRESA A/,
+    'resultado tardio da empresa A não pode ser aplicado depois da troca para a empresa B',
+  )
+
+  // 8: ANÁLISE continua sem loading preso mesmo depois do resultado
+  // antigo chegar.
+  assert.equal(
+    isAnalysisAreaLoading(document),
+    false,
+    'a chegada tardia do resultado de A não pode reacender o loading da ANÁLISE',
+  )
+
+  // 9-10: dispara uma análise real na empresa B — prova que o runtime foi
+  // realmente liberado (não só que parou de mostrar loading).
+  const analyzeCountBeforeB = calls.filter(
+    (call) => call.action === 'ANALYZE_CONVERSATION',
+  ).length
+
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  assert.equal(
+    calls.filter((call) => call.action === 'ANALYZE_CONVERSATION').length,
+    analyzeCountBeforeB + 1,
+    'RECOVERY: a análise da empresa B precisa ser realmente enviada, não bloqueada por ownership da tentativa antiga',
+  )
+
+  // 11: resultado válido de B é aplicado normalmente.
+  await openSellerPanel(document, 'client')
+  await waitFor(
+    () => getSellerPanelText(document, 'client').includes('CONHECIMENTO DA EMPRESA B'),
+    { timeoutMs: 8000 },
   )
 })
