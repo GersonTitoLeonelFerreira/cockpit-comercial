@@ -16,12 +16,6 @@ import {
   createStatefulCopilotServerRuntimeOrchestrator,
 } from './stateful-copilot-runtime-orchestrator'
 
-const runStatefulCopilotBackgroundRuntime =
-  createStatefulCopilotServerRuntimeOrchestrator({
-    cycle_deadline_ms:
-      STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
-  })
-
 class StatefulCopilotBackgroundRetryError
   extends Error {
   constructor(
@@ -105,12 +99,33 @@ function createAdminClient() {
   )
 }
 
+export function buildStatefulCopilotBackgroundRuntimeOptions(
+  companyId:
+    string,
+) {
+  return {
+    configured_mode:
+      'active' as const,
+
+    configured_company_ids:
+      companyId,
+
+    configured_engine_version:
+      'v2' as const,
+
+    cycle_deadline_ms:
+      STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS,
+  }
+}
+
 export type StatefulCopilotBackgroundWorkerDependencies = {
   create_admin_client?:
     typeof createAdminClient
 
   run_runtime?:
-    typeof runStatefulCopilotBackgroundRuntime
+    ReturnType<
+      typeof createStatefulCopilotServerRuntimeOrchestrator
+    >
 }
 
 export async function processStatefulCopilotBackgroundMessage(
@@ -133,13 +148,25 @@ export async function processStatefulCopilotBackgroundMessage(
     dependencies.create_admin_client ??
     createAdminClient
 
-  const runRuntime =
-    dependencies.run_runtime ??
-    runStatefulCopilotBackgroundRuntime
-
   const job =
     parseStatefulCopilotBackgroundJobMessage(
       rawMessage,
+    )
+
+  /*
+   * O endpoint /api/companion/analyze-conversation é V2-only. Portanto o
+   * worker que consome esses jobs também precisa ser V2-only por construção,
+   * sem depender de COMPANION_STATEFUL_MODE / allowlist / engine version da
+   * implantação. A empresa autorizada é exatamente a empresa persistida no
+   * próprio job; o worker ainda exige a linha canônica do banco antes de
+   * executar qualquer IA.
+   */
+  const runRuntime =
+    dependencies.run_runtime ??
+    createStatefulCopilotServerRuntimeOrchestrator(
+      buildStatefulCopilotBackgroundRuntimeOptions(
+        job.company_id,
+      ),
     )
 
   const admin =

@@ -631,6 +631,18 @@
   }
 
   async function analyzeConversation(payload) {
+    const retryFailedJob =
+      payload?.retry_failed_job === true
+
+    const backendPayload =
+      isRecord(payload)
+        ? {
+            ...payload,
+          }
+        : {}
+
+    delete backendPayload.retry_failed_job
+
     const conversationKey =
       normalizeConversationKey(
         payload?.conversation_key,
@@ -673,7 +685,7 @@
     const result =
       await sendToBackground(
         'ANALYZE_CONVERSATION',
-        payload,
+        backendPayload,
       )
 
     let deepAnalysis =
@@ -712,8 +724,11 @@
 
       if (
         deepAnalysis.status === 'failed' &&
-        failedJobAtStart ===
-          deepAnalysis.analysis_job_id &&
+        (
+          retryFailedJob ||
+          failedJobAtStart ===
+            deepAnalysis.analysis_job_id
+        ) &&
         isFreshnessStillCurrent(
           freshness,
         )

@@ -517,10 +517,22 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
     resolutionsByPhone: {
       [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
     },
-    analysisResult: analysisResultWithDeepJob({
-      summary: 'RESUMO RAPIDO A',
-      analysisJobId: 'a'.repeat(64),
-    }),
+    analysisResult: (() => {
+      let analyzeCallCount = 0
+
+      return () => {
+        analyzeCallCount += 1
+
+        return analysisResultWithDeepJob({
+          analysisJobId:
+            'a'.repeat(64),
+          deepStatus:
+            analyzeCallCount === 1
+              ? 'queued'
+              : 'failed',
+        })
+      }
+    })(),
     analysisJobStatusResult: {
       ok: true,
       data: {
@@ -549,6 +561,83 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
   assert.ok(
     getAnalyzeButton(document),
     'retry deveria estar disponível depois de uma falha do V2',
+  )
+
+  const analyzeCallsBeforeRetry =
+    calls.filter(
+      (call) =>
+        call.action ===
+          'ANALYZE_CONVERSATION' &&
+        call.payload?.cycle_id ===
+          CYCLE_A,
+    ).length
+
+  getAnalyzeButton(document).dispatchEvent(
+    new document.defaultView.Event(
+      'click',
+      { bubbles: true },
+    ),
+  )
+
+  await waitFor(
+    () =>
+      calls.filter(
+        (call) =>
+          call.action ===
+            'ANALYZE_CONVERSATION' &&
+          call.payload?.cycle_id ===
+            CYCLE_A,
+      ).length >
+        analyzeCallsBeforeRetry,
+  )
+
+  const retryAnalyzeCall =
+    calls.filter(
+      (call) =>
+        call.action ===
+          'ANALYZE_CONVERSATION' &&
+        call.payload?.cycle_id ===
+          CYCLE_A,
+    ).at(-1)
+
+  assert.equal(
+    retryAnalyzeCall?.payload
+      ?.retry_failed_job,
+    undefined,
+    'retry_failed_job é interno da extensão e não deve chegar ao backend normal de análise',
+  )
+
+  await waitFor(
+    () =>
+      calls.some(
+        (call) =>
+          call.action ===
+          'RETRY_ANALYSIS_JOB',
+      ),
+  )
+
+  const retryJobCall =
+    calls.find(
+      (call) =>
+        call.action ===
+          'RETRY_ANALYSIS_JOB',
+    )
+
+  assert.equal(
+    retryJobCall?.payload
+      ?.analysis_job_id,
+    'a'.repeat(64),
+    'o clique seller-facing precisa reabrir exatamente o job failed do snapshot atual',
+  )
+
+  assert.deepEqual(
+    Object.keys(
+      retryJobCall?.payload || {},
+    ),
+    [
+      'analysis_job_id',
+    ],
+    'o retry não deve carregar contexto extra além da identidade canônica do job',
   )
 
   const panelHtml = getPanel(document)?.innerHTML ?? ''

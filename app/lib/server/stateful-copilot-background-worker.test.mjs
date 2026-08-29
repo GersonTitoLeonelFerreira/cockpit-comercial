@@ -34,8 +34,13 @@ import {
 } from './stateful-copilot-background-job.ts'
 
 import {
+  buildStatefulCopilotBackgroundRuntimeOptions,
   processStatefulCopilotBackgroundMessage,
 } from './stateful-copilot-background-worker.ts'
+
+import {
+  resolveStatefulCopilotActivationGate,
+} from '../companion/stateful-copilot-activation-gate.ts'
 
 const TABLE =
   'companion_background_analysis_jobs'
@@ -374,5 +379,67 @@ test(
 
     assert.equal(rows[0].status, 'failed')
     assert.equal(rows[0].failure_code, 'ANALYSIS_PRECONDITION_BLOCKED')
+  },
+)
+
+
+test(
+  'runtime padrão do worker do Companion é V2-only por construção, sem depender das ENVs de rollout',
+  () => {
+    const companyId =
+      'aaaaaaaa-0000-4000-8000-000000000001'
+
+    const options =
+      buildStatefulCopilotBackgroundRuntimeOptions(
+        companyId,
+      )
+
+    assert.equal(
+      options.configured_mode,
+      'active',
+    )
+
+    assert.equal(
+      options.configured_company_ids,
+      companyId,
+    )
+
+    assert.equal(
+      options.configured_engine_version,
+      'v2',
+    )
+
+    const activation =
+      resolveStatefulCopilotActivationGate({
+        company_id:
+          companyId,
+        configured_mode:
+          options.configured_mode,
+        configured_company_ids:
+          options.configured_company_ids,
+        configured_engine_version:
+          options.configured_engine_version,
+      })
+
+    assert.equal(
+      activation.mode,
+      'active',
+    )
+    assert.equal(
+      activation.engine_version,
+      'v2',
+    )
+    assert.equal(
+      activation.should_execute_stateful,
+      true,
+    )
+    assert.equal(
+      activation.should_expose_stateful_result,
+      true,
+    )
+    assert.equal(
+      activation.preserve_v1_response,
+      false,
+    )
   },
 )
