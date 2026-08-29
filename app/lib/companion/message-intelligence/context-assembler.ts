@@ -48,9 +48,11 @@ import {
 
 import {
   MESSAGE_CONTEXT_SNAPSHOT_CONTRACT_VERSION,
+  type MessageContextCurrentInteractionV1,
   type MessageContextCustomerV1,
   type MessageContextMemoryCollectionV1,
   type MessageContextMemoryItemV1,
+  type MessageContextSnapshotMessageV1,
   type MessageContextSnapshotV1,
 } from './context-snapshot'
 
@@ -261,6 +263,167 @@ function cycleTrace(
   })
 }
 
+export const MESSAGE_CONTEXT_CURRENT_INTERACTION_GAP_MS =
+  4 * 60 * 60 * 1000
+
+export const MESSAGE_CONTEXT_CURRENT_INTERACTION_LIMIT =
+  40
+
+function hasUsableCanonicalContent(
+  message:
+    MessageContextSnapshotMessageV1,
+): boolean {
+  if (
+    message.content_type ===
+    'audio'
+  ) {
+    return true
+  }
+
+  return (
+    typeof message.text_content ===
+      'string' &&
+    message.text_content.trim().length >
+      0
+  )
+}
+
+export function selectMessageContextCurrentInteractionV1(
+  messages:
+    readonly MessageContextSnapshotMessageV1[],
+): MessageContextCurrentInteractionV1 | null {
+  const usable = [
+    ...messages,
+  ]
+    .filter(
+      hasUsableCanonicalContent,
+    )
+    .sort((left, right) => {
+      const leftAt =
+        Date.parse(
+          left.occurred_at,
+        )
+
+      const rightAt =
+        Date.parse(
+          right.occurred_at,
+        )
+
+      if (
+        Number.isFinite(leftAt) &&
+        Number.isFinite(rightAt) &&
+        leftAt !== rightAt
+      ) {
+        return leftAt - rightAt
+      }
+
+      if (
+        left.sequence !==
+        right.sequence
+      ) {
+        return (
+          left.sequence -
+          right.sequence
+        )
+      }
+
+      return left.message_id
+        .localeCompare(
+          right.message_id,
+          'en',
+          {
+            numeric: true,
+          },
+        )
+    })
+
+  if (usable.length === 0) {
+    return null
+  }
+
+  let startIndex =
+    usable.length - 1
+
+  while (startIndex > 0) {
+    const previousAt =
+      Date.parse(
+        usable[
+          startIndex - 1
+        ].occurred_at,
+      )
+
+    const currentAt =
+      Date.parse(
+        usable[
+          startIndex
+        ].occurred_at,
+      )
+
+    if (
+      Number.isFinite(previousAt) &&
+      Number.isFinite(currentAt) &&
+      currentAt - previousAt >
+        MESSAGE_CONTEXT_CURRENT_INTERACTION_GAP_MS
+    ) {
+      break
+    }
+
+    startIndex -= 1
+  }
+
+  const segment =
+    usable.slice(
+      Math.max(
+        startIndex,
+        usable.length -
+          MESSAGE_CONTEXT_CURRENT_INTERACTION_LIMIT,
+      ),
+    )
+
+  const currentMessages =
+    segment.map(
+      message => ({
+        message_id:
+          message.message_id,
+        direction:
+          message.direction,
+        occurred_at:
+          message.occurred_at,
+        content_type:
+          message.content_type,
+        text_content:
+          message.text_content,
+        audio_transcription:
+          message
+            .audio_transcription,
+        provenance:
+          message.provenance,
+      }),
+    )
+
+  const first =
+    currentMessages[0]
+
+  const last =
+    currentMessages[
+      currentMessages.length - 1
+    ]
+
+  return {
+    messages:
+      currentMessages,
+    started_at:
+      first.occurred_at,
+    ended_at:
+      last.occurred_at,
+    provenance:
+      segment.flatMap(
+        message =>
+          message.provenance,
+      ),
+  }
+}
+
 function buildConversation(
   sources: MessageIntelligenceContextSourcesV1,
 ) {
@@ -348,55 +511,10 @@ function buildConversation(
         ),
       )
 
-  const latest =
-    messages.at(-1) ?? null
-
-  const latestCustomer =
-    [...messages]
-      .reverse()
-      .find(
-        message =>
-          message.direction ===
-          'incoming',
-      ) ?? null
-
-  const latestSeller =
-    [...messages]
-      .reverse()
-      .find(
-        message =>
-          message.direction ===
-          'outgoing',
-      ) ?? null
-
   const current_interaction =
-    latest
-      ? {
-          latest_message_id:
-            latest.message_id,
-          latest_customer_message_id:
-            latestCustomer?.message_id ??
-            null,
-          latest_seller_message_id:
-            latestSeller?.message_id ??
-            null,
-          provenance: [
-            latest,
-            latestCustomer,
-            latestSeller,
-          ]
-            .filter(
-              (
-                message,
-              ): message is NonNullable<typeof latest> =>
-                message !== null,
-            )
-            .flatMap(
-              message =>
-                message.provenance,
-            ),
-        }
-      : null
+    selectMessageContextCurrentInteractionV1(
+      messages,
+    )
 
   return {
     messages,
