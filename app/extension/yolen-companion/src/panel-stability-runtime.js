@@ -5,6 +5,7 @@
     'button',
     '[role="button"]',
     'a[href]',
+    'summary',
     'input[type="button"]',
     'input[type="submit"]',
   ].join(',')
@@ -41,6 +42,8 @@
   let interactionLocked = false
   let interactionMode = null
   let pendingPanelHtml = null
+  let actionScrollTop = null
+  let actionScrollRestoreSequence = 0
   let resumeGuardUntil = 0
   let resumeGuardTimerId = 0
   let windowWasBlurred = false
@@ -174,6 +177,74 @@
       scrollSnapshot.top,
       maxScroll,
     )
+  }
+
+
+  function restoreActionScroll(
+    intendedTop,
+  ) {
+    if (
+      typeof intendedTop !== 'number' ||
+      !Number.isFinite(intendedTop)
+    ) {
+      return
+    }
+
+    const sequence =
+      ++actionScrollRestoreSequence
+
+    const restore = () => {
+      if (
+        sequence !==
+        actionScrollRestoreSequence
+      ) {
+        return
+      }
+
+      const currentPanel =
+        getPanel()
+
+      if (!currentPanel) {
+        return
+      }
+
+      const maxScroll = Math.max(
+        0,
+        currentPanel.scrollHeight -
+          currentPanel.clientHeight,
+      )
+
+      const top = Math.min(
+        Math.max(0, intendedTop),
+        maxScroll,
+      )
+
+      currentPanel.scrollTop = top
+
+      // Após uma ação, o foco é preservar exatamente o ponto de trabalho
+      // do vendedor. Não convertemos essa posição para "near bottom",
+      // porque conteúdo novo acima/abaixo não pode mover o viewport.
+      scrollSnapshot = {
+        top,
+        distanceFromBottom:
+          Math.max(0, maxScroll - top),
+        nearBottom: false,
+      }
+    }
+
+    restore()
+
+    queueMicrotask(() => {
+      restore()
+
+      root.requestAnimationFrame(() => {
+        restore()
+
+        root.requestAnimationFrame(
+          restore,
+        )
+      })
+    })
   }
 
   function applyPanelHtml(targetPanel, html) {
@@ -394,6 +465,11 @@
     bindPanel(currentPanel)
     captureScroll(currentPanel)
 
+    if (mode === 'action') {
+      actionScrollTop =
+        currentPanel.scrollTop
+    }
+
     if (!interactionLocked) {
       pendingPanelHtml = null
     }
@@ -446,6 +522,8 @@
       interactionLocked = false
       interactionMode = null
       pendingPanelHtml = null
+      actionScrollTop = null
+      actionScrollRestoreSequence += 1
       conversationLabel = nextConversationLabel
       scrollSnapshot = {
         top: 0,
@@ -548,13 +626,24 @@
         return
       }
 
-      // Roda depois dos handlers de click do Companion. Qualquer render que
-      // eles tenham solicitado ficou retido em pendingPanelHtml e só é
-      // aplicado quando o clique já terminou.
+      const intendedTop =
+        actionScrollTop ??
+        currentPanel.scrollTop
+
+      // Roda depois dos handlers de click do Companion. Além de liberar
+      // renders pendentes, restaura a posição capturada no pointerdown.
+      // Isso neutraliza focus()/default actions do Firefox e qualquer
+      // re-render que tente levar o painel ao topo.
       queueMicrotask(() => {
         if (interactionMode === 'action') {
           unlockInteraction()
         }
+
+        restoreActionScroll(
+          intendedTop,
+        )
+
+        actionScrollTop = null
       })
     },
     true,
