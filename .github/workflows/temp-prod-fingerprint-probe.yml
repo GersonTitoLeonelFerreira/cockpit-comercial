@@ -1,0 +1,20 @@
+name: TEMP Production Runtime Fingerprint Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/temp-prod-fingerprint-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query production fingerprint
+        run: |
+          set -euo pipefail
+          echo "=== PRODUCTION FINGERPRINT ==="
+          curl -fsS --retry 3 --retry-delay 2             https://cockpit-comercial-vocn.vercel.app/api/diagnostics/runtime-fingerprint
+          echo
