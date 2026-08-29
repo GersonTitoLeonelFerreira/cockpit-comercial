@@ -151,7 +151,7 @@ function productDefinition() {
       amount:
         199.9,
       currency:
-        'BRL',
+        'BRL' as const,
       amount_qualifier:
         'exact' as const,
       recurrence:
