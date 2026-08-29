@@ -65,10 +65,23 @@ export type MessageContextSnapshotExcludedMessageV1 = {
   provenance: SourceTraceV1[]
 }
 
+export type MessageContextCurrentInteractionMessageV1 = {
+  message_id: string
+  direction: 'incoming' | 'outgoing'
+  occurred_at: string
+  content_type: 'text' | 'audio'
+  text_content: string | null
+  audio_transcription: string | null
+  provenance: SourceTraceV1[]
+}
+
 export type MessageContextCurrentInteractionV1 = {
-  latest_message_id: string
-  latest_customer_message_id: string | null
-  latest_seller_message_id: string | null
+  messages:
+    MessageContextCurrentInteractionMessageV1[]
+
+  started_at: string
+  ended_at: string
+
   provenance: SourceTraceV1[]
 }
 
