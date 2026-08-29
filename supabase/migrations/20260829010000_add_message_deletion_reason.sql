@@ -24,25 +24,49 @@
 -- caem no default conservador.
 
 alter table public.conversation_messages
-  add column deletion_reason text;
+  add column if not exists deletion_reason text;
 
-alter table public.conversation_messages
-  add constraint conversation_messages_deletion_reason_check
-  check (
-    (
-      is_deleted = false
-      and deletion_reason is null
-    )
-    or
-    (
-      is_deleted = true
-      and deletion_reason is not null
-      and deletion_reason in (
-        'explicit_deletion',
-        'dom_disappearance'
-      )
-    )
-  );
+-- Linhas legadas não possuem evidência suficiente para serem promovidas a
+-- exclusão explícita. O backfill é deliberadamente conservador.
+update public.conversation_messages
+set deletion_reason = 'dom_disappearance'
+where is_deleted = true
+  and deletion_reason is null;
+
+-- Mensagens ativas nunca carregam razão de exclusão.
+update public.conversation_messages
+set deletion_reason = null
+where is_deleted = false
+  and deletion_reason is not null;
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'conversation_messages_deletion_reason_check'
+      and conrelid = 'public.conversation_messages'::regclass
+  ) then
+    alter table public.conversation_messages
+      add constraint conversation_messages_deletion_reason_check
+      check (
+        (
+          is_deleted = false
+          and deletion_reason is null
+        )
+        or
+        (
+          is_deleted = true
+          and deletion_reason is not null
+          and deletion_reason in (
+            'explicit_deletion',
+            'dom_disappearance'
+          )
+        )
+      );
+  end if;
+end
+$;
 
 comment on column public.conversation_messages.deletion_reason is
   'Valor explicit_deletion: o WhatsApp mostrou um marcador ou icone de exclusao confirmado. Valor dom_disappearance: o elemento so saiu do DOM visivel da extensao (virtualizacao/rolagem) e nunca prova exclusao real, devendo ser tratado como nao confirmado por qualquer consumidor a jusante. Sempre nula para mensagens ativas (is_deleted=false).';
