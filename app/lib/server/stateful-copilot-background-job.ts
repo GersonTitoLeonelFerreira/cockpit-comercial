@@ -8,7 +8,7 @@ export const STATEFUL_COPILOT_BACKGROUND_JOB_VERSION =
   'phase12a-background-job-v2' as const
 
 export const STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC =
-  'companion-deep-analysis-v1' as const
+  'companion-deep-analysis-v2' as const
 
 export const STATEFUL_COPILOT_BACKGROUND_CYCLE_DEADLINE_MS =
   120_000
