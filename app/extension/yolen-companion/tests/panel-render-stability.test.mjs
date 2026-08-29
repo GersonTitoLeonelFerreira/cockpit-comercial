@@ -187,93 +187,153 @@ for (const order of ORDERS) {
     )
   })
 
-  test(`[${orderLabel}] qualquer ação preserva o ponto de trabalho mesmo se o navegador tentar rolar ao topo`, async () => {
-    const { document, getPanel } = loadStabilityRuntimes({
+  test(`[${orderLabel}] ação mantém o controle clicado na mesma altura visual durante rerenders`, async () => {
+    const { document, window, getPanel } = loadStabilityRuntimes({
       order,
       panelHtml: buildPanelHtml({ leadName: 'Cliente A' }),
     })
     const panel = getPanel()
     makeScrollable(panel)
 
-    panel.scrollTop = 1375
-    dispatch(panel, 'scroll')
-    await flushStabilityQueues()
+    const actionDocumentTop = 1800
+    const originalGetBoundingClientRect =
+      window.Element.prototype.getBoundingClientRect
 
-    const button = document.querySelector('[data-yolen-action="submit"]')
+    window.Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      if (
+        this.matches?.(
+          '[data-yolen-action="submit"]',
+        )
+      ) {
+        const top =
+          actionDocumentTop -
+          panel.scrollTop
 
-    button.addEventListener('click', () => {
-      // Simula o efeito real do browser/focus/default action que estava
-      // levando o Companion para o topo durante a interação.
-      panel.scrollTop = 0
+        return {
+          x: 0,
+          y: top,
+          top,
+          bottom: top + 40,
+          left: 0,
+          right: 120,
+          width: 120,
+          height: 40,
+          toJSON() {
+            return {}
+          },
+        }
+      }
+
+      return originalGetBoundingClientRect.call(
+        this,
+      )
+    }
+
+    try {
+      panel.scrollTop = 1375
+      dispatch(panel, 'scroll')
+      await flushStabilityQueues()
+
+      const button = document.querySelector(
+        '[data-yolen-action="submit"]',
+      )
+
+      assert.equal(
+        button.getBoundingClientRect().top,
+        425,
+      )
+
+      button.addEventListener('click', () => {
+        // Simula o Firefox tentando levar o painel ao topo enquanto a ação
+        // também provoca um rerender que substitui o node clicado.
+        panel.scrollTop = 0
+
+        panel.innerHTML = buildPanelHtml({
+          leadName: 'Cliente A',
+          nameValue:
+            'Resultado imediato da ação',
+        })
+      })
+
+      dispatch(button, 'pointerdown')
+      dispatch(button, 'click')
+
+      await flushStabilityQueues()
+
+      const buttonAfterClick =
+        document.querySelector(
+          '[data-yolen-action="submit"]',
+        )
+
+      assert.equal(
+        buttonAfterClick
+          .getBoundingClientRect()
+          .top,
+        425,
+        'o controle clicado deve continuar na mesma altura da viewport',
+      )
+      assert.equal(
+        panel.scrollTop,
+        1375,
+      )
 
       panel.innerHTML = buildPanelHtml({
         leadName: 'Cliente A',
-        nameValue: 'Resultado imediato da ação',
+        nameValue:
+          'Resultado assíncrono concluído',
       })
-    })
 
-    dispatch(button, 'pointerdown')
-    dispatch(button, 'click')
+      await flushStabilityQueues()
 
-    await flushStabilityQueues()
+      assert.equal(
+        document
+          .querySelector(
+            '[data-yolen-action="submit"]',
+          )
+          .getBoundingClientRect()
+          .top,
+        425,
+        'resposta assíncrona posterior não pode deslocar visualmente a ação',
+      )
 
-    assert.equal(
-      panel.scrollTop,
-      1375,
-      'o clique não pode tirar o vendedor do ponto em que ele estava trabalhando',
-    )
+      // Scroll tardio do navegador sem gesto real do vendedor também deve
+      // voltar para a âncora visual.
+      panel.scrollTop = 0
+      dispatch(panel, 'scroll')
+      await flushStabilityQueues()
 
-    // Resposta assíncrona posterior da mesma ação: o snapshot válido precisa
-    // continuar sendo a posição original, não o 0 transitório do browser.
-    panel.innerHTML = buildPanelHtml({
-      leadName: 'Cliente A',
-      nameValue: 'Resultado assíncrono concluído',
-    })
+      assert.equal(
+        document
+          .querySelector(
+            '[data-yolen-action="submit"]',
+          )
+          .getBoundingClientRect()
+          .top,
+        425,
+      )
 
-    await flushStabilityQueues()
+      // Navegação real libera a âncora.
+      dispatch(panel, 'wheel')
+      panel.scrollTop = 910
+      dispatch(panel, 'scroll')
 
-    assert.equal(
-      panel.scrollTop,
-      1375,
-      'o render assíncrono posterior também deve preservar o ponto de trabalho',
-    )
+      panel.innerHTML = buildPanelHtml({
+        leadName: 'Cliente A',
+        nameValue:
+          'Render após navegação real',
+      })
 
-    // O Firefox pode tentar ajustar o scroll DEPOIS do clique/rAF por causa
-    // de scroll anchoring ou foco. Esse scroll não é navegação do vendedor
-    // e não pode contaminar o snapshot.
-    panel.scrollTop = 0
-    dispatch(panel, 'scroll')
+      await flushStabilityQueues()
 
-    panel.innerHTML = buildPanelHtml({
-      leadName: 'Cliente A',
-      nameValue: 'Render tardio após ajuste do navegador',
-    })
-
-    await flushStabilityQueues()
-
-    assert.equal(
-      panel.scrollTop,
-      1375,
-      'scroll tardio do navegador não pode substituir a âncora da ação',
-    )
-
-    // Quando o vendedor navega de verdade, a proteção precisa ser liberada.
-    dispatch(panel, 'wheel')
-    panel.scrollTop = 910
-    dispatch(panel, 'scroll')
-
-    panel.innerHTML = buildPanelHtml({
-      leadName: 'Cliente A',
-      nameValue: 'Render após navegação real',
-    })
-
-    await flushStabilityQueues()
-
-    assert.equal(
-      panel.scrollTop,
-      910,
-      'roda do mouse deve liberar a âncora e aceitar a nova posição escolhida pelo vendedor',
-    )
+      assert.equal(
+        panel.scrollTop,
+        910,
+        'wheel deve aceitar a nova posição escolhida pelo vendedor',
+      )
+    } finally {
+      window.Element.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect
+    }
   })
 
   test(`[${orderLabel}] mutação fora do painel (ex.: abrir "Dados do contato") não mexe em scroll nem destrava o painel`, async () => {
