@@ -19,6 +19,10 @@ import {
   loadCompanionAnalysisJobStatus,
 } from './companion-analysis-job-reader'
 
+import {
+  recordCompanionRuntimePathDiagnostic,
+} from './companion-runtime-path-diagnostics'
+
 type QueuePublisher = (
   topic: string,
   message: unknown,
@@ -385,6 +389,18 @@ export async function retryCompanionAnalysisJob({
       device_key:
         deviceKey,
     })
+
+  await recordCompanionRuntimePathDiagnostic({
+    admin,
+    company_id:
+      companyId,
+    cycle_id:
+      authorized.cycle_id,
+    analysis_job_id:
+      authorized.analysis_job_id,
+    stage:
+      'producer_retry',
+  })
 
   try {
     await publish(
