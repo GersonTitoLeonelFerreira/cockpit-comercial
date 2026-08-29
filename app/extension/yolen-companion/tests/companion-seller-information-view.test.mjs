@@ -468,6 +468,104 @@ test('crítico vence alto e médio independentemente da ordem dos sinais', () =>
   assert.match(attention.copy, /promessa apresentada/)
 })
 
+test('product_fit incerto aparece como contexto informativo e vence descoberta insuficiente moderada', () => {
+  const reading = buildQuietReading()
+
+  reading.customer.missing_discovery = [
+    {
+      topic: 'product_fit',
+      summary:
+        'Ainda não está comprovado se a cliente busca apenas informações sobre a aula ou se avalia algum plano da academia.',
+      evidence_message_ids: ['message-1'],
+      memory_ids: [],
+    },
+  ]
+
+  reading.improvement_points = [
+    {
+      kind: 'insufficient_discovery',
+      summary:
+        'O vendedor ainda não perguntou sobre o interesse do cliente em planos ou outras preferências.',
+    },
+  ]
+
+  const attention =
+    view.resolveSellerAttentionSnapshot(
+      reading,
+      null,
+    )
+
+  assert.deepEqual(
+    attention,
+    {
+      priority: 'medium',
+      source:
+        'commercial_intent_uncertain',
+      label:
+        'Intenção comercial ainda não confirmada',
+      copy:
+        'Ainda não está comprovado se a cliente busca apenas informações sobre a aula ou se avalia algum plano da academia.',
+    },
+  )
+
+  const html =
+    view.renderNowAttentionSnapshot(
+      reading,
+      null,
+    )
+
+  assert.match(
+    html,
+    /yolen-now-attention--information/,
+  )
+
+  assert.doesNotMatch(
+    html,
+    /Atenção na condução/,
+  )
+})
+
+test('erro grave do vendedor continua vencendo incerteza informativa de product_fit', () => {
+  const reading = buildQuietReading()
+
+  reading.customer.missing_discovery = [
+    {
+      topic: 'product_fit',
+      summary:
+        'Ainda não está claro se existe intenção de compra.',
+      evidence_message_ids: ['message-1'],
+      memory_ids: [],
+    },
+  ]
+
+  reading.improvement_points = [
+    {
+      kind: 'pressure',
+      summary:
+        'Você pressionou por uma resposta imediata.',
+    },
+  ]
+
+  const attention =
+    view.resolveSellerAttentionSnapshot(
+      reading,
+      null,
+    )
+
+  assert.equal(
+    attention.source,
+    'improvement',
+  )
+  assert.equal(
+    attention.priority,
+    'high',
+  )
+  assert.match(
+    attention.label,
+    /Atenção na condução/,
+  )
+})
+
 test('aderência parcial, método não configurado e evidência insuficiente não viram falso alerta', () => {
   for (const status of [
     'partially_on_method',
