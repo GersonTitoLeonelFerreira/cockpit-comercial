@@ -490,11 +490,95 @@
     return container
   }
 
+  // Mede, para cada região JÁ existente no painel, sua altura atual e se
+  // ela está inteiramente acima do topo da viewport visível agora
+  // (rect.bottom <= 0 — todo o resto dela já foi rolado para fora,
+  // acima). Só essas duas informações; nenhuma decisão de scroll é tomada
+  // aqui. Chamado ANTES de qualquer escrita da passagem de render, para
+  // servir de base a computeAboveFoldRegionHeightDelta() depois.
+  //
+  // Por que região inteira, e não um elemento específico "sendo lido":
+  // content-script.js substitui o innerHTML de uma região inteira de uma
+  // vez (nunca faz diff de sub-elementos), então o próprio container de
+  // região é o menor node cuja identidade sobrevive de forma garantida a
+  // um render — é a granularidade certa para medir "o que mudou de
+  // altura", sem precisar inventar heurística de qual elemento
+  // específico "representa" a leitura do vendedor.
+  function captureRegionFoldSnapshot(panel) {
+    const snapshot = new Map()
+
+    panel
+      .querySelectorAll('[data-yolen-region]')
+      .forEach((container) => {
+        const rect =
+          container.getBoundingClientRect?.()
+
+        if (!rect) {
+          return
+        }
+
+        snapshot.set(container, {
+          height: rect.height,
+          aboveFold: rect.bottom <= 0,
+        })
+      })
+
+    return snapshot
+  }
+
+  // Soma, entre as regiões que já existiam e estavam INTEIRAMENTE acima da
+  // viewport no momento do snapshot, quanto cada uma mudou de altura desde
+  // então. Uma região que cruza o topo da viewport (parte acima, parte
+  // visível) fica de fora de propósito — ela pode ser justamente o que o
+  // vendedor está lendo, e tratar sua mudança às cegas como "acima"
+  // arrisca supercorrigir. Esse é o valor que diz ao runtime de
+  // estabilidade quanto compensar em scrollTop para que o que estava
+  // visível continue na mesma posição da tela — ver
+  // panel-stability-runtime.js/getRestoreTop().
+  function computeAboveFoldRegionHeightDelta(
+    foldSnapshotBefore,
+  ) {
+    let delta = 0
+
+    for (const [
+      container,
+      before,
+    ] of foldSnapshotBefore) {
+      if (!before.aboveFold) {
+        continue
+      }
+
+      if (!container.isConnected) {
+        continue
+      }
+
+      const rect =
+        container.getBoundingClientRect?.()
+
+      if (!rect) {
+        continue
+      }
+
+      delta += rect.height - before.height
+    }
+
+    return delta
+  }
+
+  // Contador simples de quantas vezes uma região realmente trocou de DOM
+  // desde o carregamento. renderPanel() e flushPendingPanelRegions() o
+  // usam para saber se PRECISAM pedir uma correção de scroll depois de si
+  // — nenhuma região escrita, nenhuma correção necessária (ver o único
+  // ponto que decide isso: panel-stability-runtime.js/restoreAfterRender,
+  // chamado só quando algo de fato mudou no DOM).
+  let panelRegionApplyCount = 0
+
   function applyPanelRegionHtml(
     container,
     regionKey,
     html,
   ) {
+    panelRegionApplyCount += 1
     panelRegionHtmlCache.set(
       regionKey,
       html,
@@ -585,6 +669,11 @@
       return
     }
 
+    const foldSnapshotBefore =
+      captureRegionFoldSnapshot(panel)
+
+    let appliedAny = false
+
     for (const [
       regionKey,
       html,
@@ -608,9 +697,25 @@
         regionKey,
         html,
       )
+      appliedAny = true
     }
 
     wirePanelInteractions(panel)
+
+    // Único ponto que sabe, com certeza, que uma região realmente trocou de
+    // DOM neste passo: quem escreveu o DOM pede a correção de scroll, uma
+    // vez, logo depois de escrever — não um observer genérico reagindo à
+    // mutation por fora (ver panel-stability-runtime.js/restoreAfterRender).
+    // heightDeltaAboveFold diz exatamente quanto compensar para que o que
+    // já estava visível continue na mesma posição da tela.
+    if (appliedAny) {
+      globalThis.YolenCompanionPanelStabilityRuntime
+        ?.restore?.(
+          computeAboveFoldRegionHeightDelta(
+            foldSnapshotBefore,
+          ),
+        )
+    }
   }
 
   // Trava mínima contra o botão "desclicar" — a versão por região do
@@ -4808,6 +4913,15 @@
     if (panel) {
       panel.scrollTop = 0
     }
+
+    // Avisa panel-stability-runtime.js explicitamente, agora, que a
+    // conversa mudou de verdade — não espera o heurístico assíncrono de
+    // texto do MutationObserver perceber sozinho. Sem isto, o
+    // renderPanel() que roda logo a seguir podia disparar
+    // restoreAfterRender() usando uma âncora/scrollSnapshot que ainda
+    // pertencia ao lead anterior, desfazendo o scrollTop = 0 acima.
+    globalThis.YolenCompanionPanelStabilityRuntime
+      ?.resetForNewConversation?.()
 
     lastSelectedChatActivitySnapshot =
       getSelectedChatActivitySnapshot()
@@ -12573,6 +12687,12 @@
       panelRegionPendingHtml.clear()
     }
 
+    const panelRegionApplyCountBeforePass =
+      panelRegionApplyCount
+
+    const foldSnapshotBefore =
+      captureRegionFoldSnapshot(panel)
+
     renderPanelRegion(
       panel,
       'header',
@@ -12607,6 +12727,24 @@
 
     window.YolenCompanionSellerMessageRuntime
       ?.render?.()
+
+    // Mesmo princípio de flushPendingPanelRegions(): só pede correção de
+    // scroll quando este passo de fato reescreveu alguma região. Cliques
+    // repetidos que recalculam o mesmo HTML (região sem mudança real) não
+    // tocam no scroll — nada mudou, nada para corrigir. heightDeltaAboveFold
+    // diz exatamente quanto compensar para que o que já estava visível
+    // continue na mesma posição da tela.
+    if (
+      panelRegionApplyCount !==
+      panelRegionApplyCountBeforePass
+    ) {
+      globalThis.YolenCompanionPanelStabilityRuntime
+        ?.restore?.(
+          computeAboveFoldRegionHeightDelta(
+            foldSnapshotBefore,
+          ),
+        )
+    }
   }
 
   function escapeHtml(value) {
