@@ -443,3 +443,95 @@ test(
     )
   },
 )
+
+
+test(
+  'worker V2-only registra violação explícita se o runtime devolver v1',
+  async () => {
+    const message =
+      buildMessage()
+
+    const rows = [
+      seedQueuedRow(
+        message,
+      ),
+    ]
+
+    const admin =
+      createFakeAdmin(
+        rows,
+      )
+
+    const runRuntime =
+      async () => ({
+        mode:
+          'v1',
+
+        response_source:
+          'v1',
+
+        stateful_executed:
+          false,
+
+        response:
+          undefined,
+
+        stateful_execution:
+          null,
+
+        stateful_failure:
+          null,
+
+        activation: {
+          reason:
+            'globally_disabled',
+        },
+
+        automatic_crm_write:
+          false,
+
+        automatic_agenda_write:
+          false,
+      })
+
+    await processStatefulCopilotBackgroundMessage(
+      message,
+      {
+        delivery_count:
+          1,
+      },
+      {
+        create_admin_client:
+          () => admin,
+
+        run_runtime:
+          runRuntime,
+      },
+    )
+
+    assert.equal(
+      rows[0].status,
+      'failed',
+    )
+
+    assert.equal(
+      rows[0].runtime_mode,
+      'v1',
+    )
+
+    assert.equal(
+      rows[0].failure_code,
+      'V2_ONLY_ACTIVATION_BYPASSED',
+    )
+
+    assert.equal(
+      rows[0].failure_path,
+      'activation',
+    )
+
+    assert.equal(
+      rows[0].failure_invariant,
+      'V2_ONLY_ACTIVE_REQUIRED',
+    )
+  },
+)

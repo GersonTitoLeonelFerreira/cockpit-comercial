@@ -137,7 +137,7 @@ test(
 
     assert.match(
       vercelSource,
-      /"topic":\s*"companion-deep-analysis-v1"/,
+      /"topic":\s*"companion-deep-analysis-v2"/,
     )
   },
 )

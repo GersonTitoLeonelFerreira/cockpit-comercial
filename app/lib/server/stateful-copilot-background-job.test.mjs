@@ -51,7 +51,7 @@ test(
   () => {
     assert.equal(
       STATEFUL_COPILOT_BACKGROUND_QUEUE_TOPIC,
-      'companion-deep-analysis-v1',
+      'companion-deep-analysis-v2',
     )
 
     assert.equal(
