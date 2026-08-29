@@ -10702,11 +10702,38 @@
 
     if (options.focus === true) {
       window.setTimeout(() => {
-        document
-          .getElementById(
+        const tab =
+          document.getElementById(
             `yolen-seller-tab-${nextArea}`,
           )
-          ?.focus()
+
+        if (!tab) {
+          return
+        }
+
+        const panel =
+          document.getElementById(
+            PANEL_ID,
+          )
+
+        const scrollTop =
+          panel?.scrollTop ?? null
+
+        try {
+          tab.focus({
+            preventScroll: true,
+          })
+        } catch {
+          tab.focus()
+
+          if (
+            panel &&
+            scrollTop !== null
+          ) {
+            panel.scrollTop =
+              scrollTop
+          }
+        }
       }, 0)
     }
   }
@@ -12207,7 +12234,6 @@
             button.getAttribute(
               'data-yolen-seller-area',
             ),
-            { focus: true },
           )
         })
 

@@ -187,6 +187,58 @@ for (const order of ORDERS) {
     )
   })
 
+  test(`[${orderLabel}] qualquer ação preserva o ponto de trabalho mesmo se o navegador tentar rolar ao topo`, async () => {
+    const { document, getPanel } = loadStabilityRuntimes({
+      order,
+      panelHtml: buildPanelHtml({ leadName: 'Cliente A' }),
+    })
+    const panel = getPanel()
+    makeScrollable(panel)
+
+    panel.scrollTop = 1375
+    dispatch(panel, 'scroll')
+    await flushStabilityQueues()
+
+    const button = document.querySelector('[data-yolen-action="submit"]')
+
+    button.addEventListener('click', () => {
+      // Simula o efeito real do browser/focus/default action que estava
+      // levando o Companion para o topo durante a interação.
+      panel.scrollTop = 0
+
+      panel.innerHTML = buildPanelHtml({
+        leadName: 'Cliente A',
+        nameValue: 'Resultado imediato da ação',
+      })
+    })
+
+    dispatch(button, 'pointerdown')
+    dispatch(button, 'click')
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      1375,
+      'o clique não pode tirar o vendedor do ponto em que ele estava trabalhando',
+    )
+
+    // Resposta assíncrona posterior da mesma ação: o snapshot válido precisa
+    // continuar sendo a posição original, não o 0 transitório do browser.
+    panel.innerHTML = buildPanelHtml({
+      leadName: 'Cliente A',
+      nameValue: 'Resultado assíncrono concluído',
+    })
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      1375,
+      'o render assíncrono posterior também deve preservar o ponto de trabalho',
+    )
+  })
+
   test(`[${orderLabel}] mutação fora do painel (ex.: abrir "Dados do contato") não mexe em scroll nem destrava o painel`, async () => {
     const { document, getPanel } = loadStabilityRuntimes({
       order,
