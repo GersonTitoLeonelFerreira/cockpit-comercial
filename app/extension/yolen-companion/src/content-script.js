@@ -10489,24 +10489,69 @@
     const commercialReading =
       getActiveCommercialReading()
 
+    const renderOptions = {
+      now: Date.now(),
+      cycleClosed:
+        state.leadResolution?.flags?.is_closed === true,
+    }
+
     const hasCurrentReading =
       Boolean(commercialReading) &&
       !state.conversationAnalysisLoading &&
       !isCurrentAnalysisOutdated() &&
       commercialReading.analysis_status === 'complete'
 
-    if (!hasCurrentReading) {
+    if (hasCurrentReading) {
+      return sellerInformationViewTools.renderNowAttentionSnapshot(
+        commercialReading,
+        state.companionClientContext,
+        renderOptions,
+      )
+    }
+
+    if (
+      state.conversationAnalysisLoading ||
+      state.conversationAnalysisError ||
+      isCurrentAnalysisOutdated()
+    ) {
+      return ''
+    }
+
+    // Fallback exclusivamente informativo: um re-render comum do painel
+    // pode perder a referência ativa sem que a conversa tenha mudado.
+    // Nessa situação, AGORA pode manter apenas a incerteza de intenção
+    // comercial já validada para a mesma empresa/ciclo/conversa/fingerprint.
+    // Nunca reutiliza ação, objeção, risco ou coaching anterior.
+    const retainedReading =
+      getLastKnownClientCommercialReading()
+
+    if (
+      !retainedReading ||
+      retainedReading.analysis_status !==
+        'complete'
+    ) {
+      return ''
+    }
+
+    const retainedAttention =
+      sellerInformationViewTools
+        .resolveSellerAttentionSnapshot(
+          retainedReading,
+          state.companionClientContext,
+          renderOptions,
+        )
+
+    if (
+      retainedAttention?.source !==
+      'commercial_intent_uncertain'
+    ) {
       return ''
     }
 
     return sellerInformationViewTools.renderNowAttentionSnapshot(
-      commercialReading,
+      retainedReading,
       state.companionClientContext,
-      {
-        now: Date.now(),
-        cycleClosed:
-          state.leadResolution?.flags?.is_closed === true,
-      },
+      renderOptions,
     )
   }
 

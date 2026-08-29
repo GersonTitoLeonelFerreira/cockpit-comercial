@@ -52,6 +52,43 @@ test('AGORA mostra no máximo um alerta relevante, sem duplicar o diagnóstico d
   )
 })
 
+test('AGORA só retém a incerteza informativa e nunca reutiliza decisão stale', () => {
+  const start = contentScript.indexOf(
+    'function getNowAttentionSnapshotHtml()',
+  )
+  const end = contentScript.indexOf(
+    'function getSellerInformationArchitectureHtml()',
+    start,
+  )
+  const block =
+    contentScript.slice(start, end)
+
+  assert.match(
+    block,
+    /state\.conversationAnalysisLoading/,
+  )
+  assert.match(
+    block,
+    /state\.conversationAnalysisError/,
+  )
+  assert.match(
+    block,
+    /isCurrentAnalysisOutdated\(\)/,
+  )
+  assert.match(
+    block,
+    /getLastKnownClientCommercialReading\(\)/,
+  )
+  assert.match(
+    block,
+    /retainedAttention\?\.source !==\s*'commercial_intent_uncertain'/,
+  )
+  assert.doesNotMatch(
+    block,
+    /retainedAttention\?\.source !==\s*'improvement'/,
+  )
+})
+
 test('erro e loading da análise profunda nunca bloqueiam nem aparecem em AGORA', () => {
   const summaryCardStart = contentScript.indexOf(
     'function getCompanionLeadSummaryCardHtml()',

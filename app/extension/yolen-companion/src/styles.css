@@ -1080,6 +1080,15 @@ html.yolen-companion-collapsed #app {
   line-height: 1.2;
 }
 
+.yolen-now-attention--information {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(30, 64, 175, 0.14);
+}
+
+.yolen-now-attention--information .yolen-decision-kicker {
+  color: #93c5fd;
+}
+
 .yolen-now-attention--warning {
   border-color: rgba(245, 158, 11, 0.3);
   background: rgba(146, 64, 14, 0.13);
