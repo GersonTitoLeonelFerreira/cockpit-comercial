@@ -16,6 +16,10 @@ import {
   createStatefulCopilotServerRuntimeOrchestrator,
 } from './stateful-copilot-runtime-orchestrator'
 
+import {
+  recordCompanionRuntimePathDiagnostic,
+} from './companion-runtime-path-diagnostics'
+
 class StatefulCopilotBackgroundRetryError
   extends Error {
   constructor(
@@ -171,6 +175,18 @@ export async function processStatefulCopilotBackgroundMessage(
 
   const admin =
     createAdmin()
+
+  await recordCompanionRuntimePathDiagnostic({
+    admin,
+    company_id:
+      job.company_id,
+    cycle_id:
+      job.cycle_id,
+    analysis_job_id:
+      job.analysis_job_id,
+    stage:
+      'consumer_start',
+  })
 
   const {
     data:
