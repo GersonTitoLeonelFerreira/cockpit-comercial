@@ -172,6 +172,52 @@ test('accordions do CLIENTE são controlados pelo Companion e não pelo toggle n
     /controlledOpenClientIntelligenceGroups\.clear\(\)/,
   )
 })
+test('abas seller-facing nunca usam focus que pode rolar o painel', () => {
+  const start = contentScript.indexOf(
+    'function setActiveSellerArea(',
+  )
+  const end = contentScript.indexOf(
+    'function handleSellerAreaKeyboard(',
+    start,
+  )
+  const block =
+    contentScript.slice(start, end)
+
+  assert.notEqual(start, -1)
+
+  assert.match(
+    block,
+    /preventScroll:\s*true/,
+  )
+
+  assert.match(
+    block,
+    /panel\.scrollTop\s*=\s*scrollTop/,
+  )
+
+  const wiringStart =
+    contentScript.indexOf(
+      "querySelectorAll(\n        '[data-yolen-seller-area]'",
+    )
+
+  const wiringEnd =
+    contentScript.indexOf(
+      "querySelectorAll(\n        '[data-yolen-action=\"refresh\"]'",
+      wiringStart,
+    )
+
+  const wiring =
+    contentScript.slice(
+      wiringStart,
+      wiringEnd,
+    )
+
+  assert.doesNotMatch(
+    wiring,
+    /\{\s*focus:\s*true\s*\}/,
+  )
+})
+
 test('AGORA não é escondido e possui composer contextual', () => {
   assert.doesNotMatch(
     summaryView,
