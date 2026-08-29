@@ -426,9 +426,22 @@
         action?.getBoundingClientRect?.()
 
       if (
+        !action ||
         !rect ||
         !Number.isFinite(rect.top)
       ) {
+        // A própria ação pode desaparecer como resultado legítimo do
+        // clique (ex.: Ignorar um enriquecimento). Nesse caso não existe
+        // mais um controle visual que possa servir de âncora. Libera o
+        // estado imediatamente para que scroll e renders seguintes voltem
+        // ao fluxo normal, em vez de manter uma referência obsoleta.
+        if (
+          actionVisualAnchor ===
+          anchor
+        ) {
+          releaseActionVisualAnchor()
+        }
+
         return
       }
 
