@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   MessageContextAssemblerError,
   assembleMessageContextSnapshotV1,
+  createMessageContextAssemblerV1,
 } from './context-assembler.ts'
 
 import {
@@ -13,6 +14,10 @@ import {
   buildMessageIntelligenceSourcesFixture,
   MESSAGE_INTELLIGENCE_FIXTURE_IDS,
 } from './fixtures.ts'
+
+import {
+  createMessageIntelligenceRuntimeSourceAdapterV1,
+} from './runtime-source-adapter.ts'
 
 function assemble(
   request =
@@ -491,6 +496,446 @@ test(
         ),
       false,
     )
+    assert.equal(
+      JSON.stringify(
+        snapshot,
+      ).includes(
+        'device_key',
+      ),
+      false,
+    )
+  },
+)
+
+test(
+  '17. current interaction usa somente o segmento após gap, preserva ordem e provenance',
+  () => {
+    const sources =
+      buildMessageIntelligenceSourcesFixture()
+
+    const conversation =
+      sources.real_context
+        .diagnostic_input
+        .conversation
+
+    conversation.messages = [
+      {
+        id: '10',
+        message_key: 'old',
+        version: 1,
+        sequence: 1,
+        direction: 'incoming',
+        occurred_at:
+          '2026-08-29T07:00:00.000Z',
+        observed_at:
+          '2026-08-29T07:00:01.000Z',
+        content_type: 'text',
+        text_content:
+          'Mensagem de uma interação anterior.',
+        audio_transcription: null,
+      },
+      {
+        id: '12',
+        message_key: 'current-2',
+        version: 1,
+        sequence: 4,
+        direction: 'outgoing',
+        occurred_at:
+          '2026-08-29T12:02:00.000Z',
+        observed_at:
+          '2026-08-29T12:02:01.000Z',
+        content_type: 'text',
+        text_content:
+          'Vou conferir isso com você.',
+        audio_transcription: null,
+      },
+      {
+        id: '11',
+        message_key: 'current-1',
+        version: 1,
+        sequence: 2,
+        direction: 'incoming',
+        occurred_at:
+          '2026-08-29T12:00:00.000Z',
+        observed_at:
+          '2026-08-29T12:00:01.000Z',
+        content_type: 'text',
+        text_content:
+          'Tenho uma dúvida sobre a condição.',
+        audio_transcription: null,
+      },
+      {
+        id: '13',
+        message_key: 'current-3',
+        version: 1,
+        sequence: 3,
+        direction: 'incoming',
+        occurred_at:
+          '2026-08-29T12:03:00.000Z',
+        observed_at:
+          '2026-08-29T12:03:01.000Z',
+        content_type: 'audio',
+        text_content: null,
+        audio_transcription: null,
+      },
+    ]
+
+    conversation.active_message_ids = [
+      '10',
+      '11',
+      '12',
+      '13',
+    ]
+    conversation.excluded_message_ids = [
+      '14',
+    ]
+    conversation.excluded_messages = [
+      {
+        id: '14',
+        message_key: 'deleted-current',
+        version: 2,
+        reason: 'deleted',
+        deletion_reason:
+          'explicit_deletion',
+      },
+    ]
+
+    sources.real_context
+      .known_message_ids = [
+      '10',
+      '11',
+      '12',
+      '13',
+      '14',
+    ]
+
+    sources.real_context
+      .active_message_ids = [
+      '10',
+      '11',
+      '12',
+      '13',
+    ]
+
+    const current =
+      assemble(
+        buildMessageIntelligenceRequestFixture(),
+        sources,
+      ).conversation
+        .current_interaction
+
+    assert.ok(current)
+
+    assert.deepEqual(
+      current.messages.map(
+        message =>
+          message.message_id,
+      ),
+      [
+        '11',
+        '12',
+        '13',
+      ],
+      'a mensagem anterior ao gap de 4h não pode entrar e a ordem temporal precisa ser preservada',
+    )
+
+    assert.equal(
+      current.messages.some(
+        message =>
+          message.message_id === '14',
+      ),
+      false,
+      'mensagem deletada não pode entrar na interação atual',
+    )
+
+    for (
+      const message of
+      current.messages
+    ) {
+      assert.equal(
+        message.provenance[0]
+          .source_type,
+        'conversation_message',
+      )
+      assert.equal(
+        message.provenance[0]
+          .source_id,
+        message.message_id,
+      )
+    }
+  },
+)
+
+test(
+  '18. current interaction respeita limite máximo de 40 mensagens',
+  () => {
+    const sources =
+      buildMessageIntelligenceSourcesFixture()
+
+    const baseTime =
+      Date.parse(
+        '2026-08-29T12:00:00.000Z',
+      )
+
+    const messages =
+      Array.from(
+        {
+          length: 45,
+        },
+        (
+          _,
+          index,
+        ) => ({
+          id:
+            String(
+              100 + index,
+            ),
+          message_key:
+            'limit-' +
+            String(index),
+          version: 1,
+          sequence:
+            index + 1,
+          direction:
+            index % 2 === 0
+              ? 'incoming'
+              : 'outgoing',
+          occurred_at:
+            new Date(
+              baseTime +
+                index * 60_000,
+            ).toISOString(),
+          observed_at:
+            new Date(
+              baseTime +
+                index * 60_000 +
+                1000,
+            ).toISOString(),
+          content_type: 'text',
+          text_content:
+            'Mensagem ' +
+            String(index),
+          audio_transcription:
+            null,
+        }),
+      )
+
+    sources.real_context
+      .diagnostic_input
+      .conversation.messages =
+      messages
+
+    sources.real_context
+      .diagnostic_input
+      .conversation
+      .active_message_ids =
+      messages.map(
+        message =>
+          message.id,
+      )
+
+    sources.real_context
+      .diagnostic_input
+      .conversation
+      .excluded_message_ids =
+      []
+
+    sources.real_context
+      .diagnostic_input
+      .conversation
+      .excluded_messages =
+      []
+
+    const current =
+      assemble(
+        buildMessageIntelligenceRequestFixture(),
+        sources,
+      ).conversation
+        .current_interaction
+
+    assert.ok(current)
+    assert.equal(
+      current.messages.length,
+      40,
+    )
+    assert.equal(
+      current.messages[0]
+        .message_id,
+      '105',
+    )
+    assert.equal(
+      current.messages.at(-1)
+        .message_id,
+      '144',
+    )
+  },
+)
+
+test(
+  '19. factory usa loader boundary device-free e monta snapshot a partir do adapter runtime',
+  async () => {
+    const request =
+      buildMessageIntelligenceRequestFixture()
+
+    const sourceFixture =
+      buildMessageIntelligenceSourcesFixture()
+
+    const calls = []
+
+    const assertDeviceFree = (
+      stage,
+      receivedRequest,
+    ) => {
+      calls.push(stage)
+
+      assert.equal(
+        Object.prototype
+          .hasOwnProperty.call(
+            receivedRequest,
+            'device_key',
+          ),
+        false,
+      )
+    }
+
+    const loadSources =
+      createMessageIntelligenceRuntimeSourceAdapterV1({
+        load_scope:
+          async receivedRequest => {
+            assertDeviceFree(
+              'scope',
+              receivedRequest,
+            )
+
+            return sourceFixture
+              .real_context.scope
+          },
+
+        load_commercial_context:
+          async ({
+            request:
+              receivedRequest,
+          }) => {
+            assertDeviceFree(
+              'commercial_context',
+              receivedRequest,
+            )
+
+            return {
+              commercial_config_status:
+                sourceFixture
+                  .real_context
+                  .commercial_config_status,
+              commercial_config:
+                sourceFixture
+                  .real_context
+                  .commercial_config,
+              products:
+                sourceFixture
+                  .real_context
+                  .products,
+            }
+          },
+
+        load_conversation_context:
+          async ({
+            request:
+              receivedRequest,
+          }) => {
+            assertDeviceFree(
+              'conversation_context',
+              receivedRequest,
+            )
+
+            return {
+              diagnostic_input:
+                sourceFixture
+                  .real_context
+                  .diagnostic_input,
+              known_message_ids:
+                sourceFixture
+                  .real_context
+                  .known_message_ids,
+              active_message_ids:
+                sourceFixture
+                  .real_context
+                  .active_message_ids,
+            }
+          },
+
+        load_state_read:
+          async ({
+            request:
+              receivedRequest,
+          }) => {
+            assertDeviceFree(
+              'state_read',
+              receivedRequest,
+            )
+
+            return sourceFixture
+              .real_context
+              .state_read
+          },
+
+        load_durable_memory:
+          async ({
+            request:
+              receivedRequest,
+          }) => {
+            assertDeviceFree(
+              'durable_memory',
+              receivedRequest,
+            )
+
+            return sourceFixture
+              .real_context
+              .durable_memory_seed
+          },
+
+        load_commercial_reading:
+          async ({
+            request:
+              receivedRequest,
+          }) => {
+            assertDeviceFree(
+              'commercial_reading',
+              receivedRequest,
+            )
+
+            return sourceFixture
+              .commercial_reading
+          },
+      })
+
+    const assembler =
+      createMessageContextAssemblerV1({
+        load_sources:
+          loadSources,
+      })
+
+    const snapshot =
+      await assembler(
+        request,
+      )
+
+    assert.deepEqual(
+      calls,
+      [
+        'scope',
+        'commercial_context',
+        'conversation_context',
+        'state_read',
+        'durable_memory',
+        'commercial_reading',
+      ],
+    )
+
+    assert.equal(
+      snapshot.identity.company_id,
+      request.company_id,
+    )
+
     assert.equal(
       JSON.stringify(
         snapshot,
