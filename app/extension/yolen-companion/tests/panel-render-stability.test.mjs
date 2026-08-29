@@ -336,6 +336,190 @@ for (const order of ORDERS) {
     }
   })
 
+  test(`[${orderLabel}] enriquecimento ancora o candidato exato quando ações repetem o mesmo data-yolen-action`, async () => {
+    const initialHtml = `
+      <div class="yolen-lead-name">Cliente A</div>
+      <button
+        type="button"
+        data-yolen-action="confirm-lead-enrichment"
+        data-yolen-enrichment-key="candidate-1"
+      >Confirmar primeiro</button>
+      <button
+        type="button"
+        data-yolen-action="confirm-lead-enrichment"
+        data-yolen-enrichment-key="candidate-2"
+      >Confirmar segundo</button>
+      <div class="yolen-filler" style="height:4000px"></div>
+    `
+
+    const { document, window, getPanel } =
+      loadStabilityRuntimes({
+        order,
+        panelHtml: initialHtml,
+      })
+
+    const panel = getPanel()
+    makeScrollable(panel)
+
+    const originalGetBoundingClientRect =
+      window.Element.prototype
+        .getBoundingClientRect
+
+    window.Element.prototype.getBoundingClientRect =
+      function getBoundingClientRect() {
+        const key =
+          this.getAttribute?.(
+            'data-yolen-enrichment-key',
+          )
+
+        if (
+          key === 'candidate-1' ||
+          key === 'candidate-2'
+        ) {
+          const documentTop =
+            key === 'candidate-1'
+              ? 1200
+              : 1800
+          const top =
+            documentTop -
+            panel.scrollTop
+
+          return {
+            x: 0,
+            y: top,
+            top,
+            bottom: top + 40,
+            left: 0,
+            right: 120,
+            width: 120,
+            height: 40,
+            toJSON() {
+              return {}
+            },
+          }
+        }
+
+        return originalGetBoundingClientRect.call(
+          this,
+        )
+      }
+
+    try {
+      panel.scrollTop = 1375
+      dispatch(panel, 'scroll')
+      await flushStabilityQueues()
+
+      const second =
+        document.querySelector(
+          '[data-yolen-enrichment-key="candidate-2"]',
+        )
+
+      assert.equal(
+        second
+          .getBoundingClientRect()
+          .top,
+        425,
+      )
+
+      second.addEventListener(
+        'click',
+        () => {
+          panel.scrollTop = 0
+          panel.innerHTML =
+            initialHtml.replace(
+              'Confirmar segundo',
+              'Confirmar segundo atualizado',
+            )
+        },
+      )
+
+      dispatch(second, 'pointerdown')
+      dispatch(second, 'click')
+
+      await flushStabilityQueues()
+
+      const secondAfter =
+        document.querySelector(
+          '[data-yolen-enrichment-key="candidate-2"]',
+        )
+
+      assert.equal(
+        secondAfter
+          .getBoundingClientRect()
+          .top,
+        425,
+        'a âncora precisa reencontrar o segundo candidato, não o primeiro botão com a mesma ação',
+      )
+      assert.equal(
+        panel.scrollTop,
+        1375,
+      )
+    } finally {
+      window.Element.prototype
+        .getBoundingClientRect =
+          originalGetBoundingClientRect
+    }
+  })
+
+  test(`[${orderLabel}] Tab libera a âncora visual antes da navegação de foco`, async () => {
+    const {
+      document,
+      window,
+      getPanel,
+    } = loadStabilityRuntimes({
+      order,
+      panelHtml:
+        buildPanelHtml({
+          leadName: 'Cliente A',
+        }),
+    })
+
+    const panel = getPanel()
+    makeScrollable(panel)
+
+    panel.scrollTop = 1375
+    dispatch(panel, 'scroll')
+    await flushStabilityQueues()
+
+    const button =
+      document.querySelector(
+        '[data-yolen-action="submit"]',
+      )
+
+    dispatch(button, 'pointerdown')
+    dispatch(button, 'click')
+    await flushStabilityQueues()
+
+    button.dispatchEvent(
+      new window.KeyboardEvent(
+        'keydown',
+        {
+          bubbles: true,
+          cancelable: true,
+          key: 'Tab',
+        },
+      ),
+    )
+
+    panel.scrollTop = 910
+    dispatch(panel, 'scroll')
+
+    panel.innerHTML =
+      buildPanelHtml({
+        leadName: 'Cliente A',
+        nameValue:
+          'Render após Tab',
+      })
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      910,
+      'Tab deve liberar a âncora anterior e permitir o novo foco/scroll do navegador',
+    )
+  })
+
   test(`[${orderLabel}] mutação fora do painel (ex.: abrir "Dados do contato") não mexe em scroll nem destrava o painel`, async () => {
     const { document, getPanel } = loadStabilityRuntimes({
       order,
