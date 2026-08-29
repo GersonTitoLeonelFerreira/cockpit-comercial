@@ -36,14 +36,20 @@
   }
 
   let panel = null
-  let conversationLabel = null
   let restoring = false
-  let restoreSequence = 0
+  // Uma única sequência compartilhada entre restoreActionVisualAnchor() e
+  // restorePanelInteraction(): qualquer chamada nova a QUALQUER uma das
+  // duas invalida passes ainda em voo da outra. Antes disso eram dois
+  // contadores independentes (restoreSequence/actionVisualRestoreSequence)
+  // que só se protegiam contra si mesmos — um restore por âncora ainda em
+  // andamento não cancelava um restore absoluto concorrente (e vice-versa),
+  // então os dois podiam escrever scrollTop em frames diferentes para a
+  // MESMA transição.
+  let scrollRestoreSequence = 0
   let interactionLocked = false
   let interactionMode = null
   let pendingPanelHtml = null
   let actionVisualAnchor = null
-  let actionVisualRestoreSequence = 0
   let resumeGuardUntil = 0
   let resumeGuardTimerId = 0
   let windowWasBlurred = false
@@ -56,16 +62,6 @@
 
   function getPanel() {
     return document.getElementById(PANEL_ID)
-  }
-
-  function getConversationLabel(targetPanel) {
-    return String(
-      targetPanel
-        ?.querySelector('.yolen-lead-name')
-        ?.textContent || '',
-    )
-      .replace(/\s+/g, ' ')
-      .trim()
   }
 
   function isResumeGuardActive() {
@@ -366,7 +362,7 @@
       !Number.isFinite(rect.top)
     ) {
       actionVisualAnchor = null
-      actionVisualRestoreSequence += 1
+      scrollRestoreSequence += 1
       return
     }
 
@@ -374,12 +370,12 @@
       identity,
       viewportTop: rect.top,
     }
-    actionVisualRestoreSequence += 1
+    scrollRestoreSequence += 1
   }
 
   function releaseActionVisualAnchor() {
     actionVisualAnchor = null
-    actionVisualRestoreSequence += 1
+    scrollRestoreSequence += 1
 
     const currentPanel =
       getPanel()
@@ -389,6 +385,19 @@
     }
   }
 
+  // Corrige a posição do controle clicado em relação à viewport e depois
+  // SOLTA a âncora — ela não pode continuar viva indefinidamente. Antes,
+  // nada liberava a âncora depois de um clique bem-sucedido: ela seguia
+  // "dona" do scroll até o vendedor fazer um wheel/touchmove/Tab/pointerdown
+  // fora da ação. Qualquer coisa no meio do caminho (um render assíncrono
+  // chegando minutos depois, um scroll de rolagem pela barra, inércia de
+  // trackpad — nenhum dos quais dispara esses gestos específicos) era
+  // tratada como "não é navegação real" e revertida, puxando o painel de
+  // volta para o botão antigo. Isso é o que produzia o painel brigando com
+  // o próprio scroll bem depois do clique já ter sido corrigido. Limitar a
+  // âncora à janela de assentamento do PRÓPRIO clique (as duas passagens de
+  // rAF abaixo) faz o scroll manual e os renders de fundo posteriores
+  // voltarem a vencer, como pedido.
   function restoreActionVisualAnchor() {
     const anchor =
       actionVisualAnchor
@@ -398,12 +407,12 @@
     }
 
     const sequence =
-      ++actionVisualRestoreSequence
+      ++scrollRestoreSequence
 
-    const restore = () => {
+    const settle = (isFinalPass) => {
       if (
         sequence !==
-          actionVisualRestoreSequence ||
+          scrollRestoreSequence ||
         actionVisualAnchor !== anchor
       ) {
         return
@@ -454,17 +463,38 @@
       }
 
       captureScroll(currentPanel)
+
+      if (
+        isFinalPass &&
+        actionVisualAnchor === anchor
+      ) {
+        releaseActionVisualAnchor()
+      }
     }
 
     queueMicrotask(() => {
       root.requestAnimationFrame(() => {
-        restore()
+        settle(false)
 
-        root.requestAnimationFrame(
-          restore,
-        )
+        root.requestAnimationFrame(() => {
+          settle(true)
+        })
       })
     })
+  }
+
+  // Ponto único de decisão sobre scroll depois de uma atualização de DOM já
+  // aplicada: chamado explicitamente por quem PRODUZIU a mutação (o setter
+  // de innerHTML do próprio painel logo abaixo, e content-script.js depois
+  // de aplicar uma região) — nunca mais por um MutationObserver reagindo
+  // genericamente a qualquer mutation dentro do painel. Ver handlePanelMutation().
+  function restoreAfterRender() {
+    if (actionVisualAnchor) {
+      restoreActionVisualAnchor()
+      return
+    }
+
+    restorePanelInteraction(getPanel())
   }
 
   function getRestoreTop(targetPanel) {
@@ -617,6 +647,13 @@
             this,
             value,
           )
+
+          // O ponto em que o painel INTEIRO é substituído (retração/
+          // expansão do Companion, primeira renderização) ainda passa por
+          // aqui. É a própria escrita que decide, na hora, se scroll
+          // precisa ser corrigido — não um MutationObserver observando a
+          // mutation resultante de fora.
+          restoreAfterRender()
         },
       },
     )
@@ -676,11 +713,11 @@
       return
     }
 
-    const sequence = ++restoreSequence
+    const sequence = ++scrollRestoreSequence
     restoring = true
 
     const restore = () => {
-      if (sequence !== restoreSequence) {
+      if (sequence !== scrollRestoreSequence) {
         return
       }
 
@@ -700,7 +737,7 @@
         restore()
 
         root.requestAnimationFrame(() => {
-          if (sequence !== restoreSequence) {
+          if (sequence !== scrollRestoreSequence) {
             return
           }
 
@@ -756,6 +793,64 @@
     }
   }
 
+  // Zera toda a memória de scroll/interação do runtime porque a conversa
+  // MUDOU DE VERDADE. Só existe UMA autoridade que chama isto:
+  // content-script.js, explicitamente, de dentro de
+  // clearLeadStateForNewConversation() (via resetForNewConversation() na
+  // API pública abaixo) — o único lugar do código que decide com certeza,
+  // a partir de state.conversationKey, que a conversa mudou.
+  //
+  // Uma versão anterior desta função também era chamada por
+  // handlePanelMutation() a partir de um heurístico de TEXTO: comparar o
+  // textContent de `.yolen-lead-name` entre uma mutation e a próxima, e
+  // tratar qualquer diferença como "troca real de conversa". Isso
+  // demonstrou ser um FALSO POSITIVO concreto, não só uma preocupação
+  // teórica: a MESMA conversa, no meio de um `refresh`/nova resolução,
+  // passa por um estado intermediário em que `.yolen-lead-name` mostra o
+  // telefone (fallback) antes de voltar a mostrar o nome resolvido — duas
+  // mudanças de texto para a mesma conversa. O heurístico via isso como
+  // duas trocas de conversa e zerava o scroll para 0 no meio de uma
+  // atualização em segundo plano comum, sem nenhum clique nem navegação
+  // do vendedor envolvidos. Um MutationObserver reagindo a texto não tem
+  // como distinguir "o rótulo mudou porque a conversa mudou" de "o rótulo
+  // mudou porque o MESMO lead está sendo re-resolvido" — só quem inicia a
+  // resolução (content-script.js) sabe a diferença.
+  function resetConversationScrollState(
+    currentPanel,
+  ) {
+    interactionLocked = false
+    interactionMode = null
+    pendingPanelHtml = null
+    actionVisualAnchor = null
+    scrollRestoreSequence += 1
+    scrollSnapshot = {
+      top: 0,
+      distanceFromBottom: 0,
+      nearBottom: false,
+    }
+    restoring = false
+
+    if (currentPanel) {
+      currentPanel.scrollTop = 0
+    }
+  }
+
+  // Responsabilidade ÚNICA e reduzida do MutationObserver global (ver seção
+  // 10 do mandato): só identidade do node do painel (o painel foi
+  // remontado por fora do fluxo de content-script.js — ex.: uma navegação
+  // de SPA do WhatsApp recriando tudo do zero?). Ele NÃO decide mais nada
+  // sobre scroll — nem restoreActionVisualAnchor() nem
+  // restorePanelInteraction() nem reset de conversa são chamados a partir
+  // daqui. Antes, QUALQUER childList mutation dentro do painel (inclusive a
+  // de uma região totalmente alheia ao clique, ou a própria mutation
+  // resultante do flush que content-script.js já ia restaurar sozinho)
+  // reiniciava uma cadeia de restauração nova aqui, competindo com quem
+  // realmente produziu a mutação — e o heurístico de texto para detecção de
+  // troca de conversa (removido, ver resetConversationScrollState() acima)
+  // chegava a disparar um reset completo de scroll por causa de uma
+  // atualização em segundo plano comum. Essas eram autoridades concorrentes
+  // reagindo à mesma mutação em momentos diferentes — a causa raiz do
+  // painel “brigando” com o próprio scroll.
   function handlePanelMutation() {
     const currentPanel = getPanel()
 
@@ -771,42 +866,6 @@
       panel = currentPanel
       bindPanel(currentPanel)
     }
-
-    const nextConversationLabel =
-      getConversationLabel(currentPanel)
-
-    if (
-      conversationLabel &&
-      nextConversationLabel &&
-      nextConversationLabel !== conversationLabel
-    ) {
-      interactionLocked = false
-      interactionMode = null
-      pendingPanelHtml = null
-      actionVisualAnchor = null
-      actionVisualRestoreSequence += 1
-      conversationLabel = nextConversationLabel
-      scrollSnapshot = {
-        top: 0,
-        distanceFromBottom: 0,
-        nearBottom: false,
-      }
-      restoreSequence += 1
-      restoring = false
-      currentPanel.scrollTop = 0
-      return
-    }
-
-    if (nextConversationLabel) {
-      conversationLabel = nextConversationLabel
-    }
-
-    if (actionVisualAnchor) {
-      restoreActionVisualAnchor()
-      return
-    }
-
-    restorePanelInteraction(currentPanel)
   }
 
   document.addEventListener(
@@ -901,16 +960,17 @@
         return
       }
 
-      // Roda depois dos handlers de click do Companion. O botão clicado
-      // vira a âncora visual: se o conteúdo mudar acima dele, corrigimos
-      // apenas a diferença real de posição, sem ficar regravando um
-      // scrollTop absoluto em vários frames concorrentes.
+      // Só destrava a interação aqui. A correção de scroll em si NÃO roda
+      // mais a partir deste listener: quem aplica a mutação de DOM
+      // resultante do clique (o setter de innerHTML do painel, ou
+      // content-script.js depois de renderPanel()/flushPendingPanelRegions())
+      // é quem chama restoreAfterRender(), exatamente uma vez, logo depois
+      // de escrever o DOM — nunca antes, nunca "no escuro" a partir do
+      // próprio evento de click.
       queueMicrotask(() => {
         if (interactionMode === 'action') {
           unlockInteraction()
         }
-
-        restoreActionVisualAnchor()
       })
     },
     true,
@@ -1107,7 +1167,6 @@
 
   if (panel) {
     bindPanel(panel)
-    conversationLabel = getConversationLabel(panel) || null
   }
 
   root.YolenCompanionPanelStabilityRuntime = Object.freeze({
@@ -1116,8 +1175,25 @@
       bindPanel(currentPanel)
       captureScroll(currentPanel)
     },
+    // Entrypoint explícito para quem PRODUZIU uma mutação de DOM no painel
+    // (content-script.js, depois de renderPanel()/flushPendingPanelRegions())
+    // avisar que terminou e que agora é hora de corrigir o scroll — uma
+    // única vez, decidindo entre âncora de ação ou snapshot absoluto
+    // conforme o que estiver ativo no momento da chamada.
     restore() {
-      restorePanelInteraction(getPanel())
+      restoreAfterRender()
+    },
+    // content-script.js chama isto de dentro de
+    // clearLeadStateForNewConversation() — o único lugar que sabe, com
+    // certeza e sincronamente, que a conversa mudou de verdade (ver
+    // resetConversationScrollState() acima para o porquê de não haver
+    // nenhum heurístico assíncrono equivalente aqui dentro). Sem isto, o
+    // renderPanel() que já vem a seguir podia chamar restoreAfterRender()
+    // usando âncora/scrollSnapshot ainda da conversa anterior.
+    resetForNewConversation() {
+      resetConversationScrollState(
+        getPanel(),
+      )
     },
     isInteractionLocked() {
       return interactionLocked

@@ -490,11 +490,20 @@
     return container
   }
 
+  // Contador simples de quantas vezes uma região realmente trocou de DOM
+  // desde o carregamento. renderPanel() e flushPendingPanelRegions() o
+  // usam para saber se PRECISAM pedir uma correção de scroll depois de si
+  // — nenhuma região escrita, nenhuma correção necessária (ver o único
+  // ponto que decide isso: panel-stability-runtime.js/restoreAfterRender,
+  // chamado só quando algo de fato mudou no DOM).
+  let panelRegionApplyCount = 0
+
   function applyPanelRegionHtml(
     container,
     regionKey,
     html,
   ) {
+    panelRegionApplyCount += 1
     panelRegionHtmlCache.set(
       regionKey,
       html,
@@ -585,6 +594,8 @@
       return
     }
 
+    let appliedAny = false
+
     for (const [
       regionKey,
       html,
@@ -608,9 +619,19 @@
         regionKey,
         html,
       )
+      appliedAny = true
     }
 
     wirePanelInteractions(panel)
+
+    // Único ponto que sabe, com certeza, que uma região realmente trocou de
+    // DOM neste passo: quem escreveu o DOM pede a correção de scroll, uma
+    // vez, logo depois de escrever — não um observer genérico reagindo à
+    // mutation por fora (ver panel-stability-runtime.js/restoreAfterRender).
+    if (appliedAny) {
+      globalThis.YolenCompanionPanelStabilityRuntime
+        ?.restore?.()
+    }
   }
 
   // Trava mínima contra o botão "desclicar" — a versão por região do
@@ -4808,6 +4829,15 @@
     if (panel) {
       panel.scrollTop = 0
     }
+
+    // Avisa panel-stability-runtime.js explicitamente, agora, que a
+    // conversa mudou de verdade — não espera o heurístico assíncrono de
+    // texto do MutationObserver perceber sozinho. Sem isto, o
+    // renderPanel() que roda logo a seguir podia disparar
+    // restoreAfterRender() usando uma âncora/scrollSnapshot que ainda
+    // pertencia ao lead anterior, desfazendo o scrollTop = 0 acima.
+    globalThis.YolenCompanionPanelStabilityRuntime
+      ?.resetForNewConversation?.()
 
     lastSelectedChatActivitySnapshot =
       getSelectedChatActivitySnapshot()
@@ -12573,6 +12603,9 @@
       panelRegionPendingHtml.clear()
     }
 
+    const panelRegionApplyCountBeforePass =
+      panelRegionApplyCount
+
     renderPanelRegion(
       panel,
       'header',
@@ -12607,6 +12640,18 @@
 
     window.YolenCompanionSellerMessageRuntime
       ?.render?.()
+
+    // Mesmo princípio de flushPendingPanelRegions(): só pede correção de
+    // scroll quando este passo de fato reescreveu alguma região. Cliques
+    // repetidos que recalculam o mesmo HTML (região sem mudança real) não
+    // tocam no scroll — nada mudou, nada para corrigir.
+    if (
+      panelRegionApplyCount !==
+      panelRegionApplyCountBeforePass
+    ) {
+      globalThis.YolenCompanionPanelStabilityRuntime
+        ?.restore?.()
+    }
   }
 
   function escapeHtml(value) {

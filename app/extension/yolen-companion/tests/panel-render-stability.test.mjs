@@ -296,20 +296,22 @@ for (const order of ORDERS) {
         'resposta assíncrona posterior não pode deslocar visualmente a ação',
       )
 
-      // Scroll tardio do navegador sem gesto real do vendedor também deve
-      // voltar para a âncora visual.
+      // A âncora só vive pela janela de assentamento do PRÓPRIO clique (as
+      // correções acima). Depois que ela se solta sozinha, um scroll tardio
+      // — de QUALQUER origem, inclusive uma barra de rolagem arrastada ou
+      // inércia de trackpad, que não disparam wheel/touchmove a cada tick —
+      // não pode mais ser revertido: é exatamente essa disputa sem prazo
+      // para acabar (a âncora brigando com scroll legítimo que não bate
+      // com a lista fechada de gestos reconhecidos) que fazia o painel
+      // oscilar bem depois do clique já ter sido corrigido.
       panel.scrollTop = 0
       dispatch(panel, 'scroll')
       await flushStabilityQueues()
 
       assert.equal(
-        document
-          .querySelector(
-            '[data-yolen-action="submit"]',
-          )
-          .getBoundingClientRect()
-          .top,
-        425,
+        panel.scrollTop,
+        0,
+        'depois que a âncora do clique se solta sozinha, um scroll tardio não pode ser revertido',
       )
 
       // Navegação real libera a âncora.
@@ -674,7 +676,7 @@ for (const order of ORDERS) {
   })
 
   test(`[${orderLabel}] mudança real de conversa reseta scroll e destrava o painel`, async () => {
-    const { document, getPanel } = loadStabilityRuntimes({
+    const { document, getPanel, sandbox } = loadStabilityRuntimes({
       order,
       panelHtml: buildPanelHtml({ leadName: 'Cliente A' }),
     })
@@ -691,12 +693,16 @@ for (const order of ORDERS) {
     await flushStabilityQueues()
 
     // O usuário troca de conversa de verdade no WhatsApp: content-script.js
-    // detecta o novo contato e monta o painel do zero para o Cliente B, sem
-    // que nenhum campo esteja focado neste novo DOM.
+    // detecta o novo contato (a partir de state.conversationKey, não de um
+    // heurístico de texto) e avisa explicitamente o runtime ANTES de montar
+    // o painel do zero para o Cliente B — exatamente a ordem real de
+    // clearLeadStateForNewConversation() em content-script.js: zera
+    // scroll/âncora primeiro, só então troca o DOM.
     nameField.blur()
     dispatch(nameField, 'focusout')
     await flushStabilityQueues()
 
+    sandbox.YolenCompanionPanelStabilityRuntime.resetForNewConversation()
     panel.innerHTML = buildPanelHtml({ leadName: 'Cliente B' })
     await flushStabilityQueues()
 
