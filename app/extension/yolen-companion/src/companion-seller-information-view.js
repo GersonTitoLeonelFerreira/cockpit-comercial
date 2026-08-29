@@ -670,9 +670,12 @@
     }
 
     if (isNeutralCommercialSession(reading)) {
+      const neutralCopy =
+        getNeutralSessionCopy(reading)
+
       return `
         <div class="yolen-seller-empty-state" data-yolen-analysis-neutral>
-          Esta conversa não possui análise comercial atual.
+          ${escapeHtml(neutralCopy.title)} ${escapeHtml(neutralCopy.description)}
         </div>
       `
     }
