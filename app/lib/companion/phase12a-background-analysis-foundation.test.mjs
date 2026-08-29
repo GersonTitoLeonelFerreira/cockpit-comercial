@@ -16,7 +16,7 @@ const routeSource =
 const queueRouteSource =
   readFileSync(
     new URL(
-      '../../api/queues/companion-deep-analysis/route.ts',
+      '../../api/queues/companion-deep-analysis-v3/route.ts',
       import.meta.url,
     ),
     'utf8',
@@ -137,7 +137,7 @@ test(
 
     assert.match(
       vercelSource,
-      /"topic":\s*"companion-deep-analysis-v2"/,
+      /"topic":\s*"companion-deep-analysis-v3"/,
     )
   },
 )
