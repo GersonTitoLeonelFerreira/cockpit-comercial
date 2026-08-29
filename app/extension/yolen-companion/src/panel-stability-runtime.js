@@ -137,8 +137,18 @@
     api.__resumeLeadResolutionCacheInstalled = true
   }
 
-  function captureScroll(targetPanel) {
-    if (!targetPanel || restoring) {
+  function captureScroll(
+    targetPanel,
+    { force = false } = {},
+  ) {
+    if (
+      !targetPanel ||
+      restoring ||
+      (
+        actionScrollTop !== null &&
+        force !== true
+      )
+    ) {
       return
     }
 
@@ -157,6 +167,21 @@
       distanceFromBottom,
       nearBottom:
         distanceFromBottom <= BOTTOM_THRESHOLD_PX,
+    }
+  }
+
+  function releaseActionScrollAnchor() {
+    const currentPanel =
+      getPanel()
+
+    actionScrollTop = null
+    actionScrollRestoreSequence += 1
+
+    if (currentPanel) {
+      captureScroll(
+        currentPanel,
+        { force: true },
+      )
     }
   }
 
@@ -220,6 +245,7 @@
       )
 
       currentPanel.scrollTop = top
+      actionScrollTop = top
 
       // Após uma ação, o foco é preservar exatamente o ponto de trabalho
       // do vendedor. Não convertemos essa posição para "near bottom",
@@ -397,6 +423,22 @@
     targetPanel.__yolenStabilityBound = true
 
     targetPanel.addEventListener(
+      'wheel',
+      () => {
+        releaseActionScrollAnchor()
+      },
+      { passive: true },
+    )
+
+    targetPanel.addEventListener(
+      'touchmove',
+      () => {
+        releaseActionScrollAnchor()
+      },
+      { passive: true },
+    )
+
+    targetPanel.addEventListener(
       'scroll',
       () => {
         captureScroll(targetPanel)
@@ -556,6 +598,7 @@
       const intent = target.closest(INTENT_SELECTOR)
 
       if (intent && currentPanel.contains(intent)) {
+        releaseActionScrollAnchor()
         lockInteraction(intent, 'intent')
         return
       }
@@ -568,6 +611,14 @@
         // botão "desclicou" sem executar a ação.
         lockInteraction(action, 'action')
         return
+      }
+
+      if (
+        currentPanel.contains(target)
+      ) {
+        // Qualquer pointerdown que não seja numa ação representa navegação
+        // real do vendedor (inclusive arrastar a barra de rolagem).
+        releaseActionScrollAnchor()
       }
 
       if (
@@ -642,9 +693,38 @@
         restoreActionScroll(
           intendedTop,
         )
-
-        actionScrollTop = null
       })
+    },
+    true,
+  )
+
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      const currentPanel = getPanel()
+
+      if (
+        !currentPanel ||
+        !currentPanel.contains(
+          event.target,
+        )
+      ) {
+        return
+      }
+
+      if (
+        [
+          'ArrowUp',
+          'ArrowDown',
+          'PageUp',
+          'PageDown',
+          'Home',
+          'End',
+          ' ',
+        ].includes(event.key)
+      ) {
+        releaseActionScrollAnchor()
+      }
     },
     true,
   )

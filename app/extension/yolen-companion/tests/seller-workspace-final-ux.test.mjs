@@ -218,6 +218,24 @@ test('abas seller-facing nunca usam focus que pode rolar o painel', () => {
   )
 })
 
+test('painel desativa scroll anchoring automático do navegador', () => {
+  const start = styles.indexOf(
+    '#yolen-companion-panel {',
+  )
+  const end = styles.indexOf(
+    '}',
+    start,
+  )
+  const block =
+    styles.slice(start, end)
+
+  assert.notEqual(start, -1)
+  assert.match(
+    block,
+    /overflow-anchor:\s*none/,
+  )
+})
+
 test('AGORA não é escondido e possui composer contextual', () => {
   assert.doesNotMatch(
     summaryView,

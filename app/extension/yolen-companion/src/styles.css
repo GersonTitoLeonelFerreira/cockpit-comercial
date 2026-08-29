@@ -22,6 +22,7 @@
     sans-serif;
   padding: 16px;
   overflow-y: auto;
+  overflow-anchor: none;
 }
 
 #yolen-companion-panel * {

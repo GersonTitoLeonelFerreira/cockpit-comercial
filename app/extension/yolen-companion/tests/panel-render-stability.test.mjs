@@ -237,6 +237,43 @@ for (const order of ORDERS) {
       1375,
       'o render assíncrono posterior também deve preservar o ponto de trabalho',
     )
+
+    // O Firefox pode tentar ajustar o scroll DEPOIS do clique/rAF por causa
+    // de scroll anchoring ou foco. Esse scroll não é navegação do vendedor
+    // e não pode contaminar o snapshot.
+    panel.scrollTop = 0
+    dispatch(panel, 'scroll')
+
+    panel.innerHTML = buildPanelHtml({
+      leadName: 'Cliente A',
+      nameValue: 'Render tardio após ajuste do navegador',
+    })
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      1375,
+      'scroll tardio do navegador não pode substituir a âncora da ação',
+    )
+
+    // Quando o vendedor navega de verdade, a proteção precisa ser liberada.
+    dispatch(panel, 'wheel')
+    panel.scrollTop = 910
+    dispatch(panel, 'scroll')
+
+    panel.innerHTML = buildPanelHtml({
+      leadName: 'Cliente A',
+      nameValue: 'Render após navegação real',
+    })
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      910,
+      'roda do mouse deve liberar a âncora e aceitar a nova posição escolhida pelo vendedor',
+    )
   })
 
   test(`[${orderLabel}] mutação fora do painel (ex.: abrir "Dados do contato") não mexe em scroll nem destrava o painel`, async () => {
