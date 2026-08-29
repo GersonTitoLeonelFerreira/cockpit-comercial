@@ -461,6 +461,84 @@ for (const order of ORDERS) {
     }
   })
 
+  test(`[${orderLabel}] ação que desaparece libera a âncora e volta ao fluxo normal de scroll`, async () => {
+    const initialHtml = `
+      <div class="yolen-lead-name">Cliente A</div>
+      <button
+        type="button"
+        data-yolen-action="ignore-lead-enrichment"
+        data-yolen-enrichment-key="candidate-2"
+      >Ignorar</button>
+      <div class="yolen-filler" style="height:4000px"></div>
+    `
+
+    const htmlAfterIgnore = `
+      <div class="yolen-lead-name">Cliente A</div>
+      <div data-yolen-enrichment-empty>Nenhum enriquecimento pendente</div>
+      <div class="yolen-filler" style="height:4000px"></div>
+    `
+
+    const {
+      document,
+      getPanel,
+      sandbox,
+    } = loadStabilityRuntimes({
+      order,
+      panelHtml: initialHtml,
+    })
+
+    const panel = getPanel()
+    makeScrollable(panel)
+
+    panel.scrollTop = 1375
+    dispatch(panel, 'scroll')
+    await flushStabilityQueues()
+
+    const ignore =
+      document.querySelector(
+        '[data-yolen-enrichment-key="candidate-2"]',
+      )
+
+    ignore.addEventListener(
+      'click',
+      () => {
+        panel.innerHTML =
+          htmlAfterIgnore
+      },
+    )
+
+    dispatch(ignore, 'pointerdown')
+    dispatch(ignore, 'click')
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      document.querySelector(
+        '[data-yolen-enrichment-key="candidate-2"]',
+      ),
+      null,
+      'a ação clicada deve realmente desaparecer do DOM neste cenário',
+    )
+
+    // Depois que a ação some, a âncora não pode continuar presa. Um scroll
+    // real posterior precisa atualizar o snapshot normal do painel.
+    panel.scrollTop = 910
+    dispatch(panel, 'scroll')
+    await flushStabilityQueues()
+
+    sandbox
+      .YolenCompanionPanelStabilityRuntime
+      .restore()
+
+    await flushStabilityQueues()
+
+    assert.equal(
+      panel.scrollTop,
+      910,
+      'a ação removida deve liberar a âncora; o restore normal precisa respeitar o scroll posterior do vendedor',
+    )
+  })
+
   test(`[${orderLabel}] Tab libera a âncora visual antes da navegação de foco`, async () => {
     const {
       document,
