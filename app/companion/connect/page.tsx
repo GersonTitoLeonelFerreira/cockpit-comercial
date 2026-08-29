@@ -46,11 +46,6 @@ const PRODUCTION_COMPANION_BASE_URL =
 const LOCAL_COMPANION_BASE_URL =
   'http://localhost:3000'
 
-// TEMP-TEST-ENV — alias estável do preview consolidado desta branch.
-// Mantém a sessão e o backend do Companion no mesmo estado de código durante a validação real.
-const TEMP_TEST_COMPANION_BASE_URL =
-  'https://cockpit-comercial-vocn-git-chatgpt-companion-ux-fi-09f56e-yolen.vercel.app'
-
 async function getCompanionBaseUrl() {
   const headerStore =
     await headers()
@@ -93,9 +88,7 @@ async function getCompanionBaseUrl() {
     candidate ===
       LOCAL_COMPANION_BASE_URL ||
     candidate ===
-      PRODUCTION_COMPANION_BASE_URL ||
-    candidate ===
-      TEMP_TEST_COMPANION_BASE_URL
+      PRODUCTION_COMPANION_BASE_URL
   ) {
     return candidate
   }
