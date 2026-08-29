@@ -623,13 +623,21 @@ test('failed: mostra falha e nunca expõe internals ao vendedor', async () => {
           'RETRY_ANALYSIS_JOB',
     )
 
-  assert.deepEqual(
-    retryJobCall?.payload,
-    {
-      analysis_job_id:
-        'a'.repeat(64),
-    },
+  assert.equal(
+    retryJobCall?.payload
+      ?.analysis_job_id,
+    'a'.repeat(64),
     'o clique seller-facing precisa reabrir exatamente o job failed do snapshot atual',
+  )
+
+  assert.deepEqual(
+    Object.keys(
+      retryJobCall?.payload || {},
+    ),
+    [
+      'analysis_job_id',
+    ],
+    'o retry não deve carregar contexto extra além da identidade canônica do job',
   )
 
   const panelHtml = getPanel(document)?.innerHTML ?? ''
