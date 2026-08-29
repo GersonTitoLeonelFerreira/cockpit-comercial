@@ -19,6 +19,16 @@ test(
       /PHASE_5_2_PREVIEW_BASE_URL/,
     )
 
+    assert.doesNotMatch(
+      yolenApi,
+      /TEMP_TEST_BASE_URL/,
+    )
+
+    assert.doesNotMatch(
+      yolenApi,
+      /cockpit-comercial-vocn-git-/,
+    )
+
     assert.match(
       yolenApi,
       /const DEFAULT_BASE_URL/,
