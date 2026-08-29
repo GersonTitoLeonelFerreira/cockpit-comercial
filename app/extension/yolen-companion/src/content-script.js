@@ -5764,16 +5764,22 @@
   // Chamado só nos pontos em que uma análise stateful válida acabou de ser
   // aplicada a state.conversationAnalysis (sucesso do polling profundo e
   // sucesso da resposta rápida V1/shadow) — nunca em erro/loading/timeout,
-  // então nunca grava lixo por cima de um snapshot bom anterior. A
-  // identidade gravada é a da REQUISIÇÃO que originou este resultado
-  // (cycleId/conversationKeyAtRequest capturados no início de
-  // analyzeCurrentConversation(), não relidos tarde demais de state), para
-  // nunca marcar um resultado como pertencente a um contexto que só
-  // passou a existir depois dele.
+  // então nunca grava lixo por cima de um snapshot bom anterior. Toda a
+  // identidade gravada (companyId/cycleId/conversationKey) é a da
+  // REQUISIÇÃO que originou este resultado (companyIdAtRequest/cycleId/
+  // conversationKeyAtRequest capturados no início de
+  // analyzeCurrentConversation(), nunca relidos tarde demais de state) —
+  // inclusive companyId: reler state.companyId aqui, no momento da
+  // promoção, poderia gravar um resultado iniciado na empresa A com a
+  // identidade da empresa B se a sessão ativa tivesse mudado enquanto o
+  // job ainda estava em voo. Na prática isAnalysisResponseStillCurrent()
+  // já barra esse caso antes de chegar aqui, mas a identidade gravada não
+  // pode depender só dessa checagem anterior.
   function rememberLastKnownClientCommercialReadingIfPresent({
     fingerprint,
     cycleId,
     conversationKey,
+    companyId,
     analysis =
       state
         .conversationAnalysis,
@@ -5796,7 +5802,7 @@
       lastKnownCommercialReading: reading,
       lastKnownCommercialReadingContext: {
         companyId:
-          state.companyId ||
+          companyId ||
           null,
         cycleId,
         conversationKey,
@@ -13483,6 +13489,7 @@
     analysisJobId,
     cycleId,
     conversationKeyAtRequest,
+    companyIdAtRequest,
     isAnalysisResponseStillCurrent,
     conversationFingerprint,
     isAutomatic,
@@ -13591,6 +13598,8 @@
             cycleId,
             conversationKey:
               conversationKeyAtRequest,
+            companyId:
+              companyIdAtRequest,
           }),
         }
 
@@ -13665,6 +13674,17 @@
 
     const conversationKeyAtRequest =
       getCaptureConversationKey()
+
+    // Identidade da EMPRESA no momento da requisição — nunca relida de
+    // state depois disso. Sem isto, um job em voo iniciado na empresa A
+    // que retorna succeeded depois de a sessão ativa já ter mudado para a
+    // empresa B seria promovido lendo state.companyId (já B), gravando o
+    // conhecimento de A com a identidade de B. Ver
+    // isAnalysisResponseStillCurrent abaixo e
+    // rememberLastKnownClientCommercialReadingIfPresent.
+    const companyIdAtRequest =
+      state.companyId ||
+      null
 
     const companionMessages =
       getStructuredMessagesForAnalysis()
@@ -13747,6 +13767,11 @@
     const isAnalysisResponseStillCurrent = () =>
       requestSequence ===
         conversationAnalysisRequestSequence &&
+      companyIdAtRequest ===
+        (
+          state.companyId ||
+          null
+        ) &&
       globalThis.YolenCompanionConversationRegistrationTools
         .shouldApplyConversationRegistrationResult({
           requestCycleId: cycleId,
@@ -13895,6 +13920,8 @@
             cycleId,
             conversationKey:
               conversationKeyAtRequest,
+            companyId:
+              companyIdAtRequest,
             analysis:
               result.payload.data,
           }),
@@ -13946,6 +13973,7 @@
             deepAnalysisJob.analysis_job_id,
           cycleId,
           conversationKeyAtRequest,
+          companyIdAtRequest,
           isAnalysisResponseStillCurrent,
           conversationFingerprint,
           isAutomatic,

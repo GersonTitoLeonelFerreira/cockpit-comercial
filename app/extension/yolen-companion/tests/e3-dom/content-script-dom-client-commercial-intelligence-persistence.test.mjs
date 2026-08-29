@@ -35,6 +35,7 @@ import {
   loadContentScript,
   resolveLeadCalls,
   ingestCalls,
+  analysisJobStatusCalls,
   waitFor,
 } from '../e3-test-support/load-content-script.mjs'
 
@@ -687,5 +688,117 @@ test('CLIENTE nunca mostra a inteligência comercial de outra empresa quando a m
     getSellerPanelText(document, 'client'),
     /CONHECIMENTO DA EMPRESA 1/,
     'CLIENTE não pode continuar mostrando conhecimento comercial de uma empresa que não é mais a empresa ativa da sessão',
+  )
+})
+
+// Reauditoria do Controle Mestre — race ainda possível mesmo após o fix de
+// company isolation acima: aquele teste só cobria snapshot A JÁ CONCLUÍDO
+// seguido de troca para B. Este cobre o job A ainda EM VOO no momento da
+// troca — a promoção não pode ler state.companyId (já B) no momento em
+// que o resultado (iniciado em A) chega; precisa usar a identidade
+// capturada na REQUISIÇÃO (companyIdAtRequest).
+test('COMPANY_IN_FLIGHT_ISOLATION: job iniciado na empresa A nunca é promovido nem armazenado depois que a sessão ativa muda para a empresa B', async () => {
+  let activeCompanyId = 'company-1'
+  let getMeCallCount = 0
+
+  let releaseJobA
+  const jobAGate = new Promise((resolve) => {
+    releaseJobA = resolve
+  })
+
+  function getMeResponse(companyId) {
+    return {
+      ok: true,
+      statusCode: 200,
+      origin: 'https://cockpit-comercial-vocn.vercel.app',
+      payload: {
+        ok: true,
+        user: { full_name: 'Vendedor Teste' },
+        active_company: { id: companyId, name: 'Empresa Teste', role: 'member' },
+      },
+    }
+  }
+
+  const { document, calls } = loadContentScript({
+    initialHtml: pageHtmlFor({
+      headerTitle: CONVERSATION_A_TITLE,
+      messageId: 'msg-a1',
+      prePlainText: '[10:00, 21/08/2026] Cliente A: ',
+      text: 'Olá, quero saber mais sobre o plano mensal.',
+    }),
+    getMeResult: () => {
+      getMeCallCount += 1
+      return getMeResponse(activeCompanyId)
+    },
+    // Mesma resolução de ciclo em toda chamada — isola exclusivamente a
+    // variável company_id, como pedido na reauditoria.
+    resolutionsByPhone: {
+      [PHONE_A]: leadResolutionFor(CYCLE_A, PHONE_A),
+    },
+    analysisResult: analysisResultWithDeepJob({
+      analysisJobId: 'a'.repeat(64),
+      watermark: 'wm-1',
+    }),
+    analysisJobStatusResult: async () => {
+      // O job de A nunca resolve sozinho — só depois que o teste chamar
+      // releaseJobA(), explicitamente depois da troca de empresa abaixo.
+      await jobAGate
+
+      return succeededStatus({
+        analysisJobId: 'a'.repeat(64),
+        watermark: 'wm-1',
+        result: deepOutputWithNeed('CONHECIMENTO DA EMPRESA A'),
+      })
+    },
+  })
+
+  await waitFor(
+    () => resolveLeadCalls(calls).length > 0 && ingestCalls(calls).length > 0,
+  )
+
+  // Análise inicia com company-1 (== "empresa A" deste teste) ainda ativa.
+  await clickAnalyzeAndWaitForRequest({ document, calls, cycleId: CYCLE_A })
+
+  // Job A fica em voo: garante que o poll já chegou a fazer a primeira
+  // chamada de status (presa no gate) antes de trocar de empresa.
+  await waitFor(
+    () => analysisJobStatusCalls(calls).some(
+      (call) => call.payload.analysis_job_id === 'a'.repeat(64),
+    ),
+  )
+
+  // Sessão ativa muda para company-2 ("empresa B") enquanto o job A ainda
+  // está em voo — mesma conversation_key, mesmo cycle_id, só a empresa
+  // ativa da sessão muda (ex.: botão global "Atualizar" reconectando numa
+  // sessão cuja empresa ativa já foi trocada no cockpit).
+  const resolveLeadCountBeforeRefresh = resolveLeadCalls(calls).length
+  const getMeCallCountBeforeRefresh = getMeCallCount
+
+  activeCompanyId = 'company-2'
+
+  const refreshButton = getRefreshButton(document)
+  assert.ok(refreshButton, 'esperava o botão global de atualizar no painel')
+
+  refreshButton.dispatchEvent(
+    new document.defaultView.Event('click', { bubbles: true }),
+  )
+
+  await waitFor(() => getMeCallCount > getMeCallCountBeforeRefresh)
+  await waitFor(
+    () => resolveLeadCalls(calls).length > resolveLeadCountBeforeRefresh,
+  )
+
+  // Só agora, com a sessão já em company-2, o resultado do job iniciado em
+  // company-1 é liberado.
+  releaseJobA()
+
+  await new Promise((resolve) => setTimeout(resolve, 400))
+
+  await openSellerPanel(document, 'client')
+
+  assert.doesNotMatch(
+    getSellerPanelText(document, 'client'),
+    /CONHECIMENTO DA EMPRESA A/,
+    'CLIENTE nunca pode mostrar conhecimento comercial de um job iniciado numa empresa diferente da empresa ativa atual',
   )
 })
