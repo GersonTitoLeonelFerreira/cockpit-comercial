@@ -42,8 +42,8 @@
   let interactionLocked = false
   let interactionMode = null
   let pendingPanelHtml = null
-  let actionScrollTop = null
-  let actionScrollRestoreSequence = 0
+  let actionVisualAnchor = null
+  let actionVisualRestoreSequence = 0
   let resumeGuardUntil = 0
   let resumeGuardTimerId = 0
   let windowWasBlurred = false
@@ -137,18 +137,8 @@
     api.__resumeLeadResolutionCacheInstalled = true
   }
 
-  function captureScroll(
-    targetPanel,
-    { force = false } = {},
-  ) {
-    if (
-      !targetPanel ||
-      restoring ||
-      (
-        actionScrollTop !== null &&
-        force !== true
-      )
-    ) {
+  function captureScroll(targetPanel) {
+    if (!targetPanel || restoring) {
       return
     }
 
@@ -170,19 +160,249 @@
     }
   }
 
-  function releaseActionScrollAnchor() {
+  const ACTION_IDENTITY_ATTRIBUTES = [
+    'data-yolen-seller-message-action',
+    'data-yolen-action',
+    'data-yolen-seller-area',
+    'data-yolen-seller-message-preset',
+  ]
+
+  function getActionIdentity(action) {
+    if (!action) {
+      return null
+    }
+
+    for (const attribute of ACTION_IDENTITY_ATTRIBUTES) {
+      const value =
+        action.getAttribute?.(attribute)
+
+      if (value !== null && value !== undefined) {
+        return {
+          type: 'attribute',
+          attribute,
+          value,
+        }
+      }
+    }
+
+    const clientGroup =
+      action.closest?.(
+        'details[data-yolen-client-intelligence-group]',
+      )
+
+    if (
+      action.tagName === 'SUMMARY' &&
+      clientGroup
+    ) {
+      return {
+        type: 'client-summary',
+        value:
+          clientGroup.getAttribute(
+            'data-yolen-client-intelligence-group',
+          ),
+      }
+    }
+
+    const region =
+      action.closest?.(
+        '[data-yolen-region]',
+      )
+
+    if (!region) {
+      return null
+    }
+
+    const actions =
+      Array.from(
+        region.querySelectorAll(
+          ACTION_SELECTOR,
+        ),
+      )
+
+    const index =
+      actions.indexOf(action)
+
+    if (index < 0) {
+      return null
+    }
+
+    return {
+      type: 'region-index',
+      regionKey:
+        region.getAttribute(
+          'data-yolen-region',
+        ),
+      index,
+    }
+  }
+
+  function findActionByIdentity(
+    targetPanel,
+    identity,
+  ) {
+    if (!targetPanel || !identity) {
+      return null
+    }
+
+    if (identity.type === 'attribute') {
+      return (
+        Array.from(
+          targetPanel.querySelectorAll(
+            ACTION_SELECTOR,
+          ),
+        ).find(
+          (action) =>
+            action.getAttribute?.(
+              identity.attribute,
+            ) === identity.value,
+        ) || null
+      )
+    }
+
+    if (identity.type === 'client-summary') {
+      return (
+        Array.from(
+          targetPanel.querySelectorAll(
+            'details[data-yolen-client-intelligence-group] > summary',
+          ),
+        ).find(
+          (summary) =>
+            summary.parentElement
+              ?.getAttribute(
+                'data-yolen-client-intelligence-group',
+              ) === identity.value,
+        ) || null
+      )
+    }
+
+    if (identity.type === 'region-index') {
+      const region =
+        Array.from(
+          targetPanel.querySelectorAll(
+            '[data-yolen-region]',
+          ),
+        ).find(
+          (candidate) =>
+            candidate.getAttribute(
+              'data-yolen-region',
+            ) === identity.regionKey,
+        )
+
+      if (!region) {
+        return null
+      }
+
+      return (
+        region.querySelectorAll(
+          ACTION_SELECTOR,
+        )[identity.index] || null
+      )
+    }
+
+    return null
+  }
+
+  function captureActionVisualAnchor(
+    action,
+  ) {
+    const identity =
+      getActionIdentity(action)
+
+    const rect =
+      action?.getBoundingClientRect?.()
+
+    if (
+      !identity ||
+      !rect ||
+      !Number.isFinite(rect.top)
+    ) {
+      actionVisualAnchor = null
+      actionVisualRestoreSequence += 1
+      return
+    }
+
+    actionVisualAnchor = {
+      identity,
+      viewportTop: rect.top,
+    }
+    actionVisualRestoreSequence += 1
+  }
+
+  function releaseActionVisualAnchor() {
+    actionVisualAnchor = null
+    actionVisualRestoreSequence += 1
+
     const currentPanel =
       getPanel()
 
-    actionScrollTop = null
-    actionScrollRestoreSequence += 1
-
     if (currentPanel) {
-      captureScroll(
-        currentPanel,
-        { force: true },
-      )
+      captureScroll(currentPanel)
     }
+  }
+
+  function restoreActionVisualAnchor() {
+    const anchor =
+      actionVisualAnchor
+
+    if (!anchor) {
+      return
+    }
+
+    const sequence =
+      ++actionVisualRestoreSequence
+
+    const restore = () => {
+      if (
+        sequence !==
+          actionVisualRestoreSequence ||
+        actionVisualAnchor !== anchor
+      ) {
+        return
+      }
+
+      const currentPanel =
+        getPanel()
+
+      if (!currentPanel) {
+        return
+      }
+
+      const action =
+        findActionByIdentity(
+          currentPanel,
+          anchor.identity,
+        )
+
+      const rect =
+        action?.getBoundingClientRect?.()
+
+      if (
+        !rect ||
+        !Number.isFinite(rect.top)
+      ) {
+        return
+      }
+
+      const delta =
+        rect.top -
+        anchor.viewportTop
+
+      if (Math.abs(delta) > 0.5) {
+        currentPanel.scrollTop += delta
+      }
+
+      captureScroll(currentPanel)
+    }
+
+    queueMicrotask(() => {
+      root.requestAnimationFrame(() => {
+        restore()
+
+        root.requestAnimationFrame(
+          restore,
+        )
+      })
+    })
   }
 
   function getRestoreTop(targetPanel) {
@@ -202,75 +422,6 @@
       scrollSnapshot.top,
       maxScroll,
     )
-  }
-
-
-  function restoreActionScroll(
-    intendedTop,
-  ) {
-    if (
-      typeof intendedTop !== 'number' ||
-      !Number.isFinite(intendedTop)
-    ) {
-      return
-    }
-
-    const sequence =
-      ++actionScrollRestoreSequence
-
-    const restore = () => {
-      if (
-        sequence !==
-        actionScrollRestoreSequence
-      ) {
-        return
-      }
-
-      const currentPanel =
-        getPanel()
-
-      if (!currentPanel) {
-        return
-      }
-
-      const maxScroll = Math.max(
-        0,
-        currentPanel.scrollHeight -
-          currentPanel.clientHeight,
-      )
-
-      const top = Math.min(
-        Math.max(0, intendedTop),
-        maxScroll,
-      )
-
-      currentPanel.scrollTop = top
-      actionScrollTop = top
-
-      // Após uma ação, o foco é preservar exatamente o ponto de trabalho
-      // do vendedor. Não convertemos essa posição para "near bottom",
-      // porque conteúdo novo acima/abaixo não pode mover o viewport.
-      scrollSnapshot = {
-        top,
-        distanceFromBottom:
-          Math.max(0, maxScroll - top),
-        nearBottom: false,
-      }
-    }
-
-    restore()
-
-    queueMicrotask(() => {
-      restore()
-
-      root.requestAnimationFrame(() => {
-        restore()
-
-        root.requestAnimationFrame(
-          restore,
-        )
-      })
-    })
   }
 
   function applyPanelHtml(targetPanel, html) {
@@ -425,7 +576,7 @@
     targetPanel.addEventListener(
       'wheel',
       () => {
-        releaseActionScrollAnchor()
+        releaseActionVisualAnchor()
       },
       { passive: true },
     )
@@ -433,7 +584,7 @@
     targetPanel.addEventListener(
       'touchmove',
       () => {
-        releaseActionScrollAnchor()
+        releaseActionVisualAnchor()
       },
       { passive: true },
     )
@@ -441,6 +592,11 @@
     targetPanel.addEventListener(
       'scroll',
       () => {
+        if (actionVisualAnchor) {
+          restoreActionVisualAnchor()
+          return
+        }
+
         captureScroll(targetPanel)
       },
       { passive: true },
@@ -508,8 +664,9 @@
     captureScroll(currentPanel)
 
     if (mode === 'action') {
-      actionScrollTop =
-        currentPanel.scrollTop
+      captureActionVisualAnchor(
+        target,
+      )
     }
 
     if (!interactionLocked) {
@@ -564,8 +721,8 @@
       interactionLocked = false
       interactionMode = null
       pendingPanelHtml = null
-      actionScrollTop = null
-      actionScrollRestoreSequence += 1
+      actionVisualAnchor = null
+      actionVisualRestoreSequence += 1
       conversationLabel = nextConversationLabel
       scrollSnapshot = {
         top: 0,
@@ -580,6 +737,11 @@
 
     if (nextConversationLabel) {
       conversationLabel = nextConversationLabel
+    }
+
+    if (actionVisualAnchor) {
+      restoreActionVisualAnchor()
+      return
     }
 
     restorePanelInteraction(currentPanel)
@@ -598,7 +760,7 @@
       const intent = target.closest(INTENT_SELECTOR)
 
       if (intent && currentPanel.contains(intent)) {
-        releaseActionScrollAnchor()
+        releaseActionVisualAnchor()
         lockInteraction(intent, 'intent')
         return
       }
@@ -618,7 +780,7 @@
       ) {
         // Qualquer pointerdown que não seja numa ação representa navegação
         // real do vendedor (inclusive arrastar a barra de rolagem).
-        releaseActionScrollAnchor()
+        releaseActionVisualAnchor()
       }
 
       if (
@@ -677,22 +839,16 @@
         return
       }
 
-      const intendedTop =
-        actionScrollTop ??
-        currentPanel.scrollTop
-
-      // Roda depois dos handlers de click do Companion. Além de liberar
-      // renders pendentes, restaura a posição capturada no pointerdown.
-      // Isso neutraliza focus()/default actions do Firefox e qualquer
-      // re-render que tente levar o painel ao topo.
+      // Roda depois dos handlers de click do Companion. O botão clicado
+      // vira a âncora visual: se o conteúdo mudar acima dele, corrigimos
+      // apenas a diferença real de posição, sem ficar regravando um
+      // scrollTop absoluto em vários frames concorrentes.
       queueMicrotask(() => {
         if (interactionMode === 'action') {
           unlockInteraction()
         }
 
-        restoreActionScroll(
-          intendedTop,
-        )
+        restoreActionVisualAnchor()
       })
     },
     true,
@@ -723,7 +879,7 @@
           ' ',
         ].includes(event.key)
       ) {
-        releaseActionScrollAnchor()
+        releaseActionVisualAnchor()
       }
     },
     true,
