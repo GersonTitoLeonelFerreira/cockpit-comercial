@@ -2,12 +2,9 @@ import type {
   CommercialConfigBundle,
 } from '@/app/types/commercial-config'
 
-import type {
-  StatefulCopilotRealContext,
-} from '../stateful-copilot-real-context-loader'
-
 import {
   MESSAGE_INTELLIGENCE_REQUEST_CONTRACT_VERSION,
+  type MessageIntelligenceCanonicalContextV1,
   type MessageIntelligenceContextSourcesV1,
   type MessageIntelligenceRequestV1,
 } from './contracts'
@@ -756,32 +753,6 @@ export function buildMessageIntelligenceSourcesFixture():
       },
       conversation_key:
         conversationKey,
-      device_key:
-        'internal-fixture-device',
-    },
-    cursor: {
-      found:
-        false,
-      company_id:
-        ids.company_id,
-      conversation_key:
-        conversationKey,
-      device_key:
-        'internal-fixture-device',
-      last_observed_message_id:
-        null,
-      last_observed_at:
-        null,
-      last_processed_message_id:
-        null,
-      last_processed_at:
-        null,
-      state_version:
-        null,
-      created_at:
-        null,
-      updated_at:
-        null,
     },
     commercial_config_status:
       'published',
@@ -837,8 +808,7 @@ export function buildMessageIntelligenceSourcesFixture():
     },
     durable_memory_seed:
       null,
-  } as unknown as
-    StatefulCopilotRealContext
+  } as MessageIntelligenceCanonicalContextV1
 
   return {
     real_context:
